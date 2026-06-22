@@ -56,9 +56,9 @@ public struct ClipboardStatistics: Sendable, Equatable {
 
 public actor ClipboardHistoryStore {
     private var entries: [ClipboardEntry] = []
-    private let maxEntries: Int
-    private let maxAge: TimeInterval
-    private let maxTextBytes: Int
+    private var maxEntries: Int
+    private var maxAge: TimeInterval
+    private var maxTextBytes: Int
     private let persistenceURL: URL?
 
     public init(maxEntries: Int = 500, maxAge: TimeInterval = 7 * 24 * 60 * 60, maxTextBytes: Int = 100 * 1024, persistenceURL: URL? = nil) {
@@ -70,6 +70,8 @@ public actor ClipboardHistoryStore {
             do {
                 let data = try Data(contentsOf: persistenceURL)
                 self.entries = try JSONDecoder().decode([ClipboardEntry].self, from: data)
+                self.entries = Self.pruned(entries: entries, maxEntries: maxEntries, maxAge: maxAge, now: Date())
+                Self.persist(entries: entries, to: persistenceURL)
             } catch {
                 self.entries = []
                 Self.quarantineCorruptFile(at: persistenceURL)
@@ -105,6 +107,7 @@ public actor ClipboardHistoryStore {
     }
 
     public func list(filter: ClipboardListFilter, query: String = "", limit: Int = 50) -> [ClipboardEntry] {
+        pruneAndPersistIfNeeded(now: Date())
         let sorted = entries.sorted {
             if $0.isPinned != $1.isPinned { return $0.isPinned && !$1.isPinned }
             return $0.createdAt > $1.createdAt
@@ -117,8 +120,17 @@ public actor ClipboardHistoryStore {
     }
 
     public func statistics() -> ClipboardStatistics {
+        pruneAndPersistIfNeeded(now: Date())
         let pinned = entries.filter(\.isPinned).count
         return ClipboardStatistics(total: entries.count, pinned: pinned)
+    }
+
+    public func updateRetention(maxEntries: Int, maxAge: TimeInterval, maxTextBytes: Int, now: Date = Date()) {
+        self.maxEntries = max(1, maxEntries)
+        self.maxAge = max(1, maxAge)
+        self.maxTextBytes = max(1, maxTextBytes)
+        prune(now: now)
+        persist()
     }
 
     public func pin(_ id: UUID, isPinned: Bool = true) {
@@ -165,17 +177,34 @@ public actor ClipboardHistoryStore {
     }
 
     private func prune(now: Date) {
-        let cutoff = now.addingTimeInterval(-maxAge)
-        entries.removeAll { !$0.isPinned && $0.createdAt < cutoff }
-        if entries.count > maxEntries {
-            let pinned = entries.filter(\.isPinned)
-            let unpinned = entries.filter { !$0.isPinned }.prefix(max(0, maxEntries - pinned.count))
-            entries = pinned + unpinned
+        entries = Self.pruned(entries: entries, maxEntries: maxEntries, maxAge: maxAge, now: now)
+    }
+
+    private func pruneAndPersistIfNeeded(now: Date) {
+        let previous = entries
+        prune(now: now)
+        if previous != entries {
+            persist()
         }
     }
 
     private func persist() {
         guard let persistenceURL else { return }
+        Self.persist(entries: entries, to: persistenceURL)
+    }
+
+    private static func pruned(entries: [ClipboardEntry], maxEntries: Int, maxAge: TimeInterval, now: Date) -> [ClipboardEntry] {
+        let cutoff = now.addingTimeInterval(-maxAge)
+        var pruned = entries.filter { $0.isPinned || $0.createdAt >= cutoff }
+        if pruned.count > maxEntries {
+            let pinned = pruned.filter(\.isPinned)
+            let unpinned = pruned.filter { !$0.isPinned }.prefix(max(0, maxEntries - pinned.count))
+            pruned = pinned + unpinned
+        }
+        return pruned
+    }
+
+    private static func persist(entries: [ClipboardEntry], to persistenceURL: URL) {
         try? FileManager.default.createDirectory(at: persistenceURL.deletingLastPathComponent(), withIntermediateDirectories: true)
         if let data = try? JSONEncoder().encode(entries) {
             try? data.write(to: persistenceURL, options: .atomic)

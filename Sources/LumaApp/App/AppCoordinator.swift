@@ -36,7 +36,7 @@ final class AppCoordinator {
     private lazy var dispatcher = QueryDispatcher(host: host, usage: usage, resultCache: resultCache, metrics: metrics)
     private lazy var actionExecutor = ActionExecutor(
         host: host,
-        context: ActionContext(logger: logger, metrics: metrics),
+        context: ActionContext(logger: logger, metrics: metrics, pasteboard: pasteboard, accessibility: accessibility),
         pasteboard: pasteboard,
         accessibility: accessibility,
         translation: translation,
@@ -45,15 +45,31 @@ final class AppCoordinator {
     )
     private lazy var viewModel = LauncherViewModel(dispatcher: dispatcher)
     private let appActivationTracker = AppActivationTracker.defaultTracker()
+    private let clipboardModule = ClipboardModule()
+    private let todoModule = TodoModule()
+    private let secretsModule = SecretsModule()
+    private let mediaModule = MediaModule()
     private var activationObserver: NSObjectProtocol?
     private var terminationObserver: NSObjectProtocol?
 
     func start() {
         settingsWindowController = SettingsWindowController(
             config: config,
+            usage: usage,
             onModulesChanged: { [weak self] enabled in
                 guard let self else { return }
                 Task { await self.host.applyEnabledSet(enabled) }
+            },
+            onClipboardSettingsChanged: { [weak self] entries, days, kb in
+                guard let self else { return }
+                Task { await self.clipboardModule.applyRetentionSettings(maxEntries: entries, maxAgeDays: days, maxEntrySizeKB: kb) }
+            },
+            onSecretsSettingsChanged: { [weak self] autoClear, relock in
+                guard let self else { return }
+                Task { await self.secretsModule.applySettings(autoClearSeconds: autoClear, relockTimeoutSeconds: relock) }
+            },
+            onLatencyHUDChanged: { [weak self] enabled in
+                self?.windowController.setLatencyHUDEnabled(enabled)
             }
         )
         let cards = cardLayoutStore.load(cards: FeatureCatalog.dashboardCoreCards())
@@ -61,7 +77,8 @@ final class AppCoordinator {
             cards: cards,
             viewModel: viewModel,
             actionExecutor: actionExecutor,
-            appActivationTracker: appActivationTracker
+            appActivationTracker: appActivationTracker,
+            config: config
         )
         activationObserver = NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.didActivateApplicationNotification,
@@ -91,6 +108,9 @@ final class AppCoordinator {
             onShow: { self.windowController.show() },
             onSettings: { self.settingsWindowController?.show() }
         )
+        LauncherBridge.onSecretsLockStateChanged = { [weak self] locked in
+            self?.menuBarController?.setSecretsLockState(locked: locked)
+        }
         do {
             let hotkeyController = try HotkeyController {
                 self.windowController.toggle()
@@ -105,27 +125,72 @@ final class AppCoordinator {
             menuBarController?.markHotkeyFailed()
         }
 
-        let clipboardModule = ClipboardModule()
+        let notesModule = NotesModule()
+
+        // One-way migration of the wordbot SQLite into Luma's Application Support (ADR-009).
+        // Idempotent: re-running the app never overwrites the Luma copy.
+        do {
+            _ = try WordbookMigrator.migrateIfNeeded()
+        } catch {
+            Task { await LumaLogger(category: "wordbook").error("Wordbook migration failed: \(error)") }
+        }
+
+        let wordbookModule = WordbookModule()
+        let snippetsModule = SnippetsModule()
+        let wordbookReviewPanel = WordbookReviewPanel()
+
         ModuleDetailRegistry.clipboardModule = clipboardModule
+        ModuleDetailRegistry.notesModule = notesModule
+        ModuleDetailRegistry.snippetsModule = snippetsModule
+        ModuleDetailRegistry.secretsModule = secretsModule
+        ModuleDetailRegistry.mediaModule = mediaModule
+        ModuleDetailRegistry.todoModule = todoModule
         ModuleDetailRegistry.translation = translation
         ModuleDetailRegistry.config = config
-        ModuleDetailRegistry.onBackFromDetail = { [weak self] in
+        LauncherBridge.onBackFromDetail = { [weak self] in
             self?.windowController.closeDetailIfShowing()
         }
-        ModuleDetailRegistry.onOpenSettings = { [weak self] in
+        LauncherBridge.onOpenSettings = { [weak self] in
             self?.settingsWindowController?.show()
+        }
+        LauncherBridge.onTranslateContentChanged = { [weak self] source, output in
+            guard let self else { return }
+            Task {
+                await self.config.setLauncherTranslateSourceText(source)
+                await self.config.setLauncherTranslateOutputText(output)
+            }
+        }
+        LauncherBridge.openWordbookReview = { [weak self] in
+            self?.windowController.hide()
+            wordbookReviewPanel.startSession()
+        }
+        LauncherBridge.openMediaDetail = { [weak self] in
+            self?.windowController.openModuleDetail(for: .media)
         }
 
         Task {
-            var modules = BuiltInModules.makeAll()
-            modules.removeAll { type(of: $0).manifest.identifier == .clipboard }
-            modules.append(clipboardModule)
+            let modules = BuiltInModules.makeAll(overrides: .init(
+                clipboard: clipboardModule,
+                notes: notesModule,
+                todo: todoModule,
+                wordbook: wordbookModule,
+                snippets: snippetsModule,
+                secrets: secretsModule,
+                media: mediaModule
+            ))
             for module in modules {
                 await host.register(module)
             }
             await host.applyEnabledSet(await config.enabledModules())
             await host.warmupAll()
             windowController.setModulesReady(true)
+            await refreshMenuBarDueCounts(wordbookModule: wordbookModule, todoModule: todoModule)
         }
+    }
+
+    private func refreshMenuBarDueCounts(wordbookModule: WordbookModule, todoModule: TodoModule) async {
+        let wordbookDue = (try? await wordbookModule.storeDueTodayCount()) ?? 0
+        let todoDue = (try? await todoModule.todayDueCount()) ?? 0
+        menuBarController?.setDueCounts(wordbook: wordbookDue, todo: todoDue)
     }
 }

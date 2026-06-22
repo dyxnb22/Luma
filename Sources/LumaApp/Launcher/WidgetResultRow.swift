@@ -8,7 +8,9 @@ final class WidgetResultRow: NSControl {
     private let iconView = NSImageView()
     private let titleLabel = NSTextField(labelWithString: "")
     private let subtitleLabel = NSTextField(labelWithString: "")
-    private let returnHint = NSTextField(labelWithString: "↩")
+    private let returnHintContainer = NSView()
+    private let returnHint = NSTextField(labelWithString: "Return ↩")
+    private var heightConstraint: NSLayoutConstraint?
 
     init(item: ResultItem, isSelected: Bool, onRun: @escaping (ResultItem) -> Void) {
         self.item = item
@@ -41,7 +43,7 @@ final class WidgetResultRow: NSControl {
         layer?.backgroundColor = isSelected
             ? NSColor.controlAccentColor.withAlphaComponent(0.22).cgColor
             : NSColor.clear.cgColor
-        returnHint.isHidden = !isSelected
+        returnHintContainer.isHidden = !isSelected
     }
 
     @objc private func run() {
@@ -50,7 +52,13 @@ final class WidgetResultRow: NSControl {
 
     private func setup() {
         translatesAutoresizingMaskIntoConstraints = false
-        heightAnchor.constraint(equalToConstant: 56).isActive = true
+        let rowHeight: CGFloat = switch item.displayDensity {
+        case .compact: 44
+        case .regular: 56
+        case .expanded: 72
+        }
+        heightConstraint = heightAnchor.constraint(equalToConstant: rowHeight)
+        heightConstraint?.isActive = true
 
         iconView.image = Self.iconImage(for: item.icon)
         iconView.imageScaling = .scaleProportionallyDown
@@ -69,18 +77,32 @@ final class WidgetResultRow: NSControl {
         subtitleLabel.stringValue = item.subtitle ?? ""
         subtitleLabel.font = .systemFont(ofSize: 12)
         subtitleLabel.textColor = .secondaryLabelColor
-        subtitleLabel.lineBreakMode = .byTruncatingTail
+        subtitleLabel.lineBreakMode = item.displayDensity == .expanded ? .byTruncatingMiddle : .byTruncatingTail
+        subtitleLabel.maximumNumberOfLines = item.displayDensity == .expanded ? 2 : 1
         subtitleLabel.translatesAutoresizingMaskIntoConstraints = false
 
-        returnHint.font = .systemFont(ofSize: 13, weight: .medium)
-        returnHint.textColor = .tertiaryLabelColor
-        returnHint.isHidden = true
+        returnHint.font = .systemFont(ofSize: 12, weight: .semibold)
+        returnHint.textColor = .labelColor
+        returnHint.isBezeled = false
+        returnHint.isEditable = false
+        returnHint.drawsBackground = false
         returnHint.translatesAutoresizingMaskIntoConstraints = false
 
+        returnHintContainer.wantsLayer = true
+        returnHintContainer.layer?.cornerRadius = 10
+        returnHintContainer.layer?.cornerCurve = .continuous
+        returnHintContainer.layer?.backgroundColor = NSColor.controlAccentColor
+            .withAlphaComponent(ColorTokens.returnHintCapsuleAlpha).cgColor
+        returnHintContainer.isHidden = true
+        returnHintContainer.translatesAutoresizingMaskIntoConstraints = false
+
+        returnHintContainer.addSubview(returnHint)
         addSubview(iconView)
         addSubview(titleLabel)
         addSubview(subtitleLabel)
-        addSubview(returnHint)
+        addSubview(returnHintContainer)
+
+        let topPadding: CGFloat = item.displayDensity == .compact ? 6 : 10
 
         NSLayoutConstraint.activate([
             iconView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 0),
@@ -88,13 +110,17 @@ final class WidgetResultRow: NSControl {
             iconView.widthAnchor.constraint(equalToConstant: 36),
             iconView.heightAnchor.constraint(equalToConstant: 36),
             titleLabel.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: 12),
-            titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: returnHint.leadingAnchor, constant: -8),
-            titleLabel.topAnchor.constraint(equalTo: topAnchor, constant: 10),
+            titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: returnHintContainer.leadingAnchor, constant: -8),
+            titleLabel.topAnchor.constraint(equalTo: topAnchor, constant: topPadding),
             subtitleLabel.leadingAnchor.constraint(equalTo: titleLabel.leadingAnchor),
             subtitleLabel.trailingAnchor.constraint(equalTo: titleLabel.trailingAnchor),
             subtitleLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 2),
-            returnHint.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -14),
-            returnHint.centerYAnchor.constraint(equalTo: centerYAnchor)
+            returnHintContainer.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -10),
+            returnHintContainer.centerYAnchor.constraint(equalTo: centerYAnchor),
+            returnHint.leadingAnchor.constraint(equalTo: returnHintContainer.leadingAnchor, constant: 8),
+            returnHint.trailingAnchor.constraint(equalTo: returnHintContainer.trailingAnchor, constant: -8),
+            returnHint.topAnchor.constraint(equalTo: returnHintContainer.topAnchor, constant: 4),
+            returnHint.bottomAnchor.constraint(equalTo: returnHintContainer.bottomAnchor, constant: -4)
         ])
     }
 

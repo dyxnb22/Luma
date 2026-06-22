@@ -30,7 +30,9 @@ let package = Package(
             name: "LumaServices",
             dependencies: ["LumaCore", "LumaInfrastructure"],
             linkerSettings: [
-                .linkedFramework("Translation", .when(platforms: [.macOS]))
+                .linkedFramework("Translation", .when(platforms: [.macOS])),
+                .linkedFramework("EventKit", .when(platforms: [.macOS])),
+                .linkedFramework("AVFoundation", .when(platforms: [.macOS]))
             ]
         ),
         .target(
@@ -48,6 +50,10 @@ let package = Package(
         .testTarget(
             name: "LumaInfrastructureTests",
             dependencies: ["LumaInfrastructure", "LumaCore"]
+        ),
+        .testTarget(
+            name: "LumaServicesTests",
+            dependencies: ["LumaServices", "LumaCore"]
         )
     ]
 )

@@ -13,20 +13,24 @@ import Testing
     try store.delete(account: account)
 }
 
-@Test func notesVaultStoreCreatesScansAndIndexesMarkdown() async throws {
+@Test func notesTreeIndexCreatesAndSearchesMarkdown() async throws {
     let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-    let store = NotesVaultStore(vaultURL: root)
-    let url = try await store.create(title: "Luma Note", body: "Links to [[Other Note]] #luma")
-    #expect(url.pathExtension == "md")
+    try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+    let url = root.appendingPathComponent("Luma Note.md")
+    try "Links to [[Other Note]]".write(to: url, atomically: true, encoding: .utf8)
 
-    let notes = await store.scan()
-    #expect(notes.count == 1)
-    #expect(notes.first?.title == "Luma Note")
+    let index = NotesTreeIndex()
+    await index.setRoot(root)
+    await index.warmup()
 
-    let graph = await store.graph()
-    #expect(graph.edges.contains { edge in
-        edge.from.hasSuffix("/Luma Note.md") && edge.to == "Other Note" && edge.kind == "wiki"
-    })
+    let snapshot = await index.snapshot()
+    #expect(snapshot?.children.count == 1)
+    #expect(snapshot?.children.first?.name == "Luma Note")
+
+    let matches = await index.search(prefix: "luma")
+    #expect(matches.first?.name == "Luma Note")
+
+    try? FileManager.default.removeItem(at: root)
 }
 
 @Test func wordbookStoreReadsExistingWordbotDatabaseWhenPresent() async throws {

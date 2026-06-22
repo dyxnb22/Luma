@@ -1,5 +1,6 @@
 import AppKit
 import LumaCore
+import LumaInfrastructure
 import LumaServices
 
 @MainActor
@@ -25,23 +26,30 @@ final class LauncherWindowController {
         cards: [FeatureCard],
         viewModel: LauncherViewModel,
         actionExecutor: ActionExecutor,
-        appActivationTracker: AppActivationTracker
+        appActivationTracker: AppActivationTracker,
+        config: ConfigurationStore
     ) {
         let rootView = LauncherRootView(
             cards: cards,
             viewModel: viewModel,
             actionExecutor: actionExecutor,
             appActivationTracker: appActivationTracker,
+            config: config,
             onDismiss: { [weak self] in self?.hide() },
             onActionDismiss: { [weak self] in self?.hideImmediatelyForAction() }
         )
         panel.contentView = rootView
+        rootView.layer?.anchorPoint = CGPoint(x: 0.5, y: 0.5)
         self.rootView = rootView
         AppleTranslationHost.shared.attach(to: rootView)
     }
 
     func refreshOpenApps() {
         rootView?.refreshOpenApps()
+    }
+
+    func setLatencyHUDEnabled(_ enabled: Bool) {
+        rootView?.setLatencyHUDEnabled(enabled)
     }
 
     func setModulesReady(_ ready: Bool) {
@@ -52,6 +60,10 @@ final class LauncherWindowController {
         rootView?.closeDetail()
     }
 
+    func openModuleDetail(for moduleID: ModuleIdentifier) {
+        rootView?.openModuleDetail(for: moduleID)
+    }
+
     func toggle() {
         panel.isVisible ? hide() : show()
     }
@@ -59,35 +71,40 @@ final class LauncherWindowController {
     func show() {
         positionPanel()
         panel.alphaValue = 0
+        panel.contentView?.layer?.transform = CATransform3DMakeScale(0.96, 0.96, 1)
         panel.orderFrontRegardless()
         panel.makeKey()
         rootView?.refreshPermissionStatus()
+        rootView?.restoreLastSessionIfNeeded()
         rootView?.focusSearchField()
         rootView?.refreshOpenApps()
+        let duration = MotionTokens.panelShowDuration
         NSAnimationContext.runAnimationGroup { context in
-            context.duration = 0.16
+            context.duration = duration
             context.timingFunction = CAMediaTimingFunction(name: .easeOut)
             panel.animator().alphaValue = 1
+            panel.contentView?.layer?.transform = CATransform3DIdentity
         }
     }
 
     func hide() {
+        rootView?.saveCurrentSession()
+        let duration = MotionTokens.panelHideDuration
         NSAnimationContext.runAnimationGroup { context in
-            context.duration = 0.12
-            context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            context.duration = duration
+            context.timingFunction = CAMediaTimingFunction(name: .easeIn)
             panel.animator().alphaValue = 0
         } completionHandler: { [weak self] in
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 self.panel.orderOut(nil)
                 self.panel.alphaValue = 1
-                self.rootView?.showHome()
             }
         }
     }
 
     func hideImmediatelyForAction() {
-        rootView?.showHome(focusSearch: false)
+        rootView?.saveCurrentSession()
         panel.orderOut(nil)
         panel.alphaValue = 1
     }
@@ -101,6 +118,7 @@ final class LauncherWindowController {
     private func positionPanel() {
         let screen = NSScreen.main ?? NSScreen.screens.first
         guard let visible = screen?.visibleFrame else { return }
+        panel.resizeForScreen(visible)
         let frame = panel.frame
         let x = visible.midX - frame.width / 2
         let y = visible.minY + visible.height * 0.62

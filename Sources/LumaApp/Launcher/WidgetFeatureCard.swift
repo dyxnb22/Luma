@@ -15,6 +15,7 @@ final class WidgetFeatureCard: NSView {
     private let statusLabel = NSTextField(labelWithString: "")
     private let shortcutLabel = NSTextField(labelWithString: "")
     private var trackingArea: NSTrackingArea?
+    private var isHighlighted = false
 
     init(
         card: FeatureCard,
@@ -31,7 +32,7 @@ final class WidgetFeatureCard: NSView {
         layer?.cornerCurve = .continuous
         layer?.masksToBounds = true
         layer?.borderWidth = 1
-        layer?.borderColor = NSColor.white.withAlphaComponent(0.22).cgColor
+        layer?.borderColor = NSColor.white.withAlphaComponent(ColorTokens.cardBorderAlpha).cgColor
         setupGlass()
         setupGradient()
         setupContent(statusSummary: statusSummary)
@@ -48,20 +49,36 @@ final class WidgetFeatureCard: NSView {
 
     func updateStatusSummary(_ summary: String) {
         statusLabel.stringValue = summary
+        statusLabel.isHidden = summary.isEmpty
+    }
+
+    func setHighlighted(_ on: Bool) {
+        guard isHighlighted != on else { return }
+        isHighlighted = on
+        let borderAlpha = on ? ColorTokens.cardBorderHighlightedAlpha : ColorTokens.cardBorderAlpha
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = on ? 0.06 : 0.12
+            layer?.borderColor = NSColor.white.withAlphaComponent(borderAlpha).cgColor
+            layer?.borderWidth = on ? 2 : 1
+        }
+    }
+
+    override var intrinsicContentSize: NSSize {
+        NSSize(width: 220, height: 132)
     }
 
     override func layout() {
         super.layout()
         gradientLayer.frame = bounds
-        highlightLayer.frame = CGRect(x: 0, y: bounds.height - 48, width: bounds.width, height: 48)
+        highlightLayer.frame = CGRect(x: 0, y: bounds.height - 40, width: bounds.width, height: 40)
     }
 
     override func mouseDown(with event: NSEvent) {
-        animateScale(to: 0.97, duration: 0.06)
+        animateScale(to: 0.97, duration: MotionTokens.scaleInDuration)
     }
 
     override func mouseUp(with event: NSEvent) {
-        animateScale(to: isMouseInBounds() ? 1.02 : 1.0, duration: 0.12)
+        animateScale(to: isMouseInBounds() ? 1.02 : 1.0, duration: MotionTokens.scaleOutDuration)
         if isMouseInBounds() {
             onSelect(card)
         }
@@ -76,15 +93,15 @@ final class WidgetFeatureCard: NSView {
     }
 
     override func mouseEntered(with event: NSEvent) {
-        animateScale(to: 1.02, duration: 0.12)
+        animateScale(to: 1.02, duration: MotionTokens.scaleOutDuration)
     }
 
     override func mouseExited(with event: NSEvent) {
-        animateScale(to: 1.0, duration: 0.12)
+        animateScale(to: 1.0, duration: MotionTokens.scaleOutDuration)
     }
 
     private func setupGlass() {
-        glassView.material = .hudWindow
+        glassView.material = .popover
         glassView.blendingMode = .withinWindow
         glassView.state = .active
         glassView.translatesAutoresizingMaskIntoConstraints = false
@@ -99,9 +116,11 @@ final class WidgetFeatureCard: NSView {
 
     private func setupGradient() {
         guard let style = card.widgetStyle else { return }
+        let top = ColorTokens.color(hex: style.topHex)
+        let bottom = ColorTokens.color(hex: style.bottomHex)
         gradientLayer.colors = [
-            Self.color(hex: style.topHex).withAlphaComponent(0.88).cgColor,
-            Self.color(hex: style.bottomHex).withAlphaComponent(0.92).cgColor
+            top.withAlphaComponent(ColorTokens.cardGradientTopAlpha).cgColor,
+            bottom.withAlphaComponent(ColorTokens.cardGradientBottomAlpha).cgColor
         ]
         gradientLayer.startPoint = CGPoint(x: 0.2, y: 1)
         gradientLayer.endPoint = CGPoint(x: 0.8, y: 0)
@@ -109,9 +128,11 @@ final class WidgetFeatureCard: NSView {
         layer?.insertSublayer(gradientLayer, at: 0)
 
         highlightLayer.colors = [
-            NSColor.white.withAlphaComponent(0.28).cgColor,
+            NSColor.white.withAlphaComponent(0.42).cgColor,
+            NSColor.white.withAlphaComponent(0.12).cgColor,
             NSColor.white.withAlphaComponent(0.0).cgColor
         ]
+        highlightLayer.locations = [0.0, 0.35, 1.0]
         highlightLayer.startPoint = CGPoint(x: 0.5, y: 1)
         highlightLayer.endPoint = CGPoint(x: 0.5, y: 0.55)
         layer?.addSublayer(highlightLayer)
@@ -119,15 +140,13 @@ final class WidgetFeatureCard: NSView {
 
     private func setupContent(statusSummary: String) {
         translatesAutoresizingMaskIntoConstraints = false
-        NSLayoutConstraint.activate([
-            heightAnchor.constraint(equalToConstant: 156)
-        ])
 
         let symbolName = card.widgetStyle?.symbolName ?? "sparkles"
+        let topHex = card.widgetStyle?.topHex ?? "#888888"
         let symbolConfig = NSImage.SymbolConfiguration(pointSize: 28, weight: .medium)
         iconView.image = NSImage(systemSymbolName: symbolName, accessibilityDescription: nil)?
             .withSymbolConfiguration(symbolConfig)
-        iconView.contentTintColor = .white
+        iconView.contentTintColor = ColorTokens.cardIconTint(for: topHex)
         iconView.imageScaling = .scaleProportionallyDown
         iconView.translatesAutoresizingMaskIntoConstraints = false
 
@@ -139,19 +158,20 @@ final class WidgetFeatureCard: NSView {
 
         subtitleLabel.stringValue = card.subtitle
         subtitleLabel.font = .systemFont(ofSize: 12, weight: .regular)
-        subtitleLabel.textColor = NSColor.white.withAlphaComponent(0.82)
+        subtitleLabel.textColor = NSColor.white.withAlphaComponent(ColorTokens.cardTitleSubtitleAlpha)
         subtitleLabel.lineBreakMode = .byTruncatingTail
         subtitleLabel.translatesAutoresizingMaskIntoConstraints = false
 
         statusLabel.stringValue = statusSummary
         statusLabel.font = .systemFont(ofSize: 11, weight: .medium)
-        statusLabel.textColor = NSColor.white.withAlphaComponent(0.72)
+        statusLabel.textColor = NSColor.white.withAlphaComponent(ColorTokens.cardStatusAlpha)
         statusLabel.lineBreakMode = .byTruncatingTail
+        statusLabel.isHidden = statusSummary.isEmpty
         statusLabel.translatesAutoresizingMaskIntoConstraints = false
 
         shortcutLabel.stringValue = "⌘\(shortcutIndex)"
         shortcutLabel.font = .systemFont(ofSize: 11, weight: .semibold)
-        shortcutLabel.textColor = NSColor.white.withAlphaComponent(0.65)
+        shortcutLabel.textColor = NSColor.white.withAlphaComponent(ColorTokens.cardShortcutAlpha)
         shortcutLabel.translatesAutoresizingMaskIntoConstraints = false
 
         addSubview(iconView)
@@ -161,25 +181,25 @@ final class WidgetFeatureCard: NSView {
         addSubview(shortcutLabel)
 
         NSLayoutConstraint.activate([
-            shortcutLabel.topAnchor.constraint(equalTo: topAnchor, constant: 14),
+            shortcutLabel.topAnchor.constraint(equalTo: topAnchor, constant: 12),
             shortcutLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -14),
 
-            iconView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 18),
-            iconView.topAnchor.constraint(equalTo: topAnchor, constant: 18),
-            iconView.widthAnchor.constraint(equalToConstant: 32),
-            iconView.heightAnchor.constraint(equalToConstant: 32),
+            iconView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 16),
+            iconView.topAnchor.constraint(equalTo: topAnchor, constant: 14),
+            iconView.widthAnchor.constraint(equalToConstant: 28),
+            iconView.heightAnchor.constraint(equalToConstant: 28),
 
-            titleLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 18),
-            titleLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -18),
-            titleLabel.topAnchor.constraint(equalTo: iconView.bottomAnchor, constant: 14),
+            titleLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 16),
+            titleLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -16),
+            titleLabel.topAnchor.constraint(equalTo: iconView.bottomAnchor, constant: 10),
 
             subtitleLabel.leadingAnchor.constraint(equalTo: titleLabel.leadingAnchor),
             subtitleLabel.trailingAnchor.constraint(equalTo: titleLabel.trailingAnchor),
-            subtitleLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 3),
+            subtitleLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 2),
 
             statusLabel.leadingAnchor.constraint(equalTo: titleLabel.leadingAnchor),
             statusLabel.trailingAnchor.constraint(equalTo: titleLabel.trailingAnchor),
-            statusLabel.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -16)
+            statusLabel.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -12)
         ])
     }
 
@@ -195,10 +215,14 @@ final class WidgetFeatureCard: NSView {
     }
 
     private func animateScale(to scale: CGFloat, duration: TimeInterval) {
+        guard !MotionTokens.shouldReduceMotion else {
+            layer?.transform = scale == 1.0 ? CATransform3DIdentity : CATransform3DMakeScale(scale, scale, 1)
+            return
+        }
         CATransaction.begin()
         CATransaction.setAnimationDuration(duration)
         CATransaction.setAnimationTimingFunction(CAMediaTimingFunction(name: .easeOut))
-        layer?.transform = CATransform3DMakeScale(scale, scale, 1)
+        layer?.transform = scale == 1.0 ? CATransform3DIdentity : CATransform3DMakeScale(scale, scale, 1)
         CATransaction.commit()
     }
 
@@ -208,15 +232,15 @@ final class WidgetFeatureCard: NSView {
         let local = convert(location, from: nil)
         return bounds.contains(local)
     }
+}
 
-    private static func color(hex: String) -> NSColor {
-        let sanitized = hex.trimmingCharacters(in: CharacterSet(charactersIn: "#"))
-        guard sanitized.count == 6, let value = UInt64(sanitized, radix: 16) else {
-            return .gray
-        }
-        let red = CGFloat((value >> 16) & 0xFF) / 255
-        let green = CGFloat((value >> 8) & 0xFF) / 255
-        let blue = CGFloat(value & 0xFF) / 255
-        return NSColor(red: red, green: green, blue: blue, alpha: 1)
+enum MotionTokens {
+    static var shouldReduceMotion: Bool {
+        NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
     }
+
+    static var scaleInDuration: TimeInterval { shouldReduceMotion ? 0.03 : 0.06 }
+    static var scaleOutDuration: TimeInterval { shouldReduceMotion ? 0.06 : 0.12 }
+    static var panelShowDuration: TimeInterval { shouldReduceMotion ? 0.08 : 0.14 }
+    static var panelHideDuration: TimeInterval { shouldReduceMotion ? 0.05 : 0.10 }
 }

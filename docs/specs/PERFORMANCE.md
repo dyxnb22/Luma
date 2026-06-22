@@ -7,6 +7,11 @@
 | Hotkey press -> interactive panel | 25 ms | 50 ms | 80 ms |
 | Keystroke -> first ranked snapshot painted | 12 ms | 30 ms | 60 ms |
 | Module `handle` call | 5-30 ms | <= timeout | 80 ms |
+| `NotesModule.handle` | ≤ 10 ms | ≤ 30 ms | 40 ms (manifest queryTimeout) |
+| `SnippetsModule.handle` | ≤ 10 ms | ≤ 20 ms | 30 ms (manifest queryTimeout) |
+| `SecretsModule.handle` | ≤ 10 ms | ≤ 30 ms | 40 ms (manifest queryTimeout) |
+| `MediaModule.handle` | ≤ 10 ms | ≤ 20 ms | 30 ms (manifest queryTimeout) |
+| Media JSON warmup load | — | ≤ 80 ms | — (≤ 5000 items) |
 | Panel hide after action | 10 ms | 20 ms | 40 ms |
 
 Launcher convergence strategy adds a stricter working rule: warm keystroke p95 above 30 ms is a regression and should block the change.
@@ -20,6 +25,7 @@ Launcher convergence strategy adds a stricter working rule: warm keystroke p95 a
 - App icons are cached at display size.
 - Query tasks are cancelled on every new keystroke.
 - Panel hides before action completion.
+- Notes module reads happen only in `warmup` and on FSEvents callbacks. `handle` never touches disk.
 
 ## Measurement
 

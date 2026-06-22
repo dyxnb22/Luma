@@ -18,6 +18,7 @@ final class TranslateDetailView: ModuleDetailView {
     private let translation: any TranslationClient
     private let config: ConfigurationStore
     private var onBack: (() -> Void)?
+    private var onContentChanged: ((String, String) -> Void)?
 
     private let sourceLabel = NSTextField(labelWithString: "Auto Detect")
     private let targetPopup = NSPopUpButton()
@@ -56,10 +57,16 @@ final class TranslateDetailView: ModuleDetailView {
         ("ar", "Arabic")
     ]
 
-    init(translation: any TranslationClient, config: ConfigurationStore, onBack: @escaping () -> Void) {
+    init(
+        translation: any TranslationClient,
+        config: ConfigurationStore,
+        onBack: @escaping () -> Void,
+        onContentChanged: ((String, String) -> Void)? = nil
+    ) {
         self.translation = translation
         self.config = config
         self.onBack = onBack
+        self.onContentChanged = onContentChanged
         let container = NSView()
         container.translatesAutoresizingMaskIntoConstraints = false
         self.detailView = container
@@ -82,9 +89,24 @@ final class TranslateDetailView: ModuleDetailView {
         inputTextView.string = text
         inputTextView.refreshPlaceholder()
         updateTranslateButtonState()
+        notifyContentChanged()
         if autoTranslate {
             performTranslation()
         }
+    }
+
+    func restore(sourceText: String, outputText: String) {
+        inputTextView.string = sourceText
+        outputTextView.string = outputText
+        inputTextView.refreshPlaceholder()
+        copyResultButton.isEnabled = !outputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        updateTranslateButtonState()
+        setState(outputText.isEmpty ? .idle : .success)
+        notifyContentChanged()
+    }
+
+    func currentContent() -> (source: String, output: String) {
+        (inputTextView.string, outputTextView.string)
     }
 
     func handleKeyDown(_ event: NSEvent) -> Bool {
@@ -377,6 +399,7 @@ final class TranslateDetailView: ModuleDetailView {
     @objc private func inputChanged() {
         inputTextView.refreshPlaceholder()
         updateTranslateButtonState()
+        notifyContentChanged()
         if translationState != .translating {
             setState(.idle)
         }
@@ -403,6 +426,7 @@ final class TranslateDetailView: ModuleDetailView {
         sourceLabel.stringValue = "Auto Detect"
         swapButton.isEnabled = false
         setState(.idle)
+        notifyContentChanged()
     }
 
     @objc private func pasteFromClipboard() {
@@ -410,6 +434,7 @@ final class TranslateDetailView: ModuleDetailView {
         inputTextView.string = text
         inputTextView.refreshPlaceholder()
         updateTranslateButtonState()
+        notifyContentChanged()
         performTranslation()
     }
 
@@ -441,6 +466,7 @@ final class TranslateDetailView: ModuleDetailView {
                     self.setState(.success)
                     self.copyResultButton.isEnabled = true
                     self.updateTranslateButtonState()
+                    self.notifyContentChanged()
                 }
             } catch is CancellationError {
                 return
@@ -451,9 +477,14 @@ final class TranslateDetailView: ModuleDetailView {
                     self.setState(.error(Self.userFacingError(error)))
                     self.copyResultButton.isEnabled = false
                     self.updateTranslateButtonState()
+                    self.notifyContentChanged()
                 }
             }
         }
+    }
+
+    private func notifyContentChanged() {
+        onContentChanged?(inputTextView.string, outputTextView.string)
     }
 
     private func applyDetectedSourceLanguage(_ code: String?) {

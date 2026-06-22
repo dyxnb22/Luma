@@ -5,6 +5,10 @@ final class MenuBarController {
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
     private let menu = NSMenu()
     private var hotkeyWarningItem: NSMenuItem?
+    private var hotkeyOK = true
+    private var secretsVaultLocked = true
+    private var wordbookDueCount = 0
+    private var todoDueCount = 0
     private let onShow: @MainActor () -> Void
     private let onSettings: @MainActor () -> Void
 
@@ -16,18 +20,13 @@ final class MenuBarController {
     }
 
     func markHotkeyOK() {
-        statusItem.button?.title = ""
-        let config = NSImage.SymbolConfiguration(pointSize: 14, weight: .semibold)
-        statusItem.button?.image = NSImage(systemSymbolName: "command", accessibilityDescription: "Luma")?
-            .withSymbolConfiguration(config)
+        hotkeyOK = true
         hotkeyWarningItem?.isHidden = true
+        refreshStatusIcon()
     }
 
     func markHotkeyFailed() {
-        statusItem.button?.title = ""
-        let config = NSImage.SymbolConfiguration(pointSize: 14, weight: .semibold)
-        statusItem.button?.image = NSImage(systemSymbolName: "exclamationmark.triangle.fill", accessibilityDescription: "Hotkey failed")?
-            .withSymbolConfiguration(config)
+        hotkeyOK = false
         if hotkeyWarningItem == nil {
             let item = NSMenuItem(title: "Hotkey not registered. Disable Spotlight's ⌘+Space.", action: nil, keyEquivalent: "")
             item.isEnabled = false
@@ -35,6 +34,39 @@ final class MenuBarController {
             hotkeyWarningItem = item
         } else {
             hotkeyWarningItem?.isHidden = false
+        }
+        refreshStatusIcon()
+    }
+
+    func setSecretsLockState(locked: Bool) {
+        secretsVaultLocked = locked
+        refreshStatusIcon()
+    }
+
+    func setDueCounts(wordbook: Int, todo: Int) {
+        wordbookDueCount = max(0, wordbook)
+        todoDueCount = max(0, todo)
+        refreshStatusIcon()
+    }
+
+    private func refreshStatusIcon() {
+        statusItem.button?.title = ""
+        let config = NSImage.SymbolConfiguration(pointSize: 14, weight: .semibold)
+        let symbolName: String
+        if !hotkeyOK {
+            symbolName = "exclamationmark.triangle.fill"
+        } else if secretsVaultLocked {
+            symbolName = "lock.shield.fill"
+        } else {
+            symbolName = "lock.open.fill"
+        }
+        statusItem.button?.image = NSImage(systemSymbolName: symbolName, accessibilityDescription: "Luma")?
+            .withSymbolConfiguration(config)
+
+        let dueTotal = wordbookDueCount + todoDueCount
+        if dueTotal > 0, hotkeyOK {
+            statusItem.button?.title = " \(dueTotal)"
+            statusItem.button?.font = .monospacedDigitSystemFont(ofSize: 11, weight: .bold)
         }
     }
 

@@ -31,6 +31,12 @@ final class LauncherPanel: NSPanel {
         onEscape?()
     }
 
+    func resizeForScreen(_ visibleFrame: NSRect) {
+        let width = max(720, min(860, visibleFrame.width * 0.45))
+        let height = max(480, min(540, visibleFrame.height * 0.55))
+        setContentSize(NSSize(width: width, height: height))
+    }
+
     override func keyDown(with event: NSEvent) {
         if event.keyCode == 53 {
             onEscape?()

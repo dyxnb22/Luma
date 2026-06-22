@@ -309,21 +309,42 @@ final class WindowsDetailView: ModuleDetailView {
 @MainActor
 enum ModuleDetailRegistry {
     nonisolated(unsafe) static var clipboardModule: ClipboardModule?
+    nonisolated(unsafe) static var notesModule: NotesModule?
+    nonisolated(unsafe) static var snippetsModule: SnippetsModule?
+    nonisolated(unsafe) static var secretsModule: SecretsModule?
+    nonisolated(unsafe) static var mediaModule: MediaModule?
+    nonisolated(unsafe) static var todoModule: TodoModule?
     nonisolated(unsafe) static var translation: (any TranslationClient)?
     nonisolated(unsafe) static var config: ConfigurationStore?
-    nonisolated(unsafe) static var onBackFromDetail: (() -> Void)?
-    nonisolated(unsafe) static var onOpenSettings: (() -> Void)?
+    nonisolated(unsafe) static var isLauncherQueryEmpty = true
 
     static func make(for id: ModuleIdentifier) -> (any ModuleDetailView)? {
         switch id {
         case .translate:
             guard let svc = translation, let config else { return nil }
             return TranslateDetailView(translation: svc, config: config) {
-                onBackFromDetail?()
+                LauncherBridge.onBackFromDetail?()
+            } onContentChanged: { source, output in
+                LauncherBridge.onTranslateContentChanged?(source, output)
             }
         case .clipboard:
             guard let mod = clipboardModule else { return nil }
-            return ClipboardDetailView(module: mod, onOpenSettings: onOpenSettings)
+            return ClipboardDetailView(module: mod, onOpenSettings: { LauncherBridge.onOpenSettings?() })
+        case .notes:
+            guard let mod = notesModule else { return nil }
+            return NotesDetailView(module: mod)
+        case .snippets:
+            guard let mod = snippetsModule else { return nil }
+            return SnippetsDetailView(module: mod)
+        case .secrets:
+            guard let mod = secretsModule else { return nil }
+            return SecretsDetailView(module: mod)
+        case .media:
+            guard let mod = mediaModule else { return nil }
+            return MediaDetailView(module: mod)
+        case .todo:
+            guard let mod = todoModule else { return nil }
+            return TodoDetailView(module: mod)
         default:
             return nil
         }

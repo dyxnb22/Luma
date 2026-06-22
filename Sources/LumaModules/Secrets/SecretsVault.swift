@@ -33,6 +33,9 @@ public actor SecretsVault {
     private let metadataURL: URL
     private var isUnlocked = false
     private var records: [UUID: SecretMetadata] = [:]
+    private var relockTimeout: TimeInterval = 300
+    private var relockTask: Task<Void, Never>?
+    private var onLockStateChanged: (@Sendable (Bool) async -> Void)?
 
     public init(
         keychain: KeychainSecretsStore = KeychainSecretsStore(),
@@ -53,29 +56,73 @@ public actor SecretsVault {
         }
     }
 
+    public func configure(relockTimeoutSeconds: Int, onLockStateChanged: (@Sendable (Bool) async -> Void)? = nil) {
+        relockTimeout = TimeInterval(max(1, relockTimeoutSeconds))
+        self.onLockStateChanged = onLockStateChanged
+    }
+
     public func unlocked() -> Bool {
         isUnlocked
     }
 
     public func unlock() {
         isUnlocked = true
+        scheduleRelock()
+        notifyLockState()
     }
 
     public func lock() {
+        relockTask?.cancel()
+        relockTask = nil
         isUnlocked = false
+        notifyLockState()
+    }
+
+    public func touchActivity() {
+        guard isUnlocked else { return }
+        scheduleRelock()
     }
 
     public func save(label: String, account: String = "", value: String) throws -> UUID {
-        guard isUnlocked else { throw SecretsVaultError.locked }
+        try requireUnlocked()
         let record = SecretMetadata(id: UUID(), label: label, account: account, updatedAt: Date())
         try keychain.save(value: value, account: record.id.uuidString)
         records[record.id] = record
         persistMetadata()
+        touchActivity()
         return record.id
     }
 
+    public func update(id: UUID, label: String, account: String, value: String?) throws {
+        try requireUnlocked()
+        guard records[id] != nil else { throw SecretsVaultError.notFound }
+        records[id] = SecretMetadata(id: id, label: label, account: account, updatedAt: Date())
+        if let value {
+            try keychain.save(value: value, account: id.uuidString)
+        }
+        persistMetadata()
+        touchActivity()
+    }
+
+    public func delete(id: UUID) throws {
+        try requireUnlocked()
+        guard records[id] != nil else { throw SecretsVaultError.notFound }
+        records.removeValue(forKey: id)
+        try keychain.delete(account: id.uuidString)
+        persistMetadata()
+        touchActivity()
+    }
+
+    public func allRecords() throws -> [SecretRecord] {
+        try requireUnlocked()
+        return records.values
+            .sorted { $0.label.localizedStandardCompare($1.label) == .orderedAscending }
+            .map { SecretRecord(id: $0.id, label: $0.label, account: $0.account, value: "", updatedAt: $0.updatedAt) }
+    }
+
     public func searchLabels(_ query: String) throws -> [SecretRecord] {
-        guard isUnlocked else { throw SecretsVaultError.locked }
+        try requireUnlocked()
+        touchActivity()
         let normalized = query.lowercased()
         return records.values
             .filter { normalized.isEmpty || $0.label.lowercased().contains(normalized) || $0.account.lowercased().contains(normalized) }
@@ -84,9 +131,37 @@ public actor SecretsVault {
     }
 
     public func revealValue(id: UUID) throws -> String {
-        guard isUnlocked else { throw SecretsVaultError.locked }
+        try requireUnlocked()
         guard records[id] != nil else { throw SecretsVaultError.notFound }
+        touchActivity()
         return try keychain.read(account: id.uuidString)
+    }
+
+    private func requireUnlocked() throws {
+        guard isUnlocked else { throw SecretsVaultError.locked }
+    }
+
+    private func scheduleRelock() {
+        relockTask?.cancel()
+        relockTask = Task { [relockTimeout] in
+            try? await Task.sleep(for: .seconds(relockTimeout))
+            guard !Task.isCancelled else { return }
+            await expireLock()
+        }
+    }
+
+    private func expireLock() {
+        guard isUnlocked else { return }
+        isUnlocked = false
+        relockTask = nil
+        notifyLockState()
+    }
+
+    private func notifyLockState() {
+        let locked = !isUnlocked
+        if let onLockStateChanged {
+            Task { await onLockStateChanged(locked) }
+        }
     }
 
     private func persistMetadata() {

@@ -1,4 +1,5 @@
 import AppKit
+import LumaModules
 
 @MainActor
 final class LumaSearchBar: NSView {
@@ -11,6 +12,7 @@ final class LumaSearchBar: NSView {
 
     private let iconView = NSImageView()
     private let textField = LumaSearchTextField()
+    private let clearButton = NSButton()
     var onTextChange: ((String) -> Void)?
     var onEscape: (() -> Void)?
     var onReturn: (() -> Void)?
@@ -32,7 +34,7 @@ final class LumaSearchBar: NSView {
         textField.isBezeled = false
         textField.drawsBackground = false
         textField.font = .systemFont(ofSize: 20, weight: .regular)
-        textField.placeholderString = "Search"
+        textField.placeholderString = ModuleSearchHints.default
         textField.focusRingType = .none
         textField.delegate = self
         textField.target = self
@@ -41,8 +43,19 @@ final class LumaSearchBar: NSView {
         textField.onEscape = { [weak self] in self?.onEscape?() }
         textField.onKeyCommand = { [weak self] command in self?.onKeyCommand?(command) ?? false }
 
+        clearButton.isBordered = false
+        clearButton.bezelStyle = .inline
+        clearButton.image = NSImage(systemSymbolName: "xmark.circle.fill", accessibilityDescription: "Clear search")
+        clearButton.imagePosition = .imageOnly
+        clearButton.contentTintColor = .tertiaryLabelColor
+        clearButton.target = self
+        clearButton.action = #selector(clearTapped)
+        clearButton.isHidden = true
+        clearButton.translatesAutoresizingMaskIntoConstraints = false
+
         addSubview(iconView)
         addSubview(textField)
+        addSubview(clearButton)
 
         NSLayoutConstraint.activate([
             iconView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 18),
@@ -50,8 +63,12 @@ final class LumaSearchBar: NSView {
             iconView.widthAnchor.constraint(equalToConstant: 16),
             iconView.heightAnchor.constraint(equalToConstant: 16),
             textField.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: 10),
-            textField.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -18),
-            textField.centerYAnchor.constraint(equalTo: centerYAnchor)
+            textField.trailingAnchor.constraint(equalTo: clearButton.leadingAnchor, constant: -6),
+            textField.centerYAnchor.constraint(equalTo: centerYAnchor),
+            clearButton.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -14),
+            clearButton.centerYAnchor.constraint(equalTo: centerYAnchor),
+            clearButton.widthAnchor.constraint(equalToConstant: 20),
+            clearButton.heightAnchor.constraint(equalToConstant: 20)
         ])
     }
 
@@ -62,7 +79,14 @@ final class LumaSearchBar: NSView {
 
     var stringValue: String {
         get { textField.stringValue }
-        set { textField.stringValue = newValue }
+        set {
+            textField.stringValue = newValue
+            updateClearButtonVisibility()
+        }
+    }
+
+    func setPlaceholder(_ text: String) {
+        textField.placeholderString = text
     }
 
     func focus() {
@@ -72,12 +96,24 @@ final class LumaSearchBar: NSView {
     @objc private func submit() {
         onReturn?()
     }
+
+    @objc private func clearTapped() {
+        textField.stringValue = ""
+        updateClearButtonVisibility()
+        onTextChange?("")
+        focus()
+    }
+
+    private func updateClearButtonVisibility() {
+        clearButton.isHidden = textField.stringValue.isEmpty
+    }
 }
 
 extension LumaSearchBar: NSTextFieldDelegate {
     func controlTextDidChange(_ obj: Notification) {
         let now = CFAbsoluteTimeGetCurrent()
         LatencyTracker.shared.markKeystroke(at: now)
+        updateClearButtonVisibility()
         onTextChange?(textField.stringValue)
     }
 }
@@ -118,7 +154,6 @@ private final class LumaSearchTextField: NSTextField {
     }
 
     override func cancelOperation(_ sender: Any?) {
-        // Esc is handled here only; do not also handle keyCode 53 in keyDown to avoid double-fire.
         onEscape?()
     }
 }

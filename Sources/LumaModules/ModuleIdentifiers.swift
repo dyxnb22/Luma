@@ -12,4 +12,7 @@ extension ModuleIdentifier {
     public static let windowLayouts = ModuleIdentifier(rawValue: "luma.window-layouts")
     public static let notes = ModuleIdentifier(rawValue: "luma.notes")
     public static let wordbook = ModuleIdentifier(rawValue: "luma.wordbook")
+    public static let snippets = ModuleIdentifier(rawValue: "luma.snippets")
+    public static let media = ModuleIdentifier(rawValue: "luma.media")
+    public static let events = ModuleIdentifier(rawValue: "luma.events")
 }

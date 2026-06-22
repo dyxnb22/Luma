@@ -14,6 +14,9 @@ public actor CommandsModule: LumaModule {
     public init() {}
 
     public func handle(_ query: Query, context: QueryContext) async -> ModuleResult {
+        if ModuleHelp.isHelpQuery(query.normalized) {
+            return ModuleResult(items: ModuleHelp.results(for: Self.manifest.identifier))
+        }
         let commands = [
             command("open-settings", title: "Open Settings"),
             command("reload-modules", title: "Reload Modules"),

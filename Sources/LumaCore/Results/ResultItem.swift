@@ -11,6 +11,12 @@ public struct ResultID: Hashable, Sendable, Codable {
     }
 }
 
+public enum ResultDisplayDensity: Sendable, Hashable, Codable {
+    case compact
+    case regular
+    case expanded
+}
+
 public struct ResultItem: Identifiable, Sendable, Hashable {
     public let id: ResultID
     public let title: String
@@ -20,6 +26,7 @@ public struct ResultItem: Identifiable, Sendable, Hashable {
     public let primaryAction: Action
     public let secondaryActions: [Action]
     public var rankingHints: RankingHints
+    public var displayDensity: ResultDisplayDensity
 
     public init(
         id: ResultID,
@@ -29,7 +36,8 @@ public struct ResultItem: Identifiable, Sendable, Hashable {
         icon: IconRef,
         primaryAction: Action,
         secondaryActions: [Action] = [],
-        rankingHints: RankingHints
+        rankingHints: RankingHints,
+        displayDensity: ResultDisplayDensity = .regular
     ) {
         self.id = id
         self.title = title
@@ -39,6 +47,7 @@ public struct ResultItem: Identifiable, Sendable, Hashable {
         self.primaryAction = primaryAction
         self.secondaryActions = secondaryActions
         self.rankingHints = rankingHints
+        self.displayDensity = displayDensity
     }
 }
 

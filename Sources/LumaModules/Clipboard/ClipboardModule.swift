@@ -45,6 +45,10 @@ public actor ClipboardModule: LumaModule {
     }
 
     public func handle(_ query: Query, context: QueryContext) async -> ModuleResult {
+        let normalized = query.normalized
+        if normalized == "clip ?" || normalized == "clip help" {
+            return ModuleResult(items: ModuleHelp.results(for: Self.manifest.identifier))
+        }
         let entries = await store.search(query.normalized, limit: 10)
         return ModuleResult(items: entries.map(result))
     }
@@ -73,6 +77,14 @@ public actor ClipboardModule: LumaModule {
 
     public func clearUnpinned() async {
         await store.clearUnpinned()
+    }
+
+    public func applyRetentionSettings(maxEntries: Int, maxAgeDays: Int, maxEntrySizeKB: Int) async {
+        await store.updateRetention(
+            maxEntries: maxEntries,
+            maxAge: TimeInterval(maxAgeDays * 24 * 60 * 60),
+            maxTextBytes: maxEntrySizeKB * 1024
+        )
     }
 
     private func startPolling() {

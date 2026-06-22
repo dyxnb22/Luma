@@ -17,11 +17,23 @@ import Testing
     #expect(Set(positions).count == positions.count)
 }
 
-@Test func dashboardCoreCardsAreTranslateAndClipboardOnly() {
+@Test func dashboardCoreCardsIncludeNotesTodoWordbookSnippetsSecrets() {
     let cards = FeatureCatalog.dashboardCoreCards()
-    #expect(cards.count == 2)
-    let ids = cards.sorted { $0.position.column < $1.position.column }.map(\.id)
-    #expect(ids == [.translate, .clipboard])
+    #expect(cards.count == 7)
+    let ids = Set(cards.map(\.id))
+    #expect(ids.contains(.translate))
+    #expect(ids.contains(.clipboard))
+    #expect(ids.contains(.notes))
+    #expect(ids.contains(.todo))
+    #expect(ids.contains(.wordbook))
+    #expect(ids.contains(.snippets))
+    #expect(ids.contains(.secrets))
+    #expect(cards.first { $0.id == .secrets }?.triggerKeyword == "secret ")
+    #expect(cards.first { $0.id == .snippets }?.triggerKeyword == "s ")
+}
+
+@Test func dashboardCoreCardsDoNotExceedRouteBCeiling() {
+    #expect(FeatureCatalog.dashboardCoreCards().count <= 8)
 }
 
 @Test func dashboardCoreCardsHaveWidgetStyleAndTrailingSpaceTriggers() {

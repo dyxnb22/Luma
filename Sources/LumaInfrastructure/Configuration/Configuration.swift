@@ -8,6 +8,14 @@ public actor ConfigurationStore: ConfigurationClient {
     private let clipboardMaxAgeDaysKey = "clipboardMaxAgeDays"
     private let clipboardMaxEntrySizeKBKey = "clipboardMaxEntrySizeKB"
     private let translationTargetLanguageKey = "translationTargetLanguage"
+    private let secretsAutoClearSecondsKey = "secretsAutoClearSeconds"
+    private let secretsRelockTimeoutSecondsKey = "secretsRelockTimeoutSeconds"
+    private let secretsRequireUnlockOnLaunchKey = "secretsRequireUnlockOnLaunch"
+    private let launcherLastModuleIDKey = "launcherLastModuleID"
+    private let launcherLastQueryKey = "launcherLastQuery"
+    private let launcherTranslateSourceTextKey = "launcherTranslateSourceText"
+    private let launcherTranslateOutputTextKey = "launcherTranslateOutputText"
+    private let latencyHUDEnabledKey = "latencyHUDEnabled"
 
     public init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
@@ -55,5 +63,77 @@ public actor ConfigurationStore: ConfigurationClient {
 
     public func setTranslationTargetLanguage(_ value: String) {
         defaults.set(value, forKey: translationTargetLanguageKey)
+    }
+
+    public func secretsAutoClearSeconds() -> Int {
+        let value = defaults.integer(forKey: secretsAutoClearSecondsKey)
+        return value > 0 ? value : 10
+    }
+
+    public func setSecretsAutoClearSeconds(_ value: Int) {
+        defaults.set(value, forKey: secretsAutoClearSecondsKey)
+    }
+
+    public func secretsRelockTimeoutSeconds() -> Int {
+        let value = defaults.integer(forKey: secretsRelockTimeoutSecondsKey)
+        return value > 0 ? value : 300
+    }
+
+    public func setSecretsRelockTimeoutSeconds(_ value: Int) {
+        defaults.set(value, forKey: secretsRelockTimeoutSecondsKey)
+    }
+
+    public func secretsRequireUnlockOnLaunch() -> Bool {
+        if defaults.object(forKey: secretsRequireUnlockOnLaunchKey) == nil { return true }
+        return defaults.bool(forKey: secretsRequireUnlockOnLaunchKey)
+    }
+
+    public func setSecretsRequireUnlockOnLaunch(_ value: Bool) {
+        defaults.set(value, forKey: secretsRequireUnlockOnLaunchKey)
+    }
+
+    public func launcherLastModuleID() -> String? {
+        defaults.string(forKey: launcherLastModuleIDKey)
+    }
+
+    public func setLauncherLastModuleID(_ value: String?) {
+        if let value {
+            defaults.set(value, forKey: launcherLastModuleIDKey)
+        } else {
+            defaults.removeObject(forKey: launcherLastModuleIDKey)
+        }
+    }
+
+    public func launcherLastQuery() -> String {
+        defaults.string(forKey: launcherLastQueryKey) ?? ""
+    }
+
+    public func setLauncherLastQuery(_ value: String) {
+        defaults.set(value, forKey: launcherLastQueryKey)
+    }
+
+    public func launcherTranslateSourceText() -> String {
+        defaults.string(forKey: launcherTranslateSourceTextKey) ?? ""
+    }
+
+    public func setLauncherTranslateSourceText(_ value: String) {
+        defaults.set(value, forKey: launcherTranslateSourceTextKey)
+    }
+
+    public func launcherTranslateOutputText() -> String {
+        defaults.string(forKey: launcherTranslateOutputTextKey) ?? ""
+    }
+
+    public func setLauncherTranslateOutputText(_ value: String) {
+        defaults.set(value, forKey: launcherTranslateOutputTextKey)
+    }
+
+    public func latencyHUDEnabled() -> Bool {
+        if defaults.object(forKey: latencyHUDEnabledKey) == nil { return false }
+        return defaults.bool(forKey: latencyHUDEnabledKey)
+    }
+
+    public func setLatencyHUDEnabled(_ value: Bool) {
+        defaults.set(value, forKey: latencyHUDEnabledKey)
     }
 }

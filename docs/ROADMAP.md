@@ -14,7 +14,51 @@ Route A (`docs/strategy/LAUNCHER_CONVERGENCE_STRATEGY.md`, `CONVERGENCE_EXECUTIO
 
 | Version | Focus | Do | Do Not Do |
 | --- | --- | --- | --- |
-| 0.1 Daily self-use | Dashboard Widget shell | Route B single window, App Search sidebar, **Translate + Clipboard** core cards, Commands, same-panel details | Calculator/Windows on dashboard, Plugin API, Notes Graph, Wordbook, Secrets as first-class UX |
+| 0.1 Daily self-use | Dashboard Widget shell | Route B single window, App Search sidebar, **Translate + Clipboard + Notes + Todo + Wordbook + Snippets + Secrets** core cards, **Media (trigger-only)**, Commands, same-panel details (review opens dedicated NSPanel) | Calculator/Windows on dashboard, Plugin API, Notion-style TODO database, Floating Wordbook pet, ChatGPT-paste import, browser password autofill, Douban-style social/discovery features in Media, streaming integration, Media metadata fetch (TMDB/OMDb/Google Books) in v1 |
+
+## Todo + Wordbook v0.1 (ADR-009)
+
+- Todo: EventKit pass-through. Trigger `t `. No Luma-owned TODO database.
+- Wordbook: full successor to TechWordPet.app. SQLite migrated to `~/Library/Application Support/Luma/Wordbook/wordpet.sqlite3` on first launch. Review opens in a dedicated NSPanel (not the launcher panel).
+
+Reference: `docs/adr/009-todo-wordbook-v01.md`
+
+## Snippets + Secrets v0.1 (ADR-010)
+
+- Snippets: local plaintext cheatsheet library. Trigger `s `. Dashboard green card.
+- Secrets: Keychain developer-credential vault. Trigger `secret `. Dashboard gold card. Auto-clear pasteboard + idle re-lock.
+
+Reference: `docs/adr/010-snippets-secrets.md`, `docs/strategy/SNIPPETS_SECRETS_PLAN.md`
+
+## Media v0.1 (ADR-011)
+
+- Lightweight local-only log for movies / TV / anime / games / books. Trigger `m ` (also `media `).
+- Trigger-only: no dashboard card. Detail view via `m log` or manage row.
+
+Reference: `docs/adr/011-media-tracker.md`, `docs/strategy/MEDIA_TRACKER_PLAN.md`
+- Trigger-only — no dashboard card (8-slot ceiling preserved).
+- One-line capture DSL (`m Oppenheimer movie 9`). Same-panel detail view for browse/edit. CSV export.
+- No social features, no metadata fetch, no posters, no episode-level tracking, no streaming integration.
+
+Reference: `docs/strategy/MEDIA_TRACKER_PLAN.md`
+
+## Notes v0.1 (ADR-008)
+
+Markdown file index and Typora launcher delivered in eleven implementation phases:
+
+0. Demolish NotesGraph scaffolding
+1. Real FSEventsService
+2. NotesRootConfig + NotesTreeIndex
+3. Rewrite NotesModule (memory-only handle)
+4. Detail view
+5. Create note + folder
+6. Rename, delete, context menus
+7. In-tree filter
+8. Image tools panel
+9. Wiki link jump + recent notes
+10. Docs and verification
+
+Reference: `docs/adr/008-notes-markdown-manager.md`, `docs/strategy/NOTES_MARKDOWN_CURSOR_PLAN.md`
 | 0.2 Stability | Persistence and settings | Namespaced Application Support persistence, interactive Settings, corrupt-data recovery, perf gates | XPC, runtime plugins, schema migration churn without need |
 | 0.3 Command depth | Action depth | Secondary action chooser, better result grouping, stronger command ergonomics | Marketplace, JS/Lua runtime |
 | 0.5 Architecture | Lifecycle and scale | ResidencyController, module lifecycle budgets, optional SQLite only if JSON files become insufficient | Premature XPC |

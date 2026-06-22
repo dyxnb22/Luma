@@ -23,11 +23,10 @@ final class ClipboardDetailView: NSObject, ModuleDetailView {
     init(module: ClipboardModule, onOpenSettings: (() -> Void)? = nil) {
         self.module = module
         self.onOpenSettings = onOpenSettings
-        let container = NSView()
-        container.translatesAutoresizingMaskIntoConstraints = false
-        self.detailView = container
+        let chrome = BaseDetailContainer()
+        self.detailView = chrome
         super.init()
-        setup(container: container)
+        setup(chrome: chrome)
     }
 
     func activate() {
@@ -51,7 +50,7 @@ final class ClipboardDetailView: NSObject, ModuleDetailView {
         return false
     }
 
-    private func setup(container: NSView) {
+    private func setup(chrome: BaseDetailContainer) {
         let toolbar = buildToolbar()
 
         tableView.headerView = nil
@@ -91,21 +90,11 @@ final class ClipboardDetailView: NSObject, ModuleDetailView {
         emptyStateLabel.isHidden = true
         emptyStateLabel.translatesAutoresizingMaskIntoConstraints = false
 
-        container.addSubview(toolbar)
-        container.addSubview(tableScroll)
-        container.addSubview(emptyStateLabel)
+        chrome.setToolbar(toolbar, height: 32)
+        chrome.setContent(tableScroll, embedInScroll: false)
+        chrome.addSubview(emptyStateLabel)
 
         NSLayoutConstraint.activate([
-            toolbar.topAnchor.constraint(equalTo: container.topAnchor, constant: 4),
-            toolbar.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 12),
-            toolbar.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -12),
-            toolbar.heightAnchor.constraint(equalToConstant: 32),
-
-            tableScroll.topAnchor.constraint(equalTo: toolbar.bottomAnchor, constant: 8),
-            tableScroll.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 8),
-            tableScroll.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -8),
-            tableScroll.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -8),
-
             emptyStateLabel.centerXAnchor.constraint(equalTo: tableScroll.centerXAnchor),
             emptyStateLabel.centerYAnchor.constraint(equalTo: tableScroll.centerYAnchor),
             emptyStateLabel.leadingAnchor.constraint(greaterThanOrEqualTo: tableScroll.leadingAnchor, constant: 24),
@@ -254,6 +243,29 @@ final class ClipboardDetailView: NSObject, ModuleDetailView {
         }
     }
 
+    private func saveAsSnippet(_ entry: ClipboardEntry) {
+        let draftTitle = entry.text
+            .split(separator: "\n", maxSplits: 1, omittingEmptySubsequences: true)
+            .first
+            .map(String.init)?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? "Clipboard clip"
+        let title = String(draftTitle.prefix(60))
+        let draft = Snippet(title: title, content: entry.text, tags: ["clipboard"])
+        let sheet = SnippetEditorSheet(snippet: draft) { [weak self] savedTitle, content, tags in
+            guard let mod = ModuleDetailRegistry.snippetsModule else { return }
+            Task {
+                _ = try? await mod.add(title: savedTitle, content: content, tags: tags)
+                await MainActor.run {
+                    LauncherBridge.reloadSnippetsDetail?()
+                    self?.detailView.window?.makeFirstResponder(self?.tableView)
+                }
+            }
+        }
+        if let window = detailView.window {
+            window.beginSheet(sheet) { _ in }
+        }
+    }
+
     private func pinnedSectionLabelRow(for row: Int) -> Bool {
         guard row < entries.count else { return false }
         let entry = entries[row]
@@ -281,7 +293,8 @@ extension ClipboardDetailView: NSTableViewDataSource, NSTableViewDelegate {
             showsPinnedSection: showSection,
             onCopy: { [weak self] in self?.copyEntry(entry) },
             onPin: { [weak self] in self?.togglePin(at: row) },
-            onDelete: { [weak self] in self?.deleteEntry(at: row) }
+            onDelete: { [weak self] in self?.deleteEntry(at: row) },
+            onSaveAsSnippet: { [weak self] in self?.saveAsSnippet(entry) }
         )
         return cell
     }
@@ -324,9 +337,11 @@ private final class ClipboardRowCell: NSTableCellView {
     private let metaLabel = NSTextField(labelWithString: "")
     private let actionsStack = NSStackView()
     private let copyButton = NSButton()
+    private let snippetButton = NSButton()
     private let pinButton = NSButton()
     private let deleteButton = NSButton()
     private var onCopy: (() -> Void)?
+    private var onSaveAsSnippet: (() -> Void)?
     private var onPin: (() -> Void)?
     private var onDelete: (() -> Void)?
 
@@ -345,11 +360,13 @@ private final class ClipboardRowCell: NSTableCellView {
         showsPinnedSection: Bool,
         onCopy: @escaping () -> Void,
         onPin: @escaping () -> Void,
-        onDelete: @escaping () -> Void
+        onDelete: @escaping () -> Void,
+        onSaveAsSnippet: @escaping () -> Void
     ) {
         self.onCopy = onCopy
         self.onPin = onPin
         self.onDelete = onDelete
+        self.onSaveAsSnippet = onSaveAsSnippet
 
         sectionLabel.isHidden = !showsPinnedSection
         iconView.image = NSImage(systemSymbolName: symbolName(for: entry.detectedKind), accessibilityDescription: nil)
@@ -379,15 +396,18 @@ private final class ClipboardRowCell: NSTableCellView {
         metaLabel.textColor = .secondaryLabelColor
         metaLabel.translatesAutoresizingMaskIntoConstraints = false
 
-        for button in [copyButton, pinButton, deleteButton] {
+        for button in [copyButton, snippetButton, pinButton, deleteButton] {
             button.bezelStyle = .regularSquare
             button.isBordered = false
             button.alphaValue = 0.85
         }
         copyButton.image = NSImage(systemSymbolName: "doc.on.doc", accessibilityDescription: "Copy")
+        snippetButton.image = NSImage(systemSymbolName: "text.badge.plus", accessibilityDescription: "Save as Snippet")
         deleteButton.image = NSImage(systemSymbolName: "trash", accessibilityDescription: "Delete")
         copyButton.target = self
         copyButton.action = #selector(copyTapped)
+        snippetButton.target = self
+        snippetButton.action = #selector(snippetTapped)
         pinButton.target = self
         pinButton.action = #selector(pinTapped)
         deleteButton.target = self
@@ -397,6 +417,7 @@ private final class ClipboardRowCell: NSTableCellView {
         actionsStack.spacing = 4
         actionsStack.translatesAutoresizingMaskIntoConstraints = false
         actionsStack.addArrangedSubview(copyButton)
+        actionsStack.addArrangedSubview(snippetButton)
         actionsStack.addArrangedSubview(pinButton)
         actionsStack.addArrangedSubview(deleteButton)
 
@@ -429,6 +450,7 @@ private final class ClipboardRowCell: NSTableCellView {
     }
 
     @objc private func copyTapped() { onCopy?() }
+    @objc private func snippetTapped() { onSaveAsSnippet?() }
     @objc private func pinTapped() { onPin?() }
     @objc private func deleteTapped() { onDelete?() }
 

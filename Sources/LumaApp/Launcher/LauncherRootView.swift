@@ -10,17 +10,82 @@ private final class FlippedStackView: NSStackView {
 }
 
 @MainActor
+private final class FeatureFlowView: NSView {
+    var cardViews: [WidgetFeatureCard] = [] {
+        didSet {
+            resizeDocument()
+            needsLayout = true
+        }
+    }
+
+    override var isFlipped: Bool { true }
+
+    override func layout() {
+        super.layout()
+        resizeDocument()
+        layoutCards()
+    }
+
+    override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
+        resizeDocument()
+    }
+
+    private func layoutCards() {
+        guard !cardViews.isEmpty else { return }
+        let layout = layoutMetrics(for: bounds.width)
+        for (index, card) in cardViews.enumerated() {
+            let column = index % layout.columns
+            let row = index / layout.columns
+            let x = CGFloat(column) * (layout.cardWidth + layout.gap)
+            let y = CGFloat(row) * (layout.cardHeight + layout.gap)
+            card.frame = CGRect(x: x, y: y, width: layout.cardWidth, height: layout.cardHeight)
+        }
+    }
+
+    func contentHeight(for width: CGFloat) -> CGFloat {
+        guard !cardViews.isEmpty else { return 0 }
+        let layout = layoutMetrics(for: width)
+        let rows = Int(ceil(Double(cardViews.count) / Double(layout.columns)))
+        return CGFloat(rows) * layout.cardHeight + CGFloat(max(0, rows - 1)) * layout.gap
+    }
+
+    private func resizeDocument() {
+        guard let scrollView = enclosingScrollView else { return }
+        let width = scrollView.contentView.bounds.width
+        let height = max(scrollView.contentView.bounds.height, contentHeight(for: width))
+        if abs(frame.width - width) > 0.5 || abs(frame.height - height) > 0.5 {
+            frame = CGRect(origin: .zero, size: NSSize(width: width, height: height))
+        }
+    }
+
+    private func layoutMetrics(for width: CGFloat) -> (columns: Int, cardWidth: CGFloat, cardHeight: CGFloat, gap: CGFloat) {
+        let gap: CGFloat = 16
+        let minimumWidth: CGFloat = 190
+        let maximumWidth: CGFloat = 248
+        let cardHeight: CGFloat = 156
+        let availableWidth = max(width, minimumWidth)
+        let columns = max(1, Int((availableWidth + gap) / (minimumWidth + gap)))
+        let rawWidth = floor((availableWidth - CGFloat(columns - 1) * gap) / CGFloat(columns))
+        let cardWidth = min(maximumWidth, max(minimumWidth, rawWidth))
+        return (columns, cardWidth, cardHeight, gap)
+    }
+}
+
+@MainActor
 final class LauncherRootView: NSView {
     private let glassBackground = NSVisualEffectView()
+    private let liquidTintLayer = CAGradientLayer()
     private let highlightLayer = CAGradientLayer()
+    private let bottomSheenLayer = CAGradientLayer()
     private let searchBar = LumaSearchBar()
     private let sidebarContainer = NSView()
     private let sidebarStack = FlippedStackView()
     private let contentContainer = NSView()
-    private let featureGridView = NSView()
+    private let homeScrollView = NSScrollView()
+    private let featureGridView = FeatureFlowView()
     private let resultsScrollView = NSScrollView()
     private let resultsStackView = FlippedStackView()
-    private let featureGridStack = NSStackView()
     private let loadingLabel = NSTextField(labelWithString: "Loading…")
     private let cards: [FeatureCard]
     private let sortedCards: [FeatureCard]
@@ -44,17 +109,29 @@ final class LauncherRootView: NSView {
     private var permissionPollingTask: Task<Void, Never>?
     private var widgetCards: [WidgetFeatureCard] = []
     private var pendingTranslateText: String?
+    private var currentDetailModuleID: ModuleIdentifier?
+    private var suppressSessionPersistence = false
+    private let config: ConfigurationStore
+    private let latencyHUD = LatencyHUDOverlayView()
+    private var latencyHUDEnabled = false
 
     init(
         cards: [FeatureCard],
         viewModel: LauncherViewModel,
         actionExecutor: ActionExecutor,
         appActivationTracker: AppActivationTracker,
+        config: ConfigurationStore,
         onDismiss: @escaping () -> Void,
         onActionDismiss: @escaping () -> Void
     ) {
+        self.config = config
         self.cards = cards
-        self.sortedCards = cards.sorted { $0.position.column < $1.position.column }
+        self.sortedCards = cards.sorted {
+            if $0.position.row == $1.position.row {
+                return $0.position.column < $1.position.column
+            }
+            return $0.position.row < $1.position.row
+        }
         self.viewModel = viewModel
         self.actionExecutor = actionExecutor
         self.appActivationTracker = appActivationTracker
@@ -73,9 +150,32 @@ final class LauncherRootView: NSView {
 
         setupGlassChrome()
         setupLayout()
+        setupLatencyHUD()
         setupPermissionBanner()
         startPermissionPolling()
-        showHome()
+        showHome(persist: false)
+        Task { await loadLatencyHUDPreference() }
+    }
+
+    func setLatencyHUDEnabled(_ enabled: Bool) {
+        latencyHUDEnabled = enabled
+        latencyHUD.isHidden = !enabled
+        if enabled { latencyHUD.refresh() }
+    }
+
+    private func loadLatencyHUDPreference() async {
+        let enabled = await config.latencyHUDEnabled()
+        setLatencyHUDEnabled(enabled)
+    }
+
+    private func setupLatencyHUD() {
+        latencyHUD.translatesAutoresizingMaskIntoConstraints = false
+        latencyHUD.isHidden = true
+        addSubview(latencyHUD)
+        NSLayoutConstraint.activate([
+            latencyHUD.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
+            latencyHUD.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -10)
+        ])
     }
 
     @available(*, unavailable)
@@ -84,6 +184,10 @@ final class LauncherRootView: NSView {
     }
 
     func focusSearchField() {
+        if showingDetail {
+            currentDetailObject?.activate()
+            return
+        }
         searchBar.focus()
     }
 
@@ -91,23 +195,26 @@ final class LauncherRootView: NSView {
         modulesReady = ready
         if ready, searchBar.stringValue.isEmpty {
             loadingLabel.isHidden = true
+        } else if ready {
+            handleTextChange(searchBar.stringValue)
         }
     }
 
-    func showHome(focusSearch: Bool = true) {
+    func showHome(focusSearch: Bool = true, persist: Bool = true) {
         searchBar.stringValue = ""
         if showingDetail {
             showingDetail = false
             currentDetailObject?.deactivate()
             currentDetailObject?.detailView.removeFromSuperview()
             currentDetailObject = nil
+            currentDetailModuleID = nil
             detailContainer.isHidden = true
             detailContainer.alphaValue = 0
         }
         showingResults = false
         renderResults([])
-        featureGridView.isHidden = false
-        featureGridView.alphaValue = 1
+        homeScrollView.isHidden = false
+        homeScrollView.alphaValue = 1
         resultsScrollView.isHidden = true
         resultsScrollView.alphaValue = 0
         renderFeatureCards()
@@ -116,6 +223,9 @@ final class LauncherRootView: NSView {
         refreshPermissionBanner()
         if focusSearch {
             focusSearchField()
+        }
+        if persist {
+            saveHomeSession()
         }
     }
 
@@ -131,6 +241,85 @@ final class LauncherRootView: NSView {
         searchBar.stringValue = trigger
         searchBar.focus()
         handleTextChange(trigger)
+    }
+
+    func restoreLastSessionIfNeeded() {
+        guard !showingDetail, searchBar.stringValue.isEmpty else { return }
+        guard let config = ModuleDetailRegistry.config else { return }
+        Task {
+            let moduleRaw = await config.launcherLastModuleID()
+            let query = await config.launcherLastQuery()
+            let translateSource = await config.launcherTranslateSourceText()
+            let translateOutput = await config.launcherTranslateOutputText()
+            await MainActor.run {
+                self.restoreLastSession(
+                    moduleRaw: moduleRaw,
+                    query: query,
+                    translateSource: translateSource,
+                    translateOutput: translateOutput
+                )
+            }
+        }
+    }
+
+    func saveCurrentSession() {
+        guard !suppressSessionPersistence else { return }
+        guard let config = ModuleDetailRegistry.config else { return }
+        let moduleID = currentDetailModuleID
+        let query = searchBar.stringValue
+        let translateContent = (currentDetailObject as? TranslateDetailView)?.currentContent()
+        Task {
+            await config.setLauncherLastModuleID(moduleID?.rawValue)
+            await config.setLauncherLastQuery(query)
+            if let translateContent {
+                await config.setLauncherTranslateSourceText(translateContent.source)
+                await config.setLauncherTranslateOutputText(translateContent.output)
+            }
+        }
+    }
+
+    private func saveHomeSession() {
+        guard !suppressSessionPersistence else { return }
+        guard let config = ModuleDetailRegistry.config else { return }
+        let query = searchBar.stringValue
+        Task {
+            await config.setLauncherLastModuleID(nil)
+            await config.setLauncherLastQuery(query)
+        }
+    }
+
+    private func saveSearchQuery(_ query: String) {
+        guard !suppressSessionPersistence else { return }
+        guard let config = ModuleDetailRegistry.config else { return }
+        Task { await config.setLauncherLastQuery(query) }
+    }
+
+    private func restoreLastSession(
+        moduleRaw: String?,
+        query: String,
+        translateSource: String,
+        translateOutput: String
+    ) {
+        suppressSessionPersistence = true
+        defer { suppressSessionPersistence = false }
+
+        if let moduleRaw {
+            let moduleID = ModuleIdentifier(rawValue: moduleRaw)
+            if moduleID == .wordbook {
+                showHome(focusSearch: false, persist: false)
+                return
+            }
+            openModuleDetail(for: moduleID)
+            if moduleID == .translate, let translate = currentDetailObject as? TranslateDetailView {
+                translate.restore(sourceText: translateSource, outputText: translateOutput)
+            }
+            return
+        }
+
+        showHome(focusSearch: false, persist: false)
+        guard !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        searchBar.stringValue = query
+        handleTextChange(query)
     }
 
     private func setupGlassChrome() {
@@ -155,13 +344,33 @@ final class LauncherRootView: NSView {
         ])
 
         highlightLayer.colors = [
-            NSColor.white.withAlphaComponent(0.18).cgColor,
+            NSColor.white.withAlphaComponent(0.24).cgColor,
             NSColor.white.withAlphaComponent(0.0).cgColor
         ]
-        highlightLayer.locations = [0.0, 0.35]
+        highlightLayer.locations = [0.0, 0.42]
         highlightLayer.startPoint = CGPoint(x: 0.5, y: 0)
         highlightLayer.endPoint = CGPoint(x: 0.5, y: 1)
+
+        liquidTintLayer.colors = [
+            NSColor(calibratedRed: 0.80, green: 0.92, blue: 1.0, alpha: 0.24).cgColor,
+            NSColor(calibratedRed: 0.96, green: 0.93, blue: 1.0, alpha: 0.16).cgColor,
+            NSColor(calibratedRed: 0.88, green: 1.0, blue: 0.94, alpha: 0.10).cgColor
+        ]
+        liquidTintLayer.locations = [0.0, 0.48, 1.0]
+        liquidTintLayer.startPoint = CGPoint(x: 0.0, y: 0.0)
+        liquidTintLayer.endPoint = CGPoint(x: 1.0, y: 1.0)
+
+        bottomSheenLayer.colors = [
+            NSColor.clear.cgColor,
+            NSColor.white.withAlphaComponent(0.10).cgColor
+        ]
+        bottomSheenLayer.locations = [0.35, 1.0]
+        bottomSheenLayer.startPoint = CGPoint(x: 0.5, y: 0.0)
+        bottomSheenLayer.endPoint = CGPoint(x: 0.5, y: 1.0)
+
+        layer?.addSublayer(liquidTintLayer)
         layer?.addSublayer(highlightLayer)
+        layer?.addSublayer(bottomSheenLayer)
     }
 
     private func setupPermissionBanner() {
@@ -241,7 +450,11 @@ final class LauncherRootView: NSView {
 
     override func layout() {
         super.layout()
+        liquidTintLayer.frame = bounds
         highlightLayer.frame = bounds
+        bottomSheenLayer.frame = bounds
+        featureGridView.frame.size.width = homeScrollView.contentView.bounds.width
+        featureGridView.needsLayout = true
     }
 
     private func setupLayout() {
@@ -269,14 +482,12 @@ final class LauncherRootView: NSView {
 
         contentContainer.translatesAutoresizingMaskIntoConstraints = false
 
-        featureGridStack.orientation = .horizontal
-        featureGridStack.spacing = 16
-        featureGridStack.alignment = .centerY
-        featureGridStack.distribution = .fillEqually
-        featureGridStack.translatesAutoresizingMaskIntoConstraints = false
-
-        featureGridView.translatesAutoresizingMaskIntoConstraints = false
-        featureGridView.addSubview(featureGridStack)
+        homeScrollView.hasVerticalScroller = true
+        homeScrollView.hasHorizontalScroller = false
+        homeScrollView.drawsBackground = false
+        homeScrollView.borderType = .noBorder
+        homeScrollView.translatesAutoresizingMaskIntoConstraints = false
+        homeScrollView.documentView = featureGridView
 
         resultsStackView.orientation = .vertical
         resultsStackView.spacing = 6
@@ -295,7 +506,7 @@ final class LauncherRootView: NSView {
         loadingLabel.isHidden = true
         loadingLabel.translatesAutoresizingMaskIntoConstraints = false
 
-        contentContainer.addSubview(featureGridView)
+        contentContainer.addSubview(homeScrollView)
         contentContainer.addSubview(resultsScrollView)
         contentContainer.addSubview(loadingLabel)
 
@@ -332,14 +543,10 @@ final class LauncherRootView: NSView {
             contentContainer.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -20),
             contentContainer.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -20),
 
-            featureGridView.topAnchor.constraint(equalTo: contentContainer.topAnchor),
-            featureGridView.leadingAnchor.constraint(equalTo: contentContainer.leadingAnchor, constant: 16),
-            featureGridView.trailingAnchor.constraint(equalTo: contentContainer.trailingAnchor),
-            featureGridView.bottomAnchor.constraint(equalTo: contentContainer.bottomAnchor),
-
-            featureGridStack.topAnchor.constraint(equalTo: featureGridView.topAnchor),
-            featureGridStack.leadingAnchor.constraint(equalTo: featureGridView.leadingAnchor),
-            featureGridStack.trailingAnchor.constraint(lessThanOrEqualTo: featureGridView.trailingAnchor),
+            homeScrollView.topAnchor.constraint(equalTo: contentContainer.topAnchor),
+            homeScrollView.leadingAnchor.constraint(equalTo: contentContainer.leadingAnchor, constant: 16),
+            homeScrollView.trailingAnchor.constraint(equalTo: contentContainer.trailingAnchor),
+            homeScrollView.bottomAnchor.constraint(equalTo: contentContainer.bottomAnchor),
 
             resultsScrollView.topAnchor.constraint(equalTo: contentContainer.topAnchor),
             resultsScrollView.leadingAnchor.constraint(equalTo: contentContainer.leadingAnchor, constant: 16),
@@ -426,7 +633,18 @@ final class LauncherRootView: NSView {
         ])
     }
 
+    func openModuleDetail(for moduleID: ModuleIdentifier) {
+        guard let detail = ModuleDetailRegistry.make(for: moduleID) else { return }
+        presentModuleDetail(detail, moduleID: moduleID)
+    }
+
     func openModuleDetail(for card: FeatureCard, prefillTranslateText: String? = nil) {
+        // Wordbook intentionally opens a dedicated review window instead of an in-panel detail view
+        // (ADR-009): review is a sit-down workflow and must not block the launcher hot path.
+        if card.id == .wordbook, let openReview = LauncherBridge.openWordbookReview {
+            openReview()
+            return
+        }
         guard let detail = ModuleDetailRegistry.make(for: card.id) else {
             searchBar.stringValue = card.triggerKeyword
             searchBar.focus()
@@ -434,9 +652,19 @@ final class LauncherRootView: NSView {
             return
         }
 
+        presentModuleDetail(detail, moduleID: card.id, card: card, prefillTranslateText: prefillTranslateText)
+    }
+
+    private func presentModuleDetail(
+        _ detail: any ModuleDetailView,
+        moduleID: ModuleIdentifier,
+        card: FeatureCard? = nil,
+        prefillTranslateText: String? = nil
+    ) {
         currentDetailObject?.deactivate()
         currentDetailObject?.detailView.removeFromSuperview()
         currentDetailObject = detail
+        currentDetailModuleID = moduleID
 
         let contentView = detail.detailView
         contentView.translatesAutoresizingMaskIntoConstraints = false
@@ -459,25 +687,26 @@ final class LauncherRootView: NSView {
         NSAnimationContext.runAnimationGroup { ctx in
             ctx.duration = 0.128
             ctx.timingFunction = CAMediaTimingFunction(name: .easeOut)
-            featureGridView.animator().alphaValue = 0
+            homeScrollView.animator().alphaValue = 0
             resultsScrollView.animator().alphaValue = 0
             detailContainer.animator().alphaValue = 1
         } completionHandler: { [weak self] in
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 guard self.showingDetail else { return }
-                self.featureGridView.isHidden = true
+                self.homeScrollView.isHidden = true
             }
         }
 
         detail.activate()
 
-        if card.id == .translate, let text = prefillTranslateText ?? pendingTranslateText {
+        if let card, card.id == .translate, let text = prefillTranslateText ?? pendingTranslateText {
             pendingTranslateText = nil
             if let translate = detail as? TranslateDetailView {
                 translate.prefill(text: text, autoTranslate: true)
             }
         }
+        saveCurrentSession()
     }
 
     func openTranslateDetail(with text: String) {
@@ -506,16 +735,17 @@ final class LauncherRootView: NSView {
         currentDetailObject?.deactivate()
         currentDetailObject?.detailView.removeFromSuperview()
         currentDetailObject = nil
+        currentDetailModuleID = nil
         detailTopBar.isHidden = false
 
-        featureGridView.isHidden = false
-        featureGridView.alphaValue = 0
+        homeScrollView.isHidden = false
+        homeScrollView.alphaValue = 0
 
         NSAnimationContext.runAnimationGroup { ctx in
             ctx.duration = 0.128
             ctx.timingFunction = CAMediaTimingFunction(name: .easeOut)
             detailContainer.animator().alphaValue = 0
-            featureGridView.animator().alphaValue = 1
+            homeScrollView.animator().alphaValue = 1
         } completionHandler: { [weak self] in
             Task { @MainActor [weak self] in
                 guard let self else { return }
@@ -524,6 +754,7 @@ final class LauncherRootView: NSView {
                 self.detailContainer.isHidden = true
             }
         }
+        saveHomeSession()
     }
 
     private func renderOpenApps() async {
@@ -541,32 +772,74 @@ final class LauncherRootView: NSView {
             appsByBundleID[bundleID] = appsByBundleID[bundleID] ?? app
         }
         let orderedApps = rankedIDs.prefix(10).compactMap { appsByBundleID[$0] }
-        let frontmostBundleID = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
+        let frontmostApp = NSWorkspace.shared.frontmostApplication
+        let axGranted = AXService.isProcessTrusted()
 
         sidebarStack.arrangedSubviews.forEach { view in
             sidebarStack.removeArrangedSubview(view)
             view.removeFromSuperview()
         }
+
         for app in orderedApps {
             let bundleID = app.bundleIdentifier
-            let row = SidebarAppRow(
+            let appName = app.localizedName ?? bundleID ?? "App"
+            let windows: [OpenWindowSnapshot] = axGranted
+                ? AXService.enumerateWindows(for: app.processIdentifier, appName: appName)
+                : []
+            let icon = IconCache.shared.runningAppIcon(app)
+
+            if windows.count <= 1 {
+                let isActive = bundleID == frontmostApp?.bundleIdentifier
+                let row = SidebarAppRow(app: app, isActive: isActive) { [weak self] in
+                    self?.onActionDismiss()
+                    app.unhide()
+                    app.activate(from: NSRunningApplication.current, options: [.activateAllWindows])
+                }
+                sidebarStack.addArrangedSubview(row)
+                row.widthAnchor.constraint(equalTo: sidebarStack.widthAnchor).isActive = true
+                continue
+            }
+
+            let appIsFrontmost = bundleID == frontmostApp?.bundleIdentifier
+            let appRow = SidebarAppRow(
                 app: app,
-                isActive: bundleID == frontmostBundleID
+                isActive: appIsFrontmost && !windows.contains(where: { $0.isFocused }),
+                windowCount: windows.count
             ) { [weak self] in
                 self?.onActionDismiss()
                 app.unhide()
                 app.activate(from: NSRunningApplication.current, options: [.activateAllWindows])
             }
-            sidebarStack.addArrangedSubview(row)
-            row.widthAnchor.constraint(equalTo: sidebarStack.widthAnchor).isActive = true
+            sidebarStack.addArrangedSubview(appRow)
+            appRow.widthAnchor.constraint(equalTo: sidebarStack.widthAnchor).isActive = true
+
+            for (index, window) in windows.enumerated() {
+                let windowRow = SidebarAppRow(
+                    window: window,
+                    icon: icon,
+                    shortcutIndex: index + 1
+                ) { [weak self] in
+                    guard let self else { return }
+                    self.onActionDismiss()
+                    Task {
+                        await self.actionExecutor.run(
+                            Action(
+                                id: ActionID(module: .windows, key: "sidebar.focus.\(window.windowID)"),
+                                title: "Focus Window",
+                                kind: .focusWindow(windowID: window.windowID, pid: window.pid, title: window.title)
+                            ),
+                            for: ResultID(module: .apps, key: "sidebar.\(window.id)")
+                        )
+                    }
+                }
+                sidebarStack.addArrangedSubview(windowRow)
+                windowRow.widthAnchor.constraint(equalTo: sidebarStack.widthAnchor).isActive = true
+            }
         }
     }
 
     private func renderFeatureCards() {
-        featureGridStack.arrangedSubviews.forEach { view in
-            featureGridStack.removeArrangedSubview(view)
-            view.removeFromSuperview()
-        }
+        featureGridView.subviews.forEach { $0.removeFromSuperview() }
         widgetCards = []
         for (index, card) in sortedCards.enumerated() {
             let widget = WidgetFeatureCard(
@@ -576,9 +849,11 @@ final class LauncherRootView: NSView {
             ) { [weak self] selected in
                 self?.onCardTapped(selected)
             }
+            widget.translatesAutoresizingMaskIntoConstraints = true
             widgetCards.append(widget)
-            featureGridStack.addArrangedSubview(widget)
+            featureGridView.addSubview(widget)
         }
+        featureGridView.cardViews = widgetCards
         refreshCardStatuses()
     }
 
@@ -642,8 +917,8 @@ final class LauncherRootView: NSView {
                 contentContainer.addSubview(resultsScrollView, positioned: .above, relativeTo: detailContainer)
             }
         } else if !showingDetail {
-            featureGridView.isHidden = false
-            featureGridView.alphaValue = 0
+            homeScrollView.isHidden = false
+            homeScrollView.alphaValue = 0
         }
         NSAnimationContext.runAnimationGroup { context in
             context.duration = 0.08
@@ -651,7 +926,7 @@ final class LauncherRootView: NSView {
             if showingDetail {
                 resultsScrollView.animator().alphaValue = showResults ? 1 : 0
             } else {
-                featureGridView.animator().alphaValue = showResults ? 0 : 1
+                homeScrollView.animator().alphaValue = showResults ? 0 : 1
                 resultsScrollView.animator().alphaValue = showResults ? 1 : 0
             }
         } completionHandler: { [weak self] in
@@ -661,7 +936,7 @@ final class LauncherRootView: NSView {
                 guard self.showingResults == showResults else { return }
                 if showResults {
                     if !self.showingDetail {
-                        self.featureGridView.isHidden = true
+                        self.homeScrollView.isHidden = true
                     }
                 } else {
                     self.resultsScrollView.isHidden = true
@@ -729,10 +1004,16 @@ final class LauncherRootView: NSView {
         }
         if let paintMs = LatencyTracker.shared.markFirstPaint() {
             LatencyTelemetry.report(p95Milliseconds: paintMs)
+            if latencyHUDEnabled {
+                latencyHUD.refresh()
+            }
         }
     }
 
-    private func handleTextChange(_ text: String) {
+    func handleTextChange(_ text: String) {
+        ModuleDetailRegistry.isLauncherQueryEmpty = text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        searchBar.setPlaceholder(ModuleSearchHints.placeholder(for: text))
+        saveSearchQuery(text)
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
             if showingResults {
@@ -776,6 +1057,12 @@ final class LauncherRootView: NSView {
         }
     }
 
+    private func updateCardHighlight(index: Int?) {
+        for (cardIndex, widget) in widgetCards.enumerated() {
+            widget.setHighlighted(cardIndex == index)
+        }
+    }
+
     private func handleKeyCommand(_ command: LumaSearchBar.KeyCommand) -> Bool {
         switch command {
         case .down:
@@ -795,8 +1082,10 @@ final class LauncherRootView: NSView {
             return true
         case .commandNumber(let number):
             if !showingResults {
-                if sortedCards.indices.contains(number - 1) {
-                    onCardTapped(sortedCards[number - 1])
+                let index = number - 1
+                updateCardHighlight(index: index)
+                if sortedCards.indices.contains(index) {
+                    onCardTapped(sortedCards[index])
                 }
                 return true
             }

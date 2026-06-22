@@ -21,6 +21,10 @@ public actor TranslateModule: LumaModule {
 
         let text = Self.translationText(from: query.raw)
 
+        if ModuleHelp.isHelpQuery(text) {
+            return ModuleResult(items: ModuleHelp.results(for: Self.manifest.identifier))
+        }
+
         guard !text.isEmpty else { return ModuleResult(items: []) }
         let id = ResultID(module: Self.manifest.identifier, key: Self.resultKey(for: text))
         let item = ResultItem(

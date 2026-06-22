@@ -26,10 +26,14 @@ import LumaCore
     let frame = WindowLayoutEngine.frame(for: .leftHalf, screen: CGRect(x: 0, y: 0, width: 1440, height: 900))
     #expect(frame.width == 720)
 
-    let graph = NotesGraphIndexer.index(files: [
-        "/vault/Luma.md": "Use [[Raycast Patterns]] #product"
-    ])
-    #expect(graph.edges.contains(NoteEdge(from: "/vault/Luma.md", to: "Raycast Patterns", kind: "wiki")))
+    let notesIndex = NotesTreeIndex()
+    let notesRoot = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    try FileManager.default.createDirectory(at: notesRoot, withIntermediateDirectories: true)
+    try "Use [[Raycast Patterns]]".write(to: notesRoot.appendingPathComponent("Luma.md"), atomically: true, encoding: .utf8)
+    await notesIndex.setRoot(notesRoot)
+    await notesIndex.warmup()
+    #expect(await notesIndex.search(fuzzy: "luma").first?.name == "Luma")
+    try? FileManager.default.removeItem(at: notesRoot)
 
     let review = ReviewScheduler.schedule(familiarity: .known, currentStage: 0, wrongCount: 0)
     #expect(review.stage == 1)
@@ -50,11 +54,8 @@ import LumaCore
         Issue.record("Locked vault should not search")
     } catch SecretsVaultError.locked {}
 
-    let graph = NotesGraphIndexer.index(files: [
-        "/vault/Weird.md": "#tag-one [[Unclosed link"
-    ])
-    #expect(graph.nodes.count == 1)
-    #expect(graph.edges.allSatisfy { $0.kind != "wiki" })
+    let notesIndex = NotesTreeIndex()
+    #expect(await notesIndex.search(fuzzy: "weird").isEmpty)
 
     let missingApps = AppIndex(apps: []).search("Safari")
     #expect(missingApps.isEmpty)

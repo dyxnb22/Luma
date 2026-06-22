@@ -23,9 +23,15 @@ import LumaCore
     await store.setClipboardMaxAgeDays(3)
     await store.setClipboardMaxEntrySizeKB(12)
     await store.setTranslationTargetLanguage("zh-Hans")
+    await store.setSecretsAutoClearSeconds(15)
+    await store.setSecretsRelockTimeoutSeconds(120)
+    await store.setSecretsRequireUnlockOnLaunch(false)
 
     #expect(await store.clipboardMaxEntries() == 42)
     #expect(await store.clipboardMaxAgeDays() == 3)
     #expect(await store.clipboardMaxEntrySizeKB() == 12)
     #expect(await store.translationTargetLanguage() == "zh-Hans")
+    #expect(await store.secretsAutoClearSeconds() == 15)
+    #expect(await store.secretsRelockTimeoutSeconds() == 120)
+    #expect(await store.secretsRequireUnlockOnLaunch() == false)
 }

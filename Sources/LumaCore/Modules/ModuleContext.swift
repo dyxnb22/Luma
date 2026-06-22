@@ -42,10 +42,19 @@ public struct QueryContext: Sendable {
 public struct ActionContext: Sendable {
     public let logger: any LoggingClient
     public let metrics: any MetricsClient
+    public let pasteboard: any PasteboardClient
+    public let accessibility: any AccessibilityClient
 
-    public init(logger: any LoggingClient, metrics: any MetricsClient) {
+    public init(
+        logger: any LoggingClient,
+        metrics: any MetricsClient,
+        pasteboard: any PasteboardClient,
+        accessibility: any AccessibilityClient
+    ) {
         self.logger = logger
         self.metrics = metrics
+        self.pasteboard = pasteboard
+        self.accessibility = accessibility
     }
 }
 
@@ -70,6 +79,7 @@ public protocol DatabaseClient: Sendable {}
 
 public protocol PasteboardClient: Sendable {
     func write(_ string: String) async
+    func writeSecure(_ string: String, clearAfterSeconds: Int) async
 }
 
 public protocol AccessibilityClient: Sendable {
@@ -90,4 +100,7 @@ public protocol ConfigurationClient: Sendable {
     func clipboardMaxAgeDays() async -> Int
     func clipboardMaxEntrySizeKB() async -> Int
     func translationTargetLanguage() async -> String
+    func secretsAutoClearSeconds() async -> Int
+    func secretsRelockTimeoutSeconds() async -> Int
+    func secretsRequireUnlockOnLaunch() async -> Bool
 }

@@ -37,6 +37,21 @@ import Testing
     #expect(results.map(\.text) == ["three", "two"])
 }
 
+@Test func clipboardHistoryTTLPrunesExpiredUnpinnedButKeepsPinned() async {
+    let now = Date()
+    let store = ClipboardHistoryStore(maxAge: 10_000)
+    await store.add(text: "expired", types: ["public.text"], now: now.addingTimeInterval(-120))
+    await store.add(text: "pinned expired", types: ["public.text"], now: now.addingTimeInterval(-120))
+    await store.add(text: "fresh", types: ["public.text"], now: now)
+
+    let pinnedID = await store.search("pinned").first!.id
+    await store.pin(pinnedID)
+    await store.updateRetention(maxEntries: 500, maxAge: 60, maxTextBytes: 100 * 1024, now: now)
+
+    let results = await store.search("")
+    #expect(results.map(\.text) == ["pinned expired", "fresh"])
+}
+
 @Test func clipboardHistoryRejectsOversizedText() async {
     let store = ClipboardHistoryStore()
     let huge = String(repeating: "x", count: 101 * 1024)

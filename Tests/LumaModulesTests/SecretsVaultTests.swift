@@ -38,6 +38,32 @@ import Testing
     } catch SecretsVaultError.notFound {}
 }
 
+@Test func secretsVaultUpdateAndDelete() async throws {
+    let vault = makeIsolatedSecretsVault()
+    await vault.unlock()
+    let id = try await vault.save(label: "OpenAI", account: "api", value: "sk-old")
+    try await vault.update(id: id, label: "OpenAI Prod", account: "prod", value: "sk-new")
+    let records = try await vault.allRecords()
+    #expect(records.count == 1)
+    #expect(records.first?.label == "OpenAI Prod")
+    #expect(try await vault.revealValue(id: id) == "sk-new")
+
+    try await vault.update(id: id, label: "OpenAI Prod", account: "prod", value: nil)
+    #expect(try await vault.revealValue(id: id) == "sk-new")
+
+    try await vault.delete(id: id)
+    #expect(try await vault.allRecords().isEmpty)
+}
+
+@Test func secretsVaultAutoRelocks() async throws {
+    let vault = makeIsolatedSecretsVault()
+    await vault.configure(relockTimeoutSeconds: 1)
+    await vault.unlock()
+    #expect(await vault.unlocked())
+    try await Task.sleep(for: .milliseconds(1200))
+    #expect(await vault.unlocked() == false)
+}
+
 private func makeIsolatedSecretsVault() -> SecretsVault {
     let metadataURL = FileManager.default.temporaryDirectory
         .appendingPathComponent(UUID().uuidString)

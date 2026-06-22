@@ -1,5 +1,7 @@
 import Foundation
 import OSLog
+import AppKit
+import LumaCore
 
 @MainActor
 final class LatencyTelemetry {
@@ -31,5 +33,40 @@ final class LatencyTelemetry {
 
     func recentSamples() -> [Double] {
         samples
+    }
+}
+
+@MainActor
+final class LatencyHUDOverlayView: NSView {
+    private let label = NSTextField(labelWithString: "")
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        wantsLayer = true
+        layer?.backgroundColor = NSColor.black.withAlphaComponent(0.55).cgColor
+        layer?.cornerRadius = 6
+        label.font = TypographyTokens.caption(weight: .medium)
+        label.textColor = .white
+        label.alignment = .center
+        label.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(label)
+        NSLayoutConstraint.activate([
+            label.topAnchor.constraint(equalTo: topAnchor, constant: 4),
+            label.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -4),
+            label.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 8),
+            label.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8)
+        ])
+        refresh()
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    func refresh() {
+        let p95 = Int(LatencyTelemetry.shared.currentP95())
+        let count = LatencyTelemetry.shared.recentSamples().count
+        label.stringValue = "p95 \(p95) ms · n=\(count)"
     }
 }

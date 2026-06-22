@@ -11,7 +11,7 @@ For implementation work, read the relevant docs before editing:
 - `docs/ARCHITECTURE.md`
 - `docs/specs/MODULE_CONTRACT.md`
 - `docs/specs/PERFORMANCE.md`
-- `docs/adr/006-launcher-convergence.md`
+- `docs/adr/007-dashboard-widget-single-window.md`
 
 For route-specific work:
 
@@ -25,9 +25,9 @@ There are two documented routes:
 - Route A: Launcher Convergence. Pure launcher, usage-backed empty state, result-focused panel.
 - Route B: Dashboard Widget Single Window. Liquid-glass dashboard panel with sidebar, widget grid, results overlay, and same-panel details.
 
-Current accepted ADR: Route A.
+Current accepted ADR: Route B via `docs/adr/007-dashboard-widget-single-window.md`.
 
-Do not blend both routes in code. If a request implies switching to Route B, add a new ADR that supersedes ADR-006 before route-defining implementation. If the user only asks to preserve/summarize Route B, keep it in docs as an alternative.
+Do not blend both routes in code. Route B is the active implementation route; Route A is historical reference only unless the user explicitly revives it with a new superseding ADR.
 
 ## Non-Negotiables
 
@@ -71,4 +71,3 @@ Report commands run and failures honestly.
 ## Review Posture
 
 When asked for review, lead with bugs and risks, ordered by severity, with file/line references. Prioritize route drift, hot-path latency, persistence corruption, permissions, security leaks, and missing tests.
-

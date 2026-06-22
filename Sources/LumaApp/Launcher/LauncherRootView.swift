@@ -1,5 +1,6 @@
 import AppKit
 import LumaCore
+import LumaServices
 
 @MainActor
 final class LauncherRootView: NSView {
@@ -29,6 +30,9 @@ final class LauncherRootView: NSView {
     private let detailTitleLabel = NSTextField(labelWithString: "")
     private var currentDetailObject: (any ModuleDetailView)?
     private var showingDetail = false
+    private let permissionBanner = NSView()
+    private let permissionBannerLabel = NSTextField(labelWithString: "")
+    private var permissionBannerHeight: NSLayoutConstraint?
 
     init(
         cards: [FeatureCard],
@@ -56,6 +60,7 @@ final class LauncherRootView: NSView {
 
         setupGlassChrome()
         setupLayout()
+        setupPermissionBanner()
         showHome()
     }
 
@@ -94,6 +99,7 @@ final class LauncherRootView: NSView {
         renderFeatureCards()
         loadingLabel.isHidden = modulesReady
         refreshOpenApps()
+        refreshPermissionBanner()
         focusSearchField()
     }
 
@@ -136,6 +142,55 @@ final class LauncherRootView: NSView {
         highlightLayer.startPoint = CGPoint(x: 0.5, y: 0)
         highlightLayer.endPoint = CGPoint(x: 0.5, y: 1)
         layer?.addSublayer(highlightLayer)
+    }
+
+    private func setupPermissionBanner() {
+        permissionBanner.wantsLayer = true
+        permissionBanner.layer?.backgroundColor = NSColor.systemYellow.withAlphaComponent(0.12).cgColor
+        permissionBanner.layer?.cornerRadius = 8
+        permissionBanner.layer?.cornerCurve = .continuous
+        permissionBanner.translatesAutoresizingMaskIntoConstraints = false
+
+        permissionBannerLabel.stringValue = "Accessibility permission needed for Focus Window and Paste."
+        permissionBannerLabel.font = .systemFont(ofSize: 12, weight: .medium)
+        permissionBannerLabel.textColor = .labelColor
+        permissionBannerLabel.translatesAutoresizingMaskIntoConstraints = false
+
+        let actionButton = NSButton(title: "Grant", target: self, action: #selector(grantPermission))
+        actionButton.bezelStyle = .rounded
+        actionButton.font = .systemFont(ofSize: 12, weight: .medium)
+        actionButton.translatesAutoresizingMaskIntoConstraints = false
+
+        permissionBanner.addSubview(permissionBannerLabel)
+        permissionBanner.addSubview(actionButton)
+        addSubview(permissionBanner)
+
+        permissionBannerHeight = permissionBanner.heightAnchor.constraint(equalToConstant: 0)
+        NSLayoutConstraint.activate([
+            permissionBanner.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 20),
+            permissionBanner.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -20),
+            permissionBanner.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -8),
+            permissionBannerHeight!,
+
+            permissionBannerLabel.leadingAnchor.constraint(equalTo: permissionBanner.leadingAnchor, constant: 12),
+            permissionBannerLabel.centerYAnchor.constraint(equalTo: permissionBanner.centerYAnchor),
+
+            actionButton.trailingAnchor.constraint(equalTo: permissionBanner.trailingAnchor, constant: -8),
+            actionButton.centerYAnchor.constraint(equalTo: permissionBanner.centerYAnchor)
+        ])
+    }
+
+    @objc private func grantPermission() {
+        AXService.requestPermission()
+        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
+            NSWorkspace.shared.open(url)
+        }
+    }
+
+    private func refreshPermissionBanner() {
+        let granted = AXService.isProcessTrusted()
+        permissionBannerHeight?.constant = granted ? 0 : 36
+        permissionBanner.isHidden = granted
     }
 
     override func layout() {
@@ -412,10 +467,11 @@ final class LauncherRootView: NSView {
         }
         let bundleIDs = runningApps.compactMap(\.bundleIdentifier)
         let rankedIDs = await appActivationTracker.rankedBundleIDs(from: bundleIDs)
-        let appsByBundleID = Dictionary(uniqueKeysWithValues: runningApps.compactMap { app -> (String, NSRunningApplication)? in
-            guard let bundleID = app.bundleIdentifier else { return nil }
-            return (bundleID, app)
-        })
+        var appsByBundleID: [String: NSRunningApplication] = [:]
+        for app in runningApps {
+            guard let bundleID = app.bundleIdentifier else { continue }
+            appsByBundleID[bundleID] = appsByBundleID[bundleID] ?? app
+        }
         let orderedApps = rankedIDs.prefix(10).compactMap { appsByBundleID[$0] }
         let frontmostBundleID = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
 
@@ -426,7 +482,7 @@ final class LauncherRootView: NSView {
                 app: app,
                 isActive: bundleID == frontmostBundleID
             ) {
-                _ = app.activate()
+                app.activate(from: NSRunningApplication.current, options: [.activateAllWindows])
             }
             sidebarStack.addArrangedSubview(row)
         }
@@ -532,11 +588,9 @@ final class LauncherRootView: NSView {
                 updateSelection(to: preservedIndex)
             }
         }
-        #if DEBUG
-        if let p95 = viewModel.p95LatencyMilliseconds(for: snapshot.querySequence) {
-            LatencyTelemetry.report(p95Milliseconds: p95)
+        if let paintMs = LatencyTracker.shared.markFirstPaint() {
+            LatencyTelemetry.report(p95Milliseconds: paintMs)
         }
-        #endif
     }
 
     private func handleTextChange(_ text: String) {

@@ -41,6 +41,7 @@ final class MenuBarController {
     private func configure() {
         menu.addItem(NSMenuItem(title: "Show Luma", action: #selector(show), keyEquivalent: ""))
         menu.addItem(NSMenuItem(title: "Settings...", action: #selector(settings), keyEquivalent: ","))
+        menu.addItem(NSMenuItem(title: "About Luma", action: #selector(showAbout), keyEquivalent: ""))
         menu.addItem(.separator())
         menu.addItem(NSMenuItem(title: "Quit Luma", action: #selector(quit), keyEquivalent: "q"))
 
@@ -57,6 +58,16 @@ final class MenuBarController {
 
     @objc private func settings() {
         onSettings()
+    }
+
+    @objc private func showAbout() {
+        let alert = NSAlert()
+        alert.messageText = "Luma"
+        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.1.0"
+        alert.informativeText = "Version \(version)\n\nNative macOS launcher. Data stored locally at ~/Library/Application Support/Luma."
+        alert.alertStyle = .informational
+        alert.addButton(withTitle: "OK")
+        alert.runModal()
     }
 
     @objc private func quit() {

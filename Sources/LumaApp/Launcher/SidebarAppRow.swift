@@ -16,6 +16,9 @@ final class SidebarAppRow: NSControl {
         setup(app: app)
         target = self
         action = #selector(activate)
+        setAccessibilityRole(.button)
+        setAccessibilityLabel(app.localizedName ?? "Application")
+        setAccessibilityHelp("Activates this application.")
     }
 
     @available(*, unavailable)

@@ -21,6 +21,11 @@ final class WidgetResultRow: NSControl {
         setup()
         target = self
         action = #selector(run)
+        setAccessibilityRole(.button)
+        setAccessibilityLabel(item.title)
+        if let subtitle = item.subtitle, !subtitle.isEmpty {
+            setAccessibilityHelp(subtitle)
+        }
     }
 
     @available(*, unavailable)

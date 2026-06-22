@@ -7,13 +7,8 @@ public enum BuiltInModules {
             WindowsModule(),
             ClipboardModule(),
             CommandsModule(),
-            TodoModule(),
             CalculatorModule(),
-            TranslateModule(),
-            SecretsModule(),
-            WindowLayoutsModule(),
-            NotesModule(),
-            WordbookModule()
+            TranslateModule()
         ]
     }
 }

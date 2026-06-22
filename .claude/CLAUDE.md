@@ -7,11 +7,10 @@ Claude should act as Luma's product strategist, architecture reviewer, and plann
 Start with:
 
 1. `docs/strategy/PRODUCT_ROUTE_OPTIONS.md`
-2. `docs/adr/006-launcher-convergence.md`
-3. `docs/strategy/LAUNCHER_CONVERGENCE_STRATEGY.md`
-4. `docs/strategy/DASHBOARD_WIDGET_STRATEGY.md`
-5. `docs/ENGINEERING_PACKAGE.md`
-6. `docs/specs/PERFORMANCE.md`
+2. `docs/adr/007-dashboard-widget-single-window.md`
+3. `docs/strategy/DASHBOARD_WIDGET_STRATEGY.md`
+4. `docs/ENGINEERING_PACKAGE.md`
+5. `docs/specs/PERFORMANCE.md`
 
 ## Route Discipline
 
@@ -20,14 +19,9 @@ Luma has two documented routes:
 - Route A: Launcher Convergence. Pure launcher, no dashboard, no in-panel detail pages.
 - Route B: Dashboard Widget Single Window. Liquid-glass dashboard with sidebar, widget cards, result overlay, and same-panel details.
 
-Current accepted ADR: Route A.
+Current accepted ADR: Route B via `docs/adr/007-dashboard-widget-single-window.md`.
 
-Do not casually merge the two routes. When proposing work, state which route the proposal follows. If recommending a switch to Route B, explicitly describe:
-
-- why ADR-006 should be superseded
-- what UX/state-machine costs are accepted
-- which existing docs/tests/code need migration
-- the new P0/P1 implementation plan
+Do not casually merge the two routes. Route B is the active implementation route. Route A is historical reference only unless the user explicitly revives it with a new superseding ADR.
 
 ## Product Strategy Bias
 
@@ -72,4 +66,3 @@ For major planning requests, return:
 - docs that must be updated
 
 Do not only produce feature lists. Always include what not to do.
-

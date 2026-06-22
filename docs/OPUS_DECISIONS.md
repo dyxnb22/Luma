@@ -6,10 +6,10 @@ These decisions answer the previous open questions and are now in force for Luma
 
 - Name: Luma.
 - Scope: strictly personal. Do not add public-distribution scaffolding, onboarding flows, telemetry consent, localization, or updater infrastructure.
-- Active strategic direction: pure launcher convergence. The panel should prioritize Command+Space -> query -> result -> action over dashboard/workbench breadth.
-- Dashboard/widget single-window route is documented as an alternative. If selected, create a superseding ADR instead of silently mixing both routes.
+- Active strategic direction: Route B, Dashboard Widget Single Window, per ADR-007. The panel should prioritize Command+Space -> lightweight dashboard/search -> action/detail without becoming a heavy workbench.
+- Route A pure launcher convergence is historical reference only unless revived by a future superseding ADR.
 - MVP fifth module: Calculator.
-- TODO and Translate move to v1.1.
+- Active core modules: Apps, Windows, Clipboard, Commands, Calculator, Translate.
 - Default hotkey: Command+Space.
 - Menu bar item ships in Phase 0 with Show Luma, Settings..., and Quit Luma.
 
@@ -26,20 +26,20 @@ These decisions answer the previous open questions and are now in force for Luma
 
 ## Architecture
 
-- Use GRDB from Phase 2, not JSON/UserDefaults.
-- Module registration remains a manual list in `AppCoordinator`.
+- Current persistence uses local JSON/UserDefaults/Keychain/App Support files. Do not claim GRDB/SQLite is active until a dedicated migration lands.
+- Module registration remains a manual list through `BuiltInModules` plus app-coordinator-owned shared instances where needed.
 - macOS 14+ only.
-- Translation uses Apple's framework only when it lands; no HTTP provider abstraction on day one.
+- Translation uses system translation on supported macOS versions and Shortcuts fallback where needed; no HTTP provider abstraction in v1.
 
 ## UX
 
-- Empty query shows recent/frequent results, top 8, using frecency ranking with fuzzy treated as 1.0.
-- Do not use the launcher panel as a dashboard or module detail surface.
+- Empty query shows the dashboard: open-app sidebar, core widget cards, and no stale result list.
+- Use same-panel module detail surfaces for core dashboard cards.
 - Panel hides before action completion, in the same runloop turn as Return.
 - `secondaryActions` model ships in v1.
-- Cmd+Return activates `secondaryActions.first` when present.
+- Tab activates `secondaryActions.first` when present.
 - Full secondary-action chooser UI is deferred to v1.1.
-- Visual density: 8 rows at 56 pt.
+- Visual density: keep result rows compact and stable; dashboard cards are limited to the active core set.
 
 ## Testing and Release
 
@@ -51,6 +51,6 @@ These decisions answer the previous open questions and are now in force for Luma
 
 ## Propagated Changes
 
-- `TodoModule` may exist as a stub, but is not default-enabled in v1.
-- `CalculatorModule` is the v1 personal-workbench module.
-- `TranslationService` may exist as a future boundary, but there is no Translate module in v1.
+- `TodoModule`, `SecretsModule`, `WindowLayoutsModule`, `NotesModule`, and `WordbookModule` may remain in source, but they are not warmed up in the active core dashboard.
+- `CalculatorModule` and `TranslateModule` are active core modules.
+- Deferred modules need explicit product acceptance before re-entering `BuiltInModules.makeAll()`.

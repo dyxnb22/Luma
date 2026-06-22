@@ -22,7 +22,12 @@ public actor AppActivationTracker {
     public init(url: URL, coalesceWindow: Duration = .seconds(1)) {
         self.url = url
         self.coalesceWindow = coalesceWindow
-        self.records = (try? Self.load(from: url)) ?? [:]
+        do {
+            self.records = try Self.load(from: url)
+        } catch {
+            self.records = [:]
+            Self.quarantineCorruptFile(at: url)
+        }
     }
 
     public static func defaultTracker(fileManager: FileManager = .default) -> AppActivationTracker {
@@ -91,5 +96,14 @@ public actor AppActivationTracker {
         let data = try Data(contentsOf: url)
         let decoded = try JSONDecoder().decode([AppActivationRecord].self, from: data)
         return Dictionary(uniqueKeysWithValues: decoded.map { ($0.bundleID, $0) })
+    }
+
+    private static func quarantineCorruptFile(at url: URL) {
+        let fm = FileManager.default
+        guard fm.fileExists(atPath: url.path) else { return }
+        let ts = Int(Date().timeIntervalSince1970)
+        let backup = url.deletingLastPathComponent()
+            .appendingPathComponent(url.lastPathComponent + ".corrupt-\(ts).bak")
+        try? fm.moveItem(at: url, to: backup)
     }
 }

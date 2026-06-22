@@ -5,6 +5,15 @@ import Foundation
 import LumaCore
 
 public actor AXService: AccessibilityClient {
+    public nonisolated static func isProcessTrusted() -> Bool {
+        AXIsProcessTrusted()
+    }
+
+    public nonisolated static func requestPermission() {
+        let opts = ["AXTrustedCheckOptionPrompt": true] as NSDictionary
+        _ = AXIsProcessTrustedWithOptions(opts)
+    }
+
     public init() {}
 
     public func focus(windowID: UInt32, pid: Int32, title: String) async {
@@ -43,7 +52,9 @@ public actor AXService: AccessibilityClient {
         AXUIElementSetAttributeValue(window, kAXFocusedAttribute as CFString, kCFBooleanTrue)
         // NSRunningApplication.activate is documented as thread-safe; hop to MainActor for AppKit consistency.
         _ = await MainActor.run {
-            NSRunningApplication(processIdentifier: pid)?.activate(options: [.activateAllWindows])
+            if let app = NSRunningApplication(processIdentifier: pid) {
+                app.activate(from: NSRunningApplication.current, options: [.activateAllWindows])
+            }
         }
     }
 

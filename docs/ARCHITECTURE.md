@@ -2,7 +2,7 @@
 
 ## Shape
 
-Luma is a single native macOS app with a pre-instantiated AppKit launcher panel, a card dashboard, a timeout-protected query dispatcher, in-process actor modules, shared services, and local SQLite persistence.
+Luma is a single native macOS app with a pre-instantiated AppKit dashboard launcher panel, a timeout-protected query dispatcher, in-process actor modules, shared services, and local-first persistence in Application Support, UserDefaults, and Keychain.
 
 ```mermaid
 flowchart TD
@@ -17,20 +17,12 @@ flowchart TD
     Dispatcher --> Clipboard["ClipboardModule"]
     Dispatcher --> Commands["CommandsModule"]
     Dispatcher --> Translate["TranslateModule"]
-    Dispatcher --> Secrets["SecretsModule"]
-    Dispatcher --> Layouts["WindowLayoutsModule"]
-    Dispatcher --> Notes["NotesModule"]
-    Dispatcher --> Wordbook["WordbookModule"]
     Dispatcher --> Calculator["CalculatorModule"]
     Apps --> Services["ModuleContext services"]
     Windows --> Services
     Clipboard --> Services
     Commands --> Services
     Translate --> Services
-    Secrets --> Services
-    Layouts --> Services
-    Notes --> Services
-    Wordbook --> Services
     Calculator --> Services
     VM --> Executor["ActionExecutor actor"]
     Executor --> Services
@@ -50,11 +42,11 @@ flowchart TD
 
 - Translate: typed/clipboard/selected-text translation.
 - Clipboard History: local clipboard search with sensitive filtering.
-- Secrets Vault: locked key/password/token records.
-- Window Layouts: Accessibility-backed app/window splitting.
-- Notes Graph: Markdown vault tree, backlinks, tags, and graph index.
-- Wordbook: vocabulary review migrated from wordbot.
-- Dashboard Cards: draggable module cards with edit controls.
+- Apps: app search and launch.
+- Windows: Accessibility-backed window discovery and focus.
+- Commands: built-in app commands such as reload and quit.
+- Dashboard Cards: active core module entry points.
+- Deferred modules in source but not warmed up: Secrets Vault, Window Layouts, Notes Graph, Wordbook, Todo.
 
 ## Data Flow
 
@@ -68,11 +60,10 @@ flowchart TD
 
 ## Card Flow
 
-1. `FeatureCatalog.defaultCards()` provides default card descriptors.
-2. Dashboard reads persisted card layout.
-3. User drags cards to reorder.
-4. Layout is persisted by `ModuleIdentifier`.
-5. Edit button opens the feature's management surface.
+1. `FeatureCatalog.dashboardCoreCards()` provides the active four dashboard card descriptors.
+2. `CardLayoutStore` reads persisted card layout by `ModuleIdentifier`.
+3. Card activation opens a same-panel detail view where the module has registered one.
+4. Drag/reorder editing remains a product polish item unless the current code path explicitly implements it.
 
 ## Boundary Rules
 

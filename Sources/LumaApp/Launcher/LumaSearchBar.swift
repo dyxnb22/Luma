@@ -76,7 +76,25 @@ final class LumaSearchBar: NSView {
 
 extension LumaSearchBar: NSTextFieldDelegate {
     func controlTextDidChange(_ obj: Notification) {
+        let now = CFAbsoluteTimeGetCurrent()
+        LatencyTracker.shared.markKeystroke(at: now)
         onTextChange?(textField.stringValue)
+    }
+}
+
+@MainActor
+final class LatencyTracker {
+    static let shared = LatencyTracker()
+    private var lastKeystroke: CFAbsoluteTime?
+
+    func markKeystroke(at time: CFAbsoluteTime) {
+        lastKeystroke = time
+    }
+
+    func markFirstPaint() -> Double? {
+        guard let last = lastKeystroke else { return nil }
+        lastKeystroke = nil
+        return (CFAbsoluteTimeGetCurrent() - last) * 1000
     }
 }
 

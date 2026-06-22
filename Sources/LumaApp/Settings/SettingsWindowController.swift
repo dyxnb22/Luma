@@ -2,6 +2,7 @@ import AppKit
 import LumaCore
 import LumaInfrastructure
 import LumaModules
+import LumaServices
 
 struct SettingsSnapshot {
     var enabledModules: Set<ModuleIdentifier>
@@ -29,7 +30,7 @@ final class SettingsWindowController {
             if let window {
                 (window.contentView as? SettingsRootView)?.apply(snapshot)
                 window.makeKeyAndOrderFront(nil)
-                NSApp.activate(ignoringOtherApps: true)
+                NSApp.activate()
                 return
             }
 
@@ -46,7 +47,7 @@ final class SettingsWindowController {
             window.isReleasedWhenClosed = false
             self.window = window
             window.makeKeyAndOrderFront(nil)
-            NSApp.activate(ignoringOtherApps: true)
+            NSApp.activate()
         }
     }
 
@@ -112,10 +113,10 @@ final class SettingsRootView: NSView {
 
         stack.addArrangedSubview(sectionTitle("Luma Settings"))
         stack.addArrangedSubview(sectionTitle("Hotkey"))
-        let hotkey = NSTextField(wrappingLabelWithString: "Command+Space. If registration fails, disable the Spotlight shortcut in System Settings.")
-        hotkey.font = .systemFont(ofSize: 13)
-        hotkey.textColor = .secondaryLabelColor
-        stack.addArrangedSubview(hotkey)
+        let hotkeyHint = NSTextField(wrappingLabelWithString: "Command+Space is fixed as Luma's primary launcher hotkey. Disable the system Spotlight shortcut if registration is blocked.")
+        hotkeyHint.font = .systemFont(ofSize: 12)
+        hotkeyHint.textColor = .secondaryLabelColor
+        stack.addArrangedSubview(hotkeyHint)
 
         stack.addArrangedSubview(sectionTitle("Modules"))
         for module in snapshot.modules {
@@ -140,6 +141,19 @@ final class SettingsRootView: NSView {
         translationField.target = self
         translationField.action = #selector(translationTargetChanged)
         stack.addArrangedSubview(labeledField("Target language", field: translationField))
+
+        stack.addArrangedSubview(sectionTitle("Accessibility"))
+        let axRow = NSStackView()
+        axRow.orientation = .horizontal
+        axRow.spacing = 10
+        let axLabel = NSTextField(labelWithString: AXService.isProcessTrusted() ? "Granted ✓" : "Not granted")
+        axLabel.font = .systemFont(ofSize: 13)
+        axLabel.textColor = AXService.isProcessTrusted() ? .systemGreen : .secondaryLabelColor
+        let axButton = NSButton(title: "Open System Settings", target: self, action: #selector(openAXSettings))
+        axButton.bezelStyle = .rounded
+        axRow.addArrangedSubview(axLabel)
+        axRow.addArrangedSubview(axButton)
+        stack.addArrangedSubview(axRow)
 
         NSLayoutConstraint.activate([
             scroll.topAnchor.constraint(equalTo: topAnchor),
@@ -174,6 +188,13 @@ final class SettingsRootView: NSView {
         let value = translationField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !value.isEmpty else { return }
         Task { await config.setTranslationTargetLanguage(value) }
+    }
+
+    @objc private func openAXSettings() {
+        AXService.requestPermission()
+        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
+            NSWorkspace.shared.open(url)
+        }
     }
 
     private func sectionTitle(_ text: String) -> NSTextField {

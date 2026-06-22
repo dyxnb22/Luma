@@ -49,6 +49,20 @@ public actor ClipboardModule: LumaModule {
         return ModuleResult(items: entries.map(result))
     }
 
+    public func recentEntries(limit: Int = 50) async -> [ClipboardEntry] {
+        await store.search("", limit: limit)
+    }
+
+    public func togglePin(_ id: UUID) async {
+        let current = await store.search("", limit: 500)
+        guard let entry = current.first(where: { $0.id == id }) else { return }
+        await store.pin(id, isPinned: !entry.isPinned)
+    }
+
+    public func remove(_ id: UUID) async {
+        await store.removeEntry(id)
+    }
+
     private func startPolling() {
         pollingTask?.cancel()
         pollingTask = Task { [weak self] in

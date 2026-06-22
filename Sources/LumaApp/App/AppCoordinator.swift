@@ -94,7 +94,7 @@ final class AppCoordinator {
             let hotkeyController = try HotkeyController {
                 self.windowController.toggle()
             }
-            try hotkeyController.register(HotkeyConfig.defaultCombo)
+            try hotkeyController.register(HotkeyConfig.load())
             self.hotkeyController = hotkeyController
             menuBarController?.markHotkeyOK()
         } catch {
@@ -104,8 +104,16 @@ final class AppCoordinator {
             menuBarController?.markHotkeyFailed()
         }
 
+        let clipboardModule = ClipboardModule()
+        ModuleDetailRegistry.clipboardModule = clipboardModule
+        ModuleDetailRegistry.translation = translation
+        ModuleDetailRegistry.accessibility = accessibility
+
         Task {
-            for module in BuiltInModules.makeAll() {
+            var modules = BuiltInModules.makeAll()
+            modules.removeAll { type(of: $0).manifest.identifier == .clipboard }
+            modules.append(clipboardModule)
+            for module in modules {
                 await host.register(module)
             }
             await host.applyEnabledSet(await config.enabledModules())

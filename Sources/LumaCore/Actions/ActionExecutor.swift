@@ -45,8 +45,13 @@ public actor ActionExecutor {
             case .applyWindowLayout(let preset):
                 await accessibility.applyWindowLayout(preset)
             case .translateText(let text):
-                let translated = try await translation.translate(text)
-                await pasteboard.write(translated)
+                do {
+                    let translated = try await translation.translate(text)
+                    await pasteboard.write(translated)
+                } catch {
+                    await context.logger.error("Translation failed for \(text.prefix(20)): \(error)")
+                    throw error
+                }
             case .launchApp(let url):
                 await MainActor.run {
                     let configuration = NSWorkspace.OpenConfiguration()

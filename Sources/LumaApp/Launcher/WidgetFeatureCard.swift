@@ -21,6 +21,9 @@ final class WidgetFeatureCard: NSView {
         setupGradient()
         setupContent()
         setupTracking()
+        setAccessibilityRole(.button)
+        setAccessibilityLabel(card.title)
+        setAccessibilityHelp("Opens \(card.title) module. Shortcut Command \(shortcutIndex).")
     }
 
     @available(*, unavailable)

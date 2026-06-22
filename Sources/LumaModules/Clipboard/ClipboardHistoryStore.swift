@@ -26,10 +26,14 @@ public actor ClipboardHistoryStore {
         self.maxAge = maxAge
         self.maxTextBytes = maxTextBytes
         self.persistenceURL = persistenceURL
-        if let persistenceURL,
-           let data = try? Data(contentsOf: persistenceURL),
-           let decoded = try? JSONDecoder().decode([ClipboardEntry].self, from: data) {
-            self.entries = decoded
+        if let persistenceURL {
+            do {
+                let data = try Data(contentsOf: persistenceURL)
+                self.entries = try JSONDecoder().decode([ClipboardEntry].self, from: data)
+            } catch {
+                self.entries = []
+                Self.quarantineCorruptFile(at: persistenceURL)
+            }
         }
     }
 
@@ -62,6 +66,11 @@ public actor ClipboardHistoryStore {
         persist()
     }
 
+    public func removeEntry(_ id: UUID) {
+        entries.removeAll { $0.id == id }
+        persist()
+    }
+
     private func prune(now: Date) {
         let cutoff = now.addingTimeInterval(-maxAge)
         entries.removeAll { !$0.isPinned && $0.createdAt < cutoff }
@@ -78,5 +87,14 @@ public actor ClipboardHistoryStore {
         if let data = try? JSONEncoder().encode(entries) {
             try? data.write(to: persistenceURL, options: .atomic)
         }
+    }
+
+    private static func quarantineCorruptFile(at url: URL) {
+        let fm = FileManager.default
+        guard fm.fileExists(atPath: url.path) else { return }
+        let ts = Int(Date().timeIntervalSince1970)
+        let backup = url.deletingLastPathComponent()
+            .appendingPathComponent(url.lastPathComponent + ".corrupt-\(ts).bak")
+        try? fm.moveItem(at: url, to: backup)
     }
 }

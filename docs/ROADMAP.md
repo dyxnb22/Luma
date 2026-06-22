@@ -1,27 +1,28 @@
 # Roadmap
 
-This roadmap has been superseded by the launcher convergence strategy for v1 planning. Keep this file as historical phase context, but use these active documents for current implementation:
+Active route: Route B (Dashboard Widget Single Window) per ADR-007.
 
-- `docs/strategy/LAUNCHER_CONVERGENCE_STRATEGY.md`
-- `docs/strategy/CONVERGENCE_EXECUTION_PLAN.md`
-- `docs/strategy/PRODUCT_ROUTE_OPTIONS.md`
-
-If the dashboard/widget route is explicitly chosen instead, use:
+Implementation reference:
 
 - `docs/strategy/DASHBOARD_WIDGET_STRATEGY.md`
 - `docs/strategy/DASHBOARD_WIDGET_CURSOR_PLAN.md`
+- `docs/strategy/DASHBOARD_WIDGET_POLISH_PLAN.md`
+
+Route A (`docs/strategy/LAUNCHER_CONVERGENCE_STRATEGY.md`, `CONVERGENCE_EXECUTION_PLAN.md`) is preserved as historical reference only; do not implement against it without superseding ADR-007.
 
 ## Current Strategic Roadmap
 
 | Version | Focus | Do | Do Not Do |
 | --- | --- | --- | --- |
-| 0.1 Daily self-use | Pure launcher | Remove dashboard from panel, usage-backed empty state, App Search, Window Focus, Clipboard, Translate, Calculator | Plugin API, dashboard, Notes Graph, Wordbook, Secrets as first-class UX |
-| 0.2 Stability | Persistence and settings | Namespaced persistence, interactive Settings, corrupt-data recovery, perf gates | XPC, runtime plugins |
-| 0.3 Command depth | Scripted commands and action chooser | `ScriptedCommandsModule`, SpotlightService, Tab action chooser | Marketplace, JS/Lua runtime |
-| 0.5 Architecture | Lifecycle and scale | EventBus, ResidencyController, optional SQLite thresholds | Premature XPC |
+| 0.1 Daily self-use | Dashboard Widget shell | Keep Route B single window, App Search, Window Focus, Clipboard, Commands, Calculator, Translate, same-panel details | Plugin API, Notes Graph, Wordbook, Secrets as first-class UX |
+| 0.2 Stability | Persistence and settings | Namespaced Application Support persistence, interactive Settings, corrupt-data recovery, perf gates | XPC, runtime plugins, schema migration churn without need |
+| 0.3 Command depth | Action depth | Secondary action chooser, better result grouping, stronger command ergonomics | Marketplace, JS/Lua runtime |
+| 0.5 Architecture | Lifecycle and scale | ResidencyController, module lifecycle budgets, optional SQLite only if JSON files become insufficient | Premature XPC |
 | 1.0 Maintainable app | Polish and distribution | Signed/notarized app, docs, repeatable release | Cloud sync, telemetry, broad public platform scope |
 
-## Historical Roadmap
+## Historical Phase Notes
+
+These phase notes are preserved for context. Treat the current code and ADR-007 as authoritative when they differ.
 
 ## Phase 0: Skeleton
 
@@ -40,7 +41,7 @@ If the dashboard/widget route is explicitly chosen instead, use:
 - Rounded card dashboard with edit buttons.
 - Drag-to-reorder card position model.
 - Keyboard navigation.
-- Fake static results.
+- Early fake static results, replaced by real module query dispatch.
 - Snapshot diffing.
 - Gate: fake keystroke -> paint p95 <= 30 ms.
 
@@ -48,7 +49,7 @@ If the dashboard/widget route is explicitly chosen instead, use:
 
 - Fuzzy matcher and ranker.
 - Usage tracker.
-- GRDB integration.
+- Local persistence. Current implementation uses JSON/UserDefaults/Keychain; SQLite remains optional, not active.
 - Feature card layout persistence.
 - Apps and Commands modules.
 - First daily-dogfood build.

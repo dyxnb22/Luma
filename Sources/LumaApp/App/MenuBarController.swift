@@ -12,14 +12,24 @@ final class MenuBarController {
         self.onShow = onShow
         self.onSettings = onSettings
         configure()
+        markHotkeyOK()
     }
 
-    func update(hotkeyOK: Bool) {
-        statusItem.button?.title = hotkeyOK ? "L" : "⚠"
-        if hotkeyOK {
-            hotkeyWarningItem?.isHidden = true
-        } else if hotkeyWarningItem == nil {
-            let item = NSMenuItem(title: "Hotkey blocked (Spotlight?)", action: nil, keyEquivalent: "")
+    func markHotkeyOK() {
+        statusItem.button?.title = ""
+        let config = NSImage.SymbolConfiguration(pointSize: 14, weight: .semibold)
+        statusItem.button?.image = NSImage(systemSymbolName: "command", accessibilityDescription: "Luma")?
+            .withSymbolConfiguration(config)
+        hotkeyWarningItem?.isHidden = true
+    }
+
+    func markHotkeyFailed() {
+        statusItem.button?.title = ""
+        let config = NSImage.SymbolConfiguration(pointSize: 14, weight: .semibold)
+        statusItem.button?.image = NSImage(systemSymbolName: "exclamationmark.triangle.fill", accessibilityDescription: "Hotkey failed")?
+            .withSymbolConfiguration(config)
+        if hotkeyWarningItem == nil {
+            let item = NSMenuItem(title: "Hotkey not registered. Disable Spotlight's ⌘+Space.", action: nil, keyEquivalent: "")
             item.isEnabled = false
             menu.insertItem(item, at: 1)
             hotkeyWarningItem = item
@@ -29,8 +39,6 @@ final class MenuBarController {
     }
 
     private func configure() {
-        statusItem.button?.title = "L"
-
         menu.addItem(NSMenuItem(title: "Show Luma", action: #selector(show), keyEquivalent: ""))
         menu.addItem(NSMenuItem(title: "Settings...", action: #selector(settings), keyEquivalent: ","))
         menu.addItem(.separator())

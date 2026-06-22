@@ -1,6 +1,6 @@
 import Foundation
 
-public struct AppRecord: Sendable, Hashable {
+public struct AppRecord: Sendable, Hashable, Codable {
     public let name: String
     public let bundleID: String
     public let url: URL

@@ -1,5 +1,17 @@
 import Foundation
 
+public struct WidgetCardStyle: Sendable, Hashable {
+    public let symbolName: String
+    public let topHex: String
+    public let bottomHex: String
+
+    public init(symbolName: String, topHex: String, bottomHex: String) {
+        self.symbolName = symbolName
+        self.topHex = topHex
+        self.bottomHex = bottomHex
+    }
+}
+
 public struct FeatureCard: Identifiable, Sendable, Hashable {
     public enum SizeMode: String, Sendable, Codable {
         case compact
@@ -15,25 +27,32 @@ public struct FeatureCard: Identifiable, Sendable, Hashable {
     public var sizeMode: SizeMode
     public var position: CardPosition
     public var editAction: Action?
+    public var widgetStyle: WidgetCardStyle?
+
+    public let triggerKeyword: String
 
     public init(
         id: ModuleIdentifier,
         title: String,
         subtitle: String,
         icon: IconRef,
+        triggerKeyword: String = "",
         isEnabled: Bool = true,
         sizeMode: SizeMode = .normal,
         position: CardPosition = .zero,
-        editAction: Action? = nil
+        editAction: Action? = nil,
+        widgetStyle: WidgetCardStyle? = nil
     ) {
         self.id = id
         self.title = title
         self.subtitle = subtitle
         self.icon = icon
+        self.triggerKeyword = triggerKeyword
         self.isEnabled = isEnabled
         self.sizeMode = sizeMode
         self.position = position
         self.editAction = editAction
+        self.widgetStyle = widgetStyle
     }
 }
 

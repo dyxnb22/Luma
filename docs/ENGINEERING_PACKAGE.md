@@ -7,7 +7,7 @@
 - AppKit primary launcher UI.
 - SwiftUI only for Settings/About.
 - In-process modules only for v1.
-- GRDB-backed SQLite for local persistence.
+- JSON persistence first; migrate to SQLite only after explicit data-size thresholds.
 - `os_signpost`-style metrics from Phase 0.
 
 ## ADR Index
@@ -17,6 +17,8 @@
 - [ADR-003 Actor-Based Module System](adr/003-actor-module-system.md)
 - [ADR-004 In-Process Modules for v1](adr/004-in-process-modules-v1.md)
 - [ADR-005 Carbon Global Hotkey](adr/005-carbon-global-hotkey.md)
+- [ADR-006 Launcher Convergence](adr/006-launcher-convergence.md)
+- [ADR-007 Dashboard Widget Single Window](adr/007-dashboard-widget-single-window.md)
 
 ## Module Contract
 
@@ -36,4 +38,4 @@ See [Roadmap](ROADMAP.md).
 
 ## Opus Decisions
 
-See [Opus Decisions](OPUS_DECISIONS.md).
+See [Opus Decisions](OPUS_DECISIONS.md), [Product Route Options](strategy/PRODUCT_ROUTE_OPTIONS.md), and [Launcher Convergence Strategy](strategy/LAUNCHER_CONVERGENCE_STRATEGY.md).

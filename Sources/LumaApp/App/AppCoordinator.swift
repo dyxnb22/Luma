@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import LumaCore
 import LumaInfrastructure
@@ -43,6 +44,8 @@ final class AppCoordinator {
         resultCache: resultCache
     )
     private lazy var viewModel = LauncherViewModel(dispatcher: dispatcher)
+    private let appActivationTracker = AppActivationTracker.defaultTracker()
+    private var activationObserver: NSObjectProtocol?
 
     func start() {
         settingsWindowController = SettingsWindowController(
@@ -52,8 +55,26 @@ final class AppCoordinator {
                 Task { await self.host.applyEnabledSet(enabled) }
             }
         )
-        let cards = cardLayoutStore.load(cards: FeatureCatalog.defaultCards())
-        windowController.configure(cards: cards, cardLayoutStore: cardLayoutStore, viewModel: viewModel, actionExecutor: actionExecutor)
+        let cards = cardLayoutStore.load(cards: FeatureCatalog.dashboardCoreCards())
+        windowController.configure(
+            cards: cards,
+            viewModel: viewModel,
+            actionExecutor: actionExecutor,
+            appActivationTracker: appActivationTracker
+        )
+        activationObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didActivateApplicationNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            guard let self,
+                  let app = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication,
+                  let bundleID = app.bundleIdentifier else { return }
+            Task { @MainActor in
+                await self.appActivationTracker.record(bundleID: bundleID)
+                self.windowController.refreshOpenApps()
+            }
+        }
         menuBarController = MenuBarController(
             onShow: { self.windowController.show() },
             onSettings: { self.settingsWindowController?.show() }
@@ -64,11 +85,12 @@ final class AppCoordinator {
             }
             try hotkeyController.register(HotkeyConfig.defaultCombo)
             self.hotkeyController = hotkeyController
+            menuBarController?.markHotkeyOK()
         } catch {
             Task {
                 await LumaLogger(category: "hotkey").error("Failed to register global hotkey: \(error)")
             }
-            menuBarController?.update(hotkeyOK: false)
+            menuBarController?.markHotkeyFailed()
         }
 
         Task {
@@ -77,6 +99,7 @@ final class AppCoordinator {
             }
             await host.applyEnabledSet(await config.enabledModules())
             await host.warmupAll()
+            windowController.setModulesReady(true)
         }
     }
 }

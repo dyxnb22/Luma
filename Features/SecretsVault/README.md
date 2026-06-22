@@ -17,7 +17,8 @@ Store key information such as passwords, API keys, tokens, recovery codes, and s
 ## Security Direction
 
 - Current implementation includes a Keychain-backed store for secret values.
-- Store metadata in SQLite later; secret values should stay in Keychain or encrypted payloads.
+- Metadata is persisted as JSON at `~/Library/Application Support/Luma/secrets-metadata.json`.
+- Store metadata in SQLite later only if JSON becomes too limited; secret values should stay in Keychain or encrypted payloads.
 - Never include secret values in general ranking, logs, diagnostics, or previews.
 - Auto-lock after inactivity.
 - Pasteboard writes from this module should use short-lived clearing later.
@@ -31,4 +32,5 @@ Store key information such as passwords, API keys, tokens, recovery codes, and s
 ## Implementation Entry
 
 - Source module: `Sources/LumaModules/Secrets/SecretsModule.swift`
-- Future service: `SecretsVaultService`
+- Vault implementation: `Sources/LumaModules/Secrets/SecretsVault.swift`
+- Keychain value store: `Sources/LumaModules/Secrets/KeychainSecretsStore.swift`

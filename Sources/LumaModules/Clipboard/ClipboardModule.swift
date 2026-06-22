@@ -12,7 +12,8 @@ public actor ClipboardModule: LumaModule {
         queryTimeout: .milliseconds(30)
     )
 
-    private let store: ClipboardHistoryStore
+    private var store: ClipboardHistoryStore
+    private let persistenceURL: URL
     private var pollingTask: Task<Void, Never>?
     private var lastChangeCount = -1
 
@@ -20,10 +21,20 @@ public actor ClipboardModule: LumaModule {
         let base = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? fileManager.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support")
         let persistenceURL = base.appendingPathComponent("Luma/clipboard-history.json")
+        self.persistenceURL = persistenceURL
         store = ClipboardHistoryStore(persistenceURL: persistenceURL)
     }
 
     public func warmup(_ context: ModuleContext) async {
+        let maxEntries = await context.config.clipboardMaxEntries()
+        let maxAgeDays = await context.config.clipboardMaxAgeDays()
+        let maxEntrySizeKB = await context.config.clipboardMaxEntrySizeKB()
+        store = ClipboardHistoryStore(
+            maxEntries: maxEntries,
+            maxAge: TimeInterval(maxAgeDays * 24 * 60 * 60),
+            maxTextBytes: maxEntrySizeKB * 1024,
+            persistenceURL: persistenceURL
+        )
         startPolling()
     }
 

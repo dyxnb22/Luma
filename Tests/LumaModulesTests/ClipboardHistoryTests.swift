@@ -43,6 +43,13 @@ import Testing
     #expect(await store.search("").isEmpty)
 }
 
+@Test func clipboardHistoryUsesConfiguredTextLimit() async {
+    let store = ClipboardHistoryStore(maxTextBytes: 8)
+    await store.add(text: "small", types: ["public.text"])
+    await store.add(text: "too-large", types: ["public.text"])
+    #expect(await store.search("").map(\.text) == ["small"])
+}
+
 @Test func clipboardHistoryMovesDuplicateToTop() async {
     let store = ClipboardHistoryStore()
     await store.add(text: "first", types: ["public.text"])

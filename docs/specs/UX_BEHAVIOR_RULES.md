@@ -4,6 +4,8 @@
 
 - Hotkey toggles the launcher.
 - Default hotkey is Command+Space.
+- The launcher panel is not a dashboard.
+- Module detail surfaces open in separate windows, not inside the launcher panel.
 - Escape dismisses.
 - Return runs the selected primary action.
 - Command+Return runs the first secondary action when present.

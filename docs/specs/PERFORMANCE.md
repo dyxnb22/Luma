@@ -9,6 +9,8 @@
 | Module `handle` call | 5-30 ms | <= timeout | 80 ms |
 | Panel hide after action | 10 ms | 20 ms | 40 ms |
 
+Launcher convergence strategy adds a stricter working rule: warm keystroke p95 above 30 ms is a regression and should block the change.
+
 ## Hot Path Rules
 
 - Panel is instantiated at app launch.

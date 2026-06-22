@@ -16,13 +16,20 @@ public actor AppsModule: LumaModule {
     public init() {}
 
     public func warmup(_ context: ModuleContext) async {
+        let cacheURL = AppIndexCache.defaultURL()
+        if let cached = AppIndexCache.load(from: cacheURL) {
+            index = AppIndex(apps: cached)
+        }
+
         let scanned = AppScanner.scan()
         let fallback = [
             AppRecord(name: "Finder", bundleID: "com.apple.finder", url: URL(fileURLWithPath: "/System/Library/CoreServices/Finder.app")),
             AppRecord(name: "Safari", bundleID: "com.apple.Safari", url: URL(fileURLWithPath: "/Applications/Safari.app")),
             AppRecord(name: "System Settings", bundleID: "com.apple.systempreferences", url: URL(fileURLWithPath: "/System/Applications/System Settings.app"))
         ]
-        index = AppIndex(apps: scanned.isEmpty ? fallback : scanned)
+        let apps = scanned.isEmpty ? fallback : scanned
+        index = AppIndex(apps: apps)
+        AppIndexCache.save(apps, to: cacheURL)
     }
 
     public func handle(_ query: Query, context: QueryContext) async -> ModuleResult {

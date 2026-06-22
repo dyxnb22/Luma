@@ -36,13 +36,18 @@ public actor SecretsVault {
 
     public init(
         keychain: KeychainSecretsStore = KeychainSecretsStore(),
-        fileManager: FileManager = .default
+        fileManager: FileManager = .default,
+        metadataURL: URL? = nil
     ) {
         self.keychain = keychain
-        let base = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
-            ?? fileManager.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support")
-        metadataURL = base.appendingPathComponent("Luma/secrets-metadata.json")
-        if let data = try? Data(contentsOf: metadataURL),
+        if let metadataURL {
+            self.metadataURL = metadataURL
+        } else {
+            let base = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+                ?? fileManager.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support")
+            self.metadataURL = base.appendingPathComponent("Luma/secrets-metadata.json")
+        }
+        if let data = try? Data(contentsOf: self.metadataURL),
            let decoded = try? JSONDecoder().decode([SecretMetadata].self, from: data) {
             records = Dictionary(uniqueKeysWithValues: decoded.map { ($0.id, $0) })
         }

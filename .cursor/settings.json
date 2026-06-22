@@ -1,0 +1,6 @@
+{
+  "composer.fastMode": false,
+  "cursor.composer.fastMode": false,
+  "project.name": "Luma",
+  "project.instructions": "Use Composer in normal mode only. Do not enable Fast mode. Follow .cursor/rules.md. Do not blend Route A and Route B; check docs/strategy/PRODUCT_ROUTE_OPTIONS.md before route-defining UI work."
+}

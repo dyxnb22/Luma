@@ -18,11 +18,13 @@ public actor ClipboardHistoryStore {
     private var entries: [ClipboardEntry] = []
     private let maxEntries: Int
     private let maxAge: TimeInterval
+    private let maxTextBytes: Int
     private let persistenceURL: URL?
 
-    public init(maxEntries: Int = 500, maxAge: TimeInterval = 7 * 24 * 60 * 60, persistenceURL: URL? = nil) {
+    public init(maxEntries: Int = 500, maxAge: TimeInterval = 7 * 24 * 60 * 60, maxTextBytes: Int = 100 * 1024, persistenceURL: URL? = nil) {
         self.maxEntries = maxEntries
         self.maxAge = maxAge
+        self.maxTextBytes = maxTextBytes
         self.persistenceURL = persistenceURL
         if let persistenceURL,
            let data = try? Data(contentsOf: persistenceURL),
@@ -32,7 +34,7 @@ public actor ClipboardHistoryStore {
     }
 
     public func add(text: String, types: [String], now: Date = Date()) {
-        guard !ClipboardFilter.shouldSkip(types: types), ClipboardFilter.acceptsText(text) else { return }
+        guard !ClipboardFilter.shouldSkip(types: types), ClipboardFilter.acceptsText(text, maxBytes: maxTextBytes) else { return }
         entries.removeAll { $0.text == text }
         entries.insert(ClipboardEntry(text: text, createdAt: now), at: 0)
         prune(now: now)

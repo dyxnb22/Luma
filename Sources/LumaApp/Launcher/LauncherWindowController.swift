@@ -5,27 +5,37 @@ import LumaCore
 final class LauncherWindowController {
     private let panel = LauncherPanel()
     private var rootView: LauncherRootView?
-    private var navigationDepth = 0
 
     init() {
         panel.onEscape = { [weak self] in
-            self?.escape()
+            self?.hide()
         }
         panel.orderOut(nil)
     }
 
-    func configure(cards: [FeatureCard], cardLayoutStore: CardLayoutStore, viewModel: LauncherViewModel, actionExecutor: ActionExecutor) {
+    func configure(
+        cards: [FeatureCard],
+        viewModel: LauncherViewModel,
+        actionExecutor: ActionExecutor,
+        appActivationTracker: AppActivationTracker
+    ) {
         let rootView = LauncherRootView(
             cards: cards,
-            cardLayoutStore: cardLayoutStore,
             viewModel: viewModel,
             actionExecutor: actionExecutor,
-            onDismiss: { [weak self] in self?.hide() },
-            onOpenFeature: { [weak self] in self?.navigationDepth = 1 },
-            onBackOrDismiss: { [weak self] in self?.escape() }
+            appActivationTracker: appActivationTracker,
+            onDismiss: { [weak self] in self?.hide() }
         )
         panel.contentView = rootView
         self.rootView = rootView
+    }
+
+    func refreshOpenApps() {
+        rootView?.refreshOpenApps()
+    }
+
+    func setModulesReady(_ ready: Bool) {
+        rootView?.setModulesReady(ready)
     }
 
     func toggle() {
@@ -38,6 +48,7 @@ final class LauncherWindowController {
         panel.orderFrontRegardless()
         panel.makeKey()
         rootView?.focusSearchField()
+        rootView?.refreshOpenApps()
         NSAnimationContext.runAnimationGroup { context in
             context.duration = 0.16
             context.timingFunction = CAMediaTimingFunction(name: .easeOut)
@@ -54,17 +65,7 @@ final class LauncherWindowController {
             Task { @MainActor in
                 self.panel.orderOut(nil)
                 self.rootView?.showHome()
-                self.navigationDepth = 0
             }
-        }
-    }
-
-    private func escape() {
-        if navigationDepth > 0 {
-            navigationDepth -= 1
-            rootView?.showHome()
-        } else {
-            hide()
         }
     }
 

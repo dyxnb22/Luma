@@ -7,8 +7,8 @@ Provide quick translation from selected text, clipboard text, or typed query. Th
 ## Current Behavior
 
 - `tr <text>` and `translate <text>` produce a translate action.
-- The action calls the system Shortcuts runner with a shortcut named `Luma Translate`.
-- The shortcut should accept text input and return translated text.
+- On macOS 26 and newer, the service attempts Apple Translation through `TranslationSession` after source language detection with `NLLanguageRecognizer`.
+- On older macOS releases, or when the Apple Translation session is unavailable, the service falls back to a Shortcut named `Luma Translate`.
 - The translated result is copied to the clipboard.
 
 ## MVP Behavior
@@ -20,7 +20,7 @@ Provide quick translation from selected text, clipboard text, or typed query. Th
   - Copy translated result.
   - Replace selected text later via Accessibility.
   - Swap source/target language later.
-- Default provider: system Shortcuts/Apple translation workflow.
+- Default provider: Apple Translation on macOS 26+, with Shortcuts fallback.
 - No HTTP provider abstraction until a concrete missing language requires it.
 
 ## Data

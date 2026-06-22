@@ -6,7 +6,7 @@ final class LauncherPanel: NSPanel {
 
     init() {
         super.init(
-            contentRect: NSRect(x: 0, y: 0, width: 1040, height: 680),
+            contentRect: NSRect(x: 0, y: 0, width: 860, height: 540),
             styleMask: [.borderless, .nonactivatingPanel, .fullSizeContentView],
             backing: .buffered,
             defer: false
@@ -20,6 +20,7 @@ final class LauncherPanel: NSPanel {
         backgroundColor = .clear
         animationBehavior = .none
         isReleasedWhenClosed = false
+        isOpaque = false
     }
 
     override var canBecomeKey: Bool { true }

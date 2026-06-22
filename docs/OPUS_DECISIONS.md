@@ -6,6 +6,8 @@ These decisions answer the previous open questions and are now in force for Luma
 
 - Name: Luma.
 - Scope: strictly personal. Do not add public-distribution scaffolding, onboarding flows, telemetry consent, localization, or updater infrastructure.
+- Active strategic direction: pure launcher convergence. The panel should prioritize Command+Space -> query -> result -> action over dashboard/workbench breadth.
+- Dashboard/widget single-window route is documented as an alternative. If selected, create a superseding ADR instead of silently mixing both routes.
 - MVP fifth module: Calculator.
 - TODO and Translate move to v1.1.
 - Default hotkey: Command+Space.
@@ -32,6 +34,7 @@ These decisions answer the previous open questions and are now in force for Luma
 ## UX
 
 - Empty query shows recent/frequent results, top 8, using frecency ranking with fuzzy treated as 1.0.
+- Do not use the launcher panel as a dashboard or module detail surface.
 - Panel hides before action completion, in the same runloop turn as Return.
 - `secondaryActions` model ships in v1.
 - Cmd+Return activates `secondaryActions.first` when present.

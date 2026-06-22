@@ -41,7 +41,10 @@ public actor AXService: AccessibilityClient {
         let window = targetWindow ?? windows[0]
         AXUIElementSetAttributeValue(window, kAXMainAttribute as CFString, kCFBooleanTrue)
         AXUIElementSetAttributeValue(window, kAXFocusedAttribute as CFString, kCFBooleanTrue)
-        NSRunningApplication(processIdentifier: pid)?.activate(options: [.activateAllWindows])
+        // NSRunningApplication.activate is documented as thread-safe; hop to MainActor for AppKit consistency.
+        _ = await MainActor.run {
+            NSRunningApplication(processIdentifier: pid)?.activate(options: [.activateAllWindows])
+        }
     }
 
     public func insert(text: String) async {

@@ -86,4 +86,8 @@ public protocol TranslationClient: Sendable {
 
 public protocol ConfigurationClient: Sendable {
     func enabledModules() async -> Set<ModuleIdentifier>?
+    func clipboardMaxEntries() async -> Int
+    func clipboardMaxAgeDays() async -> Int
+    func clipboardMaxEntrySizeKB() async -> Int
+    func translationTargetLanguage() async -> String
 }

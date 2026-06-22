@@ -1,5 +1,28 @@
 # Roadmap
 
+This roadmap has been superseded by the launcher convergence strategy for v1 planning. Keep this file as historical phase context, but use these active documents for current implementation:
+
+- `docs/strategy/LAUNCHER_CONVERGENCE_STRATEGY.md`
+- `docs/strategy/CONVERGENCE_EXECUTION_PLAN.md`
+- `docs/strategy/PRODUCT_ROUTE_OPTIONS.md`
+
+If the dashboard/widget route is explicitly chosen instead, use:
+
+- `docs/strategy/DASHBOARD_WIDGET_STRATEGY.md`
+- `docs/strategy/DASHBOARD_WIDGET_CURSOR_PLAN.md`
+
+## Current Strategic Roadmap
+
+| Version | Focus | Do | Do Not Do |
+| --- | --- | --- | --- |
+| 0.1 Daily self-use | Pure launcher | Remove dashboard from panel, usage-backed empty state, App Search, Window Focus, Clipboard, Translate, Calculator | Plugin API, dashboard, Notes Graph, Wordbook, Secrets as first-class UX |
+| 0.2 Stability | Persistence and settings | Namespaced persistence, interactive Settings, corrupt-data recovery, perf gates | XPC, runtime plugins |
+| 0.3 Command depth | Scripted commands and action chooser | `ScriptedCommandsModule`, SpotlightService, Tab action chooser | Marketplace, JS/Lua runtime |
+| 0.5 Architecture | Lifecycle and scale | EventBus, ResidencyController, optional SQLite thresholds | Premature XPC |
+| 1.0 Maintainable app | Polish and distribution | Signed/notarized app, docs, repeatable release | Cloud sync, telemetry, broad public platform scope |
+
+## Historical Roadmap
+
 ## Phase 0: Skeleton
 
 - Swift package and eventual Xcode project wiring.

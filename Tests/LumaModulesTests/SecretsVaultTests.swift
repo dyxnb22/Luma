@@ -3,7 +3,7 @@ import Testing
 @testable import LumaModules
 
 @Test func secretsVaultRequiresUnlockAndDoesNotExposeValuesInSearch() async throws {
-    let vault = SecretsVault()
+    let vault = makeIsolatedSecretsVault()
     do {
         _ = try await vault.save(label: "OpenAI", value: "sk-secret")
         Issue.record("Save should fail while locked")
@@ -19,7 +19,7 @@ import Testing
 }
 
 @Test func secretsVaultLocksAgain() async throws {
-    let vault = SecretsVault()
+    let vault = makeIsolatedSecretsVault()
     await vault.unlock()
     _ = try await vault.save(label: "GitHub", value: "ghp-secret")
     await vault.lock()
@@ -30,10 +30,20 @@ import Testing
 }
 
 @Test func secretsVaultReportsMissingRecord() async throws {
-    let vault = SecretsVault()
+    let vault = makeIsolatedSecretsVault()
     await vault.unlock()
     do {
         _ = try await vault.revealValue(id: UUID())
         Issue.record("Missing secret should throw")
     } catch SecretsVaultError.notFound {}
+}
+
+private func makeIsolatedSecretsVault() -> SecretsVault {
+    let metadataURL = FileManager.default.temporaryDirectory
+        .appendingPathComponent(UUID().uuidString)
+        .appendingPathComponent("secrets-metadata.json")
+    return SecretsVault(
+        keychain: KeychainSecretsStore(service: "app.luma.tests.\(UUID().uuidString)"),
+        metadataURL: metadataURL
+    )
 }

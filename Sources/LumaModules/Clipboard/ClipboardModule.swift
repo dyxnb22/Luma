@@ -21,6 +21,7 @@ public actor ClipboardModule: LumaModule {
         let base = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? fileManager.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support")
         let persistenceURL = base.appendingPathComponent("Luma/clipboard-history.json")
+        try? fileManager.createDirectory(at: persistenceURL.deletingLastPathComponent(), withIntermediateDirectories: true)
         self.persistenceURL = persistenceURL
         store = ClipboardHistoryStore(persistenceURL: persistenceURL)
     }

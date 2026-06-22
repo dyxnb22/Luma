@@ -35,7 +35,7 @@ public enum FeatureCatalog {
                 title: "Windows",
                 subtitle: "Focus windows",
                 icon: .symbol("macwindow"),
-                triggerKeyword: "win",
+                triggerKeyword: "win ",
                 position: CardPosition(column: 3, row: 0),
                 widgetStyle: WidgetCardStyle(symbolName: "macwindow", topHex: "#30D158", bottomHex: "#248A3D")
             )

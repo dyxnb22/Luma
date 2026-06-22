@@ -86,10 +86,6 @@ private final class LumaSearchTextField: NSTextField {
     var onKeyCommand: ((LumaSearchBar.KeyCommand) -> Bool)?
 
     override func keyDown(with event: NSEvent) {
-        if event.keyCode == 53 {
-            onEscape?()
-            return
-        }
         if event.keyCode == 125, onKeyCommand?(.down) == true { return }
         if event.keyCode == 126, onKeyCommand?(.up) == true { return }
         if event.keyCode == 48, onKeyCommand?(.tab) == true { return }
@@ -104,6 +100,7 @@ private final class LumaSearchTextField: NSTextField {
     }
 
     override func cancelOperation(_ sender: Any?) {
+        // Esc is handled here only; do not also handle keyCode 53 in keyDown to avoid double-fire.
         onEscape?()
     }
 }

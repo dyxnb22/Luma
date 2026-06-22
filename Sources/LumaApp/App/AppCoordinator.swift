@@ -46,6 +46,7 @@ final class AppCoordinator {
     private lazy var viewModel = LauncherViewModel(dispatcher: dispatcher)
     private let appActivationTracker = AppActivationTracker.defaultTracker()
     private var activationObserver: NSObjectProtocol?
+    private var terminationObserver: NSObjectProtocol?
 
     func start() {
         settingsWindowController = SettingsWindowController(
@@ -73,6 +74,16 @@ final class AppCoordinator {
             Task { @MainActor in
                 await self.appActivationTracker.record(bundleID: bundleID)
                 self.windowController.refreshOpenApps()
+            }
+        }
+        terminationObserver = NotificationCenter.default.addObserver(
+            forName: NSApplication.willTerminateNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            guard let self else { return }
+            Task { @MainActor in
+                await self.appActivationTracker.flush()
             }
         }
         menuBarController = MenuBarController(

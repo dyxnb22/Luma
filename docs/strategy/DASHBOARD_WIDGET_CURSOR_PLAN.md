@@ -3,6 +3,7 @@
 Status: implementation guide for Dashboard Widget Strategy  
 Date: 2026-06-22  
 Companion: `docs/strategy/DASHBOARD_WIDGET_STRATEGY.md`
+Implementation status (2026-06-22): Phases 0 through 7 completed; Phase 8–10 polish underway per `docs/strategy/DASHBOARD_WIDGET_POLISH_PLAN.md`.
 
 This document condenses the Cursor Composer-oriented implementation plan. Each phase should be executed independently and verified before moving on.
 
@@ -386,4 +387,9 @@ Task:
 | 6 | Up/Down, Command+1...9, Return, Esc all work. |
 | 7 | Esc in detail returns to grid; Esc on grid closes panel. |
 | 8 | Close/reopen starts from clean home with no flicker. |
+
+## Status
+
+- Phase 0 – Phase 7: completed.
+- Phase 8 (state stability), Phase 9 (I/O coalescing), Phase 10 (consistency + docs): tracked in `docs/strategy/DASHBOARD_WIDGET_POLISH_PLAN.md`.
 

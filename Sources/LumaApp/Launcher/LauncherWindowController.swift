@@ -8,7 +8,14 @@ final class LauncherWindowController {
 
     init() {
         panel.onEscape = { [weak self] in
-            self?.hide()
+            // Route through rootView so detail→grid→close state machine is respected.
+            // If rootView is not set yet, fall back to hide.
+            guard let self else { return }
+            if let rootView = self.rootView {
+                rootView.handleEscape()
+            } else {
+                self.hide()
+            }
         }
         panel.orderOut(nil)
     }
@@ -61,9 +68,11 @@ final class LauncherWindowController {
             context.duration = 0.12
             context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
             panel.animator().alphaValue = 0
-        } completionHandler: {
-            Task { @MainActor in
+        } completionHandler: { [weak self] in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
                 self.panel.orderOut(nil)
+                self.panel.alphaValue = 1
                 self.rootView?.showHome()
             }
         }

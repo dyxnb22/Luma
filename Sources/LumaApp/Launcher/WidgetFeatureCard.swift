@@ -128,11 +128,12 @@ final class WidgetFeatureCard: NSView {
     }
 
     private func animateScale(to scale: CGFloat, duration: TimeInterval) {
-        NSAnimationContext.runAnimationGroup { context in
-            context.duration = duration
-            context.timingFunction = CAMediaTimingFunction(name: .easeOut)
-            layer?.transform = CATransform3DMakeScale(scale, scale, 1)
-        }
+        // CATransaction drives layer.transform reliably; NSAnimationContext is for animator() proxies.
+        CATransaction.begin()
+        CATransaction.setAnimationDuration(duration)
+        CATransaction.setAnimationTimingFunction(CAMediaTimingFunction(name: .easeOut))
+        layer?.transform = CATransform3DMakeScale(scale, scale, 1)
+        CATransaction.commit()
     }
 
     private func isMouseInBounds() -> Bool {

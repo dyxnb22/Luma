@@ -46,16 +46,18 @@ public actor ActionExecutor {
                 await accessibility.applyWindowLayout(preset)
             case .translateText(let text):
                 do {
-                    let translated = try await translation.translate(text)
-                    await pasteboard.write(translated)
+                    let outcome = try await translation.translate(text)
+                    await pasteboard.write(outcome.text)
                 } catch {
-                    await context.logger.error("Translation failed for \(text.prefix(20)): \(error)")
+                    await context.logger.error("Translation action failed: \(error)")
                     throw error
                 }
             case .launchApp(let url):
-                await MainActor.run {
-                    let configuration = NSWorkspace.OpenConfiguration()
-                    NSWorkspace.shared.openApplication(at: url, configuration: configuration)
+                do {
+                    try await Self.launchAndActivateApplication(at: url)
+                } catch {
+                    await context.logger.error("Launch failed for \(url.path): \(error)")
+                    throw error
                 }
             case .openURL(let url):
                 await MainActor.run {
@@ -77,5 +79,47 @@ public actor ActionExecutor {
         } catch {
             await context.logger.error("Action failed: \(action.id.key): \(error)")
         }
+    }
+
+    @MainActor
+    private static func launchAndActivateApplication(at url: URL) async throws {
+        if let running = runningApplication(for: url) {
+            activate(running)
+            return
+        }
+
+        let configuration = NSWorkspace.OpenConfiguration()
+        configuration.activates = true
+        configuration.addsToRecentItems = true
+
+        let launched: NSRunningApplication? = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<NSRunningApplication?, any Error>) in
+            NSWorkspace.shared.openApplication(at: url, configuration: configuration) { app, error in
+                if let error {
+                    continuation.resume(throwing: error)
+                    return
+                }
+                continuation.resume(returning: app)
+            }
+        }
+
+        if let launched {
+            activate(launched)
+        } else if let running = runningApplication(for: url) {
+            activate(running)
+        }
+    }
+
+    @MainActor
+    private static func runningApplication(for url: URL) -> NSRunningApplication? {
+        let targetPath = url.resolvingSymlinksInPath().standardizedFileURL.path
+        return NSWorkspace.shared.runningApplications.first { app in
+            app.bundleURL?.resolvingSymlinksInPath().standardizedFileURL.path == targetPath
+        }
+    }
+
+    @MainActor
+    private static func activate(_ app: NSRunningApplication) {
+        app.unhide()
+        app.activate(from: NSRunningApplication.current, options: [.activateAllWindows])
     }
 }

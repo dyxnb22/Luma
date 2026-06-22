@@ -54,6 +54,7 @@ final class WidgetResultRow: NSControl {
 
         iconView.image = Self.iconImage(for: item.icon)
         iconView.imageScaling = .scaleProportionallyDown
+        iconView.imageAlignment = .alignLeft
         iconView.wantsLayer = true
         iconView.layer?.cornerRadius = 8
         iconView.layer?.cornerCurve = .continuous
@@ -82,7 +83,7 @@ final class WidgetResultRow: NSControl {
         addSubview(returnHint)
 
         NSLayoutConstraint.activate([
-            iconView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 14),
+            iconView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 0),
             iconView.centerYAnchor.constraint(equalTo: centerYAnchor),
             iconView.widthAnchor.constraint(equalToConstant: 36),
             iconView.heightAnchor.constraint(equalToConstant: 36),

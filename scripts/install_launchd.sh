@@ -26,7 +26,10 @@ cat > "$PLIST" <<EOF
 	<key>RunAtLoad</key>
 	<true/>
 	<key>KeepAlive</key>
-	<false/>
+	<dict>
+		<key>Crashed</key>
+		<true/>
+	</dict>
 </dict>
 </plist>
 EOF

@@ -1,5 +1,6 @@
 import AppKit
 import LumaCore
+import LumaServices
 
 @MainActor
 final class LauncherWindowController {
@@ -31,10 +32,12 @@ final class LauncherWindowController {
             viewModel: viewModel,
             actionExecutor: actionExecutor,
             appActivationTracker: appActivationTracker,
-            onDismiss: { [weak self] in self?.hide() }
+            onDismiss: { [weak self] in self?.hide() },
+            onActionDismiss: { [weak self] in self?.hideImmediatelyForAction() }
         )
         panel.contentView = rootView
         self.rootView = rootView
+        AppleTranslationHost.shared.attach(to: rootView)
     }
 
     func refreshOpenApps() {
@@ -43,6 +46,10 @@ final class LauncherWindowController {
 
     func setModulesReady(_ ready: Bool) {
         rootView?.setModulesReady(ready)
+    }
+
+    func closeDetailIfShowing() {
+        rootView?.closeDetail()
     }
 
     func toggle() {
@@ -54,6 +61,7 @@ final class LauncherWindowController {
         panel.alphaValue = 0
         panel.orderFrontRegardless()
         panel.makeKey()
+        rootView?.refreshPermissionStatus()
         rootView?.focusSearchField()
         rootView?.refreshOpenApps()
         NSAnimationContext.runAnimationGroup { context in
@@ -76,6 +84,18 @@ final class LauncherWindowController {
                 self.rootView?.showHome()
             }
         }
+    }
+
+    func hideImmediatelyForAction() {
+        rootView?.showHome(focusSearch: false)
+        panel.orderOut(nil)
+        panel.alphaValue = 1
+    }
+
+    func hideIfShowingForExternalActivation(bundleID: String?) {
+        guard panel.isVisible else { return }
+        guard bundleID != Bundle.main.bundleIdentifier else { return }
+        hideImmediatelyForAction()
     }
 
     private func positionPanel() {

@@ -6,14 +6,14 @@ The project is macOS-only: Swift 6, AppKit for the launcher surface, SwiftUI onl
 
 ## Current Status
 
-This repository is prepared as an engineering package and starter skeleton:
+Route B (Dashboard Widget single window) is the active product surface:
 
-- Product and architecture docs live in `docs/`.
-- Feature maintenance docs live in `Features/`.
-- AI-assistant guardrails live in `.claude/`, `.cursor/`, and `.codex/`.
-- Swift package targets are split into `LumaApp`, `LumaCore`, `LumaModules`, `LumaServices`, and `LumaInfrastructure`.
-- Product route options are documented in [Product Route Options](docs/strategy/PRODUCT_ROUTE_OPTIONS.md). The currently accepted ADR favors launcher convergence, while the dashboard/widget route is preserved as an alternative implementation plan.
-- Feature module stubs may exist for experiments, but v1 should optimize App Search, Window Focus, Clipboard History, Translate, Frecency Recents, and Calculator first.
+- Command+Space opens a pre-instantiated AppKit panel with a glass dashboard.
+- **Active core cards:** Translate and Clipboard (two-column liquid-glass widgets).
+- **Active modules:** Apps, Clipboard, Commands, Translate (plus open-apps sidebar).
+- **Deferred from active UX** (source retained): Calculator, Windows, Notes, Wordbook, Secrets, Window Layouts, Todo.
+- Translation uses Apple Translation / Shortcuts fallback — no network API.
+- Clipboard history is local-first with secret filtering and pin/search support.
 
 ## Feature Direction
 
@@ -35,12 +35,27 @@ swift test
 
 ## Build & Run
 
+Install a stable local code-signing identity once:
+
 ```bash
-./scripts/build_app.sh
-open build/Luma.app
+./scripts/install_local_codesign_cert.sh
 ```
 
-Building a `.app` bundle keeps a stable bundle identifier (`app.luma`), so macOS Accessibility permission survives rebuilds.
+Then build and restart Luma:
+
+```bash
+./scripts/build_app.sh
+```
+
+`build_app.sh` stops any old Luma process, builds and signs the app, then opens the new build so Command+Space is registered again. Use `./scripts/build_app.sh --no-restart` only when you intentionally want to build without running Luma.
+
+Building a `.app` bundle keeps a stable bundle identifier (`app.luma`). Signing with `Luma Local Development`, Apple Development, or Developer ID keeps Accessibility trust more stable across rebuilds than ad-hoc signing.
+
+If Accessibility still appears enabled in System Settings but Luma shows the permission banner, reset the stale TCC record and re-enable Luma:
+
+```bash
+./scripts/repair_accessibility_permission.sh
+```
 
 ## Run on Login
 
@@ -51,7 +66,7 @@ After building the app bundle:
 ./scripts/uninstall_launchd.sh # remove LaunchAgent
 ```
 
-The LaunchAgent points at `build/Luma.app/Contents/MacOS/Luma`. Re-run `build_app.sh` after code changes; no codesigning required for local use.
+The LaunchAgent points at `build/Luma.app/Contents/MacOS/Luma` and restarts Luma after crashes while allowing normal Quit. Re-run `build_app.sh` after code changes.
 
 ## Key Documents
 

@@ -20,24 +20,6 @@ public enum FeatureCatalog {
                 triggerKeyword: "clip ",
                 position: CardPosition(column: 1, row: 0),
                 widgetStyle: WidgetCardStyle(symbolName: "doc.on.clipboard.fill", topHex: "#FF9F0A", bottomHex: "#FF6B00")
-            ),
-            FeatureCard(
-                id: .calculator,
-                title: "Calculator",
-                subtitle: "Quick math",
-                icon: .symbol("function"),
-                triggerKeyword: "=",
-                position: CardPosition(column: 2, row: 0),
-                widgetStyle: WidgetCardStyle(symbolName: "function", topHex: "#5856D6", bottomHex: "#3634A3")
-            ),
-            FeatureCard(
-                id: .windows,
-                title: "Windows",
-                subtitle: "Focus windows",
-                icon: .symbol("macwindow"),
-                triggerKeyword: "win ",
-                position: CardPosition(column: 3, row: 0),
-                widgetStyle: WidgetCardStyle(symbolName: "macwindow", topHex: "#30D158", bottomHex: "#248A3D")
             )
         ]
     }

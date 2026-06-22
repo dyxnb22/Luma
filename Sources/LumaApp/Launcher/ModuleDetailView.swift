@@ -1,5 +1,6 @@
 import AppKit
 import LumaCore
+import LumaInfrastructure
 import LumaModules
 import LumaServices
 
@@ -7,271 +8,18 @@ import LumaServices
 protocol ModuleDetailView: AnyObject {
     var detailView: NSView { get }
     var moduleTitle: String { get }
+    var usesSharedTopBar: Bool { get }
     func activate()
     func deactivate()
+    func handleKeyDown(_ event: NSEvent) -> Bool
 }
 
-@MainActor
-final class TranslateDetailView: ModuleDetailView {
-    let moduleTitle = "Translate"
-    let detailView: NSView
-    private let translation: any TranslationClient
-    private let input = NSTextView()
-    private let output = NSTextField(wrappingLabelWithString: "")
-    private let copyButton = NSButton(title: "Copy", target: nil, action: nil)
-    private let statusLabel = NSTextField(labelWithString: "")
-    private var pendingTask: Task<Void, Never>?
-
-    init(translation: any TranslationClient) {
-        self.translation = translation
-        let container = NSView()
-        container.translatesAutoresizingMaskIntoConstraints = false
-        self.detailView = container
-        setup(container: container)
-    }
-
-    func activate() {
-        DispatchQueue.main.async { [weak self] in
-            self?.detailView.window?.makeFirstResponder(self?.input)
-        }
-    }
-
-    func deactivate() {
-        pendingTask?.cancel()
-        pendingTask = nil
-    }
-
-    private func setup(container: NSView) {
-        let inputScroll = NSScrollView()
-        inputScroll.hasVerticalScroller = true
-        inputScroll.borderType = .lineBorder
-        inputScroll.translatesAutoresizingMaskIntoConstraints = false
-        input.font = .systemFont(ofSize: 14)
-        input.isEditable = true
-        input.delegate = nil
-        input.autoresizingMask = [.width]
-        inputScroll.documentView = input
-        NotificationCenter.default.addObserver(self, selector: #selector(inputChanged), name: NSText.didChangeNotification, object: input)
-
-        output.font = .systemFont(ofSize: 14)
-        output.textColor = .labelColor
-        output.translatesAutoresizingMaskIntoConstraints = false
-
-        copyButton.target = self
-        copyButton.action = #selector(copyOutput)
-        copyButton.isEnabled = false
-        copyButton.bezelStyle = .rounded
-        copyButton.translatesAutoresizingMaskIntoConstraints = false
-
-        statusLabel.font = .systemFont(ofSize: 12)
-        statusLabel.textColor = .secondaryLabelColor
-        statusLabel.translatesAutoresizingMaskIntoConstraints = false
-
-        container.addSubview(inputScroll)
-        container.addSubview(output)
-        container.addSubview(copyButton)
-        container.addSubview(statusLabel)
-
-        NSLayoutConstraint.activate([
-            inputScroll.topAnchor.constraint(equalTo: container.topAnchor, constant: 12),
-            inputScroll.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 12),
-            inputScroll.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -12),
-            inputScroll.heightAnchor.constraint(equalToConstant: 100),
-
-            output.topAnchor.constraint(equalTo: inputScroll.bottomAnchor, constant: 14),
-            output.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 12),
-            output.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -12),
-
-            copyButton.topAnchor.constraint(equalTo: output.bottomAnchor, constant: 12),
-            copyButton.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 12),
-
-            statusLabel.centerYAnchor.constraint(equalTo: copyButton.centerYAnchor),
-            statusLabel.leadingAnchor.constraint(equalTo: copyButton.trailingAnchor, constant: 14),
-            statusLabel.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -12)
-        ])
-    }
-
-    @objc private func inputChanged() {
-        let text = input.string.trimmingCharacters(in: .whitespacesAndNewlines)
-        pendingTask?.cancel()
-        guard !text.isEmpty else {
-            output.stringValue = ""
-            statusLabel.stringValue = ""
-            copyButton.isEnabled = false
-            return
-        }
-        statusLabel.stringValue = "Translating…"
-        copyButton.isEnabled = false
-        let svc = translation
-        pendingTask = Task { [weak self] in
-            try? await Task.sleep(for: .milliseconds(280))
-            guard !Task.isCancelled else { return }
-            do {
-                let result = try await svc.translate(text)
-                await MainActor.run {
-                    guard let self else { return }
-                    self.output.stringValue = result
-                    self.statusLabel.stringValue = ""
-                    self.copyButton.isEnabled = true
-                }
-            } catch {
-                await MainActor.run {
-                    guard let self else { return }
-                    self.output.stringValue = ""
-                    self.statusLabel.stringValue = "Translation unavailable. Create a Shortcut named \"Luma Translate\"."
-                    self.copyButton.isEnabled = false
-                }
-            }
-        }
-    }
-
-    @objc private func copyOutput() {
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(output.stringValue, forType: .string)
-    }
+extension ModuleDetailView {
+    var usesSharedTopBar: Bool { true }
+    func handleKeyDown(_ event: NSEvent) -> Bool { false }
 }
 
-@MainActor
-final class ClipboardDetailView: ModuleDetailView {
-    let moduleTitle = "Clipboard"
-    let detailView: NSView
-    private let module: ClipboardModule
-    private let stack = NSStackView()
-    private let scroll = NSScrollView()
-    private var refreshTask: Task<Void, Never>?
-
-    init(module: ClipboardModule) {
-        self.module = module
-        let container = NSView()
-        container.translatesAutoresizingMaskIntoConstraints = false
-        self.detailView = container
-        setup(container: container)
-    }
-
-    func activate() {
-        refresh()
-    }
-
-    func deactivate() {
-        refreshTask?.cancel()
-        refreshTask = nil
-    }
-
-    private func setup(container: NSView) {
-        stack.orientation = .vertical
-        stack.spacing = 6
-        stack.alignment = .leading
-        stack.edgeInsets = NSEdgeInsets(top: 8, left: 8, bottom: 8, right: 8)
-        stack.translatesAutoresizingMaskIntoConstraints = false
-
-        scroll.hasVerticalScroller = true
-        scroll.drawsBackground = false
-        scroll.borderType = .noBorder
-        scroll.translatesAutoresizingMaskIntoConstraints = false
-        scroll.documentView = stack
-
-        container.addSubview(scroll)
-        NSLayoutConstraint.activate([
-            scroll.topAnchor.constraint(equalTo: container.topAnchor, constant: 8),
-            scroll.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 8),
-            scroll.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -8),
-            scroll.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -8),
-            stack.widthAnchor.constraint(equalTo: scroll.contentView.widthAnchor, constant: -16)
-        ])
-    }
-
-    private func refresh() {
-        refreshTask?.cancel()
-        refreshTask = Task { [weak self] in
-            guard let self else { return }
-            let entries = await self.module.recentEntries(limit: 50)
-            await MainActor.run {
-                self.render(entries: entries)
-            }
-        }
-    }
-
-    private func render(entries: [ClipboardEntry]) {
-        stack.arrangedSubviews.forEach { $0.removeFromSuperview() }
-        guard !entries.isEmpty else {
-            let empty = NSTextField(labelWithString: "Clipboard history is empty.")
-            empty.textColor = .secondaryLabelColor
-            empty.font = .systemFont(ofSize: 13)
-            stack.addArrangedSubview(empty)
-            return
-        }
-        for entry in entries {
-            stack.addArrangedSubview(makeRow(entry: entry))
-        }
-    }
-
-    private func makeRow(entry: ClipboardEntry) -> NSView {
-        let row = NSStackView()
-        row.orientation = .horizontal
-        row.spacing = 8
-        row.alignment = .centerY
-        row.translatesAutoresizingMaskIntoConstraints = false
-
-        let preview = NSTextField(labelWithString: entry.text.prefix(80) + (entry.text.count > 80 ? "…" : ""))
-        preview.font = .systemFont(ofSize: 13)
-        preview.lineBreakMode = .byTruncatingTail
-        preview.setContentHuggingPriority(.defaultLow, for: .horizontal)
-        preview.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-
-        let pinButton = NSButton(title: entry.isPinned ? "★" : "☆", target: self, action: #selector(togglePin(_:)))
-        pinButton.identifier = NSUserInterfaceItemIdentifier(entry.id.uuidString)
-        pinButton.bezelStyle = .regularSquare
-        pinButton.isBordered = false
-        pinButton.font = .systemFont(ofSize: 14)
-
-        let copyButton = NSButton(title: "Copy", target: self, action: #selector(copy(_:)))
-        copyButton.identifier = NSUserInterfaceItemIdentifier(entry.id.uuidString)
-        copyButton.bezelStyle = .rounded
-        copyButton.font = .systemFont(ofSize: 12)
-
-        let deleteButton = NSButton(title: "Delete", target: self, action: #selector(deleteRow(_:)))
-        deleteButton.identifier = NSUserInterfaceItemIdentifier(entry.id.uuidString)
-        deleteButton.bezelStyle = .rounded
-        deleteButton.font = .systemFont(ofSize: 12)
-
-        row.addArrangedSubview(preview)
-        row.addArrangedSubview(pinButton)
-        row.addArrangedSubview(copyButton)
-        row.addArrangedSubview(deleteButton)
-        return row
-    }
-
-    @objc private func togglePin(_ sender: NSButton) {
-        guard let raw = sender.identifier?.rawValue, let id = UUID(uuidString: raw) else { return }
-        Task { [weak self] in
-            guard let self else { return }
-            await self.module.togglePin(id)
-            await MainActor.run { self.refresh() }
-        }
-    }
-
-    @objc private func copy(_ sender: NSButton) {
-        guard let raw = sender.identifier?.rawValue, let id = UUID(uuidString: raw) else { return }
-        Task { [weak self] in
-            guard let self else { return }
-            let entries = await self.module.recentEntries(limit: 500)
-            guard let entry = entries.first(where: { $0.id == id }) else { return }
-            await MainActor.run {
-                NSPasteboard.general.clearContents()
-                NSPasteboard.general.setString(entry.text, forType: .string)
-            }
-        }
-    }
-
-    @objc private func deleteRow(_ sender: NSButton) {
-        guard let raw = sender.identifier?.rawValue, let id = UUID(uuidString: raw) else { return }
-        Task { [weak self] in
-            guard let self else { return }
-            await self.module.remove(id)
-            await MainActor.run { self.refresh() }
-        }
-    }
-}
+// Deferred module detail views — not reachable from active dashboard.
 
 @MainActor
 final class CalculatorDetailView: ModuleDetailView {
@@ -303,7 +51,6 @@ final class CalculatorDetailView: ModuleDetailView {
         input.bezelStyle = .roundedBezel
         input.target = self
         input.action = #selector(evaluate)
-        input.delegate = nil
         input.translatesAutoresizingMaskIntoConstraints = false
         NotificationCenter.default.addObserver(self, selector: #selector(textChanged(_:)), name: NSControl.textDidChangeNotification, object: input)
 
@@ -465,7 +212,6 @@ final class WindowsDetailView: ModuleDetailView {
     private let accessibility: any AccessibilityClient
     private let stack = NSStackView()
     private let scroll = NSScrollView()
-    private var refreshTask: Task<Void, Never>?
 
     init(accessibility: any AccessibilityClient) {
         self.accessibility = accessibility
@@ -479,10 +225,7 @@ final class WindowsDetailView: ModuleDetailView {
         refresh()
     }
 
-    func deactivate() {
-        refreshTask?.cancel()
-        refreshTask = nil
-    }
+    func deactivate() {}
 
     private func setup(container: NSView) {
         stack.orientation = .vertical
@@ -567,21 +310,20 @@ final class WindowsDetailView: ModuleDetailView {
 enum ModuleDetailRegistry {
     nonisolated(unsafe) static var clipboardModule: ClipboardModule?
     nonisolated(unsafe) static var translation: (any TranslationClient)?
-    nonisolated(unsafe) static var accessibility: (any AccessibilityClient)?
+    nonisolated(unsafe) static var config: ConfigurationStore?
+    nonisolated(unsafe) static var onBackFromDetail: (() -> Void)?
+    nonisolated(unsafe) static var onOpenSettings: (() -> Void)?
 
     static func make(for id: ModuleIdentifier) -> (any ModuleDetailView)? {
         switch id {
         case .translate:
-            guard let svc = translation else { return nil }
-            return TranslateDetailView(translation: svc)
+            guard let svc = translation, let config else { return nil }
+            return TranslateDetailView(translation: svc, config: config) {
+                onBackFromDetail?()
+            }
         case .clipboard:
             guard let mod = clipboardModule else { return nil }
-            return ClipboardDetailView(module: mod)
-        case .calculator:
-            return CalculatorDetailView()
-        case .windows:
-            guard let ax = accessibility else { return nil }
-            return WindowsDetailView(accessibility: ax)
+            return ClipboardDetailView(module: mod, onOpenSettings: onOpenSettings)
         default:
             return nil
         }

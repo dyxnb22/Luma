@@ -13,17 +13,13 @@ flowchart TD
     Cards --> CardCatalog["FeatureCatalog"]
     VM --> Dispatcher["QueryDispatcher actor"]
     Dispatcher --> Apps["AppsModule"]
-    Dispatcher --> Windows["WindowsModule"]
     Dispatcher --> Clipboard["ClipboardModule"]
     Dispatcher --> Commands["CommandsModule"]
     Dispatcher --> Translate["TranslateModule"]
-    Dispatcher --> Calculator["CalculatorModule"]
     Apps --> Services["ModuleContext services"]
-    Windows --> Services
     Clipboard --> Services
     Commands --> Services
     Translate --> Services
-    Calculator --> Services
     VM --> Executor["ActionExecutor actor"]
     Executor --> Services
 ```
@@ -40,13 +36,16 @@ flowchart TD
 
 ## Feature Modules
 
-- Translate: typed/clipboard/selected-text translation.
-- Clipboard History: local clipboard search with sensitive filtering.
-- Apps: app search and launch.
-- Windows: Accessibility-backed window discovery and focus.
-- Commands: built-in app commands such as reload and quit.
-- Dashboard Cards: active core module entry points.
-- Deferred modules in source but not warmed up: Secrets Vault, Window Layouts, Notes Graph, Wordbook, Todo.
+### Active (registered at launch)
+
+- **Translate:** typed translation with Apple Translation / Shortcuts fallback; dashboard detail + `tr`/`translate` queries.
+- **Clipboard History:** local clipboard search/history with sensitive filtering, pin, and metadata.
+- **Apps:** app search and launch (sidebar + query dispatch).
+- **Commands:** built-in app commands such as reload and quit.
+
+### Deferred (source retained, not in active dashboard/warmup)
+
+- Calculator, Windows, Secrets Vault, Window Layouts, Notes Graph, Wordbook, Todo.
 
 ## Data Flow
 
@@ -60,7 +59,7 @@ flowchart TD
 
 ## Card Flow
 
-1. `FeatureCatalog.dashboardCoreCards()` provides the active four dashboard card descriptors.
+1. `FeatureCatalog.dashboardCoreCards()` provides the active **Translate + Clipboard** dashboard card descriptors.
 2. `CardLayoutStore` reads persisted card layout by `ModuleIdentifier`.
 3. Card activation opens a same-panel detail view where the module has registered one.
 4. Drag/reorder editing remains a product polish item unless the current code path explicitly implements it.

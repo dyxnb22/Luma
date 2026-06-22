@@ -9,7 +9,7 @@ public actor TranslationService: TranslationClient {
         self.config = config
     }
 
-    public func translate(_ text: String) async throws -> String {
+    public func translate(_ text: String) async throws -> TranslationOutcome {
         let target = await config.translationTargetLanguage()
         return try await SystemTranslationService().translate(text, targetLanguageIdentifier: target)
     }

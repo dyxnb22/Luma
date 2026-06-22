@@ -11,7 +11,6 @@ Date: 2026-06-22
 - `AppActivationTracker` coalesces persistence to a 1 s window with explicit `flush()`.
 - `AppCoordinator` flushes the activation tracker on `NSApplication.willTerminateNotification`.
 - `WidgetFeatureCard.animateScale` switched to `CATransaction`.
-- Windows card trigger keyword normalized to `"win "`.
 - Snapshot tests for `dashboardCoreCards()`.
 - Manual QA checklist extended with Route B sections.
 
@@ -33,6 +32,19 @@ Date: 2026-06-22
 - Rolling p95 latency window with real keystroke→first-paint timing.
 - Documentation aligned to Route B as active route.
 
+## Completed in Phase 20 — Core UX polish (Translate + Clipboard)
+
+- Active dashboard reduced to **Translate** and **Clipboard** only (`FeatureCatalog.dashboardCoreCards()`).
+- **Calculator** and **Windows** moved to `BuiltInModules.makeDeferred()` — source retained, excluded from warmup/default registration/active UI.
+- Dashboard cards redesigned as wider liquid-glass widgets (24 pt corners, gradient + highlight, title/subtitle/status summary).
+- Card status summaries: Translate shows target language + last status; Clipboard shows entry/pinned counts.
+- Accessibility in-panel banner hidden while no active module requires AX.
+- **TranslateDetailView** rewritten: language toolbar, dual input/output panels, action buttons, ⌘Return / ⌘C / Esc, search `tr`/`translate` opens detail with prefilled text.
+- **ClipboardDetailView** rewritten: search, All/Text/Links/Pinned filters, keyboard navigation, pinned section labels, row hover actions, metadata (kind, time ago, chars, source app).
+- `ClipboardEntry` extended with `detectedKind`, `sourceAppName`, `sourceBundleID`; token-based search.
+- Tests updated for two-card dashboard, deferred modules, clipboard filters/pin persistence, translation user-facing errors.
+- User translation input no longer logged.
+
 ## Out of scope (do not start without an ADR)
 
 - Cloud sync.
@@ -40,3 +52,4 @@ Date: 2026-06-22
 - Cross-platform support.
 - Custom file index.
 - Telemetry beyond local DEBUG logs.
+- Re-enabling Calculator/Windows on the active dashboard without product review.

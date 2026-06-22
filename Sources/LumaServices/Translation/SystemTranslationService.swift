@@ -1,4 +1,5 @@
 import Foundation
+import LumaCore
 import NaturalLanguage
 
 #if canImport(Translation)
@@ -7,43 +8,81 @@ import Translation
 
 public enum SystemTranslationError: Error, Equatable {
     case shortcutUnavailable
+    case shortcutTimedOut
     case emptyOutput
     case frameworkUnavailable
+    case languagePackRequired
+
+    public var allowsShortcutFallback: Bool {
+        switch self {
+        case .frameworkUnavailable, .emptyOutput:
+            return true
+        case .languagePackRequired, .shortcutUnavailable, .shortcutTimedOut:
+            return false
+        }
+    }
 }
 
 public struct SystemTranslationService: Sendable {
+  private static let shortcutTimeoutSeconds: UInt64 = 10
+
     public init() {}
 
-    public func translate(_ text: String, targetLanguageIdentifier: String = "en") async throws -> String {
-        if #available(macOS 26.0, *) {
+    public func translate(_ text: String, targetLanguageIdentifier: String = "en") async throws -> TranslationOutcome {
+        let detectedSource = TranslationLanguageDetector.detectedLanguageCode(for: text)
+        if #available(macOS 15.0, *) {
+            #if canImport(Translation)
             do {
-                return try await translateWithAppleFramework(text, targetLanguageIdentifier: targetLanguageIdentifier)
+                return try await translateOnMainActor(text, targetLanguageIdentifier: targetLanguageIdentifier, detectedSource: detectedSource)
+            } catch let error as SystemTranslationError {
+                guard error.allowsShortcutFallback else { throw error }
             } catch {
-                // Fall back to Shortcuts when languages are not installed or the session fails.
+                // Non-system Apple bridge errors may fall back to Shortcuts.
             }
+            #endif
         }
-        return try await translateWithShortcut(text)
+        let translated = try await translateWithShortcut(text)
+        return TranslationOutcome(text: translated, detectedSourceLanguageCode: detectedSource)
     }
 
-    @available(macOS 26.0, *)
-    private func translateWithAppleFramework(_ text: String, targetLanguageIdentifier: String) async throws -> String {
-        #if canImport(Translation)
-        let target = Locale.Language(identifier: targetLanguageIdentifier)
-        let recognizer = NLLanguageRecognizer()
-        recognizer.processString(text)
-        let sourceIdentifier = recognizer.dominantLanguage?.rawValue ?? "en"
-        let source = Locale.Language(identifier: sourceIdentifier)
-        let session = TranslationSession(installedSource: source, target: target)
-        let response = try await session.translate(text)
-        let translated = response.targetText.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
-        guard !translated.isEmpty else { throw SystemTranslationError.emptyOutput }
-        return translated
-        #else
-        throw SystemTranslationError.frameworkUnavailable
-        #endif
+    @available(macOS 15.0, *)
+    private func translateOnMainActor(
+        _ text: String,
+        targetLanguageIdentifier: String,
+        detectedSource: String?
+    ) async throws -> TranslationOutcome {
+        let translated = try await AppleTranslationHost.shared.translate(text, targetLanguageIdentifier: targetLanguageIdentifier)
+        return TranslationOutcome(text: translated, detectedSourceLanguageCode: detectedSource)
     }
 
     public func translateWithShortcut(_ text: String, shortcutName: String = "Luma Translate") async throws -> String {
+        let processBox = ShortcutProcessBox()
+        return try await withTaskCancellationHandler {
+            try await withThrowingTaskGroup(of: String.self) { group in
+                group.addTask {
+                    try await Self.runShortcutProcess(text: text, shortcutName: shortcutName, processBox: processBox)
+                }
+                group.addTask {
+                    try await Task.sleep(for: .seconds(Self.shortcutTimeoutSeconds))
+                    processBox.terminate()
+                    throw SystemTranslationError.shortcutTimedOut
+                }
+                guard let result = try await group.next() else {
+                    throw SystemTranslationError.shortcutUnavailable
+                }
+                group.cancelAll()
+                return result
+            }
+        } onCancel: {
+            processBox.terminate()
+        }
+    }
+
+    private static func runShortcutProcess(
+        text: String,
+        shortcutName: String,
+        processBox: ShortcutProcessBox
+    ) async throws -> String {
         try await withCheckedThrowingContinuation { continuation in
             let process = Process()
             process.executableURL = URL(fileURLWithPath: "/usr/bin/shortcuts")
@@ -55,7 +94,10 @@ public struct SystemTranslationService: Sendable {
             process.standardOutput = output
             process.standardError = Pipe()
 
+            processBox.process = process
+
             process.terminationHandler = { process in
+                processBox.process = nil
                 guard process.terminationStatus == 0 else {
                     continuation.resume(throwing: SystemTranslationError.shortcutUnavailable)
                     return
@@ -73,8 +115,36 @@ public struct SystemTranslationService: Sendable {
                 input.fileHandleForWriting.write(Data(text.utf8))
                 try? input.fileHandleForWriting.close()
             } catch {
+                processBox.process = nil
                 continuation.resume(throwing: error)
             }
+        }
+    }
+}
+
+private final class ShortcutProcessBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var _process: Process?
+
+    var process: Process? {
+        get {
+            lock.lock()
+            defer { lock.unlock() }
+            return _process
+        }
+        set {
+            lock.lock()
+            _process = newValue
+            lock.unlock()
+        }
+    }
+
+    func terminate() {
+        lock.lock()
+        let process = _process
+        lock.unlock()
+        if let process, process.isRunning {
+            process.terminate()
         }
     }
 }

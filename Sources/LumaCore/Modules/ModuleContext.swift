@@ -81,7 +81,7 @@ public protocol AccessibilityClient: Sendable {
 public protocol FileSystemClient: Sendable {}
 
 public protocol TranslationClient: Sendable {
-    func translate(_ text: String) async throws -> String
+    func translate(_ text: String) async throws -> TranslationOutcome
 }
 
 public protocol ConfigurationClient: Sendable {

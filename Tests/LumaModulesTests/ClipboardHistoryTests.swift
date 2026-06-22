@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+@testable import LumaServices
 @testable import LumaModules
 
 @Test func clipboardFilterBlocksSecrets() {
@@ -56,4 +57,89 @@ import Testing
     await store.add(text: "second", types: ["public.text"])
     await store.add(text: "first", types: ["public.text"])
     #expect(await store.search("").map(\.text).prefix(2) == ["first", "second"])
+}
+
+@Test func clipboardPinnedEntriesSortFirst() async {
+    let store = ClipboardHistoryStore()
+    await store.add(text: "older", types: ["public.text"])
+    await store.add(text: "newer", types: ["public.text"])
+    let olderID = await store.search("older").first!.id
+    await store.pin(olderID)
+    let ordered = await store.search("")
+    #expect(ordered.first?.text == "older")
+    #expect(ordered.first?.isPinned == true)
+}
+
+@Test func clipboardFilterLinksOnly() async {
+    let store = ClipboardHistoryStore()
+    await store.add(text: "plain note", types: ["public.text"])
+    await store.add(text: "https://luma.app", types: ["public.text"])
+    await store.add(text: "user@example.com", types: ["public.text"])
+    let links = await store.list(filter: .links, query: "", limit: 10)
+    #expect(links.count == 2)
+    #expect(links.allSatisfy { $0.detectedKind == .link || $0.detectedKind == .email })
+}
+
+@Test func clipboardTokenSearchMatchesAllTerms() async {
+    let store = ClipboardHistoryStore()
+    await store.add(text: "hello brave world", types: ["public.text"])
+    await store.add(text: "hello world", types: ["public.text"])
+    let results = await store.search("hello brave")
+    #expect(results.count == 1)
+    #expect(results.first?.text == "hello brave world")
+}
+
+@Test func clipboardPinAndDeletePersist() async throws {
+    let url = FileManager.default.temporaryDirectory.appendingPathComponent("clipboard-pin-\(UUID().uuidString).json")
+    defer { try? FileManager.default.removeItem(at: url) }
+
+    let store = ClipboardHistoryStore(persistenceURL: url)
+    await store.add(text: "keep me", types: ["public.text"])
+    let id = await store.search("keep").first!.id
+    await store.pin(id)
+
+    let reloaded = ClipboardHistoryStore(persistenceURL: url)
+    #expect(await reloaded.search("keep").first?.isPinned == true)
+
+    await reloaded.removeEntry(id)
+    let again = ClipboardHistoryStore(persistenceURL: url)
+    #expect(await again.search("keep").isEmpty)
+}
+
+@Test func clipboardDetectsEntryKinds() {
+    #expect(ClipboardEntryKind.detect(from: "https://example.com") == .link)
+    #expect(ClipboardEntryKind.detect(from: "user@example.com") == .email)
+    #expect(ClipboardEntryKind.detect(from: "func main() {\n}\n") == .code)
+    #expect(ClipboardEntryKind.detect(from: "plain text") == .text)
+}
+
+@Test func translationEmptyInputSkipsRequest() {
+    #expect(TranslationUserMessages.shouldTranslate("") == false)
+    #expect(TranslationUserMessages.shouldTranslate("   ") == false)
+    #expect(TranslationUserMessages.shouldTranslate("hello") == true)
+}
+
+@Test func translationFailureProducesUserFacingMessage() {
+    let message = TranslationUserMessages.message(for: SystemTranslationError.shortcutUnavailable)
+    #expect(message.contains("Luma Translate"))
+}
+
+@Test func translationSystemErrorsDefineShortcutFallbackPolicy() {
+    #expect(SystemTranslationError.frameworkUnavailable.allowsShortcutFallback)
+    #expect(SystemTranslationError.emptyOutput.allowsShortcutFallback)
+    #expect(SystemTranslationError.languagePackRequired.allowsShortcutFallback == false)
+    #expect(SystemTranslationError.shortcutTimedOut.allowsShortcutFallback == false)
+}
+
+@Test func translateModuleResultKeyDoesNotPersistRawText() {
+    let text = "sensitive user phrase"
+    let key = TranslateModule.resultKey(for: text)
+    #expect(key != text)
+    #expect(key.count == 16)
+    #expect(TranslateModule.resultKey(for: text) == key)
+}
+
+@Test func translationLanguageDetectorRecognizesChinese() {
+    let code = TranslationLanguageDetector.detectedLanguageCode(for: "你好")
+    #expect(code == "zh-Hans" || code == "zh-Hant")
 }

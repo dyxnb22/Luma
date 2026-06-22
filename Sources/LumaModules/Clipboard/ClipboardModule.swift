@@ -50,17 +50,29 @@ public actor ClipboardModule: LumaModule {
     }
 
     public func recentEntries(limit: Int = 50) async -> [ClipboardEntry] {
-        await store.search("", limit: limit)
+        await store.list(filter: .all, query: "", limit: limit)
+    }
+
+    public func filteredEntries(filter: ClipboardListFilter, query: String = "", limit: Int = 200) async -> [ClipboardEntry] {
+        await store.list(filter: filter, query: query, limit: limit)
+    }
+
+    public func statistics() async -> ClipboardStatistics {
+        await store.statistics()
     }
 
     public func togglePin(_ id: UUID) async {
-        let current = await store.search("", limit: 500)
+        let current = await store.list(filter: .all, query: "", limit: 500)
         guard let entry = current.first(where: { $0.id == id }) else { return }
         await store.pin(id, isPinned: !entry.isPinned)
     }
 
     public func remove(_ id: UUID) async {
         await store.removeEntry(id)
+    }
+
+    public func clearUnpinned() async {
+        await store.clearUnpinned()
     }
 
     private func startPolling() {
@@ -74,18 +86,25 @@ public actor ClipboardModule: LumaModule {
     }
 
     private func capturePasteboardIfNeeded() async {
-        let snapshot = await MainActor.run { () -> (Int, [String], String?) in
+        let snapshot = await MainActor.run { () -> (Int, [String], String?, String?, String?) in
             let pasteboard = NSPasteboard.general
             let changeCount = pasteboard.changeCount
             let types = pasteboard.types?.map(\.rawValue) ?? []
             let text = pasteboard.string(forType: .string)
-            return (changeCount, types, text)
+            let frontmost = NSWorkspace.shared.frontmostApplication
+            let bundleID = frontmost?.bundleIdentifier
+            let appName = frontmost?.localizedName
+            let lumaBundleID = Bundle.main.bundleIdentifier
+            if bundleID == lumaBundleID {
+                return (changeCount, types, text, nil, nil)
+            }
+            return (changeCount, types, text, appName, bundleID)
         }
 
         guard snapshot.0 != lastChangeCount else { return }
         lastChangeCount = snapshot.0
         guard let text = snapshot.2 else { return }
-        await store.add(text: text, types: snapshot.1)
+        await store.add(text: text, types: snapshot.1, sourceAppName: snapshot.3, sourceBundleID: snapshot.4)
     }
 
     private func result(for entry: ClipboardEntry) -> ResultItem {

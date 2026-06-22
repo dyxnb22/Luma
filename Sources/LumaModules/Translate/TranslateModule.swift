@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import LumaCore
 
@@ -21,7 +22,7 @@ public actor TranslateModule: LumaModule {
         let text = Self.translationText(from: query.raw)
 
         guard !text.isEmpty else { return ModuleResult(items: []) }
-        let id = ResultID(module: Self.manifest.identifier, key: text)
+        let id = ResultID(module: Self.manifest.identifier, key: Self.resultKey(for: text))
         let item = ResultItem(
             id: id,
             title: "Translate",
@@ -48,5 +49,10 @@ public actor TranslateModule: LumaModule {
             return String(trimmed.dropFirst("tr ".count)).trimmingCharacters(in: .whitespacesAndNewlines)
         }
         return trimmed
+    }
+
+    static func resultKey(for text: String) -> String {
+        let digest = SHA256.hash(data: Data(text.utf8))
+        return digest.prefix(8).map { String(format: "%02x", $0) }.joined()
     }
 }

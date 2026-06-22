@@ -17,22 +17,18 @@ import Testing
     #expect(Set(positions).count == positions.count)
 }
 
-@Test func dashboardCoreCardsAreExactlyFourInExpectedOrder() {
+@Test func dashboardCoreCardsAreTranslateAndClipboardOnly() {
     let cards = FeatureCatalog.dashboardCoreCards()
-    #expect(cards.count == 4)
+    #expect(cards.count == 2)
     let ids = cards.sorted { $0.position.column < $1.position.column }.map(\.id)
-    #expect(ids == [.translate, .clipboard, .calculator, .windows])
+    #expect(ids == [.translate, .clipboard])
 }
 
 @Test func dashboardCoreCardsHaveWidgetStyleAndTrailingSpaceTriggers() {
     let cards = FeatureCatalog.dashboardCoreCards()
     for card in cards {
         #expect(card.widgetStyle != nil, "\(card.title) is missing widgetStyle")
-        if card.id == .calculator {
-            #expect(card.triggerKeyword == "=")
-        } else {
-            #expect(card.triggerKeyword.hasSuffix(" "), "\(card.title) trigger \"\(card.triggerKeyword)\" should end with a space")
-        }
+        #expect(card.triggerKeyword.hasSuffix(" "), "\(card.title) trigger \"\(card.triggerKeyword)\" should end with a space")
     }
 }
 

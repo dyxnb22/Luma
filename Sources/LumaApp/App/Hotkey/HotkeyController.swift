@@ -1,6 +1,18 @@
 import Carbon.HIToolbox
 import Foundation
 
+/// Carbon delivers hot-key events on the main thread, but not through Swift's MainActor.
+/// Keep this handler free of @MainActor closures so Swift 6 executor checks do not crash.
+private func lumaHotKeyEventHandler(
+    _: EventHandlerCallRef?,
+    _: EventRef?,
+    userData: UnsafeMutableRawPointer?
+) -> OSStatus {
+    guard let userData else { return noErr }
+    Unmanaged<HotkeyController>.fromOpaque(userData).takeUnretainedValue().schedulePress()
+    return noErr
+}
+
 @MainActor
 final class HotkeyController {
     nonisolated(unsafe) private var hotKeyRef: EventHotKeyRef?
@@ -44,6 +56,15 @@ final class HotkeyController {
         onPress()
     }
 
+    nonisolated func schedulePress() {
+        let raw = Unmanaged.passUnretained(self).toOpaque()
+        DispatchQueue.main.async {
+            MainActor.assumeIsolated {
+                Unmanaged<HotkeyController>.fromOpaque(raw).takeUnretainedValue().onPress()
+            }
+        }
+    }
+
     private func installHandler() throws {
         var eventType = EventTypeSpec(
             eventClass: OSType(kEventClassKeyboard),
@@ -52,14 +73,7 @@ final class HotkeyController {
         let userData = Unmanaged.passUnretained(self).toOpaque()
         let status = InstallEventHandler(
             GetEventDispatcherTarget(),
-            { _, _, userData in
-                guard let userData else { return noErr }
-                let controller = Unmanaged<HotkeyController>.fromOpaque(userData).takeUnretainedValue()
-                Task { @MainActor in
-                    controller.onPress()
-                }
-                return noErr
-            },
+            lumaHotKeyEventHandler,
             1,
             &eventType,
             userData,

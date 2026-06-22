@@ -5,12 +5,52 @@ public struct ClipboardEntry: Identifiable, Sendable, Hashable, Codable {
     public var text: String
     public var createdAt: Date
     public var isPinned: Bool
+    public var detectedKind: ClipboardEntryKind
+    public var sourceAppName: String?
+    public var sourceBundleID: String?
 
-    public init(id: UUID = UUID(), text: String, createdAt: Date = Date(), isPinned: Bool = false) {
+    public init(
+        id: UUID = UUID(),
+        text: String,
+        createdAt: Date = Date(),
+        isPinned: Bool = false,
+        detectedKind: ClipboardEntryKind? = nil,
+        sourceAppName: String? = nil,
+        sourceBundleID: String? = nil
+    ) {
         self.id = id
         self.text = text
         self.createdAt = createdAt
         self.isPinned = isPinned
+        self.detectedKind = detectedKind ?? ClipboardEntryKind.detect(from: text)
+        self.sourceAppName = sourceAppName
+        self.sourceBundleID = sourceBundleID
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id, text, createdAt, isPinned, detectedKind, sourceAppName, sourceBundleID
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        text = try container.decode(String.self, forKey: .text)
+        createdAt = try container.decode(Date.self, forKey: .createdAt)
+        isPinned = try container.decode(Bool.self, forKey: .isPinned)
+        detectedKind = try container.decodeIfPresent(ClipboardEntryKind.self, forKey: .detectedKind)
+            ?? ClipboardEntryKind.detect(from: text)
+        sourceAppName = try container.decodeIfPresent(String.self, forKey: .sourceAppName)
+        sourceBundleID = try container.decodeIfPresent(String.self, forKey: .sourceBundleID)
+    }
+}
+
+public struct ClipboardStatistics: Sendable, Equatable {
+    public let total: Int
+    public let pinned: Int
+
+    public init(total: Int, pinned: Int) {
+        self.total = total
+        self.pinned = pinned
     }
 }
 
@@ -37,22 +77,48 @@ public actor ClipboardHistoryStore {
         }
     }
 
-    public func add(text: String, types: [String], now: Date = Date()) {
+    public func add(
+        text: String,
+        types: [String],
+        now: Date = Date(),
+        sourceAppName: String? = nil,
+        sourceBundleID: String? = nil
+    ) {
         guard !ClipboardFilter.shouldSkip(types: types), ClipboardFilter.acceptsText(text, maxBytes: maxTextBytes) else { return }
         entries.removeAll { $0.text == text }
-        entries.insert(ClipboardEntry(text: text, createdAt: now), at: 0)
+        entries.insert(
+            ClipboardEntry(
+                text: text,
+                createdAt: now,
+                detectedKind: ClipboardEntryKind.detect(from: text),
+                sourceAppName: sourceAppName,
+                sourceBundleID: sourceBundleID
+            ),
+            at: 0
+        )
         prune(now: now)
         persist()
     }
 
     public func search(_ query: String, limit: Int = 20) -> [ClipboardEntry] {
-        let normalized = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        let source = entries.sorted {
+        list(filter: .all, query: query, limit: limit)
+    }
+
+    public func list(filter: ClipboardListFilter, query: String = "", limit: Int = 50) -> [ClipboardEntry] {
+        let sorted = entries.sorted {
             if $0.isPinned != $1.isPinned { return $0.isPinned && !$1.isPinned }
             return $0.createdAt > $1.createdAt
         }
-        guard !normalized.isEmpty else { return Array(source.prefix(limit)) }
-        return Array(source.filter { $0.text.lowercased().contains(normalized) }.prefix(limit))
+        let filtered = sorted.filter { entry in
+            guard matchesFilter(entry, filter: filter) else { return false }
+            return matchesQuery(entry, query: query)
+        }
+        return Array(filtered.prefix(limit))
+    }
+
+    public func statistics() -> ClipboardStatistics {
+        let pinned = entries.filter(\.isPinned).count
+        return ClipboardStatistics(total: entries.count, pinned: pinned)
     }
 
     public func pin(_ id: UUID, isPinned: Bool = true) {
@@ -66,9 +132,36 @@ public actor ClipboardHistoryStore {
         persist()
     }
 
+    public func clearUnpinned() {
+        entries.removeAll { !$0.isPinned }
+        persist()
+    }
+
     public func removeEntry(_ id: UUID) {
         entries.removeAll { $0.id == id }
         persist()
+    }
+
+    private func matchesFilter(_ entry: ClipboardEntry, filter: ClipboardListFilter) -> Bool {
+        switch filter {
+        case .all:
+            return true
+        case .text:
+            return entry.detectedKind == .text || entry.detectedKind == .code
+        case .links:
+            return entry.detectedKind == .link || entry.detectedKind == .email
+        case .pinned:
+            return entry.isPinned
+        }
+    }
+
+    private func matchesQuery(_ entry: ClipboardEntry, query: String) -> Bool {
+        let normalized = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !normalized.isEmpty else { return true }
+        let tokens = normalized.split(whereSeparator: \.isWhitespace).map(String.init)
+        guard !tokens.isEmpty else { return true }
+        let haystack = entry.text.lowercased()
+        return tokens.allSatisfy { haystack.contains($0) }
     }
 
     private func prune(now: Date) {

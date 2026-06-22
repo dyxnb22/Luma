@@ -73,6 +73,7 @@ final class AppCoordinator {
                   let bundleID = app.bundleIdentifier else { return }
             Task { @MainActor in
                 await self.appActivationTracker.record(bundleID: bundleID)
+                self.windowController.hideIfShowingForExternalActivation(bundleID: bundleID)
                 self.windowController.refreshOpenApps()
             }
         }
@@ -107,7 +108,13 @@ final class AppCoordinator {
         let clipboardModule = ClipboardModule()
         ModuleDetailRegistry.clipboardModule = clipboardModule
         ModuleDetailRegistry.translation = translation
-        ModuleDetailRegistry.accessibility = accessibility
+        ModuleDetailRegistry.config = config
+        ModuleDetailRegistry.onBackFromDetail = { [weak self] in
+            self?.windowController.closeDetailIfShowing()
+        }
+        ModuleDetailRegistry.onOpenSettings = { [weak self] in
+            self?.settingsWindowController?.show()
+        }
 
         Task {
             var modules = BuiltInModules.makeAll()

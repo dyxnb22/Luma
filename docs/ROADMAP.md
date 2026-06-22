@@ -14,7 +14,7 @@ Route A (`docs/strategy/LAUNCHER_CONVERGENCE_STRATEGY.md`, `CONVERGENCE_EXECUTIO
 
 | Version | Focus | Do | Do Not Do |
 | --- | --- | --- | --- |
-| 0.1 Daily self-use | Dashboard Widget shell | Keep Route B single window, App Search, Window Focus, Clipboard, Commands, Calculator, Translate, same-panel details | Plugin API, Notes Graph, Wordbook, Secrets as first-class UX |
+| 0.1 Daily self-use | Dashboard Widget shell | Route B single window, App Search sidebar, **Translate + Clipboard** core cards, Commands, same-panel details | Calculator/Windows on dashboard, Plugin API, Notes Graph, Wordbook, Secrets as first-class UX |
 | 0.2 Stability | Persistence and settings | Namespaced Application Support persistence, interactive Settings, corrupt-data recovery, perf gates | XPC, runtime plugins, schema migration churn without need |
 | 0.3 Command depth | Action depth | Secondary action chooser, better result grouping, stronger command ergonomics | Marketplace, JS/Lua runtime |
 | 0.5 Architecture | Lifecycle and scale | ResidencyController, module lifecycle budgets, optional SQLite only if JSON files become insufficient | Premature XPC |

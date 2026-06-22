@@ -46,7 +46,8 @@ final class SidebarAppRow: NSControl {
 
         let icon = IconCache.shared.runningAppIcon(app)
         iconView.image = icon
-        iconView.imageScaling = .scaleProportionallyUpOrDown
+        iconView.imageScaling = .scaleProportionallyDown
+        iconView.imageAlignment = .alignLeft
         iconView.wantsLayer = true
         iconView.layer?.cornerRadius = 5.4
         iconView.layer?.cornerCurve = .continuous
@@ -62,7 +63,7 @@ final class SidebarAppRow: NSControl {
         addSubview(titleLabel)
 
         NSLayoutConstraint.activate([
-            iconView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 4),
+            iconView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 0),
             iconView.centerYAnchor.constraint(equalTo: centerYAnchor),
             iconView.widthAnchor.constraint(equalToConstant: 24),
             iconView.heightAnchor.constraint(equalToConstant: 24),

@@ -2,32 +2,25 @@
 
 This folder is the maintenance index for Luma's feature modules. Each feature owns a README with scope, data model, actions, privacy rules, UI behavior, and implementation notes.
 
-## Active v1 Launcher Set
+## Active v1 Launcher Set (Route B — ADR-007)
 
-1. App Search / Launcher
-2. Window Focus
-3. Clipboard History
-4. Translate
-5. Frecency Recent Items
-6. Quick Calculator
+**Dashboard cards:** Translate, Clipboard, Notes, Todo, Wordbook, Snippets, Secrets.
 
-See `docs/strategy/LAUNCHER_CONVERGENCE_STRATEGY.md` for the current strategic rationale.
+**Modules (registered at launch):** Apps, Clipboard, Commands, Notes, Todo, Events, Translate, Wordbook, Snippets, Secrets, Media.
 
-## Deferred Or Experimental Features
+**Deferred:** Calculator, Windows (source retained, not in `BuiltInModules.makeAll()`).
 
-- Dashboard Cards
-- Notes Graph
-- Wordbook
-- Secrets Vault
-- Window Layout engine
+See `docs/strategy/DASHBOARD_WIDGET_STRATEGY.md` and `docs/ARCHITECTURE.md` for the current product surface.
 
-These docs may remain as historical or experimental references, but they should not define the v1 launcher path.
+## Historical / Experimental Docs
+
+Older per-feature READMEs under this folder may describe pre–Route B experiments. Treat `BuiltInModules.swift`, `FeatureCatalog.swift`, and `docs/ARCHITECTURE.md` as source of truth for what ships today.
 
 ## Module Rules
 
 - Every feature is represented as an independent `LumaModule` or service-backed module.
 - Every default-enabled feature must preserve the launcher hot path.
-- Empty-query UI is usage/frecency-based, not card-based.
+- Empty-query UI shows the dashboard feature card grid.
 - Sensitive features must keep secrets out of generic search results unless explicitly unlocked.
 
 ## Raycast-Inspired Defaults

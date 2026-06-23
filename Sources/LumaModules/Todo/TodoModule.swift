@@ -4,12 +4,6 @@ import Foundation
 import LumaCore
 import LumaServices
 
-import AppKit
-import EventKit
-import Foundation
-import LumaCore
-import LumaServices
-
 public enum TodoChangeHub {
     private static let lock = NSLock()
     private nonisolated(unsafe) static var continuations: [UUID: AsyncStream<Void>.Continuation] = [:]

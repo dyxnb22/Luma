@@ -29,7 +29,7 @@ public enum ModuleSearchHints {
         if lower.hasPrefix("note") {
             return "Find a note by filename"
         }
-        if lower.hasPrefix("translate") {
+        if lower == "tr" || lower.hasPrefix("tr ") || lower.hasPrefix("translate") {
             return "Text to translate"
         }
         return Self.default

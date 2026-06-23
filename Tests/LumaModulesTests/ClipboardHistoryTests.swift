@@ -1,7 +1,92 @@
 import Foundation
+import LumaCore
 import Testing
 @testable import LumaServices
 @testable import LumaModules
+
+@Test func clipboardModuleRequiresClipPrefixInRootSearch() async {
+    let module = ClipboardModule()
+    let context = QueryContext(deadline: ContinuousClock().now.advanced(by: .milliseconds(30)))
+
+    let appOnlySearch = await module.handle(Query(raw: "cursor", sequence: 1), context: context)
+    #expect(appOnlySearch.items.isEmpty)
+
+    let clipHelp = await module.handle(Query(raw: "clip ?", sequence: 2), context: context)
+    #expect(!clipHelp.items.isEmpty)
+}
+
+@Test func clipboardModuleImageResultUsesCustomCopyAction() async throws {
+    let store = ClipboardHistoryStore()
+    let imageData = Data([0x89, 0x50, 0x4E, 0x47])
+    await store.add(
+        text: "[Image]",
+        types: ["public.png"],
+        imageData: imageData,
+        imagePasteboardType: "public.png"
+    )
+    let entryID = await store.search("").first!.id
+    let module = ClipboardModule(store: store, persistenceURL: URL(fileURLWithPath: "/tmp/luma-clipboard-test-\(UUID().uuidString).json"))
+    let context = QueryContext(deadline: ContinuousClock().now.advanced(by: .milliseconds(30)))
+    let results = await module.handle(Query(raw: "clip", sequence: 1), context: context)
+    #expect(results.items.count == 1)
+    #expect(results.items.first?.title.contains("Image") == true)
+    if case .custom(_, let handler) = results.items.first!.primaryAction.kind {
+        #expect(handler == .clipboard)
+    } else {
+        Issue.record("Expected custom clipboard copy action")
+    }
+
+    let pasteboard = RecordingPasteboardClient()
+    let actionContext = ActionContext(
+        logger: NoopLogger(),
+        metrics: NoopMetricsClient(),
+        pasteboard: pasteboard,
+        accessibility: NoopAccessibilityClient()
+    )
+    try await module.perform(results.items.first!.primaryAction, context: actionContext)
+    let recorded = await pasteboard.snapshot()
+    #expect(recorded.imageData == imageData)
+    #expect(recorded.imageType == "public.png")
+    #expect(recorded.text == nil)
+    _ = entryID
+}
+
+private actor RecordingPasteboardClient: PasteboardClient {
+    private var text: String?
+    private var imageData: Data?
+    private var imageType: String?
+
+    func write(_ string: String) async {
+        text = string
+        imageData = nil
+        imageType = nil
+    }
+
+    func writeSecure(_ string: String, clearAfterSeconds: Int) async {
+        await write(string)
+    }
+
+    func writeImage(data: Data, pasteboardType: String) async {
+        imageData = data
+        imageType = pasteboardType
+        text = nil
+    }
+
+    func snapshot() -> (text: String?, imageData: Data?, imageType: String?) {
+        (text, imageData, imageType)
+    }
+}
+
+private struct NoopLogger: LoggingClient {
+    func debug(_ message: String) async {}
+    func error(_ message: String) async {}
+}
+
+private struct NoopAccessibilityClient: AccessibilityClient {
+    func focus(windowID: UInt32, pid: Int32, title: String) async {}
+    func insert(text: String) async {}
+    func applyWindowLayout(_ preset: String) async {}
+}
 
 @Test func clipboardFilterBlocksSecrets() {
     #expect(ClipboardFilter.shouldSkip(types: ["org.nspasteboard.ConcealedType"]))

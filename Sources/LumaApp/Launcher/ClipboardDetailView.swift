@@ -259,8 +259,8 @@ final class ClipboardDetailView: NSObject, ModuleDetailView {
 
     private func pasteEntry(_ entry: ClipboardEntry) {
         copyEntry(entry)
-        guard entry.imageData == nil else { return }
         LauncherCallbackRegistry.current?.onHideLauncher()
+        guard entry.imageData == nil else { return }
         let ax = AXService()
         let text = entry.text
         Task {

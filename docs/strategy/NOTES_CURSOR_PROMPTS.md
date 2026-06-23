@@ -334,7 +334,7 @@ Execute Phase 9 of docs/strategy/NOTES_MARKDOWN_CURSOR_PLAN.md.
 2. Wire a `Cmd+L` menu item on note rows in Sources/LumaApp/Launcher/NotesDetailView.swift labeled `Open Linked Notes…`. Show a small NSPopover anchored to the row listing matches. Return opens the selection in Typora.
 
 3. Track recent notes in Sources/LumaModules/Notes/NotesModule.swift:
-   - On every successful `perform` that opens a note, push the path to the front of an in-memory recents list, dedupe, cap at 5.
+   - On every successful `perform` that opens a note, push the path to the front of an in-memory recents list, dedupe, cap at 8.
    - Persist as `recent: [path]` inside notes.json. Add the field to NotesRootConfig if missing; backward-compatible decode.
    - When the launcher query is empty and the detail view is visible, render the recent list as a flat pseudo-group at the top of the outline labeled `Recent`. Default collapsed. Hidden when empty.
 
@@ -342,7 +342,7 @@ Acceptance:
 
 - `swift build` passes.
 - Manual: a note containing `[[Tree]] and [[DP]]` opens a popover with both matches; Return opens the selected one.
-- Manual: opening five different notes populates the Recent group; the group survives an app restart.
+- Manual: opening eight different notes populates the Recent group; the group survives an app restart.
 
 Do not surface recent counts on the dashboard card. That is an ADR-008 non-goal. Report and stop.
 ```

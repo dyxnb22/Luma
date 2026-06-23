@@ -37,7 +37,10 @@ public actor SecretsModule: LumaModule {
 
     public func handle(_ query: Query, context: QueryContext) async -> ModuleResult {
         let normalized = query.normalized
-        guard normalized.hasPrefix("secret ") || normalized == "secrets" || normalized.hasPrefix("secrets ") else {
+        guard normalized == "secret"
+            || normalized.hasPrefix("secret ")
+            || normalized == "secrets"
+            || normalized.hasPrefix("secrets ") else {
             return ModuleResult(items: [])
         }
 

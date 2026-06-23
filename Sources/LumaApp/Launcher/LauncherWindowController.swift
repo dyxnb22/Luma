@@ -92,6 +92,7 @@ final class LauncherWindowController {
     }
 
     func hide() {
+        rootView?.resetSidebarExpansion()
         rootView?.saveCurrentSession()
         rootView?.stopPermissionPolling()
         rootView?.stopFeatureGridSubscriptions()
@@ -110,7 +111,10 @@ final class LauncherWindowController {
     }
 
     func hideImmediatelyForAction() {
-        rootView?.saveCurrentSession()
+        rootView?.resetForActionDismiss()
+        rootView?.resetSidebarExpansion()
+        rootView?.stopPermissionPolling()
+        rootView?.stopFeatureGridSubscriptions()
         panel.orderOut(nil)
         panel.alphaValue = 1
     }

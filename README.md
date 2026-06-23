@@ -9,18 +9,18 @@ The project is macOS-only: Swift 6, AppKit for the launcher surface, SwiftUI onl
 Route B (Dashboard Widget single window) is the active product surface:
 
 - Command+Space opens a pre-instantiated AppKit panel with a glass dashboard.
-- **Active core cards:** Translate and Clipboard (two-column liquid-glass widgets).
-- **Active modules:** Apps, Clipboard, Commands, Translate (plus open-apps sidebar).
-- **Deferred from active UX** (source retained): Calculator, Windows, Notes, Wordbook, Secrets, Window Layouts, Todo.
+- **Dashboard cards (7):** Translate, Clipboard, Notes, Todo, Wordbook, Snippets, Secrets — liquid-glass widgets in a 4+3 grid.
+- **Active modules (11):** Apps, Clipboard, Commands, Notes, Todo, Events, Translate, Wordbook, Snippets, Secrets, Media (Events/Media default off in Settings).
+- **Deferred from default registration** (source retained): Calculator, Windows.
 - Translation uses Apple Translation / Shortcuts fallback — no network API.
-- Clipboard history is local-first with secret filtering and pin/search support.
+- Clipboard history is local-first with secret filtering, image support, and pin/search.
 
 ## Feature Direction
 
 The first useful build should prove:
 
 1. Command+Space toggles a pre-instantiated AppKit launcher panel.
-2. Empty query shows real usage-based recents/frequents.
+2. Empty query shows the dashboard feature card grid (not usage recents).
 3. Non-empty query fans out to enabled modules through a timeout-protected dispatcher.
 4. Ranked results render quickly and actions run without blocking UI.
 5. The panel hides immediately after action dispatch.

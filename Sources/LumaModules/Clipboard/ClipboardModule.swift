@@ -26,6 +26,11 @@ public actor ClipboardModule: LumaModule {
         store = ClipboardHistoryStore(persistenceURL: persistenceURL)
     }
 
+    init(store: ClipboardHistoryStore, persistenceURL: URL) {
+        self.store = store
+        self.persistenceURL = persistenceURL
+    }
+
     public func warmup(_ context: ModuleContext) async {
         let maxEntries = await context.config.clipboardMaxEntries()
         let maxAgeDays = await context.config.clipboardMaxAgeDays()
@@ -46,11 +51,42 @@ public actor ClipboardModule: LumaModule {
 
     public func handle(_ query: Query, context: QueryContext) async -> ModuleResult {
         let normalized = query.normalized
+        guard normalized == "clip" || normalized.hasPrefix("clip ") else {
+            return ModuleResult(items: [])
+        }
         if normalized == "clip ?" || normalized == "clip help" {
             return ModuleResult(items: ModuleHelp.results(for: Self.manifest.identifier))
         }
-        let entries = await store.search(query.normalized, limit: 10)
+
+        let searchText: String
+        if normalized == "clip" {
+            searchText = ""
+        } else {
+            searchText = String(query.raw.dropFirst(5)).trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+
+        let entries = await store.search(searchText, limit: 10)
         return ModuleResult(items: entries.map(result))
+    }
+
+    public func perform(_ action: Action, context: ActionContext) async throws {
+        guard case .custom(let payload, let handler) = action.kind,
+              handler == Self.manifest.identifier else {
+            throw ModuleError.unsupportedAction(action.id)
+        }
+        let decoded = try ModuleActionCoding.decode(ClipboardAction.self, from: payload)
+        switch decoded {
+        case .copyEntry(let id):
+            let entries = await store.list(filter: .all, query: "", limit: 500)
+            guard let entry = entries.first(where: { $0.id == id }) else {
+                throw ModuleError.dataUnavailable
+            }
+            if let data = entry.imageData, let type = entry.imagePasteboardType {
+                await context.pasteboard.writeImage(data: data, pasteboardType: type)
+            } else {
+                await context.pasteboard.write(entry.text)
+            }
+        }
     }
 
     public func recentEntries(limit: Int = 50) async -> [ClipboardEntry] {
@@ -146,18 +182,20 @@ public actor ClipboardModule: LumaModule {
     }
 
     private func result(for entry: ClipboardEntry) -> ResultItem {
-        let title = entry.text.count > 80 ? String(entry.text.prefix(80)) + "..." : entry.text
+        let display = entry.displayText
+        let title = display.count > 80 ? String(display.prefix(80)) + "..." : display
         let id = ResultID(module: Self.manifest.identifier, key: entry.id.uuidString)
+        let payload = (try? ModuleActionCoding.encode(ClipboardAction.copyEntry(id: entry.id))) ?? Data()
         return ResultItem(
             id: id,
             title: title,
             titleAttributed: AttributedString(title),
             subtitle: entry.isPinned ? "Pinned Clipboard" : "Clipboard",
-            icon: .symbol("doc.on.clipboard"),
+            icon: .symbol(entry.imageData == nil ? "doc.on.clipboard" : "photo"),
             primaryAction: Action(
                 id: ActionID(module: Self.manifest.identifier, key: "copy.\(entry.id.uuidString)"),
                 title: "Copy",
-                kind: .copyToPasteboard(entry.text)
+                kind: .custom(payload: payload, handler: Self.manifest.identifier)
             ),
             rankingHints: RankingHints(basePriority: Self.manifest.priority)
         )

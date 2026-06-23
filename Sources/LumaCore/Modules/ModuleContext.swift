@@ -80,6 +80,7 @@ public protocol DatabaseClient: Sendable {}
 public protocol PasteboardClient: Sendable {
     func write(_ string: String) async
     func writeSecure(_ string: String, clearAfterSeconds: Int) async
+    func writeImage(data: Data, pasteboardType: String) async
 }
 
 public protocol AccessibilityClient: Sendable {

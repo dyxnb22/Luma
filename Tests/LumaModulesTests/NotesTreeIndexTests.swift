@@ -1,4 +1,5 @@
 import Foundation
+import LumaCore
 import Testing
 @testable import LumaModules
 
@@ -82,4 +83,53 @@ import Testing
     #expect(matches.first?.name == "tree")
 
     try? FileManager.default.removeItem(at: root)
+}
+
+@Test func notesModuleRequiresNotePrefixInRootSearch() async throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+    try "content".write(to: root.appendingPathComponent("Meeting.md"), atomically: true, encoding: .utf8)
+    defer { try? FileManager.default.removeItem(at: root) }
+
+    let index = NotesTreeIndex()
+    await index.setRoot(root)
+    await index.warmup()
+
+    let configURL = FileManager.default.temporaryDirectory.appendingPathComponent("notes-config-\(UUID().uuidString).json")
+    let config = NotesRootConfigStore(fileURL: configURL)
+    try await config.save(NotesRootConfig(root: root, expandedFolders: []))
+
+    let module = NotesModule(index: index, config: config)
+    let context = QueryContext(deadline: ContinuousClock().now.advanced(by: .milliseconds(40)))
+
+    let noPrefix = await module.handle(Query(raw: "meeting", sequence: 1), context: context)
+    #expect(noPrefix.items.isEmpty)
+
+    let withPrefix = await module.handle(Query(raw: "note meeting", sequence: 2), context: context)
+    #expect(withPrefix.items.first?.title == "Meeting")
+}
+
+@Test func notesModuleKeepsEightRecentNotesForBareTrigger() async throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: root) }
+
+    let index = NotesTreeIndex()
+    await index.setRoot(root)
+    await index.warmup()
+
+    let configURL = FileManager.default.temporaryDirectory.appendingPathComponent("notes-config-\(UUID().uuidString).json")
+    let config = NotesRootConfigStore(fileURL: configURL)
+    defer { try? FileManager.default.removeItem(at: configURL) }
+
+    let module = NotesModule(index: index, config: config)
+    for i in 0..<10 {
+        let path = root.appendingPathComponent("Note-\(i).md").path
+        await module.recordOpenedNote(path: path)
+    }
+
+    let recent = await module.recentNotePaths()
+    #expect(recent.count == 8)
+    #expect(recent.first == root.appendingPathComponent("Note-9.md").path)
+    #expect(recent.last == root.appendingPathComponent("Note-2.md").path)
 }

@@ -1,4 +1,5 @@
 import Foundation
+import LumaCore
 import Testing
 @testable import LumaModules
 
@@ -62,6 +63,19 @@ import Testing
     #expect(await vault.unlocked())
     try await Task.sleep(for: .milliseconds(1200))
     #expect(await vault.unlocked() == false)
+}
+
+@Test func secretsModuleAcceptsBareSecretTrigger() async {
+    let vault = makeIsolatedSecretsVault()
+    let module = SecretsModule(vault: vault)
+    await module.unlock()
+    let context = QueryContext(deadline: ContinuousClock().now.advanced(by: .milliseconds(30)))
+
+    let bare = await module.handle(Query(raw: "secret", sequence: 1), context: context)
+    #expect(!bare.items.isEmpty)
+
+    let unrelated = await module.handle(Query(raw: "secretary", sequence: 2), context: context)
+    #expect(unrelated.items.isEmpty)
 }
 
 private func makeIsolatedSecretsVault() -> SecretsVault {

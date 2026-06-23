@@ -616,12 +616,12 @@ File:
 
 Tasks:
 
-- Track the last 5 notes opened via `perform`. Persist in `notes.json` under `recent: [path]` (push to front, dedupe, cap at 5).
+- Track the last 8 notes opened via `perform`. Persist in `notes.json` under `recent: [path]` (push to front, dedupe, cap at 8).
 - When the launcher query is empty and the user is currently in the Notes detail view, surface the recent list at the top of the outline as a flat "Recent" pseudo-group (collapsible, default collapsed).
 
 Acceptance:
 
-- Opening five notes populates the Recent group.
+- Opening eight notes populates the Recent group.
 - Recent persists across app restarts.
 
 ## Phase 10: Docs and Verification

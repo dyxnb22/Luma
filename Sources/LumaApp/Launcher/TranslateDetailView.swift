@@ -40,6 +40,7 @@ final class TranslateDetailView: ModuleDetailView {
     private var sourceLanguageCode: String? = nil
     private var pendingTask: Task<Void, Never>?
     private var translationState: TranslationUIState = .idle
+    private var languageChipButtons: [NSButton] = []
 
     private static let panelTextInset = NSSize(width: 12, height: 12)
     private static let panelFont = NSFont.systemFont(ofSize: 14)
@@ -276,12 +277,14 @@ final class TranslateDetailView: ModuleDetailView {
         chipRow.orientation = .horizontal
         chipRow.spacing = 6
         chipRow.translatesAutoresizingMaskIntoConstraints = false
+        languageChipButtons = []
         for (code, label) in [("zh-Hans", "中文"), ("en", "EN"), ("ja", "日本語"), ("ko", "한국어")] {
             let chip = NSButton(title: label, target: self, action: #selector(quickLanguageChip(_:)))
             chip.bezelStyle = .rounded
             chip.font = .systemFont(ofSize: 11, weight: .medium)
             chip.identifier = NSUserInterfaceItemIdentifier(code)
             chipRow.addArrangedSubview(chip)
+            languageChipButtons.append(chip)
         }
 
         sourceLabel.font = .systemFont(ofSize: 12, weight: .medium)
@@ -303,6 +306,7 @@ final class TranslateDetailView: ModuleDetailView {
         swapButton.target = self
         swapButton.action = #selector(swapLanguages)
         swapButton.isEnabled = false
+        swapButton.toolTip = "Translate once to detect the source language before swapping"
         swapButton.translatesAutoresizingMaskIntoConstraints = false
 
         translateButton.title = "Translate"
@@ -440,6 +444,7 @@ final class TranslateDetailView: ModuleDetailView {
 
     @objc private func targetLanguageChanged() {
         guard let code = targetPopup.selectedItem?.representedObject as? String else { return }
+        selectTargetLanguage(code)
         Task {
             await config.setTranslationTargetLanguage(code)
             await MainActor.run {
@@ -488,6 +493,7 @@ final class TranslateDetailView: ModuleDetailView {
         sourceLanguageCode = nil
         sourceLabel.stringValue = "Auto Detect"
         swapButton.isEnabled = false
+        swapButton.toolTip = "Translate once to detect the source language before swapping"
         setState(.idle)
         hideErrorBanner()
         notifyContentChanged()
@@ -558,11 +564,13 @@ final class TranslateDetailView: ModuleDetailView {
             sourceLanguageCode = nil
             sourceLabel.stringValue = "Auto Detect"
             swapButton.isEnabled = false
+            swapButton.toolTip = "Translate once to detect the source language before swapping"
             return
         }
         sourceLanguageCode = code
         sourceLabel.stringValue = displayName(for: code)
         swapButton.isEnabled = true
+        swapButton.toolTip = "Swap source and target languages"
     }
 
     private func setState(_ state: TranslationUIState) {
@@ -605,6 +613,18 @@ final class TranslateDetailView: ModuleDetailView {
             targetPopup.selectItem(at: targetPopup.numberOfItems - 1)
         }
         TranslateDashboardStatus.targetLanguageCode = code
+        updateChipHighlight(selectedCode: code)
+    }
+
+    private func updateChipHighlight(selectedCode: String) {
+        for chip in languageChipButtons {
+            let selected = chip.identifier?.rawValue == selectedCode
+            if #available(macOS 13.0, *) {
+                chip.bezelColor = selected ? .controlAccentColor : nil
+            }
+            chip.contentTintColor = selected ? .white : .labelColor
+            chip.alphaValue = selected ? 1 : 0.82
+        }
     }
 
     private func displayName(for code: String) -> String {

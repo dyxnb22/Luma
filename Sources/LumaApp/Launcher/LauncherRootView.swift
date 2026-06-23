@@ -176,6 +176,7 @@ final class LauncherRootView: NSView {
 
     func showHome(focusSearch: Bool = true, persist: Bool = true) {
         searchBar.stringValue = ""
+        ModuleDetailRegistry.isLauncherQueryEmpty = true
         contentCoordinator.tearDownDetailIfNeeded()
         contentCoordinator.resetResults()
         homeScrollView.isHidden = false
@@ -191,6 +192,7 @@ final class LauncherRootView: NSView {
     }
 
     func refreshOpenApps() { Task { await sidebarController.refresh() } }
+    func resetSidebarExpansion() { sidebarController.resetExpanded() }
     func refreshPermissionStatus() { permissionController.refresh() }
     func startPermissionPollingIfNeeded() { permissionController.startPollingIfNeeded() }
     func stopPermissionPolling() { permissionController.stopPolling() }
@@ -229,6 +231,22 @@ final class LauncherRootView: NSView {
         }
     }
 
+    /// Clears transient search state after an action so the next hotkey opens a clean home screen.
+    func resetForActionDismiss() {
+        if contentCoordinator.showingDetail {
+            saveCurrentSession()
+            return
+        }
+        suppressSessionPersistence = true
+        searchBar.stringValue = ""
+        ModuleDetailRegistry.isLauncherQueryEmpty = true
+        contentCoordinator.resetResults()
+        viewModel.cancel()
+        loadingLabel.isHidden = modulesReady
+        suppressSessionPersistence = false
+        saveHomeSession()
+    }
+
     func openModuleDetail(for moduleID: ModuleIdentifier) {
         guard let detail = ModuleDetailRegistry.make(for: moduleID) else { return }
         contentCoordinator.present(detail, moduleID: moduleID)
@@ -259,9 +277,14 @@ final class LauncherRootView: NSView {
     func handleEscape() {
         if contentCoordinator.showingDetail {
             closeDetail()
-        } else {
-            onDismiss()
+            return
         }
+        let trimmed = searchBar.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        if contentCoordinator.showingResults || !trimmed.isEmpty {
+            showHome(focusSearch: true, persist: true)
+            return
+        }
+        onDismiss()
     }
 
     @objc func closeDetail() {

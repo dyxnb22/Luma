@@ -28,4 +28,11 @@ public actor PasteboardService: PasteboardClient {
             }
         }
     }
+
+    public func writeImage(data: Data, pasteboardType: String) async {
+        await MainActor.run {
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setData(data, forType: NSPasteboard.PasteboardType(pasteboardType))
+        }
+    }
 }

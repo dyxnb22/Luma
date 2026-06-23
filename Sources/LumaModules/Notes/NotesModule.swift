@@ -18,6 +18,7 @@ public actor NotesModule: LumaModule {
     private var watchTask: Task<Void, Never>?
     private var watchRoot: URL?
     private var rootPath: String?
+    private static let recentNotesLimit = 8
 
     public init() {
         index = NotesTreeIndex()
@@ -48,11 +49,26 @@ public actor NotesModule: LumaModule {
     }
 
     public func handle(_ query: Query, context: QueryContext) async -> ModuleResult {
-        let searchText = query.raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !searchText.isEmpty else { return ModuleResult(items: []) }
+        let normalized = query.normalized
+        guard normalized == "note"
+            || normalized.hasPrefix("note ")
+            || normalized == "notes"
+            || normalized.hasPrefix("notes ") else {
+            return ModuleResult(items: [])
+        }
 
-        if ModuleHelp.isHelpQuery(searchText) {
+        if normalized == "note ?" || normalized == "note help"
+            || normalized == "notes ?" || normalized == "notes help" {
             return ModuleResult(items: ModuleHelp.results(for: Self.manifest.identifier))
+        }
+
+        let searchText: String
+        if normalized == "note" || normalized == "notes" {
+            searchText = ""
+        } else if normalized.hasPrefix("notes ") {
+            searchText = String(query.raw.dropFirst(6)).trimmingCharacters(in: .whitespacesAndNewlines)
+        } else {
+            searchText = String(query.raw.dropFirst(5)).trimmingCharacters(in: .whitespacesAndNewlines)
         }
 
         let lower = searchText.lowercased()
@@ -61,6 +77,16 @@ public actor NotesModule: LumaModule {
             guard !target.isEmpty else { return ModuleResult(items: []) }
             let matches = await findBacklinks(to: target, limit: 12)
             return ModuleResult(items: matches.map(result(for:)))
+        }
+
+        if searchText.isEmpty {
+            let recents = await recentNotePaths()
+            let items = recents.prefix(8).map { path in
+                let name = URL(fileURLWithPath: path).deletingPathExtension().lastPathComponent
+                let node = NotesNode(path: path, name: name, kind: .note, children: [])
+                return result(for: node)
+            }
+            return ModuleResult(items: Array(items))
         }
 
         let matches = await index.search(fuzzy: searchText, limit: 10)
@@ -93,8 +119,8 @@ public actor NotesModule: LumaModule {
         var config = await configStore.load()
         config.recent.removeAll { $0 == path }
         config.recent.insert(path, at: 0)
-        if config.recent.count > 5 {
-            config.recent = Array(config.recent.prefix(5))
+        if config.recent.count > Self.recentNotesLimit {
+            config.recent = Array(config.recent.prefix(Self.recentNotesLimit))
         }
         try? await configStore.save(config)
     }

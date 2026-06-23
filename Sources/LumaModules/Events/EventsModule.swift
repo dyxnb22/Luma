@@ -8,7 +8,7 @@ public actor EventsModule: LumaModule {
         identifier: .events,
         displayName: "Events",
         capabilities: [.queryable, .providesActions],
-        defaultEnabled: true,
+        defaultEnabled: false,
         priority: 4,
         queryTimeout: .milliseconds(120)
     )

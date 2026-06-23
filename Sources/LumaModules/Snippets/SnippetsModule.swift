@@ -89,8 +89,8 @@ public actor SnippetsModule: LumaModule {
         cachedSnippets.count
     }
 
-    public func add(title: String, content: String, tags: [String]) async throws -> Snippet {
-        let snippet = try await store.add(title: title, content: content, tags: tags)
+    public func add(title: String, content: String, tags: [String], trigger: String = "") async throws -> Snippet {
+        let snippet = try await store.add(title: title, content: content, tags: tags, trigger: trigger)
         await refreshCache()
         return snippet
     }
@@ -110,6 +110,11 @@ public actor SnippetsModule: LumaModule {
         let copy = try await store.duplicate(id: id)
         await refreshCache()
         return copy
+    }
+
+    public func markUsed(id: UUID) async throws {
+        _ = try await store.recordUsage(id: id)
+        await refreshCache()
     }
 
     private func refreshCache() async {

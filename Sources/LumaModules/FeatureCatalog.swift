@@ -68,15 +68,4 @@ public enum FeatureCatalog {
             )
         ]
     }
-
-    public static func defaultCards() -> [FeatureCard] {
-        [
-            FeatureCard(id: .translate, title: "Translate", subtitle: "Translate text", icon: .symbol("character.bubble"), triggerKeyword: "translate ", position: CardPosition(column: 0, row: 0)),
-            FeatureCard(id: .clipboard, title: "Clipboard", subtitle: "Search clipboard", icon: .symbol("doc.on.clipboard"), triggerKeyword: "clip ", position: CardPosition(column: 1, row: 0)),
-            FeatureCard(id: .secrets, title: "Secrets", subtitle: "Vault search", icon: .symbol("lock.shield"), triggerKeyword: "secret ", position: CardPosition(column: 2, row: 0)),
-            FeatureCard(id: .windowLayouts, title: "Layouts", subtitle: "Window layouts", icon: .symbol("rectangle.split.2x1"), triggerKeyword: "win ", position: CardPosition(column: 3, row: 0)),
-            FeatureCard(id: .notes, title: "Notes", subtitle: "Markdown notes", icon: .symbol("note.text"), triggerKeyword: "note ", position: CardPosition(column: 4, row: 0)),
-            FeatureCard(id: .wordbook, title: "Wordbook", subtitle: "Vocabulary review", icon: .symbol("text.book.closed"), triggerKeyword: "word ", position: CardPosition(column: 5, row: 0))
-        ]
-    }
 }

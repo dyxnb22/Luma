@@ -110,6 +110,36 @@ public actor RemindersService {
         return Array(snapshots.prefix(limit))
     }
 
+    /// Reminders due after today, incomplete.
+    public func futureDue(now: Date = Date(), limit: Int = 20) async throws -> [ReminderSnapshot] {
+        try await ensureAuthorized()
+        let calendars = store.calendars(for: .reminder)
+        let startOfTomorrow = Calendar.current.startOfDay(for: now).addingTimeInterval(60 * 60 * 24)
+        let predicate = store.predicateForIncompleteReminders(
+            withDueDateStarting: startOfTomorrow,
+            ending: nil,
+            calendars: calendars
+        )
+        let snapshots = try await fetchSnapshots(predicate: predicate)
+        let sorted = snapshots.sorted { ($0.dueDate ?? .distantFuture) < ($1.dueDate ?? .distantFuture) }
+        return Array(sorted.prefix(limit))
+    }
+
+    /// Recently completed reminders (last 7 days).
+    public func completedRecently(now: Date = Date(), limit: Int = 20) async throws -> [ReminderSnapshot] {
+        try await ensureAuthorized()
+        let calendars = store.calendars(for: .reminder)
+        let weekAgo = Calendar.current.date(byAdding: .day, value: -7, to: now) ?? now
+        let predicate = store.predicateForCompletedReminders(
+            withCompletionDateStarting: weekAgo,
+            ending: now,
+            calendars: calendars
+        )
+        let snapshots = try await fetchSnapshots(predicate: predicate)
+        let sorted = snapshots.sorted { ($0.dueDate ?? now) > ($1.dueDate ?? now) }
+        return Array(sorted.prefix(limit))
+    }
+
     @discardableResult
     public func create(title: String, dueDate: Date? = nil, notes: String? = nil) async throws -> ReminderSnapshot {
         try await ensureAuthorized()

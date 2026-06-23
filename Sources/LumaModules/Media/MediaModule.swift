@@ -6,7 +6,7 @@ public actor MediaModule: LumaModule {
         identifier: .media,
         displayName: "Media",
         capabilities: [.queryable, .providesActions],
-        defaultEnabled: true,
+        defaultEnabled: false,
         priority: 3,
         queryTimeout: .milliseconds(30)
     )
@@ -81,24 +81,24 @@ public actor MediaModule: LumaModule {
 
         switch decoded {
         case .openDetail:
-            await MainActor.run { LauncherBridge.openMediaDetail?() }
+            await MainActor.run { LauncherCallbackRegistry.current?.openModuleDetail(.media) }
         case .edit(let id):
             guard let item = cachedItems.first(where: { $0.id == id }) else {
                 throw ModuleError.dataUnavailable
             }
             await MainActor.run {
-                LauncherBridge.pendingMediaEditorDraft = MediaEditorDraft(item: item)
-                LauncherBridge.openMediaDetail?()
+                LauncherSharedState.pendingMediaEditorDraft = MediaEditorDraft(item: item)
+                LauncherCallbackRegistry.current?.openModuleDetail(.media)
             }
         case .editDraft(let draft):
             await MainActor.run {
-                LauncherBridge.pendingMediaEditorDraft = draft
-                LauncherBridge.openMediaDetail?()
+                LauncherSharedState.pendingMediaEditorDraft = draft
+                LauncherCallbackRegistry.current?.openModuleDetail(.media)
             }
         case .capture(let draft):
             _ = try await store.add(from: draft)
             await refreshCache()
-            await MainActor.run { LauncherBridge.reloadMediaDetail?() }
+            await MainActor.run { LauncherCallbackRegistry.current?.reloadMediaDetail() }
         case .copy(let id):
             guard let item = cachedItems.first(where: { $0.id == id }) else {
                 throw ModuleError.dataUnavailable

@@ -4,6 +4,7 @@ import LumaCore
 public struct Snippet: Sendable, Codable, Hashable, Identifiable {
     public let id: UUID
     public var title: String
+    public var trigger: String
     public var content: String
     public var tags: [String]
     public var usageCount: Int
@@ -13,6 +14,7 @@ public struct Snippet: Sendable, Codable, Hashable, Identifiable {
     public init(
         id: UUID = UUID(),
         title: String,
+        trigger: String = "",
         content: String,
         tags: [String] = [],
         usageCount: Int = 0,
@@ -21,11 +23,37 @@ public struct Snippet: Sendable, Codable, Hashable, Identifiable {
     ) {
         self.id = id
         self.title = title
+        self.trigger = trigger
         self.content = content
         self.tags = tags.map { $0.lowercased().trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
         self.usageCount = usageCount
         self.lastUsedAt = lastUsedAt
         self.createdAt = createdAt
+    }
+
+    public var displayTrigger: String {
+        if !trigger.isEmpty { return trigger }
+        let slug = title
+            .lowercased()
+            .filter { $0.isLetter || $0.isNumber }
+            .prefix(12)
+        return slug.isEmpty ? ";snippet" : ";\(slug)"
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id, title, trigger, content, tags, usageCount, lastUsedAt, createdAt
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        title = try container.decode(String.self, forKey: .title)
+        trigger = try container.decodeIfPresent(String.self, forKey: .trigger) ?? ""
+        content = try container.decode(String.self, forKey: .content)
+        tags = try container.decode([String].self, forKey: .tags)
+        usageCount = try container.decode(Int.self, forKey: .usageCount)
+        lastUsedAt = try container.decode(Date.self, forKey: .lastUsedAt)
+        createdAt = try container.decode(Date.self, forKey: .createdAt)
     }
 }
 
@@ -53,8 +81,9 @@ public actor SnippetsStore {
         await backing.items
     }
 
-    public func add(title: String, content: String, tags: [String]) async throws -> Snippet {
-        let snippet = Snippet(title: title, content: content, tags: StringNormalization.tags(tags))
+    public func add(title: String, content: String, tags: [String], trigger: String = "") async throws -> Snippet {
+        let resolvedTrigger = trigger.isEmpty ? Snippet(title: title, content: content).displayTrigger : trigger
+        let snippet = Snippet(title: title, trigger: resolvedTrigger, content: content, tags: StringNormalization.tags(tags))
         do {
             try await backing.mutate { items in
                 items.append(snippet)

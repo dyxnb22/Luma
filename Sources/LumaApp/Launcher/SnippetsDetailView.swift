@@ -12,8 +12,10 @@ final class SnippetsDetailView: NSObject, ModuleDetailView {
     private let tableScroll = NSScrollView()
     private let tableView = NSTableView()
     private let emptyStateLabel = NSTextField(labelWithString: "")
+    private let copiedFeedbackLabel = NSTextField(labelWithString: "")
     private var snippets: [Snippet] = []
     private var refreshTask: Task<Void, Never>?
+    private var copiedFeedbackTask: Task<Void, Never>?
 
     init(module: SnippetsModule) {
         self.module = module
@@ -21,7 +23,7 @@ final class SnippetsDetailView: NSObject, ModuleDetailView {
         self.detailView = chrome
         super.init()
         setup(chrome: chrome)
-        LauncherBridge.reloadSnippetsDetail = { [weak self] in self?.refresh() }
+        ModuleDetailReloads.reloadSnippetsDetail = { [weak self] in self?.refresh() }
     }
 
     func activate() {
@@ -34,12 +36,18 @@ final class SnippetsDetailView: NSObject, ModuleDetailView {
     func deactivate() {
         refreshTask?.cancel()
         refreshTask = nil
+        copiedFeedbackTask?.cancel()
+        copiedFeedbackTask = nil
     }
 
     func handleKeyDown(_ event: NSEvent) -> Bool {
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         if flags.contains(.command), event.charactersIgnoringModifiers?.lowercased() == "f" {
             detailView.window?.makeFirstResponder(searchField)
+            return true
+        }
+        if flags.contains(.command), event.charactersIgnoringModifiers?.lowercased() == "e" {
+            editSelected()
             return true
         }
         return false
@@ -54,14 +62,14 @@ final class SnippetsDetailView: NSObject, ModuleDetailView {
         tableView.delegate = self
         tableView.dataSource = self
         tableView.target = self
-        tableView.doubleAction = #selector(editSelected)
+        tableView.doubleAction = #selector(useSelected)
         tableView.translatesAutoresizingMaskIntoConstraints = false
 
         for (id, title, width) in [
-            ("title", "Title", 180.0),
-            ("tags", "Tags", 120.0),
-            ("used", "Used", 60.0),
-            ("updated", "Updated", 120.0)
+            ("title", "Title", 160.0),
+            ("trigger", "Trigger", 100.0),
+            ("tags", "Tags", 100.0),
+            ("lastUsed", "Last Used", 100.0)
         ] {
             let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier(id))
             column.title = title
@@ -82,13 +90,22 @@ final class SnippetsDetailView: NSObject, ModuleDetailView {
         emptyStateLabel.isHidden = true
         emptyStateLabel.translatesAutoresizingMaskIntoConstraints = false
 
+        copiedFeedbackLabel.font = .systemFont(ofSize: 12, weight: .medium)
+        copiedFeedbackLabel.textColor = .secondaryLabelColor
+        copiedFeedbackLabel.alignment = .center
+        copiedFeedbackLabel.isHidden = true
+        copiedFeedbackLabel.translatesAutoresizingMaskIntoConstraints = false
+
         chrome.setToolbar(toolbar, height: 32)
         chrome.setContent(tableScroll, embedInScroll: false)
         chrome.addSubview(emptyStateLabel)
+        chrome.addSubview(copiedFeedbackLabel)
 
         NSLayoutConstraint.activate([
             emptyStateLabel.centerXAnchor.constraint(equalTo: tableScroll.centerXAnchor),
-            emptyStateLabel.centerYAnchor.constraint(equalTo: tableScroll.centerYAnchor)
+            emptyStateLabel.centerYAnchor.constraint(equalTo: tableScroll.centerYAnchor),
+            copiedFeedbackLabel.centerXAnchor.constraint(equalTo: tableScroll.centerXAnchor),
+            copiedFeedbackLabel.topAnchor.constraint(equalTo: tableScroll.topAnchor, constant: 8)
         ])
 
         searchField.target = self
@@ -140,6 +157,34 @@ final class SnippetsDetailView: NSObject, ModuleDetailView {
         presentEditor(snippet: nil)
     }
 
+    @objc private func useSelected() {
+        let row = tableView.selectedRow
+        guard snippets.indices.contains(row) else { return }
+        let snippet = snippets[row]
+        let expanded = SnippetVariableExpander.expand(snippet.content)
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(expanded, forType: .string)
+        showCopiedFeedback()
+        Task { [weak self] in
+            guard let self else { return }
+            _ = try? await self.module.markUsed(id: snippet.id)
+            await MainActor.run { self.refresh() }
+        }
+    }
+
+    private func showCopiedFeedback() {
+        copiedFeedbackTask?.cancel()
+        copiedFeedbackLabel.stringValue = "Copied to clipboard"
+        copiedFeedbackLabel.isHidden = false
+        copiedFeedbackTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(1.5))
+            guard !Task.isCancelled else { return }
+            await MainActor.run {
+                self?.copiedFeedbackLabel.isHidden = true
+            }
+        }
+    }
+
     @objc private func editSelected() {
         let row = tableView.selectedRow
         guard snippets.indices.contains(row) else { return }
@@ -176,16 +221,17 @@ final class SnippetsDetailView: NSObject, ModuleDetailView {
     }
 
     private func presentEditor(snippet: Snippet?) {
-        let sheet = SnippetEditorSheet(snippet: snippet) { [weak self] title, content, tags in
+        let sheet = SnippetEditorSheet(snippet: snippet) { [weak self] title, trigger, content, tags in
             guard let self else { return }
             Task {
                 if var existing = snippet {
                     existing.title = title
+                    existing.trigger = trigger
                     existing.content = content
                     existing.tags = tags
                     _ = try? await self.module.update(existing)
                 } else {
-                    _ = try? await self.module.add(title: title, content: content, tags: tags)
+                    _ = try? await self.module.add(title: title, content: content, tags: tags, trigger: trigger)
                 }
                 await MainActor.run { self.refresh() }
             }
@@ -237,14 +283,19 @@ extension SnippetsDetailView: NSTableViewDataSource, NSTableViewDelegate {
         case "title":
             cell.stringValue = snippet.title
             cell.font = .systemFont(ofSize: 13, weight: .medium)
+        case "trigger":
+            cell.stringValue = snippet.displayTrigger
+            cell.textColor = .secondaryLabelColor
+            cell.font = .monospacedSystemFont(ofSize: 12, weight: .regular)
         case "tags":
             cell.stringValue = snippet.tags.joined(separator: ", ")
             cell.textColor = .secondaryLabelColor
-        case "used":
-            cell.stringValue = "\(snippet.usageCount)"
-            cell.textColor = .secondaryLabelColor
-        case "updated":
-            cell.stringValue = RelativeDateTimeFormatter().localizedString(for: snippet.lastUsedAt, relativeTo: Date())
+        case "lastUsed":
+            if snippet.usageCount == 0 {
+                cell.stringValue = "—"
+            } else {
+                cell.stringValue = RelativeDateTimeFormatter().localizedString(for: snippet.lastUsedAt, relativeTo: Date())
+            }
             cell.textColor = .secondaryLabelColor
         default:
             break

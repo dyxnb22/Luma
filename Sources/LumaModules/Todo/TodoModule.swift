@@ -4,6 +4,40 @@ import Foundation
 import LumaCore
 import LumaServices
 
+import AppKit
+import EventKit
+import Foundation
+import LumaCore
+import LumaServices
+
+public enum TodoChangeHub {
+    private static let lock = NSLock()
+    private nonisolated(unsafe) static var continuations: [UUID: AsyncStream<Void>.Continuation] = [:]
+
+    public static func dataChanges() -> AsyncStream<Void> {
+        AsyncStream { continuation in
+            let id = UUID()
+            lock.lock()
+            continuations[id] = continuation
+            lock.unlock()
+            continuation.onTermination = { _ in
+                lock.lock()
+                continuations.removeValue(forKey: id)
+                lock.unlock()
+            }
+        }
+    }
+
+    public static func publishDataChanged() {
+        lock.lock()
+        let targets = continuations.values
+        lock.unlock()
+        for continuation in targets {
+            continuation.yield()
+        }
+    }
+}
+
 /// EventKit pass-through Todo module (see ADR-009).
 ///
 /// Trigger: `t ` or `todo ` prefix.
@@ -125,6 +159,14 @@ public actor TodoModule: LumaModule {
         return Array(all.filter { $0.dueDate == nil }.prefix(limit))
     }
 
+    public func futureDue(limit: Int = 20) async throws -> [ReminderSnapshot] {
+        try await reminders.futureDue(now: now(), limit: limit)
+    }
+
+    public func completedReminders(limit: Int = 20) async throws -> [ReminderSnapshot] {
+        try await reminders.completedRecently(now: now(), limit: limit)
+    }
+
     @discardableResult
     public func createReminder(from rawTitle: String) async throws -> ReminderSnapshot {
         let parsed = TodoTimeParser.parse(rawTitle, now: now())
@@ -173,6 +215,7 @@ public actor TodoModule: LumaModule {
     private func invalidateDueCache() {
         cachedDue = nil
         cachedAt = nil
+        TodoChangeHub.publishDataChanged()
     }
 
     private func installStoreChangedObserverIfNeeded() {
@@ -183,9 +226,13 @@ public actor TodoModule: LumaModule {
                 queue: nil
             ) { [weak self] _ in
                 guard let self else { return }
-                Task { await self.invalidateDueCache() }
+                Task { await self.handleExternalStoreChange() }
             }
         )
+    }
+
+    private func handleExternalStoreChange() {
+        invalidateDueCache()
     }
 
     // MARK: - Trigger parsing

@@ -13,6 +13,9 @@
 | `MediaModule.handle` | ≤ 10 ms | ≤ 20 ms | 30 ms (manifest queryTimeout) |
 | Media JSON warmup load | — | ≤ 80 ms | — (≤ 5000 items) |
 | Panel hide after action | 10 ms | 20 ms | 40 ms |
+| `WordbookDetailView.activate` | ≤ 50 ms | ≤ 100 ms warm / ≤ 200 ms cold | — |
+| `AppIndex.search` (warm, ~1k apps) | — | ≤ 5 ms | — |
+| `WordbookSessionPlanner.nextCard` (warm) | — | ≤ 30 ms | — |
 
 Launcher convergence strategy adds a stricter working rule: warm keystroke p95 above 30 ms is a regression and should block the change.
 

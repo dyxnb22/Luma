@@ -60,6 +60,30 @@ private func date(_ string: String, in calendar: Calendar) -> Date {
     #expect(parsed.dueDate == nil)
 }
 
+@Test func parserMatchesChineseTomorrow() {
+    let cal = calendar()
+    let now = date("2026-06-22 10:00", in: cal)
+    let parsed = TodoTimeParser.parse("交报告 明天 9点", now: now, calendar: cal)
+    #expect(parsed.title == "交报告")
+    #expect(parsed.dueDate == date("2026-06-23 09:00", in: cal))
+}
+
+@Test func parserMatchesChineseTodayWithColon() {
+    let cal = calendar()
+    let now = date("2026-06-22 10:00", in: cal)
+    let parsed = TodoTimeParser.parse("开会 今天 15:30", now: now, calendar: cal)
+    #expect(parsed.title == "开会")
+    #expect(parsed.dueDate == date("2026-06-22 15:30", in: cal))
+}
+
+@Test func parserMatchesChineseDayAfterTomorrow() {
+    let cal = calendar()
+    let now = date("2026-06-22 10:00", in: cal)
+    let parsed = TodoTimeParser.parse("体检 后天 14点", now: now, calendar: cal)
+    #expect(parsed.title == "体检")
+    #expect(parsed.dueDate == date("2026-06-24 14:00", in: cal))
+}
+
 @Test func todoModuleExtractsPayloadFromTriggerVariants() {
     #expect(TodoModule.extractPayload(raw: "t") == "")
     #expect(TodoModule.extractPayload(raw: "todo") == "")

@@ -1,6 +1,7 @@
 import AppKit
 import LumaCore
 import LumaModules
+import LumaServices
 
 @MainActor
 final class ClipboardDetailView: NSObject, ModuleDetailView {
@@ -16,6 +17,7 @@ final class ClipboardDetailView: NSObject, ModuleDetailView {
     private let tableView = ClipboardEntriesTableView()
     private let emptyStateLabel = NSTextField(labelWithString: "")
     private var entries: [ClipboardEntry] = []
+    private var displayRows: [ClipboardDisplayRow] = []
     private var refreshTask: Task<Void, Never>?
     private var currentFilter: ClipboardListFilter = .all
     private var onOpenSettings: (() -> Void)?
@@ -63,6 +65,7 @@ final class ClipboardDetailView: NSObject, ModuleDetailView {
         tableView.delegate = self
         tableView.dataSource = self
         tableView.onCopy = { [weak self] in self?.copySelected() }
+        tableView.onPaste = { [weak self] in self?.pasteSelected() }
         tableView.onDelete = { [weak self] in
             guard let self else { return }
             self.deleteEntry(at: self.tableView.selectedRow)
@@ -71,6 +74,8 @@ final class ClipboardDetailView: NSObject, ModuleDetailView {
             guard let self else { return }
             self.togglePin(at: self.tableView.selectedRow)
         }
+        tableView.target = self
+        tableView.doubleAction = #selector(doubleClickRow)
         tableView.columnAutoresizingStyle = .uniformColumnAutoresizingStyle
 
         let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("main"))
@@ -113,11 +118,10 @@ final class ClipboardDetailView: NSObject, ModuleDetailView {
         searchField.placeholderString = "Search clipboard…"
         searchField.translatesAutoresizingMaskIntoConstraints = false
 
-        filterControl.segmentCount = 4
+        filterControl.segmentCount = 3
         filterControl.setLabel("All", forSegment: 0)
-        filterControl.setLabel("Text", forSegment: 1)
-        filterControl.setLabel("Links", forSegment: 2)
-        filterControl.setLabel("Pinned", forSegment: 3)
+        filterControl.setLabel("Pinned", forSegment: 1)
+        filterControl.setLabel("Image", forSegment: 2)
         filterControl.selectedSegment = 0
         filterControl.target = self
         filterControl.action = #selector(filterChanged)
@@ -161,15 +165,21 @@ final class ClipboardDetailView: NSObject, ModuleDetailView {
 
     @objc private func filterChanged() {
         switch filterControl.selectedSegment {
-        case 1: currentFilter = .text
-        case 2: currentFilter = .links
-        case 3: currentFilter = .pinned
+        case 1: currentFilter = .pinned
+        case 2: currentFilter = .image
         default: currentFilter = .all
         }
         refresh()
     }
 
     @objc private func clearUnpinned() {
+        let alert = NSAlert()
+        alert.messageText = "Clear unpinned clipboard history?"
+        alert.informativeText = "Pinned items will be kept."
+        alert.addButton(withTitle: "Clear")
+        alert.addButton(withTitle: "Cancel")
+        alert.alertStyle = .warning
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
         Task { [weak self] in
             guard let self else { return }
             await self.module.clearUnpinned()
@@ -182,9 +192,25 @@ final class ClipboardDetailView: NSObject, ModuleDetailView {
     }
 
     @objc private func copySelected() {
+        guard let entry = selectedEntry() else { return }
+        copyEntry(entry)
+    }
+
+    @objc private func doubleClickRow() {
+        guard let entry = selectedEntry() else { return }
+        pasteEntry(entry)
+    }
+
+    @objc private func pasteSelected() {
+        guard let entry = selectedEntry() else { return }
+        pasteEntry(entry)
+    }
+
+    private func selectedEntry() -> ClipboardEntry? {
         let row = tableView.selectedRow
-        guard entries.indices.contains(row) else { return }
-        copyEntry(entries[row])
+        guard displayRows.indices.contains(row) else { return nil }
+        if case .entry(let entry) = displayRows[row] { return entry }
+        return nil
     }
 
     private func refresh() {
@@ -196,10 +222,14 @@ final class ClipboardDetailView: NSObject, ModuleDetailView {
             let loaded = await self.module.filteredEntries(filter: filter, query: query, limit: 200)
             await MainActor.run {
                 self.entries = loaded
+                self.displayRows = ClipboardTimeGrouping.displayRows(for: loaded)
                 self.tableView.reloadData()
                 self.updateEmptyState(query: query)
-                if !self.entries.isEmpty {
-                    self.tableView.selectRowIndexes(IndexSet(integer: 0), byExtendingSelection: false)
+                if let firstEntry = self.displayRows.firstIndex(where: {
+                    if case .entry = $0 { return true }
+                    return false
+                }) {
+                    self.tableView.selectRowIndexes(IndexSet(integer: firstEntry), byExtendingSelection: false)
                 }
             }
         }
@@ -220,25 +250,41 @@ final class ClipboardDetailView: NSObject, ModuleDetailView {
 
     private func copyEntry(_ entry: ClipboardEntry) {
         NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(entry.text, forType: .string)
+        if let data = entry.imageData, let type = entry.imagePasteboardType {
+            NSPasteboard.general.setData(data, forType: NSPasteboard.PasteboardType(type))
+        } else {
+            NSPasteboard.general.setString(entry.text, forType: .string)
+        }
+    }
+
+    private func pasteEntry(_ entry: ClipboardEntry) {
+        copyEntry(entry)
+        guard entry.imageData == nil else { return }
+        LauncherCallbackRegistry.current?.onHideLauncher()
+        let ax = AXService()
+        let text = entry.text
+        Task {
+            try? await Task.sleep(for: .milliseconds(80))
+            if AXService.isProcessTrusted() {
+                await ax.insert(text: text)
+            }
+        }
     }
 
     private func togglePin(at row: Int) {
-        guard entries.indices.contains(row) else { return }
-        let id = entries[row].id
+        guard case .entry(let entry) = displayRows[row] else { return }
         Task { [weak self] in
             guard let self else { return }
-            await self.module.togglePin(id)
+            await self.module.togglePin(entry.id)
             await MainActor.run { self.refresh() }
         }
     }
 
     private func deleteEntry(at row: Int) {
-        guard entries.indices.contains(row) else { return }
-        let id = entries[row].id
+        guard case .entry(let entry) = displayRows[row] else { return }
         Task { [weak self] in
             guard let self else { return }
-            await self.module.remove(id)
+            await self.module.remove(entry.id)
             await MainActor.run { self.refresh() }
         }
     }
@@ -251,12 +297,12 @@ final class ClipboardDetailView: NSObject, ModuleDetailView {
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? "Clipboard clip"
         let title = String(draftTitle.prefix(60))
         let draft = Snippet(title: title, content: entry.text, tags: ["clipboard"])
-        let sheet = SnippetEditorSheet(snippet: draft) { [weak self] savedTitle, content, tags in
+        let sheet = SnippetEditorSheet(snippet: draft) { [weak self] savedTitle, trigger, content, tags in
             guard let mod = ModuleDetailRegistry.snippetsModule else { return }
             Task {
-                _ = try? await mod.add(title: savedTitle, content: content, tags: tags)
+                _ = try? await mod.add(title: savedTitle, content: content, tags: tags, trigger: trigger)
                 await MainActor.run {
-                    LauncherBridge.reloadSnippetsDetail?()
+                    ModuleDetailReloads.reloadSnippetsDetail?()
                     self?.detailView.window?.makeFirstResponder(self?.tableView)
                 }
             }
@@ -266,41 +312,58 @@ final class ClipboardDetailView: NSObject, ModuleDetailView {
         }
     }
 
-    private func pinnedSectionLabelRow(for row: Int) -> Bool {
-        guard row < entries.count else { return false }
-        let entry = entries[row]
-        guard entry.isPinned else { return false }
-        if row == 0 { return true }
-        return !entries[row - 1].isPinned
-    }
+    private func pinnedSectionLabelRow(for row: Int) -> Bool { false }
 }
 
 extension ClipboardDetailView: NSTableViewDataSource, NSTableViewDelegate {
     func numberOfRows(in tableView: NSTableView) -> Int {
-        entries.count
+        displayRows.count
     }
 
     func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
-        guard entries.indices.contains(row) else { return nil }
-        let entry = entries[row]
-        let cellID = NSUserInterfaceItemIdentifier("ClipboardRowCell")
-        let cell = tableView.makeView(withIdentifier: cellID, owner: self) as? ClipboardRowCell
-            ?? ClipboardRowCell()
-        cell.identifier = cellID
-        let showSection = pinnedSectionLabelRow(for: row)
-        cell.configure(
-            entry: entry,
-            showsPinnedSection: showSection,
-            onCopy: { [weak self] in self?.copyEntry(entry) },
-            onPin: { [weak self] in self?.togglePin(at: row) },
-            onDelete: { [weak self] in self?.deleteEntry(at: row) },
-            onSaveAsSnippet: { [weak self] in self?.saveAsSnippet(entry) }
-        )
-        return cell
+        guard displayRows.indices.contains(row) else { return nil }
+        switch displayRows[row] {
+        case .header(let title):
+            let label = NSTextField(labelWithString: title)
+            label.font = .systemFont(ofSize: 11, weight: .semibold)
+            label.textColor = .tertiaryLabelColor
+            return label
+        case .entry(let entry):
+            let cellID = NSUserInterfaceItemIdentifier("ClipboardRowCell")
+            let cell = tableView.makeView(withIdentifier: cellID, owner: self) as? ClipboardRowCell
+                ?? ClipboardRowCell()
+            cell.identifier = cellID
+            let entryRow = row
+            cell.configure(
+                entry: entry,
+                showsPinnedSection: false,
+                imageLayout: currentFilter == .image,
+                onCopy: { [weak self] in self?.copyEntry(entry) },
+                onPin: { [weak self] in self?.togglePin(at: entryRow) },
+                onDelete: { [weak self] in self?.deleteEntry(at: entryRow) },
+                onSaveAsSnippet: { [weak self] in self?.saveAsSnippet(entry) }
+            )
+            return cell
+        }
     }
 
     func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat {
-        pinnedSectionLabelRow(for: row) ? 72 : 56
+        guard displayRows.indices.contains(row) else { return 56 }
+        if case .header = displayRows[row] { return 24 }
+        if currentFilter == .image { return 72 }
+        return 56
+    }
+
+    func tableView(_ tableView: NSTableView, isGroupRow row: Int) -> Bool {
+        guard displayRows.indices.contains(row) else { return false }
+        if case .header = displayRows[row] { return true }
+        return false
+    }
+
+    func tableView(_ tableView: NSTableView, shouldSelectRow row: Int) -> Bool {
+        guard displayRows.indices.contains(row) else { return false }
+        if case .header = displayRows[row] { return false }
+        return true
     }
 
     func tableViewSelectionDidChange(_ notification: Notification) {}
@@ -311,17 +374,20 @@ private final class ClipboardEntriesTableView: NSTableView {
     var onCopy: (() -> Void)?
     var onDelete: (() -> Void)?
     var onPin: (() -> Void)?
+    var onPaste: (() -> Void)?
 
     override func keyDown(with event: NSEvent) {
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         switch event.keyCode {
         case 36, 76:
-            onCopy?()
+            onPaste?()
         case 51:
             onDelete?()
         default:
             if flags.contains(.command), event.charactersIgnoringModifiers?.lowercased() == "p" {
                 onPin?()
+            } else if flags.contains(.command), event.charactersIgnoringModifiers?.lowercased() == "c" {
+                onCopy?()
             } else {
                 super.keyDown(with: event)
             }
@@ -333,6 +399,7 @@ private final class ClipboardEntriesTableView: NSTableView {
 private final class ClipboardRowCell: NSTableCellView {
     private let sectionLabel = NSTextField(labelWithString: "Pinned")
     private let iconView = NSImageView()
+    private let thumbnailView = NSImageView()
     private let previewLabel = NSTextField(wrappingLabelWithString: "")
     private let metaLabel = NSTextField(labelWithString: "")
     private let actionsStack = NSStackView()
@@ -344,6 +411,10 @@ private final class ClipboardRowCell: NSTableCellView {
     private var onSaveAsSnippet: (() -> Void)?
     private var onPin: (() -> Void)?
     private var onDelete: (() -> Void)?
+    private var metaLeadingToPreview: NSLayoutConstraint!
+    private var metaTopToPreview: NSLayoutConstraint!
+    private var metaLeadingToThumbnail: NSLayoutConstraint!
+    private var metaCenterYToThumbnail: NSLayoutConstraint!
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -358,6 +429,7 @@ private final class ClipboardRowCell: NSTableCellView {
     func configure(
         entry: ClipboardEntry,
         showsPinnedSection: Bool,
+        imageLayout: Bool = false,
         onCopy: @escaping () -> Void,
         onPin: @escaping () -> Void,
         onDelete: @escaping () -> Void,
@@ -369,11 +441,34 @@ private final class ClipboardRowCell: NSTableCellView {
         self.onSaveAsSnippet = onSaveAsSnippet
 
         sectionLabel.isHidden = !showsPinnedSection
-        iconView.image = NSImage(systemSymbolName: symbolName(for: entry.detectedKind), accessibilityDescription: nil)
-        previewLabel.stringValue = previewText(for: entry.text)
+        let useThumbnail = imageLayout && entry.imageData != nil
+        if useThumbnail, let data = entry.imageData, let image = NSImage(data: data) {
+            thumbnailView.image = image
+            thumbnailView.isHidden = false
+            iconView.isHidden = true
+            previewLabel.isHidden = true
+        } else {
+            thumbnailView.isHidden = true
+            iconView.isHidden = false
+            previewLabel.isHidden = false
+            iconView.image = NSImage(systemSymbolName: symbolName(for: entry.detectedKind), accessibilityDescription: nil)
+            previewLabel.stringValue = previewText(for: entry.text)
+        }
         metaLabel.stringValue = metadata(for: entry)
         pinButton.image = NSImage(systemSymbolName: entry.isPinned ? "pin.fill" : "pin", accessibilityDescription: "Pin")
         pinButton.contentTintColor = entry.isPinned ? .systemOrange : .secondaryLabelColor
+
+        if useThumbnail {
+            metaLeadingToPreview.isActive = false
+            metaTopToPreview.isActive = false
+            metaLeadingToThumbnail.isActive = true
+            metaCenterYToThumbnail.isActive = true
+        } else {
+            metaLeadingToThumbnail.isActive = false
+            metaCenterYToThumbnail.isActive = false
+            metaLeadingToPreview.isActive = true
+            metaTopToPreview.isActive = true
+        }
     }
 
     private func setup() {
@@ -386,6 +481,13 @@ private final class ClipboardRowCell: NSTableCellView {
 
         iconView.contentTintColor = .secondaryLabelColor
         iconView.translatesAutoresizingMaskIntoConstraints = false
+
+        thumbnailView.imageScaling = .scaleProportionallyUpOrDown
+        thumbnailView.wantsLayer = true
+        thumbnailView.layer?.cornerRadius = 6
+        thumbnailView.layer?.masksToBounds = true
+        thumbnailView.isHidden = true
+        thumbnailView.translatesAutoresizingMaskIntoConstraints = false
 
         previewLabel.font = .systemFont(ofSize: 13, weight: .medium)
         previewLabel.maximumNumberOfLines = 2
@@ -423,6 +525,7 @@ private final class ClipboardRowCell: NSTableCellView {
 
         addSubview(sectionLabel)
         addSubview(iconView)
+        addSubview(thumbnailView)
         addSubview(previewLabel)
         addSubview(metaLabel)
         addSubview(actionsStack)
@@ -436,12 +539,23 @@ private final class ClipboardRowCell: NSTableCellView {
             iconView.widthAnchor.constraint(equalToConstant: 18),
             iconView.heightAnchor.constraint(equalToConstant: 18),
 
+            thumbnailView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
+            thumbnailView.centerYAnchor.constraint(equalTo: centerYAnchor, constant: 4),
+            thumbnailView.widthAnchor.constraint(equalToConstant: 52),
+            thumbnailView.heightAnchor.constraint(equalToConstant: 52),
+
             previewLabel.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: 10),
             previewLabel.topAnchor.constraint(equalTo: iconView.topAnchor, constant: -2),
-            previewLabel.trailingAnchor.constraint(equalTo: actionsStack.leadingAnchor, constant: -8),
+            previewLabel.trailingAnchor.constraint(equalTo: actionsStack.leadingAnchor, constant: -8)
+        ])
 
-            metaLabel.leadingAnchor.constraint(equalTo: previewLabel.leadingAnchor),
-            metaLabel.topAnchor.constraint(equalTo: previewLabel.bottomAnchor, constant: 2),
+        metaLeadingToPreview = metaLabel.leadingAnchor.constraint(equalTo: previewLabel.leadingAnchor)
+        metaTopToPreview = metaLabel.topAnchor.constraint(equalTo: previewLabel.bottomAnchor, constant: 2)
+        metaLeadingToThumbnail = metaLabel.leadingAnchor.constraint(equalTo: thumbnailView.trailingAnchor, constant: 12)
+        metaCenterYToThumbnail = metaLabel.centerYAnchor.constraint(equalTo: thumbnailView.centerYAnchor)
+        metaLeadingToPreview.isActive = true
+        metaTopToPreview.isActive = true
+        NSLayoutConstraint.activate([
             metaLabel.trailingAnchor.constraint(equalTo: previewLabel.trailingAnchor),
 
             actionsStack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
@@ -462,12 +576,18 @@ private final class ClipboardRowCell: NSTableCellView {
 
     private func metadata(for entry: ClipboardEntry) -> String {
         let ago = RelativeDateTimeFormatter().localizedString(for: entry.createdAt, relativeTo: Date())
-        let chars = "\(entry.text.count) chars"
+        let detail: String
+        if entry.imageData != nil {
+            let bytes = entry.imageData?.count ?? 0
+            detail = bytes >= 1024 ? "\(bytes / 1024) KB image" : "\(bytes) B image"
+        } else {
+            detail = "\(entry.text.count) chars"
+        }
         let pin = entry.isPinned ? " · Pinned" : ""
         if let app = entry.sourceAppName {
-            return "\(ago) · \(chars)\(pin) · \(app)"
+            return "\(ago) · \(detail)\(pin) · \(app)"
         }
-        return "\(ago) · \(chars)\(pin)"
+        return "\(ago) · \(detail)\(pin)"
     }
 
     private func symbolName(for kind: ClipboardEntryKind) -> String {
@@ -476,6 +596,7 @@ private final class ClipboardRowCell: NSTableCellView {
         case .link: return "link"
         case .email: return "envelope"
         case .code: return "chevron.left.forwardslash.chevron.right"
+        case .image: return "photo"
         }
     }
 }

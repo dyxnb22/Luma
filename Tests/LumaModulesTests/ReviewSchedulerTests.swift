@@ -13,8 +13,14 @@ import Testing
     #expect(result.delay == .seconds(30 * 60))
 }
 
-@Test func fuzzyWordKeepsCurrentStageWithStageBasedDelay() {
+@Test func fuzzyBackwardCompatUsesKnownSchedule() {
     let result = ReviewScheduler.schedule(familiarity: .fuzzy, currentStage: 3, wrongCount: 0)
-    #expect(result.stage == 3)
+    #expect(result.stage == 4)
     #expect(result.delay == .seconds(24 * 60 * 60))
+}
+
+@Test func masteredCaseSchedulesFarFuture() {
+    let result = ReviewScheduler.schedule(familiarity: .mastered, currentStage: 2, wrongCount: 0)
+    #expect(result.stage == ReviewScheduler.intervals.count)
+    #expect(result.delay >= .seconds(60 * 60 * 24 * 365 * 50))
 }

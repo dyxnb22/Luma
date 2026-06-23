@@ -47,3 +47,11 @@ Host-handled action kinds:
 - Insert text.
 
 Custom actions route back to the originating module.
+
+## Wordbook v0.2 interfaces
+
+- `WordFamiliarity`: `.known` (stage+1), `.unknown` (reset), `.mastered` (permanent, no longer due), `.fuzzy` (legacy → schedules as `.known`).
+- `WordbookProgressSnapshot`: single-query home card stats (`total`, `mastered`, `dueToday`, `dailyNewLimit`, `streakDays`, etc.).
+- `WordbookSessionPlanner` actor: `startNewSession()`, `nextCard() -> .review | .fresh | .done`.
+- `WordbookStore`: `progressSnapshot()`, `dailyNewLimitForDueCount`, `resetDailyStatsIfNeeded`, `upsertWords`.
+- UI callbacks via `ModuleLauncherHooks.shared` (not module actors touching AppKit).

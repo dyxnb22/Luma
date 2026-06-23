@@ -6,7 +6,7 @@ public actor CommandsModule: LumaModule {
         identifier: .commands,
         displayName: "Commands",
         capabilities: [.queryable, .providesActions],
-        defaultEnabled: true,
+        defaultEnabled: false,
         priority: 4,
         queryTimeout: .milliseconds(20)
     )

@@ -5,7 +5,7 @@ import LumaCore
 
 @Test func simulatedUserTouchesEveryRequestedFeature() async throws {
     let appIndex = AppIndex(apps: [
-        AppRecord(name: "Safari", bundleID: "com.apple.Safari", url: URL(fileURLWithPath: "/Applications/Safari.app"))
+        AppRecord(bundleID: "com.apple.Safari", url: URL(fileURLWithPath: "/Applications/Safari.app"), name: "Safari")
     ])
     #expect(appIndex.search("saf").first?.name == "Safari")
 
@@ -38,7 +38,7 @@ import LumaCore
     let review = ReviewScheduler.schedule(familiarity: .known, currentStage: 0, wrongCount: 0)
     #expect(review.stage == 1)
 
-    let cards = FeatureCatalog.defaultCards()
+    let cards = FeatureCatalog.dashboardCoreCards()
     #expect(cards.count >= 6)
     #expect(Set(cards.map(\.position)).count == cards.count)
 }

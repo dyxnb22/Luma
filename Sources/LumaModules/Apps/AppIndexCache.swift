@@ -2,7 +2,10 @@ import Foundation
 import LumaCore
 
 public enum AppIndexCache {
+    private static let cacheVersion = 2
+
     public static func load(from url: URL) -> [AppRecord]? {
+        guard url.lastPathComponent.contains("v\(cacheVersion)") else { return nil }
         guard let data = try? Data(contentsOf: url),
               let decoded = try? JSONDecoder().decode([AppRecord].self, from: data),
               !decoded.isEmpty else { return nil }
@@ -19,6 +22,6 @@ public enum AppIndexCache {
     public static func defaultURL(fileManager: FileManager = .default) -> URL {
         let base = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? fileManager.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support")
-        return base.appendingPathComponent("Luma/apps-cache.json")
+        return base.appendingPathComponent("Luma/app-index-v\(cacheVersion).json")
     }
 }

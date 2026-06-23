@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted. Supersedes the `Do Not Do: Wordbook` line in `docs/ROADMAP.md` v0.1 row. Adds Todo as a new v0.1 module.
+Accepted. Partially superseded by ADR-013 (Wordbook review panel → in-panel detail).
 
 Date: 2026-06-22
 

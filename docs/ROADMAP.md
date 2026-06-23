@@ -10,18 +10,54 @@ Implementation reference:
 
 Route A (`docs/strategy/LAUNCHER_CONVERGENCE_STRATEGY.md`, `CONVERGENCE_EXECUTION_PLAN.md`) is preserved as historical reference only; do not implement against it without superseding ADR-007.
 
+**Round 3 audit & taskbook** (2026-06-22): `docs/strategy/ROUND_3_AUDIT_AND_TASKBOOK.md` — v0.3 P0/P1 bugs, Mind Map inline, Wordbook three-button grade, PR split.
+
 ## Current Strategic Roadmap
 
 | Version | Focus | Do | Do Not Do |
 | --- | --- | --- | --- |
-| 0.1 Daily self-use | Dashboard Widget shell | Route B single window, App Search sidebar, **Translate + Clipboard + Notes + Todo + Wordbook + Snippets + Secrets** core cards, **Media (trigger-only)**, Commands, same-panel details (review opens dedicated NSPanel) | Calculator/Windows on dashboard, Plugin API, Notion-style TODO database, Floating Wordbook pet, ChatGPT-paste import, browser password autofill, Douban-style social/discovery features in Media, streaming integration, Media metadata fetch (TMDB/OMDb/Google Books) in v1 |
+| 0.1 Daily self-use | Dashboard Widget shell | Route B single window, App Search sidebar, **Translate + Clipboard + Notes + Todo + Wordbook + Snippets + Secrets** core cards, **Media (trigger-only)**, Commands, same-panel details (Wordbook review in-panel per ADR-013), in-panel settings gear (ADR-014) | Calculator/Windows on dashboard, Plugin API, Notion-style TODO database, Floating Wordbook pet, ChatGPT-paste import, browser password autofill, Douban-style social/discovery features in Media, streaming integration, Media metadata fetch (TMDB/OMDb/Google Books) in v1 |
 
 ## Todo + Wordbook v0.1 (ADR-009)
 
 - Todo: EventKit pass-through. Trigger `t `. No Luma-owned TODO database.
-- Wordbook: full successor to TechWordPet.app. SQLite migrated to `~/Library/Application Support/Luma/Wordbook/wordpet.sqlite3` on first launch. Review opens in a dedicated NSPanel (not the launcher panel).
+- Wordbook: full successor to TechWordPet.app. SQLite migrated to `~/Library/Application Support/Luma/Wordbook/wordpet.sqlite3` on first launch. Review opens in the launcher panel (ADR-013).
 
 Reference: `docs/adr/009-todo-wordbook-v01.md`
+
+## UI optimization (ADR-013 / ADR-014, 2026-06-22)
+
+| Priority | Done | Item |
+| --- | --- | --- |
+| P0 | ✓ | Wordbook in-panel detail; settings gear; ADR-013/014 |
+| P0 | ✓ | Remove `WordbookReviewPanel`; `openModuleDetail` bridge |
+| P1 | ✓ | `PermissionBannerController`; panel-visible polling (3 s) |
+| P1 | ✓ | `OpenAppsSidebarController` diff updates |
+| P1 | ✓ | `LauncherEnvironment` + `ModuleLauncherHooks` (replaces `LauncherBridge`) |
+| P1 | ✓ | Events/Commands default disabled |
+| P1 | ✓ | `LauncherRootView` split (387 lines; coordinators + chrome) |
+| P1 | ✓ | Card status event subscriptions (`*ChangeHub`) |
+| P1 | ✓ | Notes 三件套：`NotesDetailView` + `NotesMindMapView` + `NotesImageToolsPanel` + `NotesDetailSheets` |
+| P2 | ✓ | Shortcuts info popover, card badges, Settings SwiftUI rewrite, Wordbook「继续学」 |
+| P2 | — | `BaseDetailContainer` unify (detail views already use it; Notes uses shared top bar) |
+| P3 | ✓ | Typora `NSWorkspace.open`; gradient merge; `defaultCards` removed; Media opt-in (`defaultEnabled: false`) |
+
+Reference: `docs/adr/013-wordbook-back-in-panel.md`, `docs/adr/014-in-panel-settings-entry.md`
+
+## v0.2 P0 (2026-06-22)
+
+| Item | Status |
+| --- | --- |
+| App search: localized names + aliases + pinyin + subsequence fuzzy (ADR-015) | ✓ |
+| Wordbook daily plan + `WordbookSessionPlanner` + progress home (ADR-016) | ✓ |
+| Wordbook manage + CSV import + TTS accent popover | ✓ |
+| Bug: review session survives panel hide | ✓ |
+| Bug: Settings Modules toggle debounce | ✓ |
+| Bug: Tab skips gear/info buttons | ✓ |
+| `ModuleLauncherHooks` replaces `LauncherBridge` | ✓ |
+| Translate quick language chips | ✓ |
+
+Reference: `docs/adr/015-app-search-fuzzy-pinyin.md`, `docs/adr/016-wordbook-daily-plan.md`
 
 ## Snippets + Secrets v0.1 (ADR-010)
 

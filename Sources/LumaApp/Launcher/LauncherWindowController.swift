@@ -27,7 +27,8 @@ final class LauncherWindowController {
         viewModel: LauncherViewModel,
         actionExecutor: ActionExecutor,
         appActivationTracker: AppActivationTracker,
-        config: ConfigurationStore
+        config: ConfigurationStore,
+        onOpenSettings: @escaping () -> Void
     ) {
         let rootView = LauncherRootView(
             cards: cards,
@@ -36,7 +37,8 @@ final class LauncherWindowController {
             appActivationTracker: appActivationTracker,
             config: config,
             onDismiss: { [weak self] in self?.hide() },
-            onActionDismiss: { [weak self] in self?.hideImmediatelyForAction() }
+            onActionDismiss: { [weak self] in self?.hideImmediatelyForAction() },
+            onOpenSettings: onOpenSettings
         )
         panel.contentView = rootView
         rootView.layer?.anchorPoint = CGPoint(x: 0.5, y: 0.5)
@@ -75,6 +77,8 @@ final class LauncherWindowController {
         panel.orderFrontRegardless()
         panel.makeKey()
         rootView?.refreshPermissionStatus()
+        rootView?.startPermissionPollingIfNeeded()
+        rootView?.startFeatureGridSubscriptions()
         rootView?.restoreLastSessionIfNeeded()
         rootView?.focusSearchField()
         rootView?.refreshOpenApps()
@@ -89,6 +93,8 @@ final class LauncherWindowController {
 
     func hide() {
         rootView?.saveCurrentSession()
+        rootView?.stopPermissionPolling()
+        rootView?.stopFeatureGridSubscriptions()
         let duration = MotionTokens.panelHideDuration
         NSAnimationContext.runAnimationGroup { context in
             context.duration = duration
@@ -121,7 +127,8 @@ final class LauncherWindowController {
         panel.resizeForScreen(visible)
         let frame = panel.frame
         let x = visible.midX - frame.width / 2
-        let y = visible.minY + visible.height * 0.62
+        // Position panel at ~55% from screen bottom so it sits comfortably in the upper half
+        let y = visible.minY + (visible.height - frame.height) * 0.55
         panel.setFrameOrigin(NSPoint(x: x, y: y))
     }
 }

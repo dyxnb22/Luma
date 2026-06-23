@@ -24,6 +24,8 @@ final class TranslateDetailView: ModuleDetailView {
     private let targetPopup = NSPopUpButton()
     private let swapButton = NSButton()
     private let statusLabel = NSTextField(labelWithString: "")
+    private let errorBanner = NSView()
+    private let errorBannerLabel = NSTextField(wrappingLabelWithString: "")
     private let inputTextView = TranslateInputTextView()
     private let outputTextView = TranslateOutputTextView()
     private let inputPanel = NSView()
@@ -155,8 +157,25 @@ final class TranslateDetailView: ModuleDetailView {
         statusLabel.maximumNumberOfLines = 2
         statusLabel.translatesAutoresizingMaskIntoConstraints = false
 
+        errorBanner.wantsLayer = true
+        errorBanner.layer?.cornerRadius = 8
+        errorBanner.layer?.cornerCurve = .continuous
+        errorBanner.layer?.backgroundColor = NSColor.systemRed.withAlphaComponent(0.12).cgColor
+        errorBanner.isHidden = true
+        errorBanner.translatesAutoresizingMaskIntoConstraints = false
+
+        errorBannerLabel.font = .systemFont(ofSize: 12, weight: .medium)
+        errorBannerLabel.textColor = .systemRed
+        errorBannerLabel.isEditable = false
+        errorBannerLabel.isSelectable = true
+        errorBannerLabel.isBezeled = false
+        errorBannerLabel.drawsBackground = false
+        errorBannerLabel.translatesAutoresizingMaskIntoConstraints = false
+        errorBanner.addSubview(errorBannerLabel)
+
         container.addSubview(header)
         container.addSubview(toolbar)
+        container.addSubview(errorBanner)
         container.addSubview(panelsStack)
         container.addSubview(statusLabel)
         container.addSubview(copyResultButton)
@@ -173,9 +192,18 @@ final class TranslateDetailView: ModuleDetailView {
             toolbar.topAnchor.constraint(equalTo: header.bottomAnchor, constant: 8),
             toolbar.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 12),
             toolbar.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -12),
-            toolbar.heightAnchor.constraint(equalToConstant: 28),
+            toolbar.heightAnchor.constraint(equalToConstant: 64),
 
-            panelsStack.topAnchor.constraint(equalTo: toolbar.bottomAnchor, constant: 12),
+            errorBanner.topAnchor.constraint(equalTo: toolbar.bottomAnchor, constant: 8),
+            errorBanner.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 12),
+            errorBanner.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -12),
+
+            errorBannerLabel.topAnchor.constraint(equalTo: errorBanner.topAnchor, constant: 8),
+            errorBannerLabel.leadingAnchor.constraint(equalTo: errorBanner.leadingAnchor, constant: 10),
+            errorBannerLabel.trailingAnchor.constraint(equalTo: errorBanner.trailingAnchor, constant: -10),
+            errorBannerLabel.bottomAnchor.constraint(equalTo: errorBanner.bottomAnchor, constant: -8),
+
+            panelsStack.topAnchor.constraint(equalTo: errorBanner.bottomAnchor, constant: 8),
             panelsStack.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 12),
             panelsStack.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -12),
             panelsStack.heightAnchor.constraint(greaterThanOrEqualToConstant: 180),
@@ -244,6 +272,18 @@ final class TranslateDetailView: ModuleDetailView {
         let toolbar = NSView()
         toolbar.translatesAutoresizingMaskIntoConstraints = false
 
+        let chipRow = NSStackView()
+        chipRow.orientation = .horizontal
+        chipRow.spacing = 6
+        chipRow.translatesAutoresizingMaskIntoConstraints = false
+        for (code, label) in [("zh-Hans", "中文"), ("en", "EN"), ("ja", "日本語"), ("ko", "한국어")] {
+            let chip = NSButton(title: label, target: self, action: #selector(quickLanguageChip(_:)))
+            chip.bezelStyle = .rounded
+            chip.font = .systemFont(ofSize: 11, weight: .medium)
+            chip.identifier = NSUserInterfaceItemIdentifier(code)
+            chipRow.addArrangedSubview(chip)
+        }
+
         sourceLabel.font = .systemFont(ofSize: 12, weight: .medium)
         sourceLabel.textColor = .secondaryLabelColor
         sourceLabel.translatesAutoresizingMaskIntoConstraints = false
@@ -273,26 +313,33 @@ final class TranslateDetailView: ModuleDetailView {
         translateButton.isEnabled = false
         translateButton.translatesAutoresizingMaskIntoConstraints = false
         translateButton.setAccessibilityLabel("Translate")
-        translateButton.setAccessibilityHelp("Translates the source text. Shortcut Command Return.")
+        translateButton.toolTip = "翻译 ⌘↩"
 
+        toolbar.addSubview(chipRow)
         toolbar.addSubview(sourceLabel)
         toolbar.addSubview(swapButton)
         toolbar.addSubview(targetPopup)
         toolbar.addSubview(translateButton)
 
         NSLayoutConstraint.activate([
+            chipRow.leadingAnchor.constraint(equalTo: toolbar.leadingAnchor),
+            chipRow.topAnchor.constraint(equalTo: toolbar.topAnchor),
+            chipRow.trailingAnchor.constraint(lessThanOrEqualTo: toolbar.trailingAnchor),
+
             sourceLabel.leadingAnchor.constraint(equalTo: toolbar.leadingAnchor),
-            sourceLabel.centerYAnchor.constraint(equalTo: toolbar.centerYAnchor),
+            sourceLabel.topAnchor.constraint(equalTo: chipRow.bottomAnchor, constant: 6),
 
             swapButton.leadingAnchor.constraint(equalTo: sourceLabel.trailingAnchor, constant: 10),
-            swapButton.centerYAnchor.constraint(equalTo: toolbar.centerYAnchor),
+            swapButton.centerYAnchor.constraint(equalTo: sourceLabel.centerYAnchor),
 
             targetPopup.leadingAnchor.constraint(equalTo: swapButton.trailingAnchor, constant: 10),
-            targetPopup.centerYAnchor.constraint(equalTo: toolbar.centerYAnchor),
+            targetPopup.centerYAnchor.constraint(equalTo: sourceLabel.centerYAnchor),
             targetPopup.widthAnchor.constraint(greaterThanOrEqualToConstant: 140),
 
             translateButton.trailingAnchor.constraint(equalTo: toolbar.trailingAnchor),
-            translateButton.centerYAnchor.constraint(equalTo: toolbar.centerYAnchor)
+            translateButton.centerYAnchor.constraint(equalTo: sourceLabel.centerYAnchor),
+
+            sourceLabel.bottomAnchor.constraint(equalTo: toolbar.bottomAnchor)
         ])
         return toolbar
     }
@@ -376,6 +423,21 @@ final class TranslateDetailView: ModuleDetailView {
         onBack?()
     }
 
+    @objc private func quickLanguageChip(_ sender: NSButton) {
+        guard let code = sender.identifier?.rawValue else { return }
+        selectTargetLanguage(code)
+        Task {
+            await config.setTranslationTargetLanguage(code)
+            await MainActor.run {
+                TranslateDashboardStatus.targetLanguageCode = code
+                updateDashboardSummary()
+                if !inputTextView.string.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    performTranslation()
+                }
+            }
+        }
+    }
+
     @objc private func targetLanguageChanged() {
         guard let code = targetPopup.selectedItem?.representedObject as? String else { return }
         Task {
@@ -401,6 +463,7 @@ final class TranslateDetailView: ModuleDetailView {
         updateTranslateButtonState()
         notifyContentChanged()
         if translationState != .translating {
+            hideErrorBanner()
             setState(.idle)
         }
     }
@@ -426,6 +489,7 @@ final class TranslateDetailView: ModuleDetailView {
         sourceLabel.stringValue = "Auto Detect"
         swapButton.isEnabled = false
         setState(.idle)
+        hideErrorBanner()
         notifyContentChanged()
     }
 
@@ -452,6 +516,7 @@ final class TranslateDetailView: ModuleDetailView {
             return
         }
         setState(.translating)
+        hideErrorBanner()
         copyResultButton.isEnabled = false
         translateButton.isEnabled = false
         let svc = translation
@@ -463,6 +528,7 @@ final class TranslateDetailView: ModuleDetailView {
                     guard let self, !Task.isCancelled else { return }
                     self.outputTextView.string = outcome.text
                     self.applyDetectedSourceLanguage(outcome.detectedSourceLanguageCode)
+                    self.hideErrorBanner()
                     self.setState(.success)
                     self.copyResultButton.isEnabled = true
                     self.updateTranslateButtonState()
@@ -473,7 +539,7 @@ final class TranslateDetailView: ModuleDetailView {
             } catch {
                 await MainActor.run {
                     guard let self, !Task.isCancelled else { return }
-                    self.outputTextView.string = ""
+                    self.showErrorBanner(Self.userFacingError(error))
                     self.setState(.error(Self.userFacingError(error)))
                     self.copyResultButton.isEnabled = false
                     self.updateTranslateButtonState()
@@ -514,9 +580,9 @@ final class TranslateDetailView: ModuleDetailView {
             statusLabel.stringValue = "Translation complete"
             statusLabel.textColor = .secondaryLabelColor
             TranslateDashboardStatus.summary = "Last: success"
-        case .error(let message):
-            statusLabel.stringValue = message
-            statusLabel.textColor = .systemRed
+        case .error:
+            statusLabel.stringValue = ""
+            statusLabel.textColor = .secondaryLabelColor
             TranslateDashboardStatus.summary = "Last: unavailable"
         }
         updateDashboardSummary()
@@ -547,6 +613,16 @@ final class TranslateDetailView: ModuleDetailView {
 
     static func userFacingError(_ error: Error) -> String {
         TranslationUserMessages.message(for: error)
+    }
+
+    private func showErrorBanner(_ message: String) {
+        errorBannerLabel.stringValue = message
+        errorBanner.isHidden = false
+    }
+
+    private func hideErrorBanner() {
+        errorBannerLabel.stringValue = ""
+        errorBanner.isHidden = true
     }
 }
 

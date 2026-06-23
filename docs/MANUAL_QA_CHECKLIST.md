@@ -149,3 +149,57 @@
 - External `mkdir` in the root surfaces in the tree within 1 second.
 - Image tools panel: scan + migrate + Typora config check.
 - Typora not installed: open falls back to `NSWorkspace.open` with no prompt.
+
+## Wordbook (ADR-013)
+
+- Cmd+Space → main panel → click Wordbook card → review view appears in-panel → Esc → home grid.
+- Cmd+Space → type `word` → first row "Start Review · N due" → Return → same-window review.
+- During review: 1 (Known) / 2 (Fuzzy) / 3 (Unknown) grades; Space reveals/advances (search field empty).
+- After completion: "Done for today" message; Esc returns home.
+- Click settings gear during review → Settings opens → close Settings → review state preserved.
+- Cmd+Space hide → Cmd+Space show → **same word continues**; progress numbers unchanged.
+- Settings → Modules disable Wordbook → card disappears → re-enable → card returns.
+
+## v0.2 App Search (ADR-015)
+
+- [ ] Search `微信` → WeChat row 1.
+- [ ] Search `wx` / `weixin` / `wechat` → WeChat row 1.
+- [ ] Search `vsc` → Visual Studio Code row 1.
+- [ ] Search `ps` → Photoshop in top 3 (if installed).
+- [ ] Single character `a` still lists prefix matches.
+
+## v0.2 Wordbook Daily Plan (ADR-016)
+
+- [ ] Detail home shows progress card; counts match DB.
+- [ ] Mock +1 day → `daily_new_seen` resets.
+- [ ] After 5 Unknown grades → fewer new cards in next 5 draws.
+- [ ] CSV import 100 rows with duplicates → toast shows imported/skipped counts.
+- [ ] Manage view Esc → home state; Esc again → launcher grid.
+
+## v0.2 Detail UX
+
+- [ ] Translate: zh-Hans / en / ja / ko chips switch target and re-translate.
+- [ ] Clipboard: Pinned segment filters pinned only.
+- [ ] Todo: Today / Upcoming / Completed tabs switch lists.
+
+## In-Panel Settings (ADR-014)
+
+- Gear icon visible at search bar trailing edge; hover darkens icon.
+- Click opens Settings (same instance as menu bar / Cmd+,).
+- Gear does not receive Tab focus.
+
+## Round 3 (v0.3)
+
+- [ ] Notes: `[Tree | Map]` segment switches in-panel; no sheet.
+- [ ] Mind Map: double-click folder expands/collapses; double-click note opens Typora.
+- [ ] Mind Map: Esc returns to launcher home (not trapped).
+- [ ] Wordbook session: three buttons 不认识 / 认识 / 已学过; shortcuts 1/2/3.
+- [ ] 已学过 skips answer reveal and jumps to next card.
+- [ ] Done state shows `Continue · N more` with real N.
+- [ ] Search bar: single character shows "继续输入以搜索…".
+- [ ] Wordbook Manage: scroll to bottom loads next page; right-click Edit/Delete/Reset work.
+- [ ] Settings Modules: rapid toggles debounce to one write (~200ms).
+- [ ] Clipboard Image entries copy image bytes to pasteboard.
+- [ ] Snippets: double-click copies snippet; ⌘E edits.
+- [ ] Todo tabs show counts when non-zero.
+- [ ] App search "微信" surfaces WeChat first row.

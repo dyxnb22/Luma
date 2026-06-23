@@ -177,7 +177,7 @@ Selection changes must be instant, no animation.
 
 ## Module Detail In Same Panel
 
-Clicking a feature card opens its detail view in the main content area.
+Clicking a feature card opens its detail view in the main content area. **Wordbook review follows this path** (ADR-013); there is no separate review window.
 
 ```text
 +------------------+---------------------------------------+

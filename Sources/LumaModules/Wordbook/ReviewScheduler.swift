@@ -2,8 +2,10 @@ import Foundation
 
 public enum WordFamiliarity: String, Sendable, Codable {
     case known
-    case fuzzy
     case unknown
+    case mastered
+    /// Retained for legacy DB rows; UI routes to `.known` scheduling.
+    case fuzzy
 }
 
 public enum ReviewScheduler {
@@ -25,9 +27,10 @@ public enum ReviewScheduler {
             let intervalIndex = min(currentStage, intervals.count - 1)
             let stage = min(currentStage + 1, intervals.count)
             return (stage, intervals[intervalIndex])
+        case .mastered:
+            return (intervals.count, .seconds(60 * 60 * 24 * 365 * 100))
         case .fuzzy:
-            let intervalIndex = min(max(currentStage, 1), intervals.count - 1)
-            return (currentStage, intervals[intervalIndex])
+            return Self.schedule(familiarity: .known, currentStage: currentStage, wrongCount: wrongCount)
         case .unknown:
             let delay = wrongCount <= 1 ? intervals[0] : intervals[1]
             return (0, delay)

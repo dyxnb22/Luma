@@ -14,6 +14,8 @@ final class WidgetFeatureCard: NSView {
     private let subtitleLabel = NSTextField(labelWithString: "")
     private let statusLabel = NSTextField(labelWithString: "")
     private let shortcutLabel = NSTextField(labelWithString: "")
+    private let badgeHost = NSView()
+    private let badgeLabel = NSTextField(labelWithString: "")
     private var trackingArea: NSTrackingArea?
     private var isHighlighted = false
 
@@ -52,6 +54,15 @@ final class WidgetFeatureCard: NSView {
         statusLabel.isHidden = summary.isEmpty
     }
 
+    func setBadgeCount(_ count: Int?) {
+        guard let count, count > 0 else {
+            badgeHost.isHidden = true
+            return
+        }
+        badgeLabel.stringValue = count > 99 ? "99+" : "\(count)"
+        badgeHost.isHidden = false
+    }
+
     func setHighlighted(_ on: Bool) {
         guard isHighlighted != on else { return }
         isHighlighted = on
@@ -60,6 +71,15 @@ final class WidgetFeatureCard: NSView {
             context.duration = on ? 0.06 : 0.12
             layer?.borderColor = NSColor.white.withAlphaComponent(borderAlpha).cgColor
             layer?.borderWidth = on ? 2 : 1
+        }
+        if on {
+            animateScale(to: 1.04, duration: 0.08)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+                guard let self, isHighlighted else { return }
+                animateScale(to: 1.0, duration: 0.12)
+            }
+        } else {
+            animateScale(to: 1.0, duration: MotionTokens.scaleOutDuration)
         }
     }
 
@@ -174,15 +194,38 @@ final class WidgetFeatureCard: NSView {
         shortcutLabel.textColor = NSColor.white.withAlphaComponent(ColorTokens.cardShortcutAlpha)
         shortcutLabel.translatesAutoresizingMaskIntoConstraints = false
 
+        badgeHost.wantsLayer = true
+        badgeHost.layer?.backgroundColor = NSColor.systemRed.cgColor
+        badgeHost.layer?.cornerRadius = 9
+        badgeHost.layer?.cornerCurve = .continuous
+        badgeHost.isHidden = true
+        badgeHost.translatesAutoresizingMaskIntoConstraints = false
+        badgeLabel.font = .systemFont(ofSize: 10, weight: .bold)
+        badgeLabel.textColor = .white
+        badgeLabel.alignment = .center
+        badgeLabel.translatesAutoresizingMaskIntoConstraints = false
+
         addSubview(iconView)
         addSubview(titleLabel)
         addSubview(subtitleLabel)
         addSubview(statusLabel)
+        addSubview(badgeHost)
+        badgeHost.addSubview(badgeLabel)
         addSubview(shortcutLabel)
 
         NSLayoutConstraint.activate([
             shortcutLabel.topAnchor.constraint(equalTo: topAnchor, constant: 12),
             shortcutLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -14),
+
+            badgeHost.trailingAnchor.constraint(equalTo: shortcutLabel.leadingAnchor, constant: -6),
+            badgeHost.centerYAnchor.constraint(equalTo: shortcutLabel.centerYAnchor),
+            badgeHost.heightAnchor.constraint(equalToConstant: 18),
+            badgeHost.widthAnchor.constraint(greaterThanOrEqualToConstant: 18),
+
+            badgeLabel.topAnchor.constraint(equalTo: badgeHost.topAnchor, constant: 1),
+            badgeLabel.bottomAnchor.constraint(equalTo: badgeHost.bottomAnchor, constant: -1),
+            badgeLabel.leadingAnchor.constraint(equalTo: badgeHost.leadingAnchor, constant: 5),
+            badgeLabel.trailingAnchor.constraint(equalTo: badgeHost.trailingAnchor, constant: -5),
 
             iconView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 16),
             iconView.topAnchor.constraint(equalTo: topAnchor, constant: 14),

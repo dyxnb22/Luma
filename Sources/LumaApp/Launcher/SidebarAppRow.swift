@@ -9,6 +9,7 @@ final class SidebarAppRow: NSControl {
     }
 
     private let onActivate: () -> Void
+    private var fullWidthConstraint: NSLayoutConstraint?
     private let iconView = NSImageView()
     private let titleLabel = NSTextField(labelWithString: "")
     private let badgeHost = NSView()
@@ -66,6 +67,13 @@ final class SidebarAppRow: NSControl {
         layer?.backgroundColor = isHighlighted
             ? NSColor.controlAccentColor.withAlphaComponent(0.22).cgColor
             : NSColor.clear.cgColor
+    }
+
+    func bindFullWidth(to stack: NSStackView) {
+        guard fullWidthConstraint == nil else { return }
+        let constraint = widthAnchor.constraint(equalTo: stack.widthAnchor)
+        constraint.isActive = true
+        fullWidthConstraint = constraint
     }
 
     @objc private func activate() {

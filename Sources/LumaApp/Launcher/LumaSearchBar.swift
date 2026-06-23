@@ -12,11 +12,16 @@ final class LumaSearchBar: NSView {
 
     private let iconView = NSImageView()
     private let textField = LumaSearchTextField()
+    private let settingsButton = SettingsGearButton()
+    private let hintsButton = NSButton()
     private let clearButton = NSButton()
+    private let hintsPopover = NSPopover()
     var onTextChange: ((String) -> Void)?
     var onEscape: (() -> Void)?
     var onReturn: (() -> Void)?
     var onKeyCommand: ((KeyCommand) -> Bool)?
+    var onDetailKey: ((NSEvent) -> Bool)?
+    var onOpenSettings: (() -> Void)?
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -42,6 +47,29 @@ final class LumaSearchBar: NSView {
         textField.translatesAutoresizingMaskIntoConstraints = false
         textField.onEscape = { [weak self] in self?.onEscape?() }
         textField.onKeyCommand = { [weak self] command in self?.onKeyCommand?(command) ?? false }
+        textField.onDetailKey = { [weak self] event in self?.onDetailKey?(event) ?? false }
+
+        hintsButton.isBordered = false
+        hintsButton.bezelStyle = .inline
+        hintsButton.image = NSImage(systemSymbolName: "info.circle", accessibilityDescription: "Keyboard shortcuts")
+        hintsButton.imagePosition = .imageOnly
+        hintsButton.contentTintColor = .tertiaryLabelColor
+        hintsButton.target = self
+        hintsButton.action = #selector(hintsTapped)
+        hintsButton.toolTip = "Keyboard shortcuts"
+        hintsButton.refusesFirstResponder = true
+        hintsButton.translatesAutoresizingMaskIntoConstraints = false
+
+        settingsButton.isBordered = false
+        settingsButton.bezelStyle = .inline
+        settingsButton.image = NSImage(systemSymbolName: "gearshape", accessibilityDescription: "Settings")
+        settingsButton.imagePosition = .imageOnly
+        settingsButton.contentTintColor = .tertiaryLabelColor
+        settingsButton.target = self
+        settingsButton.action = #selector(settingsTapped)
+        settingsButton.toolTip = "Settings"
+        settingsButton.refusesFirstResponder = true
+        settingsButton.translatesAutoresizingMaskIntoConstraints = false
 
         clearButton.isBordered = false
         clearButton.bezelStyle = .inline
@@ -51,10 +79,13 @@ final class LumaSearchBar: NSView {
         clearButton.target = self
         clearButton.action = #selector(clearTapped)
         clearButton.isHidden = true
+        clearButton.refusesFirstResponder = true
         clearButton.translatesAutoresizingMaskIntoConstraints = false
 
         addSubview(iconView)
         addSubview(textField)
+        addSubview(hintsButton)
+        addSubview(settingsButton)
         addSubview(clearButton)
 
         NSLayoutConstraint.activate([
@@ -65,11 +96,24 @@ final class LumaSearchBar: NSView {
             textField.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: 10),
             textField.trailingAnchor.constraint(equalTo: clearButton.leadingAnchor, constant: -6),
             textField.centerYAnchor.constraint(equalTo: centerYAnchor),
-            clearButton.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -14),
+            settingsButton.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -14),
+            settingsButton.centerYAnchor.constraint(equalTo: centerYAnchor),
+            settingsButton.widthAnchor.constraint(equalToConstant: 22),
+            settingsButton.heightAnchor.constraint(equalToConstant: 22),
+            hintsButton.trailingAnchor.constraint(equalTo: settingsButton.leadingAnchor, constant: -8),
+            hintsButton.centerYAnchor.constraint(equalTo: centerYAnchor),
+            hintsButton.widthAnchor.constraint(equalToConstant: 22),
+            hintsButton.heightAnchor.constraint(equalToConstant: 22),
+            clearButton.trailingAnchor.constraint(equalTo: hintsButton.leadingAnchor, constant: -8),
             clearButton.centerYAnchor.constraint(equalTo: centerYAnchor),
             clearButton.widthAnchor.constraint(equalToConstant: 20),
             clearButton.heightAnchor.constraint(equalToConstant: 20)
         ])
+
+        textField.nextKeyView = textField
+        hintsButton.nextKeyView = textField
+        settingsButton.nextKeyView = textField
+        clearButton.nextKeyView = textField
     }
 
     @available(*, unavailable)
@@ -102,6 +146,41 @@ final class LumaSearchBar: NSView {
         updateClearButtonVisibility()
         onTextChange?("")
         focus()
+    }
+
+    @objc private func settingsTapped() {
+        onOpenSettings?()
+    }
+
+    @objc private func hintsTapped() {
+        if hintsPopover.isShown {
+            hintsPopover.performClose(self)
+            return
+        }
+        let label = NSTextField(wrappingLabelWithString: """
+        ⌘1…7 — open dashboard cards
+        ↑ ↓ — move selection
+        Tab — secondary action
+        Return — run selected item
+        Esc — back / close panel
+        """)
+        label.font = .systemFont(ofSize: 12)
+        label.textColor = .labelColor
+        label.preferredMaxLayoutWidth = 220
+        let host = NSView(frame: NSRect(x: 0, y: 0, width: 240, height: 120))
+        label.translatesAutoresizingMaskIntoConstraints = false
+        host.addSubview(label)
+        NSLayoutConstraint.activate([
+            label.topAnchor.constraint(equalTo: host.topAnchor, constant: 12),
+            label.leadingAnchor.constraint(equalTo: host.leadingAnchor, constant: 12),
+            label.trailingAnchor.constraint(equalTo: host.trailingAnchor, constant: -12),
+            label.bottomAnchor.constraint(equalTo: host.bottomAnchor, constant: -12)
+        ])
+        hintsPopover.contentSize = NSSize(width: 240, height: 120)
+        hintsPopover.contentViewController = NSViewController()
+        hintsPopover.contentViewController?.view = host
+        hintsPopover.behavior = .transient
+        hintsPopover.show(relativeTo: hintsButton.bounds, of: hintsButton, preferredEdge: .maxY)
     }
 
     private func updateClearButtonVisibility() {
@@ -138,8 +217,10 @@ final class LatencyTracker {
 private final class LumaSearchTextField: NSTextField {
     var onEscape: (() -> Void)?
     var onKeyCommand: ((LumaSearchBar.KeyCommand) -> Bool)?
+    var onDetailKey: ((NSEvent) -> Bool)?
 
     override func keyDown(with event: NSEvent) {
+        if stringValue.isEmpty, onDetailKey?(event) == true { return }
         if event.keyCode == 125, onKeyCommand?(.down) == true { return }
         if event.keyCode == 126, onKeyCommand?(.up) == true { return }
         if event.keyCode == 48, onKeyCommand?(.tab) == true { return }
@@ -155,5 +236,39 @@ private final class LumaSearchTextField: NSTextField {
 
     override func cancelOperation(_ sender: Any?) {
         onEscape?()
+    }
+
+    override func insertTab(_ sender: Any?) {
+        if onKeyCommand?(.tab) == true { return }
+    }
+
+    override func insertBacktab(_ sender: Any?) {
+        if onKeyCommand?(.tab) == true { return }
+    }
+}
+
+@MainActor
+private final class SettingsGearButton: NSButton {
+    private var tracking: NSTrackingArea?
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let tracking { removeTrackingArea(tracking) }
+        let area = NSTrackingArea(
+            rect: bounds,
+            options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect],
+            owner: self,
+            userInfo: nil
+        )
+        addTrackingArea(area)
+        tracking = area
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        contentTintColor = .secondaryLabelColor
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        contentTintColor = .tertiaryLabelColor
     }
 }

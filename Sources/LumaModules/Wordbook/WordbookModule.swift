@@ -80,7 +80,7 @@ public actor WordbookModule: LumaModule {
         switch decoded {
         case .review:
             await MainActor.run {
-                LauncherBridge.openWordbookReview?()
+                LauncherCallbackRegistry.current?.openModuleDetail(.wordbook)
             }
         }
     }
@@ -115,7 +115,7 @@ public actor WordbookModule: LumaModule {
         let title = dueCount > 0 ? "Start Review · \(dueCount) due" : "Wordbook"
         let subtitle: String
         if dueCount > 0 {
-            subtitle = "Open the review window"
+            subtitle = "Start review in panel"
         } else if let total {
             subtitle = "\(total) words · nothing due today"
         } else {

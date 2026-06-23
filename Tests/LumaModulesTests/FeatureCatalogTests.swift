@@ -3,17 +3,16 @@ import Testing
 @testable import LumaCore
 
 @Test func featureCatalogContainsRequestedCards() {
-    let titles = Set(FeatureCatalog.defaultCards().map(\.title))
+    let titles = Set(FeatureCatalog.dashboardCoreCards().map(\.title))
     #expect(titles.contains("Translate"))
     #expect(titles.contains("Clipboard"))
     #expect(titles.contains("Secrets"))
-    #expect(titles.contains("Layouts"))
     #expect(titles.contains("Notes"))
     #expect(titles.contains("Wordbook"))
 }
 
 @Test func featureCatalogDefaultPositionsAreUnique() {
-    let positions = FeatureCatalog.defaultCards().map(\.position)
+    let positions = FeatureCatalog.dashboardCoreCards().map(\.position)
     #expect(Set(positions).count == positions.count)
 }
 

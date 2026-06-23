@@ -25,7 +25,7 @@ final class SecretsDetailView: NSObject, ModuleDetailView {
         self.detailView = chrome
         super.init()
         setup(chrome: chrome)
-        LauncherBridge.reloadSecretsDetail = { [weak self] in self?.refresh() }
+        ModuleDetailReloads.reloadSecretsDetail = { [weak self] in self?.refresh() }
     }
 
     func activate() {
@@ -268,6 +268,8 @@ final class SecretsDetailView: NSObject, ModuleDetailView {
                 self.lockedContainer.isHidden = unlocked
                 self.toolbarContainer.isHidden = !unlocked
                 self.tableScroll.isHidden = !unlocked
+                self.searchField.isEnabled = unlocked
+                self.searchField.placeholderString = unlocked ? "Search secrets…" : "Unlock vault to search"
                 self.tableView.reloadData()
                 self.emptyStateLabel.isHidden = !unlocked || !loaded.isEmpty
                 self.emptyStateLabel.stringValue = loaded.isEmpty && unlocked

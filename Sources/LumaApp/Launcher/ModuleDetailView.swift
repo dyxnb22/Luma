@@ -314,6 +314,7 @@ enum ModuleDetailRegistry {
     nonisolated(unsafe) static var secretsModule: SecretsModule?
     nonisolated(unsafe) static var mediaModule: MediaModule?
     nonisolated(unsafe) static var todoModule: TodoModule?
+    nonisolated(unsafe) static var wordbookStore: WordbookStore?
     nonisolated(unsafe) static var translation: (any TranslationClient)?
     nonisolated(unsafe) static var config: ConfigurationStore?
     nonisolated(unsafe) static var isLauncherQueryEmpty = true
@@ -323,13 +324,13 @@ enum ModuleDetailRegistry {
         case .translate:
             guard let svc = translation, let config else { return nil }
             return TranslateDetailView(translation: svc, config: config) {
-                LauncherBridge.onBackFromDetail?()
+                LauncherCallbackRegistry.current?.onBackFromDetail()
             } onContentChanged: { source, output in
-                LauncherBridge.onTranslateContentChanged?(source, output)
+                LauncherCallbackRegistry.current?.onTranslateContentChanged(source, output)
             }
         case .clipboard:
             guard let mod = clipboardModule else { return nil }
-            return ClipboardDetailView(module: mod, onOpenSettings: { LauncherBridge.onOpenSettings?() })
+            return ClipboardDetailView(module: mod, onOpenSettings: { LauncherCallbackRegistry.current?.onOpenSettings() })
         case .notes:
             guard let mod = notesModule else { return nil }
             return NotesDetailView(module: mod)
@@ -345,6 +346,9 @@ enum ModuleDetailRegistry {
         case .todo:
             guard let mod = todoModule else { return nil }
             return TodoDetailView(module: mod)
+        case .wordbook:
+            guard let store = wordbookStore else { return nil }
+            return WordbookDetailView(store: store)
         default:
             return nil
         }

@@ -24,9 +24,9 @@ public actor AppsModule: LumaModule {
 
         let scanned = AppScanner.scan()
         let fallback = [
-            AppRecord(name: "Finder", bundleID: "com.apple.finder", url: URL(fileURLWithPath: "/System/Library/CoreServices/Finder.app")),
-            AppRecord(name: "Safari", bundleID: "com.apple.Safari", url: URL(fileURLWithPath: "/Applications/Safari.app")),
-            AppRecord(name: "System Settings", bundleID: "com.apple.systempreferences", url: URL(fileURLWithPath: "/System/Applications/System Settings.app"))
+            AppRecord(bundleID: "com.apple.finder", url: URL(fileURLWithPath: "/System/Library/CoreServices/Finder.app"), name: "Finder", localizedName: "Finder", aliases: [], pinyinFull: "", pinyinInitials: ""),
+            AppRecord(bundleID: "com.apple.Safari", url: URL(fileURLWithPath: "/Applications/Safari.app"), name: "Safari", localizedName: "Safari", aliases: [], pinyinFull: "", pinyinInitials: ""),
+            AppRecord(bundleID: "com.apple.systempreferences", url: URL(fileURLWithPath: "/System/Applications/System Settings.app"), name: "System Settings", localizedName: "System Settings", aliases: [], pinyinFull: "", pinyinInitials: "")
         ]
         let apps = scanned.isEmpty ? fallback : scanned
         index = AppIndex(apps: apps)
@@ -98,18 +98,30 @@ public actor AppsModule: LumaModule {
 
     private func result(for app: AppRecord) -> ResultItem {
         let id = ResultID(module: Self.manifest.identifier, key: app.bundleID)
+        let title = app.displayTitle
+        var subtitle = app.subtitlePath
+        if let mb = Self.memoryMB(for: app.bundleID) {
+            subtitle += " · \(mb)"
+        }
         return ResultItem(
             id: id,
-            title: app.name,
-            titleAttributed: AttributedString(app.name),
-            subtitle: app.bundleID,
+            title: title,
+            titleAttributed: AttributedString(title),
+            subtitle: subtitle,
             icon: .bundleID(app.bundleID),
             primaryAction: Action(
                 id: ActionID(module: Self.manifest.identifier, key: "launch.\(app.bundleID)"),
-                title: "Open \(app.name)",
+                title: "Open \(title)",
                 kind: .launchApp(app.url)
             ),
             rankingHints: RankingHints(basePriority: Self.manifest.priority)
         )
+    }
+
+    private static func memoryMB(for bundleID: String) -> String? {
+        guard let sample = AppMemorySampler.topApplications(limit: 200).first(where: { $0.bundleID == bundleID }) else {
+            return nil
+        }
+        return String(format: "%.0f MB", sample.residentMB)
     }
 }

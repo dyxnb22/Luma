@@ -23,14 +23,14 @@ public actor SecretsModule: LumaModule {
         let relockSeconds = await context.config.secretsRelockTimeoutSeconds()
         await vault.configure(relockTimeoutSeconds: relockSeconds) { locked in
             await MainActor.run {
-                LauncherBridge.onSecretsLockStateChanged?(locked)
+                LauncherCallbackRegistry.current?.onSecretsLockStateChanged(locked)
             }
         }
         if !(await context.config.secretsRequireUnlockOnLaunch()) {
             await vault.unlock()
         } else {
             await MainActor.run {
-                LauncherBridge.onSecretsLockStateChanged?(true)
+                LauncherCallbackRegistry.current?.onSecretsLockStateChanged(true)
             }
         }
     }
@@ -125,7 +125,7 @@ public actor SecretsModule: LumaModule {
         self.autoClearSeconds = max(1, autoClearSeconds)
         await vault.configure(relockTimeoutSeconds: relockTimeoutSeconds) { locked in
             await MainActor.run {
-                LauncherBridge.onSecretsLockStateChanged?(locked)
+                LauncherCallbackRegistry.current?.onSecretsLockStateChanged(locked)
             }
         }
     }

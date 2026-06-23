@@ -78,7 +78,12 @@ final class AppCoordinator {
             viewModel: viewModel,
             actionExecutor: actionExecutor,
             appActivationTracker: appActivationTracker,
-            config: config
+            config: config,
+            onOpenSettings: { [weak self] in
+                // Hide the launcher first so the settings window isn't behind the .modalPanel
+                self?.windowController.hideImmediatelyForAction()
+                self?.settingsWindowController?.show()
+            }
         )
         activationObserver = NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.didActivateApplicationNotification,
@@ -106,11 +111,11 @@ final class AppCoordinator {
         }
         menuBarController = MenuBarController(
             onShow: { self.windowController.show() },
-            onSettings: { self.settingsWindowController?.show() }
+            onSettings: { [weak self] in
+                self?.windowController.hideImmediatelyForAction()
+                self?.settingsWindowController?.show()
+            }
         )
-        LauncherBridge.onSecretsLockStateChanged = { [weak self] locked in
-            self?.menuBarController?.setSecretsLockState(locked: locked)
-        }
         do {
             let hotkeyController = try HotkeyController {
                 self.windowController.toggle()
@@ -129,44 +134,58 @@ final class AppCoordinator {
 
         // One-way migration of the wordbot SQLite into Luma's Application Support (ADR-009).
         // Idempotent: re-running the app never overwrites the Luma copy.
-        do {
-            _ = try WordbookMigrator.migrateIfNeeded()
-        } catch {
-            Task { await LumaLogger(category: "wordbook").error("Wordbook migration failed: \(error)") }
-        }
-
-        let wordbookModule = WordbookModule()
-        let snippetsModule = SnippetsModule()
-        let wordbookReviewPanel = WordbookReviewPanel()
-
-        ModuleDetailRegistry.clipboardModule = clipboardModule
-        ModuleDetailRegistry.notesModule = notesModule
-        ModuleDetailRegistry.snippetsModule = snippetsModule
-        ModuleDetailRegistry.secretsModule = secretsModule
-        ModuleDetailRegistry.mediaModule = mediaModule
-        ModuleDetailRegistry.todoModule = todoModule
-        ModuleDetailRegistry.translation = translation
-        ModuleDetailRegistry.config = config
-        LauncherBridge.onBackFromDetail = { [weak self] in
-            self?.windowController.closeDetailIfShowing()
-        }
-        LauncherBridge.onOpenSettings = { [weak self] in
-            self?.settingsWindowController?.show()
-        }
-        LauncherBridge.onTranslateContentChanged = { [weak self] source, output in
-            guard let self else { return }
-            Task {
-                await self.config.setLauncherTranslateSourceText(source)
-                await self.config.setLauncherTranslateOutputText(output)
+        Task.detached(priority: .utility) {
+            do {
+                _ = try WordbookMigrator.migrateIfNeeded()
+            } catch {
+                await LumaLogger(category: "wordbook").error("Wordbook migration failed: \(error)")
             }
         }
-        LauncherBridge.openWordbookReview = { [weak self] in
-            self?.windowController.hide()
-            wordbookReviewPanel.startSession()
-        }
-        LauncherBridge.openMediaDetail = { [weak self] in
-            self?.windowController.openModuleDetail(for: .media)
-        }
+
+        let wordbookStore = WordbookStore()
+        let wordbookModule = WordbookModule(store: wordbookStore)
+        let snippetsModule = SnippetsModule()
+
+        let launcherEnv = LauncherEnvironment(
+            openModuleDetail: { [weak self] id in
+                self?.windowController.openModuleDetail(for: id)
+            },
+            openSettings: { [weak self] in
+                self?.windowController.hideImmediatelyForAction()
+                self?.settingsWindowController?.show()
+            },
+            onBackFromDetail: { [weak self] in
+                self?.windowController.closeDetailIfShowing()
+            },
+            onTranslateContentChanged: { [weak self] source, output in
+                guard let self else { return }
+                Task {
+                    await self.config.setLauncherTranslateSourceText(source)
+                    await self.config.setLauncherTranslateOutputText(output)
+                }
+            },
+            onSecretsLockStateChanged: { [weak self] locked in
+                self?.menuBarController?.setSecretsLockState(locked: locked)
+                ModuleDetailReloads.reloadSecretsDetail?()
+            },
+            onHideLauncher: { [weak self] in
+                self?.windowController.hideImmediatelyForAction()
+            },
+            reloadSecretsDetail: { ModuleDetailReloads.reloadSecretsDetail?() },
+            reloadSnippetsDetail: { ModuleDetailReloads.reloadSnippetsDetail?() },
+            reloadMediaDetail: { ModuleDetailReloads.reloadMediaDetail?() },
+            clipboardModule: clipboardModule,
+            notesModule: notesModule,
+            snippetsModule: snippetsModule,
+            secretsModule: secretsModule,
+            mediaModule: mediaModule,
+            todoModule: todoModule,
+            wordbookStore: wordbookStore,
+            translation: translation,
+            config: config
+        )
+        launcherEnv.applyToModuleDetailRegistry()
+        launcherEnv.installCallbacks()
 
         Task {
             let modules = BuiltInModules.makeAll(overrides: .init(
@@ -189,7 +208,7 @@ final class AppCoordinator {
     }
 
     private func refreshMenuBarDueCounts(wordbookModule: WordbookModule, todoModule: TodoModule) async {
-        let wordbookDue = (try? await wordbookModule.storeDueTodayCount()) ?? 0
+        let wordbookDue = await wordbookModule.storeDueTodayCount()
         let todoDue = (try? await todoModule.todayDueCount()) ?? 0
         menuBarController?.setDueCounts(wordbook: wordbookDue, todo: todoDue)
     }

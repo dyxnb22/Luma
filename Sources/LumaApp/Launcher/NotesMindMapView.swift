@@ -9,9 +9,12 @@ final class NotesMindMapView: NSView {
         let parentPath: String?
     }
 
+    var onActivate: ((NotesNode) -> Void)?
+
     private var root: NotesNode?
     private var expandedPaths = Set<String>()
     private var positionedNodes: [PositionedNode] = []
+    private var selectedPath: String?
 
     private let nodeSize = CGSize(width: 168, height: 48)
     private let horizontalSpacing: CGFloat = 92
@@ -19,11 +22,21 @@ final class NotesMindMapView: NSView {
     private let padding: CGFloat = 28
 
     override var isFlipped: Bool { true }
+    override var acceptsFirstResponder: Bool { true }
 
     func reload(root: NotesNode?) {
         self.root = root
-        expandedPaths = root.map { collectFolderPaths(from: $0) } ?? []
+        expandedPaths = root.map { initialExpandedPaths(for: $0) } ?? []
         rebuildLayout()
+    }
+
+    private func initialExpandedPaths(for node: NotesNode) -> Set<String> {
+        var paths: Set<String> = [node.path]
+        guard node.kind == .folder else { return paths }
+        for child in node.children where child.kind == .folder {
+            paths.insert(child.path)
+        }
+        return paths
     }
 
     func expandAll() {
@@ -34,6 +47,43 @@ final class NotesMindMapView: NSView {
     func collapseAll() {
         expandedPaths = root.map { [$0.path] } ?? []
         rebuildLayout()
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        let point = convert(event.locationInWindow, from: nil)
+        guard let hit = positionedNodes.first(where: { $0.rect.contains(point) }) else {
+            selectedPath = nil
+            needsDisplay = true
+            return
+        }
+        if event.clickCount >= 2 {
+            handleActivate(hit.node)
+        } else {
+            selectedPath = hit.node.path
+            needsDisplay = true
+        }
+    }
+
+    override func keyDown(with event: NSEvent) {
+        if event.keyCode == 36, let path = selectedPath,
+           let node = positionedNodes.first(where: { $0.node.path == path })?.node {
+            handleActivate(node)
+            return
+        }
+        super.keyDown(with: event)
+    }
+
+    private func handleActivate(_ node: NotesNode) {
+        if node.kind == .folder {
+            if expandedPaths.contains(node.path) {
+                expandedPaths.remove(node.path)
+            } else {
+                expandedPaths.insert(node.path)
+            }
+            rebuildLayout()
+        } else {
+            onActivate?(node)
+        }
     }
 
     override func draw(_ dirtyRect: NSRect) {
@@ -136,18 +186,21 @@ final class NotesMindMapView: NSView {
     }
 
     private func drawNode(_ item: PositionedNode) {
+        let isSelected = item.node.path == selectedPath
         let fill: NSColor = item.node.kind == .folder
-            ? NSColor.controlAccentColor.withAlphaComponent(0.12)
+            ? NSColor.controlAccentColor.withAlphaComponent(isSelected ? 0.22 : 0.12)
             : NSColor.windowBackgroundColor
-        let stroke: NSColor = item.node.kind == .folder
-            ? NSColor.controlAccentColor.withAlphaComponent(0.48)
-            : NSColor.separatorColor
+        let stroke: NSColor = isSelected
+            ? NSColor.controlAccentColor
+            : (item.node.kind == .folder
+                ? NSColor.controlAccentColor.withAlphaComponent(0.48)
+                : NSColor.separatorColor)
 
         let path = NSBezierPath(roundedRect: item.rect, xRadius: 10, yRadius: 10)
         fill.setFill()
         path.fill()
         stroke.setStroke()
-        path.lineWidth = 1
+        path.lineWidth = isSelected ? 2 : 1
         path.stroke()
 
         let symbol = item.node.kind == .folder ? "folder" : "doc.text"

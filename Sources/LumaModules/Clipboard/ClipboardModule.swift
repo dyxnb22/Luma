@@ -115,8 +115,34 @@ public actor ClipboardModule: LumaModule {
 
         guard snapshot.0 != lastChangeCount else { return }
         lastChangeCount = snapshot.0
-        guard let text = snapshot.2 else { return }
-        await store.add(text: text, types: snapshot.1, sourceAppName: snapshot.3, sourceBundleID: snapshot.4)
+        let types = snapshot.1
+        if let text = snapshot.2, !text.isEmpty {
+            await store.add(text: text, types: types, sourceAppName: snapshot.3, sourceBundleID: snapshot.4)
+            return
+        }
+        if ClipboardEntryKind.isImageTypes(types) {
+            let imagePayload = await MainActor.run { () -> (Data?, String?) in
+                let pasteboard = NSPasteboard.general
+                for type in ["public.png", "public.tiff", "public.jpeg", "public.image"] {
+                    if let data = pasteboard.data(forType: NSPasteboard.PasteboardType(type)) {
+                        return (data, type)
+                    }
+                }
+                if let data = pasteboard.data(forType: .tiff) {
+                    return (data, NSPasteboard.PasteboardType.tiff.rawValue)
+                }
+                return (nil, nil)
+            }
+            guard let data = imagePayload.0 else { return }
+            await store.add(
+                text: "[Image]",
+                types: types,
+                sourceAppName: snapshot.3,
+                sourceBundleID: snapshot.4,
+                imageData: data,
+                imagePasteboardType: imagePayload.1
+            )
+        }
     }
 
     private func result(for entry: ClipboardEntry) -> ResultItem {

@@ -8,6 +8,8 @@ public struct ClipboardEntry: Identifiable, Sendable, Hashable, Codable {
     public var detectedKind: ClipboardEntryKind
     public var sourceAppName: String?
     public var sourceBundleID: String?
+    public var imageData: Data?
+    public var imagePasteboardType: String?
 
     public init(
         id: UUID = UUID(),
@@ -16,19 +18,32 @@ public struct ClipboardEntry: Identifiable, Sendable, Hashable, Codable {
         isPinned: Bool = false,
         detectedKind: ClipboardEntryKind? = nil,
         sourceAppName: String? = nil,
-        sourceBundleID: String? = nil
+        sourceBundleID: String? = nil,
+        imageData: Data? = nil,
+        imagePasteboardType: String? = nil
     ) {
         self.id = id
         self.text = text
         self.createdAt = createdAt
         self.isPinned = isPinned
-        self.detectedKind = detectedKind ?? ClipboardEntryKind.detect(from: text)
+        self.detectedKind = detectedKind ?? ClipboardEntryKind.detect(from: text, pasteboardTypes: [])
         self.sourceAppName = sourceAppName
         self.sourceBundleID = sourceBundleID
+        self.imageData = imageData
+        self.imagePasteboardType = imagePasteboardType
+    }
+
+    public var displayText: String {
+        if detectedKind == .image, let imageData, !imageData.isEmpty {
+            let kb = max(1, imageData.count / 1024)
+            return "[Image \(kb)KB]"
+        }
+        return text
     }
 
     enum CodingKeys: String, CodingKey {
         case id, text, createdAt, isPinned, detectedKind, sourceAppName, sourceBundleID
+        case imageData, imagePasteboardType
     }
 
     public init(from decoder: Decoder) throws {
@@ -37,8 +52,11 @@ public struct ClipboardEntry: Identifiable, Sendable, Hashable, Codable {
         text = try container.decode(String.self, forKey: .text)
         createdAt = try container.decode(Date.self, forKey: .createdAt)
         isPinned = try container.decode(Bool.self, forKey: .isPinned)
+        imageData = try container.decodeIfPresent(Data.self, forKey: .imageData)
+        imagePasteboardType = try container.decodeIfPresent(String.self, forKey: .imagePasteboardType)
+        let types = imagePasteboardType.map { [$0] } ?? []
         detectedKind = try container.decodeIfPresent(ClipboardEntryKind.self, forKey: .detectedKind)
-            ?? ClipboardEntryKind.detect(from: text)
+            ?? ClipboardEntryKind.detect(from: text, pasteboardTypes: types)
         sourceAppName = try container.decodeIfPresent(String.self, forKey: .sourceAppName)
         sourceBundleID = try container.decodeIfPresent(String.self, forKey: .sourceBundleID)
     }
@@ -51,6 +69,34 @@ public struct ClipboardStatistics: Sendable, Equatable {
     public init(total: Int, pinned: Int) {
         self.total = total
         self.pinned = pinned
+    }
+}
+
+public enum ClipboardStoreChangeHub {
+    private static let lock = NSLock()
+    private nonisolated(unsafe) static var continuations: [UUID: AsyncStream<Void>.Continuation] = [:]
+
+    public static func dataChanges() -> AsyncStream<Void> {
+        AsyncStream { continuation in
+            let id = UUID()
+            lock.lock()
+            continuations[id] = continuation
+            lock.unlock()
+            continuation.onTermination = { _ in
+                lock.lock()
+                continuations.removeValue(forKey: id)
+                lock.unlock()
+            }
+        }
+    }
+
+    public static func publishDataChanged() {
+        lock.lock()
+        let targets = continuations.values
+        lock.unlock()
+        for continuation in targets {
+            continuation.yield()
+        }
     }
 }
 
@@ -84,17 +130,30 @@ public actor ClipboardHistoryStore {
         types: [String],
         now: Date = Date(),
         sourceAppName: String? = nil,
-        sourceBundleID: String? = nil
+        sourceBundleID: String? = nil,
+        imageData: Data? = nil,
+        imagePasteboardType: String? = nil
     ) {
-        guard !ClipboardFilter.shouldSkip(types: types), ClipboardFilter.acceptsText(text, maxBytes: maxTextBytes) else { return }
-        entries.removeAll { $0.text == text }
+        let isImage = ClipboardEntryKind.isImageTypes(types)
+        if !isImage {
+            guard !ClipboardFilter.shouldSkip(types: types), ClipboardFilter.acceptsText(text, maxBytes: maxTextBytes) else { return }
+        } else {
+            guard !ClipboardFilter.shouldSkip(types: types), imageData != nil else { return }
+        }
+        if isImage {
+            entries.removeAll { $0.imageData == imageData && $0.detectedKind == .image }
+        } else {
+            entries.removeAll { $0.text == text }
+        }
         entries.insert(
             ClipboardEntry(
                 text: text,
                 createdAt: now,
-                detectedKind: ClipboardEntryKind.detect(from: text),
+                detectedKind: ClipboardEntryKind.detect(from: text, pasteboardTypes: types),
                 sourceAppName: sourceAppName,
-                sourceBundleID: sourceBundleID
+                sourceBundleID: sourceBundleID,
+                imageData: imageData,
+                imagePasteboardType: imagePasteboardType
             ),
             at: 0
         )
@@ -158,12 +217,10 @@ public actor ClipboardHistoryStore {
         switch filter {
         case .all:
             return true
-        case .text:
-            return entry.detectedKind == .text || entry.detectedKind == .code
-        case .links:
-            return entry.detectedKind == .link || entry.detectedKind == .email
         case .pinned:
             return entry.isPinned
+        case .image:
+            return entry.detectedKind == .image
         }
     }
 
@@ -191,6 +248,7 @@ public actor ClipboardHistoryStore {
     private func persist() {
         guard let persistenceURL else { return }
         Self.persist(entries: entries, to: persistenceURL)
+        ClipboardStoreChangeHub.publishDataChanged()
     }
 
     private static func pruned(entries: [ClipboardEntry], maxEntries: Int, maxAge: TimeInterval, now: Date) -> [ClipboardEntry] {

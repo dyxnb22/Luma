@@ -25,13 +25,13 @@ final class MediaDetailView: NSObject, ModuleDetailView {
         self.detailView = chrome
         super.init()
         setup(chrome: chrome)
-        LauncherBridge.reloadMediaDetail = { [weak self] in self?.refresh() }
+        ModuleDetailReloads.reloadMediaDetail = { [weak self] in self?.refresh() }
     }
 
     func activate() {
         refresh()
-        if let draft = LauncherBridge.pendingMediaEditorDraft {
-            LauncherBridge.pendingMediaEditorDraft = nil
+        if let draft = LauncherSharedState.pendingMediaEditorDraft {
+            LauncherSharedState.pendingMediaEditorDraft = nil
             presentEditor(draft: draft)
         }
     }

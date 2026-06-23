@@ -58,13 +58,20 @@ public actor NotesActions {
         guard fileManager.fileExists(atPath: url.path, isDirectory: &isDirectory) else { return }
 
         if isDirectory.boolValue {
-            let contents = try fileManager.contentsOfDirectory(atPath: url.path)
-            let meaningful = contents.filter { $0 != ".DS_Store" }
-            guard meaningful.isEmpty else { throw NotesDeleteError.folderNotEmpty }
+            guard try isFolderEmpty(url) else { throw NotesDeleteError.folderNotEmpty }
         }
 
         try fileManager.trashItem(at: url, resultingItemURL: nil)
         await index.rebuild(after: [FSChangeEvent(path: url.path, kind: .removed)])
+    }
+
+    public func isFolderEmpty(_ url: URL) throws -> Bool {
+        var isDirectory: ObjCBool = false
+        guard fileManager.fileExists(atPath: url.path, isDirectory: &isDirectory), isDirectory.boolValue else {
+            return true
+        }
+        let contents = try fileManager.contentsOfDirectory(atPath: url.path)
+        return contents.filter { $0 != ".DS_Store" }.isEmpty
     }
 
     public func relatedNotes(in note: URL) async -> [URL] {

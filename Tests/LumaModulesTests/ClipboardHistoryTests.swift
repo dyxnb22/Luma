@@ -85,14 +85,24 @@ import Testing
     #expect(ordered.first?.isPinned == true)
 }
 
-@Test func clipboardFilterLinksOnly() async {
+@Test func clipboardFilterImageOnly() async {
     let store = ClipboardHistoryStore()
     await store.add(text: "plain note", types: ["public.text"])
-    await store.add(text: "https://luma.app", types: ["public.text"])
-    await store.add(text: "user@example.com", types: ["public.text"])
-    let links = await store.list(filter: .links, query: "", limit: 10)
-    #expect(links.count == 2)
-    #expect(links.allSatisfy { $0.detectedKind == .link || $0.detectedKind == .email })
+    await store.add(
+        text: "[Image]",
+        types: ["public.png"],
+        imageData: Data([0x89, 0x50, 0x4E, 0x47]),
+        imagePasteboardType: "public.png"
+    )
+    await store.add(text: "another note", types: ["public.text"])
+    let images = await store.list(filter: .image, query: "", limit: 10)
+    #expect(images.count == 1)
+    #expect(images.first?.detectedKind == .image)
+}
+
+@Test func clipboardDetectsImageFromPasteboardTypes() {
+    #expect(ClipboardEntryKind.detect(from: "[Image]", pasteboardTypes: ["public.png"]) == .image)
+    #expect(ClipboardEntryKind.isImageTypes(["public.tiff"]))
 }
 
 @Test func clipboardTokenSearchMatchesAllTerms() async {

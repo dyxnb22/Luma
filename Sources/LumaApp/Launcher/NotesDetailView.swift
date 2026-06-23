@@ -4,6 +4,8 @@ import LumaModules
 
 @MainActor
 final class NotesDetailView: NSObject, ModuleDetailView {
+    private enum ViewMode { case outline, mindMap }
+
     let moduleTitle = "Notes"
     let detailView: NSView
     let usesSharedTopBar = true
@@ -13,15 +15,17 @@ final class NotesDetailView: NSObject, ModuleDetailView {
     private let filterStrip = NSView()
     private let filterField = NSTextField()
     private let rootPathLabel = NSTextField(labelWithString: "")
-    private let modeControl = NSSegmentedControl(labels: ["目录", "导图"], trackingMode: .selectOne, target: nil, action: nil)
     private let expandAllButton = NSButton()
     private let collapseAllButton = NSButton()
+    private let viewModeControl = NSSegmentedControl()
     private let gearButton = NSButton()
     private let emptyStateButton = NSButton()
     private let scrollView = NSScrollView()
-    private let outlineView = NSOutlineView()
+    private let mindMapScroll = NSScrollView()
     private let mindMapView = NotesMindMapView()
+    private let outlineView = NSOutlineView()
     private let dataSource = NotesOutlineDataSource()
+    private var viewMode: ViewMode = .outline
     private var refreshTask: Task<Void, Never>?
     private var actions: NotesActions?
     private var savedExpansion = Set<String>()
@@ -50,6 +54,20 @@ final class NotesDetailView: NSObject, ModuleDetailView {
     }
 
     func handleKeyDown(_ event: NSEvent) -> Bool {
+        if event.keyCode == 53 {
+            if viewMode == .mindMap {
+                viewModeControl.selectedSegment = 0
+                viewModeChanged()
+                return true
+            }
+            let filterText = filterField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+            if viewMode == .outline, !filterText.isEmpty {
+                filterField.stringValue = ""
+                applyFilter()
+                return true
+            }
+            return false
+        }
         if detailView.window?.firstResponder === filterField {
             if event.keyCode == 36 {
                 dataSource.selectFirstMatch(in: outlineView)
@@ -87,12 +105,6 @@ final class NotesDetailView: NSObject, ModuleDetailView {
         rootPathLabel.lineBreakMode = .byTruncatingMiddle
         rootPathLabel.translatesAutoresizingMaskIntoConstraints = false
 
-        modeControl.selectedSegment = 0
-        modeControl.segmentStyle = .rounded
-        modeControl.target = self
-        modeControl.action = #selector(modeChanged(_:))
-        modeControl.translatesAutoresizingMaskIntoConstraints = false
-
         configureIconButton(expandAllButton, symbol: "arrow.up.left.and.arrow.down.right", tooltip: "Expand all")
         expandAllButton.target = self
         expandAllButton.action = #selector(expandAll)
@@ -100,6 +112,15 @@ final class NotesDetailView: NSObject, ModuleDetailView {
         configureIconButton(collapseAllButton, symbol: "arrow.down.right.and.arrow.up.left", tooltip: "Collapse all")
         collapseAllButton.target = self
         collapseAllButton.action = #selector(collapseAll)
+
+        viewModeControl.segmentCount = 2
+        viewModeControl.setLabel("Tree", forSegment: 0)
+        viewModeControl.setLabel("Map", forSegment: 1)
+        viewModeControl.selectedSegment = 0
+        viewModeControl.segmentStyle = .rounded
+        viewModeControl.target = self
+        viewModeControl.action = #selector(viewModeChanged)
+        viewModeControl.translatesAutoresizingMaskIntoConstraints = false
 
         gearButton.bezelStyle = .texturedRounded
         gearButton.image = NSImage(systemSymbolName: "gearshape", accessibilityDescription: "Settings")
@@ -149,6 +170,15 @@ final class NotesDetailView: NSObject, ModuleDetailView {
         scrollView.borderType = .noBorder
         scrollView.translatesAutoresizingMaskIntoConstraints = false
 
+        mindMapScroll.documentView = mindMapView
+        mindMapScroll.hasVerticalScroller = true
+        mindMapScroll.hasHorizontalScroller = true
+        mindMapScroll.drawsBackground = false
+        mindMapScroll.borderType = .noBorder
+        mindMapScroll.isHidden = true
+        mindMapScroll.translatesAutoresizingMaskIntoConstraints = false
+        mindMapView.onActivate = { [weak self] node in self?.openNote(node) }
+
         dataSource.onActivate = { [weak self] node in
             self?.openNote(node)
         }
@@ -158,7 +188,7 @@ final class NotesDetailView: NSObject, ModuleDetailView {
 
         container.addSubview(topStrip)
         topStrip.addSubview(rootPathLabel)
-        topStrip.addSubview(modeControl)
+        topStrip.addSubview(viewModeControl)
         topStrip.addSubview(expandAllButton)
         topStrip.addSubview(collapseAllButton)
         topStrip.addSubview(gearButton)
@@ -166,6 +196,8 @@ final class NotesDetailView: NSObject, ModuleDetailView {
         filterStrip.addSubview(filterField)
         container.addSubview(emptyStateButton)
         container.addSubview(scrollView)
+        container.addSubview(mindMapScroll)
+        scrollView.documentView = outlineView
 
         NSLayoutConstraint.activate([
             topStrip.topAnchor.constraint(equalTo: container.topAnchor),
@@ -175,12 +207,10 @@ final class NotesDetailView: NSObject, ModuleDetailView {
 
             rootPathLabel.leadingAnchor.constraint(equalTo: topStrip.leadingAnchor, constant: 12),
             rootPathLabel.centerYAnchor.constraint(equalTo: topStrip.centerYAnchor),
-            rootPathLabel.trailingAnchor.constraint(lessThanOrEqualTo: modeControl.leadingAnchor, constant: -8),
+            rootPathLabel.trailingAnchor.constraint(lessThanOrEqualTo: viewModeControl.leadingAnchor, constant: -8),
 
-            modeControl.trailingAnchor.constraint(equalTo: expandAllButton.leadingAnchor, constant: -8),
-            modeControl.centerYAnchor.constraint(equalTo: topStrip.centerYAnchor),
-            modeControl.widthAnchor.constraint(equalToConstant: 104),
-            modeControl.heightAnchor.constraint(equalToConstant: 24),
+            viewModeControl.trailingAnchor.constraint(equalTo: expandAllButton.leadingAnchor, constant: -8),
+            viewModeControl.centerYAnchor.constraint(equalTo: topStrip.centerYAnchor),
 
             expandAllButton.trailingAnchor.constraint(equalTo: collapseAllButton.leadingAnchor, constant: -4),
             expandAllButton.centerYAnchor.constraint(equalTo: topStrip.centerYAnchor),
@@ -212,8 +242,30 @@ final class NotesDetailView: NSObject, ModuleDetailView {
             scrollView.topAnchor.constraint(equalTo: filterStrip.bottomAnchor),
             scrollView.leadingAnchor.constraint(equalTo: container.leadingAnchor),
             scrollView.trailingAnchor.constraint(equalTo: container.trailingAnchor),
-            scrollView.bottomAnchor.constraint(equalTo: container.bottomAnchor)
+            scrollView.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+
+            mindMapScroll.topAnchor.constraint(equalTo: filterStrip.bottomAnchor),
+            mindMapScroll.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            mindMapScroll.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            mindMapScroll.bottomAnchor.constraint(equalTo: container.bottomAnchor)
         ])
+    }
+
+    @objc private func viewModeChanged() {
+        viewMode = viewModeControl.selectedSegment == 0 ? .outline : .mindMap
+        let outline = viewMode == .outline
+        scrollView.isHidden = !outline
+        mindMapScroll.isHidden = outline
+        filterStrip.isHidden = !outline
+        expandAllButton.isHidden = !outline
+        collapseAllButton.isHidden = !outline
+        if outline {
+            scrollView.window?.makeFirstResponder(outlineView)
+        } else {
+            mindMapView.reload(root: dataSource.mindMapRootNode())
+            mindMapScroll.contentView.scroll(to: .zero)
+            mindMapScroll.window?.makeFirstResponder(mindMapView)
+        }
     }
 
     private func configureIconButton(_ button: NSButton, symbol: String, tooltip: String) {
@@ -236,8 +288,9 @@ final class NotesDetailView: NSObject, ModuleDetailView {
             }
             rootPathLabel.stringValue = root.path
             topStrip.isHidden = false
-            filterStrip.isHidden = false
-            scrollView.isHidden = false
+            filterStrip.isHidden = (viewMode != .outline)
+            scrollView.isHidden = (viewMode != .outline)
+            mindMapScroll.isHidden = (viewMode != .mindMap)
             emptyStateButton.isHidden = true
         } else {
             rootPathLabel.stringValue = ""
@@ -261,8 +314,6 @@ final class NotesDetailView: NSObject, ModuleDetailView {
         }
 
         dataSource.reload(root: snapshot, recentNodes: recentNodes)
-        mindMapView.reload(root: dataSource.mindMapRootNode())
-        updateDocumentViewForCurrentMode()
         outlineView.reloadData()
 
         guard let rootItem = dataSource.rootItem else { return }
@@ -277,36 +328,18 @@ final class NotesDetailView: NSObject, ModuleDetailView {
         if !dataSource.filterText.isEmpty {
             dataSource.expandAll(in: outlineView)
         }
-        detailView.window?.makeFirstResponder(outlineView)
-    }
-
-    @objc private func modeChanged(_ sender: NSSegmentedControl) {
-        dataSource.displayMode = .directory
-        updateDocumentViewForCurrentMode()
-        outlineView.reloadData()
-        if sender.selectedSegment == 1 {
-            mindMapView.expandAll()
+        if viewMode == .mindMap {
+            mindMapView.reload(root: dataSource.mindMapRootNode())
         }
+        detailView.window?.makeFirstResponder(viewMode == .outline ? outlineView : mindMapView)
     }
 
     @objc private func expandAll() {
-        if modeControl.selectedSegment == 1 {
-            mindMapView.expandAll()
-        } else {
-            dataSource.expandAll(in: outlineView)
-        }
+        dataSource.expandAll(in: outlineView)
     }
 
     @objc private func collapseAll() {
-        if modeControl.selectedSegment == 1 {
-            mindMapView.collapseAll()
-        } else {
-            dataSource.collapseAll(in: outlineView)
-        }
-    }
-
-    private func updateDocumentViewForCurrentMode() {
-        scrollView.documentView = modeControl.selectedSegment == 1 ? mindMapView : outlineView
+        dataSource.collapseAll(in: outlineView)
     }
 
     @objc private func pickRoot() {
@@ -347,6 +380,7 @@ final class NotesDetailView: NSObject, ModuleDetailView {
         let menu = NSMenu()
         menu.addItem(withTitle: "Change Root…", action: #selector(pickRoot), keyEquivalent: "")
         menu.addItem(withTitle: "Reveal Root in Finder", action: #selector(revealRoot), keyEquivalent: "")
+        menu.addItem(NSMenuItem.separator())
         menu.addItem(withTitle: "Image Tools…", action: #selector(openImageTools), keyEquivalent: "")
         menu.items.forEach { $0.target = self }
         menu.popUp(positioning: nil, at: NSPoint(x: 0, y: sender.bounds.height + 4), in: sender)
@@ -355,9 +389,7 @@ final class NotesDetailView: NSObject, ModuleDetailView {
     @objc private func openImageTools() {
         Task { @MainActor [weak self] in
             guard let self, let root = await module.loadConfig().root, let window = detailView.window else { return }
-            let panel = NotesImageToolsPanel(root: root)
-            let sheet = NSWindow(contentViewController: panel)
-            await window.beginSheet(sheet)
+            await NotesDetailSheets.presentImageTools(on: window, root: root)
         }
     }
 
@@ -397,7 +429,6 @@ final class NotesDetailView: NSObject, ModuleDetailView {
             }
         }
         dataSource.setFilter(text)
-        mindMapView.reload(root: dataSource.mindMapRootNode())
         outlineView.reloadData()
         if !text.isEmpty {
             dataSource.expandAll(in: outlineView)
@@ -542,24 +573,7 @@ final class NotesDetailView: NSObject, ModuleDetailView {
     @objc private func showDeleteConfirmation() {
         guard let item = selectedActionItem(), !isRootItem(item) else { return }
         if item.node.kind == .folder {
-            Task { [weak self] in
-                guard let self, let actions else { return }
-                do {
-                    try await actions.trash(URL(fileURLWithPath: item.node.path))
-                    await refreshTree()
-                } catch NotesDeleteError.folderNotEmpty {
-                    await MainActor.run { [weak self] in
-                        guard let self else { return }
-                        guard let window = detailView.window else { return }
-                        let alert = NSAlert()
-                        alert.messageText = "This folder is not empty. Deleting non-empty folders is not supported in this version."
-                        alert.addButton(withTitle: "OK")
-                        alert.beginSheetModal(for: window)
-                    }
-                } catch {
-                    showError(error.localizedDescription)
-                }
-            }
+            Task { await confirmFolderDelete(item: item) }
             return
         }
 
@@ -585,6 +599,34 @@ final class NotesDetailView: NSObject, ModuleDetailView {
             await refreshTree()
         } catch {
             showError(error.localizedDescription)
+        }
+    }
+
+    private func confirmFolderDelete(item: NotesOutlineItem) async {
+        guard let actions else { return }
+        let url = URL(fileURLWithPath: item.node.path)
+        let isEmpty = (try? await actions.isFolderEmpty(url)) ?? false
+        await MainActor.run { [weak self] in
+            guard let self, let window = detailView.window else { return }
+            let alert = NSAlert()
+            if isEmpty {
+                alert.messageText = "Move folder to Trash?"
+                alert.informativeText = item.node.name
+                alert.addButton(withTitle: "Cancel")
+                alert.addButton(withTitle: "Move to Trash")
+                if let button = alert.buttons.last {
+                    button.hasDestructiveAction = true
+                }
+                alert.beginSheetModal(for: window) { [weak self] response in
+                    guard response == .alertSecondButtonReturn else { return }
+                    Task { await self?.performTrash(item: item) }
+                }
+            } else {
+                alert.messageText = "Cannot delete “\(item.node.name)”"
+                alert.informativeText = "This folder is not empty. Move or delete its contents first."
+                alert.addButton(withTitle: "OK")
+                alert.beginSheetModal(for: window)
+            }
         }
     }
 

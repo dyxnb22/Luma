@@ -5,8 +5,12 @@ public enum ClipboardEntryKind: String, Sendable, Hashable, Codable {
     case link
     case email
     case code
+    case image
 
-    public static func detect(from text: String) -> ClipboardEntryKind {
+    public static func detect(from text: String, pasteboardTypes: [String] = []) -> ClipboardEntryKind {
+        if Self.isImageTypes(pasteboardTypes) {
+            return .image
+        }
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return .text }
 
@@ -42,11 +46,17 @@ public enum ClipboardEntryKind: String, Sendable, Hashable, Codable {
         let indicators = ["{", "}", ";", "func ", "def ", "class ", "import ", "const ", "let ", "var "]
         return indicators.contains { text.contains($0) }
     }
+
+    public static func isImageTypes(_ types: [String]) -> Bool {
+        let imagePrefixes = ["public.png", "public.tiff", "public.jpeg", "public.image", "com.apple.pict", "com.compuserve.gif"]
+        return types.contains { type in
+            imagePrefixes.contains { type.hasPrefix($0) || type == $0 }
+        }
+    }
 }
 
 public enum ClipboardListFilter: String, Sendable, CaseIterable {
     case all
-    case text
-    case links
     case pinned
+    case image
 }

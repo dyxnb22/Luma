@@ -203,13 +203,6 @@ final class AppCoordinator {
             await host.applyEnabledSet(await config.enabledModules())
             await host.warmupAll()
             windowController.setModulesReady(true)
-            await refreshMenuBarDueCounts(wordbookModule: wordbookModule, todoModule: todoModule)
         }
-    }
-
-    private func refreshMenuBarDueCounts(wordbookModule: WordbookModule, todoModule: TodoModule) async {
-        let wordbookDue = await wordbookModule.storeDueTodayCount()
-        let todoDue = (try? await todoModule.todayDueCount()) ?? 0
-        menuBarController?.setDueCounts(wordbook: wordbookDue, todo: todoDue)
     }
 }

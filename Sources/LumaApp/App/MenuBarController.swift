@@ -7,8 +7,6 @@ final class MenuBarController {
     private var hotkeyWarningItem: NSMenuItem?
     private var hotkeyOK = true
     private var secretsVaultLocked = true
-    private var wordbookDueCount = 0
-    private var todoDueCount = 0
     private let onShow: @MainActor () -> Void
     private let onSettings: @MainActor () -> Void
 
@@ -43,31 +41,19 @@ final class MenuBarController {
         refreshStatusIcon()
     }
 
-    func setDueCounts(wordbook: Int, todo: Int) {
-        wordbookDueCount = max(0, wordbook)
-        todoDueCount = max(0, todo)
-        refreshStatusIcon()
-    }
-
     private func refreshStatusIcon() {
-        statusItem.button?.title = ""
-        let config = NSImage.SymbolConfiguration(pointSize: 14, weight: .semibold)
-        let symbolName: String
+        let state: LumaMenuBarIcon.State
         if !hotkeyOK {
-            symbolName = "exclamationmark.triangle.fill"
+            state = .hotkeyWarning
         } else if secretsVaultLocked {
-            symbolName = "lock.shield.fill"
+            state = .vaultLocked
         } else {
-            symbolName = "lock.open.fill"
+            state = .vaultUnlocked
         }
-        statusItem.button?.image = NSImage(systemSymbolName: symbolName, accessibilityDescription: "Luma")?
-            .withSymbolConfiguration(config)
 
-        let dueTotal = wordbookDueCount + todoDueCount
-        if dueTotal > 0, hotkeyOK {
-            statusItem.button?.title = " \(dueTotal)"
-            statusItem.button?.font = .monospacedDigitSystemFont(ofSize: 11, weight: .bold)
-        }
+        statusItem.length = NSStatusItem.squareLength
+        statusItem.button?.image = LumaMenuBarIcon.make(state: state)
+        statusItem.button?.title = ""
     }
 
     private func configure() {

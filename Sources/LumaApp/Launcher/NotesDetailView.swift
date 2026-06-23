@@ -12,6 +12,7 @@ final class NotesDetailView: NSObject, ModuleDetailView {
 
     private let module: NotesModule
     private let topStrip = NSView()
+    private let chipBar = NotesDetailChipBar()
     private let filterStrip = NSView()
     private let filterField = NSTextField()
     private let rootPathLabel = NSTextField(labelWithString: "")
@@ -29,6 +30,8 @@ final class NotesDetailView: NSObject, ModuleDetailView {
     private var refreshTask: Task<Void, Never>?
     private var actions: NotesActions?
     private var savedExpansion = Set<String>()
+    private var activeChip: NotesDetailChip?
+    private var activePanel: NotesDetailPanel = .outline
 
     init(module: NotesModule) {
         self.module = module
@@ -54,6 +57,21 @@ final class NotesDetailView: NSObject, ModuleDetailView {
     }
 
     func handleKeyDown(_ event: NSEvent) -> Bool {
+        if event.modifierFlags.contains(.command),
+           let chars = event.charactersIgnoringModifiers,
+           let digit = Int(chars), (1...4).contains(digit) {
+            let chip = NotesDetailChip(rawValue: digit - 1)
+            chipBar.selectChip(chip)
+            activeChip = chip
+            Task { await applyChipView(chip) }
+            return true
+        }
+        if event.modifierFlags.contains(.command),
+           event.charactersIgnoringModifiers?.lowercased() == "l",
+           detailView.window?.firstResponder === outlineView {
+            findBacklinksForSelected()
+            return true
+        }
         if event.keyCode == 53 {
             if viewMode == .mindMap {
                 viewModeControl.selectedSegment = 0
@@ -120,6 +138,7 @@ final class NotesDetailView: NSObject, ModuleDetailView {
         viewModeControl.segmentStyle = .rounded
         viewModeControl.target = self
         viewModeControl.action = #selector(viewModeChanged)
+        viewModeControl.isHidden = true
         viewModeControl.translatesAutoresizingMaskIntoConstraints = false
 
         gearButton.bezelStyle = .texturedRounded
@@ -186,12 +205,26 @@ final class NotesDetailView: NSObject, ModuleDetailView {
             self?.persistExpansion(path: node.path, expanded: expanded)
         }
 
+        chipBar.onChipChanged = { [weak self] chip in
+            guard let self else { return }
+            self.activeChip = chip
+            Task { await self.applyChipView(chip) }
+        }
+        chipBar.onPanelChanged = { [weak self] panel in
+            guard let self else { return }
+            self.activePanel = panel
+            self.activeChip = nil
+            self.chipBar.selectChip(nil)
+            Task { await self.applyPanelView(panel) }
+        }
+
         container.addSubview(topStrip)
         topStrip.addSubview(rootPathLabel)
         topStrip.addSubview(viewModeControl)
         topStrip.addSubview(expandAllButton)
         topStrip.addSubview(collapseAllButton)
         topStrip.addSubview(gearButton)
+        container.addSubview(chipBar)
         container.addSubview(filterStrip)
         filterStrip.addSubview(filterField)
         container.addSubview(emptyStateButton)
@@ -207,10 +240,7 @@ final class NotesDetailView: NSObject, ModuleDetailView {
 
             rootPathLabel.leadingAnchor.constraint(equalTo: topStrip.leadingAnchor, constant: 12),
             rootPathLabel.centerYAnchor.constraint(equalTo: topStrip.centerYAnchor),
-            rootPathLabel.trailingAnchor.constraint(lessThanOrEqualTo: viewModeControl.leadingAnchor, constant: -8),
-
-            viewModeControl.trailingAnchor.constraint(equalTo: expandAllButton.leadingAnchor, constant: -8),
-            viewModeControl.centerYAnchor.constraint(equalTo: topStrip.centerYAnchor),
+            rootPathLabel.trailingAnchor.constraint(lessThanOrEqualTo: expandAllButton.leadingAnchor, constant: -8),
 
             expandAllButton.trailingAnchor.constraint(equalTo: collapseAllButton.leadingAnchor, constant: -4),
             expandAllButton.centerYAnchor.constraint(equalTo: topStrip.centerYAnchor),
@@ -227,7 +257,11 @@ final class NotesDetailView: NSObject, ModuleDetailView {
             gearButton.widthAnchor.constraint(equalToConstant: 24),
             gearButton.heightAnchor.constraint(equalToConstant: 24),
 
-            filterStrip.topAnchor.constraint(equalTo: topStrip.bottomAnchor),
+            chipBar.topAnchor.constraint(equalTo: topStrip.bottomAnchor),
+            chipBar.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            chipBar.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+
+            filterStrip.topAnchor.constraint(equalTo: chipBar.bottomAnchor),
             filterStrip.leadingAnchor.constraint(equalTo: container.leadingAnchor),
             filterStrip.trailingAnchor.constraint(equalTo: container.trailingAnchor),
             filterStrip.heightAnchor.constraint(equalToConstant: 28),
@@ -288,13 +322,21 @@ final class NotesDetailView: NSObject, ModuleDetailView {
             }
             rootPathLabel.stringValue = root.path
             topStrip.isHidden = false
+            chipBar.isHidden = false
             filterStrip.isHidden = (viewMode != .outline)
             scrollView.isHidden = (viewMode != .outline)
             mindMapScroll.isHidden = (viewMode != .mindMap)
             emptyStateButton.isHidden = true
+
+            let inboxCount = await module.inboxCount()
+            chipBar.setInboxCount(inboxCount)
+            let dailyMissing = await module.dailyNotePath() == nil
+            chipBar.setTodayHint(missing: dailyMissing)
+            await reloadTypeLabels()
         } else {
             rootPathLabel.stringValue = ""
             topStrip.isHidden = true
+            chipBar.isHidden = true
             filterStrip.isHidden = true
             scrollView.isHidden = true
             emptyStateButton.isHidden = false
@@ -303,35 +345,129 @@ final class NotesDetailView: NSObject, ModuleDetailView {
             return
         }
 
-        var recentNodes: [NotesNode] = []
-        if ModuleDetailRegistry.isLauncherQueryEmpty {
-            let paths = await module.recentNotePaths()
-            recentNodes = paths.compactMap { path in
-                let url = URL(fileURLWithPath: path)
-                guard FileManager.default.fileExists(atPath: path) else { return nil }
-                return NotesNode(path: path, name: url.deletingPathExtension().lastPathComponent, kind: .note, children: [])
-            }
+        if let chip = activeChip {
+            await applyChipView(chip)
+        } else {
+            await applyPanelView(activePanel)
         }
 
-        dataSource.reload(root: snapshot, recentNodes: recentNodes)
-        outlineView.reloadData()
-
-        guard let rootItem = dataSource.rootItem else { return }
-        outlineView.expandItem(dataSource.displayRoot ?? rootItem)
-
-        for path in config.expandedFolders where path != config.root?.path {
-            if let item = dataSource.item(for: path) {
-                outlineView.expandItem(item)
-            }
-        }
-
-        if !dataSource.filterText.isEmpty {
-            dataSource.expandAll(in: outlineView)
-        }
         if viewMode == .mindMap {
             mindMapView.reload(root: dataSource.mindMapRootNode())
         }
         detailView.window?.makeFirstResponder(viewMode == .outline ? outlineView : mindMapView)
+    }
+
+    private func reloadTypeLabels() async {
+        let entries = await module.notesMetaIndex().allEntries()
+        var labels: [String: String] = [:]
+        for entry in entries {
+            if let type = entry.type, !type.isEmpty {
+                labels[entry.path] = type
+            }
+        }
+        dataSource.setTypeLabels(labels)
+    }
+
+    private func applyChipView(_ chip: NotesDetailChip?) async {
+        let config = await module.loadConfig()
+        guard let root = config.root else { return }
+        activePanel = .outline
+        chipBar.selectPanel(.outline)
+
+        guard let chip else {
+            await applyPanelView(.outline)
+            return
+        }
+
+        switch chip {
+        case .today:
+            if let path = await module.dailyNotePath() {
+                let url = URL(fileURLWithPath: path)
+                let node = NotesNode(path: path, name: url.deletingPathExtension().lastPathComponent, kind: .note, children: [])
+                dataSource.showFlatList(title: "Today", nodes: [node])
+            } else {
+                dataSource.showFlatList(title: "Today", nodes: [])
+            }
+        case .inbox:
+            let nodes = await actions?.notesInFolder(named: config.inboxFolderName, root: root) ?? []
+            dataSource.showFlatList(title: "Inbox", nodes: nodes)
+        case .recent:
+            let paths = await module.recentNotePaths()
+            let nodes = paths.compactMap { path -> NotesNode? in
+                guard FileManager.default.fileExists(atPath: path) else { return nil }
+                let url = URL(fileURLWithPath: path)
+                return NotesNode(path: path, name: url.deletingPathExtension().lastPathComponent, kind: .note, children: [])
+            }
+            dataSource.showFlatList(title: "Recent", nodes: nodes)
+        case .pinned:
+            let pinned = await module.notesMetaIndex().pinnedNotes()
+            let nodes = pinned.map { NotesNode(path: $0.path, name: $0.name, kind: .note, children: []) }
+            dataSource.showFlatList(title: "Pinned", nodes: nodes)
+        }
+
+        outlineView.reloadData()
+        if let displayRoot = dataSource.displayRoot {
+            outlineView.expandItem(displayRoot)
+        }
+    }
+
+    private func applyPanelView(_ panel: NotesDetailPanel) async {
+        let config = await module.loadConfig()
+        guard let snapshot = await module.snapshot() else { return }
+        activePanel = panel
+
+        switch panel {
+        case .outline:
+            var recentNodes: [NotesNode] = []
+            if ModuleDetailRegistry.isLauncherQueryEmpty {
+                let paths = await module.recentNotePaths()
+                recentNodes = paths.compactMap { path in
+                    guard FileManager.default.fileExists(atPath: path) else { return nil }
+                    let url = URL(fileURLWithPath: path)
+                    return NotesNode(path: path, name: url.deletingPathExtension().lastPathComponent, kind: .note, children: [])
+                }
+            }
+            dataSource.showTree(root: snapshot, recentNodes: recentNodes)
+            outlineView.reloadData()
+            if let rootItem = dataSource.rootItem {
+                outlineView.expandItem(dataSource.displayRoot ?? rootItem)
+            }
+            for path in config.expandedFolders where path != config.root?.path {
+                if let item = dataSource.item(for: path) {
+                    outlineView.expandItem(item)
+                }
+            }
+        case .browse:
+            let meta = await module.notesMetaIndex()
+            let weekStart = Calendar.current.date(byAdding: .day, value: -7, to: Date()) ?? Date()
+            var groups: [(String, [NotesNode])] = []
+            let modified = await meta.modifiedSince(weekStart).map {
+                NotesNode(path: $0.path, name: $0.name, kind: .note, children: [])
+            }
+            if !modified.isEmpty {
+                groups.append(("Modified this week", modified))
+            }
+            for type in await meta.distinctTypes() {
+                let nodes = await meta.notes(withType: type).map {
+                    NotesNode(path: $0.path, name: $0.name, kind: .note, children: [])
+                }
+                groups.append((type, nodes))
+            }
+            dataSource.showGroupedList(groups: groups)
+            outlineView.reloadData()
+            if let displayRoot = dataSource.displayRoot {
+                outlineView.expandItem(displayRoot)
+                dataSource.expandAll(in: outlineView)
+            }
+        case .inbox:
+            guard let root = config.root else { return }
+            let nodes = await actions?.notesInFolder(named: config.inboxFolderName, root: root) ?? []
+            dataSource.showFlatList(title: "Inbox", nodes: nodes)
+            outlineView.reloadData()
+            if let displayRoot = dataSource.displayRoot {
+                outlineView.expandItem(displayRoot)
+            }
+        }
     }
 
     @objc private func expandAll() {
@@ -382,6 +518,7 @@ final class NotesDetailView: NSObject, ModuleDetailView {
         menu.addItem(withTitle: "Reveal Root in Finder", action: #selector(revealRoot), keyEquivalent: "")
         menu.addItem(NSMenuItem.separator())
         menu.addItem(withTitle: "Image Tools…", action: #selector(openImageTools), keyEquivalent: "")
+        menu.addItem(withTitle: "Experimental: Mind Map…", action: #selector(showExperimentalMindMap), keyEquivalent: "")
         menu.items.forEach { $0.target = self }
         menu.popUp(positioning: nil, at: NSPoint(x: 0, y: sender.bounds.height + 4), in: sender)
     }
@@ -652,6 +789,62 @@ final class NotesDetailView: NSObject, ModuleDetailView {
         openNote(item.node)
     }
 
+    @objc private func moveSelectedToFolder() {
+        guard let item = selectedActionItem(), item.node.kind == .note else { return }
+        Task { [weak self] in
+            guard let self, let root = await module.loadConfig().root else { return }
+            await MainActor.run {
+                let panel = NSOpenPanel()
+                panel.canChooseDirectories = true
+                panel.canChooseFiles = false
+                panel.allowsMultipleSelection = false
+                panel.directoryURL = root
+                panel.prompt = "Move Here"
+                panel.message = "Choose destination folder"
+                guard let window = self.detailView.window else { return }
+                panel.beginSheetModal(for: window) { response in
+                    guard response == .OK, let folder = panel.url else { return }
+                    Task { await self.performMove(item: item, to: folder) }
+                }
+            }
+        }
+    }
+
+    private func performMove(item: NotesOutlineItem, to folder: URL) async {
+        guard let actions else { return }
+        do {
+            let url = try await actions.move(URL(fileURLWithPath: item.node.path), toFolder: folder)
+            await refreshTree()
+            selectPath(url.path, expandParent: true)
+        } catch NotesActionError.alreadyExists {
+            showError("A file with that name already exists in the destination folder.")
+        } catch {
+            showError(error.localizedDescription)
+        }
+    }
+
+    @objc private func showExperimentalMindMap() {
+        viewModeControl.isHidden = false
+        viewModeControl.selectedSegment = 1
+        viewModeChanged()
+    }
+
+    @objc private func findBacklinksForSelected() {
+        guard let item = selectedActionItem(), item.node.kind == .note else { return }
+        let target = item.node.name
+        Task { [weak self] in
+            guard let self, let actions else { return }
+            let links = await actions.findBacklinks(to: target)
+            await MainActor.run {
+                if links.isEmpty {
+                    self.showError("No notes link to “\(target)” via [[\(target)]].")
+                } else {
+                    self.showNoteListPopover(title: "Backlinks to \(target)", links: links, anchoredTo: item)
+                }
+            }
+        }
+    }
+
     @objc private func openLinkedNotes() {
         guard let item = selectedActionItem(), item.node.kind == .note else { return }
         Task { [weak self] in
@@ -659,23 +852,24 @@ final class NotesDetailView: NSObject, ModuleDetailView {
             let links = await actions.relatedNotes(in: URL(fileURLWithPath: item.node.path))
             guard !links.isEmpty else { return }
             await MainActor.run {
-                self.showLinkedNotesPopover(links: links, anchoredTo: item)
+                self.showNoteListPopover(title: "Linked notes", links: links, anchoredTo: item)
             }
         }
     }
 
-    private func showLinkedNotesPopover(links: [URL], anchoredTo item: NotesOutlineItem) {
+    private func showNoteListPopover(title: String, links: [URL], anchoredTo item: NotesOutlineItem) {
         let controller = NSViewController()
         let list = NSTableView()
         list.headerView = nil
         let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("link"))
+        column.title = title
         list.addTableColumn(column)
         let dataSource = LinkedNotesDataSource(urls: links)
         list.dataSource = dataSource
         list.delegate = dataSource
         controller.view = list
         let popover = NSPopover()
-        popover.contentSize = NSSize(width: 240, height: min(links.count, 6) * 24 + 8)
+        popover.contentSize = NSSize(width: 260, height: min(links.count, 8) * 24 + 8)
         popover.contentViewController = controller
         popover.behavior = .transient
         let row = outlineView.row(forItem: item)
@@ -756,8 +950,17 @@ extension NotesDetailView: NSMenuDelegate {
             menu.addItem(withTitle: "Reveal in Finder", action: #selector(revealSelectedInFinder), keyEquivalent: "")
         } else {
             menu.addItem(withTitle: "Open in Typora", action: #selector(openSelectedInTypora), keyEquivalent: "")
-            menu.addItem(withTitle: "Open Linked Notes…", action: #selector(openLinkedNotes), keyEquivalent: "l")
+            menu.addItem(withTitle: "Open Linked Notes…", action: #selector(openLinkedNotes), keyEquivalent: "")
+            let backlinksItem = menu.addItem(
+                withTitle: "Find Backlinks…",
+                action: #selector(findBacklinksForSelected),
+                keyEquivalent: "l"
+            )
+            backlinksItem.keyEquivalentModifierMask = .command
             menu.addItem(withTitle: "Rename", action: #selector(showRenamePrompt), keyEquivalent: "")
+            if activePanel == .inbox {
+                menu.addItem(withTitle: "Move to Folder…", action: #selector(moveSelectedToFolder), keyEquivalent: "")
+            }
             menu.addItem(withTitle: "Delete", action: #selector(showDeleteConfirmation), keyEquivalent: "")
             menu.addItem(withTitle: "Reveal in Finder", action: #selector(revealSelectedInFinder), keyEquivalent: "")
             menu.addItem(withTitle: "Copy Path", action: #selector(copySelectedPath), keyEquivalent: "")

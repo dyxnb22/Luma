@@ -29,6 +29,8 @@ Launcher convergence strategy adds a stricter working rule: warm keystroke p95 a
 - Query tasks are cancelled on every new keystroke.
 - Panel hides before action completion.
 - Notes module reads happen only in `warmup` and on FSEvents callbacks. `handle` never touches disk.
+- `n doctor` is the on-demand health surface for frontmatter, duplicate names, and broken wiki links; it may read note bodies but is not on the keystroke hot path.
+- Notes warmup duration is reported in `n doctor` stats and tracked in `NotesModule.lastWarmupMilliseconds()`.
 
 ## Measurement
 

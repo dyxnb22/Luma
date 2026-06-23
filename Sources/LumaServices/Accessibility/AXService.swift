@@ -72,11 +72,13 @@ public actor AXService: AccessibilityClient {
         let fallbackTitle = appName.isEmpty ? (NSRunningApplication(processIdentifier: pid)?.localizedName ?? "Window") : appName
 
         var snapshots: [OpenWindowSnapshot] = []
+        var usedCGWindowIDs = Set<UInt32>()
         for axWindow in axWindows {
             guard let snapshot = snapshot(
                 for: axWindow,
                 pid: pid,
                 cgWindows: cgWindows,
+                usedCGWindowIDs: &usedCGWindowIDs,
                 focusedBounds: focusedBounds,
                 fallbackTitle: fallbackTitle
             ) else { continue }
@@ -151,6 +153,7 @@ public actor AXService: AccessibilityClient {
         for axWindow: AXUIElement,
         pid: Int32,
         cgWindows: [CGWindowRecord],
+        usedCGWindowIDs: inout Set<UInt32>,
         focusedBounds: CGRect?,
         fallbackTitle: String
     ) -> OpenWindowSnapshot? {
@@ -188,13 +191,19 @@ public actor AXService: AccessibilityClient {
 
         let windowID: UInt32
         if let match = cgWindows.first(where: { cg in
-            cg.title == title || (cg.title.isEmpty && boundsMatch(cg.bounds, axBounds))
+            !usedCGWindowIDs.contains(cg.windowID)
+                && (cg.title == title || (cg.title.isEmpty && boundsMatch(cg.bounds, axBounds)))
         }) {
             windowID = match.windowID
-        } else if let match = cgWindows.first(where: { boundsMatch($0.bounds, axBounds) }) {
+        } else if let match = cgWindows.first(where: { cg in
+            !usedCGWindowIDs.contains(cg.windowID) && boundsMatch(cg.bounds, axBounds)
+        }) {
             windowID = match.windowID
         } else {
             windowID = 0
+        }
+        if windowID != 0 {
+            usedCGWindowIDs.insert(windowID)
         }
 
         let isFocused = focusedBounds.map { boundsMatch($0, axBounds) } ?? false

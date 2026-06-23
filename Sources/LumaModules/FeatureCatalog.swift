@@ -26,7 +26,7 @@ public enum FeatureCatalog {
                 title: "Notes",
                 subtitle: "Markdown notes",
                 icon: .symbol("note.text"),
-                triggerKeyword: "note ",
+                triggerKeyword: "n ",
                 position: CardPosition(column: 2, row: 0),
                 widgetStyle: WidgetCardStyle(symbolName: "note.text", topHex: "#FFCC02", bottomHex: "#FFA000")
             ),

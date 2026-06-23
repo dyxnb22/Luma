@@ -54,8 +54,44 @@ final class NotesOutlineDataSource: NSObject, NSOutlineViewDataSource, NSOutline
     var filterText = ""
     var onActivate: ((NotesNode) -> Void)?
     var onExpansionChanged: ((NotesNode, Bool) -> Void)?
+    private var flatListTitle: String?
+    private var typeByPath: [String: String] = [:]
     private var flatMatches: [NotesOutlineItem] = []
     private var matchIndex = 0
+
+    func setTypeLabels(_ labels: [String: String]) {
+        typeByPath = labels
+    }
+
+    func showTree(root: NotesNode?, recentNodes: [NotesNode] = []) {
+        flatListTitle = nil
+        reload(root: root, recentNodes: recentNodes)
+    }
+
+    func showFlatList(title: String, nodes: [NotesNode]) {
+        flatListTitle = title
+        let children = nodes.map { NotesNode(path: $0.path, name: $0.name, kind: .note, children: []) }
+        let groupNode = NotesNode(path: "__flat__", name: title, kind: .folder, children: children)
+        recentGroupItem = nil
+        rootItem = nil
+        displayRoot = NotesOutlineItem(node: groupNode)
+        flatMatches = []
+    }
+
+    func showGroupedList(groups: [(String, [NotesNode])]) {
+        flatListTitle = "Browse"
+        let children = groups.map { title, nodes in
+            let noteChildren = nodes.map { NotesNode(path: $0.path, name: $0.name, kind: .note, children: []) }
+            return NotesOutlineItem(
+                node: NotesNode(path: "__group__\(title)", name: title, kind: .folder, children: noteChildren)
+            )
+        }
+        let virtualRoot = NotesNode(path: "__virtual_root__", name: "", kind: .folder, children: [])
+        displayRoot = NotesOutlineItem(node: virtualRoot, children: children)
+        rootItem = nil
+        recentGroupItem = nil
+        flatMatches = []
+    }
 
     func reload(root: NotesNode?, recentNodes: [NotesNode] = []) {
         rootItem = root.map { NotesOutlineItem(node: $0) }
@@ -236,11 +272,27 @@ final class NotesOutlineDataSource: NSObject, NSOutlineViewDataSource, NSOutline
             let adjustedRange = NSRange(location: prefix.count + nsRange.location, length: nsRange.length)
             attributed.addAttribute(.foregroundColor, value: NSColor.secondaryLabelColor, range: NSRange(location: 0, length: prefix.count))
             attributed.addAttribute(.foregroundColor, value: NSColor.controlAccentColor, range: adjustedRange)
+            appendTypeBadge(to: attributed, path: item.node.path)
             cell.textField?.attributedStringValue = attributed
         } else {
-            cell.textField?.stringValue = displayName
+            if let type = typeByPath[item.node.path], item.node.kind == .note {
+                let attributed = NSMutableAttributedString(string: displayName)
+                appendTypeBadge(to: attributed, path: item.node.path, explicitType: type)
+                cell.textField?.attributedStringValue = attributed
+            } else {
+                cell.textField?.stringValue = displayName
+            }
         }
         return cell
+    }
+
+    private func appendTypeBadge(to attributed: NSMutableAttributedString, path: String, explicitType: String? = nil) {
+        guard let type = explicitType ?? typeByPath[path], !type.isEmpty else { return }
+        let badge = NSAttributedString(
+            string: "  [\(type)]",
+            attributes: [.foregroundColor: NSColor.tertiaryLabelColor, .font: NSFont.systemFont(ofSize: 11)]
+        )
+        attributed.append(badge)
     }
 
     private func treePrefix(for item: NotesOutlineItem) -> String {

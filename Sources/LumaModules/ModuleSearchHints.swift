@@ -26,8 +26,8 @@ public enum ModuleSearchHints {
         if lower.hasPrefix("clip") {
             return "Search clipboard history"
         }
-        if lower.hasPrefix("note") {
-            return "Find a note by filename"
+        if lower == "n" || lower.hasPrefix("n ") || lower.hasPrefix("note") {
+            return "New note, daily, or search by filename"
         }
         if lower == "tr" || lower.hasPrefix("tr ") || lower.hasPrefix("translate") {
             return "Text to translate"

@@ -107,6 +107,9 @@ import Testing
 
     let withPrefix = await module.handle(Query(raw: "note meeting", sequence: 2), context: context)
     #expect(withPrefix.items.first?.title == "Meeting")
+
+    let withN = await module.handle(Query(raw: "n meeting", sequence: 3), context: context)
+    #expect(withN.items.first?.title == "Meeting")
 }
 
 @Test func notesModuleKeepsEightRecentNotesForBareTrigger() async throws {

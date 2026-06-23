@@ -79,8 +79,19 @@ final class OpenAppsSidebarController {
             orderedRows.append((appKey, appRow))
 
             for (index, window) in windows.enumerated() {
-                let windowKey = "win:\(window.windowID)"
-                let windowRow = makeWindowRow(key: windowKey, window: window, icon: icon, shortcutIndex: index + 1)
+                let windowKey = "win:\(window.id)"
+                let displayTitle = IDEWindowTitle.sidebarLabel(
+                    rawTitle: window.title,
+                    bundleID: bundleID,
+                    appName: appName
+                )
+                let windowRow = makeWindowRow(
+                    key: windowKey,
+                    window: window,
+                    displayTitle: displayTitle,
+                    icon: icon,
+                    shortcutIndex: index + 1
+                )
                 orderedRows.append((windowKey, windowRow))
             }
         }
@@ -89,10 +100,7 @@ final class OpenAppsSidebarController {
         if !showsAllSidebarRows, orderedRows.count > Self.collapsedRowLimit {
             let hiddenCount = orderedRows.count - Self.collapsedRowLimit
             rowsToShow = Array(orderedRows.prefix(Self.collapsedRowLimit)).map { ($0.0, $0.1) }
-            let moreRow = SidebarMoreRow(label: "+\(hiddenCount) more") { [weak self] in
-                self?.showsAllSidebarRows = true
-                Task { await self?.refresh() }
-            }
+            let moreRow = makeMoreRow(hiddenCount: hiddenCount)
             rowsToShow.append(("__sidebar_more__", moreRow))
         }
 
@@ -117,17 +125,31 @@ final class OpenAppsSidebarController {
         return row
     }
 
+    private func makeMoreRow(hiddenCount: Int) -> SidebarMoreRow {
+        let label = "+\(hiddenCount) more"
+        let key = "__sidebar_more__"
+        if let existing = rowByKey[key] as? SidebarMoreRow {
+            existing.updateLabel(label)
+            return existing
+        }
+        return SidebarMoreRow(label: label) { [weak self] in
+            self?.showsAllSidebarRows = true
+            Task { await self?.refresh() }
+        }
+    }
+
     private func makeWindowRow(
         key: String,
         window: OpenWindowSnapshot,
+        displayTitle: String,
         icon: NSImage?,
         shortcutIndex: Int
     ) -> SidebarAppRow {
         if let existing = rowByKey[key] as? SidebarAppRow {
-            existing.setHighlighted(window.isFocused)
+            existing.updateWindow(window: window, displayTitle: displayTitle, icon: icon, shortcutIndex: shortcutIndex)
             return existing
         }
-        return SidebarAppRow(window: window, icon: icon, shortcutIndex: shortcutIndex) { [weak self] in
+        return SidebarAppRow(window: window, displayTitle: displayTitle, icon: icon, shortcutIndex: shortcutIndex) { [weak self] in
             guard let self else { return }
             self.onActionDismiss()
             Task {
@@ -145,11 +167,17 @@ final class OpenAppsSidebarController {
 
     private func applyDiff(orderedRows: [(String, NSView)]) {
         let desiredKeys = Set(orderedRows.map(\.0))
+        let desiredRows = Set(orderedRows.map { ObjectIdentifier($0.1) })
         for key in rowByKey.keys where !desiredKeys.contains(key) {
             if let row = rowByKey.removeValue(forKey: key) {
                 stack.removeArrangedSubview(row)
                 row.removeFromSuperview()
             }
+        }
+
+        for view in stack.arrangedSubviews where !desiredRows.contains(ObjectIdentifier(view)) {
+            stack.removeArrangedSubview(view)
+            view.removeFromSuperview()
         }
 
         for (index, pair) in orderedRows.enumerated() {

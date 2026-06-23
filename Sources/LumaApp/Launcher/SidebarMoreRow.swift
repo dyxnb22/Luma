@@ -60,6 +60,11 @@ final class SidebarMoreRow: NSControl {
         addCursorRect(bounds, cursor: .pointingHand)
     }
 
+    func updateLabel(_ label: String) {
+        titleLabel.stringValue = label
+        setAccessibilityLabel(label)
+    }
+
     func bindFullWidth(to stack: NSStackView) {
         guard fullWidthConstraint == nil else { return }
         let constraint = widthAnchor.constraint(equalTo: stack.widthAnchor)

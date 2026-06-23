@@ -6,6 +6,7 @@ public enum NotesActionError: Error, Sendable {
     case nameContainsSlash
     case alreadyExists
     case rootMissing
+    case templateNotFound
 }
 
 public enum NotesDeleteError: Error, Sendable {
@@ -92,6 +93,138 @@ public actor NotesActions {
             }
         }
         return results
+    }
+
+    public func findBacklinks(to target: String, limit: Int = 50) async -> [URL] {
+        let trimmed = target.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, limit > 0 else { return [] }
+        guard let snapshot = await index.snapshot() else { return [] }
+        let files = collectNotes(from: snapshot).map { URL(fileURLWithPath: $0.path) }
+        let needle = "[[\(trimmed)]]"
+        return await MarkdownContentScanner.scanFiles(containing: needle, in: files, limit: limit)
+    }
+
+    public func ensureFolder(named name: String, under parent: URL) async throws -> URL {
+        let folderName = try validatedFolderName(name)
+        let target = parent.appendingPathComponent(folderName, isDirectory: true)
+        if !fileManager.fileExists(atPath: target.path) {
+            try fileManager.createDirectory(at: target, withIntermediateDirectories: false)
+            await index.rebuild(after: [FSChangeEvent(path: target.path, kind: .created)])
+        }
+        return target
+    }
+
+    public func createNoteInInbox(
+        title: String,
+        root: URL,
+        inboxFolderName: String
+    ) async throws -> URL {
+        let inbox = try await ensureFolder(named: inboxFolderName, under: root)
+        return try await createNote(name: title, inFolder: inbox)
+    }
+
+    public func openOrCreateDailyNote(
+        root: URL,
+        dailyFolderName: String,
+        now: Date = Date()
+    ) async throws -> URL {
+        let dailyFolder = try await ensureFolder(named: dailyFolderName, under: root)
+        let fileName = Self.dailyFileName(for: now) + ".md"
+        let target = dailyFolder.appendingPathComponent(fileName)
+        if !fileManager.fileExists(atPath: target.path) {
+            let body = TemplateRenderer.render(NotesTemplateStore.dailyFallbackBody, title: "", now: now)
+            try body.write(to: target, atomically: true, encoding: .utf8)
+            await index.rebuild(after: [FSChangeEvent(path: target.path, kind: .created)])
+        }
+        return target
+    }
+
+    public func createNoteFromTemplate(
+        template: NotesTemplateInfo,
+        title: String,
+        root: URL,
+        inboxFolderName: String,
+        now: Date = Date()
+    ) async throws -> URL {
+        let inbox = try await ensureFolder(named: inboxFolderName, under: root)
+        let rendered = try NotesTemplateStore.renderTemplate(at: template.url, title: title, now: now)
+        let fileName = try validatedNoteFileName(title)
+        let target = inbox.appendingPathComponent(fileName)
+        guard !fileManager.fileExists(atPath: target.path) else { throw NotesActionError.alreadyExists }
+        try rendered.write(to: target, atomically: true, encoding: .utf8)
+        await index.rebuild(after: [FSChangeEvent(path: target.path, kind: .created)])
+        return target
+    }
+
+    public static func dailyFileName(for date: Date, calendar: Calendar = .current) -> String {
+        TemplateRenderer.render("{{date}}", title: "", now: date, calendar: calendar)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    public static func weeklyReviewFileName(for date: Date = Date(), calendar: Calendar = .current) -> String {
+        let week = TemplateRenderer.render("{{week}}", title: "", now: date, calendar: calendar)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return "\(week).md"
+    }
+
+    public func move(_ url: URL, toFolder folder: URL) async throws -> URL {
+        let destination = folder.appendingPathComponent(url.lastPathComponent)
+        guard destination.path != url.path else { return url }
+        guard !fileManager.fileExists(atPath: destination.path) else { throw NotesActionError.alreadyExists }
+        try fileManager.moveItem(at: url, to: destination)
+        await index.rebuild(after: [
+            FSChangeEvent(path: url.path, kind: .removed),
+            FSChangeEvent(path: destination.path, kind: .created)
+        ])
+        return destination
+    }
+
+    public func createWeeklyReview(
+        root: URL,
+        reviewsFolderName: String,
+        modifiedNotes: [NotesMeta],
+        now: Date = Date(),
+        calendar: Calendar = .current
+    ) async throws -> URL {
+        let year = String(calendar.component(.year, from: now))
+        let yearFolder = try await ensureFolder(named: reviewsFolderName, under: root)
+        let reviewsYear = try await ensureFolder(named: year, under: yearFolder)
+        let fileName = Self.weeklyReviewFileName(for: now, calendar: calendar)
+        let target = reviewsYear.appendingPathComponent(fileName)
+        if fileManager.fileExists(atPath: target.path) {
+            return target
+        }
+
+        var lines = [
+            "# Weekly Review \(TemplateRenderer.render("{{week}}", title: "", now: now, calendar: calendar))",
+            "",
+            "## Notes modified this week",
+            ""
+        ]
+        for note in modifiedNotes {
+            let title = note.name
+            lines.append("- [[\(title)]]")
+        }
+        lines.append("")
+        let body = lines.joined(separator: "\n")
+        try body.write(to: target, atomically: true, encoding: .utf8)
+        await index.rebuild(after: [FSChangeEvent(path: target.path, kind: .created)])
+        return target
+    }
+
+    public func notesInFolder(named folderName: String, root: URL) async -> [NotesNode] {
+        guard let snapshot = await index.snapshot() else { return [] }
+        let folderPath = root.appendingPathComponent(folderName).path
+        guard let folder = findFolder(path: folderPath, in: snapshot) else { return [] }
+        return collectNotes(from: folder)
+    }
+
+    private func findFolder(path: String, in node: NotesNode) -> NotesNode? {
+        if node.path == path, node.kind == .folder { return node }
+        for child in node.children {
+            if let found = findFolder(path: path, in: child) { return found }
+        }
+        return nil
     }
 
     private func collectNotes(from node: NotesNode) -> [NotesNode] {

@@ -63,9 +63,15 @@ public enum ModuleHelp {
             ]
         case "notes":
             return [
-                "Type filename — fuzzy find notes",
-                "Return — open in Typora",
-                "note backlinks <name> — find [[wiki]] references"
+                "n — recent notes",
+                "n <query> — fuzzy find by filename",
+                "n new <title> — create in Inbox and open",
+                "n new <template> <title> — create from template",
+                "n daily — open or create today's daily note",
+                "n review week — weekly review with modified notes",
+                "n doctor — vault health check",
+                "tag:swift / type:reading — filter by metadata",
+                "note … — same commands (legacy alias)"
             ]
         case "clipboard":
             return [

@@ -13,20 +13,26 @@ public actor NotesModule: LumaModule {
     )
 
     private let index: NotesTreeIndex
+    private let metaIndex: NotesMetaIndex
     private let configStore: NotesRootConfigStore
     private var fsEvents: FSEventsService?
     private var watchTask: Task<Void, Never>?
     private var watchRoot: URL?
     private var rootPath: String?
+    private var cachedConfig: NotesRootConfig = .empty
+    private var templates: [NotesTemplateInfo] = []
+    private var lastWarmupDurationMs: Double = 0
     private static let recentNotesLimit = 8
 
     public init() {
         index = NotesTreeIndex()
+        metaIndex = NotesMetaIndex()
         configStore = NotesRootConfigStore()
     }
 
-    public init(index: NotesTreeIndex, config: NotesRootConfigStore) {
+    public init(index: NotesTreeIndex, config: NotesRootConfigStore, metaIndex: NotesMetaIndex = NotesMetaIndex()) {
         self.index = index
+        self.metaIndex = metaIndex
         configStore = config
     }
 
@@ -49,37 +55,19 @@ public actor NotesModule: LumaModule {
     }
 
     public func handle(_ query: Query, context: QueryContext) async -> ModuleResult {
-        let normalized = query.normalized
-        guard normalized == "note"
-            || normalized.hasPrefix("note ")
-            || normalized == "notes"
-            || normalized.hasPrefix("notes ") else {
+        guard let payload = NotesQueryParser.extractPayload(raw: query.raw) else {
             return ModuleResult(items: [])
         }
 
-        if normalized == "note ?" || normalized == "note help"
-            || normalized == "notes ?" || normalized == "notes help" {
+        let parsed = NotesQueryParser.parse(
+            payload: payload,
+            knownTemplates: NotesTemplateStore.templateNames(from: templates)
+        )
+
+        switch parsed {
+        case .help:
             return ModuleResult(items: ModuleHelp.results(for: Self.manifest.identifier))
-        }
-
-        let searchText: String
-        if normalized == "note" || normalized == "notes" {
-            searchText = ""
-        } else if normalized.hasPrefix("notes ") {
-            searchText = String(query.raw.dropFirst(6)).trimmingCharacters(in: .whitespacesAndNewlines)
-        } else {
-            searchText = String(query.raw.dropFirst(5)).trimmingCharacters(in: .whitespacesAndNewlines)
-        }
-
-        let lower = searchText.lowercased()
-        if lower.hasPrefix("backlinks ") {
-            let target = String(searchText.dropFirst("backlinks ".count)).trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !target.isEmpty else { return ModuleResult(items: []) }
-            let matches = await findBacklinks(to: target, limit: 12)
-            return ModuleResult(items: matches.map(result(for:)))
-        }
-
-        if searchText.isEmpty {
+        case .listRecents:
             let recents = await recentNotePaths()
             let items = recents.prefix(8).map { path in
                 let name = URL(fileURLWithPath: path).deletingPathExtension().lastPathComponent
@@ -87,10 +75,21 @@ public actor NotesModule: LumaModule {
                 return result(for: node)
             }
             return ModuleResult(items: Array(items))
+        case .search(let text):
+            let matches = await index.search(fuzzy: text, limit: 10)
+            return ModuleResult(items: matches.map(result(for:)))
+        case .metaSearch(let filter):
+            let matches = await metaIndex.search(filter: filter, limit: 12)
+            return ModuleResult(items: matches.map { result(for: metaToNode($0)) })
+        case .new(let title, let template):
+            return await captureResult(title: title, template: template)
+        case .daily:
+            return await dailyResult()
+        case .reviewWeek:
+            return await reviewWeekResult()
+        case .doctor:
+            return await doctorResult()
         }
-
-        let matches = await index.search(fuzzy: searchText, limit: 10)
-        return ModuleResult(items: matches.map(result(for:)))
     }
 
     public func perform(_ action: Action, context: ActionContext) async throws {
@@ -101,14 +100,50 @@ public actor NotesModule: LumaModule {
             throw ModuleError.unsupportedAction(action.id)
         }
         let decoded = try ModuleActionCoding.decode(NotesAction.self, from: payload)
+        let config = cachedConfig
+        guard let root = config.root else { throw NotesActionError.rootMissing }
+
+        let actions = NotesActions(index: index)
+        let url: URL
         switch decoded {
         case .open(let path):
-            let url = URL(fileURLWithPath: path)
+            url = URL(fileURLWithPath: path)
             await recordRecent(path: path)
-            await MainActor.run {
-                NotesTypora.open(url)
+            await MainActor.run { NotesTypora.open(url) }
+            return
+        case .createInInbox(let title):
+            url = try await actions.createNoteInInbox(
+                title: title,
+                root: root,
+                inboxFolderName: config.inboxFolderName
+            )
+        case .createFromTemplate(let templateName, let title):
+            guard let template = NotesTemplateStore.template(named: templateName, in: templates) else {
+                throw NotesActionError.templateNotFound
             }
+            url = try await actions.createNoteFromTemplate(
+                template: template,
+                title: title,
+                root: root,
+                inboxFolderName: config.inboxFolderName
+            )
+        case .openOrCreateDaily:
+            url = try await actions.openOrCreateDailyNote(
+                root: root,
+                dailyFolderName: config.dailyFolderName
+            )
+        case .createWeeklyReview:
+            let weekStart = Calendar.current.date(byAdding: .day, value: -7, to: Date()) ?? Date()
+            let modified = await metaIndex.modifiedSince(weekStart)
+            url = try await actions.createWeeklyReview(
+                root: root,
+                reviewsFolderName: config.reviewsFolderName,
+                modifiedNotes: modified
+            )
         }
+
+        await recordRecent(path: url.path)
+        await MainActor.run { NotesTypora.open(url) }
     }
 
     public func recordOpenedNote(path: String) async {
@@ -116,29 +151,54 @@ public actor NotesModule: LumaModule {
     }
 
     private func recordRecent(path: String) async {
-        var config = await configStore.load()
+        var config = cachedConfig
         config.recent.removeAll { $0 == path }
         config.recent.insert(path, at: 0)
         if config.recent.count > Self.recentNotesLimit {
             config.recent = Array(config.recent.prefix(Self.recentNotesLimit))
         }
+        cachedConfig = config
         try? await configStore.save(config)
     }
 
     public func recentNotePaths() async -> [String] {
-        await configStore.load().recent
+        cachedConfig.recent
     }
 
     public func loadConfig() async -> NotesRootConfig {
-        await configStore.load()
+        cachedConfig
     }
 
     public func saveConfig(_ config: NotesRootConfig) async throws {
+        cachedConfig = config
         try await configStore.save(config)
     }
 
     public func snapshot() async -> NotesNode? {
         await index.snapshot()
+    }
+
+    public func notesMetaIndex() -> NotesMetaIndex {
+        metaIndex
+    }
+
+    public func lastWarmupMilliseconds() async -> Double {
+        lastWarmupDurationMs
+    }
+
+    public func inboxCount() async -> Int {
+        let config = cachedConfig
+        guard let root = config.root else { return 0 }
+        let actions = NotesActions(index: index)
+        return await actions.notesInFolder(named: config.inboxFolderName, root: root).count
+    }
+
+    public func dailyNotePath() async -> String? {
+        let config = cachedConfig
+        guard let root = config.root else { return nil }
+        let fileName = NotesActions.dailyFileName(for: Date()) + ".md"
+        let path = root.appendingPathComponent(config.dailyFolderName).appendingPathComponent(fileName).path
+        return await noteExistsInIndex(path: path) ? path : nil
     }
 
     public func reloadFromConfig() async {
@@ -150,14 +210,23 @@ public actor NotesModule: LumaModule {
         self.watchRoot = nil
 
         let config = await configStore.load()
+        cachedConfig = config
         rootPath = config.root?.path
         guard let root = config.root else {
+            templates = []
             await index.setRoot(nil)
+            await metaIndex.rebuild(from: nil)
             return
         }
 
+        templates = NotesTemplateStore.scanTemplates(root: root, folderName: config.templatesFolderName)
         await index.setRoot(root)
+        let warmupStart = ContinuousClock.now
         await index.warmup()
+        await metaIndex.rebuild(from: await index.snapshot())
+        let warmupComponents = warmupStart.duration(to: .now).components
+        lastWarmupDurationMs = Double(warmupComponents.seconds) * 1000
+            + Double(warmupComponents.attoseconds) / 1_000_000_000_000_000
         await startWatching(root: root)
     }
 
@@ -169,28 +238,190 @@ public actor NotesModule: LumaModule {
         guard let fsEvents else { return }
         watchRoot = root
         let stream = await fsEvents.watch(root: root)
-        watchTask = Task { [index] in
+        watchTask = Task { [index, metaIndex] in
             for await batch in stream {
                 if Task.isCancelled { break }
                 await index.rebuild(after: batch)
+                await metaIndex.rebuild(from: await index.snapshot())
             }
         }
     }
 
-    private func findBacklinks(to target: String, limit: Int) async -> [NotesNode] {
-        guard let tree = await index.snapshot() else { return [] }
-        let needle = "[[\(target)]]"
-        let needleLower = needle.lowercased()
-        let notes = flattenNotes(tree)
-        var hits: [NotesNode] = []
-        for note in notes {
-            guard let data = try? String(contentsOfFile: note.path, encoding: .utf8) else { continue }
-            if data.lowercased().contains(needleLower) {
-                hits.append(note)
-            }
-            if hits.count >= limit { break }
+    private func reviewWeekResult() async -> ModuleResult {
+        let config = cachedConfig
+        guard config.root != nil else {
+            return ModuleResult(items: [noRootRow()])
         }
-        return hits
+
+        let weekLabel = NotesActions.weeklyReviewFileName(for: Date()).replacingOccurrences(of: ".md", with: "")
+        let id = ResultID(module: Self.manifest.identifier, key: "review.week")
+        let payload = (try? ModuleActionCoding.encode(NotesAction.createWeeklyReview)) ?? Data()
+        return ModuleResult(items: [
+            ResultItem(
+                id: id,
+                title: "Create weekly review",
+                titleAttributed: AttributedString("Create weekly review"),
+                subtitle: "Reviews/\(weekLabel) · prefill modified notes",
+                icon: .symbol("calendar.badge.clock"),
+                primaryAction: Action(
+                    id: ActionID(module: Self.manifest.identifier, key: "review.week"),
+                    title: "Create Review",
+                    kind: .custom(payload: payload, handler: Self.manifest.identifier)
+                ),
+                rankingHints: RankingHints(basePriority: Self.manifest.priority)
+            )
+        ])
+    }
+
+    private func metaToNode(_ meta: NotesMeta) -> NotesNode {
+        NotesNode(path: meta.path, name: meta.name, kind: .note, children: [])
+    }
+
+    private func doctorResult() async -> ModuleResult {
+        let config = cachedConfig
+        guard config.root != nil else {
+            return ModuleResult(items: [noRootRow()])
+        }
+
+        let tree = await index.snapshot()
+        let (issues, stats) = await NotesDoctor.diagnose(
+            tree: tree,
+            lastWarmupMilliseconds: lastWarmupDurationMs
+        )
+
+        var items = [doctorStatsRow(stats)]
+        if issues.isEmpty {
+            items.append(doctorHealthyRow())
+        } else {
+            items.append(contentsOf: issues.map(doctorIssueRow))
+        }
+        return ModuleResult(items: items)
+    }
+
+    private func doctorStatsRow(_ stats: NotesHealthStats) -> ResultItem {
+        let title = "Vault: \(stats.noteCount) notes · warmup \(Int(stats.lastWarmupMilliseconds))ms"
+        let id = ResultID(module: Self.manifest.identifier, key: "doctor.stats")
+        return ResultItem(
+            id: id,
+            title: title,
+            titleAttributed: AttributedString(title),
+            subtitle: "n doctor",
+            icon: .symbol("stethoscope"),
+            primaryAction: Action(
+                id: ActionID(module: Self.manifest.identifier, key: "doctor.stats"),
+                title: "Stats",
+                kind: .noop
+            ),
+            rankingHints: RankingHints(basePriority: Self.manifest.priority)
+        )
+    }
+
+    private func doctorHealthyRow() -> ResultItem {
+        let id = ResultID(module: Self.manifest.identifier, key: "doctor.ok")
+        return ResultItem(
+            id: id,
+            title: "No issues found",
+            titleAttributed: AttributedString("No issues found"),
+            subtitle: "Frontmatter, links, and names look good",
+            icon: .symbol("checkmark.seal"),
+            primaryAction: Action(
+                id: ActionID(module: Self.manifest.identifier, key: "doctor.ok"),
+                title: "OK",
+                kind: .noop
+            ),
+            rankingHints: RankingHints(basePriority: Self.manifest.priority)
+        )
+    }
+
+    private func doctorIssueRow(_ issue: NotesHealthIssue) -> ResultItem {
+        let fileName = URL(fileURLWithPath: issue.path).lastPathComponent
+        let id = ResultID(module: Self.manifest.identifier, key: "doctor.\(issue.path)")
+        let payload = (try? ModuleActionCoding.encode(NotesAction.open(path: issue.path))) ?? Data()
+        return ResultItem(
+            id: id,
+            title: fileName,
+            titleAttributed: AttributedString(fileName),
+            subtitle: issue.message,
+            icon: .symbol(issue.kind == .brokenLink ? "link.badge.plus" : "exclamationmark.triangle"),
+            primaryAction: Action(
+                id: ActionID(module: Self.manifest.identifier, key: "open.\(issue.path)"),
+                title: "Open in Typora",
+                kind: .custom(payload: payload, handler: Self.manifest.identifier)
+            ),
+            rankingHints: RankingHints(basePriority: Self.manifest.priority)
+        )
+    }
+
+    private func captureResult(title: String, template: String?) async -> ModuleResult {
+        let config = cachedConfig
+        guard config.root != nil else {
+            return ModuleResult(items: [noRootRow()])
+        }
+
+        let subtitle: String
+        let action: NotesAction
+        if let template {
+            subtitle = "New from \(template) · Inbox · Return to create and open"
+            action = .createFromTemplate(template: template, title: title)
+        } else {
+            subtitle = "New in Inbox · Return to create and open"
+            action = .createInInbox(title: title)
+        }
+
+        let id = ResultID(module: Self.manifest.identifier, key: "capture.\(title)")
+        let payload = (try? ModuleActionCoding.encode(action)) ?? Data()
+        return ModuleResult(items: [
+            ResultItem(
+                id: id,
+                title: title,
+                titleAttributed: AttributedString(title),
+                subtitle: subtitle,
+                icon: .symbol("square.and.pencil"),
+                primaryAction: Action(
+                    id: ActionID(module: Self.manifest.identifier, key: "capture"),
+                    title: "Create Note",
+                    kind: .custom(payload: payload, handler: Self.manifest.identifier)
+                ),
+                rankingHints: RankingHints(basePriority: Self.manifest.priority)
+            )
+        ])
+    }
+
+    private func dailyResult() async -> ModuleResult {
+        let config = cachedConfig
+        guard let root = config.root else {
+            return ModuleResult(items: [noRootRow()])
+        }
+
+        let fileName = NotesActions.dailyFileName(for: Date()) + ".md"
+        let relative = "\(config.dailyFolderName)/\(fileName)"
+        let absolute = root.appendingPathComponent(relative).path
+        let exists = await noteExistsInIndex(path: absolute)
+        let title = exists ? "Open today's daily note" : "Create today's daily note"
+        let subtitle = relative
+
+        let id = ResultID(module: Self.manifest.identifier, key: "daily")
+        let payload = (try? ModuleActionCoding.encode(NotesAction.openOrCreateDaily)) ?? Data()
+        return ModuleResult(items: [
+            ResultItem(
+                id: id,
+                title: title,
+                titleAttributed: AttributedString(title),
+                subtitle: subtitle,
+                icon: .symbol("calendar"),
+                primaryAction: Action(
+                    id: ActionID(module: Self.manifest.identifier, key: "daily"),
+                    title: exists ? "Open Daily Note" : "Create Daily Note",
+                    kind: .custom(payload: payload, handler: Self.manifest.identifier)
+                ),
+                rankingHints: RankingHints(basePriority: Self.manifest.priority)
+            )
+        ])
+    }
+
+    private func noteExistsInIndex(path: String) async -> Bool {
+        guard let tree = await index.snapshot() else { return false }
+        return flattenNotes(tree).contains { $0.path == path }
     }
 
     private func flattenNotes(_ node: NotesNode) -> [NotesNode] {
@@ -200,6 +431,23 @@ public actor NotesModule: LumaModule {
             results.append(contentsOf: flattenNotes(child))
         }
         return results
+    }
+
+    private func noRootRow() -> ResultItem {
+        let id = ResultID(module: Self.manifest.identifier, key: "no-root")
+        return ResultItem(
+            id: id,
+            title: "Set a Notes root first",
+            titleAttributed: AttributedString("Set a Notes root first"),
+            subtitle: "Open the Notes card and choose a folder",
+            icon: .symbol("folder.badge.questionmark"),
+            primaryAction: Action(
+                id: ActionID(module: Self.manifest.identifier, key: "noop"),
+                title: "OK",
+                kind: .noop
+            ),
+            rankingHints: RankingHints(basePriority: Self.manifest.priority)
+        )
     }
 
     private func result(for node: NotesNode) -> ResultItem {

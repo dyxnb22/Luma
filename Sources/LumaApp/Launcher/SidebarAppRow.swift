@@ -38,6 +38,7 @@ final class SidebarAppRow: NSControl {
 
     init(
         window: OpenWindowSnapshot,
+        displayTitle: String,
         icon: NSImage?,
         shortcutIndex: Int,
         onActivate: @escaping () -> Void
@@ -46,12 +47,7 @@ final class SidebarAppRow: NSControl {
         super.init(frame: .zero)
         configureChrome(style: .window, isHighlighted: window.isFocused, indent: 32, height: 32)
         iconView.image = icon
-        titleLabel.stringValue = window.title
-        titleLabel.font = .systemFont(ofSize: 12)
-        setBadge("\(shortcutIndex)")
-        setAccessibilityRole(.button)
-        setAccessibilityLabel(window.title)
-        setAccessibilityHelp("Focuses this window.")
+        applyWindowDisplay(displayTitle, isFocused: window.isFocused, shortcutIndex: shortcutIndex)
     }
 
     @available(*, unavailable)
@@ -67,6 +63,21 @@ final class SidebarAppRow: NSControl {
         layer?.backgroundColor = isHighlighted
             ? NSColor.controlAccentColor.withAlphaComponent(0.22).cgColor
             : NSColor.clear.cgColor
+    }
+
+    func updateWindow(window: OpenWindowSnapshot, displayTitle: String, icon: NSImage?, shortcutIndex: Int) {
+        iconView.image = icon
+        applyWindowDisplay(displayTitle, isFocused: window.isFocused, shortcutIndex: shortcutIndex)
+    }
+
+    private func applyWindowDisplay(_ displayTitle: String, isFocused: Bool, shortcutIndex: Int) {
+        titleLabel.stringValue = displayTitle
+        titleLabel.font = .systemFont(ofSize: 12)
+        setBadge("\(shortcutIndex)")
+        setHighlighted(isFocused)
+        setAccessibilityRole(.button)
+        setAccessibilityLabel(displayTitle)
+        setAccessibilityHelp("Focuses this window.")
     }
 
     func bindFullWidth(to stack: NSStackView) {

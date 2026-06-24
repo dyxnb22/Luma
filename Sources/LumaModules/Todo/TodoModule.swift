@@ -127,6 +127,9 @@ public actor TodoModule: LumaModule {
         case .complete(let id):
             try await reminders.complete(id: id)
             invalidateDueCache()
+        case .uncomplete(let id):
+            try await reminders.uncomplete(id: id)
+            invalidateDueCache()
         case .grant:
             await MainActor.run {
                 if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Reminders") {
@@ -144,13 +147,25 @@ public actor TodoModule: LumaModule {
         await reminders.requestAccess()
     }
 
+    public func reminders(kind: TodoListKind, limit: Int = 30) async throws -> [ReminderSnapshot] {
+        switch kind {
+        case .today:
+            return try await todayDue(limit: limit)
+        case .inbox:
+            return try await noDueDate(limit: limit)
+        case .upcoming:
+            return try await futureDue(limit: limit)
+        case .completed:
+            return try await completedReminders(limit: limit)
+        }
+    }
+
     public func todayDue(limit: Int = 20) async throws -> [ReminderSnapshot] {
         try await reminders.todayDue(now: now(), limit: limit)
     }
 
     public func noDueDate(limit: Int = 20) async throws -> [ReminderSnapshot] {
-        let all = try await reminders.upcoming(limit: max(limit * 4, limit))
-        return Array(all.filter { $0.dueDate == nil }.prefix(limit))
+        try await reminders.noDueDate(limit: limit)
     }
 
     public func futureDue(limit: Int = 20) async throws -> [ReminderSnapshot] {
@@ -175,11 +190,30 @@ public actor TodoModule: LumaModule {
         invalidateDueCache()
     }
 
+    public func uncompleteReminder(id: String) async throws {
+        try await reminders.uncomplete(id: id)
+        invalidateDueCache()
+    }
+
     @discardableResult
     public func updateReminder(id: String, rawTitle: String, existingDueDate: Date? = nil) async throws -> ReminderSnapshot {
         let parsed = TodoTimeParser.parse(rawTitle, now: now())
         let title = parsed.title.isEmpty ? rawTitle : parsed.title
         let snapshot = try await reminders.update(id: id, title: title, dueDate: parsed.dueDate ?? existingDueDate)
+        invalidateDueCache()
+        return snapshot
+    }
+
+    @discardableResult
+    public func clearDueDate(id: String, title: String) async throws -> ReminderSnapshot {
+        let snapshot = try await reminders.update(id: id, title: title, clearDueDate: true)
+        invalidateDueCache()
+        return snapshot
+    }
+
+    @discardableResult
+    public func scheduleReminder(id: String, title: String, dueDate: Date) async throws -> ReminderSnapshot {
+        let snapshot = try await reminders.update(id: id, title: title, dueDate: dueDate)
         invalidateDueCache()
         return snapshot
     }
@@ -334,11 +368,24 @@ public actor TodoModule: LumaModule {
         )
     }
 
+    public static func captureStatusMessage(
+        for parsed: TodoTimeParser.Parsed,
+        now: Date = Date(),
+        calendar: Calendar = .current
+    ) -> String {
+        guard let due = parsed.dueDate else { return "Added to Inbox" }
+        return "Added for \(formatDue(due, now: now, calendar: calendar))"
+    }
+
     public static func formatDue(_ date: Date, now: Date = Date(), calendar: Calendar = .current) -> String {
         let formatter = DateFormatter()
-        if calendar.isDateInToday(date) {
+        formatter.calendar = calendar
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = calendar.timeZone
+        if calendar.isDate(date, inSameDayAs: now) {
             formatter.dateFormat = "'today' HH:mm"
-        } else if calendar.isDateInTomorrow(date) {
+        } else if let tomorrow = calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: now)),
+                  calendar.isDate(date, inSameDayAs: tomorrow) {
             formatter.dateFormat = "'tomorrow' HH:mm"
         } else {
             formatter.dateFormat = "MMM d HH:mm"

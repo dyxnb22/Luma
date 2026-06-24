@@ -31,9 +31,12 @@ public enum ModuleHelp {
         case "todo":
             return [
                 "t — list today's due reminders",
-                "t buy milk — create reminder",
+                "t ? — this help",
+                "t buy milk — create reminder (Inbox when no date)",
                 "t pay rent tomorrow 9:00 — create with due date",
-                "Return on a row — mark complete"
+                "Return on a row — mark complete",
+                "Detail panel — Today / Inbox / Upcoming / Done tabs",
+                "Edit — Today, Tomorrow, Clear Date, or undo in Done"
             ]
         case "snippets":
             return [

@@ -1,6 +1,8 @@
 import Foundation
 import Testing
 @testable import LumaModules
+import LumaCore
+import LumaServices
 
 private func calendar(timeZone identifier: String = "Asia/Shanghai") -> Calendar {
     var calendar = Calendar(identifier: .gregorian)
@@ -82,6 +84,107 @@ private func date(_ string: String, in calendar: Calendar) -> Date {
     let parsed = TodoTimeParser.parse("体检 后天 14点", now: now, calendar: cal)
     #expect(parsed.title == "体检")
     #expect(parsed.dueDate == date("2026-06-24 14:00", in: cal))
+}
+
+@Test func parserMatchesChineseTonight() {
+    let cal = calendar()
+    let now = date("2026-06-22 10:00", in: cal)
+    let parsed = TodoTimeParser.parse("聚餐 今晚 8点", now: now, calendar: cal)
+    #expect(parsed.title == "聚餐")
+    #expect(parsed.dueDate == date("2026-06-22 20:00", in: cal))
+}
+
+@Test func parserMatchesChineseWeekdayOnSameDay() {
+    let cal = calendar()
+    let now = date("2026-06-22 10:00", in: cal) // Monday
+    let parsed = TodoTimeParser.parse("站会 周一 15:00", now: now, calendar: cal)
+    #expect(parsed.title == "站会")
+    #expect(parsed.dueDate == date("2026-06-22 15:00", in: cal))
+}
+
+@Test func parserRollsSameWeekdayForwardWhenTimePassed() {
+    let cal = calendar()
+    let now = date("2026-06-22 16:00", in: cal) // Monday afternoon
+    let parsed = TodoTimeParser.parse("站会 周一 15:00", now: now, calendar: cal)
+    #expect(parsed.title == "站会")
+    #expect(parsed.dueDate == date("2026-06-29 15:00", in: cal))
+}
+
+@Test func parserRejectsInvalidChineseMinute() {
+    let cal = calendar()
+    let now = date("2026-06-22 10:00", in: cal)
+    let parsed = TodoTimeParser.parse("聚餐 今晚 8:99", now: now, calendar: cal)
+    #expect(parsed.title == "聚餐 今晚 8:99")
+    #expect(parsed.dueDate == nil)
+}
+
+@Test func parserMatchesChineseWeekday() {
+    let cal = calendar()
+    let now = date("2026-06-22 10:00", in: cal) // Monday
+    let parsed = TodoTimeParser.parse("开会 周五 15:00", now: now, calendar: cal)
+    #expect(parsed.title == "开会")
+    #expect(parsed.dueDate == date("2026-06-26 15:00", in: cal))
+}
+
+@Test func parserMatchesChineseNextWeekday() {
+    let cal = calendar()
+    let now = date("2026-06-22 10:00", in: cal) // Monday
+    let parsed = TodoTimeParser.parse("站会 下周一 9点", now: now, calendar: cal)
+    #expect(parsed.title == "站会")
+    #expect(parsed.dueDate == date("2026-06-29 09:00", in: cal))
+}
+
+@Test func parserMatchesChineseAfternoon() {
+    let cal = calendar()
+    let now = date("2026-06-22 10:00", in: cal)
+    let parsed = TodoTimeParser.parse("电话 下午3点", now: now, calendar: cal)
+    #expect(parsed.title == "电话")
+    #expect(parsed.dueDate == date("2026-06-22 15:00", in: cal))
+}
+
+@Test func parserMatchesChineseMorning() {
+    let cal = calendar()
+    let now = date("2026-06-22 10:00", in: cal)
+    let parsed = TodoTimeParser.parse("晨会 上午10点", now: now, calendar: cal)
+    #expect(parsed.title == "晨会")
+    #expect(parsed.dueDate == date("2026-06-22 10:00", in: cal))
+}
+
+@Test func captureStatusMessageForInbox() {
+    let parsed = TodoTimeParser.Parsed(title: "buy milk", dueDate: nil)
+    #expect(TodoModule.captureStatusMessage(for: parsed) == "Added to Inbox")
+}
+
+@Test func captureStatusMessageForScheduled() {
+    let cal = calendar()
+    let now = date("2026-06-22 10:00", in: cal)
+    let due = date("2026-06-23 09:00", in: cal)
+    let parsed = TodoTimeParser.Parsed(title: "standup", dueDate: due)
+    #expect(TodoModule.captureStatusMessage(for: parsed, now: now, calendar: cal) == "Added for tomorrow 09:00")
+}
+
+@Test func todoListKindCoversFourTabs() {
+    let kinds: [TodoListKind] = [.today, .inbox, .upcoming, .completed]
+    #expect(kinds.count == 4)
+}
+
+@Test func reminderSnapshotClassifiesIntoSingleInboxBucket() {
+    let inbox = ReminderSnapshot(
+        id: "1",
+        title: "Inbox item",
+        dueDate: nil,
+        isCompleted: false,
+        calendarTitle: "Reminders"
+    )
+    #expect(inbox.dueDate == nil)
+    #expect(!inbox.isCompleted)
+}
+
+@Test func todoActionEncodesUncomplete() throws {
+    let action = TodoAction.uncomplete(id: "abc")
+    let data = try ModuleActionCoding.encode(action)
+    let decoded = try ModuleActionCoding.decode(TodoAction.self, from: data)
+    #expect(decoded == action)
 }
 
 @Test func todoModuleExtractsPayloadFromTriggerVariants() {

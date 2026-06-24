@@ -33,7 +33,7 @@ public enum FeatureCatalog {
             FeatureCard(
                 id: .todo,
                 title: "Todo",
-                subtitle: "Reminders capture",
+                subtitle: "Today + quick capture",
                 icon: .symbol("checkmark.circle.fill"),
                 triggerKeyword: "t ",
                 position: CardPosition(column: 3, row: 0),

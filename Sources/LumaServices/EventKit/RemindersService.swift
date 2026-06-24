@@ -7,13 +7,25 @@ public struct ReminderSnapshot: Sendable, Hashable, Identifiable {
     public let dueDate: Date?
     public let isCompleted: Bool
     public let calendarTitle: String
+    public let creationDate: Date?
+    public let completionDate: Date?
 
-    public init(id: String, title: String, dueDate: Date?, isCompleted: Bool, calendarTitle: String) {
+    public init(
+        id: String,
+        title: String,
+        dueDate: Date?,
+        isCompleted: Bool,
+        calendarTitle: String,
+        creationDate: Date? = nil,
+        completionDate: Date? = nil
+    ) {
         self.id = id
         self.title = title
         self.dueDate = dueDate
         self.isCompleted = isCompleted
         self.calendarTitle = calendarTitle
+        self.creationDate = creationDate
+        self.completionDate = completionDate
     }
 }
 
@@ -97,8 +109,8 @@ public actor RemindersService {
         return Array(sorted.prefix(limit))
     }
 
-    /// Reminders without a due date, useful for the Todo "no time set" list.
-    public func upcoming(limit: Int = 8) async throws -> [ReminderSnapshot] {
+    /// All incomplete reminders (any due date). Prefer narrower queries when possible.
+    public func incomplete(limit: Int = 8) async throws -> [ReminderSnapshot] {
         try await ensureAuthorized()
         let calendars = store.calendars(for: .reminder)
         let predicate = store.predicateForIncompleteReminders(
@@ -108,6 +120,22 @@ public actor RemindersService {
         )
         let snapshots = try await fetchSnapshots(predicate: predicate)
         return Array(snapshots.prefix(limit))
+    }
+
+    /// Incomplete reminders with no due date, ordered by creation date descending.
+    public func noDueDate(limit: Int = 20) async throws -> [ReminderSnapshot] {
+        try await ensureAuthorized()
+        let calendars = store.calendars(for: .reminder)
+        let predicate = store.predicateForIncompleteReminders(
+            withDueDateStarting: nil,
+            ending: nil,
+            calendars: calendars
+        )
+        let snapshots = try await fetchSnapshots(predicate: predicate)
+        let inbox = snapshots
+            .filter { $0.dueDate == nil }
+            .sorted { ($0.creationDate ?? .distantPast) > ($1.creationDate ?? .distantPast) }
+        return Array(inbox.prefix(limit))
     }
 
     /// Reminders due after today, incomplete.
@@ -136,7 +164,7 @@ public actor RemindersService {
             calendars: calendars
         )
         let snapshots = try await fetchSnapshots(predicate: predicate)
-        let sorted = snapshots.sorted { ($0.dueDate ?? now) > ($1.dueDate ?? now) }
+        let sorted = snapshots.sorted { ($0.completionDate ?? .distantPast) > ($1.completionDate ?? .distantPast) }
         return Array(sorted.prefix(limit))
     }
 
@@ -177,19 +205,37 @@ public actor RemindersService {
         }
     }
 
-    public func update(id: String, title: String, dueDate: Date?) async throws -> ReminderSnapshot {
+    public func uncomplete(id: String) async throws {
+        try await ensureAuthorized()
+        guard let reminder = store.calendarItem(withIdentifier: id) as? EKReminder else {
+            throw RemindersServiceError.notFound(id: id)
+        }
+        reminder.isCompleted = false
+        do {
+            try store.save(reminder, commit: true)
+        } catch {
+            throw RemindersServiceError.saveFailed(message: error.localizedDescription)
+        }
+    }
+
+    public func update(
+        id: String,
+        title: String,
+        dueDate: Date? = nil,
+        clearDueDate: Bool = false
+    ) async throws -> ReminderSnapshot {
         try await ensureAuthorized()
         guard let reminder = store.calendarItem(withIdentifier: id) as? EKReminder else {
             throw RemindersServiceError.notFound(id: id)
         }
         reminder.title = title
-        if let dueDate {
+        if clearDueDate {
+            reminder.dueDateComponents = nil
+        } else if let dueDate {
             reminder.dueDateComponents = Calendar.current.dateComponents(
                 [.year, .month, .day, .hour, .minute],
                 from: dueDate
             )
-        } else {
-            reminder.dueDateComponents = nil
         }
         do {
             try store.save(reminder, commit: true)
@@ -229,7 +275,9 @@ public actor RemindersService {
             title: reminder.title ?? "",
             dueDate: due,
             isCompleted: reminder.isCompleted,
-            calendarTitle: reminder.calendar?.title ?? ""
+            calendarTitle: reminder.calendar?.title ?? "",
+            creationDate: reminder.creationDate,
+            completionDate: reminder.completionDate
         )
     }
 }

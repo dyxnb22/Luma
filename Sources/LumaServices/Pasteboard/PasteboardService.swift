@@ -35,4 +35,11 @@ public actor PasteboardService: PasteboardClient {
             NSPasteboard.general.setData(data, forType: NSPasteboard.PasteboardType(pasteboardType))
         }
     }
+
+    public func writeFileURLs(_ urls: [URL]) async {
+        await MainActor.run {
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.writeObjects(urls as [NSURL])
+        }
+    }
 }

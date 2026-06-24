@@ -56,6 +56,10 @@ final class WordbookManageView: NSView {
         importButton.bezelStyle = .rounded
         importButton.translatesAutoresizingMaskIntoConstraints = false
 
+        let exportButton = NSButton(title: "Export CSV", target: self, action: #selector(exportCSV))
+        exportButton.bezelStyle = .rounded
+        exportButton.translatesAutoresizingMaskIntoConstraints = false
+
         searchField.placeholderString = "Search words…"
         searchField.target = self
         searchField.action = #selector(filterChanged)
@@ -80,6 +84,7 @@ final class WordbookManageView: NSView {
         toolbar.addSubview(categoryFilter)
         toolbar.addSubview(addButton)
         toolbar.addSubview(importButton)
+        toolbar.addSubview(exportButton)
 
         for (id, title, width) in [
             ("term", "Term", 120.0),
@@ -125,7 +130,9 @@ final class WordbookManageView: NSView {
             categoryFilter.centerYAnchor.constraint(equalTo: toolbar.centerYAnchor),
             importButton.trailingAnchor.constraint(equalTo: toolbar.trailingAnchor),
             importButton.centerYAnchor.constraint(equalTo: toolbar.centerYAnchor),
-            addButton.trailingAnchor.constraint(equalTo: importButton.leadingAnchor, constant: -8),
+            exportButton.trailingAnchor.constraint(equalTo: importButton.leadingAnchor, constant: -8),
+            exportButton.centerYAnchor.constraint(equalTo: toolbar.centerYAnchor),
+            addButton.trailingAnchor.constraint(equalTo: exportButton.leadingAnchor, constant: -8),
             addButton.centerYAnchor.constraint(equalTo: toolbar.centerYAnchor),
             tableScroll.topAnchor.constraint(equalTo: toolbar.bottomAnchor, constant: 8),
             tableScroll.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 8),
@@ -218,6 +225,14 @@ final class WordbookManageView: NSView {
         presentEditor(entry: nil)
     }
 
+    func triggerAdd() {
+        presentEditor(entry: nil)
+    }
+
+    func triggerImport() {
+        importCSV()
+    }
+
     @objc private func editSelected() {
         let row = tableView.selectedRow
         guard filtered.indices.contains(row) else { return }
@@ -277,18 +292,58 @@ final class WordbookManageView: NSView {
         }
     }
 
+    @objc private func exportCSV() {
+        loadTask?.cancel()
+        loadTask = Task { [weak self] in
+            guard let self else { return }
+            var all: [WordEntry] = []
+            var offset = 0
+            while true {
+                let batch = (try? await store.allWords(limit: pageSize, offset: offset)) ?? []
+                if batch.isEmpty { break }
+                all.append(contentsOf: batch)
+                offset += batch.count
+                if batch.count < pageSize { break }
+            }
+            let csv = WordbookCSVImporter.export(all)
+            await MainActor.run {
+                let panel = NSSavePanel()
+                panel.allowedContentTypes = [.commaSeparatedText]
+                panel.nameFieldStringValue = "wordbook-export.csv"
+                guard panel.runModal() == .OK, let url = panel.url else { return }
+                try? csv.write(to: url, atomically: true, encoding: .utf8)
+            }
+        }
+    }
+
     private func presentEditor(entry: WordEntry?) {
-        let sheet = WordbookWordEditorSheet(entry: entry) { [weak self] updated in
+        let sheet = WordbookWordEditorSheet(
+            entry: entry,
+            onSave: { [weak self] updated, markMastered in
             guard let self else { return }
             Task {
                 if entry == nil {
                     _ = try? await store.upsertWords([updated])
+                    if let inserted = try? await store.search(updated.term, limit: 1).first, markMastered {
+                        _ = try? await store.recordReview(wordID: inserted.id, familiarity: .mastered)
+                    }
                 } else {
                     try? await store.updateWord(updated)
+                    if markMastered, updated.familiarity != "mastered" {
+                        _ = try? await store.recordReview(wordID: updated.id, familiarity: .mastered)
+                    }
                 }
                 await MainActor.run { loadOffset = 0; allWords = []; loadMore() }
             }
-        }
+        },
+            onResetStage: { [weak self] in
+                guard let self, let entry else { return }
+                Task {
+                    try? await store.resetWordStage(id: entry.id)
+                    await MainActor.run { loadOffset = 0; allWords = []; loadMore() }
+                }
+            }
+        )
         if let window = window {
             window.beginSheet(sheet) { _ in }
         }

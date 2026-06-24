@@ -37,17 +37,46 @@ public enum WordbookCSVImporter {
         var fields: [String] = []
         var current = ""
         var inQuotes = false
-        for ch in line {
+        var index = line.startIndex
+        while index < line.endIndex {
+            let ch = line[index]
             if ch == "\"" {
-                inQuotes.toggle()
+                if inQuotes {
+                    let next = line.index(after: index)
+                    if next < line.endIndex, line[next] == "\"" {
+                        current.append("\"")
+                        index = line.index(after: next)
+                        continue
+                    }
+                    inQuotes = false
+                } else {
+                    inQuotes = true
+                }
             } else if ch == delimiter && !inQuotes {
                 fields.append(current)
                 current = ""
             } else {
                 current.append(ch)
             }
+            index = line.index(after: index)
         }
         fields.append(current)
-        return fields.map { $0.trimmingCharacters(in: CharacterSet(charactersIn: "\"")) }
+        return fields
+    }
+
+    public static func export(_ entries: [WordEntry]) -> String {
+        var lines = ["term,phonetic,meaning,example,category"]
+        for entry in entries {
+            let cols = [entry.term, entry.phonetic, entry.meaning, entry.example, entry.category].map(escapeField)
+            lines.append(cols.joined(separator: ","))
+        }
+        return lines.joined(separator: "\n")
+    }
+
+    private static func escapeField(_ value: String) -> String {
+        if value.contains(",") || value.contains("\"") || value.contains("\n") {
+            return "\"\(value.replacingOccurrences(of: "\"", with: "\"\""))\""
+        }
+        return value
     }
 }

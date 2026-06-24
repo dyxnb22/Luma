@@ -56,7 +56,7 @@ struct SettingsSwiftUIView: View {
     let config: ConfigurationStore
     let usage: PersistentUsageTracker
     let onModulesChanged: @MainActor (Set<ModuleIdentifier>) -> Void
-    let onClipboardSettingsChanged: @MainActor (Int, Int, Int) -> Void
+    let onClipboardSettingsChanged: @MainActor (SettingsSnapshot) -> Void
     let onSecretsSettingsChanged: @MainActor (Int, Int) -> Void
     let onLatencyHUDChanged: @MainActor (Bool) -> Void
 
@@ -238,23 +238,55 @@ struct ModulesSettingsView: View {
 struct ClipboardSettingsView: View {
     let snapshot: SettingsSnapshot
     let config: ConfigurationStore
-    let onClipboardSettingsChanged: @MainActor (Int, Int, Int) -> Void
+    let onClipboardSettingsChanged: @MainActor (SettingsSnapshot) -> Void
 
     @State private var maxEntries: String
     @State private var maxDays: String
     @State private var maxKB: String
+    @State private var historyEnabled: Bool
+    @State private var ignoredBundleIDs: String
+    @State private var pasteBehavior: ClipboardPasteBehavior
     @State private var saved = false
 
     init(snapshot: SettingsSnapshot, config: ConfigurationStore,
-         onClipboardSettingsChanged: @escaping @MainActor (Int, Int, Int) -> Void) {
+         onClipboardSettingsChanged: @escaping @MainActor (SettingsSnapshot) -> Void) {
         self.snapshot = snapshot; self.config = config; self.onClipboardSettingsChanged = onClipboardSettingsChanged
         _maxEntries = State(initialValue: "\(snapshot.clipboardMaxEntries)")
         _maxDays = State(initialValue: "\(snapshot.clipboardMaxAgeDays)")
         _maxKB = State(initialValue: "\(snapshot.clipboardMaxEntrySizeKB)")
+        _historyEnabled = State(initialValue: snapshot.clipboardHistoryEnabled)
+        _ignoredBundleIDs = State(initialValue: snapshot.clipboardIgnoredBundleIDs.joined(separator: ", "))
+        _pasteBehavior = State(initialValue: ClipboardPasteBehavior(rawValue: snapshot.clipboardPasteBehavior) ?? .pasteDirectly)
     }
 
     var body: some View {
         SettingsPage("Clipboard") {
+            SettingsCard("Capture") {
+                SettingsRow("Enable clipboard history", icon: "doc.on.clipboard") {
+                    Toggle("", isOn: $historyEnabled).labelsHidden()
+                }
+                Divider()
+                SettingsRow("Paste behavior", icon: "arrow.turn.down.right") {
+                    Picker("", selection: $pasteBehavior) {
+                        ForEach(ClipboardPasteBehavior.allCases, id: \.self) { mode in
+                            Text(mode.displayName).tag(mode)
+                        }
+                    }
+                    .labelsHidden()
+                    .frame(width: 160)
+                }
+                Divider()
+                VStack(alignment: .leading, spacing: 4) {
+                    SettingsRow("Ignore apps", icon: "nosign") {
+                        TextField("com.example.app", text: $ignoredBundleIDs)
+                            .textFieldStyle(.roundedBorder)
+                    }
+                    Text("Comma-separated bundle IDs. Built-in password managers are always ignored.")
+                        .font(.caption).foregroundStyle(.tertiary)
+                        .padding(.horizontal, 12).padding(.bottom, 4)
+                }
+            }
+
             SettingsCard("Retention") {
                 SettingsRow("Max entries", icon: "list.number") {
                     TextField("500", text: $maxEntries)
@@ -294,11 +326,25 @@ struct ClipboardSettingsView: View {
     private func apply() {
         guard let e = Int(maxEntries), let d = Int(maxDays), let k = Int(maxKB),
               e > 0, d > 0, k > 0 else { return }
+        let ignored = ignoredBundleIDs
+            .split(separator: ",")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
         Task {
             await config.setClipboardMaxEntries(e)
             await config.setClipboardMaxAgeDays(d)
             await config.setClipboardMaxEntrySizeKB(k)
-            await MainActor.run { onClipboardSettingsChanged(e, d, k); saved = true }
+            await config.setClipboardHistoryEnabled(historyEnabled)
+            await config.setClipboardIgnoredBundleIDs(ignored)
+            await config.setClipboardPasteBehavior(pasteBehavior.rawValue)
+            var updated = snapshot
+            updated.clipboardMaxEntries = e
+            updated.clipboardMaxAgeDays = d
+            updated.clipboardMaxEntrySizeKB = k
+            updated.clipboardHistoryEnabled = historyEnabled
+            updated.clipboardIgnoredBundleIDs = ignored
+            updated.clipboardPasteBehavior = pasteBehavior.rawValue
+            await MainActor.run { onClipboardSettingsChanged(updated); saved = true }
             try? await Task.sleep(for: .seconds(2))
             await MainActor.run { saved = false }
         }

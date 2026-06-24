@@ -44,3 +44,20 @@ import Testing
         Issue.record("Expected review card for due word")
     }
 }
+
+@Test func sessionPlannerCanResumeWithinSameDay() async throws {
+    let (store, url) = try WordbookTestFixtures.makeStore()
+    defer { try? FileManager.default.removeItem(at: url) }
+
+    let past = WordbookDateFormat.iso(Date().addingTimeInterval(-3600))
+    try WordbookTestFixtures.insertDueWord(at: url, term: "resume-word", nextReviewAt: past)
+
+    let planner = WordbookSessionPlanner(store: store)
+    await planner.startNewSession()
+    _ = try await planner.nextCard()
+    #expect(await planner.cardsShown() == 1)
+    #expect(await planner.canResumeToday())
+
+    let cutoff = await planner.cutoffIfActive()
+    #expect(cutoff != nil)
+}

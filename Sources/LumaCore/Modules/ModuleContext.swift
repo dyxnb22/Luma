@@ -81,6 +81,7 @@ public protocol PasteboardClient: Sendable {
     func write(_ string: String) async
     func writeSecure(_ string: String, clearAfterSeconds: Int) async
     func writeImage(data: Data, pasteboardType: String) async
+    func writeFileURLs(_ urls: [URL]) async
 }
 
 public protocol AccessibilityClient: Sendable {
@@ -100,6 +101,9 @@ public protocol ConfigurationClient: Sendable {
     func clipboardMaxEntries() async -> Int
     func clipboardMaxAgeDays() async -> Int
     func clipboardMaxEntrySizeKB() async -> Int
+    func clipboardHistoryEnabled() async -> Bool
+    func clipboardIgnoredBundleIDs() async -> [String]
+    func clipboardPasteBehavior() async -> String
     func translationTargetLanguage() async -> String
     func secretsAutoClearSeconds() async -> Int
     func secretsRelockTimeoutSeconds() async -> Int

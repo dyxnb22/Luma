@@ -7,6 +7,7 @@ public struct WordbookProgressSnapshot: Sendable {
     public let newAvailable: Int
     public let todayReviewed: Int
     public let todayNewLearned: Int
+    public let todayMastered: Int
     public let accuracyToday: Double
     public let streakDays: Int
     public let dailyNewLimit: Int
@@ -19,6 +20,7 @@ public struct WordbookProgressSnapshot: Sendable {
         newAvailable: Int,
         todayReviewed: Int,
         todayNewLearned: Int,
+        todayMastered: Int,
         accuracyToday: Double,
         streakDays: Int,
         dailyNewLimit: Int,
@@ -30,6 +32,7 @@ public struct WordbookProgressSnapshot: Sendable {
         self.newAvailable = newAvailable
         self.todayReviewed = todayReviewed
         self.todayNewLearned = todayNewLearned
+        self.todayMastered = todayMastered
         self.accuracyToday = accuracyToday
         self.streakDays = streakDays
         self.dailyNewLimit = dailyNewLimit

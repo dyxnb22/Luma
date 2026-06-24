@@ -7,6 +7,27 @@ import Foundation
 public enum WordbookMigrator {
     public static let defaultSourcePath = "/Users/diaoyuxuan/wordbot/data/wordpet.sqlite3"
 
+    public enum MigrationNotice: Sendable, Equatable {
+        case none
+        case sourceMissing
+        case failed
+    }
+
+    private static let noticeLock = NSLock()
+    private nonisolated(unsafe) static var _migrationNotice: MigrationNotice = .none
+
+    public static var migrationNotice: MigrationNotice {
+        noticeLock.lock()
+        defer { noticeLock.unlock() }
+        return _migrationNotice
+    }
+
+    public static func setMigrationNotice(_ notice: MigrationNotice) {
+        noticeLock.lock()
+        _migrationNotice = notice
+        noticeLock.unlock()
+    }
+
     public static func defaultDestinationURL(fileManager: FileManager = .default) -> URL {
         let base = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? fileManager.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support")
@@ -31,9 +52,11 @@ public enum WordbookMigrator {
         fileManager: FileManager = .default
     ) throws -> Result {
         if fileManager.fileExists(atPath: destination.path) {
+            setMigrationNotice(.none)
             return .alreadyMigrated
         }
         guard fileManager.fileExists(atPath: source.path) else {
+            setMigrationNotice(.sourceMissing)
             return .sourceMissing
         }
         try fileManager.createDirectory(
@@ -41,6 +64,7 @@ public enum WordbookMigrator {
             withIntermediateDirectories: true
         )
         try fileManager.copyItem(at: source, to: destination)
+        setMigrationNotice(.none)
         return .copied(from: source, to: destination)
     }
 }

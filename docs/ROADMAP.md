@@ -152,11 +152,14 @@ These phase notes are preserved for context. Treat the current code and ADR-007 
 
 ## Phase 5: Wordbook Migration
 
-- Import `/Users/diaoyuxuan/wordbot/data/wordpet.sqlite3`.
-- Preserve 9-stage review schedule.
-- Review card with known/fuzzy/unknown actions.
-- macOS speech for word/example.
-- Daily goal/progress card.
+- ✓ Import `/Users/diaoyuxuan/wordbot/data/wordpet.sqlite3`.
+- ✓ Preserve 9-stage review schedule.
+- ✓ Review card with known/unknown/mastered actions (ADR-018).
+- ✓ macOS speech for word/example.
+- ✓ Daily goal/progress card.
+- ✓ CSV import/export, empty-state guidance, session soft cap, same-day resume.
+
+**Wordbook frozen at v1** — see `docs/adr/020-wordbook-frozen-scope.md`. Further feature work requires a new ADR.
 
 ## Phase 6: Polish and Release
 

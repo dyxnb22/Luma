@@ -7,6 +7,9 @@ public actor ConfigurationStore: ConfigurationClient {
     private let clipboardMaxEntriesKey = "clipboardMaxEntries"
     private let clipboardMaxAgeDaysKey = "clipboardMaxAgeDays"
     private let clipboardMaxEntrySizeKBKey = "clipboardMaxEntrySizeKB"
+    private let clipboardHistoryEnabledKey = "clipboardHistoryEnabled"
+    private let clipboardIgnoredBundleIDsKey = "clipboardIgnoredBundleIDs"
+    private let clipboardPasteBehaviorKey = "clipboardPasteBehavior"
     private let translationTargetLanguageKey = "translationTargetLanguage"
     private let secretsAutoClearSecondsKey = "secretsAutoClearSeconds"
     private let secretsRelockTimeoutSecondsKey = "secretsRelockTimeoutSeconds"
@@ -55,6 +58,31 @@ public actor ConfigurationStore: ConfigurationClient {
 
     public func setClipboardMaxEntrySizeKB(_ value: Int) {
         defaults.set(value, forKey: clipboardMaxEntrySizeKBKey)
+    }
+
+    public func clipboardHistoryEnabled() -> Bool {
+        if defaults.object(forKey: clipboardHistoryEnabledKey) == nil { return true }
+        return defaults.bool(forKey: clipboardHistoryEnabledKey)
+    }
+
+    public func setClipboardHistoryEnabled(_ value: Bool) {
+        defaults.set(value, forKey: clipboardHistoryEnabledKey)
+    }
+
+    public func clipboardIgnoredBundleIDs() -> [String] {
+        defaults.stringArray(forKey: clipboardIgnoredBundleIDsKey) ?? []
+    }
+
+    public func setClipboardIgnoredBundleIDs(_ value: [String]) {
+        defaults.set(value, forKey: clipboardIgnoredBundleIDsKey)
+    }
+
+    public func clipboardPasteBehavior() -> String {
+        defaults.string(forKey: clipboardPasteBehaviorKey) ?? "pasteDirectly"
+    }
+
+    public func setClipboardPasteBehavior(_ value: String) {
+        defaults.set(value, forKey: clipboardPasteBehaviorKey)
     }
 
     public func translationTargetLanguage() -> String {

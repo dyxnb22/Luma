@@ -13,7 +13,38 @@
 - TOTP / 2FA code generation in v1.
 - Notion-style Luma-owned TODO database. (Todo is an EventKit pass-through; see ADR-009.)
 - Floating Wordbook desktop-pet mode in v0.1. (Wordbook entry is the launcher card and `word ` trigger; see ADR-009.)
-- ChatGPT-paste or CSV import UI for Wordbook in v0.1.
+- ChatGPT-paste or CSV import UI for Wordbook in v0.1. (CSV import/export shipped; see ADR-020.)
+
+## Wordbook Module
+
+- Multi-book / multi-deck / multi-language switching.
+- Custom SRS intervals or alternative algorithms (FSRS, SM-2).
+- AI-generated definitions, examples, translations, or word roots.
+- Online dictionary lookup beyond opt-in IPA (`dictionaryapi.dev`).
+- Dictation, spelling practice, or non–three-button card types.
+- Custom card front/back templates.
+- Learning curves, heatmaps, or long-range statistics dashboards.
+- Review push notifications or proactive menu-bar badges.
+- Floating desktop word-pet mode (ADR-009).
+- Cloud sync, accounts, or cross-device replication.
+- Category rename/merge/delete batch tools (`category` is a free-form filter tag only).
+- Separate label/tag system beyond `category`.
+- PDF/EPUB import (CSV/TSV only).
+
+Reference: ADR-020 Wordbook v1 frozen scope.
+
+## Clipboard Module
+
+- OCR on clipboard images.
+- Cloud sync, accounts, or multi-device clipboard.
+- Pinboard / multiple named boards.
+- Rich-text editor or stored RTF payloads.
+- File previewer or color palette / library UI.
+- Entry rename, multi-select bulk queue, complex per-rule editors.
+- SQLite or full-text index (linear search up to retention cap).
+- Grid / card-wall history UI (Paste-style).
+
+Reference: ADR-021 Clipboard v1 frozen scope.
 
 ## Media Module
 

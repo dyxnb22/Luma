@@ -28,6 +28,27 @@ public actor WordbookSessionPlanner {
         (mixedReviewShown, mixedNewShown)
     }
 
+    public func cardsShown() -> Int {
+        mixedReviewShown + mixedNewShown
+    }
+
+    public func cutoffIfActive(now: Date = Date()) -> String? {
+        guard let cutoff = dueSessionCutoff, cardsShown() > 0 else { return nil }
+        guard Self.isSameCalendarDay(iso: cutoff, as: now) else { return nil }
+        return cutoff
+    }
+
+    public func canResumeToday(now: Date = Date()) -> Bool {
+        cutoffIfActive(now: now) != nil && !newWordsOnly
+    }
+
+    private static func isSameCalendarDay(iso: String, as date: Date) -> Bool {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime]
+        guard let parsed = formatter.date(from: iso) else { return false }
+        return Calendar.current.isDate(parsed, inSameDayAs: date)
+    }
+
     public func nextCard() async throws -> Card {
         if dueSessionCutoff == nil { startNewSession() }
         let cutoff = dueSessionCutoff!

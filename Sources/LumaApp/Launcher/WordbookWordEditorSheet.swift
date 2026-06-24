@@ -3,21 +3,29 @@ import LumaModules
 
 @MainActor
 final class WordbookWordEditorSheet: NSWindow {
-    private let onSave: (WordEntry) -> Void
+    private let onSave: (WordEntry, Bool) -> Void
+    private let onResetStage: (() -> Void)?
     private let termField = NSTextField()
     private let phoneticField = NSTextField()
     private let meaningField = NSTextField()
     private let exampleField = NSTextField()
     private let categoryField = NSTextField()
-    private let ipaButton = NSButton(title: "Suggest IPA", target: nil, action: nil)
+    private let ipaButton = NSButton(title: "Suggest IPA · online", target: nil, action: nil)
+    private let masteredCheckbox = NSButton(checkboxWithTitle: "Mark as mastered (已学过)", target: nil, action: nil)
+    private let resetStageButton = NSButton(title: "Reset Stage", target: nil, action: nil)
     private let existing: WordEntry?
     private var lookupTask: Task<Void, Never>?
 
-    init(entry: WordEntry?, onSave: @escaping (WordEntry) -> Void) {
+    init(
+        entry: WordEntry?,
+        onSave: @escaping (WordEntry, Bool) -> Void,
+        onResetStage: (() -> Void)? = nil
+    ) {
         self.existing = entry
         self.onSave = onSave
+        self.onResetStage = onResetStage
         super.init(
-            contentRect: NSRect(x: 0, y: 0, width: 420, height: 360),
+            contentRect: NSRect(x: 0, y: 0, width: 420, height: 400),
             styleMask: [.titled, .closable],
             backing: .buffered,
             defer: false
@@ -27,7 +35,7 @@ final class WordbookWordEditorSheet: NSWindow {
     }
 
     private func setup(entry: WordEntry?) {
-        let container = NSView(frame: NSRect(x: 0, y: 0, width: 420, height: 360))
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: 420, height: 400))
         termField.stringValue = entry?.term ?? ""
         termField.placeholderString = "Term"
         termField.translatesAutoresizingMaskIntoConstraints = false
@@ -39,6 +47,7 @@ final class WordbookWordEditorSheet: NSWindow {
         ipaButton.bezelStyle = .rounded
         ipaButton.target = self
         ipaButton.action = #selector(suggestIPA)
+        ipaButton.toolTip = "Fetches IPA from dictionaryapi.dev (requires network)"
         ipaButton.translatesAutoresizingMaskIntoConstraints = false
 
         meaningField.stringValue = entry?.meaning ?? ""
@@ -53,12 +62,23 @@ final class WordbookWordEditorSheet: NSWindow {
         categoryField.placeholderString = "Category"
         categoryField.translatesAutoresizingMaskIntoConstraints = false
 
+        masteredCheckbox.state = (entry?.familiarity == "mastered") ? .on : .off
+        masteredCheckbox.translatesAutoresizingMaskIntoConstraints = false
+
+        resetStageButton.bezelStyle = .rounded
+        resetStageButton.target = self
+        resetStageButton.action = #selector(resetStageTapped)
+        resetStageButton.isHidden = entry == nil
+        resetStageButton.translatesAutoresizingMaskIntoConstraints = false
+
         container.addSubview(termField)
         container.addSubview(phoneticField)
         container.addSubview(ipaButton)
         container.addSubview(meaningField)
         container.addSubview(exampleField)
         container.addSubview(categoryField)
+        container.addSubview(masteredCheckbox)
+        container.addSubview(resetStageButton)
 
         NSLayoutConstraint.activate([
             termField.topAnchor.constraint(equalTo: container.topAnchor, constant: 16),
@@ -73,7 +93,7 @@ final class WordbookWordEditorSheet: NSWindow {
 
             ipaButton.centerYAnchor.constraint(equalTo: phoneticField.centerYAnchor),
             ipaButton.trailingAnchor.constraint(equalTo: termField.trailingAnchor),
-            ipaButton.widthAnchor.constraint(equalToConstant: 96),
+            ipaButton.widthAnchor.constraint(equalToConstant: 140),
 
             meaningField.topAnchor.constraint(equalTo: phoneticField.bottomAnchor, constant: 8),
             meaningField.leadingAnchor.constraint(equalTo: termField.leadingAnchor),
@@ -88,7 +108,13 @@ final class WordbookWordEditorSheet: NSWindow {
             categoryField.topAnchor.constraint(equalTo: exampleField.bottomAnchor, constant: 8),
             categoryField.leadingAnchor.constraint(equalTo: termField.leadingAnchor),
             categoryField.trailingAnchor.constraint(equalTo: termField.trailingAnchor),
-            categoryField.heightAnchor.constraint(equalToConstant: 24)
+            categoryField.heightAnchor.constraint(equalToConstant: 24),
+
+            masteredCheckbox.topAnchor.constraint(equalTo: categoryField.bottomAnchor, constant: 12),
+            masteredCheckbox.leadingAnchor.constraint(equalTo: termField.leadingAnchor),
+
+            resetStageButton.centerYAnchor.constraint(equalTo: masteredCheckbox.centerYAnchor),
+            resetStageButton.trailingAnchor.constraint(equalTo: termField.trailingAnchor)
         ])
 
         let saveButton = NSButton(title: "Save", target: self, action: #selector(save))
@@ -131,9 +157,24 @@ final class WordbookWordEditorSheet: NSWindow {
         }
     }
 
+    @objc private func resetStageTapped() {
+        guard existing != nil else { return }
+        let alert = NSAlert()
+        alert.messageText = "Reset review progress?"
+        alert.informativeText = "Stage, wrong count, and next review date will be cleared."
+        alert.addButton(withTitle: "Reset")
+        alert.addButton(withTitle: "Cancel")
+        alert.alertStyle = .warning
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        onResetStage?()
+        masteredCheckbox.state = .off
+        dismiss()
+    }
+
     @objc private func save() {
         let term = termField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !term.isEmpty else { return }
+        let markMastered = masteredCheckbox.state == .on
         let updated = WordEntry(
             id: existing?.id ?? 0,
             term: term,
@@ -141,13 +182,13 @@ final class WordbookWordEditorSheet: NSWindow {
             meaning: meaningField.stringValue,
             example: exampleField.stringValue,
             category: categoryField.stringValue,
-            familiarity: existing?.familiarity ?? "new",
+            familiarity: markMastered ? "mastered" : (existing?.familiarity ?? "new"),
             reviewStage: existing?.reviewStage ?? 0,
             reviewCount: existing?.reviewCount ?? 0,
             wrongCount: existing?.wrongCount ?? 0,
             nextReviewAt: existing?.nextReviewAt ?? WordbookDateFormat.iso(Date())
         )
-        onSave(updated)
+        onSave(updated, markMastered && existing?.familiarity != "mastered")
         dismiss()
     }
 
@@ -171,7 +212,9 @@ enum WordbookIPALookup {
             return nil
         }
         do {
-            let (data, response) = try await URLSession.shared.data(from: url)
+            var request = URLRequest(url: url)
+            request.timeoutInterval = 5
+            let (data, response) = try await URLSession.shared.data(for: request)
             guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
                 return nil
             }

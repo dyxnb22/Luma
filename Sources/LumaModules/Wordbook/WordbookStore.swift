@@ -142,6 +142,8 @@ public actor WordbookStore {
         try await setSetting("daily_stats_date", value: today)
         try await setIntSetting("daily_new_seen", value: 0)
         try await setIntSetting("daily_wrong_count", value: 0)
+        try await setIntSetting("daily_reviewed", value: 0)
+        try await setIntSetting("daily_mastered", value: 0)
     }
 
     public func dailyNewLimitForDueCount(_ dueCount: Int) async throws -> Int {
@@ -259,6 +261,7 @@ public actor WordbookStore {
         let newAvailable = try await newWordCount()
         let todayReviewed = try await intSetting("daily_reviewed", default: 0)
         let todayNewLearned = try await intSetting("daily_new_seen", default: 0)
+        let todayMastered = try await intSetting("daily_mastered", default: 0)
         let wrongToday = try await intSetting("daily_wrong_count", default: 0)
         let correctToday = max(0, todayReviewed - wrongToday)
         let accuracy = todayReviewed > 0 ? Double(correctToday) / Double(todayReviewed) : 1.0
@@ -272,6 +275,7 @@ public actor WordbookStore {
             newAvailable: newAvailable,
             todayReviewed: todayReviewed,
             todayNewLearned: todayNewLearned,
+            todayMastered: todayMastered,
             accuracyToday: accuracy,
             streakDays: streak,
             dailyNewLimit: limit,
@@ -412,6 +416,15 @@ public actor WordbookStore {
         try await setIntSetting("daily_new_seen", value: 0)
         try await setIntSetting("daily_wrong_count", value: 0)
         try await setIntSetting("daily_reviewed", value: 0)
+        try await setIntSetting("daily_mastered", value: 0)
+    }
+
+    public func dailyTargetAckedDate() async throws -> String {
+        try await setting("daily_target_acked", default: "")
+    }
+
+    public func setDailyTargetAcked(now: Date = Date()) async throws {
+        try await setSetting("daily_target_acked", value: Self.todayKey(now: now))
     }
 
     // MARK: - Review queries
@@ -569,9 +582,28 @@ public actor WordbookStore {
 
     private func updateDailyLogOnReview(db: OpaquePointer, familiarity: WordFamiliarity, now: Date) throws {
         let today = Self.todayKey(now: now)
+        let upsertReviewed = "INSERT INTO settings(key, value) VALUES(?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value"
+        var statement: OpaquePointer?
+
+        if familiarity == .mastered {
+            var mastered = 0
+            if sqlite3_prepare_v2(db, "SELECT value FROM settings WHERE key = 'daily_mastered'", -1, &statement, nil) == SQLITE_OK {
+                if sqlite3_step(statement) == SQLITE_ROW {
+                    mastered = Int(String(cString: sqlite3_column_text(statement, 0))) ?? 0
+                }
+                sqlite3_finalize(statement)
+            }
+            if sqlite3_prepare_v2(db, upsertReviewed, -1, &statement, nil) == SQLITE_OK {
+                sqlite3_bind_text(statement, 1, "daily_mastered", -1, SQLITE_TRANSIENT)
+                sqlite3_bind_text(statement, 2, String(mastered + 1), -1, SQLITE_TRANSIENT)
+                _ = sqlite3_step(statement)
+                sqlite3_finalize(statement)
+            }
+            return
+        }
+
         let reviewedKey = "daily_reviewed"
         var reviewed = 0
-        var statement: OpaquePointer?
         if sqlite3_prepare_v2(db, "SELECT value FROM settings WHERE key = ?", -1, &statement, nil) == SQLITE_OK {
             sqlite3_bind_text(statement, 1, reviewedKey, -1, SQLITE_TRANSIENT)
             if sqlite3_step(statement) == SQLITE_ROW {
@@ -579,7 +611,6 @@ public actor WordbookStore {
             }
             sqlite3_finalize(statement)
         }
-        let upsertReviewed = "INSERT INTO settings(key, value) VALUES(?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value"
         if sqlite3_prepare_v2(db, upsertReviewed, -1, &statement, nil) == SQLITE_OK {
             sqlite3_bind_text(statement, 1, reviewedKey, -1, SQLITE_TRANSIENT)
             sqlite3_bind_text(statement, 2, String(reviewed + 1), -1, SQLITE_TRANSIENT)

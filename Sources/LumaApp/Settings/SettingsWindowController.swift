@@ -10,6 +10,9 @@ struct SettingsSnapshot {
     var clipboardMaxEntries: Int
     var clipboardMaxAgeDays: Int
     var clipboardMaxEntrySizeKB: Int
+    var clipboardHistoryEnabled: Bool
+    var clipboardIgnoredBundleIDs: [String]
+    var clipboardPasteBehavior: String
     var translationTargetLanguage: String
     var secretsAutoClearSeconds: Int
     var secretsRelockTimeoutSeconds: Int
@@ -24,7 +27,7 @@ final class SettingsWindowController {
     private let config: ConfigurationStore
     private let usage: PersistentUsageTracker
     private let onModulesChanged: @MainActor (Set<ModuleIdentifier>) -> Void
-    private let onClipboardSettingsChanged: @MainActor (Int, Int, Int) -> Void
+    private let onClipboardSettingsChanged: @MainActor (SettingsSnapshot) -> Void
     private let onSecretsSettingsChanged: @MainActor (Int, Int) -> Void
     private let onLatencyHUDChanged: @MainActor (Bool) -> Void
 
@@ -32,7 +35,7 @@ final class SettingsWindowController {
         config: ConfigurationStore,
         usage: PersistentUsageTracker,
         onModulesChanged: @escaping @MainActor (Set<ModuleIdentifier>) -> Void,
-        onClipboardSettingsChanged: @escaping @MainActor (Int, Int, Int) -> Void,
+        onClipboardSettingsChanged: @escaping @MainActor (SettingsSnapshot) -> Void,
         onSecretsSettingsChanged: @escaping @MainActor (Int, Int) -> Void,
         onLatencyHUDChanged: @escaping @MainActor (Bool) -> Void
     ) {
@@ -99,6 +102,9 @@ final class SettingsWindowController {
             clipboardMaxEntries: await config.clipboardMaxEntries(),
             clipboardMaxAgeDays: await config.clipboardMaxAgeDays(),
             clipboardMaxEntrySizeKB: await config.clipboardMaxEntrySizeKB(),
+            clipboardHistoryEnabled: await config.clipboardHistoryEnabled(),
+            clipboardIgnoredBundleIDs: await config.clipboardIgnoredBundleIDs(),
+            clipboardPasteBehavior: await config.clipboardPasteBehavior(),
             translationTargetLanguage: await config.translationTargetLanguage(),
             secretsAutoClearSeconds: await config.secretsAutoClearSeconds(),
             secretsRelockTimeoutSeconds: await config.secretsRelockTimeoutSeconds(),

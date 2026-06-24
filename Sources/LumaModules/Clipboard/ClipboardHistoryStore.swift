@@ -10,6 +10,9 @@ public struct ClipboardEntry: Identifiable, Sendable, Hashable, Codable {
     public var sourceBundleID: String?
     public var imageData: Data?
     public var imagePasteboardType: String?
+    public var fileURLs: [String]?
+    public var colorHex: String?
+    public var contentHash: String
 
     public init(
         id: UUID = UUID(),
@@ -20,17 +23,31 @@ public struct ClipboardEntry: Identifiable, Sendable, Hashable, Codable {
         sourceAppName: String? = nil,
         sourceBundleID: String? = nil,
         imageData: Data? = nil,
-        imagePasteboardType: String? = nil
+        imagePasteboardType: String? = nil,
+        fileURLs: [String]? = nil,
+        colorHex: String? = nil,
+        contentHash: String? = nil
     ) {
         self.id = id
         self.text = text
         self.createdAt = createdAt
         self.isPinned = isPinned
-        self.detectedKind = detectedKind ?? ClipboardEntryKind.detect(from: text, pasteboardTypes: [])
+        self.fileURLs = fileURLs
+        self.colorHex = colorHex
+        let resolvedKind = detectedKind
+            ?? ClipboardEntryKind.detect(from: text, pasteboardTypes: [], fileURLs: fileURLs)
+        self.detectedKind = resolvedKind
         self.sourceAppName = sourceAppName
         self.sourceBundleID = sourceBundleID
         self.imageData = imageData
         self.imagePasteboardType = imagePasteboardType
+        self.contentHash = contentHash
+            ?? ClipboardContentHash.compute(
+                text: text,
+                imageData: imageData,
+                fileURLs: fileURLs,
+                colorHex: colorHex
+            )
     }
 
     public var displayText: String {
@@ -38,12 +55,21 @@ public struct ClipboardEntry: Identifiable, Sendable, Hashable, Codable {
             let kb = max(1, imageData.count / 1024)
             return "[Image \(kb)KB]"
         }
+        if detectedKind == .file, let fileURLs, !fileURLs.isEmpty {
+            if fileURLs.count == 1 {
+                return URL(fileURLWithPath: fileURLs[0]).lastPathComponent
+            }
+            return "[\(fileURLs.count) files]"
+        }
+        if detectedKind == .color, let colorHex {
+            return colorHex
+        }
         return text
     }
 
     enum CodingKeys: String, CodingKey {
         case id, text, createdAt, isPinned, detectedKind, sourceAppName, sourceBundleID
-        case imageData, imagePasteboardType
+        case imageData, imagePasteboardType, fileURLs, colorHex, contentHash
     }
 
     public init(from decoder: Decoder) throws {
@@ -54,11 +80,24 @@ public struct ClipboardEntry: Identifiable, Sendable, Hashable, Codable {
         isPinned = try container.decode(Bool.self, forKey: .isPinned)
         imageData = try container.decodeIfPresent(Data.self, forKey: .imageData)
         imagePasteboardType = try container.decodeIfPresent(String.self, forKey: .imagePasteboardType)
+        fileURLs = try container.decodeIfPresent([String].self, forKey: .fileURLs)
+        colorHex = try container.decodeIfPresent(String.self, forKey: .colorHex)
         let types = imagePasteboardType.map { [$0] } ?? []
         detectedKind = try container.decodeIfPresent(ClipboardEntryKind.self, forKey: .detectedKind)
-            ?? ClipboardEntryKind.detect(from: text, pasteboardTypes: types)
+            ?? ClipboardEntryKind.detect(from: text, pasteboardTypes: types, fileURLs: fileURLs)
         sourceAppName = try container.decodeIfPresent(String.self, forKey: .sourceAppName)
         sourceBundleID = try container.decodeIfPresent(String.self, forKey: .sourceBundleID)
+        let decodedHash = try container.decodeIfPresent(String.self, forKey: .contentHash) ?? ""
+        if decodedHash.isEmpty {
+            contentHash = ClipboardContentHash.compute(
+                text: text,
+                imageData: imageData,
+                fileURLs: fileURLs,
+                colorHex: colorHex
+            )
+        } else {
+            contentHash = decodedHash
+        }
     }
 }
 
@@ -105,6 +144,7 @@ public actor ClipboardHistoryStore {
     private var maxEntries: Int
     private var maxAge: TimeInterval
     private var maxTextBytes: Int
+    private var ignoredBundleIDs: Set<String> = []
     private let persistenceURL: URL?
 
     public init(maxEntries: Int = 500, maxAge: TimeInterval = 7 * 24 * 60 * 60, maxTextBytes: Int = 100 * 1024, persistenceURL: URL? = nil) {
@@ -114,15 +154,18 @@ public actor ClipboardHistoryStore {
         self.persistenceURL = persistenceURL
         if let persistenceURL {
             do {
-                let data = try Data(contentsOf: persistenceURL)
-                self.entries = try JSONDecoder().decode([ClipboardEntry].self, from: data)
+                self.entries = try ClipboardHistoryPersistence.load(from: persistenceURL)
                 self.entries = Self.pruned(entries: entries, maxEntries: maxEntries, maxAge: maxAge, now: Date())
-                Self.persist(entries: entries, to: persistenceURL)
+                ClipboardHistoryPersistence.save(entries: entries, to: persistenceURL)
             } catch {
                 self.entries = []
                 Self.quarantineCorruptFile(at: persistenceURL)
             }
         }
+    }
+
+    public func updateCapturePolicy(ignoredBundleIDs: Set<String>) {
+        self.ignoredBundleIDs = ignoredBundleIDs
     }
 
     public func add(
@@ -132,28 +175,50 @@ public actor ClipboardHistoryStore {
         sourceAppName: String? = nil,
         sourceBundleID: String? = nil,
         imageData: Data? = nil,
-        imagePasteboardType: String? = nil
+        imagePasteboardType: String? = nil,
+        fileURLs: [String]? = nil
     ) {
-        let isImage = ClipboardEntryKind.isImageTypes(types)
-        if !isImage {
-            guard !ClipboardFilter.shouldSkip(types: types), ClipboardFilter.acceptsText(text, maxBytes: maxTextBytes) else { return }
-        } else {
-            guard !ClipboardFilter.shouldSkip(types: types), imageData != nil else { return }
+        if ClipboardFilter.shouldSkipSource(bundleID: sourceBundleID, ignoredBundleIDs: ignoredBundleIDs) {
+            return
         }
-        if isImage {
-            entries.removeAll { $0.imageData == imageData && $0.detectedKind == .image }
-        } else {
-            entries.removeAll { $0.text == text }
+        if ClipboardFilter.shouldSkip(types: types) {
+            return
         }
+
+        let isImage = ClipboardEntryKind.isImageTypes(types) && imageData != nil
+        let isFile = ClipboardEntryKind.isFileTypes(types) && fileURLs?.isEmpty == false
+
+        if isFile {
+            guard let fileURLs, !fileURLs.isEmpty else { return }
+        } else if isImage {
+            guard imageData != nil else { return }
+        } else {
+            guard ClipboardFilter.acceptsText(text, maxBytes: maxTextBytes) else { return }
+            guard !ClipboardFilter.looksSensitiveText(text) else { return }
+        }
+
+        let colorHex = (!isImage && !isFile) ? ClipboardEntryKind.normalizedColorHex(from: text) : nil
+        let kind = ClipboardEntryKind.detect(from: text, pasteboardTypes: types, fileURLs: fileURLs)
+        let hash = ClipboardContentHash.compute(
+            text: text,
+            imageData: imageData,
+            fileURLs: fileURLs,
+            colorHex: colorHex
+        )
+        entries.removeAll { $0.contentHash == hash }
+
         entries.insert(
             ClipboardEntry(
                 text: text,
                 createdAt: now,
-                detectedKind: ClipboardEntryKind.detect(from: text, pasteboardTypes: types),
+                detectedKind: kind,
                 sourceAppName: sourceAppName,
                 sourceBundleID: sourceBundleID,
                 imageData: imageData,
-                imagePasteboardType: imagePasteboardType
+                imagePasteboardType: imagePasteboardType,
+                fileURLs: fileURLs,
+                colorHex: colorHex,
+                contentHash: hash
             ),
             at: 0
         )
@@ -208,9 +273,24 @@ public actor ClipboardHistoryStore {
         persist()
     }
 
+    public func clearRecent(window: ClipboardRecentClearWindow, now: Date = Date(), calendar: Calendar = .current) {
+        let cutoff = window.cutoff(from: now, calendar: calendar)
+        switch window {
+        case .today:
+            entries.removeAll { !$0.isPinned && $0.createdAt >= cutoff && $0.createdAt <= now }
+        case .last5Minutes, .lastHour:
+            entries.removeAll { !$0.isPinned && $0.createdAt >= cutoff }
+        }
+        persist()
+    }
+
     public func removeEntry(_ id: UUID) {
         entries.removeAll { $0.id == id }
         persist()
+    }
+
+    public func entry(id: UUID) -> ClipboardEntry? {
+        entries.first { $0.id == id }
     }
 
     private func matchesFilter(_ entry: ClipboardEntry, filter: ClipboardListFilter) -> Bool {
@@ -224,13 +304,44 @@ public actor ClipboardHistoryStore {
         }
     }
 
-    private func matchesQuery(_ entry: ClipboardEntry, query: String) -> Bool {
+    private struct QueryParts {
+        let kindFilter: ClipboardEntryKind?
+        let tokens: [String]
+    }
+
+    private func parseQuery(_ query: String) -> QueryParts {
         let normalized = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        guard !normalized.isEmpty else { return true }
+        guard !normalized.isEmpty else { return QueryParts(kindFilter: nil, tokens: []) }
+
+        let kindPrefixes: [(String, ClipboardEntryKind)] = [
+            ("img:", .image),
+            ("image:", .image),
+            ("link:", .link),
+            ("code:", .code),
+            ("file:", .file),
+            ("color:", .color),
+            ("email:", .email)
+        ]
+        for (prefix, kind) in kindPrefixes {
+            if normalized.hasPrefix(prefix) {
+                let remainder = String(normalized.dropFirst(prefix.count)).trimmingCharacters(in: .whitespacesAndNewlines)
+                let tokens = remainder.split(whereSeparator: \.isWhitespace).map(String.init)
+                return QueryParts(kindFilter: kind, tokens: tokens)
+            }
+        }
+
         let tokens = normalized.split(whereSeparator: \.isWhitespace).map(String.init)
-        guard !tokens.isEmpty else { return true }
-        let haystack = entry.text.lowercased()
-        return tokens.allSatisfy { haystack.contains($0) }
+        return QueryParts(kindFilter: nil, tokens: tokens)
+    }
+
+    private func matchesQuery(_ entry: ClipboardEntry, query: String) -> Bool {
+        let parts = parseQuery(query)
+        if let kindFilter = parts.kindFilter, entry.detectedKind != kindFilter {
+            return false
+        }
+        guard !parts.tokens.isEmpty else { return true }
+        let haystack = entry.searchHaystack()
+        return parts.tokens.allSatisfy { haystack.contains($0) }
     }
 
     private func prune(now: Date) {
@@ -247,7 +358,7 @@ public actor ClipboardHistoryStore {
 
     private func persist() {
         guard let persistenceURL else { return }
-        Self.persist(entries: entries, to: persistenceURL)
+        ClipboardHistoryPersistence.save(entries: entries, to: persistenceURL)
         ClipboardStoreChangeHub.publishDataChanged()
     }
 
@@ -260,13 +371,6 @@ public actor ClipboardHistoryStore {
             pruned = pinned + unpinned
         }
         return pruned
-    }
-
-    private static func persist(entries: [ClipboardEntry], to persistenceURL: URL) {
-        try? FileManager.default.createDirectory(at: persistenceURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-        if let data = try? JSONEncoder().encode(entries) {
-            try? data.write(to: persistenceURL, options: .atomic)
-        }
     }
 
     private static func quarantineCorruptFile(at url: URL) {

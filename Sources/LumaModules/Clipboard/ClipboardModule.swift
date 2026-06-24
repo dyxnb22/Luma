@@ -1,6 +1,7 @@
 import AppKit
 import Foundation
 import LumaCore
+import LumaServices
 
 public actor ClipboardModule: LumaModule {
     public static let manifest = ModuleManifest(
@@ -14,34 +15,57 @@ public actor ClipboardModule: LumaModule {
 
     private var store: ClipboardHistoryStore
     private let persistenceURL: URL
+    private let pasteboard: any PasteboardClient
+    private let accessibility: any AccessibilityClient
     private var pollingTask: Task<Void, Never>?
     private var lastChangeCount = -1
+    private var historyEnabled = true
+    private var pasteBehavior = ClipboardPasteBehavior.pasteDirectly
 
-    public init(fileManager: FileManager = .default) {
+    public init(
+        fileManager: FileManager = .default,
+        pasteboard: any PasteboardClient = PasteboardService(),
+        accessibility: any AccessibilityClient = AXService()
+    ) {
         let base = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? fileManager.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support")
         let persistenceURL = base.appendingPathComponent("Luma/clipboard-history.json")
         try? fileManager.createDirectory(at: persistenceURL.deletingLastPathComponent(), withIntermediateDirectories: true)
         self.persistenceURL = persistenceURL
+        self.pasteboard = pasteboard
+        self.accessibility = accessibility
         store = ClipboardHistoryStore(persistenceURL: persistenceURL)
     }
 
-    init(store: ClipboardHistoryStore, persistenceURL: URL) {
+    init(
+        store: ClipboardHistoryStore,
+        persistenceURL: URL,
+        pasteboard: any PasteboardClient = PasteboardService(),
+        accessibility: any AccessibilityClient = AXService()
+    ) {
         self.store = store
         self.persistenceURL = persistenceURL
+        self.pasteboard = pasteboard
+        self.accessibility = accessibility
     }
 
     public func warmup(_ context: ModuleContext) async {
         let maxEntries = await context.config.clipboardMaxEntries()
         let maxAgeDays = await context.config.clipboardMaxAgeDays()
         let maxEntrySizeKB = await context.config.clipboardMaxEntrySizeKB()
+        historyEnabled = await context.config.clipboardHistoryEnabled()
+        pasteBehavior = ClipboardPasteBehavior(rawValue: await context.config.clipboardPasteBehavior()) ?? .pasteDirectly
+        let ignored = Set(await context.config.clipboardIgnoredBundleIDs())
         store = ClipboardHistoryStore(
             maxEntries: maxEntries,
             maxAge: TimeInterval(maxAgeDays * 24 * 60 * 60),
             maxTextBytes: maxEntrySizeKB * 1024,
             persistenceURL: persistenceURL
         )
-        startPolling()
+        await store.updateCapturePolicy(ignoredBundleIDs: ignored)
+        if historyEnabled {
+            startPolling()
+        }
     }
 
     public func teardown() async {
@@ -77,15 +101,27 @@ public actor ClipboardModule: LumaModule {
         let decoded = try ModuleActionCoding.decode(ClipboardAction.self, from: payload)
         switch decoded {
         case .copyEntry(let id):
-            let entries = await store.list(filter: .all, query: "", limit: 500)
-            guard let entry = entries.first(where: { $0.id == id }) else {
-                throw ModuleError.dataUnavailable
-            }
-            if let data = entry.imageData, let type = entry.imagePasteboardType {
-                await context.pasteboard.writeImage(data: data, pasteboardType: type)
-            } else {
-                await context.pasteboard.write(entry.text)
-            }
+            try await copyEntry(id: id, pasteboard: context.pasteboard, plainTextOnly: false)
+        }
+    }
+
+    public func copyEntry(id: UUID, pasteboard: (any PasteboardClient)? = nil, plainTextOnly: Bool = false) async throws {
+        guard let entry = await store.entry(id: id) else {
+            throw ModuleError.dataUnavailable
+        }
+        try await writeEntry(entry, to: pasteboard ?? self.pasteboard, plainTextOnly: plainTextOnly)
+    }
+
+    public func pasteEntry(id: UUID) async throws {
+        guard let entry = await store.entry(id: id) else {
+            throw ModuleError.dataUnavailable
+        }
+        try await writeEntry(entry, to: pasteboard, plainTextOnly: false)
+        guard pasteBehavior == .pasteDirectly else { return }
+        guard entry.imageData == nil, entry.fileURLs?.isEmpty != false else { return }
+        try? await Task.sleep(for: .milliseconds(80))
+        if AXService.isProcessTrusted() {
+            await accessibility.insert(text: entry.plainTextForCopy)
         }
     }
 
@@ -102,8 +138,7 @@ public actor ClipboardModule: LumaModule {
     }
 
     public func togglePin(_ id: UUID) async {
-        let current = await store.list(filter: .all, query: "", limit: 500)
-        guard let entry = current.first(where: { $0.id == id }) else { return }
+        guard let entry = await store.entry(id: id) else { return }
         await store.pin(id, isPinned: !entry.isPinned)
     }
 
@@ -115,12 +150,44 @@ public actor ClipboardModule: LumaModule {
         await store.clearUnpinned()
     }
 
+    public func clearRecent(_ window: ClipboardRecentClearWindow) async {
+        await store.clearRecent(window: window)
+    }
+
     public func applyRetentionSettings(maxEntries: Int, maxAgeDays: Int, maxEntrySizeKB: Int) async {
         await store.updateRetention(
             maxEntries: maxEntries,
             maxAge: TimeInterval(maxAgeDays * 24 * 60 * 60),
             maxTextBytes: maxEntrySizeKB * 1024
         )
+    }
+
+    public func applyCaptureSettings(
+        enabled: Bool,
+        ignoredBundleIDs: [String],
+        pasteBehavior: ClipboardPasteBehavior
+    ) async {
+        historyEnabled = enabled
+        self.pasteBehavior = pasteBehavior
+        await store.updateCapturePolicy(ignoredBundleIDs: Set(ignoredBundleIDs))
+        if enabled {
+            startPolling()
+        } else {
+            pollingTask?.cancel()
+            pollingTask = nil
+        }
+    }
+
+    private func writeEntry(_ entry: ClipboardEntry, to pasteboard: any PasteboardClient, plainTextOnly: Bool) async throws {
+        if let data = entry.imageData, let type = entry.imagePasteboardType, !plainTextOnly {
+            await pasteboard.writeImage(data: data, pasteboardType: type)
+            return
+        }
+        if let fileURLs = entry.fileURLs?.map({ URL(fileURLWithPath: $0) }), !fileURLs.isEmpty, !plainTextOnly {
+            await pasteboard.writeFileURLs(fileURLs)
+            return
+        }
+        await pasteboard.write(entry.plainTextForCopy)
     }
 
     private func startPolling() {
@@ -133,50 +200,55 @@ public actor ClipboardModule: LumaModule {
         }
     }
 
-    private func capturePasteboardIfNeeded() async {
-        let snapshot = await MainActor.run { () -> (Int, [String], String?, String?, String?) in
-            let pasteboard = NSPasteboard.general
-            let changeCount = pasteboard.changeCount
-            let types = pasteboard.types?.map(\.rawValue) ?? []
-            let text = pasteboard.string(forType: .string)
-            let frontmost = NSWorkspace.shared.frontmostApplication
-            let bundleID = frontmost?.bundleIdentifier
-            let appName = frontmost?.localizedName
-            let lumaBundleID = Bundle.main.bundleIdentifier
-            if bundleID == lumaBundleID {
-                return (changeCount, types, text, nil, nil)
+    func capturePasteboardIfNeeded(snapshot: ClipboardSnapshot? = nil) async {
+        guard historyEnabled else { return }
+
+        let board: ClipboardSnapshot
+        if let snapshot {
+            board = snapshot
+        } else {
+            board = await MainActor.run {
+                ClipboardSnapshotReader.read(lumaBundleID: Bundle.main.bundleIdentifier)
             }
-            return (changeCount, types, text, appName, bundleID)
         }
 
-        guard snapshot.0 != lastChangeCount else { return }
-        lastChangeCount = snapshot.0
-        let types = snapshot.1
-        if let text = snapshot.2, !text.isEmpty {
-            await store.add(text: text, types: types, sourceAppName: snapshot.3, sourceBundleID: snapshot.4)
+        guard board.changeCount != lastChangeCount else { return }
+        lastChangeCount = board.changeCount
+        guard !board.sourceIsLuma else { return }
+
+        if !board.fileURLs.isEmpty {
+            let paths = board.fileURLs.map(\.path)
+            let label = paths.count == 1
+                ? URL(fileURLWithPath: paths[0]).lastPathComponent
+                : "[\(paths.count) files]"
+            await store.add(
+                text: label,
+                types: board.types,
+                sourceAppName: board.sourceAppName,
+                sourceBundleID: board.sourceBundleID,
+                fileURLs: paths
+            )
             return
         }
-        if ClipboardEntryKind.isImageTypes(types) {
-            let imagePayload = await MainActor.run { () -> (Data?, String?) in
-                let pasteboard = NSPasteboard.general
-                for type in ["public.png", "public.tiff", "public.jpeg", "public.image"] {
-                    if let data = pasteboard.data(forType: NSPasteboard.PasteboardType(type)) {
-                        return (data, type)
-                    }
-                }
-                if let data = pasteboard.data(forType: .tiff) {
-                    return (data, NSPasteboard.PasteboardType.tiff.rawValue)
-                }
-                return (nil, nil)
-            }
-            guard let data = imagePayload.0 else { return }
+
+        if let data = board.imageData, ClipboardEntryKind.isImageTypes(board.types) {
             await store.add(
                 text: "[Image]",
-                types: types,
-                sourceAppName: snapshot.3,
-                sourceBundleID: snapshot.4,
+                types: board.types,
+                sourceAppName: board.sourceAppName,
+                sourceBundleID: board.sourceBundleID,
                 imageData: data,
-                imagePasteboardType: imagePayload.1
+                imagePasteboardType: board.imageType
+            )
+            return
+        }
+
+        if let text = board.text, !text.isEmpty {
+            await store.add(
+                text: text,
+                types: board.types,
+                sourceAppName: board.sourceAppName,
+                sourceBundleID: board.sourceBundleID
             )
         }
     }
@@ -186,12 +258,19 @@ public actor ClipboardModule: LumaModule {
         let title = display.count > 80 ? String(display.prefix(80)) + "..." : display
         let id = ResultID(module: Self.manifest.identifier, key: entry.id.uuidString)
         let payload = (try? ModuleActionCoding.encode(ClipboardAction.copyEntry(id: entry.id))) ?? Data()
+        let iconName: String
+        switch entry.detectedKind {
+        case .image: iconName = "photo"
+        case .file: iconName = "doc"
+        case .color: iconName = "paintpalette"
+        default: iconName = entry.imageData == nil ? "doc.on.clipboard" : "photo"
+        }
         return ResultItem(
             id: id,
             title: title,
             titleAttributed: AttributedString(title),
             subtitle: entry.isPinned ? "Pinned Clipboard" : "Clipboard",
-            icon: .symbol(entry.imageData == nil ? "doc.on.clipboard" : "photo"),
+            icon: .symbol(iconName),
             primaryAction: Action(
                 id: ActionID(module: Self.manifest.identifier, key: "copy.\(entry.id.uuidString)"),
                 title: "Copy",

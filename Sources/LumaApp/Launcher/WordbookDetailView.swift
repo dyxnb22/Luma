@@ -40,6 +40,13 @@ final class WordbookDetailView: ModuleDetailView {
     private let wrongWordsButton = NSButton(title: "Wrong Words", target: nil, action: nil)
     private let settingsGear = NSButton()
 
+    private let emptyBanner = NSView()
+    private let emptyLabel = NSTextField(wrappingLabelWithString: "")
+    private let emptyImportButton = NSButton(title: "Import CSV", target: nil, action: nil)
+    private let emptyAddButton = NSButton(title: "+ Add Word", target: nil, action: nil)
+
+    private static let sessionCardCap = 30
+
     private let termLabel = NSTextField(labelWithString: "")
     private let phoneticLabel = NSTextField(labelWithString: "")
     private let meaningLabel = NSTextField(wrappingLabelWithString: "")
@@ -129,7 +136,7 @@ final class WordbookDetailView: ModuleDetailView {
         settingsGear.image = NSImage(systemSymbolName: "gearshape", accessibilityDescription: "TTS Settings")
         settingsGear.translatesAutoresizingMaskIntoConstraints = false
 
-        let buttons = NSStackView(views: [startButton, newOnlyButton, manageButton])
+        let buttons = NSStackView(views: [startButton, newOnlyButton, wrongWordsButton, manageButton])
         buttons.orientation = .horizontal
         buttons.spacing = 12
         buttons.translatesAutoresizingMaskIntoConstraints = false
@@ -137,6 +144,7 @@ final class WordbookDetailView: ModuleDetailView {
         homeView.addSubview(progressCard)
         homeView.addSubview(settingsGear)
         homeView.addSubview(buttons)
+        installEmptyBanner(below: buttons)
         NSLayoutConstraint.activate([
             progressCard.topAnchor.constraint(equalTo: homeView.topAnchor, constant: 16),
             progressCard.leadingAnchor.constraint(equalTo: homeView.leadingAnchor, constant: 24),
@@ -146,6 +154,38 @@ final class WordbookDetailView: ModuleDetailView {
             buttons.topAnchor.constraint(equalTo: progressCard.bottomAnchor, constant: 24),
             buttons.centerXAnchor.constraint(equalTo: homeView.centerXAnchor),
             buttons.bottomAnchor.constraint(lessThanOrEqualTo: homeView.bottomAnchor, constant: -24)
+        ])
+    }
+
+    private func installEmptyBanner(below buttons: NSStackView) {
+        emptyBanner.translatesAutoresizingMaskIntoConstraints = false
+        emptyBanner.isHidden = true
+        emptyLabel.font = .systemFont(ofSize: 13)
+        emptyLabel.textColor = .secondaryLabelColor
+        emptyLabel.alignment = .center
+        emptyLabel.translatesAutoresizingMaskIntoConstraints = false
+        [emptyImportButton, emptyAddButton].forEach {
+            $0.bezelStyle = .rounded
+            $0.controlSize = .regular
+            $0.translatesAutoresizingMaskIntoConstraints = false
+        }
+        let emptyActions = NSStackView(views: [emptyImportButton, emptyAddButton])
+        emptyActions.orientation = .horizontal
+        emptyActions.spacing = 12
+        emptyActions.translatesAutoresizingMaskIntoConstraints = false
+        emptyBanner.addSubview(emptyLabel)
+        emptyBanner.addSubview(emptyActions)
+        homeView.addSubview(emptyBanner)
+        NSLayoutConstraint.activate([
+            emptyBanner.topAnchor.constraint(equalTo: buttons.bottomAnchor, constant: 20),
+            emptyBanner.leadingAnchor.constraint(equalTo: homeView.leadingAnchor, constant: 24),
+            emptyBanner.trailingAnchor.constraint(equalTo: homeView.trailingAnchor, constant: -24),
+            emptyLabel.topAnchor.constraint(equalTo: emptyBanner.topAnchor),
+            emptyLabel.leadingAnchor.constraint(equalTo: emptyBanner.leadingAnchor),
+            emptyLabel.trailingAnchor.constraint(equalTo: emptyBanner.trailingAnchor),
+            emptyActions.topAnchor.constraint(equalTo: emptyLabel.bottomAnchor, constant: 12),
+            emptyActions.centerXAnchor.constraint(equalTo: emptyBanner.centerXAnchor),
+            emptyActions.bottomAnchor.constraint(equalTo: emptyBanner.bottomAnchor)
         ])
     }
 
@@ -228,6 +268,8 @@ final class WordbookDetailView: ModuleDetailView {
         newOnlyButton.target = self; newOnlyButton.action = #selector(handleNewOnly)
         manageButton.target = self; manageButton.action = #selector(handleManage)
         wrongWordsButton.target = self; wrongWordsButton.action = #selector(handleWrongWords)
+        emptyImportButton.target = self; emptyImportButton.action = #selector(handleEmptyImport)
+        emptyAddButton.target = self; emptyAddButton.action = #selector(handleEmptyAdd)
         settingsGear.target = self; settingsGear.action = #selector(showTTSPopover(_:))
         unknownButton.target = self; unknownButton.action = #selector(handleUnknown)
         knownButton.target = self; knownButton.action = #selector(handleKnown)
@@ -247,8 +289,10 @@ final class WordbookDetailView: ModuleDetailView {
             guard let snapshot, !Task.isCancelled else { return }
             await MainActor.run {
                 progressCard.apply(snapshot)
+                updateEmptyState(snapshot: snapshot)
                 let canLearnNew = (dailyNewRemaining ?? 0) > 0 && snapshot.newAvailable > 0
-                newOnlyButton.isEnabled = canLearnNew
+                newOnlyButton.isEnabled = canLearnNew && snapshot.total > 0
+                startButton.isEnabled = snapshot.total > 0
                 newOnlyButton.toolTip = canLearnNew ? nil : "今日新词额度已用尽"
                 Task {
                     let wrongCount = try? await store.wrongWordCount(atLeast: 3)
@@ -263,10 +307,32 @@ final class WordbookDetailView: ModuleDetailView {
         }
     }
 
-    private func startSession(newWordsOnly: Bool = false) {
+    private func updateEmptyState(snapshot: WordbookProgressSnapshot) {
+        let isEmpty = snapshot.total == 0
+        emptyBanner.isHidden = !isEmpty
+        guard isEmpty else { return }
+        switch WordbookMigrator.migrationNotice {
+        case .failed:
+            emptyLabel.stringValue = "Wordbook migration failed. Import a CSV or add words to start fresh."
+        case .sourceMissing:
+            emptyLabel.stringValue = "Your wordbook is empty. Import a CSV file or add words to get started."
+        case .none:
+            emptyLabel.stringValue = "Your wordbook is empty. Import a CSV file or add words to get started."
+        }
+    }
+
+    private func startSession(newWordsOnly: Bool = false, forceNew: Bool = false) {
         loadTask?.cancel()
         loadTask = Task {
-            await planner.startNewSession(newWordsOnly: newWordsOnly)
+            let canResume: Bool
+            if forceNew || newWordsOnly {
+                canResume = false
+            } else {
+                canResume = await planner.canResumeToday()
+            }
+            if !canResume {
+                await planner.startNewSession(newWordsOnly: newWordsOnly)
+            }
             await MainActor.run {
                 self.subState = .session
                 self.prefetchedCard = nil
@@ -344,6 +410,20 @@ final class WordbookDetailView: ModuleDetailView {
     private func advance() {
         loadTask?.cancel()
         loadTask = Task {
+            let shown = await planner.cardsShown()
+            if shown >= Self.sessionCardCap {
+                let acked = (try? await store.dailyTargetAckedDate()) ?? ""
+                let today = Self.todayKey()
+                if acked != today {
+                    let stopForToday = await MainActor.run { self.promptDailyCap() }
+                    try? await store.setDailyTargetAcked()
+                    if stopForToday {
+                        let stats = await planner.sessionStats()
+                        await MainActor.run { self.showDone(reviewed: stats.reviewed, learned: stats.learned, capped: true) }
+                        return
+                    }
+                }
+            }
             let card: WordbookSessionPlanner.Card?
             if let prefetched = prefetchedCard {
                 card = prefetched
@@ -355,6 +435,22 @@ final class WordbookDetailView: ModuleDetailView {
             }
             await MainActor.run { self.applyCard(card) }
         }
+    }
+
+    private static func todayKey() -> String {
+        let f = DateFormatter()
+        f.dateFormat = "yyyy-MM-dd"
+        f.timeZone = .current
+        return f.string(from: Date())
+    }
+
+    private func promptDailyCap() -> Bool {
+        let alert = NSAlert()
+        alert.messageText = "You've studied \(Self.sessionCardCap) cards today"
+        alert.informativeText = "Call it a day, or keep going?"
+        alert.addButton(withTitle: "Done for today")
+        alert.addButton(withTitle: "Keep going")
+        return alert.runModal() == .alertFirstButtonReturn
     }
 
     private func applyCard(_ card: WordbookSessionPlanner.Card?) {
@@ -374,16 +470,19 @@ final class WordbookDetailView: ModuleDetailView {
         }
     }
 
-    private func showDone(reviewed: Int, learned: Int) {
+    private func showDone(reviewed: Int, learned: Int, capped: Bool = false) {
         subState = .done
         Task {
             let snapshot = try? await store.progressSnapshot()
             let accuracy = Int((snapshot?.accuracyToday ?? 1) * 100)
+            let masteredToday = snapshot?.todayMastered ?? 0
             let dailyNewRemaining = max(0, (snapshot?.dailyNewLimit ?? 0) - (snapshot?.dailyNewSeen ?? 0))
             let continueCount = (snapshot?.dueToday ?? 0) + min(snapshot?.newAvailable ?? 0, dailyNewRemaining)
             await MainActor.run {
+                doneTitle.stringValue = capped ? "Good stopping point ✓" : "Done for today ✓"
                 let streakNote = (snapshot?.streakDays ?? 0) > 0 ? " · 今日 +1 🔥" : ""
-                doneStats.stringValue = "复习 \(reviewed) · 新学 \(learned) · 正确率 \(accuracy)%\(streakNote)"
+                let masteredNote = masteredToday > 0 ? " · 已学过 \(masteredToday)" : ""
+                doneStats.stringValue = "复习 \(reviewed) · 新学 \(learned)\(masteredNote) · 正确率 \(accuracy)%\(streakNote)"
                 continueButton.title = continueCount > 0 ? "Continue · \(continueCount) more" : "Back Home"
                 showSubview(.done)
             }
@@ -411,6 +510,21 @@ final class WordbookDetailView: ModuleDetailView {
         subState = .manage
         showSubview(.manage)
     }
+
+    @objc private func handleEmptyImport() {
+        manageWrongWordsOnly = false
+        subState = .manage
+        showSubview(.manage)
+        manageView?.triggerImport()
+    }
+
+    @objc private func handleEmptyAdd() {
+        manageWrongWordsOnly = false
+        subState = .manage
+        showSubview(.manage)
+        manageView?.triggerAdd()
+    }
+
     @objc private func handleKnown() { gradeCurrent(.known) }
     @objc private func handleMastered() { gradeCurrent(.mastered) }
     @objc private func handleUnknown() { gradeCurrent(.unknown) }
@@ -419,7 +533,7 @@ final class WordbookDetailView: ModuleDetailView {
         guard let word = currentWord else { return }
         speech.speak(word.term)
     }
-    @objc private func handleContinue() { startSession() }
+    @objc private func handleContinue() { startSession(forceNew: false) }
     @objc private func handleBackHome() {
         subState = .home
         showSubview(.home)

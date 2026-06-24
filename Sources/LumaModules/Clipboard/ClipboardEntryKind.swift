@@ -6,14 +6,26 @@ public enum ClipboardEntryKind: String, Sendable, Hashable, Codable {
     case email
     case code
     case image
+    case file
+    case color
 
-    public static func detect(from text: String, pasteboardTypes: [String] = []) -> ClipboardEntryKind {
+    public static func detect(
+        from text: String,
+        pasteboardTypes: [String] = [],
+        fileURLs: [String]? = nil
+    ) -> ClipboardEntryKind {
+        if Self.isFileTypes(pasteboardTypes) || (fileURLs?.isEmpty == false) {
+            return .file
+        }
         if Self.isImageTypes(pasteboardTypes) {
             return .image
         }
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return .text }
 
+        if Self.looksLikeColor(trimmed) {
+            return .color
+        }
         if Self.looksLikeEmail(trimmed) {
             return .email
         }
@@ -47,11 +59,43 @@ public enum ClipboardEntryKind: String, Sendable, Hashable, Codable {
         return indicators.contains { text.contains($0) }
     }
 
+    public static func looksLikeColor(_ text: String) -> Bool {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.range(of: #"^#([0-9A-Fa-f]{3}|[0-9A-Fa-f]{6})$"#, options: .regularExpression) != nil {
+            return true
+        }
+        if trimmed.range(of: #"^rgb\(\s*\d{1,3}\s*,\s*\d{1,3}\s*,\s*\d{1,3}\s*\)$"#, options: .regularExpression) != nil {
+            return true
+        }
+        if trimmed.range(of: #"^hsl\(\s*\d{1,3}(\.\d+)?\s*,\s*\d{1,3}(\.\d+)?%\s*,\s*\d{1,3}(\.\d+)?%\s*\)$"#, options: .regularExpression) != nil {
+            return true
+        }
+        return false
+    }
+
+    public static func normalizedColorHex(from text: String) -> String? {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard looksLikeColor(trimmed) else { return nil }
+        if trimmed.hasPrefix("#") {
+            let hex = String(trimmed.dropFirst())
+            if hex.count == 3 {
+                let expanded = hex.map { String($0) + String($0) }.joined()
+                return "#\(expanded.uppercased())"
+            }
+            return "#\(hex.uppercased())"
+        }
+        return trimmed.lowercased()
+    }
+
     public static func isImageTypes(_ types: [String]) -> Bool {
         let imagePrefixes = ["public.png", "public.tiff", "public.jpeg", "public.image", "com.apple.pict", "com.compuserve.gif"]
         return types.contains { type in
             imagePrefixes.contains { type.hasPrefix($0) || type == $0 }
         }
+    }
+
+    public static func isFileTypes(_ types: [String]) -> Bool {
+        types.contains { $0 == "public.file-url" || $0 == "NSURLPboardType" }
     }
 }
 
@@ -59,4 +103,41 @@ public enum ClipboardListFilter: String, Sendable, CaseIterable {
     case all
     case pinned
     case image
+}
+
+public enum ClipboardPasteBehavior: String, Sendable, Codable, CaseIterable {
+    case pasteDirectly
+    case copyOnly
+
+    public var displayName: String {
+        switch self {
+        case .pasteDirectly: return "Paste directly"
+        case .copyOnly: return "Copy only"
+        }
+    }
+}
+
+public enum ClipboardRecentClearWindow: String, Sendable, CaseIterable {
+    case last5Minutes
+    case lastHour
+    case today
+
+    public var displayName: String {
+        switch self {
+        case .last5Minutes: return "Last 5 minutes"
+        case .lastHour: return "Last hour"
+        case .today: return "Today"
+        }
+    }
+
+    public func cutoff(from now: Date, calendar: Calendar = .current) -> Date {
+        switch self {
+        case .last5Minutes:
+            return now.addingTimeInterval(-5 * 60)
+        case .lastHour:
+            return now.addingTimeInterval(-3600)
+        case .today:
+            return calendar.startOfDay(for: now)
+        }
+    }
 }

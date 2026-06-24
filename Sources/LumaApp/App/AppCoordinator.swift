@@ -60,9 +60,20 @@ final class AppCoordinator {
                 guard let self else { return }
                 Task { await self.host.applyEnabledSet(enabled) }
             },
-            onClipboardSettingsChanged: { [weak self] entries, days, kb in
+            onClipboardSettingsChanged: { [weak self] snapshot in
                 guard let self else { return }
-                Task { await self.clipboardModule.applyRetentionSettings(maxEntries: entries, maxAgeDays: days, maxEntrySizeKB: kb) }
+                Task {
+                    await self.clipboardModule.applyRetentionSettings(
+                        maxEntries: snapshot.clipboardMaxEntries,
+                        maxAgeDays: snapshot.clipboardMaxAgeDays,
+                        maxEntrySizeKB: snapshot.clipboardMaxEntrySizeKB
+                    )
+                    await self.clipboardModule.applyCaptureSettings(
+                        enabled: snapshot.clipboardHistoryEnabled,
+                        ignoredBundleIDs: snapshot.clipboardIgnoredBundleIDs,
+                        pasteBehavior: ClipboardPasteBehavior(rawValue: snapshot.clipboardPasteBehavior) ?? .pasteDirectly
+                    )
+                }
             },
             onSecretsSettingsChanged: { [weak self] autoClear, relock in
                 guard let self else { return }
@@ -138,6 +149,7 @@ final class AppCoordinator {
             do {
                 _ = try WordbookMigrator.migrateIfNeeded()
             } catch {
+                WordbookMigrator.setMigrationNotice(.failed)
                 await LumaLogger(category: "wordbook").error("Wordbook migration failed: \(error)")
             }
         }

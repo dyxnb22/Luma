@@ -4,6 +4,194 @@ import Testing
 @testable import LumaServices
 @testable import LumaModules
 
+// MARK: - Schema migration
+
+@Test func clipboardSnapshotMigrationLoadsLegacyArray() async throws {
+    let url = FileManager.default.temporaryDirectory.appendingPathComponent("clip-legacy-\(UUID().uuidString).json")
+    defer { try? FileManager.default.removeItem(at: url) }
+
+    let legacy = [ClipboardEntry(text: "legacy item", detectedKind: .text)]
+    let data = try JSONEncoder().encode(legacy)
+    try data.write(to: url)
+
+    let store = ClipboardHistoryStore(persistenceURL: url)
+    #expect(await store.search("legacy").first?.text == "legacy item")
+
+    let reloaded = try Data(contentsOf: url)
+    let snapshot = try JSONDecoder().decode(ClipboardHistorySnapshot.self, from: reloaded)
+    #expect(snapshot.schemaVersion == ClipboardHistorySnapshot.currentSchemaVersion)
+    #expect(snapshot.entries.first?.contentHash.isEmpty == false)
+}
+
+@Test func clipboardSnapshotRoundTripPreservesContentHash() async throws {
+    let url = FileManager.default.temporaryDirectory.appendingPathComponent("clip-snap-\(UUID().uuidString).json")
+    defer { try? FileManager.default.removeItem(at: url) }
+
+    let store = ClipboardHistoryStore(persistenceURL: url)
+    await store.add(text: "#FF5500", types: ["public.utf8-plain-text"])
+    let hash = await store.search("").first!.contentHash
+
+    let second = ClipboardHistoryStore(persistenceURL: url)
+    #expect(await second.search("").first?.contentHash == hash)
+}
+
+// MARK: - File and color
+
+@Test func clipboardDetectsColorKind() {
+    #expect(ClipboardEntryKind.detect(from: "#F00") == .color)
+    #expect(ClipboardEntryKind.detect(from: "#FF5500") == .color)
+    #expect(ClipboardEntryKind.detect(from: "rgb(10, 20, 30)") == .color)
+    #expect(ClipboardEntryKind.normalizedColorHex(from: "#abc") == "#AABBCC")
+}
+
+@Test func clipboardStoresFileURLsAndDedupesByHash() async {
+    let store = ClipboardHistoryStore()
+    let path = "/tmp/example.txt"
+    await store.add(text: "example.txt", types: ["public.file-url"], fileURLs: [path])
+    await store.add(text: "example.txt", types: ["public.file-url"], fileURLs: [path])
+    let entries = await store.list(filter: .all, query: "", limit: 10)
+    #expect(entries.count == 1)
+    #expect(entries.first?.detectedKind == .file)
+    #expect(entries.first?.fileURLs == [path])
+}
+
+@Test func clipboardFileKindWinsWhenPasteboardAlsoHasImageTypes() {
+    let kind = ClipboardEntryKind.detect(
+        from: "Preview.pdf",
+        pasteboardTypes: ["public.file-url", "public.tiff"],
+        fileURLs: ["/tmp/Preview.pdf"]
+    )
+    #expect(kind == .file)
+}
+
+@Test func clipboardColorSearchMatchesHex() async {
+    let store = ClipboardHistoryStore(maxAge: .greatestFiniteMagnitude)
+    await store.add(text: "#FF5500", types: ["public.text"])
+    await store.add(text: "unrelated", types: ["public.text"])
+    let results = await store.search("ff5500")
+    #expect(results.count == 1)
+    let prefixResults = await store.search("color:ff55")
+    #expect(prefixResults.count == 1)
+}
+
+@Test func clipboardModuleCapturesFileSnapshot() async {
+    let store = ClipboardHistoryStore()
+    let module = ClipboardModule(store: store, persistenceURL: URL(fileURLWithPath: "/tmp/luma-clip-file-\(UUID().uuidString).json"))
+    let snapshot = ClipboardSnapshot(
+        changeCount: 1,
+        types: ["public.file-url"],
+        text: nil,
+        imageData: nil,
+        imageType: nil,
+        fileURLs: [URL(fileURLWithPath: "/tmp/report.pdf")],
+        sourceAppName: "Finder",
+        sourceBundleID: "com.apple.finder"
+    )
+    await module.capturePasteboardIfNeeded(snapshot: snapshot)
+    let entries = await store.list(filter: .all, query: "", limit: 5)
+    #expect(entries.count == 1)
+    #expect(entries.first?.detectedKind == .file)
+}
+
+@Test func clipboardModuleSkipsSnapshotsWrittenByLuma() async {
+    let store = ClipboardHistoryStore()
+    await store.add(text: "keep pinned", types: ["public.text"])
+    let id = await store.search("").first!.id
+    await store.pin(id)
+
+    let module = ClipboardModule(store: store, persistenceURL: URL(fileURLWithPath: "/tmp/luma-clip-self-\(UUID().uuidString).json"))
+    let snapshot = ClipboardSnapshot(
+        changeCount: 1,
+        types: ["public.text"],
+        text: "keep pinned",
+        imageData: nil,
+        imageType: nil,
+        fileURLs: [],
+        sourceAppName: nil,
+        sourceBundleID: nil,
+        sourceIsLuma: true
+    )
+    await module.capturePasteboardIfNeeded(snapshot: snapshot)
+
+    let entries = await store.search("")
+    #expect(entries.count == 1)
+    #expect(entries.first?.id == id)
+    #expect(entries.first?.isPinned == true)
+}
+
+@Test func clipboardModuleCopiesFileURLsBack() async throws {
+    let store = ClipboardHistoryStore()
+    let path = "/tmp/luma-clip-copy-\(UUID().uuidString).pdf"
+    await store.add(text: "doc.pdf", types: ["public.file-url"], fileURLs: [path])
+    let id = await store.search("").first!.id
+    let pasteboard = RecordingPasteboardClient()
+    let module = ClipboardModule(store: store, persistenceURL: URL(fileURLWithPath: "/tmp/x.json"), pasteboard: pasteboard)
+    try await module.copyEntry(id: id, pasteboard: pasteboard)
+    let recorded = await pasteboard.snapshot()
+    #expect(recorded.fileURLs?.map(\.path) == [path])
+}
+
+// MARK: - Privacy
+
+@Test func clipboardFilterSkipsIgnoredSourceBundle() async {
+    let store = ClipboardHistoryStore()
+    await store.updateCapturePolicy(ignoredBundleIDs: ["com.example.bank"])
+    await store.add(text: "account", types: ["public.text"], sourceBundleID: "com.example.bank")
+    await store.add(text: "safe note", types: ["public.text"], sourceBundleID: "com.apple.Notes")
+    #expect(await store.search("").map(\.text) == ["safe note"])
+}
+
+@Test func clipboardFilterSkipsBuiltInPasswordManagerBundle() async {
+    let store = ClipboardHistoryStore()
+    await store.add(text: "vault item", types: ["public.text"], sourceBundleID: "com.bitwarden.desktop")
+    #expect(await store.search("").isEmpty)
+}
+
+@Test func clipboardSensitiveHeuristicSkipsJWTButKeepsNormalText() async {
+    let store = ClipboardHistoryStore()
+    let jwt = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U"
+    await store.add(text: jwt, types: ["public.text"])
+    await store.add(text: "hello brave world", types: ["public.text"])
+    #expect(ClipboardFilter.looksSensitiveText(jwt))
+    #expect(ClipboardFilter.looksSensitiveText("hello brave world") == false)
+    #expect(await store.search("").map(\.text) == ["hello brave world"])
+}
+
+// MARK: - Clear recent
+
+@Test func clipboardClearRecentKeepsPinned() async {
+    let now = Date()
+    let store = ClipboardHistoryStore()
+    await store.add(text: "recent", types: ["public.text"], now: now)
+    await store.add(text: "pinned recent", types: ["public.text"], now: now)
+    let pinnedID = await store.search("pinned").first!.id
+    await store.pin(pinnedID)
+    await store.clearRecent(window: .today, now: now)
+    let remaining = await store.search("")
+    #expect(remaining.map(\.text) == ["pinned recent"])
+}
+
+@Test func clipboardClearRecentTodayUsesProvidedNow() async {
+    let calendar = Calendar(identifier: .gregorian)
+    let now = calendar.date(from: DateComponents(year: 2001, month: 1, day: 2, hour: 12))!
+    let todayMorning = calendar.date(from: DateComponents(year: 2001, month: 1, day: 2, hour: 8))!
+    let yesterday = calendar.date(from: DateComponents(year: 2001, month: 1, day: 1, hour: 23))!
+    let future = calendar.date(from: DateComponents(year: 2001, month: 1, day: 2, hour: 13))!
+
+    let store = ClipboardHistoryStore(maxAge: .greatestFiniteMagnitude)
+    await store.add(text: "today", types: ["public.text"], now: todayMorning)
+    await store.add(text: "yesterday", types: ["public.text"], now: yesterday)
+    await store.add(text: "future", types: ["public.text"], now: future)
+    await store.clearRecent(window: .today, now: now, calendar: calendar)
+
+    let remaining = await store.search("").map(\.text)
+    #expect(remaining.contains("today") == false)
+    #expect(remaining.contains("yesterday"))
+    #expect(remaining.contains("future"))
+}
+
+// MARK: - Copy image bytes
+
 @Test func clipboardModuleRequiresClipPrefixInRootSearch() async {
     let module = ClipboardModule()
     let context = QueryContext(deadline: ContinuousClock().now.advanced(by: .milliseconds(30)))
@@ -55,11 +243,13 @@ private actor RecordingPasteboardClient: PasteboardClient {
     private var text: String?
     private var imageData: Data?
     private var imageType: String?
+    private var fileURLs: [URL]?
 
     func write(_ string: String) async {
         text = string
         imageData = nil
         imageType = nil
+        fileURLs = nil
     }
 
     func writeSecure(_ string: String, clearAfterSeconds: Int) async {
@@ -70,10 +260,18 @@ private actor RecordingPasteboardClient: PasteboardClient {
         imageData = data
         imageType = pasteboardType
         text = nil
+        fileURLs = nil
     }
 
-    func snapshot() -> (text: String?, imageData: Data?, imageType: String?) {
-        (text, imageData, imageType)
+    func writeFileURLs(_ urls: [URL]) async {
+        fileURLs = urls
+        text = nil
+        imageData = nil
+        imageType = nil
+    }
+
+    func snapshot() -> (text: String?, imageData: Data?, imageType: String?, fileURLs: [URL]?) {
+        (text, imageData, imageType, fileURLs)
     }
 }
 
@@ -151,7 +349,7 @@ private struct NoopAccessibilityClient: AccessibilityClient {
     #expect(await store.search("").map(\.text) == ["small"])
 }
 
-@Test func clipboardHistoryMovesDuplicateToTop() async {
+@Test func clipboardHistoryMovesDuplicateToTopByContentHash() async {
     let store = ClipboardHistoryStore()
     await store.add(text: "first", types: ["public.text"])
     await store.add(text: "second", types: ["public.text"])
@@ -188,6 +386,7 @@ private struct NoopAccessibilityClient: AccessibilityClient {
 @Test func clipboardDetectsImageFromPasteboardTypes() {
     #expect(ClipboardEntryKind.detect(from: "[Image]", pasteboardTypes: ["public.png"]) == .image)
     #expect(ClipboardEntryKind.isImageTypes(["public.tiff"]))
+    #expect(ClipboardEntryKind.isFileTypes(["public.file-url"]))
 }
 
 @Test func clipboardTokenSearchMatchesAllTerms() async {
@@ -197,6 +396,12 @@ private struct NoopAccessibilityClient: AccessibilityClient {
     let results = await store.search("hello brave")
     #expect(results.count == 1)
     #expect(results.first?.text == "hello brave world")
+}
+
+@Test func clipboardSearchMatchesSourceAppName() async {
+    let store = ClipboardHistoryStore()
+    await store.add(text: "payload", types: ["public.text"], sourceAppName: "Safari")
+    #expect(await store.search("safari").count == 1)
 }
 
 @Test func clipboardPinAndDeletePersist() async throws {

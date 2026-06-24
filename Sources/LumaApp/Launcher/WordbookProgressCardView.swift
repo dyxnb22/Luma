@@ -68,7 +68,7 @@ final class WordbookProgressCardView: NSView {
         let ratio = snapshot.total > 0 ? Double(snapshot.mastered) / Double(snapshot.total) : 0
         progressBar.doubleValue = ratio * 100
         let accuracy = Int(snapshot.accuracyToday * 100)
-        statsLabel.stringValue = "\(snapshot.dueToday) due · \(snapshot.dailyNewSeen)/\(snapshot.dailyNewLimit) new · \(accuracy)% accuracy"
+        statsLabel.stringValue = "\(snapshot.dueToday) due · \(snapshot.dailyNewSeen)/\(snapshot.dailyNewLimit) new · \(accuracy)% accuracy · \(snapshot.todayMastered) mastered today"
         var masteredLine = "Mastered \(snapshot.mastered)/\(snapshot.total)"
         if snapshot.streakDays >= 1 {
             masteredLine += " · Streak \(snapshot.streakDays)d"

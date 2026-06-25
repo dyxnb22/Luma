@@ -44,6 +44,10 @@ public struct CommandRouter: Sendable {
             return .targeted(module: command.module, trigger: command.primaryTrigger, payload: restTrimmed)
         }
 
+        if firstToken.count == 1 {
+            return .globalSearch(trimmed)
+        }
+
         let typoSuggestions = registry.suggestTriggers(for: firstToken, limit: 3)
         if !typoSuggestions.isEmpty {
             return .unknownPrefix(prefix: firstToken, remainder: restTrimmed, suggestions: typoSuggestions)

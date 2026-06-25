@@ -12,8 +12,8 @@ The project is macOS-only: Swift 6, AppKit for the launcher surface, SwiftUI onl
 - **Empty query:** sectioned home list — Open Apps, Suggested, Recent.
 - **Non-empty query:** flat ranked results (max 8 rows) from all enabled modules.
 - **Module detail:** same-panel views entered via trigger keywords or contextual suggestions (not dashboard cards).
-- **Active modules (11):** Apps, Clipboard, Commands, Notes, Todo, Events, Translate, Wordbook, Snippets, Secrets, Media (Events/Media default off in Settings).
-- **Deferred from default registration** (source retained): Calculator, Windows.
+- **Active modules (12):** Apps, Clipboard, Commands, Notes, Todo, Translate, Wordbook, Snippets, Secrets, Media, Window Layouts, Projects (Media default off in Settings).
+- **Deferred from default registration** (source retained): Windows (window focus list).
 - Translation uses Apple Translation / Shortcuts fallback — no network API.
 - Clipboard history is local-first with secret filtering, image support, and pin/search.
 

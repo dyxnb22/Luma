@@ -51,7 +51,7 @@ Do not reintroduce Route B patterns (860 × 540 widget grid, sidebar-first layou
 
 ## Module Conventions
 
-Active built-ins live in `BuiltInModules.makeAll()`. Deferred: Calculator, Windows.
+Active built-ins live in `BuiltInModules.makeAll()`. Deferred: Windows.
 
 Recent command-first modules to mirror when adding features:
 

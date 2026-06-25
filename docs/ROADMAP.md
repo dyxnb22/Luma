@@ -18,7 +18,7 @@ Route A (`docs/strategy/LAUNCHER_CONVERGENCE_STRATEGY.md`, `CONVERGENCE_EXECUTIO
 
 | Version | Focus | Do | Do Not Do |
 | --- | --- | --- | --- |
-| 0.1 Daily self-use | Dashboard Widget shell | Route B single window, App Search sidebar, **Translate + Clipboard + Notes + Todo + Wordbook + Snippets + Secrets** core cards, **Media (trigger-only)**, Commands, same-panel details (Wordbook review in-panel per ADR-013), in-panel settings gear (ADR-014) | Calculator/Windows on dashboard, Plugin API, Notion-style TODO database, Floating Wordbook pet, ChatGPT-paste import, browser password autofill, Douban-style social/discovery features in Media, streaming integration, Media metadata fetch (TMDB/OMDb/Google Books) in v1 |
+| 0.1 Daily self-use | Command-first launcher | Route C unified list, Open Apps, App Search, **Projects + Window Layouts + Translate + Clipboard + Notes + Todo + Wordbook + Snippets + Secrets + Records**, Commands/Settings, same-panel details, compact action panel | Dashboard/card home, Calculator, Events, Plugin API, Notion-style TODO database, Floating Wordbook pet, ChatGPT-paste import, browser password autofill, Douban-style social/discovery features in Records, streaming integration, Records metadata fetch (TMDB/OMDb/Google Books) in v1 |
 
 ## Todo + Wordbook v0.1 (ADR-009)
 
@@ -36,7 +36,7 @@ Reference: `docs/adr/009-todo-wordbook-v01.md`
 | P1 | ✓ | `PermissionBannerController`; panel-visible polling (3 s) |
 | P1 | ✓ | `OpenAppsSidebarController` diff updates |
 | P1 | ✓ | `LauncherEnvironment` + `ModuleLauncherHooks` (replaces `LauncherBridge`) |
-| P1 | ✓ | Events/Commands default disabled |
+| P1 | ✓ | Commands default disabled |
 | P1 | ✓ | `LauncherRootView` split (387 lines; coordinators + chrome) |
 | P1 | ✓ | Card status event subscriptions (`*ChangeHub`) |
 | P1 | ✓ | Notes 三件套：`NotesDetailView` + `NotesMindMapView` + `NotesImageToolsPanel` + `NotesDetailSheets` |
@@ -68,10 +68,10 @@ Reference: `docs/adr/015-app-search-fuzzy-pinyin.md`, `docs/adr/016-wordbook-dai
 
 Reference: `docs/adr/010-snippets-secrets.md`, `docs/strategy/SNIPPETS_SECRETS_PLAN.md`
 
-## Media v0.1 (ADR-011)
+## Records v0.1 (ADR-011)
 
-- Lightweight local-only log for movies / TV / anime / games / books. Trigger `m ` (also `media `).
-- Trigger-only: no dashboard card. Detail view via `m log` or manage row.
+- Lightweight local-only log for movies / TV / anime / games / books. Trigger `rec ` (legacy `m ` / `media ` still accepted).
+- Trigger-only: no dashboard card. Detail view via `rec log` or manage row.
 
 Reference: `docs/adr/011-media-tracker.md`, `docs/strategy/MEDIA_TRACKER_PLAN.md`
 - Trigger-only — no dashboard card (8-slot ceiling preserved).

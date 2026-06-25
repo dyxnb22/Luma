@@ -220,7 +220,6 @@ public enum BuiltInCommandRegistry {
         static let secrets = ModuleIdentifier(rawValue: "luma.secrets")
         static let wordbook = ModuleIdentifier(rawValue: "luma.wordbook")
         static let commands = ModuleIdentifier(rawValue: "luma.commands")
-        static let events = ModuleIdentifier(rawValue: "luma.events")
     }
 
     public static func make() -> CommandRegistry {
@@ -411,23 +410,6 @@ public enum BuiltInCommandRegistry {
                     "word ? — this help"
                 ],
                 discoverPriority: 100
-            ),
-            CommandDefinition(
-                id: "events",
-                module: ID.events,
-                title: "Calendar",
-                primaryTrigger: "e",
-                aliases: ["event"],
-                placeholder: "List or create calendar events",
-                examples: ["e meet john tomorrow 14:00"],
-                sectionTitle: "EVENTS",
-                helpLines: [
-                    "e — list today's calendar events",
-                    "e meet john tomorrow 14:00 — create event",
-                    "Return on capture row — save to Calendar",
-                    "e ? — this help"
-                ],
-                discoverPriority: 105
             ),
             CommandDefinition(
                 id: "settings",

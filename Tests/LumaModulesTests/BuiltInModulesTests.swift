@@ -5,9 +5,8 @@ import Testing
     #expect(BuiltInModules.makeAll().isEmpty == false)
 }
 
-@Test func activeBuiltInModulesExcludeDeferredCalculatorAndWindows() {
+@Test func activeBuiltInModulesExcludeDeferredWindows() {
     let ids = Set(BuiltInModules.makeAll().map { type(of: $0).manifest.identifier })
-    #expect(!ids.contains(.calculator))
     #expect(!ids.contains(.windows))
     #expect(ids.contains(.translate))
     #expect(ids.contains(.clipboard))
@@ -23,8 +22,8 @@ import Testing
 
 @Test func deferredModulesRemainAvailableInSource() {
     let deferred = BuiltInModules.makeDeferred().map { type(of: $0).manifest.identifier }
-    #expect(deferred.contains(.calculator))
     #expect(deferred.contains(.windows))
+    #expect(deferred.count == 1)
 }
 
 @Test func builtInModulesOverridesReplaceSharedInstances() {

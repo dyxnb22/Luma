@@ -85,12 +85,6 @@
 - Settings → General → "Show latency HUD overlay" toggles bottom-right p95 overlay.
 - Overlay updates after each search paint when enabled.
 
-### Events (Calendar)
-
-- `e` lists today's calendar events (requires Calendar permission).
-- `e meet john tomorrow 14:00` previews create; Return saves to Calendar.
-- `e ?` shows help lines.
-
 ### Apps RAM
 
 - `app top` lists running apps by resident memory; Return activates; secondary action quits app.
@@ -105,7 +99,7 @@
 
 ### Module Help
 
-- `?` / `help` on module triggers: `t ?`, `s ?`, `m ?`, `secret ?`, `clip ?`, `tr ?`, `e ?`, `app ?`, and global `?` for commands.
+- `?` / `help` on module triggers: `t ?`, `s ?`, `m ?`, `secret ?`, `clip ?`, `tr ?`, `app ?`, and global `?` for commands.
 
 ### Hotkey Status
 

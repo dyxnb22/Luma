@@ -38,7 +38,6 @@ public enum BuiltInModules {
             CommandsModule(),
             overrides.notes ?? NotesModule(),
             overrides.todo ?? TodoModule(),
-            EventsModule(),
             TranslateModule(),
             overrides.wordbook ?? WordbookModule(),
             overrides.snippets ?? SnippetsModule(),
@@ -51,10 +50,7 @@ public enum BuiltInModules {
 
     /// Deferred modules kept in source but excluded from active dashboard, warmup, and default registration.
     public static func makeDeferred() -> [any LumaModule] {
-        [
-            WindowsModule(),
-            CalculatorModule()
-        ]
+        [WindowsModule()]
     }
 
     public static let accessibilityDependentModuleIDs: Set<ModuleIdentifier> = [.windows, .snippets, .windowLayouts]

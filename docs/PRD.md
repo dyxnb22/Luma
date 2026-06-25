@@ -42,14 +42,13 @@ Historical route docs:
 
 ## Active Built-In Modules
 
-Registered at launch (`BuiltInModules.makeAll()`): Apps, Clipboard, Commands, Notes, Todo, Events, Translate, Wordbook, Snippets, Secrets, Media, Window Layouts, Projects.
+Registered at launch (`BuiltInModules.makeAll()`): Apps, Clipboard, Commands, Notes, Todo, Translate, Wordbook, Snippets, Secrets, Media, Window Layouts, Projects.
 
-Deferred (no warmup, not in default registry): Calculator, Windows (window focus list).
+Deferred (no warmup, not in default registry): Windows (window focus list).
 
 ## Deferred Or Experimental Scope
 
 - **Windows module** — full window picker/focus (deferred; distinct from Window Layouts presets).
-- **Calculator** — stub module.
 - Notes Graph / wiki-link graph views.
 - Plugin marketplace or public extension API.
 - Thirds/quarters/saved multi-window split layouts (Window Layouts v2).
@@ -64,7 +63,7 @@ Wordbook is an active built-in module (`word` trigger) with same-panel review (A
 - Keystroke -> first ranked snapshot painted: p95 <= 30 ms.
 - Adding or maintaining a feature starts from its folder in `Features/`.
 - Every user-facing feature has a `LumaModule` boundary.
-- The launcher shell stays lightweight: no warmup for deferred modules (Calculator, Windows).
+- The launcher shell stays lightweight: no warmup for deferred modules (Windows).
 - Module `handle` paths stay memory-only; disk scan belongs in warmup (Projects, Apps, Notes).
 - Module detail pages stay same-panel and do not become separate app windows.
 

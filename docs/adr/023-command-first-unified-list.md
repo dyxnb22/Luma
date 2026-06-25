@@ -48,4 +48,3 @@ Negative:
 - `LauncherListView` replaces `FeatureFlowView` + sidebar + dual scroll views.
 - `LauncherHomeAggregator` composes three providers on empty query only.
 - `FeatureCatalog.dashboardCoreCards()` may remain for detail header metadata until a later cleanup.
-- Calculator remains deferred (`BuiltInModules.makeDeferred()`); remove from PRD required list.

@@ -103,11 +103,18 @@ import LumaCore
     #expect(router.route(raw: "app top") == .targeted(module: apps, trigger: "app", payload: "top"))
 }
 
-@Test func commandRouterEventsRoutesTargeted() {
+@Test func commandRouterBareERoutesGlobalSearch() {
     let router = CommandRouter()
-    let events = ModuleIdentifier(rawValue: "luma.events")
-    #expect(router.route(raw: "e") == .targeted(module: events, trigger: "e", payload: ""))
-    #expect(router.route(raw: "e meet john tomorrow 14:00") == .targeted(module: events, trigger: "e", payload: "meet john tomorrow 14:00"))
+    guard case .globalSearch(let query) = router.route(raw: "e") else {
+        Issue.record("Expected globalSearch route for bare e")
+        return
+    }
+    #expect(query == "e")
+    guard case .globalSearch(let eventQuery) = router.route(raw: "event meet john") else {
+        Issue.record("Expected globalSearch route for event prefix")
+        return
+    }
+    #expect(eventQuery == "event meet john")
 }
 
 @Test func globalHelpIncludesFooterAndHelpPreview() {

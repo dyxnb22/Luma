@@ -36,9 +36,9 @@ Do not blend Route B dashboard/widget patterns (card grid, 860 × 540 shell, sid
 
 Registered via `BuiltInModules.makeAll()`:
 
-- Apps (root search), Clipboard (`clip`), Commands, Notes (`note`), Todo (`t`/`todo`), Events (`e`/`event`), Translate (`tr`/`translate`), Wordbook (`word`), Snippets (`s`/`snip`), Secrets (`secret`), Media (`m`/`media`), **Window Layouts** (`layout`/`win`/`wl`), **Projects** (`proj`/`p`/`project`).
+- Apps (root search), Clipboard (`clip`), Commands, Notes (`note`), Todo (`t`/`todo`), Translate (`tr`/`translate`), Wordbook (`word`), Snippets (`s`/`snip`), Secrets (`secret`), Media (`m`/`media`), **Window Layouts** (`layout`/`win`/`wl`), **Projects** (`proj`/`p`/`project`).
 
-Deferred (`makeDeferred()`): Calculator, Windows (window focus list).
+Deferred (`makeDeferred()`): Windows (window focus list).
 
 Accessibility-dependent when active: Snippets, Window Layouts.
 

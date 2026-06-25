@@ -39,7 +39,6 @@ flowchart TD
 | Commands | no | built-in commands | |
 | Notes | yes | `note` / `note <query>` | warmup index |
 | Todo | yes | `t` / `t <task>` / `todo` | |
-| Events | no | `e` / `event` | |
 | Translate | yes | `tr <text>` / `translate <text>` | |
 | Wordbook | yes | `word` / `word <query>` | |
 | Snippets | yes | `s` / `snip` | requires Accessibility for paste |
@@ -52,7 +51,6 @@ flowchart TD
 
 ### Deferred (source retained, excluded from `makeAll()`)
 
-- **Calculator** — stub query handler; detail view exists but unreachable.
 - **Windows** — window focus list via CGWindow / Accessibility (distinct from Window Layouts presets).
 
 ### Accessibility-dependent when active

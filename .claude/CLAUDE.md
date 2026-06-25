@@ -48,9 +48,9 @@ Do not casually merge Route B dashboard/widget UX back in. Route A and Route B r
 
 ## Active Module Landscape
 
-`BuiltInModules.makeAll()` includes Apps, Clipboard, Commands, Notes, Todo, Events, Translate, Wordbook, Snippets, Secrets, Media, **Window Layouts**, **Projects**.
+`BuiltInModules.makeAll()` includes Apps, Clipboard, Commands, Notes, Todo, Translate, Wordbook, Snippets, Secrets, Media, **Window Layouts**, **Projects**.
 
-Deferred: Calculator, Windows.
+Deferred: Windows.
 
 Notable recent additions:
 

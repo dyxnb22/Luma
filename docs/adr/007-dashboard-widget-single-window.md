@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted, supersedes ADR-006 for current UI implementation.
+Superseded by ADR-023. Historical record of Route B implementation.
 
 ## Context
 

@@ -6,10 +6,12 @@ The project is macOS-only: Swift 6, AppKit for the launcher surface, SwiftUI onl
 
 ## Current Status
 
-Route B (Dashboard Widget single window) is the active product surface:
+**Route C** (Command-First Unified List, ADR-023) is the active product surface:
 
-- Command+Space opens a pre-instantiated AppKit panel with a glass dashboard.
-- **Dashboard cards (7):** Translate, Clipboard, Notes, Todo, Wordbook, Snippets, Secrets — liquid-glass widgets in a 4+3 grid.
+- Command+Space opens a pre-instantiated AppKit panel (~700×480 pt).
+- **Empty query:** sectioned home list — Open Apps, Suggested, Recent.
+- **Non-empty query:** flat ranked results (max 8 rows) from all enabled modules.
+- **Module detail:** same-panel views entered via trigger keywords or contextual suggestions (not dashboard cards).
 - **Active modules (11):** Apps, Clipboard, Commands, Notes, Todo, Events, Translate, Wordbook, Snippets, Secrets, Media (Events/Media default off in Settings).
 - **Deferred from default registration** (source retained): Calculator, Windows.
 - Translation uses Apple Translation / Shortcuts fallback — no network API.
@@ -17,14 +19,14 @@ Route B (Dashboard Widget single window) is the active product surface:
 
 ## Feature Direction
 
-The first useful build should prove:
+The launcher should prove:
 
 1. Command+Space toggles a pre-instantiated AppKit launcher panel.
-2. Empty query shows the dashboard feature card grid (not usage recents).
+2. Empty query shows a keyboard-navigable home list (not a card grid).
 3. Non-empty query fans out to enabled modules through a timeout-protected dispatcher.
 4. Ranked results render quickly and actions run without blocking UI.
 5. The panel hides immediately after action dispatch.
-6. Latency is measured from day one.
+6. Latency is measured from day one (keystroke→paint and hotkey→home-rendered).
 
 ## Commands
 
@@ -72,15 +74,11 @@ The LaunchAgent points at `build/Luma.app/Contents/MacOS/Luma` and restarts Luma
 
 - [PRD](docs/PRD.md)
 - [Architecture](docs/ARCHITECTURE.md)
+- [ADR-023 Route C](docs/adr/023-command-first-unified-list.md)
 - [Engineering Package](docs/ENGINEERING_PACKAGE.md)
 - [Roadmap](docs/ROADMAP.md)
 - [Feature Index](Features/README.md)
-- [Opus Decisions](docs/OPUS_DECISIONS.md)
-- [Launcher Convergence Strategy](docs/strategy/LAUNCHER_CONVERGENCE_STRATEGY.md)
-- [Convergence Execution Plan](docs/strategy/CONVERGENCE_EXECUTION_PLAN.md)
-- [Product Route Options](docs/strategy/PRODUCT_ROUTE_OPTIONS.md)
-- [Dashboard Widget Strategy](docs/strategy/DASHBOARD_WIDGET_STRATEGY.md)
-- [Dashboard Widget Cursor Plan](docs/strategy/DASHBOARD_WIDGET_CURSOR_PLAN.md)
+- [Performance Spec](docs/specs/PERFORMANCE.md)
 - [Manual QA Checklist](docs/MANUAL_QA_CHECKLIST.md)
 
 ## Non-Negotiables

@@ -1,6 +1,6 @@
 # Dashboard Widget Polish Plan
 
-Status: post Phase 0–7 backlog for Route B (ADR-007).
+Status: **Historical** — Route B polish backlog; superseded by ADR-023.  
 Date: 2026-06-22
 
 ## Completed in Phase 8–10 polish

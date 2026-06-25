@@ -5,6 +5,7 @@
 | Metric | p50 | p95 | Hard ceiling |
 | --- | ---: | ---: | ---: |
 | Hotkey press -> interactive panel | 25 ms | 50 ms | 80 ms |
+| Hotkey press -> home list rendered (Route C) | 30 ms | 50 ms | 80 ms |
 | Keystroke -> first ranked snapshot painted | 12 ms | 30 ms | 60 ms |
 | Module `handle` call | 5-30 ms | <= timeout | 80 ms |
 | `NotesModule.handle` | ≤ 10 ms | ≤ 30 ms | 40 ms (manifest queryTimeout) |
@@ -37,6 +38,7 @@ Launcher convergence strategy adds a stricter working rule: warm keystroke p95 a
 Instrument these intervals first:
 
 - `panel.show`.
+- `home.render` (Route C empty-query first paint; tracked by `HomeLatencyTracker`).
 - `query.keystroke_to_dispatch`.
 - `query.dispatch`.
 - `module.<id>.handle`.

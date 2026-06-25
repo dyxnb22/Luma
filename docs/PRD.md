@@ -6,14 +6,13 @@ Luma is a personal macOS launcher for one keyboard-heavy developer. It opens via
 
 ## Strategic Update
 
-The active product strategy is Route B: a single Dashboard Widget window that keeps Command+Space as the primary entry point while combining search, open-app context, widget cards, and same-panel module details.
+The active product strategy is **Route C** (ADR-023): a command-first unified list launcher. Command+Space opens a single-column list with sectioned home rows (Open Apps, Suggested, Recent) and flat search results. Module detail views remain in the same panel; dashboard feature cards are no longer home-screen entry points.
 
 Authoritative planning docs:
 
+- `docs/adr/023-command-first-unified-list.md`
+- `docs/adr/007-dashboard-widget-single-window.md` (superseded, historical)
 - `docs/strategy/PRODUCT_ROUTE_OPTIONS.md`
-- `docs/adr/007-dashboard-widget-single-window.md`
-- `docs/strategy/DASHBOARD_WIDGET_STRATEGY.md`
-- `docs/strategy/DASHBOARD_WIDGET_POLISH_PLAN.md`
 
 Historical Route A reference:
 
@@ -23,8 +22,8 @@ Historical Route A reference:
 
 ## Product Goals
 
-- Native AppKit dashboard launcher with p95 hotkey-to-interactive <= 50 ms.
-- Empty-query dashboard with open apps, widget cards, and lightweight module detail views.
+- Native AppKit launcher with p95 hotkey-to-interactive <= 50 ms.
+- Empty-query home list with Open Apps, contextual suggestions, and recent actions.
 - Modular query/action implementation behind a simple launcher UX.
 - Local-first data for clipboard, usage, configuration, and app cache.
 - A small core feature set that remains fast under repeated daily use.
@@ -35,10 +34,9 @@ Historical Route A reference:
 2. Window Focus.
 3. Clipboard History.
 4. Translate typed or selected text.
-5. Open Apps sidebar ordered by actual activation recency/frequency.
-6. Quick Calculator.
-7. Spotlight/Raycast-like UI with native macOS liquid-glass visual calm.
-8. `Features/` folder containing per-module introductions and maintenance notes.
+5. Open Apps section ordered by activation recency/frequency.
+6. Spotlight/Raycast-like UI with native macOS visual calm.
+7. `Features/` folder containing per-module introductions and maintenance notes.
 
 ## Deferred Or Experimental Scope
 
@@ -58,7 +56,7 @@ Wordbook is not part of the active six-module dashboard core. Keep `/Users/diaoy
 - Keystroke -> first ranked snapshot painted: p95 <= 30 ms.
 - Adding or maintaining a feature starts from its folder in `Features/`.
 - Every user-facing feature has a `LumaModule` boundary.
-- The dashboard shell stays lightweight: no warmup for deferred modules.
+- The launcher shell stays lightweight: no warmup for deferred modules (Calculator, Windows).
 - Module detail pages stay same-panel and do not become separate app windows.
 
 ## Platform

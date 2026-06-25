@@ -2,15 +2,15 @@
 
 This folder is the maintenance index for Luma's feature modules. Each feature owns a README with scope, data model, actions, privacy rules, UI behavior, and implementation notes.
 
-## Active v1 Launcher Set (Route B — ADR-007)
+## Active v1 Launcher Set (Route C — ADR-023)
 
-**Dashboard cards:** Translate, Clipboard, Notes, Todo, Wordbook, Snippets, Secrets.
+**Home sections:** Open Apps, Suggested, Recent (no dashboard card grid).
 
 **Modules (registered at launch):** Apps, Clipboard, Commands, Notes, Todo, Events, Translate, Wordbook, Snippets, Secrets, Media.
 
 **Deferred:** Calculator, Windows (source retained, not in `BuiltInModules.makeAll()`).
 
-See `docs/strategy/DASHBOARD_WIDGET_STRATEGY.md` and `docs/ARCHITECTURE.md` for the current product surface.
+See `docs/adr/023-command-first-unified-list.md` and `docs/ARCHITECTURE.md` for the current product surface.
 
 ## Historical / Experimental Docs
 
@@ -20,7 +20,7 @@ Older per-feature READMEs under this folder may describe pre–Route B experimen
 
 - Every feature is represented as an independent `LumaModule` or service-backed module.
 - Every default-enabled feature must preserve the launcher hot path.
-- Empty-query UI shows the dashboard feature card grid.
+- Empty-query UI shows a sectioned home list (Open Apps / Suggested / Recent).
 - Sensitive features must keep secrets out of generic search results unless explicitly unlocked.
 
 ## Raycast-Inspired Defaults

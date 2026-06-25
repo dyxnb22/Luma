@@ -70,7 +70,7 @@ public enum ClipboardSnapshotReader {
             }
         }
 
-        let text = pasteboard.string(forType: .string)
+        let text = Self.readText(from: pasteboard)
 
         return ClipboardSnapshot(
             changeCount: changeCount,
@@ -83,6 +83,42 @@ public enum ClipboardSnapshotReader {
             sourceBundleID: skipSource ? nil : bundleID,
             sourceIsLuma: skipSource
         )
+    }
+
+    private static let textPasteboardTypes: [NSPasteboard.PasteboardType] = [
+        .string,
+        NSPasteboard.PasteboardType("NSStringPboardType"),
+        NSPasteboard.PasteboardType("public.plain-text")
+    ]
+
+    private static func readText(from pasteboard: NSPasteboard) -> String? {
+        for type in textPasteboardTypes {
+            if let text = pasteboard.string(forType: type), !text.isEmpty {
+                return text
+            }
+        }
+        if let strings = pasteboard.readObjects(forClasses: [NSString.self], options: nil) as? [String],
+           let first = strings.first(where: { !$0.isEmpty }) {
+            return first
+        }
+        if let rtf = pasteboard.data(forType: .rtf),
+           let attributed = NSAttributedString(rtf: rtf, documentAttributes: nil),
+           !attributed.string.isEmpty {
+            return attributed.string
+        }
+        if let htmlData = pasteboard.data(forType: .html),
+           let attributed = try? NSAttributedString(
+               data: htmlData,
+               options: [
+                   .documentType: NSAttributedString.DocumentType.html,
+                   .characterEncoding: String.Encoding.utf8.rawValue
+               ],
+               documentAttributes: nil
+           ),
+           !attributed.string.isEmpty {
+            return attributed.string
+        }
+        return nil
     }
 }
 #endif

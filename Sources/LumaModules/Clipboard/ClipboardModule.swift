@@ -19,6 +19,7 @@ public actor ClipboardModule: LumaModule {
     private let accessibility: any AccessibilityClient
     private var pollingTask: Task<Void, Never>?
     private var lastChangeCount = -1
+    private var suppressedChangeCount: Int?
     private var historyEnabled = true
     private var pasteBehavior = ClipboardPasteBehavior.pasteDirectly
 
@@ -181,13 +182,12 @@ public actor ClipboardModule: LumaModule {
     private func writeEntry(_ entry: ClipboardEntry, to pasteboard: any PasteboardClient, plainTextOnly: Bool) async throws {
         if let data = entry.imageData, let type = entry.imagePasteboardType, !plainTextOnly {
             await pasteboard.writeImage(data: data, pasteboardType: type)
-            return
-        }
-        if let fileURLs = entry.fileURLs?.map({ URL(fileURLWithPath: $0) }), !fileURLs.isEmpty, !plainTextOnly {
+        } else if let fileURLs = entry.fileURLs?.map({ URL(fileURLWithPath: $0) }), !fileURLs.isEmpty, !plainTextOnly {
             await pasteboard.writeFileURLs(fileURLs)
-            return
+        } else {
+            await pasteboard.write(entry.plainTextForCopy)
         }
-        await pasteboard.write(entry.plainTextForCopy)
+        suppressedChangeCount = await MainActor.run { NSPasteboard.general.changeCount }
     }
 
     private func startPolling() {
@@ -214,7 +214,7 @@ public actor ClipboardModule: LumaModule {
 
         guard board.changeCount != lastChangeCount else { return }
         lastChangeCount = board.changeCount
-        guard !board.sourceIsLuma else { return }
+        guard board.changeCount != suppressedChangeCount else { return }
 
         if !board.fileURLs.isEmpty {
             let paths = board.fileURLs.map(\.path)
@@ -231,6 +231,17 @@ public actor ClipboardModule: LumaModule {
             return
         }
 
+        let hasTextRepresentation = ClipboardEntryKind.isTextTypes(board.types)
+        if let text = board.text, !text.isEmpty, hasTextRepresentation || board.imageData == nil {
+            await store.add(
+                text: text,
+                types: board.types,
+                sourceAppName: board.sourceAppName,
+                sourceBundleID: board.sourceBundleID
+            )
+            return
+        }
+
         if let data = board.imageData, ClipboardEntryKind.isImageTypes(board.types) {
             await store.add(
                 text: "[Image]",
@@ -239,16 +250,6 @@ public actor ClipboardModule: LumaModule {
                 sourceBundleID: board.sourceBundleID,
                 imageData: data,
                 imagePasteboardType: board.imageType
-            )
-            return
-        }
-
-        if let text = board.text, !text.isEmpty {
-            await store.add(
-                text: text,
-                types: board.types,
-                sourceAppName: board.sourceAppName,
-                sourceBundleID: board.sourceBundleID
             )
         }
     }

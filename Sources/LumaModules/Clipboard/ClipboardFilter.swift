@@ -24,6 +24,15 @@ public enum ClipboardFilter {
         "secure"
     ]
 
+    private static let publicTextTypes: Set<String> = [
+        "public.utf8-plain-text",
+        "NSStringPboardType",
+        "public.plain-text",
+        "public.text",
+        "public.html",
+        "public.rtf"
+    ]
+
     private static let defaultBlockedBundleIDs: Set<String> = [
         "com.agilebits.onepassword7",
         "com.agilebits.onepassword4",
@@ -40,12 +49,24 @@ public enum ClipboardFilter {
     ]
 
     public static func shouldSkip(types: [String]) -> Bool {
-        types.contains { raw in
-            if exactBlockedTypes.contains(raw) { return true }
+        if types.contains(where: { exactBlockedTypes.contains($0) }) {
+            return true
+        }
+        let hasPublicTextType = types.contains { isPublicTextType($0) }
+        return types.contains { raw in
             let lower = raw.lowercased()
-            if blockedTypePrefixes.contains(where: { lower.hasPrefix($0) }) { return true }
+            if blockedTypePrefixes.contains(where: { lower.hasPrefix($0) }) {
+                return true
+            }
+            if hasPublicTextType {
+                return false
+            }
             return blockedTypeSubstrings.contains(where: { lower.contains($0) })
         }
+    }
+
+    private static func isPublicTextType(_ raw: String) -> Bool {
+        publicTextTypes.contains(raw) || raw.hasPrefix("public.text")
     }
 
     public static func shouldSkipSource(bundleID: String?, ignoredBundleIDs: Set<String> = []) -> Bool {

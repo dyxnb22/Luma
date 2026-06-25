@@ -51,9 +51,17 @@ final class NotesDetailView: NSObject, ModuleDetailView {
         }
     }
 
+    func prepareForLauncherHide() async {
+        guard activePanel == .outline, activeChip == nil, dataSource.filterText.isEmpty else { return }
+        await persistExpansionNow(captureOutlineExpansion())
+    }
+
     func deactivate() {
         refreshTask?.cancel()
         refreshTask = nil
+        if activePanel == .outline, activeChip == nil, dataSource.filterText.isEmpty {
+            Task { await persistExpansionNow(captureOutlineExpansion()) }
+        }
     }
 
     func handleKeyDown(_ event: NSEvent) -> Bool {
@@ -357,6 +365,59 @@ final class NotesDetailView: NSObject, ModuleDetailView {
         detailView.window?.makeFirstResponder(viewMode == .outline ? outlineView : mindMapView)
     }
 
+    private func reloadOutlineData(restoreExpansion: (() -> Void)? = nil) {
+        dataSource.suppressExpansionCallbacks = true
+        outlineView.reloadData()
+        restoreExpansion?()
+        DispatchQueue.main.async { [weak self] in
+            self?.dataSource.suppressExpansionCallbacks = false
+        }
+    }
+
+    private func captureOutlineExpansion() -> Set<String> {
+        guard let displayRoot = dataSource.displayRoot else { return [] }
+        var paths = Set<String>()
+        func collect(_ item: NotesOutlineItem) {
+            if item.node.kind == .folder, outlineView.isItemExpanded(item) {
+                paths.insert(item.node.path)
+            }
+            for child in item.children {
+                collect(child)
+            }
+        }
+        collect(displayRoot)
+        return paths
+    }
+
+    private func persistExpansionNow(_ paths: Set<String>) async {
+        let filtered = Set(paths.filter { !isVirtualOutlinePath($0) })
+        let store = NotesRootConfigStore()
+        var config = await store.load()
+        config.expandedFolders = filtered
+        try? await store.save(config)
+        try? await module.saveConfig(config)
+    }
+
+    private func isVirtualOutlinePath(_ path: String) -> Bool {
+        path.hasPrefix("__")
+    }
+
+    private func restoreExpandedFolders(from saved: Set<String>) {
+        let paths = saved.filter { !isVirtualOutlinePath($0) }.sorted {
+            $0.split(separator: "/").count < $1.split(separator: "/").count
+        }
+        if let displayRoot = dataSource.displayRoot {
+            outlineView.expandItem(displayRoot)
+        } else if let rootItem = dataSource.rootItem {
+            outlineView.expandItem(rootItem)
+        }
+        for path in paths {
+            if let item = dataSource.item(for: path) {
+                outlineView.expandItem(item)
+            }
+        }
+    }
+
     private func reloadTypeLabels() async {
         let entries = await module.notesMetaIndex().allEntries()
         var labels: [String: String] = [:]
@@ -405,9 +466,10 @@ final class NotesDetailView: NSObject, ModuleDetailView {
             dataSource.showFlatList(title: "Pinned", nodes: nodes)
         }
 
-        outlineView.reloadData()
-        if let displayRoot = dataSource.displayRoot {
-            outlineView.expandItem(displayRoot)
+        reloadOutlineData { [self] in
+            if let displayRoot = dataSource.displayRoot {
+                outlineView.expandItem(displayRoot)
+            }
         }
     }
 
@@ -428,14 +490,8 @@ final class NotesDetailView: NSObject, ModuleDetailView {
                 }
             }
             dataSource.showTree(root: snapshot, recentNodes: recentNodes)
-            outlineView.reloadData()
-            if let rootItem = dataSource.rootItem {
-                outlineView.expandItem(dataSource.displayRoot ?? rootItem)
-            }
-            for path in config.expandedFolders where path != config.root?.path {
-                if let item = dataSource.item(for: path) {
-                    outlineView.expandItem(item)
-                }
+            reloadOutlineData { [self] in
+                restoreExpandedFolders(from: config.expandedFolders)
             }
         case .browse:
             let meta = await module.notesMetaIndex()
@@ -454,18 +510,20 @@ final class NotesDetailView: NSObject, ModuleDetailView {
                 groups.append((type, nodes))
             }
             dataSource.showGroupedList(groups: groups)
-            outlineView.reloadData()
-            if let displayRoot = dataSource.displayRoot {
-                outlineView.expandItem(displayRoot)
-                dataSource.expandAll(in: outlineView)
+            reloadOutlineData { [self] in
+                if let displayRoot = dataSource.displayRoot {
+                    outlineView.expandItem(displayRoot)
+                    dataSource.expandAll(in: outlineView)
+                }
             }
         case .inbox:
             guard let root = config.root else { return }
             let nodes = await actions?.notesInFolder(named: config.inboxFolderName, root: root) ?? []
             dataSource.showFlatList(title: "Inbox", nodes: nodes)
-            outlineView.reloadData()
-            if let displayRoot = dataSource.displayRoot {
-                outlineView.expandItem(displayRoot)
+            reloadOutlineData { [self] in
+                if let displayRoot = dataSource.displayRoot {
+                    outlineView.expandItem(displayRoot)
+                }
             }
         }
     }
@@ -561,14 +619,15 @@ final class NotesDetailView: NSObject, ModuleDetailView {
             Task { [weak self] in
                 guard let self else { return }
                 var config = await module.loadConfig()
-                config.expandedFolders = savedExpansion
+                config.expandedFolders = savedExpansion.filter { !isVirtualOutlinePath($0) }
                 try? await module.saveConfig(config)
             }
         }
         dataSource.setFilter(text)
-        outlineView.reloadData()
         if !text.isEmpty {
-            dataSource.expandAll(in: outlineView)
+            reloadOutlineData { [self] in
+                dataSource.expandAll(in: outlineView)
+            }
         } else {
             Task { await refreshTree() }
         }
@@ -583,6 +642,7 @@ final class NotesDetailView: NSObject, ModuleDetailView {
     }
 
     private func persistExpansion(path: String, expanded: Bool) {
+        guard !isVirtualOutlinePath(path) else { return }
         Task { [weak self] in
             guard let self else { return }
             var config = await module.loadConfig()
@@ -905,7 +965,9 @@ final class NotesDetailView: NSObject, ModuleDetailView {
     private func selectPath(_ path: String, expandParent: Bool) {
         if let item = dataSource.item(for: path) {
             if expandParent, let parent = outlineView.parent(forItem: item) {
+                dataSource.suppressExpansionCallbacks = true
                 outlineView.expandItem(parent)
+                dataSource.suppressExpansionCallbacks = false
             }
             let row = outlineView.row(forItem: item)
             if row >= 0 {

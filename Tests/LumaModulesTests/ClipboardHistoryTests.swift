@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import LumaCore
 import Testing
@@ -93,30 +94,72 @@ import Testing
     #expect(entries.first?.detectedKind == .file)
 }
 
-@Test func clipboardModuleSkipsSnapshotsWrittenByLuma() async {
+@Test func clipboardModuleSkipsSelfWrittenPasteboard() async throws {
     let store = ClipboardHistoryStore()
-    await store.add(text: "keep pinned", types: ["public.text"])
+    await store.add(text: "round trip", types: ["public.text"])
     let id = await store.search("").first!.id
-    await store.pin(id)
 
-    let module = ClipboardModule(store: store, persistenceURL: URL(fileURLWithPath: "/tmp/luma-clip-self-\(UUID().uuidString).json"))
+    let module = ClipboardModule(
+        store: store,
+        persistenceURL: URL(fileURLWithPath: "/tmp/luma-clip-self-\(UUID().uuidString).json")
+    )
+    try await module.copyEntry(id: id)
+
+    let changeCount = await MainActor.run { NSPasteboard.general.changeCount }
+    await store.clear()
     let snapshot = ClipboardSnapshot(
-        changeCount: 1,
+        changeCount: changeCount,
         types: ["public.text"],
-        text: "keep pinned",
+        text: "round trip",
         imageData: nil,
         imageType: nil,
         fileURLs: [],
-        sourceAppName: nil,
-        sourceBundleID: nil,
+        sourceAppName: "Luma",
+        sourceBundleID: Bundle.main.bundleIdentifier,
         sourceIsLuma: true
     )
     await module.capturePasteboardIfNeeded(snapshot: snapshot)
+    #expect(await store.search("").isEmpty)
+}
 
-    let entries = await store.search("")
+@Test func clipboardModuleCapturesTextWhenLumaIsFrontmost() async {
+    let store = ClipboardHistoryStore()
+    let module = ClipboardModule(store: store, persistenceURL: URL(fileURLWithPath: "/tmp/luma-clip-front-\(UUID().uuidString).json"))
+    let snapshot = ClipboardSnapshot(
+        changeCount: 2,
+        types: ["public.utf8-plain-text"],
+        text: "copied while launcher open",
+        imageData: nil,
+        imageType: nil,
+        fileURLs: [],
+        sourceAppName: "Luma",
+        sourceBundleID: "com.example.luma",
+        sourceIsLuma: true
+    )
+    await module.capturePasteboardIfNeeded(snapshot: snapshot)
+    let entries = await store.search("launcher")
     #expect(entries.count == 1)
-    #expect(entries.first?.id == id)
-    #expect(entries.first?.isPinned == true)
+    #expect(entries.first?.text == "copied while launcher open")
+}
+
+@Test func clipboardModulePrefersTextOverStaleImageData() async {
+    let store = ClipboardHistoryStore()
+    let module = ClipboardModule(store: store, persistenceURL: URL(fileURLWithPath: "/tmp/luma-clip-mixed-\(UUID().uuidString).json"))
+    let snapshot = ClipboardSnapshot(
+        changeCount: 3,
+        types: ["public.utf8-plain-text", "public.png"],
+        text: "hello text",
+        imageData: Data([0x89, 0x50, 0x4E, 0x47]),
+        imageType: "public.png",
+        fileURLs: [],
+        sourceAppName: "Notes",
+        sourceBundleID: "com.apple.Notes"
+    )
+    await module.capturePasteboardIfNeeded(snapshot: snapshot)
+    let entries = await store.list(filter: .all, query: "", limit: 5)
+    #expect(entries.count == 1)
+    #expect(entries.first?.text == "hello text")
+    #expect(entries.first?.detectedKind == .text)
 }
 
 @Test func clipboardModuleCopiesFileURLsBack() async throws {
@@ -290,6 +333,46 @@ private struct NoopAccessibilityClient: AccessibilityClient {
     #expect(ClipboardFilter.shouldSkip(types: ["org.nspasteboard.ConcealedType"]))
     #expect(ClipboardFilter.shouldSkip(types: ["com.1password.item"]))
     #expect(ClipboardFilter.shouldSkip(types: ["public.password"]))
+}
+
+@Test func clipboardFilterAllowsChromeTextDespiteMetadataTokenType() async {
+  #expect(
+    ClipboardFilter.shouldSkip(types: [
+      "public.utf8-plain-text",
+      "org.chromium.source-url",
+      "org.chromium.internal.source-rfh-token"
+    ]) == false
+  )
+  let store = ClipboardHistoryStore()
+  await store.add(
+    text: "copied from chrome",
+    types: [
+      "public.utf8-plain-text",
+      "org.chromium.source-url",
+      "org.chromium.internal.source-rfh-token"
+    ],
+    sourceBundleID: "com.google.Chrome"
+  )
+  #expect(await store.search("chrome").count == 1)
+}
+
+@Test func clipboardModuleCapturesHTMLOnlySnapshot() async {
+  let store = ClipboardHistoryStore()
+  let module = ClipboardModule(store: store, persistenceURL: URL(fileURLWithPath: "/tmp/luma-clip-html-\(UUID().uuidString).json"))
+  let snapshot = ClipboardSnapshot(
+    changeCount: 4,
+    types: ["public.html"],
+    text: "notion block text",
+    imageData: nil,
+    imageType: nil,
+    fileURLs: [],
+    sourceAppName: "Notion",
+    sourceBundleID: "notion.id"
+  )
+  await module.capturePasteboardIfNeeded(snapshot: snapshot)
+  let entries = await store.search("notion")
+  #expect(entries.count == 1)
+  #expect(entries.first?.text == "notion block text")
 }
 
 @Test func clipboardHistoryStoresSearchesPinsAndClears() async {

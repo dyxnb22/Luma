@@ -10,7 +10,6 @@ final class AppCoordinator {
     private let windowController = LauncherWindowController()
     private var hotkeyController: HotkeyController?
     private var menuBarController: MenuBarController?
-    private let cardLayoutStore = CardLayoutStore.defaultStore()
     private var settingsWindowController: SettingsWindowController?
     private let logger = LumaLogger()
     private let metrics = LumaMetrics()
@@ -45,10 +44,16 @@ final class AppCoordinator {
     )
     private lazy var viewModel = LauncherViewModel(dispatcher: dispatcher)
     private let appActivationTracker = AppActivationTracker.defaultTracker()
+    private lazy var openAppsProvider = OpenAppsHomeProvider(appActivationTracker: appActivationTracker)
     private let clipboardModule = ClipboardModule()
     private let todoModule = TodoModule()
     private let secretsModule = SecretsModule()
     private let mediaModule = MediaModule()
+    private lazy var homeCoordinator = LauncherHomeCoordinator(
+        openApps: openAppsProvider,
+        recent: RecentActionsHomeProvider { await self.viewModel.recentFrecency(limit: 3) },
+        contextual: ContextualHomeProvider(todoModule: todoModule)
+    )
     private var activationObserver: NSObjectProtocol?
     private var terminationObserver: NSObjectProtocol?
 
@@ -83,12 +88,10 @@ final class AppCoordinator {
                 self?.windowController.setLatencyHUDEnabled(enabled)
             }
         )
-        let cards = cardLayoutStore.load(cards: FeatureCatalog.dashboardCoreCards())
         windowController.configure(
-            cards: cards,
             viewModel: viewModel,
+            homeCoordinator: homeCoordinator,
             actionExecutor: actionExecutor,
-            appActivationTracker: appActivationTracker,
             config: config,
             onOpenSettings: { [weak self] in
                 // Hide the launcher first so the settings window isn't behind the .modalPanel

@@ -1,6 +1,6 @@
 # Dashboard Widget Strategy
 
-Status: alternative implementation route  
+Status: **Historical** — superseded by ADR-023 (Route C). Retained for implementation archaeology only.  
 Date: 2026-06-22  
 Source: Opus dashboard implementation guidance, consolidated for project docs
 

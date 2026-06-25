@@ -4,11 +4,11 @@ import AppKit
 @MainActor
 public enum ColorTokens {
     public static var cardGradientTopAlpha: CGFloat {
-        isDarkAppearance ? 0.50 : 0.42
+        isDarkAppearance ? 0.50 : GeekStyleTokens.cardGradientTopAlphaLight
     }
 
     public static var cardGradientBottomAlpha: CGFloat {
-        isDarkAppearance ? 0.55 : 0.48
+        isDarkAppearance ? 0.55 : GeekStyleTokens.cardGradientBottomAlphaLight
     }
 
     public static let cardBorderAlpha: CGFloat = 0.32

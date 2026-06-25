@@ -16,4 +16,12 @@ public enum TypographyTokens {
     public static func caption(weight: NSFont.Weight = .regular) -> NSFont {
         .systemFont(ofSize: 12, weight: weight)
     }
+
+    public static func monoCaption(weight: NSFont.Weight = .medium) -> NSFont {
+        GeekStyleTokens.mono(size: 11, weight: weight)
+    }
+
+    public static func monoMeta(weight: NSFont.Weight = .regular) -> NSFont {
+        GeekStyleTokens.mono(size: 12, weight: weight)
+    }
 }

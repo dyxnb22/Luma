@@ -20,7 +20,7 @@ final class TranslateDetailView: ModuleDetailView {
     private var onBack: (() -> Void)?
     private var onContentChanged: ((String, String) -> Void)?
 
-    private let sourceLabel = NSTextField(labelWithString: "Auto Detect")
+    private let sourceLabel = NSTextField(labelWithString: "auto")
     private let targetPopup = NSPopUpButton()
     private let swapButton = NSButton()
     private let statusLabel = NSTextField(labelWithString: "")
@@ -28,8 +28,8 @@ final class TranslateDetailView: ModuleDetailView {
     private let errorBannerLabel = NSTextField(wrappingLabelWithString: "")
     private let inputTextView = TranslateInputTextView()
     private let outputTextView = TranslateOutputTextView()
-    private let inputPanel = NSView()
-    private let outputPanel = NSView()
+    private let inputPanel = GeekGlassPanel(accentHex: "#5AC8FA")
+    private let outputPanel = GeekGlassPanel(accentHex: "#0A84FF")
     private let panelsStack = NSStackView()
     private let translateButton = NSButton()
     private let copyResultButton = NSButton()
@@ -41,6 +41,8 @@ final class TranslateDetailView: ModuleDetailView {
     private var pendingTask: Task<Void, Never>?
     private var translationState: TranslationUIState = .idle
     private var languageChipButtons: [NSButton] = []
+    private var translationStartedAt: CFAbsoluteTime?
+    private var lastLatencyMS: Int?
 
     private static let panelTextInset = NSSize(width: 12, height: 12)
     private static let panelFont = NSFont.systemFont(ofSize: 14)
@@ -152,7 +154,7 @@ final class TranslateDetailView: ModuleDetailView {
         panelsStack.addArrangedSubview(inputPanel)
         panelsStack.addArrangedSubview(outputPanel)
 
-        statusLabel.font = .systemFont(ofSize: 12)
+        statusLabel.font = TypographyTokens.monoMeta()
         statusLabel.textColor = .secondaryLabelColor
         statusLabel.lineBreakMode = .byWordWrapping
         statusLabel.maximumNumberOfLines = 2
@@ -287,7 +289,7 @@ final class TranslateDetailView: ModuleDetailView {
             languageChipButtons.append(chip)
         }
 
-        sourceLabel.font = .systemFont(ofSize: 12, weight: .medium)
+        sourceLabel.font = TypographyTokens.monoMeta(weight: .medium)
         sourceLabel.textColor = .secondaryLabelColor
         sourceLabel.translatesAutoresizingMaskIntoConstraints = false
 
@@ -310,8 +312,7 @@ final class TranslateDetailView: ModuleDetailView {
         swapButton.translatesAutoresizingMaskIntoConstraints = false
 
         translateButton.title = "Translate"
-        translateButton.bezelStyle = .rounded
-        translateButton.font = .systemFont(ofSize: 13, weight: .semibold)
+        GeekUIKit.stylePrimaryButton(translateButton)
         translateButton.target = self
         translateButton.action = #selector(translateTapped)
         translateButton.isEnabled = false
@@ -355,12 +356,6 @@ final class TranslateDetailView: ModuleDetailView {
     }
 
     private func configurePanel(_ panel: NSView, textView: NSTextView) {
-        panel.wantsLayer = true
-        panel.layer?.cornerRadius = 12
-        panel.layer?.cornerCurve = .continuous
-        panel.layer?.borderWidth = 1
-        panel.layer?.borderColor = NSColor.separatorColor.withAlphaComponent(0.35).cgColor
-        panel.layer?.backgroundColor = NSColor.textBackgroundColor.withAlphaComponent(0.55).cgColor
         panel.translatesAutoresizingMaskIntoConstraints = false
 
         textView.isRichText = false
@@ -394,26 +389,26 @@ final class TranslateDetailView: ModuleDetailView {
 
     private func setupActionButtons() {
         copyResultButton.title = "Copy Result"
-        copyResultButton.bezelStyle = .rounded
+        GeekUIKit.stylePrimaryButton(copyResultButton)
         copyResultButton.target = self
         copyResultButton.action = #selector(copyResult)
         copyResultButton.isEnabled = false
         copyResultButton.translatesAutoresizingMaskIntoConstraints = false
 
         clearButton.title = "Clear"
-        clearButton.bezelStyle = .rounded
+        GeekUIKit.styleSecondaryButton(clearButton)
         clearButton.target = self
         clearButton.action = #selector(clearAll)
         clearButton.translatesAutoresizingMaskIntoConstraints = false
 
         pasteButton.title = "Paste from Clipboard"
-        pasteButton.bezelStyle = .rounded
+        GeekUIKit.styleSecondaryButton(pasteButton)
         pasteButton.target = self
         pasteButton.action = #selector(pasteFromClipboard)
         pasteButton.translatesAutoresizingMaskIntoConstraints = false
 
         copySourceButton.title = "Copy Source"
-        copySourceButton.bezelStyle = .rounded
+        GeekUIKit.styleSecondaryButton(copySourceButton)
         copySourceButton.target = self
         copySourceButton.action = #selector(copySource)
         copySourceButton.translatesAutoresizingMaskIntoConstraints = false
@@ -458,7 +453,7 @@ final class TranslateDetailView: ModuleDetailView {
         guard let source = sourceLanguageCode else { return }
         guard let currentTarget = targetPopup.selectedItem?.representedObject as? String else { return }
         sourceLanguageCode = currentTarget
-        sourceLabel.stringValue = displayName(for: currentTarget)
+        sourceLabel.stringValue = shortCode(for: currentTarget)
         selectTargetLanguage(source)
         Task { await config.setTranslationTargetLanguage(source) }
     }
@@ -491,7 +486,7 @@ final class TranslateDetailView: ModuleDetailView {
         inputTextView.refreshPlaceholder()
         updateTranslateButtonState()
         sourceLanguageCode = nil
-        sourceLabel.stringValue = "Auto Detect"
+        sourceLabel.stringValue = "auto"
         swapButton.isEnabled = false
         swapButton.toolTip = "Translate once to detect the source language before swapping"
         setState(.idle)
@@ -522,6 +517,7 @@ final class TranslateDetailView: ModuleDetailView {
             return
         }
         setState(.translating)
+        translationStartedAt = CFAbsoluteTimeGetCurrent()
         hideErrorBanner()
         copyResultButton.isEnabled = false
         translateButton.isEnabled = false
@@ -532,6 +528,9 @@ final class TranslateDetailView: ModuleDetailView {
                 let outcome = try await svc.translate(text)
                 await MainActor.run {
                     guard let self, !Task.isCancelled else { return }
+                    if let started = self.translationStartedAt {
+                        self.lastLatencyMS = Int((CFAbsoluteTimeGetCurrent() - started) * 1000)
+                    }
                     self.outputTextView.string = outcome.text
                     self.applyDetectedSourceLanguage(outcome.detectedSourceLanguageCode)
                     self.hideErrorBanner()
@@ -562,13 +561,13 @@ final class TranslateDetailView: ModuleDetailView {
     private func applyDetectedSourceLanguage(_ code: String?) {
         guard let code, !code.isEmpty else {
             sourceLanguageCode = nil
-            sourceLabel.stringValue = "Auto Detect"
+            sourceLabel.stringValue = "auto"
             swapButton.isEnabled = false
             swapButton.toolTip = "Translate once to detect the source language before swapping"
             return
         }
         sourceLanguageCode = code
-        sourceLabel.stringValue = displayName(for: code)
+        sourceLabel.stringValue = shortCode(for: code)
         swapButton.isEnabled = true
         swapButton.toolTip = "Swap source and target languages"
     }
@@ -577,24 +576,54 @@ final class TranslateDetailView: ModuleDetailView {
         translationState = state
         switch state {
         case .idle:
-            statusLabel.stringValue = ""
+            statusLabel.stringValue = formattedStatusLine(state: "idle")
             statusLabel.textColor = .secondaryLabelColor
             TranslateDashboardStatus.summary = "Ready"
         case .translating:
-            statusLabel.stringValue = "Translating…"
+            statusLabel.stringValue = formattedStatusLine(state: "translating")
             statusLabel.textColor = .secondaryLabelColor
             TranslateDashboardStatus.summary = "Translating…"
         case .success:
-            statusLabel.stringValue = "Translation complete"
+            statusLabel.stringValue = formattedStatusLine(state: "success")
             statusLabel.textColor = .secondaryLabelColor
             TranslateDashboardStatus.summary = "Last: success"
         case .error:
-            statusLabel.stringValue = ""
-            statusLabel.textColor = .secondaryLabelColor
+            statusLabel.stringValue = formattedStatusLine(state: "error")
+            statusLabel.textColor = .systemRed
             TranslateDashboardStatus.summary = "Last: unavailable"
         }
         updateDashboardSummary()
         updateTranslateButtonState()
+    }
+
+    private func formattedStatusLine(state: String) -> String {
+        let source = sourceLanguageCode.map(shortCode(for:)) ?? "auto"
+        let target = (targetPopup.selectedItem?.representedObject as? String).map(shortCode(for:)) ?? "?"
+        switch state {
+        case "translating":
+            return "\(source) → \(target) · translating…"
+        case "success":
+            if let lastLatencyMS {
+                return "\(source) → \(target) · \(lastLatencyMS)ms"
+            }
+            return "\(source) → \(target) · done"
+        case "error":
+            return "\(source) → \(target) · failed"
+        default:
+            guard sourceLanguageCode != nil || !(targetPopup.selectedItem?.representedObject as? String ?? "").isEmpty else {
+                return ""
+            }
+            return "\(source) → \(target) · ready"
+        }
+    }
+
+    private func shortCode(for languageCode: String) -> String {
+        switch languageCode {
+        case "zh-Hans": return "zh"
+        case "zh-Hant": return "zh-TW"
+        default:
+            return languageCode.split(separator: "-").first.map(String.init) ?? languageCode
+        }
     }
 
     private func updateDashboardSummary() {
@@ -619,11 +648,7 @@ final class TranslateDetailView: ModuleDetailView {
     private func updateChipHighlight(selectedCode: String) {
         for chip in languageChipButtons {
             let selected = chip.identifier?.rawValue == selectedCode
-            if #available(macOS 13.0, *) {
-                chip.bezelColor = selected ? .controlAccentColor : nil
-            }
-            chip.contentTintColor = selected ? .white : .labelColor
-            chip.alphaValue = selected ? 1 : 0.82
+            GeekUIKit.styleLanguageChip(chip, selected: selected)
         }
     }
 

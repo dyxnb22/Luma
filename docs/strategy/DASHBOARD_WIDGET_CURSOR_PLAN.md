@@ -1,9 +1,8 @@
 # Dashboard Widget Cursor Implementation Plan
 
-Status: implementation guide for Dashboard Widget Strategy  
+Status: **Historical** — superseded by ADR-023 (Route C).  
 Date: 2026-06-22  
 Companion: `docs/strategy/DASHBOARD_WIDGET_STRATEGY.md`
-Implementation status (2026-06-22): Phases 0 through 7 completed; Phase 8–10 polish underway per `docs/strategy/DASHBOARD_WIDGET_POLISH_PLAN.md`.
 
 This document condenses the Cursor Composer-oriented implementation plan. Each phase should be executed independently and verified before moving on.
 

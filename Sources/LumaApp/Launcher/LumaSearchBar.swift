@@ -1,4 +1,5 @@
 import AppKit
+import LumaCore
 import LumaModules
 
 @MainActor
@@ -7,6 +8,7 @@ final class LumaSearchBar: NSView {
         case up
         case down
         case tab
+        case actionPanel
         case commandNumber(Int)
     }
 
@@ -21,12 +23,12 @@ final class LumaSearchBar: NSView {
     var onReturn: (() -> Void)?
     var onKeyCommand: ((KeyCommand) -> Bool)?
     var onDetailKey: ((NSEvent) -> Bool)?
+    var onInterceptKeyDown: ((NSEvent) -> Bool)?
     var onOpenSettings: (() -> Void)?
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         translatesAutoresizingMaskIntoConstraints = false
-        heightAnchor.constraint(equalToConstant: 52).isActive = true
 
         let symbolConfig = NSImage.SymbolConfiguration(pointSize: 16, weight: .medium)
         iconView.image = NSImage(systemSymbolName: "magnifyingglass", accessibilityDescription: nil)?
@@ -38,7 +40,7 @@ final class LumaSearchBar: NSView {
         textField.isBordered = false
         textField.isBezeled = false
         textField.drawsBackground = false
-        textField.font = .systemFont(ofSize: 20, weight: .regular)
+        textField.font = .systemFont(ofSize: 18, weight: .regular)
         textField.placeholderString = ModuleSearchHints.default
         textField.focusRingType = .none
         textField.delegate = self
@@ -48,6 +50,7 @@ final class LumaSearchBar: NSView {
         textField.onEscape = { [weak self] in self?.onEscape?() }
         textField.onKeyCommand = { [weak self] command in self?.onKeyCommand?(command) ?? false }
         textField.onDetailKey = { [weak self] event in self?.onDetailKey?(event) ?? false }
+        textField.onInterceptKeyDown = { [weak self] event in self?.onInterceptKeyDown?(event) ?? false }
 
         hintsButton.isBordered = false
         hintsButton.bezelStyle = .inline
@@ -89,23 +92,23 @@ final class LumaSearchBar: NSView {
         addSubview(clearButton)
 
         NSLayoutConstraint.activate([
-            iconView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 18),
+            iconView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 4),
             iconView.centerYAnchor.constraint(equalTo: centerYAnchor),
             iconView.widthAnchor.constraint(equalToConstant: 16),
             iconView.heightAnchor.constraint(equalToConstant: 16),
-            textField.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: 10),
+            textField.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: 8),
             textField.trailingAnchor.constraint(equalTo: clearButton.leadingAnchor, constant: -6),
             textField.centerYAnchor.constraint(equalTo: centerYAnchor),
-            settingsButton.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -14),
-            settingsButton.centerYAnchor.constraint(equalTo: centerYAnchor),
+            settingsButton.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -4),
+            settingsButton.centerYAnchor.constraint(equalTo: iconView.centerYAnchor),
             settingsButton.widthAnchor.constraint(equalToConstant: 22),
             settingsButton.heightAnchor.constraint(equalToConstant: 22),
             hintsButton.trailingAnchor.constraint(equalTo: settingsButton.leadingAnchor, constant: -8),
-            hintsButton.centerYAnchor.constraint(equalTo: centerYAnchor),
+            hintsButton.centerYAnchor.constraint(equalTo: iconView.centerYAnchor),
             hintsButton.widthAnchor.constraint(equalToConstant: 22),
             hintsButton.heightAnchor.constraint(equalToConstant: 22),
             clearButton.trailingAnchor.constraint(equalTo: hintsButton.leadingAnchor, constant: -8),
-            clearButton.centerYAnchor.constraint(equalTo: centerYAnchor),
+            clearButton.centerYAnchor.constraint(equalTo: iconView.centerYAnchor),
             clearButton.widthAnchor.constraint(equalToConstant: 20),
             clearButton.heightAnchor.constraint(equalToConstant: 20)
         ])
@@ -114,6 +117,7 @@ final class LumaSearchBar: NSView {
         hintsButton.nextKeyView = textField
         settingsButton.nextKeyView = textField
         clearButton.nextKeyView = textField
+        updateClearButtonVisibility()
     }
 
     @available(*, unavailable)
@@ -158,9 +162,9 @@ final class LumaSearchBar: NSView {
             return
         }
         let label = NSTextField(wrappingLabelWithString: """
-        ⌘1…7 — open dashboard cards
+        ⌘1…9 — jump to row
         ↑ ↓ — move selection
-        Tab — secondary action
+        Tab / ⌘K — action panel
         Return — run selected item
         Esc — back / close panel
         """)
@@ -218,12 +222,17 @@ private final class LumaSearchTextField: NSTextField {
     var onEscape: (() -> Void)?
     var onKeyCommand: ((LumaSearchBar.KeyCommand) -> Bool)?
     var onDetailKey: ((NSEvent) -> Bool)?
+    var onInterceptKeyDown: ((NSEvent) -> Bool)?
 
     override func keyDown(with event: NSEvent) {
+        if onInterceptKeyDown?(event) == true { return }
         if stringValue.isEmpty, onDetailKey?(event) == true { return }
         if event.keyCode == 125, onKeyCommand?(.down) == true { return }
         if event.keyCode == 126, onKeyCommand?(.up) == true { return }
         if event.keyCode == 48, onKeyCommand?(.tab) == true { return }
+        if event.modifierFlags.contains(.command),
+           event.charactersIgnoringModifiers?.lowercased() == "k",
+           onKeyCommand?(.actionPanel) == true { return }
         if event.modifierFlags.contains(.command),
            let chars = event.charactersIgnoringModifiers,
            let number = Int(chars),

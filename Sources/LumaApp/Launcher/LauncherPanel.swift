@@ -6,7 +6,7 @@ final class LauncherPanel: NSPanel {
 
     init() {
         super.init(
-            contentRect: NSRect(x: 0, y: 0, width: 980, height: 660),
+            contentRect: NSRect(x: 0, y: 0, width: 700, height: 480),
             styleMask: [.borderless, .nonactivatingPanel, .fullSizeContentView],
             backing: .buffered,
             defer: false
@@ -32,8 +32,8 @@ final class LauncherPanel: NSPanel {
     }
 
     func resizeForScreen(_ visibleFrame: NSRect) {
-        let width = max(860, min(980, visibleFrame.width * 0.62))
-        let height = max(600, min(660, visibleFrame.height * 0.70))
+        let width = max(680, min(720, visibleFrame.width * 0.48))
+        let height = max(440, min(480, visibleFrame.height * 0.55))
         setContentSize(NSSize(width: width, height: height))
     }
 

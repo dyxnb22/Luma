@@ -54,6 +54,8 @@ final class NotesOutlineDataSource: NSObject, NSOutlineViewDataSource, NSOutline
     var filterText = ""
     var onActivate: ((NotesNode) -> Void)?
     var onExpansionChanged: ((NotesNode, Bool) -> Void)?
+    /// When true, expand/collapse notifications from programmatic reloads are ignored.
+    var suppressExpansionCallbacks = false
     private var flatListTitle: String?
     private var typeByPath: [String: String] = [:]
     private var flatMatches: [NotesOutlineItem] = []
@@ -310,6 +312,7 @@ final class NotesOutlineDataSource: NSObject, NSOutlineViewDataSource, NSOutline
     }
 
     func outlineViewItemDidExpand(_ notification: Notification) {
+        guard !suppressExpansionCallbacks else { return }
         guard let item = notification.userInfo?["NSObject"] as? NotesOutlineItem else { return }
         onExpansionChanged?(item.node, true)
         if !filterText.isEmpty {
@@ -318,6 +321,7 @@ final class NotesOutlineDataSource: NSObject, NSOutlineViewDataSource, NSOutline
     }
 
     func outlineViewItemDidCollapse(_ notification: Notification) {
+        guard !suppressExpansionCallbacks else { return }
         guard let item = notification.userInfo?["NSObject"] as? NotesOutlineItem else { return }
         onExpansionChanged?(item.node, false)
     }

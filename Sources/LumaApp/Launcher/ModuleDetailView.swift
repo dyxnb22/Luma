@@ -12,11 +12,13 @@ protocol ModuleDetailView: AnyObject {
     func activate()
     func deactivate()
     func handleKeyDown(_ event: NSEvent) -> Bool
+    func prepareForLauncherHide() async
 }
 
 extension ModuleDetailView {
     var usesSharedTopBar: Bool { true }
     func handleKeyDown(_ event: NSEvent) -> Bool { false }
+    func prepareForLauncherHide() async {}
 }
 
 // Deferred module detail views — not reachable from active dashboard.

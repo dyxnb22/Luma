@@ -1,6 +1,7 @@
 import AppKit
 import LumaCore
 import LumaInfrastructure
+import LumaModules
 import LumaServices
 
 @MainActor
@@ -10,8 +11,6 @@ final class LauncherWindowController {
 
     init() {
         panel.onEscape = { [weak self] in
-            // Route through rootView so detail→grid→close state machine is respected.
-            // If rootView is not set yet, fall back to hide.
             guard let self else { return }
             if let rootView = self.rootView {
                 rootView.handleEscape()
@@ -23,18 +22,16 @@ final class LauncherWindowController {
     }
 
     func configure(
-        cards: [FeatureCard],
         viewModel: LauncherViewModel,
+        homeCoordinator: LauncherHomeCoordinator,
         actionExecutor: ActionExecutor,
-        appActivationTracker: AppActivationTracker,
         config: ConfigurationStore,
         onOpenSettings: @escaping () -> Void
     ) {
         let rootView = LauncherRootView(
-            cards: cards,
             viewModel: viewModel,
+            homeCoordinator: homeCoordinator,
             actionExecutor: actionExecutor,
-            appActivationTracker: appActivationTracker,
             config: config,
             onDismiss: { [weak self] in self?.hide() },
             onActionDismiss: { [weak self] in self?.hideImmediatelyForAction() },
@@ -71,6 +68,7 @@ final class LauncherWindowController {
     }
 
     func show() {
+        HomeLatencyTracker.markHotkey()
         positionPanel()
         panel.alphaValue = 0
         panel.contentView?.layer?.transform = CATransform3DMakeScale(0.96, 0.96, 1)
@@ -78,7 +76,6 @@ final class LauncherWindowController {
         panel.makeKey()
         rootView?.refreshPermissionStatus()
         rootView?.startPermissionPollingIfNeeded()
-        rootView?.startFeatureGridSubscriptions()
         rootView?.restoreLastSessionIfNeeded()
         rootView?.focusSearchField()
         rootView?.refreshOpenApps()
@@ -92,10 +89,16 @@ final class LauncherWindowController {
     }
 
     func hide() {
-        rootView?.resetSidebarExpansion()
+        Task { @MainActor in
+            await self.rootView?.prepareDetailForHide()
+            self.finishHide()
+        }
+    }
+
+    private func finishHide() {
         rootView?.saveCurrentSession()
+        rootView?.resetOpenAppsExpansion()
         rootView?.stopPermissionPolling()
-        rootView?.stopFeatureGridSubscriptions()
         let duration = MotionTokens.panelHideDuration
         NSAnimationContext.runAnimationGroup { context in
             context.duration = duration
@@ -111,12 +114,14 @@ final class LauncherWindowController {
     }
 
     func hideImmediatelyForAction() {
-        rootView?.resetForActionDismiss()
-        rootView?.resetSidebarExpansion()
-        rootView?.stopPermissionPolling()
-        rootView?.stopFeatureGridSubscriptions()
-        panel.orderOut(nil)
-        panel.alphaValue = 1
+        Task { @MainActor in
+            await self.rootView?.prepareDetailForHide()
+            self.rootView?.resetForActionDismiss()
+            self.rootView?.resetOpenAppsExpansion()
+            self.rootView?.stopPermissionPolling()
+            self.panel.orderOut(nil)
+            self.panel.alphaValue = 1
+        }
     }
 
     func hideIfShowingForExternalActivation(bundleID: String?) {
@@ -131,7 +136,6 @@ final class LauncherWindowController {
         panel.resizeForScreen(visible)
         let frame = panel.frame
         let x = visible.midX - frame.width / 2
-        // Position panel at ~55% from screen bottom so it sits comfortably in the upper half
         let y = visible.minY + (visible.height - frame.height) * 0.55
         panel.setFrameOrigin(NSPoint(x: x, y: y))
     }

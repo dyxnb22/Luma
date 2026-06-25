@@ -17,10 +17,25 @@ public enum ClipboardEntryKind: String, Sendable, Hashable, Codable {
         if Self.isFileTypes(pasteboardTypes) || (fileURLs?.isEmpty == false) {
             return .file
         }
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        if Self.isTextTypes(pasteboardTypes), !trimmed.isEmpty {
+            if Self.looksLikeColor(trimmed) {
+                return .color
+            }
+            if Self.looksLikeEmail(trimmed) {
+                return .email
+            }
+            if Self.looksLikeURL(trimmed) {
+                return .link
+            }
+            if Self.looksLikeCode(trimmed) {
+                return .code
+            }
+            return .text
+        }
         if Self.isImageTypes(pasteboardTypes) {
             return .image
         }
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return .text }
 
         if Self.looksLikeColor(trimmed) {
@@ -91,6 +106,20 @@ public enum ClipboardEntryKind: String, Sendable, Hashable, Codable {
         let imagePrefixes = ["public.png", "public.tiff", "public.jpeg", "public.image", "com.apple.pict", "com.compuserve.gif"]
         return types.contains { type in
             imagePrefixes.contains { type.hasPrefix($0) || type == $0 }
+        }
+    }
+
+    public static func isTextTypes(_ types: [String]) -> Bool {
+        let textTypes: Set<String> = [
+            "public.utf8-plain-text",
+            "NSStringPboardType",
+            "public.plain-text",
+            "public.text",
+            "public.html",
+            "public.rtf"
+        ]
+        return types.contains { type in
+            textTypes.contains(type) || type.hasPrefix("public.text")
         }
     }
 

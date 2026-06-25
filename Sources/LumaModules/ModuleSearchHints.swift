@@ -3,7 +3,8 @@ import LumaCore
 
 /// Contextual search placeholder strings keyed by module trigger prefix.
 public enum ModuleSearchHints {
-    public static let `default` = "Search"
+    public static let `default` = "Search or type a command…"
+    public static let cheatSheet = "Search apps, paste, translate, todo…"
 
     public static func placeholder(for query: String) -> String {
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)

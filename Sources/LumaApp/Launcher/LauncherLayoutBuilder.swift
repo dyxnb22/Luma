@@ -5,17 +5,10 @@ enum LauncherLayoutBuilder {
     static func install(
         on root: NSView,
         searchBar: LumaSearchBar,
-        sidebarContainer: NSView,
-        sidebarHeader: NSTextField,
-        sidebarScrollView: NSScrollView,
-        sidebarStack: FlippedStackView,
-        sidebarSeparator: NSView,
+        listView: LauncherListView,
+        hintBar: LauncherHintBar,
+        actionPanel: LauncherActionPanel,
         contentContainer: NSView,
-        homeScrollView: NSScrollView,
-        featureGridView: FeatureFlowView,
-        resultsScrollView: NSScrollView,
-        resultsStackView: FlippedStackView,
-        loadingLabel: NSTextField,
         detailContainer: NSView,
         detailTopBar: NSView,
         detailTitleLabel: NSTextField,
@@ -23,118 +16,40 @@ enum LauncherLayoutBuilder {
         closeDetailAction: Selector
     ) {
         searchBar.translatesAutoresizingMaskIntoConstraints = false
-        sidebarHeader.font = .systemFont(ofSize: 11, weight: .semibold)
-        sidebarHeader.textColor = .secondaryLabelColor
-        sidebarHeader.translatesAutoresizingMaskIntoConstraints = false
-
-        sidebarStack.orientation = .vertical
-        sidebarStack.spacing = 2
-        sidebarStack.alignment = .leading
-        sidebarStack.translatesAutoresizingMaskIntoConstraints = false
-
-        sidebarSeparator.wantsLayer = true
-        sidebarSeparator.layer?.backgroundColor = NSColor.separatorColor.withAlphaComponent(0.25).cgColor
-        sidebarSeparator.translatesAutoresizingMaskIntoConstraints = false
-
-        sidebarContainer.translatesAutoresizingMaskIntoConstraints = false
-        sidebarContainer.addSubview(sidebarHeader)
-
-        sidebarScrollView.hasVerticalScroller = true
-        sidebarScrollView.hasHorizontalScroller = false
-        sidebarScrollView.autohidesScrollers = true
-        sidebarScrollView.drawsBackground = false
-        sidebarScrollView.borderType = .noBorder
-        sidebarScrollView.translatesAutoresizingMaskIntoConstraints = false
-        sidebarScrollView.documentView = sidebarStack
-
-        sidebarContainer.addSubview(sidebarScrollView)
-        sidebarContainer.addSubview(sidebarSeparator)
-
+        listView.translatesAutoresizingMaskIntoConstraints = false
+        hintBar.translatesAutoresizingMaskIntoConstraints = false
+        actionPanel.translatesAutoresizingMaskIntoConstraints = false
         contentContainer.translatesAutoresizingMaskIntoConstraints = false
-        homeScrollView.hasVerticalScroller = true
-        homeScrollView.hasHorizontalScroller = false
-        homeScrollView.drawsBackground = false
-        homeScrollView.borderType = .noBorder
-        homeScrollView.translatesAutoresizingMaskIntoConstraints = false
-        homeScrollView.documentView = featureGridView
 
-        resultsStackView.orientation = .vertical
-        resultsStackView.spacing = 6
-        resultsStackView.alignment = .leading
-        resultsStackView.translatesAutoresizingMaskIntoConstraints = false
-
-        resultsScrollView.hasVerticalScroller = true
-        resultsScrollView.drawsBackground = false
-        resultsScrollView.borderType = .noBorder
-        resultsScrollView.translatesAutoresizingMaskIntoConstraints = false
-        resultsScrollView.documentView = resultsStackView
-
-        loadingLabel.font = .systemFont(ofSize: 13)
-        loadingLabel.textColor = .secondaryLabelColor
-        loadingLabel.alignment = .center
-        loadingLabel.isHidden = true
-        loadingLabel.translatesAutoresizingMaskIntoConstraints = false
-
-        contentContainer.addSubview(homeScrollView)
-        contentContainer.addSubview(resultsScrollView)
-        contentContainer.addSubview(loadingLabel)
-
+        contentContainer.addSubview(listView)
         root.addSubview(searchBar)
-        root.addSubview(sidebarContainer)
         root.addSubview(contentContainer)
+        root.addSubview(hintBar)
+        root.addSubview(actionPanel)
 
         NSLayoutConstraint.activate([
-            searchBar.topAnchor.constraint(equalTo: root.topAnchor, constant: 20),
-            searchBar.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 20),
-            searchBar.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -20),
+            searchBar.topAnchor.constraint(equalTo: root.topAnchor, constant: 16),
+            searchBar.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 16),
+            searchBar.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -16),
+            searchBar.heightAnchor.constraint(equalToConstant: 52),
 
-            sidebarContainer.topAnchor.constraint(equalTo: searchBar.bottomAnchor, constant: 12),
-            sidebarContainer.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 20),
-            sidebarContainer.bottomAnchor.constraint(equalTo: root.bottomAnchor, constant: -20),
-            sidebarContainer.widthAnchor.constraint(equalToConstant: 180),
+            contentContainer.topAnchor.constraint(equalTo: searchBar.bottomAnchor, constant: 8),
+            contentContainer.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 16),
+            contentContainer.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -16),
+            contentContainer.bottomAnchor.constraint(equalTo: hintBar.topAnchor, constant: -4),
 
-            sidebarHeader.topAnchor.constraint(equalTo: sidebarContainer.topAnchor, constant: 4),
-            sidebarHeader.leadingAnchor.constraint(equalTo: sidebarContainer.leadingAnchor, constant: 4),
-            sidebarHeader.trailingAnchor.constraint(equalTo: sidebarSeparator.leadingAnchor, constant: -8),
+            listView.topAnchor.constraint(equalTo: contentContainer.topAnchor),
+            listView.leadingAnchor.constraint(equalTo: contentContainer.leadingAnchor),
+            listView.trailingAnchor.constraint(equalTo: contentContainer.trailingAnchor),
+            listView.bottomAnchor.constraint(equalTo: contentContainer.bottomAnchor),
 
-            sidebarScrollView.topAnchor.constraint(equalTo: sidebarHeader.bottomAnchor, constant: 4),
-            sidebarScrollView.leadingAnchor.constraint(equalTo: sidebarContainer.leadingAnchor),
-            sidebarScrollView.trailingAnchor.constraint(equalTo: sidebarSeparator.leadingAnchor),
-            sidebarScrollView.bottomAnchor.constraint(equalTo: sidebarContainer.bottomAnchor),
+            hintBar.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 16),
+            hintBar.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -16),
+            hintBar.bottomAnchor.constraint(equalTo: root.bottomAnchor, constant: -12),
 
-            sidebarStack.topAnchor.constraint(equalTo: sidebarScrollView.contentView.topAnchor),
-            sidebarStack.leadingAnchor.constraint(equalTo: sidebarScrollView.contentView.leadingAnchor),
-            sidebarStack.trailingAnchor.constraint(equalTo: sidebarScrollView.contentView.trailingAnchor),
-            sidebarStack.bottomAnchor.constraint(equalTo: sidebarScrollView.contentView.bottomAnchor),
-            sidebarStack.widthAnchor.constraint(equalTo: sidebarScrollView.contentView.widthAnchor),
-
-            sidebarSeparator.topAnchor.constraint(equalTo: sidebarContainer.topAnchor),
-            sidebarSeparator.trailingAnchor.constraint(equalTo: sidebarContainer.trailingAnchor),
-            sidebarSeparator.bottomAnchor.constraint(equalTo: sidebarContainer.bottomAnchor),
-            sidebarSeparator.widthAnchor.constraint(equalToConstant: 1),
-
-            contentContainer.topAnchor.constraint(equalTo: searchBar.bottomAnchor, constant: 12),
-            contentContainer.leadingAnchor.constraint(equalTo: sidebarContainer.trailingAnchor),
-            contentContainer.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -20),
-            contentContainer.bottomAnchor.constraint(equalTo: root.bottomAnchor, constant: -20),
-
-            homeScrollView.topAnchor.constraint(equalTo: contentContainer.topAnchor),
-            homeScrollView.leadingAnchor.constraint(equalTo: contentContainer.leadingAnchor, constant: 16),
-            homeScrollView.trailingAnchor.constraint(equalTo: contentContainer.trailingAnchor),
-            homeScrollView.bottomAnchor.constraint(equalTo: contentContainer.bottomAnchor),
-
-            resultsScrollView.topAnchor.constraint(equalTo: contentContainer.topAnchor),
-            resultsScrollView.leadingAnchor.constraint(equalTo: contentContainer.leadingAnchor, constant: 16),
-            resultsScrollView.trailingAnchor.constraint(equalTo: contentContainer.trailingAnchor),
-            resultsScrollView.bottomAnchor.constraint(equalTo: contentContainer.bottomAnchor),
-
-            resultsStackView.topAnchor.constraint(equalTo: resultsScrollView.contentView.topAnchor),
-            resultsStackView.leadingAnchor.constraint(equalTo: resultsScrollView.contentView.leadingAnchor),
-            resultsStackView.trailingAnchor.constraint(equalTo: resultsScrollView.contentView.trailingAnchor),
-            resultsStackView.widthAnchor.constraint(equalTo: resultsScrollView.contentView.widthAnchor),
-
-            loadingLabel.centerXAnchor.constraint(equalTo: contentContainer.centerXAnchor),
-            loadingLabel.centerYAnchor.constraint(equalTo: contentContainer.centerYAnchor)
+            actionPanel.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 24),
+            actionPanel.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -24),
+            actionPanel.bottomAnchor.constraint(equalTo: hintBar.topAnchor, constant: -6)
         ])
 
         installDetailContainer(
@@ -171,6 +86,7 @@ enum LauncherLayoutBuilder {
         backButton.translatesAutoresizingMaskIntoConstraints = false
 
         detailTitleLabel.font = .systemFont(ofSize: 15, weight: .semibold)
+        detailTitleLabel.textColor = .labelColor
         detailTitleLabel.isEditable = false
         detailTitleLabel.isBordered = false
         detailTitleLabel.drawsBackground = false

@@ -32,28 +32,41 @@ flowchart TD
 
 ### Active (registered at launch via `BuiltInModules.makeAll()`)
 
-| Module | Default enabled | Dashboard card | Query trigger |
+| Module | Default enabled | Query trigger | Notes |
 | --- | --- | --- | --- |
-| Apps | yes | — (Open Apps home section) | root search |
-| Clipboard | yes | yes | `clip` / `clip <query>` |
-| Commands | no | — | built-in commands |
-| Notes | yes | yes | `note` / `note <query>` |
-| Todo | yes | yes | `t` / `t <task>` / `todo` |
-| Events | no | — | `e` / `event` |
-| Translate | yes | yes | `tr <text>` / `translate <text>` |
-| Wordbook | yes | yes | `word` / `word <query>` |
-| Snippets | yes | yes | `s` / `snip` |
-| Secrets | yes | yes | `secret` / `secrets` |
-| Media | no | — | `m` / `media` |
+| Apps | yes | root search | Open Apps home section |
+| Clipboard | yes | `clip` / `clip <query>` | |
+| Commands | no | built-in commands | |
+| Notes | yes | `note` / `note <query>` | warmup index |
+| Todo | yes | `t` / `t <task>` / `todo` | |
+| Events | no | `e` / `event` | |
+| Translate | yes | `tr <text>` / `translate <text>` | |
+| Wordbook | yes | `word` / `word <query>` | |
+| Snippets | yes | `s` / `snip` | requires Accessibility for paste |
+| Secrets | yes | `secret` / `secrets` | |
+| Media | no | `m` / `media` | |
+| Window Layouts | yes | `layout` / `win` / `wl` | requires Accessibility; command-only |
+| Projects | yes | `proj` / `p` / `project` | config + warmup index; no per-query disk scan |
+
+`FeatureCatalog.dashboardCoreCards()` remains for detail-header metadata only under Route C; it is not the home-screen entry model.
 
 ### Deferred (source retained, excluded from `makeAll()`)
 
 - **Calculator** — stub query handler; detail view exists but unreachable.
-- **Windows** — window focus via Accessibility.
+- **Windows** — window focus list via CGWindow / Accessibility (distinct from Window Layouts presets).
 
-### Orphan (source only, not registered)
+### Accessibility-dependent when active
 
-- **Window Layouts** — `WindowLayoutsModule` exists but is not wired into `BuiltInModules`.
+`BuiltInModules.accessibilityDependentModuleIDs`: Snippets (paste), Window Layouts (move focused window). Permission banner surfaces when an active module requires AX and trust is missing.
+
+### Module persistence (selected)
+
+| Module | Store path |
+| --- | --- |
+| Projects | `~/Library/Application Support/Luma/projects.json` |
+| Snippets | `~/Library/Application Support/Luma/snippets.json` |
+| Clipboard | Application Support (history store) |
+| Apps | Application Support (index cache) |
 
 ## Data Flow
 

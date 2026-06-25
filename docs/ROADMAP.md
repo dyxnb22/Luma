@@ -1,14 +1,16 @@
 # Roadmap
 
-Active route: Route B (Dashboard Widget Single Window) per ADR-007.
+Active route: **Route C** (Command-First Unified List) per `docs/adr/023-command-first-unified-list.md`.
 
 Implementation reference:
 
-- `docs/strategy/DASHBOARD_WIDGET_STRATEGY.md`
-- `docs/strategy/DASHBOARD_WIDGET_CURSOR_PLAN.md`
-- `docs/strategy/DASHBOARD_WIDGET_POLISH_PLAN.md`
+- `docs/adr/023-command-first-unified-list.md`
+- `docs/PRD.md`
+- `docs/ARCHITECTURE.md`
 
-Route A (`docs/strategy/LAUNCHER_CONVERGENCE_STRATEGY.md`, `CONVERGENCE_EXECUTION_PLAN.md`) is preserved as historical reference only; do not implement against it without superseding ADR-007.
+Historical Route B docs (`DASHBOARD_WIDGET_STRATEGY.md`, `DASHBOARD_WIDGET_CURSOR_PLAN.md`, ADR-007) are retained for archaeology only.
+
+Route A (`docs/strategy/LAUNCHER_CONVERGENCE_STRATEGY.md`, `CONVERGENCE_EXECUTION_PLAN.md`) is preserved as historical reference only.
 
 **Round 3 audit & taskbook** (2026-06-22): `docs/strategy/ROUND_3_AUDIT_AND_TASKBOOK.md` — v0.3 P0/P1 bugs, Mind Map inline, Wordbook three-button grade, PR split.
 

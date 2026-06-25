@@ -2,30 +2,30 @@
 
 ## Goal
 
-Provide Raycast-style window management and convenient page/app splitting: left half, right half, thirds, quarters, maximize, center, and saved layouts.
+Command-first window positioning for the focused window: left/right/top/bottom half, maximize, and center. Not a full window manager — no thirds, saved multi-app splits, or dashboard UI in v1.
 
-## MVP Behavior
+## Active Behavior (Route C)
 
-- Requires Accessibility permission lazily.
-- Current implementation applies presets through Accessibility APIs when permission is granted.
-- Commands:
-  - Move current window left half.
-  - Move current window right half.
-  - Move current window top/bottom half.
-  - Maximize.
-  - Center.
-  - Apply saved split layout.
-- Saved layouts:
-  - App A left, App B right.
-  - Browser left, editor right.
+- Registered in `BuiltInModules.makeAll()`.
+- Prefix triggers only: `layout`, `win`, `wl` (e.g. `layout left`, `win center`).
+- Empty payload lists all presets; payload filters by title/alias.
+- Return applies preset to the **focused window** via Accessibility APIs.
+- Without Accessibility permission: returns a single “Grant Accessibility Permission” result (no silent failure).
+- No home-screen row; not on empty-query home.
 
-## UI Card
+## Commands (v1)
 
-- Shows current layout preset.
-- Edit button opens layout preset manager.
-- Drag position persists in dashboard layout.
+- Left Half, Right Half, Top Half, Bottom Half
+- Maximize, Center
 
 ## Implementation Entry
 
-- Source module: `Sources/LumaModules/WindowLayouts/WindowLayoutsModule.swift`
-- Service boundary: `Sources/LumaServices/Accessibility/AXService.swift`
+- Module: `Sources/LumaModules/WindowLayouts/WindowLayoutsModule.swift`
+- Engine: `Sources/LumaModules/WindowLayouts/WindowLayoutEngine.swift`
+- Service: `Sources/LumaServices/Accessibility/AXService.swift` (`applyWindowLayout`)
+
+## Out of Scope (v1)
+
+- Left/right thirds, restore previous frame
+- Screen containing focused window (uses main screen; TODO in AXService)
+- Dashboard card / layout preset manager UI

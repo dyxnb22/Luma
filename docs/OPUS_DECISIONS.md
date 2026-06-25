@@ -6,10 +6,9 @@ These decisions answer the previous open questions and are now in force for Luma
 
 - Name: Luma.
 - Scope: strictly personal. Do not add public-distribution scaffolding, onboarding flows, telemetry consent, localization, or updater infrastructure.
-- Active strategic direction: Route B, Dashboard Widget Single Window, per ADR-007. The panel should prioritize Command+Space -> lightweight dashboard/search -> action/detail without becoming a heavy workbench.
-- Route A pure launcher convergence is historical reference only unless revived by a future superseding ADR.
-- MVP fifth module: Calculator.
-- Active core modules: Apps, Windows, Clipboard, Commands, Calculator, Translate.
+- Active strategic direction: **Route C**, Command-First Unified List, per ADR-023. Command+Space → single-column home/search list → primary action; module details stay in-panel; no dashboard card grid on home.
+- Route B (ADR-007) and Route A pure launcher convergence are historical reference only unless revived by a future superseding ADR.
+- Active built-in modules include Apps, Clipboard, Commands, Notes, Todo, Events, Translate, Wordbook, Snippets, Secrets, Media, Window Layouts, and Projects. Deferred: Calculator, Windows.
 - Default hotkey: Command+Space.
 - Menu bar item ships in Phase 0 with Show Luma, Settings..., and Quit Luma.
 

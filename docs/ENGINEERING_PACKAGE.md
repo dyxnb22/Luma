@@ -18,7 +18,8 @@
 - [ADR-004 In-Process Modules for v1](adr/004-in-process-modules-v1.md)
 - [ADR-005 Carbon Global Hotkey](adr/005-carbon-global-hotkey.md)
 - [ADR-006 Launcher Convergence](adr/006-launcher-convergence.md)
-- [ADR-007 Dashboard Widget Single Window](adr/007-dashboard-widget-single-window.md)
+- [ADR-007 Dashboard Widget Single Window](adr/007-dashboard-widget-single-window.md) — superseded by ADR-023
+- [ADR-023 Command-First Unified List (Route C)](adr/023-command-first-unified-list.md) — **active UI route**
 
 ## Module Contract
 

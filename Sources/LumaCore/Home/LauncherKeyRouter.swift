@@ -24,6 +24,7 @@ public enum LauncherKeyRouter {
         case expandOpenApps
         case openTodoDetail
         case openClipboardDetail
+        case openRecordsDetail
         case passthrough
     }
 
@@ -63,6 +64,9 @@ public enum LauncherKeyRouter {
         }
         if item.id.module.rawValue == "luma.clipboard", item.id.key.hasPrefix("contextual") {
             return .openClipboardDetail
+        }
+        if item.id.module.rawValue == "luma.media", item.id.key.hasPrefix("contextual") {
+            return .openRecordsDetail
         }
         return .runItem(item)
     }

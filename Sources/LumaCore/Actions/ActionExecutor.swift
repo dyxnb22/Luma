@@ -38,8 +38,8 @@ public actor ActionExecutor {
             switch action.kind {
             case .copyToPasteboard(let value):
                 await pasteboard.write(value)
-            case .focusWindow(let windowID, let pid, let title, let bounds):
-                await accessibility.focus(windowID: windowID, pid: pid, title: title, bounds: bounds)
+            case .focusWindow(let windowID, let pid, let title, let axTitle, let bounds):
+                await accessibility.focus(windowID: windowID, pid: pid, title: title, axTitle: axTitle, bounds: bounds)
             case .insertText(let text):
                 await accessibility.insert(text: text)
             case .applyWindowLayout(let preset):

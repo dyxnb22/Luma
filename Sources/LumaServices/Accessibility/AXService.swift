@@ -20,13 +20,13 @@ public actor AXService: AccessibilityClient {
         Self.enumerateWindows(for: pid)
     }
 
-    public func focus(windowID: UInt32, pid: Int32, title: String, bounds: WindowBounds?) async {
-        await Self.focusWindow(windowID: windowID, pid: pid, title: title, bounds: bounds?.rect)
+    public func focus(windowID: UInt32, pid: Int32, title: String, axTitle: String?, bounds: WindowBounds?) async {
+        await Self.focusWindow(windowID: windowID, pid: pid, title: title, axTitle: axTitle, bounds: bounds?.rect)
     }
 
     public func focus(windowID: UInt32) async {
         guard let match = Self.cgWindows(for: nil).first(where: { $0.windowID == windowID }) else { return }
-        await Self.focusWindow(windowID: match.windowID, pid: match.pid, title: match.title, bounds: match.bounds)
+        await Self.focusWindow(windowID: match.windowID, pid: match.pid, title: match.title, axTitle: nil, bounds: match.bounds)
     }
 
     public func insert(text: String) async {
@@ -105,8 +105,16 @@ public actor AXService: AccessibilityClient {
 
     // MARK: - Focus
 
-    nonisolated private static func focusWindow(windowID: UInt32, pid: Int32, title: String, bounds: CGRect?) async {
+    nonisolated private static func focusWindow(
+        windowID: UInt32,
+        pid: Int32,
+        title: String,
+        axTitle: String?,
+        bounds: CGRect?
+    ) async {
         guard AXIsProcessTrusted() else { return }
+        try? await Task.sleep(for: .milliseconds(80))
+
         let appElement = AXUIElementCreateApplication(pid)
         var windowsRef: CFTypeRef?
         guard AXUIElementCopyAttributeValue(appElement, kAXWindowsAttribute as CFString, &windowsRef) == .success,
@@ -117,19 +125,23 @@ public actor AXService: AccessibilityClient {
             windowID: windowID,
             pid: pid,
             title: title,
+            axTitle: axTitle,
             bounds: bounds
         )
         guard let window = targetWindow else { return }
 
+        await MainActor.run {
+            if let app = NSRunningApplication(processIdentifier: pid) {
+                app.unhide()
+                app.activate(options: [.activateAllWindows])
+            }
+        }
+
+        AXUIElementSetAttributeValue(window, kAXMinimizedAttribute as CFString, kCFBooleanFalse)
+        AXUIElementSetAttributeValue(appElement, kAXFocusedWindowAttribute as CFString, window)
         _ = AXUIElementPerformAction(window, kAXRaiseAction as CFString)
         AXUIElementSetAttributeValue(window, kAXMainAttribute as CFString, kCFBooleanTrue)
         AXUIElementSetAttributeValue(window, kAXFocusedAttribute as CFString, kCFBooleanTrue)
-        _ = await MainActor.run {
-            if let app = NSRunningApplication(processIdentifier: pid) {
-                app.unhide()
-                app.activate(from: NSRunningApplication.current)
-            }
-        }
     }
 
     nonisolated private static func resolveFocusTarget(
@@ -137,8 +149,34 @@ public actor AXService: AccessibilityClient {
         windowID: UInt32,
         pid: Int32,
         title: String,
+        axTitle: String?,
         bounds: CGRect?
     ) -> AXUIElement? {
+        if windowID != 0 {
+            for window in windows where axWindowNumber(window) == windowID {
+                return window
+            }
+        }
+
+        let app = NSRunningApplication(processIdentifier: pid)
+        let bundleID = app?.bundleIdentifier ?? ""
+        let appName = app?.localizedName ?? ""
+        let titledWindows: [WindowFocusMatcher.TitledWindow] = windows.enumerated().compactMap { index, window in
+            guard let windowTitle = axWindowTitle(window) else { return nil }
+            return (index, windowTitle)
+        }
+
+        for candidate in titleCandidates(displayTitle: title, axTitle: axTitle) {
+            if let windowIndex = WindowFocusMatcher.matchingIndex(
+                in: titledWindows,
+                queryTitle: candidate,
+                bundleID: bundleID,
+                appName: appName
+            ), windows.indices.contains(windowIndex) {
+                return windows[windowIndex]
+            }
+        }
+
         if let bounds, bounds != .zero {
             for window in windows {
                 if let axBounds = axWindowBounds(window), boundsMatch(axBounds, bounds) {
@@ -155,24 +193,28 @@ public actor AXService: AccessibilityClient {
             }
         }
 
-        let normalizedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !normalizedTitle.isEmpty {
-            for window in windows {
-                guard let windowTitle = axWindowTitle(window) else { continue }
-                if windowTitle == normalizedTitle {
-                    return window
-                }
-            }
-
-            for window in windows {
-                guard let windowTitle = axWindowTitle(window) else { continue }
-                if titlesMatch(windowTitle, normalizedTitle) {
-                    return window
-                }
-            }
-        }
-
         return windows.count == 1 ? windows[0] : nil
+    }
+
+    nonisolated private static func titleCandidates(displayTitle: String, axTitle: String?) -> [String] {
+        var candidates: [String] = []
+        let display = displayTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !display.isEmpty { candidates.append(display) }
+        if let axTitle {
+            let raw = axTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !raw.isEmpty, raw != display { candidates.append(raw) }
+        }
+        return candidates
+    }
+
+    nonisolated private static func axWindowNumber(_ window: AXUIElement) -> UInt32? {
+        var value: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(window, "AXWindowNumber" as CFString, &value) == .success,
+              let value else { return nil }
+        if let number = value as? Int, number >= 0 { return UInt32(number) }
+        if let number = value as? UInt32 { return number }
+        if let number = value as? Int64, number >= 0 { return UInt32(number) }
+        return nil
     }
 
     nonisolated private static func axWindowTitle(_ window: AXUIElement) -> String? {
@@ -181,27 +223,6 @@ public actor AXService: AccessibilityClient {
               let raw = titleRef as? String else { return nil }
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
-    }
-
-    nonisolated private static func titlesMatch(_ lhs: String, _ rhs: String) -> Bool {
-        if lhs.localizedCaseInsensitiveCompare(rhs) == .orderedSame { return true }
-        let left = lhs.lowercased()
-        let right = rhs.lowercased()
-        if left.contains(right) || right.contains(left) { return true }
-
-        let leftSegments = titleSegments(lhs)
-        let rightSegments = titleSegments(rhs)
-        guard let leftProject = leftSegments.last, let rightProject = rightSegments.last else { return false }
-        return leftProject == rightProject
-    }
-
-    nonisolated private static func titleSegments(_ title: String) -> [String] {
-        title
-            .replacingOccurrences(of: " – ", with: " — ")
-            .replacingOccurrences(of: " - ", with: " — ")
-            .split(separator: "—", omittingEmptySubsequences: false)
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
-            .filter { !$0.isEmpty }
     }
 
     // MARK: - AX helpers
@@ -346,7 +367,7 @@ public actor AXService: AccessibilityClient {
         return CGRect(x: origin.x, y: flippedY, width: size.width, height: size.height)
     }
 
-    nonisolated private static func boundsMatch(_ lhs: CGRect, _ rhs: CGRect, tolerance: CGFloat = 8) -> Bool {
+    nonisolated private static func boundsMatch(_ lhs: CGRect, _ rhs: CGRect, tolerance: CGFloat = 20) -> Bool {
         abs(lhs.origin.x - rhs.origin.x) <= tolerance
             && abs(lhs.origin.y - rhs.origin.y) <= tolerance
             && abs(lhs.width - rhs.width) <= tolerance

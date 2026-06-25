@@ -118,7 +118,8 @@ public enum OpenAppsResultBuilder {
                 kind: .focusWindow(
                     windowID: window.windowID,
                     pid: window.pid,
-                    title: window.axTitle,
+                    title: title,
+                    axTitle: window.axTitle,
                     bounds: bounds
                 )
             ),

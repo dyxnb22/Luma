@@ -85,7 +85,7 @@ public protocol PasteboardClient: Sendable {
 }
 
 public protocol AccessibilityClient: Sendable {
-    func focus(windowID: UInt32, pid: Int32, title: String, bounds: WindowBounds?) async
+    func focus(windowID: UInt32, pid: Int32, title: String, axTitle: String?, bounds: WindowBounds?) async
     func insert(text: String) async
     func applyWindowLayout(_ preset: String) async
 }

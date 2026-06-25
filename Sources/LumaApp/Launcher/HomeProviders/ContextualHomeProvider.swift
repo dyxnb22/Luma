@@ -7,9 +7,11 @@ import LumaServices
 
 struct ContextualHomeProvider: LauncherHomeProvider {
     private let todoModule: TodoModule?
+    private let mediaModule: MediaModule?
 
-    init(todoModule: TodoModule?) {
+    init(todoModule: TodoModule? = nil, mediaModule: MediaModule? = nil) {
         self.todoModule = todoModule
+        self.mediaModule = mediaModule
     }
 
     func items() async -> [ResultItem] {
@@ -24,6 +26,11 @@ struct ContextualHomeProvider: LauncherHomeProvider {
         if suggestions.count < 3,
            let clipRow = await clipboardRow() {
             suggestions.append(clipRow)
+        }
+
+        if suggestions.count < 3,
+           let recordsRow = await continueRecordsRow() {
+            suggestions.append(recordsRow)
         }
 
         if suggestions.count < 3,
@@ -70,6 +77,26 @@ struct ContextualHomeProvider: LauncherHomeProvider {
                 kind: .custom(payload: Data(), handler: .clipboard)
             ),
             rankingHints: RankingHints(basePriority: 80)
+        )
+    }
+
+    private func continueRecordsRow() async -> ResultItem? {
+        guard let mediaModule else { return nil }
+        let count = await mediaModule.inProgressCount()
+        guard count > 0 else { return nil }
+        let subtitle = count == 1 ? "1 in progress" : "\(count) in progress"
+        return ResultItem(
+            id: ResultID(module: .media, key: "contextual.records"),
+            title: "Continue Records",
+            titleAttributed: AttributedString("Continue Records"),
+            subtitle: subtitle,
+            icon: .symbol("books.vertical"),
+            primaryAction: Action(
+                id: ActionID(module: .media, key: "contextual.open"),
+                title: "Open Records",
+                kind: .noop
+            ),
+            rankingHints: RankingHints(basePriority: 75)
         )
     }
 

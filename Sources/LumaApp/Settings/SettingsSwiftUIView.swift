@@ -227,7 +227,7 @@ struct ModulesSettingsView: View {
         case .wordbook:   return "text.book.closed"
         case .snippets:   return "text.cursor"
         case .secrets:    return "lock.shield"
-        case .media:      return "film"
+        case .media:      return "books.vertical"
         case .events:     return "calendar"
         case .apps:       return "app.badge"
         default:          return "puzzlepiece"

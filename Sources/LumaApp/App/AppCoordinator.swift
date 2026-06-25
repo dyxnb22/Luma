@@ -52,7 +52,7 @@ final class AppCoordinator {
     private lazy var homeCoordinator = LauncherHomeCoordinator(
         openApps: openAppsProvider,
         recent: RecentActionsHomeProvider { await self.viewModel.recentFrecency(limit: 3) },
-        contextual: ContextualHomeProvider(todoModule: todoModule)
+        contextual: ContextualHomeProvider(todoModule: todoModule, mediaModule: mediaModule)
     )
     private var activationObserver: NSObjectProtocol?
     private var terminationObserver: NSObjectProtocol?

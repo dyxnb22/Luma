@@ -47,10 +47,11 @@ public enum ModuleHelp {
             ]
         case "media":
             return [
-                "m — recent items + open log",
-                "m log — full media log view",
-                "m dune movie done 9 — quick capture DSL",
-                "m dune — search or partial capture"
+                "rec — recent items + open logbook",
+                "rec log — full Records view",
+                "rec 三体 book done 9 #sci-fi — quick capture DSL",
+                "rec 三体 — search or partial capture",
+                "m / media / record / log — same triggers"
             ]
         case "wordbook":
             return [

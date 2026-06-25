@@ -52,3 +52,19 @@ import LumaCore
     )
     #expect(LauncherKeyRouter.resolveRun(item: item) == .openTodoDetail)
 }
+
+@Test func resolveRunDetectsContextualRecords() {
+    let item = ResultItem(
+        id: ResultID(module: ModuleIdentifier(rawValue: "luma.media"), key: "contextual.records"),
+        title: "Continue Records",
+        titleAttributed: "Continue Records",
+        icon: .none,
+        primaryAction: Action(
+            id: ActionID(module: ModuleIdentifier(rawValue: "luma.media"), key: "contextual.open"),
+            title: "Open Records",
+            kind: .noop
+        ),
+        rankingHints: RankingHints()
+    )
+    #expect(LauncherKeyRouter.resolveRun(item: item) == .openRecordsDetail)
+}

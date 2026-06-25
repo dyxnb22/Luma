@@ -279,6 +279,8 @@ final class LauncherRootController {
             openModuleDetail(for: .todo)
         case .openClipboardDetail:
             openModuleDetail(for: .clipboard)
+        case .openRecordsDetail:
+            openModuleDetail(for: .media)
         case .runItem(let item):
             run(item: item)
         default:
@@ -351,7 +353,7 @@ final class LauncherRootController {
             if let item = contentCoordinator.currentItems[safe: index] { handleRun(item) }
             return true
         case .runItem(let item): run(item: item); return true
-        case .expandOpenApps, .openTodoDetail, .openClipboardDetail:
+        case .expandOpenApps, .openTodoDetail, .openClipboardDetail, .openRecordsDetail:
             handleRun(contentCoordinator.currentItems[contentCoordinator.selectedIndex])
             return true
         case .passthrough: return false

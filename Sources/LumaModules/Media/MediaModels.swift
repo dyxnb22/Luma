@@ -17,6 +17,16 @@ public enum MediaCategory: String, Codable, CaseIterable, Sendable {
         }
     }
 
+    public var pluralDisplayName: String {
+        switch self {
+        case .movie: return "Movies"
+        case .tv: return "TV"
+        case .anime: return "Anime"
+        case .game: return "Games"
+        case .book: return "Books"
+        }
+    }
+
     public var symbolName: String {
         switch self {
         case .movie: return "film"
@@ -39,7 +49,7 @@ public enum MediaStatus: String, Codable, CaseIterable, Sendable {
         case .planned: return "Planned"
         case .inProgress: return "In Progress"
         case .done: return "Done"
-        case .abandoned: return "Abandoned"
+        case .abandoned: return "Dropped"
         }
     }
 

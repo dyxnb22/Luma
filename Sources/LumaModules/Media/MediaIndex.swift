@@ -21,13 +21,14 @@ public enum MediaIndex {
         }
 
         let lowered = trimmed.lowercased()
+        let tagQuery = lowered.hasPrefix("#") ? String(lowered.dropFirst()) : lowered
         var results: [MediaSearchResult] = []
         for item in items {
-            let fuzzy = FuzzyMatcher.score(query: lowered, target: item.title.lowercased())
-            guard fuzzy > 0 else { continue }
+            let score = searchScore(for: item, query: lowered, tagQuery: tagQuery)
+            guard score > 0 else { continue }
             let recency = recencyBoost(for: item, now: now)
-            let score = fuzzy * 0.6 + recency * 0.4
-            results.append(MediaSearchResult(item: item, score: score))
+            let combined = score * 0.6 + recency * 0.4
+            results.append(MediaSearchResult(item: item, score: combined))
         }
 
         return results
@@ -94,6 +95,26 @@ public enum MediaIndex {
             return calendar.component(.year, from: completed) == year
         }.count
         return (items.count, average, doneThisYear)
+    }
+
+    private static func searchScore(for item: MediaItem, query: String, tagQuery: String) -> Double {
+        var best = FuzzyMatcher.score(query: query, target: item.title.lowercased())
+
+        let categoryHaystack = "\(item.category.displayName) \(item.category.pluralDisplayName) \(item.category.rawValue)".lowercased()
+        best = max(best, FuzzyMatcher.score(query: query, target: categoryHaystack) * 0.9)
+
+        let statusHaystack = "\(item.status.displayName) \(item.status.verb(for: item.category)) \(item.status.rawValue)".lowercased()
+        best = max(best, FuzzyMatcher.score(query: query, target: statusHaystack) * 0.85)
+
+        for tag in item.tags {
+            if tag == tagQuery {
+                best = max(best, 1.0)
+            } else {
+                best = max(best, FuzzyMatcher.score(query: tagQuery, target: tag) * 0.95)
+            }
+        }
+
+        return best
     }
 
     private static func recencyBoost(for item: MediaItem, now: Date) -> Double {

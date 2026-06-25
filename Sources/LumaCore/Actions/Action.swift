@@ -35,7 +35,7 @@ public struct Action: Sendable, Hashable, Codable {
 
 public enum ActionKind: Sendable, Hashable, Codable {
     case launchApp(URL)
-    case focusWindow(windowID: UInt32, pid: Int32, title: String, bounds: WindowBounds?)
+    case focusWindow(windowID: UInt32, pid: Int32, title: String, axTitle: String?, bounds: WindowBounds?)
     case copyToPasteboard(String)
     case openURL(URL)
     case revealInFinder(URL)

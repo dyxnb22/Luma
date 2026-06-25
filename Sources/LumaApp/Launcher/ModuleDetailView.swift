@@ -304,7 +304,7 @@ final class WindowsDetailView: ModuleDetailView {
               let pid = Int32(parts[1]) else { return }
         let title = String(parts[2])
         let svc = accessibility
-        Task { await svc.focus(windowID: windowID, pid: pid, title: title, bounds: nil) }
+        Task { await svc.focus(windowID: windowID, pid: pid, title: title, axTitle: nil, bounds: nil) }
     }
 }
 

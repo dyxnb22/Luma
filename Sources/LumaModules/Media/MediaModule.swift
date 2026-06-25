@@ -4,9 +4,9 @@ import LumaCore
 public actor MediaModule: LumaModule {
     public static let manifest = ModuleManifest(
         identifier: .media,
-        displayName: "Media",
+        displayName: "Records",
         capabilities: [.queryable, .providesActions],
-        defaultEnabled: false,
+        defaultEnabled: true,
         priority: 3,
         queryTimeout: .milliseconds(30)
     )
@@ -23,18 +23,8 @@ public actor MediaModule: LumaModule {
     }
 
     public func handle(_ query: Query, context: QueryContext) async -> ModuleResult {
-        let normalized = query.normalized
-        guard normalized == "m" || normalized == "media" || normalized.hasPrefix("m ") || normalized.hasPrefix("media ") else {
+        guard let payload = Self.extractPayload(raw: query.raw) else {
             return ModuleResult(items: [])
-        }
-
-        let payload: String
-        if normalized == "m" || normalized == "media" {
-            payload = ""
-        } else if normalized.hasPrefix("m ") {
-            payload = String(query.raw.dropFirst(2)).trimmingCharacters(in: .whitespacesAndNewlines)
-        } else {
-            payload = String(query.raw.dropFirst(6)).trimmingCharacters(in: .whitespacesAndNewlines)
         }
 
         if payload.isEmpty {
@@ -54,7 +44,10 @@ public actor MediaModule: LumaModule {
         case .capture:
             return ModuleResult(items: [captureResult(parsed)])
         case .search:
-            let matches = MediaIndex.search(cachedItems, query: parsed.title, limit: 8)
+            let searchQuery = parsed.title.isEmpty && !parsed.tags.isEmpty
+                ? parsed.tags.map { "#\($0)" }.joined(separator: " ")
+                : parsed.title
+            let matches = MediaIndex.search(cachedItems, query: searchQuery, limit: 8)
             if !matches.isEmpty {
                 return ModuleResult(items: matches.map { itemResult($0.item) })
             }
@@ -67,6 +60,7 @@ public actor MediaModule: LumaModule {
                 category: nil,
                 rating: nil,
                 status: .done,
+                tags: parsed.tags,
                 hadDSLToken: false
             )
             return ModuleResult(items: [captureResult(partial)])
@@ -112,6 +106,13 @@ public actor MediaModule: LumaModule {
         await store.all()
     }
 
+    public func inProgressCount() async -> Int {
+        if cachedItems.isEmpty {
+            cachedItems = await store.all()
+        }
+        return cachedItems.filter { $0.status == .inProgress }.count
+    }
+
     public func add(from draft: MediaEditorDraft) async throws -> MediaItem {
         let item = try await store.add(from: draft)
         await refreshCache()
@@ -152,9 +153,34 @@ public actor MediaModule: LumaModule {
         }
         let dateStamp = formatter.string(from: Date())
         let url = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent("Downloads/luma-media-\(dateStamp).csv")
+            .appendingPathComponent("Downloads/luma-records-\(dateStamp).csv")
         try lines.joined(separator: "\n").write(to: url, atomically: true, encoding: .utf8)
         return url
+    }
+
+    /// Returns the text after a Records trigger prefix, or nil if the query does not target Records.
+    static func extractPayload(raw: String) -> String? {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        let lower = trimmed.lowercased()
+        if lower == "m" || lower == "media" || lower == "rec" || lower == "record" || lower == "log" {
+            return ""
+        }
+        if lower.hasPrefix("m ") {
+            return String(trimmed.dropFirst(2)).trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        if lower.hasPrefix("media ") {
+            return String(trimmed.dropFirst(6)).trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        if lower.hasPrefix("rec ") {
+            return String(trimmed.dropFirst(4)).trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        if lower.hasPrefix("record ") {
+            return String(trimmed.dropFirst(7)).trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        if lower.hasPrefix("log ") {
+            return String(trimmed.dropFirst(4)).trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        return nil
     }
 
     private func refreshCache() async {
@@ -167,18 +193,18 @@ public actor MediaModule: LumaModule {
         items.append(contentsOf: recent.map { itemResult($0) })
         if items.count == 1 {
             let count = cachedItems.count
-            let subtitle = count == 0 ? "No items logged yet" : "\(count) items · type `m log` to manage"
+            let subtitle = count == 0 ? "No items logged yet" : "\(count) items · type `rec log` to manage"
             let payload = (try? ModuleActionCoding.encode(MediaAction.openDetail)) ?? Data()
             return ModuleResult(items: [
                 ResultItem(
                     id: ResultID(module: Self.manifest.identifier, key: "empty"),
-                    title: "Media Log",
-                    titleAttributed: AttributedString("Media Log"),
+                    title: "Records",
+                    titleAttributed: AttributedString("Records"),
                     subtitle: subtitle,
-                    icon: .symbol("film"),
+                    icon: .symbol("books.vertical"),
                     primaryAction: Action(
                         id: ActionID(module: Self.manifest.identifier, key: "open-detail"),
-                        title: "Open Media Log",
+                        title: "Open Records",
                         kind: .custom(payload: payload, handler: Self.manifest.identifier)
                     ),
                     rankingHints: RankingHints(basePriority: Self.manifest.priority)
@@ -192,13 +218,13 @@ public actor MediaModule: LumaModule {
         let payload = (try? ModuleActionCoding.encode(MediaAction.openDetail)) ?? Data()
         return ResultItem(
             id: ResultID(module: Self.manifest.identifier, key: "manage"),
-            title: "Media Log",
-            titleAttributed: AttributedString("Media Log"),
-            subtitle: "Open full log view",
-            icon: .symbol("film.stack"),
+            title: "Records",
+            titleAttributed: AttributedString("Records"),
+            subtitle: "Open full logbook",
+            icon: .symbol("books.vertical"),
             primaryAction: Action(
                 id: ActionID(module: Self.manifest.identifier, key: "open-detail"),
-                title: "Open Media Log",
+                title: "Open Records",
                 kind: .custom(payload: payload, handler: Self.manifest.identifier)
             ),
             rankingHints: RankingHints(basePriority: Self.manifest.priority + 1)
@@ -208,9 +234,14 @@ public actor MediaModule: LumaModule {
     private func captureResult(_ parsed: MediaParser.Result) -> ResultItem {
         let id = ResultID(module: Self.manifest.identifier, key: "capture.\(parsed.title)")
         var subtitleParts: [String] = []
-        if let category = parsed.category { subtitleParts.append(category.displayName.lowercased()) }
+        if let category = parsed.category {
+            subtitleParts.append(category.displayName)
+            subtitleParts.append(parsed.status.verb(for: category))
+        } else if parsed.status != .done {
+            subtitleParts.append(parsed.status.displayName)
+        }
         if let rating = parsed.rating { subtitleParts.append("★\(rating)") }
-        subtitleParts.append(parsed.status.displayName)
+        subtitleParts.append(contentsOf: parsed.tags.map { "#\($0)" })
         if case .capture(true) = parsed.mode { subtitleParts.append("needs category") }
         let subtitle = subtitleParts.joined(separator: " · ")
 
@@ -219,11 +250,13 @@ public actor MediaModule: LumaModule {
             category: parsed.category,
             status: parsed.status,
             rating: parsed.rating,
-            completedAt: parsed.status == .done ? Date() : nil
+            completedAt: parsed.status == .done ? Date() : nil,
+            tags: parsed.tags
         )
 
+        let isComplete = parsed.category != nil
         let primary: Action
-        if case .capture(false) = parsed.mode, parsed.category != nil {
+        if case .capture(false) = parsed.mode, isComplete {
             primary = Action(
                 id: ActionID(module: Self.manifest.identifier, key: "capture"),
                 title: "Log Item",
@@ -243,10 +276,11 @@ public actor MediaModule: LumaModule {
             )
         }
 
+        let title = isComplete ? "Log \(parsed.title)" : "Complete Entry"
         return ResultItem(
             id: id,
-            title: "Log \(parsed.title)",
-            titleAttributed: AttributedString("Log \(parsed.title)"),
+            title: title,
+            titleAttributed: AttributedString(title),
             subtitle: subtitle,
             icon: .symbol(parsed.category?.symbolName ?? "plus.circle"),
             primaryAction: primary,
@@ -258,6 +292,7 @@ public actor MediaModule: LumaModule {
         let id = ResultID(module: Self.manifest.identifier, key: item.id.uuidString)
         var subtitleParts = [item.category.displayName, item.status.verb(for: item.category)]
         if let rating = item.rating { subtitleParts.append("★\(rating)") }
+        subtitleParts.append(contentsOf: item.tags.map { "#\($0)" })
         return ResultItem(
             id: id,
             title: item.title,

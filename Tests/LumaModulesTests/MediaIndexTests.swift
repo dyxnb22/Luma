@@ -10,6 +10,27 @@ import Testing
     #expect(results.first?.item.title == "Oppenheimer")
 }
 
+@Test func mediaIndexSearchByTag() {
+    let tagged = MediaItem(title: "三体", category: .book, status: .done, tags: ["sci-fi"])
+    let other = MediaItem(title: "Dune", category: .book, status: .done, tags: ["space"])
+    let results = MediaIndex.search([other, tagged], query: "sci-fi", limit: 8)
+    #expect(results.first?.item.title == "三体")
+}
+
+@Test func mediaIndexSearchByCategory() {
+    let movie = MediaItem(title: "Arrival", category: .movie, status: .done)
+    let book = MediaItem(title: "Story of Your Life", category: .book, status: .done)
+    let results = MediaIndex.search([movie, book], query: "book", limit: 8)
+    #expect(results.first?.item.title == "Story of Your Life")
+}
+
+@Test func mediaIndexSearchByStatus() {
+    let watching = MediaItem(title: "Frieren", category: .anime, status: .inProgress)
+    let done = MediaItem(title: "Barbie", category: .movie, status: .done)
+    let results = MediaIndex.search([done, watching], query: "watching", limit: 8)
+    #expect(results.first?.item.title == "Frieren")
+}
+
 @Test func mediaIndexFilterByCategoryAndStatus() {
     let movie = MediaItem(title: "A", category: .movie, status: .done)
     let book = MediaItem(title: "B", category: .book, status: .planned)
@@ -31,4 +52,34 @@ import Testing
     #expect(stats.count == 3)
     #expect(stats.averageRating == 7.0)
     #expect(stats.doneThisYear == 2)
+}
+
+@Test func mediaIndexSearchPerformanceStaysUnderBudget() {
+    var items: [MediaItem] = []
+    items.reserveCapacity(1000)
+    for index in 0..<1000 {
+        items.append(MediaItem(
+            title: "Record \(index)",
+            category: index.isMultiple(of: 5) ? .book : .movie,
+            status: index.isMultiple(of: 3) ? .inProgress : .done,
+            rating: (index % 10) + 1,
+            tags: index.isMultiple(of: 7) ? ["sci-fi"] : ["drama"],
+            updatedAt: Date(timeIntervalSince1970: Double(index))
+        ))
+    }
+
+    var samples: [Double] = []
+    let clock = ContinuousClock()
+    for query in ["record", "book", "sci-fi", "watching", "42"] {
+        for _ in 0..<100 {
+            let start = clock.now
+            _ = MediaIndex.search(items, query: query, limit: 8)
+            let elapsed = start.duration(to: clock.now)
+            samples.append(Double(elapsed.components.seconds) * 1000 + Double(elapsed.components.attoseconds) / 1_000_000_000_000_000)
+        }
+    }
+
+    let sorted = samples.sorted()
+    let p95 = sorted[Int(Double(sorted.count - 1) * 0.95)]
+    #expect(p95 < 30)
 }

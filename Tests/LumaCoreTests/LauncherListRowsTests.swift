@@ -70,7 +70,7 @@ import LumaCore
     #expect(item.title == "Luma — Sources")
     #expect(item.subtitle == "focused")
     #expect(item.listNest == .child(isLast: true))
-    if case .focusWindow(let windowID, let pid, let title, _) = item.primaryAction.kind {
+    if case .focusWindow(let windowID, let pid, let title, _, _) = item.primaryAction.kind {
         #expect(windowID == 42)
         #expect(pid == 123)
         #expect(title == "Luma — Sources")

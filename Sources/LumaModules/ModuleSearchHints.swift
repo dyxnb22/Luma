@@ -15,8 +15,12 @@ public enum ModuleSearchHints {
         if lower == "s" || lower.hasPrefix("s ") || lower == "snip" || lower.hasPrefix("snip ") {
             return "Find a snippet"
         }
-        if lower == "m" || lower.hasPrefix("m ") || lower == "media" || lower.hasPrefix("media ") {
-            return "Log media or search history"
+        if lower == "m" || lower.hasPrefix("m ")
+            || lower == "media" || lower.hasPrefix("media ")
+            || lower == "rec" || lower.hasPrefix("rec ")
+            || lower == "record" || lower.hasPrefix("record ")
+            || lower == "log" || lower.hasPrefix("log ") {
+            return "Log a record or search your logbook"
         }
         if lower.hasPrefix("word") {
             return "Search vocabulary or start review"

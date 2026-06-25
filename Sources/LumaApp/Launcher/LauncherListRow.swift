@@ -15,7 +15,7 @@ enum LauncherModuleLabel {
         case .wordbook: "word"
         case .snippets: "snip"
         case .secrets: "vault"
-        case .media: "media"
+        case .media: "rec"
         case .windows: "win"
         case .calculator: "calc"
         case .windowLayouts: "layout"

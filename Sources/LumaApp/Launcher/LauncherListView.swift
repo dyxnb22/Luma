@@ -8,6 +8,7 @@ final class LauncherListView: NSView {
     private var rowViews: [NSView] = []
     private(set) var rows: [LauncherListRows.Row] = []
     private(set) var selectedFlatIndex = 0
+    private(set) var currentLayout: ResultListLayout = .flat
 
     var onRun: ((ResultItem) -> Void)?
     var onRightClick: ((ResultItem) -> Void)?
@@ -51,13 +52,15 @@ final class LauncherListView: NSView {
     }
 
     func renderHome(_ snapshot: LauncherHomeSnapshot) {
+        currentLayout = .flat
         apply(rows: LauncherListRows.rows(for: snapshot), preserveSelection: false)
     }
 
-    func renderResults(_ items: [ResultItem], preserveSelectionID: ResultID? = nil) {
+    func renderResults(_ items: [ResultItem], layout: ResultListLayout = .flat, preserveSelectionID: ResultID? = nil) {
         let limited = Array(items.prefix(8))
         let previouslySelected = preserveSelectionID
-        apply(rows: LauncherListRows.rows(for: limited), preserveSelection: previouslySelected != nil)
+        currentLayout = layout
+        apply(rows: LauncherListRows.rows(for: limited, layout: layout), preserveSelection: previouslySelected != nil)
         if let previouslySelected,
            let index = currentItems.firstIndex(where: { $0.id == previouslySelected }) {
             updateSelection(to: index)
@@ -65,6 +68,7 @@ final class LauncherListView: NSView {
     }
 
     func clear() {
+        currentLayout = .flat
         apply(rows: [], preserveSelection: false)
     }
 

@@ -79,7 +79,7 @@ public actor TodoModule: LumaModule {
 
     public func handle(_ query: Query, context: QueryContext) async -> ModuleResult {
         let raw = query.raw
-        guard let payload = Self.extractPayload(raw: raw) else {
+        guard let payload = query.command?.payload ?? Self.extractPayload(raw: raw) else {
             return ModuleResult(items: [])
         }
 

@@ -144,7 +144,7 @@ final class LauncherContentCoordinator {
         onHomeSessionSaved?()
     }
 
-    func renderResults(_ items: [ResultItem]) {
+    func renderResults(_ items: [ResultItem], layout: ResultListLayout = .flat) {
         let newItems = Array(items.prefix(8))
         let previouslySelectedID: ResultID? = currentItems[safe: selectedIndex]?.id
         currentItems = newItems
@@ -157,7 +157,7 @@ final class LauncherContentCoordinator {
             return
         }
         showingResults = true
-        listView.renderResults(newItems, preserveSelectionID: previouslySelectedID)
+        listView.renderResults(newItems, layout: layout, preserveSelectionID: previouslySelectedID)
         syncSelectionFromList()
     }
 
@@ -165,8 +165,9 @@ final class LauncherContentCoordinator {
         let newItems = Array(snapshot.items.prefix(8))
         let newIDs = newItems.map(\.id)
         let currentIDs = currentItems.map(\.id)
-        guard newIDs != currentIDs else { return }
-        renderResults(newItems)
+        let currentLayout = listView.currentLayout
+        guard newIDs != currentIDs || snapshot.layout != currentLayout else { return }
+        renderResults(newItems, layout: snapshot.layout)
     }
 
     func updateSelection(to newIndex: Int) {

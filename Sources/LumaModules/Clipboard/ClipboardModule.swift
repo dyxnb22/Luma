@@ -75,20 +75,15 @@ public actor ClipboardModule: LumaModule {
     }
 
     public func handle(_ query: Query, context: QueryContext) async -> ModuleResult {
-        let normalized = query.normalized
-        guard normalized == "clip" || normalized.hasPrefix("clip ") else {
+        guard let payload = query.command?.payload ?? Self.extractPayload(raw: query.raw) else {
             return ModuleResult(items: [])
         }
-        if normalized == "clip ?" || normalized == "clip help" {
+
+        if ModuleHelp.isHelpQuery(payload) {
             return ModuleResult(items: ModuleHelp.results(for: Self.manifest.identifier))
         }
 
-        let searchText: String
-        if normalized == "clip" {
-            searchText = ""
-        } else {
-            searchText = String(query.raw.dropFirst(5)).trimmingCharacters(in: .whitespacesAndNewlines)
-        }
+        let searchText = payload
 
         let entries = await store.search(searchText, limit: 10)
         return ModuleResult(items: entries.map(result))
@@ -279,5 +274,20 @@ public actor ClipboardModule: LumaModule {
             ),
             rankingHints: RankingHints(basePriority: Self.manifest.priority)
         )
+    }
+
+    public static func extractPayload(raw: String) -> String? {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        let lower = trimmed.lowercased()
+        if lower == "clip" || lower == "cb" {
+            return ""
+        }
+        if lower.hasPrefix("clip ") {
+            return String(trimmed.dropFirst(5)).trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        if lower.hasPrefix("cb ") {
+            return String(trimmed.dropFirst(3)).trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        return nil
     }
 }

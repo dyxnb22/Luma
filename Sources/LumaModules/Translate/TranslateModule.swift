@@ -15,44 +15,68 @@ public actor TranslateModule: LumaModule {
     public init() {}
 
     public func handle(_ query: Query, context: QueryContext) async -> ModuleResult {
-        guard query.normalized.hasPrefix("tr ") || query.normalized.hasPrefix("translate ") else {
+        guard let payload = query.command?.payload ?? Self.extractPayload(raw: query.raw) else {
             return ModuleResult(items: [])
         }
 
-        let text = Self.translationText(from: query.raw)
-
-        if ModuleHelp.isHelpQuery(text) {
+        if ModuleHelp.isHelpQuery(payload) {
             return ModuleResult(items: ModuleHelp.results(for: Self.manifest.identifier))
         }
 
-        guard !text.isEmpty else { return ModuleResult(items: []) }
-        let id = ResultID(module: Self.manifest.identifier, key: Self.resultKey(for: text))
+        if payload.isEmpty {
+            return ModuleResult(items: [landingResult()])
+        }
+
+        let id = ResultID(module: Self.manifest.identifier, key: Self.resultKey(for: payload))
         let item = ResultItem(
             id: id,
             title: "Translate",
             titleAttributed: AttributedString("Translate"),
-            subtitle: text,
+            subtitle: payload,
             icon: .symbol("character.bubble"),
             primaryAction: Action(
                 id: ActionID(module: Self.manifest.identifier, key: "translate"),
                 title: "Translate Text",
-                kind: .translateText(text)
+                kind: .translateText(payload)
             ),
             rankingHints: RankingHints(basePriority: Self.manifest.priority)
         )
         return ModuleResult(items: [item])
     }
 
-    private static func translationText(from raw: String) -> String {
+    static func extractPayload(raw: String) -> String? {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        let lowercased = trimmed.lowercased()
-        if lowercased.hasPrefix("translate ") {
+        let lower = trimmed.lowercased()
+        if lower == "tr" || lower == "translate" {
+            return ""
+        }
+        if lower.hasPrefix("translate ") {
             return String(trimmed.dropFirst("translate ".count)).trimmingCharacters(in: .whitespacesAndNewlines)
         }
-        if lowercased.hasPrefix("tr ") {
+        if lower.hasPrefix("tr ") {
             return String(trimmed.dropFirst("tr ".count)).trimmingCharacters(in: .whitespacesAndNewlines)
         }
-        return trimmed
+        return nil
+    }
+
+    private func landingResult() -> ResultItem {
+        ResultItem(
+            id: ResultID(module: Self.manifest.identifier, key: "landing"),
+            title: "Translate",
+            titleAttributed: AttributedString("Translate"),
+            subtitle: "Text to translate",
+            icon: .symbol("character.bubble"),
+            primaryAction: Action(
+                id: ActionID(module: Self.manifest.identifier, key: "landing"),
+                title: "Translate",
+                kind: .noop
+            ),
+            rankingHints: RankingHints(basePriority: Self.manifest.priority)
+        )
+    }
+
+    private static func translationText(from raw: String) -> String {
+        extractPayload(raw: raw) ?? ""
     }
 
     static func resultKey(for text: String) -> String {

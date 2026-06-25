@@ -6,28 +6,130 @@ final class LauncherViewModel {
     private var sequence: UInt64 = 0
     private var task: Task<Void, Never>?
     private let dispatcher: QueryDispatcher
+    private let commandUsage: CommandUsageTracker
+    let commandRouter: CommandRouter
     private var issuedAtBySequence: [UInt64: ContinuousClock.Instant] = [:]
     private var latencySamples: [Double] = []
     var onSnapshot: (@MainActor (ResultSnapshot) -> Void)?
 
-    init(dispatcher: QueryDispatcher) {
+    init(
+        dispatcher: QueryDispatcher,
+        commandRouter: CommandRouter = CommandRouter(),
+        commandUsage: CommandUsageTracker = .defaultTracker()
+    ) {
         self.dispatcher = dispatcher
+        self.commandRouter = commandRouter
+        self.commandUsage = commandUsage
     }
 
     func queryChanged(_ text: String, issuedAt: ContinuousClock.Instant) {
         task?.cancel()
         sequence &+= 1
         issuedAtBySequence[sequence] = issuedAt
-        let query = Query(raw: text, sequence: sequence)
+        let route = commandRouter.route(raw: text)
+        let parsed = commandRouter.registry.parsedCommand(for: text, route: route)
+        let query = Query(raw: text, sequence: sequence, command: parsed)
+        let currentSequence = sequence
         task = Task {
             try? await Task.sleep(for: .milliseconds(12))
             guard !Task.isCancelled else { return }
-            await dispatcher.dispatch(query) { [weak self] snapshot in
-                await MainActor.run {
-                    guard let self, snapshot.querySequence == self.sequence else { return }
-                    self.onSnapshot?(snapshot)
+            switch route {
+            case .empty:
+                break
+            case .help(let moduleID):
+                if let moduleID {
+                    await dispatcher.dispatchTargeted(query, moduleID: moduleID) { [weak self] snapshot in
+                        await self?.deliver(
+                            snapshot: snapshot,
+                            route: route,
+                            sequence: currentSequence
+                        )
+                    }
+                } else {
+                    let usage = await commandUsage.snapshot()
+                    let items = CommandEntryResults.globalHelp(
+                        registry: commandRouter.registry,
+                        usage: usage
+                    )
+                    await deliver(
+                        snapshot: ResultSnapshot(querySequence: currentSequence, items: items),
+                        route: route,
+                        sequence: currentSequence
+                    )
+                }
+            case .suggestion(let suggestions):
+                let items = CommandEntryResults.suggestionRows(suggestions)
+                await deliver(
+                    snapshot: ResultSnapshot(querySequence: currentSequence, items: items),
+                    route: route,
+                    sequence: currentSequence
+                )
+            case .unknownPrefix(let prefix, let remainder, let suggestions):
+                let items = CommandEntryResults.unknownPrefixRows(
+                    prefix: prefix,
+                    suggestions: suggestions,
+                    remainder: remainder
+                )
+                await deliver(
+                    snapshot: ResultSnapshot(querySequence: currentSequence, items: items),
+                    route: route,
+                    sequence: currentSequence
+                )
+            case .targeted(let moduleID, _, _):
+                await dispatcher.dispatchTargeted(query, moduleID: moduleID) { [weak self] snapshot in
+                    await self?.deliver(
+                        snapshot: snapshot,
+                        route: route,
+                        sequence: currentSequence
+                    )
+                }
+            case .globalSearch:
+                await dispatcher.dispatch(query) { [weak self] snapshot in
+                    await self?.deliver(
+                        snapshot: snapshot,
+                        route: route,
+                        sequence: currentSequence
+                    )
                 }
             }
+        }
+    }
+
+    func recordExecutedCommand(for text: String) {
+        let route = commandRouter.route(raw: text)
+        recordUsage(for: route)
+    }
+
+    private func recordUsage(for route: CommandRoute) {
+        Task {
+            switch route {
+            case .targeted(_, let trigger, _):
+                await commandUsage.record(trigger: trigger)
+            case .help(let module?):
+                if let trigger = commandRouter.registry.command(forModule: module)?.primaryTrigger {
+                    await commandUsage.record(trigger: trigger)
+                }
+            case .empty, .globalSearch, .help(nil), .suggestion, .unknownPrefix:
+                break
+            }
+        }
+    }
+
+    private func deliver(snapshot: ResultSnapshot, route: CommandRoute, sequence: UInt64) async {
+        let limited = Array(snapshot.items.prefix(8))
+        let layout = CommandListLayout.build(
+            items: limited,
+            route: route,
+            registry: commandRouter.registry
+        )
+        let enriched = ResultSnapshot(
+            querySequence: snapshot.querySequence,
+            items: limited,
+            layout: layout
+        )
+        await MainActor.run {
+            guard enriched.querySequence == self.sequence else { return }
+            self.onSnapshot?(enriched)
         }
     }
 

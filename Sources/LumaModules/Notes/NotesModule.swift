@@ -55,7 +55,7 @@ public actor NotesModule: LumaModule {
     }
 
     public func handle(_ query: Query, context: QueryContext) async -> ModuleResult {
-        guard let payload = NotesQueryParser.extractPayload(raw: query.raw) else {
+        guard let payload = query.command?.payload ?? NotesQueryParser.extractPayload(raw: query.raw) else {
             return ModuleResult(items: [])
         }
 

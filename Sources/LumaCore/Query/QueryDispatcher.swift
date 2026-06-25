@@ -75,6 +75,45 @@ public actor QueryDispatcher {
         await metrics.mark("query.dispatch.finish")
     }
 
+    public func dispatchTargeted(
+        _ query: Query,
+        moduleID: ModuleIdentifier,
+        onSnapshot: @Sendable @escaping (ResultSnapshot) async -> Void
+    ) async {
+        await metrics.mark("query.dispatch.targeted.start")
+        guard let module = await host.module(moduleID) else {
+            await onSnapshot(ResultSnapshot(querySequence: query.sequence, items: []))
+            return
+        }
+        let manifest = type(of: module).manifest
+        guard manifest.capabilities.contains(.queryable) else {
+            await onSnapshot(ResultSnapshot(querySequence: query.sequence, items: []))
+            return
+        }
+
+        let usageRecords = await usage.snapshot()
+        let deadline = ContinuousClock().now.advanced(by: manifest.queryTimeout)
+        let context = QueryContext(deadline: deadline)
+        let result = await Timeout.run(after: manifest.queryTimeout) {
+            await module.handle(query, context: context)
+        } ?? ModuleResult.empty(
+            for: manifest.identifier,
+            diagnostic: ModuleDiagnostic(kind: .timeout, message: "Module timed out")
+        )
+
+        var merged: [ResultID: ScoredItem] = [:]
+        for item in result.items {
+            let usage = usageRecords[item.id]
+            var ranked = item
+            let score = Ranker.score(item: item, query: query, usage: usage)
+            ranked.rankingHints.fuzzyScore = FuzzyMatcher.score(query: query.normalized, target: item.title.lowercased())
+            ranked.rankingHints.finalScore = score
+            merged[item.id] = ScoredItem(item: ranked, score: score)
+        }
+        await onSnapshot(Self.snapshot(from: merged, sequence: query.sequence))
+        await metrics.mark("query.dispatch.targeted.finish")
+    }
+
     private static func snapshot(from merged: [ResultID: ScoredItem], sequence: UInt64) -> ResultSnapshot {
         let items = merged.values
             .filter { $0.score > -.infinity }

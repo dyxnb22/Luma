@@ -31,6 +31,7 @@ final class AppCoordinator {
     )
     private lazy var host = ModuleHost(context: context)
     private let usage = PersistentUsageTracker.defaultTracker()
+    private let commandUsage = CommandUsageTracker.defaultTracker()
     private let resultCache = UsageResultCache.defaultCache()
     private lazy var dispatcher = QueryDispatcher(host: host, usage: usage, resultCache: resultCache, metrics: metrics)
     private lazy var actionExecutor = ActionExecutor(
@@ -42,7 +43,7 @@ final class AppCoordinator {
         usage: usage,
         resultCache: resultCache
     )
-    private lazy var viewModel = LauncherViewModel(dispatcher: dispatcher)
+    private lazy var viewModel = LauncherViewModel(dispatcher: dispatcher, commandUsage: commandUsage)
     private let appActivationTracker = AppActivationTracker.defaultTracker()
     private lazy var openAppsProvider = OpenAppsHomeProvider(appActivationTracker: appActivationTracker)
     private let clipboardModule = ClipboardModule()
@@ -168,6 +169,15 @@ final class AppCoordinator {
             openSettings: { [weak self] in
                 self?.windowController.hideImmediatelyForAction()
                 self?.settingsWindowController?.show()
+            },
+            reloadModules: { [weak self] in
+                guard let self else { return }
+                Task {
+                    await self.host.warmupAll()
+                    await MainActor.run {
+                        self.windowController.refreshOpenApps()
+                    }
+                }
             },
             onBackFromDetail: { [weak self] in
                 self?.windowController.closeDetailIfShowing()

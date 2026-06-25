@@ -36,26 +36,19 @@ public actor SecretsModule: LumaModule {
     }
 
     public func handle(_ query: Query, context: QueryContext) async -> ModuleResult {
-        let normalized = query.normalized
-        guard normalized == "secret"
-            || normalized.hasPrefix("secret ")
-            || normalized == "secrets"
-            || normalized.hasPrefix("secrets ") else {
+        guard let payload = query.command?.payload ?? Self.extractPayload(raw: query.raw) else {
             return ModuleResult(items: [])
         }
 
-        if normalized == "secret unlock" || normalized == "secrets unlock" {
+        if payload.lowercased() == "unlock" {
             return ModuleResult(items: [unlockResult()])
         }
 
-        let searchText = normalized
-            .replacingOccurrences(of: "secrets", with: "")
-            .replacingOccurrences(of: "secret", with: "")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-
-        if ModuleHelp.isHelpQuery(searchText) {
+        if ModuleHelp.isHelpQuery(payload) {
             return ModuleResult(items: ModuleHelp.results(for: Self.manifest.identifier))
         }
+
+        let searchText = payload.trimmingCharacters(in: .whitespacesAndNewlines)
 
         guard await vault.unlocked() else {
             return ModuleResult(items: [lockedResult()])
@@ -181,5 +174,23 @@ public actor SecretsModule: LumaModule {
             ],
             rankingHints: RankingHints(basePriority: Self.manifest.priority)
         )
+    }
+
+    public static func extractPayload(raw: String) -> String? {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        let lower = trimmed.lowercased()
+        if lower == "sec" || lower == "secret" || lower == "secrets" {
+            return ""
+        }
+        if lower.hasPrefix("sec ") {
+            return String(trimmed.dropFirst(4)).trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        if lower.hasPrefix("secret ") {
+            return String(trimmed.dropFirst(7)).trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        if lower.hasPrefix("secrets ") {
+            return String(trimmed.dropFirst(8)).trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        return nil
     }
 }

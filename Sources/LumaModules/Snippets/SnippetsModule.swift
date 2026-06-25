@@ -24,23 +24,15 @@ public actor SnippetsModule: LumaModule {
     }
 
     public func handle(_ query: Query, context: QueryContext) async -> ModuleResult {
-        let normalized = query.normalized
-        guard normalized == "s" || normalized == "snip" || normalized.hasPrefix("s ") || normalized.hasPrefix("snip ") else {
+        guard let payload = query.command?.payload ?? Self.extractPayload(raw: query.raw) else {
             return ModuleResult(items: [])
         }
 
-        let searchText: String
-        if normalized == "s" || normalized == "snip" {
-            searchText = ""
-        } else if normalized.hasPrefix("s ") {
-            searchText = String(query.raw.dropFirst(2)).trimmingCharacters(in: .whitespacesAndNewlines)
-        } else {
-            searchText = String(query.raw.dropFirst(5)).trimmingCharacters(in: .whitespacesAndNewlines)
-        }
-
-        if ModuleHelp.isHelpQuery(searchText) {
+        if ModuleHelp.isHelpQuery(payload) {
             return ModuleResult(items: ModuleHelp.results(for: Self.manifest.identifier))
         }
+
+        let searchText = payload
 
         let matches = SnippetIndex.search(cachedSnippets, query: searchText, limit: 8)
         if matches.isEmpty {
@@ -173,5 +165,20 @@ public actor SnippetsModule: LumaModule {
             rankingHints: RankingHints(basePriority: Self.manifest.priority),
             displayDensity: .expanded
         )
+    }
+
+    public static func extractPayload(raw: String) -> String? {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        let lower = trimmed.lowercased()
+        if lower == "s" || lower == "snip" {
+            return ""
+        }
+        if lower.hasPrefix("s ") {
+            return String(trimmed.dropFirst(2)).trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        if lower.hasPrefix("snip ") {
+            return String(trimmed.dropFirst(5)).trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        return nil
     }
 }

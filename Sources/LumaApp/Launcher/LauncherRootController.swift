@@ -7,6 +7,7 @@ import LumaServices
 @MainActor
 final class LauncherRootController {
     let searchBar: LumaSearchBar
+    let commandHintBar: CommandHintBar
     let listView: LauncherListView
     let hintBar: LauncherHintBar
     let actionPanel: LauncherActionPanel
@@ -32,6 +33,7 @@ final class LauncherRootController {
         config: ConfigurationStore,
         contentCoordinator: LauncherContentCoordinator,
         searchBar: LumaSearchBar,
+        commandHintBar: CommandHintBar,
         listView: LauncherListView,
         hintBar: LauncherHintBar,
         actionPanel: LauncherActionPanel,
@@ -45,6 +47,7 @@ final class LauncherRootController {
         self.config = config
         self.contentCoordinator = contentCoordinator
         self.searchBar = searchBar
+        self.commandHintBar = commandHintBar
         self.listView = listView
         self.hintBar = hintBar
         self.actionPanel = actionPanel
@@ -93,6 +96,7 @@ final class LauncherRootController {
 
     func showHome(focusSearch: Bool = true, persist: Bool = true) {
         searchBar.stringValue = ""
+        commandHintBar.apply(nil)
         ModuleDetailRegistry.isLauncherQueryEmpty = true
         contentCoordinator.tearDownDetailIfNeeded()
         contentCoordinator.resetResults()
@@ -212,6 +216,7 @@ final class LauncherRootController {
     func handleTextChange(_ text: String) {
         ModuleDetailRegistry.isLauncherQueryEmpty = text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         searchBar.setPlaceholder(ModuleSearchHints.placeholder(for: text))
+        commandHintBar.apply(viewModel.commandRouter.registry.hint(for: text))
         sessionStore.saveSearchQuery(text)
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.isEmpty {
@@ -272,6 +277,33 @@ final class LauncherRootController {
     }
 
     private func handleRun(_ item: ResultItem) {
+        if item.id.module == .commandEntry, item.id.key.hasPrefix("replace:") {
+            let replacement = String(item.id.key.dropFirst("replace:".count))
+            searchBar.stringValue = replacement
+            handleTextChange(replacement)
+            focusSearchField()
+            return
+        }
+        if item.id.module == .commandEntry,
+           item.id.key == "help.footer" || item.id.key == "help.footer.example" {
+            let query = "rec ?"
+            searchBar.stringValue = query
+            handleTextChange(query)
+            focusSearchField()
+            return
+        }
+        if item.id.module == .commandEntry,
+           item.id.key.hasPrefix("help."),
+           item.id.key != "help.footer",
+           item.id.key != "help.footer.example" {
+            let trigger = String(item.id.key.dropFirst("help.".count))
+            let query = "\(trigger) ?"
+            searchBar.stringValue = query
+            handleTextChange(query)
+            focusSearchField()
+            return
+        }
+        viewModel.recordExecutedCommand(for: searchBar.stringValue)
         switch LauncherKeyRouter.resolveRun(item: item) {
         case .expandOpenApps:
             Task { await homeCoordinator.expandOpenApps(); await MainActor.run { self.refreshHome() } }
@@ -289,6 +321,10 @@ final class LauncherRootController {
     }
 
     private func run(item: ResultItem) {
+        if item.primaryAction.kind == .noop {
+            focusSearchField()
+            return
+        }
         if case .translateText(let text) = item.primaryAction.kind {
             openTranslateDetail(with: text)
             return

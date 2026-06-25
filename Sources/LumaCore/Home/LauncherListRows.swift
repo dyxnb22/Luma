@@ -32,10 +32,29 @@ public enum LauncherListRows {
         return result
     }
 
-    public static func rows(for results: [ResultItem]) -> [Row] {
-        results.enumerated().map { index, item in
-            Row(kind: .item(item, flatIndex: index))
+    public static func rows(for results: [ResultItem], layout: ResultListLayout = .flat) -> [Row] {
+        switch layout {
+        case .flat:
+            return results.enumerated().map { index, item in
+                Row(kind: .item(item, flatIndex: index))
+            }
+        case .sectioned(let sections):
+            return rows(for: sections)
         }
+    }
+
+    public static func rows(for sections: [ResultSection]) -> [Row] {
+        var result: [Row] = []
+        var flatIndex = 0
+        for section in sections where !section.items.isEmpty {
+            let shortcut = flatIndex + 1
+            result.append(.init(kind: .sectionHeader(title: section.title, shortcutIndex: shortcut)))
+            for item in section.items {
+                result.append(.init(kind: .item(item, flatIndex: flatIndex)))
+                flatIndex += 1
+            }
+        }
+        return result
     }
 
     public static func selectableItems(from rows: [Row]) -> [ResultItem] {

@@ -7,6 +7,7 @@ import LumaModules
 final class LauncherRootView: NSView {
     private let glassBackground = NSVisualEffectView()
     private let searchBar = LumaSearchBar()
+    private let commandHintBar = CommandHintBar()
     private let listView = LauncherListView()
     private let hintBar = LauncherHintBar()
     private let actionPanel = LauncherActionPanel()
@@ -32,6 +33,7 @@ final class LauncherRootView: NSView {
         config: config,
         contentCoordinator: contentCoordinator,
         searchBar: searchBar,
+        commandHintBar: commandHintBar,
         listView: listView,
         hintBar: hintBar,
         actionPanel: actionPanel,
@@ -70,6 +72,7 @@ final class LauncherRootView: NSView {
         LauncherLayoutBuilder.install(
             on: self,
             searchBar: searchBar,
+            commandHintBar: commandHintBar,
             listView: listView,
             hintBar: hintBar,
             actionPanel: actionPanel,

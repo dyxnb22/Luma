@@ -5,6 +5,7 @@ enum LauncherLayoutBuilder {
     static func install(
         on root: NSView,
         searchBar: LumaSearchBar,
+        commandHintBar: CommandHintBar,
         listView: LauncherListView,
         hintBar: LauncherHintBar,
         actionPanel: LauncherActionPanel,
@@ -16,6 +17,7 @@ enum LauncherLayoutBuilder {
         closeDetailAction: Selector
     ) {
         searchBar.translatesAutoresizingMaskIntoConstraints = false
+        commandHintBar.translatesAutoresizingMaskIntoConstraints = false
         listView.translatesAutoresizingMaskIntoConstraints = false
         hintBar.translatesAutoresizingMaskIntoConstraints = false
         actionPanel.translatesAutoresizingMaskIntoConstraints = false
@@ -23,6 +25,7 @@ enum LauncherLayoutBuilder {
 
         contentContainer.addSubview(listView)
         root.addSubview(searchBar)
+        root.addSubview(commandHintBar)
         root.addSubview(contentContainer)
         root.addSubview(hintBar)
         root.addSubview(actionPanel)
@@ -33,7 +36,11 @@ enum LauncherLayoutBuilder {
             searchBar.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -16),
             searchBar.heightAnchor.constraint(equalToConstant: 52),
 
-            contentContainer.topAnchor.constraint(equalTo: searchBar.bottomAnchor, constant: 8),
+            commandHintBar.topAnchor.constraint(equalTo: searchBar.bottomAnchor, constant: 2),
+            commandHintBar.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 16),
+            commandHintBar.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -16),
+
+            contentContainer.topAnchor.constraint(equalTo: commandHintBar.bottomAnchor, constant: 4),
             contentContainer.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 16),
             contentContainer.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -16),
             contentContainer.bottomAnchor.constraint(equalTo: hintBar.topAnchor, constant: -4),

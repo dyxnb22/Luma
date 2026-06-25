@@ -23,7 +23,7 @@ public actor MediaModule: LumaModule {
     }
 
     public func handle(_ query: Query, context: QueryContext) async -> ModuleResult {
-        guard let payload = Self.extractPayload(raw: query.raw) else {
+        guard let payload = query.command?.payload ?? Self.extractPayload(raw: query.raw) else {
             return ModuleResult(items: [])
         }
 

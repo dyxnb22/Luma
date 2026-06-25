@@ -41,21 +41,15 @@ public actor WordbookModule: LumaModule {
     }
 
     public func handle(_ query: Query, context: QueryContext) async -> ModuleResult {
-        let normalized = query.normalized
-        guard normalized == "word" || normalized.hasPrefix("word ") else {
+        guard let payload = query.command?.payload ?? Self.extractPayload(raw: query.raw) else {
             return ModuleResult(items: [])
         }
 
-        let searchText: String
-        if normalized == "word" {
-            searchText = ""
-        } else {
-            searchText = String(query.raw.dropFirst("word ".count)).trimmingCharacters(in: .whitespacesAndNewlines)
-        }
-
-        if ModuleHelp.isHelpQuery(searchText) {
+        if ModuleHelp.isHelpQuery(payload) {
             return ModuleResult(items: ModuleHelp.results(for: Self.manifest.identifier))
         }
+
+        let searchText = payload
 
         if !searchText.isEmpty, let matches = try? await store.search(searchText, limit: 10), !matches.isEmpty {
             return ModuleResult(items: matches.map(wordResult))
@@ -158,5 +152,20 @@ public actor WordbookModule: LumaModule {
             ),
             rankingHints: RankingHints(basePriority: Self.manifest.priority)
         )
+    }
+
+    public static func extractPayload(raw: String) -> String? {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        let lower = trimmed.lowercased()
+        if lower == "word" || lower == "wb" {
+            return ""
+        }
+        if lower.hasPrefix("wb ") {
+            return String(trimmed.dropFirst(3)).trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        if lower.hasPrefix("word ") {
+            return String(trimmed.dropFirst(5)).trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        return nil
     }
 }

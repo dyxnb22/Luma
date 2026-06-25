@@ -69,10 +69,12 @@ public enum IconRef: Sendable, Hashable, Codable {
 public struct ResultSnapshot: Sendable, Equatable {
     public let querySequence: UInt64
     public let items: [ResultItem]
+    public let layout: ResultListLayout
 
-    public init(querySequence: UInt64, items: [ResultItem]) {
+    public init(querySequence: UInt64, items: [ResultItem], layout: ResultListLayout = .flat) {
         self.querySequence = querySequence
         self.items = items
+        self.layout = layout
     }
 
     public static let empty = ResultSnapshot(querySequence: 0, items: [])

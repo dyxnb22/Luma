@@ -6,6 +6,7 @@ import LumaCore
 public struct LauncherCallbacks {
     public var openModuleDetail: (ModuleIdentifier) -> Void
     public var onOpenSettings: () -> Void
+    public var onReloadModules: () -> Void
     public var onBackFromDetail: () -> Void
     public var onTranslateContentChanged: (String, String) -> Void
     public var onSecretsLockStateChanged: (Bool) -> Void
@@ -17,6 +18,7 @@ public struct LauncherCallbacks {
     public init(
         openModuleDetail: @escaping (ModuleIdentifier) -> Void,
         onOpenSettings: @escaping () -> Void,
+        onReloadModules: @escaping () -> Void,
         onBackFromDetail: @escaping () -> Void,
         onTranslateContentChanged: @escaping (String, String) -> Void,
         onSecretsLockStateChanged: @escaping (Bool) -> Void,
@@ -27,6 +29,7 @@ public struct LauncherCallbacks {
     ) {
         self.openModuleDetail = openModuleDetail
         self.onOpenSettings = onOpenSettings
+        self.onReloadModules = onReloadModules
         self.onBackFromDetail = onBackFromDetail
         self.onTranslateContentChanged = onTranslateContentChanged
         self.onSecretsLockStateChanged = onSecretsLockStateChanged

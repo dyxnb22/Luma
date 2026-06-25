@@ -34,12 +34,8 @@ public actor AppsModule: LumaModule {
     }
 
     public func handle(_ query: Query, context: QueryContext) async -> ModuleResult {
-        let normalized = query.normalized
-        if normalized == "app top" || normalized == "apps top" {
-            return memoryTopResult()
-        }
-        if normalized == "app ?" || normalized == "app help" {
-            return ModuleResult(items: ModuleHelp.results(for: Self.manifest.identifier))
+        if let payload = query.command?.payload ?? Self.extractPayload(raw: query.raw) {
+            return handlePayload(payload)
         }
         let matches = index.search(query.raw).map(result)
         return ModuleResult(items: matches)
@@ -58,6 +54,34 @@ public actor AppsModule: LumaModule {
                     .terminate()
             }
         }
+    }
+
+    public static func extractPayload(raw: String) -> String? {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        let lower = trimmed.lowercased()
+        if lower == "app" || lower == "apps" {
+            return ""
+        }
+        if lower.hasPrefix("app ") {
+            return String(trimmed.dropFirst(4)).trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        if lower.hasPrefix("apps ") {
+            return String(trimmed.dropFirst(5)).trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        return nil
+    }
+
+    private func handlePayload(_ payload: String) -> ModuleResult {
+        let trimmed = payload.trimmingCharacters(in: .whitespacesAndNewlines)
+        if ModuleHelp.isHelpQuery(trimmed) {
+            return ModuleResult(items: ModuleHelp.results(for: Self.manifest.identifier))
+        }
+        if trimmed.lowercased() == "top" {
+            return memoryTopResult()
+        }
+        let searchText = trimmed
+        let matches = index.search(searchText).map(result)
+        return ModuleResult(items: matches)
     }
 
     private func memoryTopResult() -> ModuleResult {

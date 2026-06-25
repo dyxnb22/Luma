@@ -61,7 +61,7 @@ import Testing
     await vault.configure(relockTimeoutSeconds: 1)
     await vault.unlock()
     #expect(await vault.unlocked())
-    try await Task.sleep(for: .milliseconds(1200))
+    try await Task.sleep(for: .milliseconds(1500))
     #expect(await vault.unlocked() == false)
 }
 

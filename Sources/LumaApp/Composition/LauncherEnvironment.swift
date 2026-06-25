@@ -8,6 +8,7 @@ import LumaModules
 struct LauncherEnvironment {
     let openModuleDetail: (ModuleIdentifier) -> Void
     let openSettings: () -> Void
+    let reloadModules: () -> Void
     let onBackFromDetail: () -> Void
     let onTranslateContentChanged: (String, String) -> Void
     let onSecretsLockStateChanged: (Bool) -> Void
@@ -30,6 +31,7 @@ struct LauncherEnvironment {
         LauncherCallbackRegistry.install(LauncherCallbacks(
             openModuleDetail: openModuleDetail,
             onOpenSettings: openSettings,
+            onReloadModules: reloadModules,
             onBackFromDetail: onBackFromDetail,
             onTranslateContentChanged: onTranslateContentChanged,
             onSecretsLockStateChanged: onSecretsLockStateChanged,

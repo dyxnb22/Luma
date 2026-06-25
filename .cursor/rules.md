@@ -6,32 +6,28 @@ Cursor should act as a precise implementation assistant for Luma. Do not reinter
 
 Before non-trivial edits, read:
 
-- `docs/strategy/PRODUCT_ROUTE_OPTIONS.md`
+- `docs/adr/023-command-first-unified-list.md` (active UI route)
+- `docs/PRD.md`
 - `docs/ENGINEERING_PACKAGE.md`
 - `docs/ARCHITECTURE.md`
 - `docs/specs/PERFORMANCE.md`
 - `docs/specs/MODULE_CONTRACT.md`
 
-If the task is dashboard/widget UI work, also read:
+Historical only — do not implement unless the user revives with a new ADR:
 
-- `docs/strategy/DASHBOARD_WIDGET_STRATEGY.md`
-- `docs/strategy/DASHBOARD_WIDGET_CURSOR_PLAN.md`
-
-If the task is pure launcher convergence work, also read:
-
-- `docs/strategy/LAUNCHER_CONVERGENCE_STRATEGY.md`
-- `docs/strategy/CONVERGENCE_EXECUTION_PLAN.md`
+- Route A: `docs/strategy/LAUNCHER_CONVERGENCE_STRATEGY.md`, `docs/adr/006-launcher-convergence.md`
+- Route B: `docs/strategy/DASHBOARD_WIDGET_STRATEGY.md`, `docs/adr/007-dashboard-widget-single-window.md`
 
 ## Product Route Guardrail
 
-Luma has two documented product routes. Do not blend them accidentally.
+Active route: **Route C — Command-First Unified List** (`docs/adr/023-command-first-unified-list.md`).
 
-- Route A: Launcher Convergence. Small pure launcher, no dashboard, no in-panel detail pages.
-- Route B: Dashboard Widget Single Window. 860 x 540 liquid-glass panel, top search, left Open Apps sidebar, widget grid/results/detail in one panel.
+- Single-column list; empty query shows Open Apps / Suggested / Recent sections.
+- Search yields flat `QueryDispatcher` results; Return runs primary action.
+- Tab / ⌘K opens Action Panel; module details stay in the same panel.
+- **No dashboard feature-card grid** and **no permanent sidebar** on the home screen.
 
-Current accepted ADR: Route B via `docs/adr/007-dashboard-widget-single-window.md`.
-
-Route B is the active UI implementation. Route A (pure launcher) is historical reference only. Do not revert to Route A patterns unless the user explicitly revives it with a new ADR.
+Do not reintroduce Route B patterns (860 × 540 widget grid, sidebar-first layout, card-jump ⌘N semantics) unless the user explicitly supersedes ADR-023.
 
 ## Cursor Composer Rules
 
@@ -52,6 +48,17 @@ Route B is the active UI implementation. Route A (pure launcher) is historical r
 - No public plugin marketplace or JS/Lua runtime in v1.
 - No custom file index. Use system facilities when file search is needed.
 - Do not add cloud sync, telemetry, onboarding, or updater infrastructure.
+
+## Module Conventions
+
+Active built-ins live in `BuiltInModules.makeAll()`. Deferred: Calculator, Windows.
+
+Recent command-first modules to mirror when adding features:
+
+- **Window Layouts** (`layout` / `win` / `wl`) — prefix-only trigger, in-memory command catalog, Accessibility required.
+- **Projects** (`proj` / `p` / `project`) — `~/Library/Application Support/Luma/projects.json`, warmup index + shallow root scan, no per-keystroke filesystem scan.
+
+`FeatureCatalog.dashboardCoreCards()` is legacy metadata for detail headers; it is not the home-screen entry model under Route C.
 
 ## Architecture Boundaries
 
@@ -92,4 +99,3 @@ After bundle/runtime changes:
 ```
 
 Do not claim completion unless the relevant command passes or you clearly report why it was not run.
-

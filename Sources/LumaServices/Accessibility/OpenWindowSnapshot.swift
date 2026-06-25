@@ -1,3 +1,4 @@
+import CoreGraphics
 import Foundation
 
 /// A single on-screen window belonging to a running application.
@@ -8,6 +9,7 @@ public struct OpenWindowSnapshot: Sendable, Hashable, Identifiable {
     public let isMain: Bool
     public let isMinimized: Bool
     public let isFocused: Bool
+    public let bounds: CGRect
 
     public var id: String { "\(pid)-\(windowID)-\(title)" }
 
@@ -17,7 +19,8 @@ public struct OpenWindowSnapshot: Sendable, Hashable, Identifiable {
         title: String,
         isMain: Bool,
         isMinimized: Bool,
-        isFocused: Bool = false
+        isFocused: Bool = false,
+        bounds: CGRect = .zero
     ) {
         self.windowID = windowID
         self.pid = pid
@@ -25,5 +28,6 @@ public struct OpenWindowSnapshot: Sendable, Hashable, Identifiable {
         self.isMain = isMain
         self.isMinimized = isMinimized
         self.isFocused = isFocused
+        self.bounds = bounds
     }
 }

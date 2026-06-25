@@ -133,6 +133,8 @@ actor OpenAppsHomeProvider: LauncherHomeProvider {
                 windowID: window.windowID,
                 pid: window.pid,
                 title: displayTitle,
+                axTitle: window.title,
+                bounds: window.bounds,
                 isMain: window.isMain,
                 isMinimized: window.isMinimized
             ),

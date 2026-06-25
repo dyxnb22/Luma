@@ -19,6 +19,7 @@ enum LauncherModuleLabel {
         case .windows: "win"
         case .calculator: "calc"
         case .windowLayouts: "layout"
+        case .projects: "proj"
         default: module.rawValue.replacingOccurrences(of: "luma.", with: "")
         }
     }

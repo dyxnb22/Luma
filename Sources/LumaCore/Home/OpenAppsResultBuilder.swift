@@ -1,4 +1,5 @@
 import Foundation
+import CoreGraphics
 
 public struct RunningAppSnapshot: Sendable, Equatable {
     public let bundleID: String
@@ -20,6 +21,8 @@ public struct RunningWindowSnapshot: Sendable, Equatable {
     public let windowID: UInt32
     public let pid: Int32
     public let title: String
+    public let axTitle: String
+    public let bounds: CGRect
     public let isMain: Bool
     public let isMinimized: Bool
 
@@ -29,6 +32,8 @@ public struct RunningWindowSnapshot: Sendable, Equatable {
         windowID: UInt32,
         pid: Int32,
         title: String,
+        axTitle: String,
+        bounds: CGRect = .zero,
         isMain: Bool,
         isMinimized: Bool
     ) {
@@ -37,6 +42,8 @@ public struct RunningWindowSnapshot: Sendable, Equatable {
         self.windowID = windowID
         self.pid = pid
         self.title = title
+        self.axTitle = axTitle
+        self.bounds = bounds
         self.isMain = isMain
         self.isMinimized = isMinimized
     }
@@ -97,16 +104,23 @@ public enum OpenAppsResultBuilder {
             ? window.appName
             : window.title
         let state = window.isMinimized ? "minimized" : (window.isMain ? "focused" : "window")
+        let windowKey = Self.windowIdentityKey(windowID: window.windowID, axTitle: window.axTitle)
+        let bounds = window.bounds == .zero ? nil : WindowBounds(window.bounds)
         return ResultItem(
-            id: ResultID(module: windowsModule, key: "openApps.window.\(window.pid).\(window.windowID)"),
+            id: ResultID(module: windowsModule, key: "openApps.window.\(window.pid).\(windowKey)"),
             title: title,
             titleAttributed: AttributedString(title),
             subtitle: state,
             icon: .symbol("macwindow"),
             primaryAction: Action(
-                id: ActionID(module: windowsModule, key: "focus.\(window.pid).\(window.windowID)"),
+                id: ActionID(module: windowsModule, key: "focus.\(window.pid).\(windowKey)"),
                 title: "Focus Window",
-                kind: .focusWindow(windowID: window.windowID, pid: window.pid, title: window.title)
+                kind: .focusWindow(
+                    windowID: window.windowID,
+                    pid: window.pid,
+                    title: window.axTitle,
+                    bounds: bounds
+                )
             ),
             rankingHints: RankingHints(basePriority: 99),
             displayDensity: .compact,
@@ -129,5 +143,14 @@ public enum OpenAppsResultBuilder {
             ),
             rankingHints: RankingHints(basePriority: 0)
         )
+    }
+
+    private static func windowIdentityKey(windowID: UInt32, axTitle: String) -> String {
+        if windowID != 0 { return String(windowID) }
+        let slug = axTitle
+            .lowercased()
+            .replacingOccurrences(of: " ", with: "-")
+            .filter { $0.isLetter || $0.isNumber || $0 == "-" }
+        return slug.isEmpty ? "untitled" : String(slug.prefix(48))
     }
 }

@@ -324,7 +324,7 @@ private struct NoopLogger: LoggingClient {
 }
 
 private struct NoopAccessibilityClient: AccessibilityClient {
-    func focus(windowID: UInt32, pid: Int32, title: String) async {}
+    func focus(windowID: UInt32, pid: Int32, title: String, bounds: WindowBounds?) async {}
     func insert(text: String) async {}
     func applyWindowLayout(_ preset: String) async {}
 }

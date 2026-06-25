@@ -35,7 +35,7 @@ public actor WindowsModule: LumaModule {
             primaryAction: Action(
                 id: ActionID(module: Self.manifest.identifier, key: "focus.\(window.windowID)"),
                 title: "Focus Window",
-                kind: .focusWindow(windowID: window.windowID, pid: window.pid, title: window.title)
+                kind: .focusWindow(windowID: window.windowID, pid: window.pid, title: window.title, bounds: nil)
             ),
             rankingHints: RankingHints(basePriority: Self.manifest.priority)
         )

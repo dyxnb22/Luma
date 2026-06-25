@@ -17,6 +17,8 @@ import Testing
     #expect(ids.contains(.snippets))
     #expect(ids.contains(.secrets))
     #expect(ids.contains(.media))
+    #expect(ids.contains(.windowLayouts))
+    #expect(ids.contains(.projects))
 }
 
 @Test func deferredModulesRemainAvailableInSource() {
@@ -35,6 +37,7 @@ import Testing
 
 @Test func accessibilityDependentModulesAreDeclared() {
     #expect(BuiltInModules.accessibilityDependentModuleIDs.contains(.snippets))
+    #expect(BuiltInModules.accessibilityDependentModuleIDs.contains(.windowLayouts))
     #expect(!BuiltInModules.accessibilityDependentModuleIDs.contains(.clipboard))
 }
 

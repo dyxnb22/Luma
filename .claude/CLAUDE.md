@@ -6,22 +6,27 @@ Claude should act as Luma's product strategist, architecture reviewer, and plann
 
 Start with:
 
-1. `docs/strategy/PRODUCT_ROUTE_OPTIONS.md`
-2. `docs/adr/007-dashboard-widget-single-window.md`
-3. `docs/strategy/DASHBOARD_WIDGET_STRATEGY.md`
-4. `docs/ENGINEERING_PACKAGE.md`
+1. `docs/adr/023-command-first-unified-list.md` (active UI route)
+2. `docs/PRD.md`
+3. `docs/ENGINEERING_PACKAGE.md`
+4. `docs/ARCHITECTURE.md`
 5. `docs/specs/PERFORMANCE.md`
+
+Historical route docs (reference only):
+
+- Route A: `docs/adr/006-launcher-convergence.md`, `docs/strategy/LAUNCHER_CONVERGENCE_STRATEGY.md`
+- Route B: `docs/adr/007-dashboard-widget-single-window.md`, `docs/strategy/DASHBOARD_WIDGET_STRATEGY.md`
 
 ## Route Discipline
 
-Luma has two documented routes:
+Active route: **Route C — Command-First Unified List** (ADR-023). Supersedes ADR-007.
 
-- Route A: Launcher Convergence. Pure launcher, no dashboard, no in-panel detail pages.
-- Route B: Dashboard Widget Single Window. Liquid-glass dashboard with sidebar, widget cards, result overlay, and same-panel details.
+- Single-column launcher list; home = Open Apps + Suggested + Recent.
+- Modules surface as `ResultItem` rows via explicit triggers, not dashboard cards.
+- Same-panel module details are allowed; dashboard widget grid and permanent sidebar are not.
+- Panel ~700 × 480 pt; optimize for one-keyboard-step command execution.
 
-Current accepted ADR: Route B via `docs/adr/007-dashboard-widget-single-window.md`.
-
-Do not casually merge the two routes. Route B is the active implementation route. Route A is historical reference only unless the user explicitly revives it with a new superseding ADR.
+Do not casually merge Route B dashboard/widget UX back in. Route A and Route B remain historical unless the user explicitly revives them with a new ADR.
 
 ## Product Strategy Bias
 
@@ -29,7 +34,7 @@ Do not casually merge the two routes. Route B is the active implementation route
 - Prefer fewer features done well over many modules done shallowly.
 - Challenge scope creep before expanding the module list.
 - Ask whether a feature belongs in Luma, a separate app, an external tool, or a scripted command.
-- Treat dashboard/widget work as a deliberate product choice, not a default.
+- Favor **command-first, prefix-triggered, low-warmup** modules over dashboard surfaces.
 
 ## Hard Rules
 
@@ -41,6 +46,17 @@ Do not casually merge the two routes. Route B is the active implementation route
 - No custom file index.
 - No cloud sync, telemetry, onboarding, or updater unless explicitly re-decided.
 
+## Active Module Landscape
+
+`BuiltInModules.makeAll()` includes Apps, Clipboard, Commands, Notes, Todo, Events, Translate, Wordbook, Snippets, Secrets, Media, **Window Layouts**, **Projects**.
+
+Deferred: Calculator, Windows.
+
+Notable recent additions:
+
+- **Window Layouts** — `layout`/`win`/`wl`; moves focused window via AX; requires Accessibility permission UX when denied.
+- **Projects** — `proj`/`p`/`project`; config at `~/Library/Application Support/Luma/projects.json`; index built at warmup, not on each query.
+
 ## Architecture Review Checklist
 
 Review proposals against:
@@ -48,16 +64,17 @@ Review proposals against:
 - target boundaries: `LumaApp`, `LumaCore`, `LumaModules`, `LumaServices`, `LumaInfrastructure`
 - `LumaCore` staying UI-free
 - services owning AX/Pasteboard/Keychain/Translation/FSEvents boundaries
-- module `handle` methods staying timeout-safe
+- module `handle` methods staying timeout-safe and memory-only on the query path
 - persistence remaining recoverable and namespaced
 - logs never containing user content or secrets
 - performance targets staying measurable
+- Route C alignment: no dashboard card/sidebar regressions
 
 ## Planning Output Style
 
 For major planning requests, return:
 
-- route classification: Route A or Route B
+- route classification: Route C (default) or explicit exception
 - product judgment
 - P0/P1/P2/P3 task list
 - risks and tradeoffs

@@ -6,28 +6,43 @@ Codex should act as the coding agent for Luma: inspect first, make scoped edits,
 
 For implementation work, read the relevant docs before editing:
 
-- `docs/strategy/PRODUCT_ROUTE_OPTIONS.md`
+- `docs/adr/023-command-first-unified-list.md` (active UI route)
+- `docs/PRD.md`
 - `docs/ENGINEERING_PACKAGE.md`
 - `docs/ARCHITECTURE.md`
 - `docs/specs/MODULE_CONTRACT.md`
 - `docs/specs/PERFORMANCE.md`
-- `docs/adr/007-dashboard-widget-single-window.md`
 
-For route-specific work:
+Historical route docs (do not implement against unless explicitly revived):
 
-- Route A: `docs/strategy/LAUNCHER_CONVERGENCE_STRATEGY.md`
-- Route B: `docs/strategy/DASHBOARD_WIDGET_STRATEGY.md`
+- Route A: `docs/strategy/LAUNCHER_CONVERGENCE_STRATEGY.md`, `docs/adr/006-launcher-convergence.md`
+- Route B: `docs/strategy/DASHBOARD_WIDGET_STRATEGY.md`, `docs/adr/007-dashboard-widget-single-window.md`
 
 ## Route Discipline
 
-There are two documented routes:
+Active route: **Route C — Command-First Unified List** (`docs/adr/023-command-first-unified-list.md`). Supersedes ADR-007.
 
-- Route A: Launcher Convergence. Pure launcher, usage-backed empty state, result-focused panel.
-- Route B: Dashboard Widget Single Window. Liquid-glass dashboard panel with sidebar, widget grid, results overlay, and same-panel details.
+Shape:
 
-Current accepted ADR: Route B via `docs/adr/007-dashboard-widget-single-window.md`.
+- Command+Space opens a single-column list (~700 × 480 pt).
+- Empty query: home sections — Open Apps, Suggested, Recent.
+- Non-empty query: flat ranked results from `QueryDispatcher`.
+- Return runs primary action; Tab / ⌘K opens Action Panel; Esc unwinds home → close.
+- Module detail views stay in the same panel; **no dashboard feature-card grid** and **no permanent sidebar**.
 
-Do not blend both routes in code. Route B is the active implementation route; Route A is historical reference only unless the user explicitly revives it with a new superseding ADR.
+Do not blend Route B dashboard/widget patterns (card grid, 860 × 540 shell, sidebar-first navigation) into new work.
+
+## Active Modules (high level)
+
+Registered via `BuiltInModules.makeAll()`:
+
+- Apps (root search), Clipboard (`clip`), Commands, Notes (`note`), Todo (`t`/`todo`), Events (`e`/`event`), Translate (`tr`/`translate`), Wordbook (`word`), Snippets (`s`/`snip`), Secrets (`secret`), Media (`m`/`media`), **Window Layouts** (`layout`/`win`/`wl`), **Projects** (`proj`/`p`/`project`).
+
+Deferred (`makeDeferred()`): Calculator, Windows (window focus list).
+
+Accessibility-dependent when active: Snippets, Window Layouts.
+
+New command modules should stay **prefix-triggered**, **memory-indexed on query**, and **warmup-scanned** — not disk-scanned per keystroke.
 
 ## Non-Negotiables
 

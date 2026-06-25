@@ -43,7 +43,9 @@ public enum BuiltInModules {
             overrides.wordbook ?? WordbookModule(),
             overrides.snippets ?? SnippetsModule(),
             overrides.secrets ?? SecretsModule(),
-            overrides.media ?? MediaModule()
+            overrides.media ?? MediaModule(),
+            WindowLayoutsModule(),
+            ProjectsModule()
         ]
     }
 
@@ -55,7 +57,7 @@ public enum BuiltInModules {
         ]
     }
 
-    public static let accessibilityDependentModuleIDs: Set<ModuleIdentifier> = [.windows, .snippets]
+    public static let accessibilityDependentModuleIDs: Set<ModuleIdentifier> = [.windows, .snippets, .windowLayouts]
 
     public static func activeModulesRequireAccessibility() -> Bool {
         !accessibilityDependentModuleIDs.isDisjoint(with: Set(makeAll().map { type(of: $0).manifest.identifier }))

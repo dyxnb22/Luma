@@ -35,7 +35,7 @@ public struct Action: Sendable, Hashable, Codable {
 
 public enum ActionKind: Sendable, Hashable, Codable {
     case launchApp(URL)
-    case focusWindow(windowID: UInt32, pid: Int32, title: String)
+    case focusWindow(windowID: UInt32, pid: Int32, title: String, bounds: WindowBounds?)
     case copyToPasteboard(String)
     case openURL(URL)
     case revealInFinder(URL)
@@ -44,6 +44,31 @@ public enum ActionKind: Sendable, Hashable, Codable {
     case translateText(String)
     case custom(payload: Data, handler: ModuleIdentifier)
     case noop
+}
+
+public struct WindowBounds: Sendable, Hashable, Codable {
+    public let x: CGFloat
+    public let y: CGFloat
+    public let width: CGFloat
+    public let height: CGFloat
+
+    public init(x: CGFloat, y: CGFloat, width: CGFloat, height: CGFloat) {
+        self.x = x
+        self.y = y
+        self.width = width
+        self.height = height
+    }
+
+    public init(_ rect: CGRect) {
+        x = rect.origin.x
+        y = rect.origin.y
+        width = rect.size.width
+        height = rect.size.height
+    }
+
+    public var rect: CGRect {
+        CGRect(x: x, y: y, width: width, height: height)
+    }
 }
 
 public enum ExecutionContext: Sendable, Hashable, Codable {

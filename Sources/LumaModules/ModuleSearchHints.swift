@@ -33,6 +33,12 @@ public enum ModuleSearchHints {
         if lower == "tr" || lower.hasPrefix("tr ") || lower.hasPrefix("translate") {
             return "Text to translate"
         }
+        if lower == "layout" || lower.hasPrefix("layout ") || lower.hasPrefix("win ") || lower.hasPrefix("wl ") {
+            return "Move focused window — left, right, max, center…"
+        }
+        if lower == "proj" || lower.hasPrefix("proj ") || lower == "p" || lower.hasPrefix("p ") || lower.hasPrefix("project ") {
+            return "Open a project in Cursor, VS Code, Finder, or Terminal"
+        }
         return Self.default
     }
 }

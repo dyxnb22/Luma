@@ -20,13 +20,13 @@ public actor AXService: AccessibilityClient {
         Self.enumerateWindows(for: pid)
     }
 
-    public func focus(windowID: UInt32, pid: Int32, title: String) async {
-        await Self.focusWindow(windowID: windowID, pid: pid, title: title)
+    public func focus(windowID: UInt32, pid: Int32, title: String, bounds: WindowBounds?) async {
+        await Self.focusWindow(windowID: windowID, pid: pid, title: title, bounds: bounds?.rect)
     }
 
     public func focus(windowID: UInt32) async {
         guard let match = Self.cgWindows(for: nil).first(where: { $0.windowID == windowID }) else { return }
-        await Self.focusWindow(windowID: match.windowID, pid: match.pid, title: match.title)
+        await Self.focusWindow(windowID: match.windowID, pid: match.pid, title: match.title, bounds: match.bounds)
     }
 
     public func insert(text: String) async {
@@ -44,6 +44,7 @@ public actor AXService: AccessibilityClient {
         guard AXUIElementCopyAttributeValue(appElement, kAXFocusedWindowAttribute as CFString, &focused) == .success,
               let window = focused else { return }
 
+        // TODO: use the screen containing the focused window instead of main screen.
         let screen = NSScreen.main?.visibleFrame ?? NSScreen.screens.first?.visibleFrame ?? .zero
         let frame = frame(for: preset, screen: screen)
         var origin = frame.origin
@@ -104,47 +105,103 @@ public actor AXService: AccessibilityClient {
 
     // MARK: - Focus
 
-    nonisolated private static func focusWindow(windowID: UInt32, pid: Int32, title: String) async {
+    nonisolated private static func focusWindow(windowID: UInt32, pid: Int32, title: String, bounds: CGRect?) async {
         guard AXIsProcessTrusted() else { return }
         let appElement = AXUIElementCreateApplication(pid)
         var windowsRef: CFTypeRef?
         guard AXUIElementCopyAttributeValue(appElement, kAXWindowsAttribute as CFString, &windowsRef) == .success,
               let windows = windowsRef as? [AXUIElement], !windows.isEmpty else { return }
 
-        let targetBounds = cgWindowBounds(windowID: windowID, pid: pid)
-        var targetWindow: AXUIElement?
+        let targetWindow = resolveFocusTarget(
+            windows: windows,
+            windowID: windowID,
+            pid: pid,
+            title: title,
+            bounds: bounds
+        )
+        guard let window = targetWindow else { return }
 
-        if let targetBounds {
-            for window in windows {
-                if let axBounds = axWindowBounds(window), boundsMatch(axBounds, targetBounds) {
-                    targetWindow = window
-                    break
-                }
-            }
-        }
-
-        if targetWindow == nil, !title.isEmpty {
-            for window in windows {
-                var titleRef: CFTypeRef?
-                guard AXUIElementCopyAttributeValue(window, kAXTitleAttribute as CFString, &titleRef) == .success,
-                      let windowTitle = titleRef as? String else { continue }
-                if windowTitle == title {
-                    targetWindow = window
-                    break
-                }
-            }
-        }
-
-        let window = targetWindow ?? windows[0]
         _ = AXUIElementPerformAction(window, kAXRaiseAction as CFString)
         AXUIElementSetAttributeValue(window, kAXMainAttribute as CFString, kCFBooleanTrue)
         AXUIElementSetAttributeValue(window, kAXFocusedAttribute as CFString, kCFBooleanTrue)
         _ = await MainActor.run {
             if let app = NSRunningApplication(processIdentifier: pid) {
                 app.unhide()
-                app.activate(from: NSRunningApplication.current, options: [.activateAllWindows])
+                app.activate(from: NSRunningApplication.current)
             }
         }
+    }
+
+    nonisolated private static func resolveFocusTarget(
+        windows: [AXUIElement],
+        windowID: UInt32,
+        pid: Int32,
+        title: String,
+        bounds: CGRect?
+    ) -> AXUIElement? {
+        if let bounds, bounds != .zero {
+            for window in windows {
+                if let axBounds = axWindowBounds(window), boundsMatch(axBounds, bounds) {
+                    return window
+                }
+            }
+        }
+
+        if windowID != 0, let targetBounds = cgWindowBounds(windowID: windowID, pid: pid) {
+            for window in windows {
+                if let axBounds = axWindowBounds(window), boundsMatch(axBounds, targetBounds) {
+                    return window
+                }
+            }
+        }
+
+        let normalizedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !normalizedTitle.isEmpty {
+            for window in windows {
+                guard let windowTitle = axWindowTitle(window) else { continue }
+                if windowTitle == normalizedTitle {
+                    return window
+                }
+            }
+
+            for window in windows {
+                guard let windowTitle = axWindowTitle(window) else { continue }
+                if titlesMatch(windowTitle, normalizedTitle) {
+                    return window
+                }
+            }
+        }
+
+        return windows.count == 1 ? windows[0] : nil
+    }
+
+    nonisolated private static func axWindowTitle(_ window: AXUIElement) -> String? {
+        var titleRef: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(window, kAXTitleAttribute as CFString, &titleRef) == .success,
+              let raw = titleRef as? String else { return nil }
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    nonisolated private static func titlesMatch(_ lhs: String, _ rhs: String) -> Bool {
+        if lhs.localizedCaseInsensitiveCompare(rhs) == .orderedSame { return true }
+        let left = lhs.lowercased()
+        let right = rhs.lowercased()
+        if left.contains(right) || right.contains(left) { return true }
+
+        let leftSegments = titleSegments(lhs)
+        let rightSegments = titleSegments(rhs)
+        guard let leftProject = leftSegments.last, let rightProject = rightSegments.last else { return false }
+        return leftProject == rightProject
+    }
+
+    nonisolated private static func titleSegments(_ title: String) -> [String] {
+        title
+            .replacingOccurrences(of: " – ", with: " — ")
+            .replacingOccurrences(of: " - ", with: " — ")
+            .split(separator: "—", omittingEmptySubsequences: false)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
+            .filter { !$0.isEmpty }
     }
 
     // MARK: - AX helpers
@@ -213,7 +270,8 @@ public actor AXService: AccessibilityClient {
             title: title,
             isMain: isMain,
             isMinimized: isMinimized,
-            isFocused: isFocused
+            isFocused: isFocused,
+            bounds: axBounds
         )
     }
 
@@ -288,7 +346,7 @@ public actor AXService: AccessibilityClient {
         return CGRect(x: origin.x, y: flippedY, width: size.width, height: size.height)
     }
 
-    nonisolated private static func boundsMatch(_ lhs: CGRect, _ rhs: CGRect, tolerance: CGFloat = 2) -> Bool {
+    nonisolated private static func boundsMatch(_ lhs: CGRect, _ rhs: CGRect, tolerance: CGFloat = 8) -> Bool {
         abs(lhs.origin.x - rhs.origin.x) <= tolerance
             && abs(lhs.origin.y - rhs.origin.y) <= tolerance
             && abs(lhs.width - rhs.width) <= tolerance

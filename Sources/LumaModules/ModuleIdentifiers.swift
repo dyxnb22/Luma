@@ -15,4 +15,5 @@ extension ModuleIdentifier {
     public static let snippets = ModuleIdentifier(rawValue: "luma.snippets")
     public static let media = ModuleIdentifier(rawValue: "luma.media")
     public static let events = ModuleIdentifier(rawValue: "luma.events")
+    public static let projects = ModuleIdentifier(rawValue: "luma.projects")
 }

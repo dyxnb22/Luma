@@ -22,7 +22,7 @@ Historical only — do not implement unless the user revives with a new ADR:
 
 Active route: **Route C — Command-First Unified List** (`docs/adr/023-command-first-unified-list.md`).
 
-- Single-column list; empty query shows Open Apps / Suggested / Recent sections.
+- Single-column list; empty query shows Open Apps / Suggested sections.
 - Search yields flat `QueryDispatcher` results; Return runs primary action.
 - Tab / ⌘K opens Action Panel; module details stay in the same panel.
 - **No dashboard feature-card grid** and **no permanent sidebar** on the home screen.

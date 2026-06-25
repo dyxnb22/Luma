@@ -6,6 +6,8 @@ import LumaModules
 @MainActor
 final class LauncherRootView: NSView {
     private let glassBackground = NSVisualEffectView()
+    private let performanceStrip = LauncherPerformanceStripView()
+    private let resourceSampler = SystemResourceSampler()
     private let searchBar = LumaSearchBar()
     private let commandHintBar = CommandHintBar()
     private let listView = LauncherListView()
@@ -37,6 +39,7 @@ final class LauncherRootView: NSView {
         listView: listView,
         hintBar: hintBar,
         actionPanel: actionPanel,
+        performanceStrip: performanceStrip,
         onDismiss: onDismiss,
         onActionDismiss: onActionDismiss,
         onOpenSettings: onOpenSettings
@@ -71,6 +74,7 @@ final class LauncherRootView: NSView {
         LauncherPanelChrome.install(on: self, glassBackground: glassBackground)
         LauncherLayoutBuilder.install(
             on: self,
+            performanceStrip: performanceStrip,
             searchBar: searchBar,
             commandHintBar: commandHintBar,
             listView: listView,
@@ -117,6 +121,33 @@ final class LauncherRootView: NSView {
     func refreshPermissionStatus() { controller.permissionController.refresh() }
     func startPermissionPollingIfNeeded() { controller.permissionController.startPollingIfNeeded() }
     func stopPermissionPolling() { controller.permissionController.stopPolling() }
+
+    func startPerformanceSampling() {
+        resourceSampler.onUpdate = { [weak self] presentation in
+            self?.performanceStrip.apply(presentation)
+        }
+        resourceSampler.summaryProvider = {
+            async let todayCount: Int? = {
+                guard let todoModule = ModuleDetailRegistry.todoModule else { return nil }
+                return try? await todoModule.todayDueCount()
+            }()
+            async let reviewCount: Int? = {
+                guard let wordbookStore = ModuleDetailRegistry.wordbookStore else { return nil }
+                return try? await wordbookStore.dueTodayCount()
+            }()
+            return await PerformanceStripSummarySnapshot(
+                todayCount: todayCount,
+                reviewCount: reviewCount
+            )
+        }
+        resourceSampler.start()
+    }
+
+    func stopPerformanceSampling() {
+        resourceSampler.stop()
+        resourceSampler.onUpdate = nil
+        resourceSampler.summaryProvider = nil
+    }
 
     private func installLatencyHUD() {
         latencyHUD.translatesAutoresizingMaskIntoConstraints = false

@@ -24,7 +24,7 @@ Route C — **Command-First Unified List**:
 4. **Module = result provider**: Modules surface via `ResultItem` rows, not `FeatureCard` tiles.
 5. **Open Apps as section #1**: Open apps appear in the home list, not a permanent sidebar.
 6. **Action Panel is opt-in**: Tab / ⌘K opens an action chooser; rows show primary action on Return.
-7. **Minimal home abstraction**: Three home providers only — Open Apps, Suggested, Recent.
+7. **Minimal home abstraction**: Two home providers only — Open Apps, Suggested.
 8. **Performance budget**: Each home provider ≤ 4 ms on main thread; full home snapshot ≤ 16 ms.
 
 Panel geometry: default **900 × 600 pt**, responsive **840–940 × 580–700 pt** (58% screen width × 66% height, capped). Larger than historical Route B's 860 × 540 widget shell.
@@ -39,12 +39,12 @@ Positive:
 
 Negative:
 
-- No visible multi-module grid; users rely on triggers, recents, and suggestions.
+- No visible multi-module grid; users rely on triggers and suggestions.
 - Only top 6 open apps on home; overflow via "+N more".
 - ADR-007 dashboard strategy docs become historical reference.
 
 ## Implementation Notes
 
 - `LauncherListView` replaces `FeatureFlowView` + sidebar + dual scroll views.
-- `LauncherHomeAggregator` composes three providers on empty query only.
+- `LauncherHomeAggregator` composes two providers on empty query only.
 - `FeatureCatalog.dashboardCoreCards()` may remain for detail header metadata until a later cleanup.

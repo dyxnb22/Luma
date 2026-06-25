@@ -32,7 +32,7 @@ These decisions answer the previous open questions and are now in force for Luma
 
 ## UX
 
-- Empty query shows the Route C home list: Open Apps, Suggested, and Recent.
+- Empty query shows the Route C home list: Open Apps and Suggested.
 - Use same-panel module detail surfaces for modules that need richer management.
 - Panel hides before action completion, in the same runloop turn as Return.
 - `secondaryActions` model ships in v1.

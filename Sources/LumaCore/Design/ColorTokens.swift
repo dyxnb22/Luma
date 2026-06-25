@@ -41,6 +41,26 @@ public enum ColorTokens {
         NSColor.labelColor.withAlphaComponent(LauncherChromeTokens.listRowHoverAlpha)
     }
 
+    public static var performanceStripSurfaceFill: NSColor {
+        NSColor.quaternaryLabelColor.withAlphaComponent(0.08)
+    }
+
+    public static var performanceStripNormalText: NSColor {
+        .tertiaryLabelColor
+    }
+
+    public static var performanceStripMetricText: NSColor {
+        .secondaryLabelColor
+    }
+
+    public static var performanceStripElevatedMetricText: NSColor {
+        .labelColor.withAlphaComponent(0.78)
+    }
+
+    public static var performanceStripWarningAccent: NSColor {
+        NSColor.systemOrange.withAlphaComponent(0.88)
+    }
+
     private static var isDarkAppearance: Bool {
         NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
     }

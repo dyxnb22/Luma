@@ -14,6 +14,8 @@ final class LauncherRootController {
     let contentCoordinator: LauncherContentCoordinator
     let permissionController = PermissionBannerController()
 
+    private let performanceStrip: LauncherPerformanceStripView
+
     private let viewModel: LauncherViewModel
     private let homeCoordinator: LauncherHomeCoordinator
     private let actionExecutor: ActionExecutor
@@ -37,6 +39,7 @@ final class LauncherRootController {
         listView: LauncherListView,
         hintBar: LauncherHintBar,
         actionPanel: LauncherActionPanel,
+        performanceStrip: LauncherPerformanceStripView,
         onDismiss: @escaping () -> Void,
         onActionDismiss: @escaping () -> Void,
         onOpenSettings: @escaping () -> Void
@@ -51,6 +54,7 @@ final class LauncherRootController {
         self.listView = listView
         self.hintBar = hintBar
         self.actionPanel = actionPanel
+        self.performanceStrip = performanceStrip
         self.onDismiss = onDismiss
         self.onActionDismiss = onActionDismiss
         self.onOpenSettings = onOpenSettings
@@ -103,6 +107,7 @@ final class LauncherRootController {
         listView.isHidden = false
         listView.alphaValue = 1
         hintBar.setContext(.home)
+        syncPerformanceStripVisibility()
         refreshHome()
         permissionController.refresh()
         if focusSearch { focusSearchField() }
@@ -186,7 +191,7 @@ final class LauncherRootController {
             showHome(focusSearch: true, persist: false)
             return
         }
-        hintBar.setContext(.detail)
+        enterDetailContext()
         contentCoordinator.present(detail, moduleID: moduleID)
     }
 
@@ -211,6 +216,7 @@ final class LauncherRootController {
     func closeDetail() {
         contentCoordinator.closeDetail()
         hintBar.setContext(.home)
+        syncPerformanceStripVisibility()
     }
 
     func handleTextChange(_ text: String) {
@@ -228,6 +234,7 @@ final class LauncherRootController {
         guard modulesReady else { return }
         contentCoordinator.beginShowingResults()
         hintBar.setContext(.results)
+        syncPerformanceStripVisibility()
         viewModel.queryChanged(text, issuedAt: .now)
     }
 
@@ -258,9 +265,19 @@ final class LauncherRootController {
     private func apply(snapshot: ResultSnapshot) {
         contentCoordinator.apply(snapshot: snapshot)
         hintBar.setContext(.results)
+        syncPerformanceStripVisibility()
         if let paintMs = LatencyTracker.shared.markFirstPaint() {
             LatencyTelemetry.report(p95Milliseconds: paintMs)
         }
+    }
+
+    private func syncPerformanceStripVisibility() {
+        performanceStrip.setContentVisible(!contentCoordinator.showingDetail)
+    }
+
+    private func enterDetailContext() {
+        hintBar.setContext(.detail)
+        performanceStrip.setContentVisible(false)
     }
 
     private func activateReturn() {
@@ -354,7 +371,7 @@ final class LauncherRootController {
             contentCoordinator.pendingTranslateText = nil
             return
         }
-        hintBar.setContext(.detail)
+        enterDetailContext()
         guard let detail = ModuleDetailRegistry.make(for: .translate) else { return }
         contentCoordinator.present(detail, moduleID: .translate, prefillTranslateText: text)
     }

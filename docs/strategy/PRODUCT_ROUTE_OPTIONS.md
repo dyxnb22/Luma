@@ -14,7 +14,7 @@ Document:
 Shape:
 
 - ~700 × 480 pt single-column list.
-- Empty query: Open Apps, Suggested, Recent sections.
+- Empty query: Open Apps, Suggested sections.
 - Non-empty query: flat ranked results; Return runs primary action.
 - Tab / ⌘K opens Action Panel; module details stay in the same panel.
 - **No dashboard feature-card grid** and **no permanent sidebar**.

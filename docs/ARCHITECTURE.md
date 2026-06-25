@@ -10,7 +10,7 @@ flowchart TD
     Coordinator --> Panel["LauncherWindowController + NSPanel"]
     Panel --> VM["LauncherViewModel"]
     Panel --> Home["LauncherHomeCoordinator"]
-    Home --> Providers["OpenApps / Recent / Contextual providers"]
+    Home --> Providers["OpenApps / Contextual providers"]
     VM --> Dispatcher["QueryDispatcher actor"]
     Dispatcher --> Modules["Enabled LumaModule actors"]
     Modules --> Services["ModuleContext services"]
@@ -79,7 +79,7 @@ flowchart TD
 
 ## Home List Flow (Route C)
 
-1. Empty query: `LauncherHomeCoordinator` aggregates Open Apps, Suggested, and Recent sections.
+1. Empty query: `LauncherHomeCoordinator` aggregates Open Apps and Suggested sections.
 2. Non-empty query: `QueryDispatcher` results render as a flat list (max 8 rows).
 3. Tab / ⌘K opens `LauncherActionPanel` for primary and secondary actions.
 4. Module detail entry: trigger keyword → result row → Return (or contextual suggestion).

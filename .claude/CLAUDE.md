@@ -21,7 +21,7 @@ Historical route docs (reference only):
 
 Active route: **Route C — Command-First Unified List** (ADR-023). Supersedes ADR-007.
 
-- Single-column launcher list; home = Open Apps + Suggested + Recent.
+- Single-column launcher list; home = Open Apps + Suggested.
 - Modules surface as `ResultItem` rows via explicit triggers, not dashboard cards.
 - Same-panel module details are allowed; dashboard widget grid and permanent sidebar are not.
 - Panel ~700 × 480 pt; optimize for one-keyboard-step command execution.

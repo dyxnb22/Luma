@@ -3,13 +3,11 @@ import Foundation
 public enum LauncherHomeSectionKind: String, Sendable, Hashable, CaseIterable {
     case openApps
     case suggested
-    case recent
 
     public var title: String {
         switch self {
         case .openApps: "OPEN APPS"
         case .suggested: "SUGGESTED"
-        case .recent: "RECENT"
         }
     }
 }

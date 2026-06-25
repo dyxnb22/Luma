@@ -18,20 +18,6 @@ public actor QueryDispatcher {
         self.metrics = metrics
     }
 
-    public func recentFrecency(limit: Int = 8) async -> [ResultItem] {
-        let records = await usage.recent(limit: limit)
-        let usageMap = await usage.snapshot()
-        let query = Query(raw: "", sequence: 0)
-        var items: [ResultItem] = []
-        for record in records {
-            guard let cached = await resultCache.item(for: record.id) else { continue }
-            var ranked = cached
-            ranked.rankingHints.finalScore = Ranker.score(item: cached, query: query, usage: usageMap[record.id])
-            items.append(ranked)
-        }
-        return items.sorted { $0.rankingHints.finalScore > $1.rankingHints.finalScore }
-    }
-
     public func dispatch(
         _ query: Query,
         onSnapshot: @Sendable @escaping (ResultSnapshot) async -> Void

@@ -4,7 +4,7 @@ This folder is the maintenance index for Luma's feature modules. Each feature ow
 
 ## Active v1 Launcher Set (Route C — ADR-023)
 
-**Home sections:** Open Apps, Suggested, Recent (no dashboard card grid).
+**Home sections:** Open Apps, Suggested (no dashboard card grid).
 
 **Modules (registered at launch):** Apps, Clipboard, Commands, Notes, Todo, Translate, Wordbook, Snippets, Secrets, Media, Window Layouts, Projects.
 
@@ -20,7 +20,7 @@ Older per-feature READMEs under this folder may describe pre–Route B experimen
 
 - Every feature is represented as an independent `LumaModule` or service-backed module.
 - Every default-enabled feature must preserve the launcher hot path.
-- Empty-query UI shows a sectioned home list (Open Apps / Suggested / Recent).
+- Empty-query UI shows a sectioned home list (Open Apps / Suggested).
 - Sensitive features must keep secrets out of generic search results unless explicitly unlocked.
 
 ## Raycast-Inspired Defaults

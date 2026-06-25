@@ -33,6 +33,14 @@ public enum LauncherChromeTokens {
     public static let contentTopGap: CGFloat = 8
     public static let contentBottomGap: CGFloat = 6
 
+    // Performance strip (header status line above search)
+    public static let performanceStripHeight: CGFloat = 20
+    public static let performanceStripGap: CGFloat = 6
+    public static let performanceMetricGap: CGFloat = 12
+    public static let performanceMetricCornerRadius: CGFloat = 6
+    public static let performanceWarningCPU: Double = 75
+    public static let performanceWarningMemoryRatio: Double = 0.85
+
     // List
     public static let listRowSpacing: CGFloat = 3
     public static let listRowCornerRadius: CGFloat = 10

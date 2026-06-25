@@ -76,6 +76,7 @@ final class LauncherWindowController {
         panel.makeKey()
         rootView?.refreshPermissionStatus()
         rootView?.startPermissionPollingIfNeeded()
+        rootView?.startPerformanceSampling()
         rootView?.restoreLastSessionIfNeeded()
         rootView?.focusSearchField()
         rootView?.refreshOpenApps()
@@ -99,6 +100,7 @@ final class LauncherWindowController {
         rootView?.saveCurrentSession()
         rootView?.resetOpenAppsExpansion()
         rootView?.stopPermissionPolling()
+        rootView?.stopPerformanceSampling()
         let duration = MotionTokens.panelHideDuration
         NSAnimationContext.runAnimationGroup { context in
             context.duration = duration
@@ -119,6 +121,7 @@ final class LauncherWindowController {
             self.rootView?.resetForActionDismiss()
             self.rootView?.resetOpenAppsExpansion()
             self.rootView?.stopPermissionPolling()
+            self.rootView?.stopPerformanceSampling()
             self.panel.orderOut(nil)
             self.panel.alphaValue = 1
         }

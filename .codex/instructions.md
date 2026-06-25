@@ -25,7 +25,7 @@ Active route: **Route C — Command-First Unified List** (`docs/adr/023-command-
 Shape:
 
 - Command+Space opens a single-column list (~700 × 480 pt).
-- Empty query: home sections — Open Apps, Suggested, Recent.
+- Empty query: home sections — Open Apps, Suggested.
 - Non-empty query: flat ranked results from `QueryDispatcher`.
 - Return runs primary action; Tab / ⌘K opens Action Panel; Esc unwinds home → close.
 - Module detail views stay in the same panel; **no dashboard feature-card grid** and **no permanent sidebar**.

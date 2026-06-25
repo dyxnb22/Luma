@@ -151,10 +151,6 @@ final class LauncherViewModel {
         issuedAtBySequence.removeAll()
     }
 
-    func recentFrecency(limit: Int = 8) async -> [ResultItem] {
-        await dispatcher.recentFrecency(limit: limit)
-    }
-
     private func p95(of samples: [Double]) -> Double {
         guard !samples.isEmpty else { return 0 }
         let sorted = samples.sorted()

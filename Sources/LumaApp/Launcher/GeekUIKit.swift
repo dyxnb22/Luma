@@ -206,6 +206,13 @@ enum GeekUIKit {
         view.layer?.backgroundColor = ColorTokens.searchSurfaceFill.cgColor
     }
 
+    static func installPerformanceStripSurface(on view: NSView) {
+        view.wantsLayer = true
+        view.layer?.cornerRadius = LauncherChromeTokens.performanceMetricCornerRadius
+        view.layer?.cornerCurve = .continuous
+        view.layer?.backgroundColor = ColorTokens.performanceStripSurfaceFill.cgColor
+    }
+
     static func configureDetailTable(_ tableView: NSTableView, rowHeight: CGFloat = LauncherChromeTokens.detailTableRowHeight) {
         tableView.style = .plain
         tableView.rowHeight = rowHeight

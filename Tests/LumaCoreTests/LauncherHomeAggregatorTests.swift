@@ -23,7 +23,6 @@ private struct StubHomeProvider: LauncherHomeProvider {
 
     let aggregator = LauncherHomeAggregator(
         openApps: openApps,
-        recent: StubHomeProvider(rows: []),
         contextual: StubHomeProvider(rows: [])
     )
     let snapshot = await aggregator.snapshot()
@@ -53,7 +52,7 @@ private struct StubHomeProvider: LauncherHomeProvider {
     )
     let snapshot = LauncherHomeSnapshot(sections: [
         LauncherHomeSection(kind: .openApps, items: [itemA]),
-        LauncherHomeSection(kind: .recent, items: [itemB])
+        LauncherHomeSection(kind: .suggested, items: [itemB])
     ])
     #expect(snapshot.flatItems.map(\.title) == ["A", "B"])
 }

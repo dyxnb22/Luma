@@ -6,7 +6,7 @@ Luma is a personal macOS launcher for one keyboard-heavy developer. It opens via
 
 ## Strategic Update
 
-The active product strategy is **Route C** (ADR-023): a command-first unified list launcher. Command+Space opens a single-column list with sectioned home rows (Open Apps, Suggested, Recent) and flat search results. Module detail views remain in the same panel; dashboard feature cards are no longer home-screen entry points.
+The active product strategy is **Route C** (ADR-023): a command-first unified list launcher. Command+Space opens a single-column list with sectioned home rows (Open Apps, Suggested) and flat search results. Module detail views remain in the same panel; dashboard feature cards are no longer home-screen entry points.
 
 Authoritative planning docs:
 
@@ -23,7 +23,7 @@ Historical route docs:
 ## Product Goals
 
 - Native AppKit launcher with p95 hotkey-to-interactive <= 50 ms.
-- Empty-query home list with Open Apps, contextual suggestions, and recent actions.
+- Empty-query home list with Open Apps and contextual suggestions.
 - Modular query/action implementation behind a simple launcher UX.
 - Local-first data for clipboard, usage, configuration, and app cache.
 - A small core feature set that remains fast under repeated daily use.

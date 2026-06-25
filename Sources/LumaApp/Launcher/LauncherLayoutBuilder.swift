@@ -7,6 +7,7 @@ enum LauncherLayoutBuilder {
 
     static func install(
         on root: NSView,
+        performanceStrip: LauncherPerformanceStripView,
         searchBar: LumaSearchBar,
         commandHintBar: CommandHintBar,
         listView: LauncherListView,
@@ -19,6 +20,7 @@ enum LauncherLayoutBuilder {
         closeDetailTarget: AnyObject,
         closeDetailAction: Selector
     ) {
+        performanceStrip.translatesAutoresizingMaskIntoConstraints = false
         searchBar.translatesAutoresizingMaskIntoConstraints = false
         commandHintBar.translatesAutoresizingMaskIntoConstraints = false
         listView.translatesAutoresizingMaskIntoConstraints = false
@@ -27,14 +29,27 @@ enum LauncherLayoutBuilder {
         contentContainer.translatesAutoresizingMaskIntoConstraints = false
 
         contentContainer.addSubview(listView)
+        root.addSubview(performanceStrip)
         root.addSubview(searchBar)
         root.addSubview(commandHintBar)
         root.addSubview(contentContainer)
         root.addSubview(hintBar)
         root.addSubview(actionPanel)
 
+        let searchBarTopGap = searchBar.topAnchor.constraint(
+            equalTo: performanceStrip.bottomAnchor,
+            constant: LauncherChromeTokens.performanceStripGap
+        )
+        performanceStrip.onPresenceChanged = { visible in
+            searchBarTopGap.constant = visible ? LauncherChromeTokens.performanceStripGap : 0
+        }
+
         NSLayoutConstraint.activate([
-            searchBar.topAnchor.constraint(equalTo: root.topAnchor, constant: margin),
+            performanceStrip.topAnchor.constraint(equalTo: root.topAnchor, constant: margin),
+            performanceStrip.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: margin),
+            performanceStrip.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -margin),
+
+            searchBarTopGap,
             searchBar.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: margin),
             searchBar.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -margin),
             searchBar.heightAnchor.constraint(equalToConstant: LauncherChromeTokens.searchBarHeight),

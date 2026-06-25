@@ -39,7 +39,19 @@ actor OpenAppsHomeProvider: LauncherHomeProvider {
         let ordered = rankedIDs.compactMap { byID[$0] }
 
         let visible = showsAll ? ordered : Array(ordered.prefix(Self.collapsedLimit))
-        var items = visible.map { Self.resultItem(for: $0) }
+        var items: [ResultItem] = []
+        for app in visible {
+            items.append(Self.appRow(for: app))
+            if app.windows.count > 1 {
+                items.append(contentsOf: app.windows.enumerated().map { index, window in
+                    Self.windowRow(
+                        for: window,
+                        app: app,
+                        isLast: index == app.windows.count - 1
+                    )
+                })
+            }
+        }
 
         if !showsAll, ordered.count > Self.collapsedLimit {
             items.append(OpenAppsResultBuilder.moreRow(hiddenCount: ordered.count - Self.collapsedLimit))
@@ -77,17 +89,8 @@ actor OpenAppsHomeProvider: LauncherHomeProvider {
         return snapshots
     }
 
-    private static func resultItem(for app: AppRuntimeSnapshot) -> ResultItem {
+    private static func secondaryActions(for app: AppRuntimeSnapshot) -> [Action] {
         var secondary: [Action] = []
-        if app.windows.count > 1 {
-            for window in app.windows {
-                secondary.append(Action(
-                    id: ActionID(module: .windows, key: "focus.\(window.id)"),
-                    title: "Focus — \(window.title)",
-                    kind: .focusWindow(windowID: window.windowID, pid: window.pid, title: window.title)
-                ))
-            }
-        }
         if let quitPayload = try? ModuleActionCoding.encode(AppsAction.quit(bundleID: app.bundleID)) {
             secondary.append(Action(
                 id: ActionID(module: .apps, key: "quit.\(app.bundleID)"),
@@ -100,13 +103,40 @@ actor OpenAppsHomeProvider: LauncherHomeProvider {
             title: "Copy app path",
             kind: .copyToPasteboard(app.appURL.path)
         ))
+        return secondary
+    }
 
+    private static func appRow(for app: AppRuntimeSnapshot) -> ResultItem {
         let snapshot = RunningAppSnapshot(
             bundleID: app.bundleID,
             name: app.name,
             appPath: app.appURL.path,
             windowCount: app.windowCount
         )
-        return OpenAppsResultBuilder.resultItem(for: snapshot, secondaryActions: secondary)
+        return OpenAppsResultBuilder.resultItem(for: snapshot, secondaryActions: secondaryActions(for: app))
+    }
+
+    private static func windowRow(
+        for window: OpenWindowSnapshot,
+        app: AppRuntimeSnapshot,
+        isLast: Bool
+    ) -> ResultItem {
+        let displayTitle = IDEWindowTitle.sidebarLabel(
+            rawTitle: window.title,
+            bundleID: app.bundleID,
+            appName: app.name
+        )
+        return OpenAppsResultBuilder.windowRow(
+            for: RunningWindowSnapshot(
+                bundleID: app.bundleID,
+                appName: app.name,
+                windowID: window.windowID,
+                pid: window.pid,
+                title: displayTitle,
+                isMain: window.isMain,
+                isMinimized: window.isMinimized
+            ),
+            listNest: .child(isLast: isLast)
+        )
     }
 }

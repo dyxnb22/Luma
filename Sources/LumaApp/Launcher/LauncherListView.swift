@@ -86,11 +86,16 @@ final class LauncherListView: NSView {
         }
         rowViews.removeAll()
 
-        for row in newRows {
+        for (index, row) in newRows.enumerated() {
             let view = makeView(for: row)
             rowViews.append(view)
             stack.addArrangedSubview(view)
             view.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
+            if index > 0, isNestedChildRow(row), isNestedChildRow(newRows[index - 1]) {
+                stack.setCustomSpacing(1, after: rowViews[index - 1])
+            } else if index > 0, isNestedChildRow(row), isAppParentRow(newRows[index - 1]) {
+                stack.setCustomSpacing(2, after: rowViews[index - 1])
+            }
         }
 
         if let previousID, let restored = currentItems.firstIndex(where: { $0.id == previousID }) {
@@ -118,6 +123,16 @@ final class LauncherListView: NSView {
         case .placeholder(let text):
             return LauncherPlaceholderRow(text: text)
         }
+    }
+
+    private func isNestedChildRow(_ row: LauncherListRows.Row) -> Bool {
+        guard case .item(let item, _) = row.kind else { return false }
+        return item.listNest != .none
+    }
+
+    private func isAppParentRow(_ row: LauncherListRows.Row) -> Bool {
+        guard case .item(let item, _) = row.kind else { return false }
+        return item.id.module.rawValue == "luma.apps" && item.listNest == .none
     }
 
     private func updateRowHighlight(oldFlatIndex: Int?, newFlatIndex: Int) {

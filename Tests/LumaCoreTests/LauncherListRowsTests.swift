@@ -39,6 +39,45 @@ import LumaCore
     #expect(item.secondaryActions.count == 1)
 }
 
+@Test func openAppsBuilderCreatesExpandableMultiWindowRow() {
+    let item = OpenAppsResultBuilder.expandableResultItem(
+        for: RunningAppSnapshot(
+            bundleID: "com.todesktop.230313mzl4w4u92",
+            name: "Cursor",
+            appPath: "/Applications/Cursor.app",
+            windowCount: 3
+        ),
+        isExpanded: false,
+        secondaryActions: []
+    )
+    #expect(item.title == "Cursor")
+    #expect(item.subtitle == "3 windows")
+    #expect(item.id.key == "openApps.windows.toggle.com.todesktop.230313mzl4w4u92")
+    #expect(item.primaryAction.title == "Show Windows")
+}
+
+@Test func openAppsBuilderCreatesWindowFocusRow() {
+    let item = OpenAppsResultBuilder.windowRow(for: RunningWindowSnapshot(
+        bundleID: "com.todesktop.230313mzl4w4u92",
+        appName: "Cursor",
+        windowID: 42,
+        pid: 123,
+        title: "Luma — Sources",
+        isMain: true,
+        isMinimized: false
+    ))
+    #expect(item.title == "Luma — Sources")
+    #expect(item.subtitle == "focused")
+    #expect(item.listNest == .child(isLast: true))
+    if case .focusWindow(let windowID, let pid, let title) = item.primaryAction.kind {
+        #expect(windowID == 42)
+        #expect(pid == 123)
+        #expect(title == "Luma — Sources")
+    } else {
+        Issue.record("Expected focusWindow action")
+    }
+}
+
 @Test func listRowsMapHomeSectionsWithGlobalShortcutIndex() {
     let appsID = ModuleIdentifier(rawValue: "luma.apps")
     let todoID = ModuleIdentifier(rawValue: "luma.todo")

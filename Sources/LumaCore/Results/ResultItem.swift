@@ -17,6 +17,11 @@ public enum ResultDisplayDensity: Sendable, Hashable, Codable {
     case expanded
 }
 
+public enum ResultListNest: Sendable, Hashable, Codable {
+    case none
+    case child(isLast: Bool)
+}
+
 public struct ResultItem: Identifiable, Sendable, Hashable {
     public let id: ResultID
     public let title: String
@@ -27,6 +32,7 @@ public struct ResultItem: Identifiable, Sendable, Hashable {
     public let secondaryActions: [Action]
     public var rankingHints: RankingHints
     public var displayDensity: ResultDisplayDensity
+    public var listNest: ResultListNest
 
     public init(
         id: ResultID,
@@ -37,7 +43,8 @@ public struct ResultItem: Identifiable, Sendable, Hashable {
         primaryAction: Action,
         secondaryActions: [Action] = [],
         rankingHints: RankingHints,
-        displayDensity: ResultDisplayDensity = .regular
+        displayDensity: ResultDisplayDensity = .regular,
+        listNest: ResultListNest = .none
     ) {
         self.id = id
         self.title = title
@@ -48,6 +55,7 @@ public struct ResultItem: Identifiable, Sendable, Hashable {
         self.secondaryActions = secondaryActions
         self.rankingHints = rankingHints
         self.displayDensity = displayDensity
+        self.listNest = listNest
     }
 }
 

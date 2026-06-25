@@ -30,6 +30,7 @@ final class LauncherListRow: NSControl {
     private let moduleLabel: String
     private let onRun: (ResultItem) -> Void
     private let onRightClick: ((ResultItem) -> Void)?
+    private let treeGuideView = ListTreeGuideView()
     private let iconView = NSImageView()
     private let titleLabel = NSTextField(labelWithString: "")
     private let subtitleLabel = NSTextField(labelWithString: "")
@@ -101,34 +102,42 @@ final class LauncherListRow: NSControl {
 
     private func setup() {
         translatesAutoresizingMaskIntoConstraints = false
+        let isNested = item.listNest != .none
         let rowHeight: CGFloat = switch item.displayDensity {
-        case .compact: 44
+        case .compact: isNested ? 38 : 44
         case .regular: 56
         case .expanded: 72
         }
         heightAnchor.constraint(equalToConstant: rowHeight).isActive = true
 
-        iconView.image = Self.iconImage(for: item.icon)
+        if case .child(let isLast) = item.listNest {
+            treeGuideView.isLast = isLast
+            treeGuideView.translatesAutoresizingMaskIntoConstraints = false
+        }
+
+        iconView.image = Self.iconImage(for: item.icon, nested: isNested)
         iconView.imageScaling = .scaleProportionallyDown
         iconView.wantsLayer = true
-        iconView.layer?.cornerRadius = 8
+        iconView.layer?.cornerRadius = isNested ? 4 : 8
         iconView.layer?.cornerCurve = .continuous
         iconView.layer?.masksToBounds = true
+        iconView.contentTintColor = isNested ? .secondaryLabelColor : nil
         iconView.translatesAutoresizingMaskIntoConstraints = false
 
         titleLabel.stringValue = item.title
-        titleLabel.font = .systemFont(ofSize: 15, weight: .medium)
+        titleLabel.font = .systemFont(ofSize: isNested ? 13 : 15, weight: isNested ? .regular : .medium)
+        titleLabel.textColor = isNested ? .secondaryLabelColor : .labelColor
         titleLabel.lineBreakMode = .byTruncatingTail
         titleLabel.translatesAutoresizingMaskIntoConstraints = false
 
         subtitleLabel.stringValue = item.subtitle ?? ""
-        subtitleLabel.font = .systemFont(ofSize: 12)
-        subtitleLabel.textColor = .secondaryLabelColor
+        subtitleLabel.font = .systemFont(ofSize: isNested ? 11 : 12)
+        subtitleLabel.textColor = isNested ? .tertiaryLabelColor : .secondaryLabelColor
         subtitleLabel.lineBreakMode = item.displayDensity == .expanded ? .byTruncatingMiddle : .byTruncatingTail
         subtitleLabel.maximumNumberOfLines = item.displayDensity == .expanded ? 2 : 1
         subtitleLabel.translatesAutoresizingMaskIntoConstraints = false
 
-        trailingLabel.stringValue = "· \(moduleLabel)"
+        trailingLabel.stringValue = isNested ? "" : "· \(moduleLabel)"
         trailingLabel.font = GeekStyleTokens.mono(size: 11)
         trailingLabel.textColor = .tertiaryLabelColor
         trailingLabel.isBezeled = false
@@ -154,25 +163,31 @@ final class LauncherListRow: NSControl {
         selectionAccentLayer = GeekUIKit.installSidebarAccent(on: self)
 
         returnHintContainer.addSubview(returnHint)
+        if item.listNest != .none {
+            addSubview(treeGuideView)
+        }
         addSubview(iconView)
         addSubview(titleLabel)
         addSubview(subtitleLabel)
         addSubview(trailingLabel)
         addSubview(returnHintContainer)
 
-        let topPadding: CGFloat = item.displayDensity == .compact ? 6 : 10
+        let topPadding: CGFloat = isNested ? 4 : (item.displayDensity == .compact ? 6 : 10)
+        let iconSize: CGFloat = isNested ? 22 : 36
+        let leadingInset: CGFloat = isNested ? 22 : 0
+        let treeGuideWidth: CGFloat = 18
 
-        NSLayoutConstraint.activate([
-            iconView.leadingAnchor.constraint(equalTo: leadingAnchor),
+        var constraints: [NSLayoutConstraint] = [
+            iconView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: leadingInset),
             iconView.centerYAnchor.constraint(equalTo: centerYAnchor),
-            iconView.widthAnchor.constraint(equalToConstant: 36),
-            iconView.heightAnchor.constraint(equalToConstant: 36),
-            titleLabel.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: 12),
+            iconView.widthAnchor.constraint(equalToConstant: iconSize),
+            iconView.heightAnchor.constraint(equalToConstant: iconSize),
+            titleLabel.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: isNested ? 8 : 12),
             titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: returnHintContainer.leadingAnchor, constant: -8),
             titleLabel.topAnchor.constraint(equalTo: topAnchor, constant: topPadding),
             subtitleLabel.leadingAnchor.constraint(equalTo: titleLabel.leadingAnchor),
             subtitleLabel.trailingAnchor.constraint(equalTo: titleLabel.trailingAnchor),
-            subtitleLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 2),
+            subtitleLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: isNested ? 1 : 2),
             trailingLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -10),
             trailingLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
             returnHintContainer.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -10),
@@ -181,10 +196,22 @@ final class LauncherListRow: NSControl {
             returnHint.trailingAnchor.constraint(equalTo: returnHintContainer.trailingAnchor, constant: -8),
             returnHint.topAnchor.constraint(equalTo: returnHintContainer.topAnchor, constant: 4),
             returnHint.bottomAnchor.constraint(equalTo: returnHintContainer.bottomAnchor, constant: -4)
-        ])
+        ]
+
+        if case .child(let isLast) = item.listNest {
+            treeGuideView.isLast = isLast
+            constraints += [
+                treeGuideView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 4),
+                treeGuideView.widthAnchor.constraint(equalToConstant: treeGuideWidth),
+                treeGuideView.topAnchor.constraint(equalTo: topAnchor, constant: -2),
+                treeGuideView.bottomAnchor.constraint(equalTo: bottomAnchor, constant: 2)
+            ]
+        }
+
+        NSLayoutConstraint.activate(constraints)
     }
 
-    private static func iconImage(for icon: LumaCore.IconRef) -> NSImage? {
+    private static func iconImage(for icon: LumaCore.IconRef, nested: Bool) -> NSImage? {
         switch icon {
         case .bundleID(let bundleID):
             if let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID) {
@@ -192,12 +219,42 @@ final class LauncherListRow: NSControl {
             }
             return NSImage(systemSymbolName: "app.fill", accessibilityDescription: nil)
         case .symbol(let symbol):
-            return NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
+            let config = nested ? NSImage.SymbolConfiguration(pointSize: 13, weight: .regular) : nil
+            return NSImage(systemSymbolName: symbol, accessibilityDescription: nil)?
+                .withSymbolConfiguration(config ?? .init())
         case .file(let url):
             return IconCache.shared.appIcon(for: url)
         case .none:
             return NSImage(systemSymbolName: "sparkles", accessibilityDescription: nil)
         }
+    }
+}
+
+@MainActor
+private final class ListTreeGuideView: NSView {
+    var isLast = false
+
+    override var isFlipped: Bool { true }
+
+    override func draw(_ dirtyRect: NSRect) {
+        let stroke = NSColor.separatorColor.withAlphaComponent(0.55)
+        stroke.setStroke()
+
+        let trunkX = bounds.width - 4
+        let branchEndX = bounds.width + 6
+        let midY = bounds.midY
+
+        let vertical = NSBezierPath()
+        vertical.lineWidth = 1
+        vertical.move(to: NSPoint(x: trunkX, y: 0))
+        vertical.line(to: NSPoint(x: trunkX, y: isLast ? midY : bounds.height))
+        vertical.stroke()
+
+        let branch = NSBezierPath()
+        branch.lineWidth = 1
+        branch.move(to: NSPoint(x: trunkX, y: midY))
+        branch.line(to: NSPoint(x: branchEndX, y: midY))
+        branch.stroke()
     }
 }
 

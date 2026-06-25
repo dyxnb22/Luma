@@ -17,14 +17,14 @@ final class LauncherHintBar: NSView {
         translatesAutoresizingMaskIntoConstraints = false
         wantsLayer = true
 
-        leftLabel.font = GeekStyleTokens.mono(size: 11)
+        leftLabel.font = TypographyTokens.monoCaption()
         leftLabel.textColor = .tertiaryLabelColor
         leftLabel.isBezeled = false
         leftLabel.isEditable = false
         leftLabel.drawsBackground = false
         leftLabel.translatesAutoresizingMaskIntoConstraints = false
 
-        statusLabel.font = .systemFont(ofSize: 11)
+        statusLabel.font = TypographyTokens.caption2()
         statusLabel.textColor = .tertiaryLabelColor
         statusLabel.alignment = .right
         statusLabel.isBezeled = false
@@ -34,7 +34,7 @@ final class LauncherHintBar: NSView {
 
         addSubview(leftLabel)
         addSubview(statusLabel)
-        heightAnchor.constraint(equalToConstant: 28).isActive = true
+        heightAnchor.constraint(equalToConstant: LauncherChromeTokens.hintBarHeight).isActive = true
 
         NSLayoutConstraint.activate([
             leftLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 4),

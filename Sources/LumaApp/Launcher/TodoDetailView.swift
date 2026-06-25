@@ -1,4 +1,5 @@
 import AppKit
+import LumaCore
 import LumaModules
 import LumaServices
 
@@ -74,24 +75,26 @@ final class TodoDetailView: NSObject, ModuleDetailView {
         topBar.translatesAutoresizingMaskIntoConstraints = false
 
         inputField.placeholderString = "添加待办，可附 9:00 / +30m / 明天 9点"
-        inputField.font = .systemFont(ofSize: 14)
+        inputField.font = TypographyTokens.body
         inputField.target = self
         inputField.action = #selector(addTodo)
         inputField.translatesAutoresizingMaskIntoConstraints = false
 
         addButton.title = "Add"
-        addButton.bezelStyle = .rounded
+        GeekUIKit.stylePrimaryButton(addButton)
         addButton.target = self
         addButton.action = #selector(addTodo)
         addButton.translatesAutoresizingMaskIntoConstraints = false
 
-        configureIconButton(refreshButton, symbol: "arrow.clockwise", tooltip: "Refresh")
+        GeekUIKit.styleIconToolbarButton(refreshButton, symbol: "arrow.clockwise", tooltip: "Refresh")
         refreshButton.target = self
         refreshButton.action = #selector(refreshTapped)
 
-        configureIconButton(openRemindersButton, symbol: "arrow.up.forward.app", tooltip: "Open Reminders")
+        GeekUIKit.styleIconToolbarButton(openRemindersButton, symbol: "arrow.up.forward.app", tooltip: "Open Reminders")
         openRemindersButton.target = self
         openRemindersButton.action = #selector(openReminders)
+        openRemindersButton.translatesAutoresizingMaskIntoConstraints = false
+        refreshButton.translatesAutoresizingMaskIntoConstraints = false
 
         tabControl.segmentCount = 4
         tabControl.setLabel("Today", forSegment: 0)
@@ -103,9 +106,7 @@ final class TodoDetailView: NSObject, ModuleDetailView {
         tabControl.action = #selector(tabChanged)
         tabControl.translatesAutoresizingMaskIntoConstraints = false
 
-        statusLabel.font = .systemFont(ofSize: 12)
-        statusLabel.textColor = .secondaryLabelColor
-        statusLabel.lineBreakMode = .byTruncatingTail
+        GeekUIKit.configureStatusLabel(statusLabel)
         statusLabel.translatesAutoresizingMaskIntoConstraints = false
 
         topBar.addSubview(inputField)
@@ -126,8 +127,8 @@ final class TodoDetailView: NSObject, ModuleDetailView {
         scrollView.borderType = .noBorder
         scrollView.translatesAutoresizingMaskIntoConstraints = false
 
-        chrome.setToolbar(topBar, height: 58)
-        chrome.setFooter(statusLabel, height: 20)
+        chrome.setToolbar(topBar, height: LauncherChromeTokens.detailToolbarTallHeight)
+        chrome.setFooter(statusLabel, height: LauncherChromeTokens.detailFooterHeight)
         chrome.setContent(scrollView, embedInScroll: false)
 
         NSLayoutConstraint.activate([
@@ -185,13 +186,6 @@ final class TodoDetailView: NSObject, ModuleDetailView {
         refresh()
     }
 
-    private func configureIconButton(_ button: NSButton, symbol: String, tooltip: String) {
-        button.bezelStyle = .texturedRounded
-        button.isBordered = false
-        button.image = NSImage(systemSymbolName: symbol, accessibilityDescription: tooltip)
-        button.toolTip = tooltip
-        button.translatesAutoresizingMaskIntoConstraints = false
-    }
 
     @objc private func addTodo() {
         let raw = inputField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)

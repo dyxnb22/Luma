@@ -27,7 +27,7 @@ Route C — **Command-First Unified List**:
 7. **Minimal home abstraction**: Three home providers only — Open Apps, Suggested, Recent.
 8. **Performance budget**: Each home provider ≤ 4 ms on main thread; full home snapshot ≤ 16 ms.
 
-Panel geometry: ~700 × 480 pt (narrower than Route B's 860 × 540).
+Panel geometry: default **900 × 600 pt**, responsive **840–940 × 580–700 pt** (58% screen width × 66% height, capped). Larger than historical Route B's 860 × 540 widget shell.
 
 ## Consequences
 

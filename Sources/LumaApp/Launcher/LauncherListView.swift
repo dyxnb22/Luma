@@ -17,7 +17,7 @@ final class LauncherListView: NSView {
         super.init(frame: frameRect)
         translatesAutoresizingMaskIntoConstraints = false
         stack.orientation = .vertical
-        stack.spacing = 4
+        stack.spacing = LauncherChromeTokens.listRowSpacing
         stack.alignment = .leading
         stack.translatesAutoresizingMaskIntoConstraints = false
 

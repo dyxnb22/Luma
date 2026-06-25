@@ -16,7 +16,30 @@ public enum ColorTokens {
     public static let cardTitleSubtitleAlpha: CGFloat = 0.62
     public static let cardStatusAlpha: CGFloat = 0.72
     public static let cardShortcutAlpha: CGFloat = 0.65
-    public static let returnHintCapsuleAlpha: CGFloat = 0.22
+    public static let returnHintCapsuleAlpha: CGFloat = 0.24
+    public static let listRowSelectionAlpha: CGFloat = LauncherChromeTokens.listRowSelectionAlpha
+    public static let searchSurfaceAlpha: CGFloat = 0.42
+    public static let searchSurfaceBorderAlpha: CGFloat = 0.35
+
+    public static var panelBorderColor: NSColor {
+        separatorBlend(alpha: LauncherChromeTokens.panelBorderAlpha)
+    }
+
+    public static var searchSurfaceFill: NSColor {
+        controlFillBlend(alpha: searchSurfaceAlpha)
+    }
+
+    public static var searchSurfaceBorder: NSColor {
+        separatorBlend(alpha: searchSurfaceBorderAlpha)
+    }
+
+    public static var listRowSelectionFill: NSColor {
+        NSColor.controlAccentColor.withAlphaComponent(listRowSelectionAlpha)
+    }
+
+    public static var listRowHoverFill: NSColor {
+        NSColor.labelColor.withAlphaComponent(LauncherChromeTokens.listRowHoverAlpha)
+    }
 
     private static var isDarkAppearance: Bool {
         NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
@@ -26,6 +49,14 @@ public enum ColorTokens {
         let base = color(hex: topHex)
         let blend: CGFloat = isDarkAppearance ? 0.35 : 0.25
         return base.blended(withFraction: blend, of: .white) ?? base
+    }
+
+    private static func separatorBlend(alpha: CGFloat) -> NSColor {
+        NSColor.separatorColor.withAlphaComponent(alpha)
+    }
+
+    private static func controlFillBlend(alpha: CGFloat) -> NSColor {
+        NSColor.controlBackgroundColor.withAlphaComponent(alpha)
     }
 
     public static func color(hex: String) -> NSColor {

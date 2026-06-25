@@ -1,4 +1,5 @@
 import AppKit
+import LumaCore
 import LumaModules
 
 @MainActor
@@ -57,8 +58,7 @@ final class SnippetsDetailView: NSObject, ModuleDetailView {
         let toolbar = buildToolbar()
 
         tableView.headerView = NSTableHeaderView()
-        tableView.style = .plain
-        tableView.rowHeight = 36
+        GeekUIKit.configureDetailTable(tableView, rowHeight: 36)
         tableView.delegate = self
         tableView.dataSource = self
         tableView.target = self
@@ -76,6 +76,7 @@ final class SnippetsDetailView: NSObject, ModuleDetailView {
             column.width = width
             tableView.addTableColumn(column)
         }
+        GeekUIKit.styleDetailTableColumns(tableView)
 
         tableScroll.documentView = tableView
         tableScroll.hasVerticalScroller = true
@@ -83,20 +84,20 @@ final class SnippetsDetailView: NSObject, ModuleDetailView {
         tableScroll.borderType = .noBorder
         tableScroll.translatesAutoresizingMaskIntoConstraints = false
 
-        emptyStateLabel.font = .systemFont(ofSize: 13)
+        emptyStateLabel.font = TypographyTokens.body
         emptyStateLabel.textColor = .secondaryLabelColor
         emptyStateLabel.alignment = .center
         emptyStateLabel.maximumNumberOfLines = 3
         emptyStateLabel.isHidden = true
         emptyStateLabel.translatesAutoresizingMaskIntoConstraints = false
 
-        copiedFeedbackLabel.font = .systemFont(ofSize: 12, weight: .medium)
+        copiedFeedbackLabel.font = TypographyTokens.caption(weight: .medium)
         copiedFeedbackLabel.textColor = .secondaryLabelColor
         copiedFeedbackLabel.alignment = .center
         copiedFeedbackLabel.isHidden = true
         copiedFeedbackLabel.translatesAutoresizingMaskIntoConstraints = false
 
-        chrome.setToolbar(toolbar, height: 32)
+        chrome.setToolbar(toolbar, height: LauncherChromeTokens.detailToolbarHeight)
         chrome.setContent(tableScroll, embedInScroll: false)
         chrome.addSubview(emptyStateLabel)
         chrome.addSubview(copiedFeedbackLabel)
@@ -118,6 +119,7 @@ final class SnippetsDetailView: NSObject, ModuleDetailView {
         toolbar.translatesAutoresizingMaskIntoConstraints = false
 
         searchField.placeholderString = "Search snippets…"
+        GeekUIKit.styleDetailSearchField(searchField)
         searchField.translatesAutoresizingMaskIntoConstraints = false
 
         let addButton = makeToolbarButton("Add", action: #selector(addSnippet))
@@ -144,9 +146,7 @@ final class SnippetsDetailView: NSObject, ModuleDetailView {
     }
 
     private func makeToolbarButton(_ title: String, action: Selector) -> NSButton {
-        let button = NSButton(title: title, target: self, action: action)
-        button.bezelStyle = .rounded
-        return button
+        GeekUIKit.makeToolbarButton(title, target: self, action: action)
     }
 
     @objc private func searchChanged() {
@@ -303,4 +303,3 @@ extension SnippetsDetailView: NSTableViewDataSource, NSTableViewDelegate {
         return cell
     }
 }
-

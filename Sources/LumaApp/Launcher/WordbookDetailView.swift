@@ -127,8 +127,8 @@ final class WordbookDetailView: ModuleDetailView {
         homeView.translatesAutoresizingMaskIntoConstraints = false
         progressCard.translatesAutoresizingMaskIntoConstraints = false
         [startButton, newOnlyButton, wrongWordsButton, manageButton].forEach {
-            $0.bezelStyle = .rounded
-            $0.controlSize = .large
+            GeekUIKit.styleSecondaryButton($0)
+            $0.controlSize = .regular
             $0.translatesAutoresizingMaskIntoConstraints = false
         }
         settingsGear.bezelStyle = .inline

@@ -12,6 +12,7 @@ final class LumaSearchBar: NSView {
         case commandNumber(Int)
     }
 
+    private let surfaceView = NSView()
     private let iconView = NSImageView()
     private let textField = LumaSearchTextField()
     private let settingsButton = SettingsGearButton()
@@ -29,8 +30,13 @@ final class LumaSearchBar: NSView {
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         translatesAutoresizingMaskIntoConstraints = false
+        GeekUIKit.installSearchSurface(on: surfaceView)
+        surfaceView.translatesAutoresizingMaskIntoConstraints = false
 
-        let symbolConfig = NSImage.SymbolConfiguration(pointSize: 16, weight: .medium)
+        let symbolConfig = NSImage.SymbolConfiguration(
+            pointSize: LauncherChromeTokens.searchBarIconSize,
+            weight: .medium
+        )
         iconView.image = NSImage(systemSymbolName: "magnifyingglass", accessibilityDescription: nil)?
             .withSymbolConfiguration(symbolConfig)
         iconView.contentTintColor = .secondaryLabelColor
@@ -40,7 +46,7 @@ final class LumaSearchBar: NSView {
         textField.isBordered = false
         textField.isBezeled = false
         textField.drawsBackground = false
-        textField.font = .systemFont(ofSize: 18, weight: .regular)
+        textField.font = .systemFont(ofSize: LauncherChromeTokens.searchFontSize, weight: .regular)
         textField.placeholderString = ModuleSearchHints.default
         textField.focusRingType = .none
         textField.delegate = self
@@ -85,30 +91,37 @@ final class LumaSearchBar: NSView {
         clearButton.refusesFirstResponder = true
         clearButton.translatesAutoresizingMaskIntoConstraints = false
 
-        addSubview(iconView)
-        addSubview(textField)
-        addSubview(hintsButton)
-        addSubview(settingsButton)
-        addSubview(clearButton)
+        addSubview(surfaceView)
+        surfaceView.addSubview(iconView)
+        surfaceView.addSubview(textField)
+        surfaceView.addSubview(hintsButton)
+        surfaceView.addSubview(settingsButton)
+        surfaceView.addSubview(clearButton)
 
+        let inset = LauncherChromeTokens.searchBarInsetH
         NSLayoutConstraint.activate([
-            iconView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 4),
-            iconView.centerYAnchor.constraint(equalTo: centerYAnchor),
-            iconView.widthAnchor.constraint(equalToConstant: 16),
-            iconView.heightAnchor.constraint(equalToConstant: 16),
-            textField.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: 8),
-            textField.trailingAnchor.constraint(equalTo: clearButton.leadingAnchor, constant: -6),
-            textField.centerYAnchor.constraint(equalTo: centerYAnchor),
-            settingsButton.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -4),
-            settingsButton.centerYAnchor.constraint(equalTo: iconView.centerYAnchor),
-            settingsButton.widthAnchor.constraint(equalToConstant: 22),
-            settingsButton.heightAnchor.constraint(equalToConstant: 22),
-            hintsButton.trailingAnchor.constraint(equalTo: settingsButton.leadingAnchor, constant: -8),
-            hintsButton.centerYAnchor.constraint(equalTo: iconView.centerYAnchor),
-            hintsButton.widthAnchor.constraint(equalToConstant: 22),
-            hintsButton.heightAnchor.constraint(equalToConstant: 22),
-            clearButton.trailingAnchor.constraint(equalTo: hintsButton.leadingAnchor, constant: -8),
-            clearButton.centerYAnchor.constraint(equalTo: iconView.centerYAnchor),
+            surfaceView.topAnchor.constraint(equalTo: topAnchor),
+            surfaceView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            surfaceView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            surfaceView.bottomAnchor.constraint(equalTo: bottomAnchor),
+
+            iconView.leadingAnchor.constraint(equalTo: surfaceView.leadingAnchor, constant: inset),
+            iconView.centerYAnchor.constraint(equalTo: surfaceView.centerYAnchor),
+            iconView.widthAnchor.constraint(equalToConstant: LauncherChromeTokens.searchBarIconSize),
+            iconView.heightAnchor.constraint(equalToConstant: LauncherChromeTokens.searchBarIconSize),
+            textField.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: 10),
+            textField.trailingAnchor.constraint(equalTo: clearButton.leadingAnchor, constant: -8),
+            textField.centerYAnchor.constraint(equalTo: surfaceView.centerYAnchor),
+            settingsButton.trailingAnchor.constraint(equalTo: surfaceView.trailingAnchor, constant: -inset + 2),
+            settingsButton.centerYAnchor.constraint(equalTo: surfaceView.centerYAnchor),
+            settingsButton.widthAnchor.constraint(equalToConstant: 24),
+            settingsButton.heightAnchor.constraint(equalToConstant: 24),
+            hintsButton.trailingAnchor.constraint(equalTo: settingsButton.leadingAnchor, constant: -6),
+            hintsButton.centerYAnchor.constraint(equalTo: surfaceView.centerYAnchor),
+            hintsButton.widthAnchor.constraint(equalToConstant: 24),
+            hintsButton.heightAnchor.constraint(equalToConstant: 24),
+            clearButton.trailingAnchor.constraint(equalTo: hintsButton.leadingAnchor, constant: -6),
+            clearButton.centerYAnchor.constraint(equalTo: surfaceView.centerYAnchor),
             clearButton.widthAnchor.constraint(equalToConstant: 20),
             clearButton.heightAnchor.constraint(equalToConstant: 20)
         ])

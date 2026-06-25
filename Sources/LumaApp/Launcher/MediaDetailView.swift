@@ -1,4 +1,5 @@
 import AppKit
+import LumaCore
 import LumaModules
 
 @MainActor
@@ -117,8 +118,7 @@ final class MediaDetailView: NSObject, ModuleDetailView {
         sortPopup.translatesAutoresizingMaskIntoConstraints = false
 
         tableView.headerView = NSTableHeaderView()
-        tableView.style = .plain
-        tableView.rowHeight = 34
+        GeekUIKit.configureDetailTable(tableView, rowHeight: 36)
         tableView.delegate = self
         tableView.dataSource = self
         tableView.target = self
@@ -138,6 +138,7 @@ final class MediaDetailView: NSObject, ModuleDetailView {
             column.width = width
             tableView.addTableColumn(column)
         }
+        GeekUIKit.styleDetailTableColumns(tableView)
 
         tableScroll.documentView = tableView
         tableScroll.hasVerticalScroller = true
@@ -145,23 +146,22 @@ final class MediaDetailView: NSObject, ModuleDetailView {
         tableScroll.borderType = .noBorder
         tableScroll.translatesAutoresizingMaskIntoConstraints = false
 
-        footerLabel.font = .systemFont(ofSize: 11)
-        footerLabel.textColor = .secondaryLabelColor
+        GeekUIKit.configureStatusLabel(footerLabel)
         footerLabel.translatesAutoresizingMaskIntoConstraints = false
 
         header.addSubview(toolbar)
         header.addSubview(filterPopup)
         header.addSubview(sortPopup)
 
-        chrome.setToolbar(header, height: 72)
-        chrome.setFooter(footerLabel, height: 20)
+        chrome.setToolbar(header, height: LauncherChromeTokens.detailToolbarTallHeight + 8)
+        chrome.setFooter(footerLabel, height: LauncherChromeTokens.detailFooterHeight)
         chrome.setContent(tableScroll, embedInScroll: false)
 
         NSLayoutConstraint.activate([
             toolbar.topAnchor.constraint(equalTo: header.topAnchor),
             toolbar.leadingAnchor.constraint(equalTo: header.leadingAnchor),
             toolbar.trailingAnchor.constraint(equalTo: header.trailingAnchor),
-            toolbar.heightAnchor.constraint(equalToConstant: 32),
+            toolbar.heightAnchor.constraint(equalToConstant: LauncherChromeTokens.detailToolbarHeight),
 
             filterPopup.topAnchor.constraint(equalTo: toolbar.bottomAnchor, constant: 8),
             filterPopup.leadingAnchor.constraint(equalTo: header.leadingAnchor),
@@ -186,14 +186,13 @@ final class MediaDetailView: NSObject, ModuleDetailView {
         toolbar.translatesAutoresizingMaskIntoConstraints = false
 
         searchField.placeholderString = "Search records…"
+        GeekUIKit.styleDetailSearchField(searchField)
         searchField.translatesAutoresizingMaskIntoConstraints = false
 
-        let addButton = NSButton(title: "New", target: self, action: #selector(addItem))
-        addButton.bezelStyle = .rounded
+        let addButton = GeekUIKit.makeToolbarButton("New", target: self, action: #selector(addItem))
         addButton.translatesAutoresizingMaskIntoConstraints = false
 
-        let exportButton = NSButton(title: "Export CSV", target: self, action: #selector(exportCSV))
-        exportButton.bezelStyle = .rounded
+        let exportButton = GeekUIKit.makeToolbarButton("Export CSV", target: self, action: #selector(exportCSV))
         exportButton.translatesAutoresizingMaskIntoConstraints = false
 
         toolbar.addSubview(searchField)

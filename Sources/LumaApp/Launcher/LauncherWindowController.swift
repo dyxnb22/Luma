@@ -136,7 +136,7 @@ final class LauncherWindowController {
         panel.resizeForScreen(visible)
         let frame = panel.frame
         let x = visible.midX - frame.width / 2
-        let y = visible.minY + (visible.height - frame.height) * 0.55
+        let y = visible.minY + (visible.height - frame.height) * LauncherChromeTokens.panelVerticalBias
         panel.setFrameOrigin(NSPoint(x: x, y: y))
     }
 }

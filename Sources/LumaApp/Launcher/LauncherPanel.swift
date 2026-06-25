@@ -1,4 +1,5 @@
 import AppKit
+import LumaCore
 
 @MainActor
 final class LauncherPanel: NSPanel {
@@ -6,7 +7,11 @@ final class LauncherPanel: NSPanel {
 
     init() {
         super.init(
-            contentRect: NSRect(x: 0, y: 0, width: 820, height: 560),
+            contentRect: NSRect(
+                x: 0, y: 0,
+                width: LauncherChromeTokens.defaultPanelWidth,
+                height: LauncherChromeTokens.defaultPanelHeight
+            ),
             styleMask: [.borderless, .nonactivatingPanel, .fullSizeContentView],
             backing: .buffered,
             defer: false
@@ -32,8 +37,16 @@ final class LauncherPanel: NSPanel {
     }
 
     func resizeForScreen(_ visibleFrame: NSRect) {
-        let width = max(780, min(860, visibleFrame.width * 0.55))
-        let height = max(520, min(620, visibleFrame.height * 0.62))
+        let preferredWidth = max(
+            LauncherChromeTokens.minPanelWidth,
+            min(LauncherChromeTokens.maxPanelWidth, visibleFrame.width * LauncherChromeTokens.panelWidthScreenRatio)
+        )
+        let preferredHeight = max(
+            LauncherChromeTokens.minPanelHeight,
+            min(LauncherChromeTokens.maxPanelHeight, visibleFrame.height * LauncherChromeTokens.panelHeightScreenRatio)
+        )
+        let width = min(preferredWidth, visibleFrame.width)
+        let height = min(preferredHeight, visibleFrame.height)
         setContentSize(NSSize(width: width, height: height))
     }
 

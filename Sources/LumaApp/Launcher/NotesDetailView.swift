@@ -126,16 +126,18 @@ final class NotesDetailView: NSObject, ModuleDetailView {
         topStrip.translatesAutoresizingMaskIntoConstraints = false
         filterStrip.translatesAutoresizingMaskIntoConstraints = false
 
-        rootPathLabel.font = .systemFont(ofSize: 11)
+        rootPathLabel.font = TypographyTokens.caption2()
         rootPathLabel.textColor = .secondaryLabelColor
         rootPathLabel.lineBreakMode = .byTruncatingMiddle
         rootPathLabel.translatesAutoresizingMaskIntoConstraints = false
 
-        configureIconButton(expandAllButton, symbol: "arrow.up.left.and.arrow.down.right", tooltip: "Expand all")
+        GeekUIKit.styleIconToolbarButton(expandAllButton, symbol: "arrow.up.left.and.arrow.down.right", tooltip: "Expand all")
+        expandAllButton.translatesAutoresizingMaskIntoConstraints = false
         expandAllButton.target = self
         expandAllButton.action = #selector(expandAll)
 
-        configureIconButton(collapseAllButton, symbol: "arrow.down.right.and.arrow.up.left", tooltip: "Collapse all")
+        GeekUIKit.styleIconToolbarButton(collapseAllButton, symbol: "arrow.down.right.and.arrow.up.left", tooltip: "Collapse all")
+        collapseAllButton.translatesAutoresizingMaskIntoConstraints = false
         collapseAllButton.target = self
         collapseAllButton.action = #selector(collapseAll)
 
@@ -149,15 +151,13 @@ final class NotesDetailView: NSObject, ModuleDetailView {
         viewModeControl.isHidden = true
         viewModeControl.translatesAutoresizingMaskIntoConstraints = false
 
-        gearButton.bezelStyle = .texturedRounded
-        gearButton.image = NSImage(systemSymbolName: "gearshape", accessibilityDescription: "Settings")
-        gearButton.isBordered = false
+        GeekUIKit.styleIconToolbarButton(gearButton, symbol: "gearshape", tooltip: "Settings")
         gearButton.target = self
         gearButton.action = #selector(showGearMenu(_:))
         gearButton.translatesAutoresizingMaskIntoConstraints = false
 
         filterField.placeholderString = "Filter notes and folders…"
-        filterField.font = .systemFont(ofSize: 13)
+        filterField.font = TypographyTokens.body
         filterField.isBezeled = true
         filterField.bezelStyle = .roundedBezel
         filterField.target = self
@@ -166,7 +166,7 @@ final class NotesDetailView: NSObject, ModuleDetailView {
         NotificationCenter.default.addObserver(self, selector: #selector(filterTextDidChange(_:)), name: NSControl.textDidChangeNotification, object: filterField)
 
         emptyStateButton.title = "Set Notes Root…"
-        emptyStateButton.bezelStyle = .rounded
+        GeekUIKit.styleSecondaryButton(emptyStateButton)
         emptyStateButton.target = self
         emptyStateButton.action = #selector(pickRoot)
         emptyStateButton.translatesAutoresizingMaskIntoConstraints = false
@@ -246,7 +246,7 @@ final class NotesDetailView: NSObject, ModuleDetailView {
             topStrip.trailingAnchor.constraint(equalTo: container.trailingAnchor),
             topStrip.heightAnchor.constraint(equalToConstant: 28),
 
-            rootPathLabel.leadingAnchor.constraint(equalTo: topStrip.leadingAnchor, constant: 12),
+            rootPathLabel.leadingAnchor.constraint(equalTo: topStrip.leadingAnchor, constant: LauncherChromeTokens.detailTableRowPaddingH),
             rootPathLabel.centerYAnchor.constraint(equalTo: topStrip.centerYAnchor),
             rootPathLabel.trailingAnchor.constraint(lessThanOrEqualTo: expandAllButton.leadingAnchor, constant: -8),
 
@@ -274,8 +274,8 @@ final class NotesDetailView: NSObject, ModuleDetailView {
             filterStrip.trailingAnchor.constraint(equalTo: container.trailingAnchor),
             filterStrip.heightAnchor.constraint(equalToConstant: 28),
 
-            filterField.leadingAnchor.constraint(equalTo: filterStrip.leadingAnchor, constant: 12),
-            filterField.trailingAnchor.constraint(equalTo: filterStrip.trailingAnchor, constant: -12),
+            filterField.leadingAnchor.constraint(equalTo: filterStrip.leadingAnchor, constant: LauncherChromeTokens.detailTableRowPaddingH),
+            filterField.trailingAnchor.constraint(equalTo: filterStrip.trailingAnchor, constant: -LauncherChromeTokens.detailTableRowPaddingH),
             filterField.centerYAnchor.constraint(equalTo: filterStrip.centerYAnchor),
 
             emptyStateButton.centerXAnchor.constraint(equalTo: container.centerXAnchor),
@@ -308,14 +308,6 @@ final class NotesDetailView: NSObject, ModuleDetailView {
             mindMapScroll.contentView.scroll(to: .zero)
             mindMapScroll.window?.makeFirstResponder(mindMapView)
         }
-    }
-
-    private func configureIconButton(_ button: NSButton, symbol: String, tooltip: String) {
-        button.bezelStyle = .texturedRounded
-        button.isBordered = false
-        button.image = NSImage(systemSymbolName: symbol, accessibilityDescription: tooltip)
-        button.toolTip = tooltip
-        button.translatesAutoresizingMaskIntoConstraints = false
     }
 
     private func refreshTree() async {

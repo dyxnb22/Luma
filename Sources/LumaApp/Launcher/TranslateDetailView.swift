@@ -13,11 +13,9 @@ enum TranslateDashboardStatus {
 final class TranslateDetailView: ModuleDetailView {
     let moduleTitle = "Translate"
     let detailView: NSView
-    let usesSharedTopBar = false
 
     private let translation: any TranslationClient
     private let config: ConfigurationStore
-    private var onBack: (() -> Void)?
     private var onContentChanged: ((String, String) -> Void)?
 
     private let sourceLabel = NSTextField(labelWithString: "auto")
@@ -65,12 +63,10 @@ final class TranslateDetailView: ModuleDetailView {
     init(
         translation: any TranslationClient,
         config: ConfigurationStore,
-        onBack: @escaping () -> Void,
         onContentChanged: ((String, String) -> Void)? = nil
     ) {
         self.translation = translation
         self.config = config
-        self.onBack = onBack
         self.onContentChanged = onContentChanged
         let container = NSView()
         container.translatesAutoresizingMaskIntoConstraints = false
@@ -116,10 +112,6 @@ final class TranslateDetailView: ModuleDetailView {
 
     func handleKeyDown(_ event: NSEvent) -> Bool {
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-        if event.keyCode == 53 {
-            onBack?()
-            return true
-        }
         if flags.contains(.command), event.charactersIgnoringModifiers?.lowercased() == "\r" {
             performTranslation()
             return true
@@ -137,7 +129,6 @@ final class TranslateDetailView: ModuleDetailView {
     }
 
     private func setup(container: NSView) {
-        let header = buildHeader()
         let toolbar = buildToolbar()
         setupPanels()
         setupActionButtons()
@@ -161,13 +152,13 @@ final class TranslateDetailView: ModuleDetailView {
         statusLabel.translatesAutoresizingMaskIntoConstraints = false
 
         errorBanner.wantsLayer = true
-        errorBanner.layer?.cornerRadius = 8
+        errorBanner.layer?.cornerRadius = LauncherChromeTokens.detailSurfaceCornerRadius
         errorBanner.layer?.cornerCurve = .continuous
         errorBanner.layer?.backgroundColor = NSColor.systemRed.withAlphaComponent(0.12).cgColor
         errorBanner.isHidden = true
         errorBanner.translatesAutoresizingMaskIntoConstraints = false
 
-        errorBannerLabel.font = .systemFont(ofSize: 12, weight: .medium)
+        errorBannerLabel.font = TypographyTokens.caption(weight: .medium)
         errorBannerLabel.textColor = .systemRed
         errorBannerLabel.isEditable = false
         errorBannerLabel.isSelectable = true
@@ -176,7 +167,6 @@ final class TranslateDetailView: ModuleDetailView {
         errorBannerLabel.translatesAutoresizingMaskIntoConstraints = false
         errorBanner.addSubview(errorBannerLabel)
 
-        container.addSubview(header)
         container.addSubview(toolbar)
         container.addSubview(errorBanner)
         container.addSubview(panelsStack)
@@ -187,37 +177,32 @@ final class TranslateDetailView: ModuleDetailView {
         container.addSubview(copySourceButton)
 
         NSLayoutConstraint.activate([
-            header.topAnchor.constraint(equalTo: container.topAnchor, constant: 8),
-            header.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 12),
-            header.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -12),
-            header.heightAnchor.constraint(equalToConstant: 36),
+            toolbar.topAnchor.constraint(equalTo: container.topAnchor, constant: LauncherChromeTokens.detailSectionGap),
+            toolbar.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: LauncherChromeTokens.detailMargin),
+            toolbar.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -LauncherChromeTokens.detailMargin),
+            toolbar.heightAnchor.constraint(equalToConstant: LauncherChromeTokens.detailToolbarTallHeight),
 
-            toolbar.topAnchor.constraint(equalTo: header.bottomAnchor, constant: 8),
-            toolbar.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 12),
-            toolbar.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -12),
-            toolbar.heightAnchor.constraint(equalToConstant: 64),
-
-            errorBanner.topAnchor.constraint(equalTo: toolbar.bottomAnchor, constant: 8),
-            errorBanner.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 12),
-            errorBanner.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -12),
+            errorBanner.topAnchor.constraint(equalTo: toolbar.bottomAnchor, constant: LauncherChromeTokens.detailSectionGap),
+            errorBanner.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: LauncherChromeTokens.detailMargin),
+            errorBanner.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -LauncherChromeTokens.detailMargin),
 
             errorBannerLabel.topAnchor.constraint(equalTo: errorBanner.topAnchor, constant: 8),
             errorBannerLabel.leadingAnchor.constraint(equalTo: errorBanner.leadingAnchor, constant: 10),
             errorBannerLabel.trailingAnchor.constraint(equalTo: errorBanner.trailingAnchor, constant: -10),
             errorBannerLabel.bottomAnchor.constraint(equalTo: errorBanner.bottomAnchor, constant: -8),
 
-            panelsStack.topAnchor.constraint(equalTo: errorBanner.bottomAnchor, constant: 8),
-            panelsStack.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 12),
-            panelsStack.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -12),
+            panelsStack.topAnchor.constraint(equalTo: errorBanner.bottomAnchor, constant: LauncherChromeTokens.detailSectionGap),
+            panelsStack.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: LauncherChromeTokens.detailMargin),
+            panelsStack.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -LauncherChromeTokens.detailMargin),
             panelsStack.heightAnchor.constraint(greaterThanOrEqualToConstant: 180),
 
-            statusLabel.topAnchor.constraint(equalTo: panelsStack.bottomAnchor, constant: 10),
-            statusLabel.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 12),
-            statusLabel.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -12),
+            statusLabel.topAnchor.constraint(equalTo: panelsStack.bottomAnchor, constant: LauncherChromeTokens.detailSectionGap),
+            statusLabel.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: LauncherChromeTokens.detailMargin),
+            statusLabel.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -LauncherChromeTokens.detailMargin),
 
-            copyResultButton.topAnchor.constraint(equalTo: statusLabel.bottomAnchor, constant: 10),
-            copyResultButton.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 12),
-            copyResultButton.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -12),
+            copyResultButton.topAnchor.constraint(equalTo: statusLabel.bottomAnchor, constant: LauncherChromeTokens.detailSectionGap),
+            copyResultButton.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: LauncherChromeTokens.detailMargin),
+            copyResultButton.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -LauncherChromeTokens.detailMargin),
 
             clearButton.centerYAnchor.constraint(equalTo: copyResultButton.centerYAnchor),
             clearButton.leadingAnchor.constraint(equalTo: copyResultButton.trailingAnchor, constant: 8),
@@ -242,33 +227,6 @@ final class TranslateDetailView: ModuleDetailView {
 
     deinit {
         NotificationCenter.default.removeObserver(self)
-    }
-
-    private func buildHeader() -> NSView {
-        let header = NSView()
-        header.translatesAutoresizingMaskIntoConstraints = false
-
-        let backButton = NSButton(title: "Back", target: self, action: #selector(goBack))
-        backButton.image = NSImage(systemSymbolName: "chevron.left", accessibilityDescription: nil)
-        backButton.imagePosition = .imageLeading
-        backButton.bezelStyle = .regularSquare
-        backButton.isBordered = false
-        backButton.font = .systemFont(ofSize: 13, weight: .medium)
-        backButton.translatesAutoresizingMaskIntoConstraints = false
-
-        let title = NSTextField(labelWithString: "Translate")
-        title.font = .systemFont(ofSize: 15, weight: .semibold)
-        title.translatesAutoresizingMaskIntoConstraints = false
-
-        header.addSubview(backButton)
-        header.addSubview(title)
-        NSLayoutConstraint.activate([
-            backButton.leadingAnchor.constraint(equalTo: header.leadingAnchor),
-            backButton.centerYAnchor.constraint(equalTo: header.centerYAnchor),
-            title.centerXAnchor.constraint(equalTo: header.centerXAnchor),
-            title.centerYAnchor.constraint(equalTo: header.centerYAnchor)
-        ])
-        return header
     }
 
     private func buildToolbar() -> NSView {
@@ -416,10 +374,6 @@ final class TranslateDetailView: ModuleDetailView {
 
     @objc private func translateTapped() {
         performTranslation()
-    }
-
-    @objc private func goBack() {
-        onBack?()
     }
 
     @objc private func quickLanguageChip(_ sender: NSButton) {

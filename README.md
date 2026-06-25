@@ -8,7 +8,7 @@ The project is macOS-only: Swift 6, AppKit for the launcher surface, SwiftUI onl
 
 **Route C** (Command-First Unified List, ADR-023) is the active product surface:
 
-- Command+Space opens a pre-instantiated AppKit panel (~700×480 pt).
+- Command+Space opens a pre-instantiated AppKit panel (~900×600 pt default; scales to ~840–940 × 580–700 pt by screen).
 - **Empty query:** sectioned home list — Open Apps, Suggested, Recent.
 - **Non-empty query:** flat ranked results (max 8 rows) from all enabled modules.
 - **Module detail:** same-panel views entered via trigger keywords or contextual suggestions (not dashboard cards).

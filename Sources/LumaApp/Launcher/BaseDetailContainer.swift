@@ -1,9 +1,10 @@
 import AppKit
+import LumaCore
 
-/// Standard detail-view chrome: 16 pt margins, optional toolbar, scrollable content, optional footer.
+/// Standard detail-view chrome: shared margins, toolbar, scrollable content, optional footer.
 @MainActor
 final class BaseDetailContainer: NSView {
-    static let margin: CGFloat = 16
+    static var margin: CGFloat { LauncherChromeTokens.detailMargin }
 
     private let toolbarHost = NSView()
     private let bodyHost = NSView()
@@ -23,7 +24,7 @@ final class BaseDetailContainer: NSView {
         fatalError("init(coder:) has not been implemented")
     }
 
-    func setToolbar(_ view: NSView, height: CGFloat = 36) {
+    func setToolbar(_ view: NSView, height: CGFloat = LauncherChromeTokens.detailToolbarHeight) {
         toolbarHost.subviews.forEach { $0.removeFromSuperview() }
         view.translatesAutoresizingMaskIntoConstraints = false
         toolbarHost.addSubview(view)
@@ -70,7 +71,7 @@ final class BaseDetailContainer: NSView {
         }
     }
 
-    func setFooter(_ view: NSView?, height: CGFloat = 28) {
+    func setFooter(_ view: NSView?, height: CGFloat = LauncherChromeTokens.detailFooterHeight) {
         footerHost.subviews.forEach { $0.removeFromSuperview() }
         guard let view else {
             footerHost.isHidden = true
@@ -102,7 +103,7 @@ final class BaseDetailContainer: NSView {
         addSubview(bodyHost)
         addSubview(footerHost)
 
-        toolbarHeight = toolbarHost.heightAnchor.constraint(equalToConstant: 36)
+        toolbarHeight = toolbarHost.heightAnchor.constraint(equalToConstant: LauncherChromeTokens.detailToolbarHeight)
         footerHeight = footerHost.heightAnchor.constraint(equalToConstant: 0)
 
         NSLayoutConstraint.activate([
@@ -111,10 +112,10 @@ final class BaseDetailContainer: NSView {
             toolbarHost.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Self.margin),
             toolbarHeight!,
 
-            bodyHost.topAnchor.constraint(equalTo: toolbarHost.bottomAnchor, constant: 8),
+            bodyHost.topAnchor.constraint(equalTo: toolbarHost.bottomAnchor, constant: LauncherChromeTokens.detailSectionGap),
             bodyHost.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Self.margin),
             bodyHost.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Self.margin),
-            bodyHost.bottomAnchor.constraint(equalTo: footerHost.topAnchor, constant: -8),
+            bodyHost.bottomAnchor.constraint(equalTo: footerHost.topAnchor, constant: -LauncherChromeTokens.detailSectionGap),
 
             footerHost.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Self.margin),
             footerHost.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Self.margin),

@@ -1,17 +1,19 @@
 import AppKit
+import LumaCore
 
-/// Liquid-glass chrome for the launcher panel (single merged gradient layer).
+/// Light glass chrome for the launcher panel — native frosted surface, not heavy liquid glass.
 @MainActor
 enum LauncherPanelChrome {
     static func install(on view: NSView, glassBackground: NSVisualEffectView) {
         view.wantsLayer = true
-        view.layer?.cornerRadius = 20
+        view.layer?.cornerRadius = LauncherChromeTokens.panelCornerRadius
         view.layer?.cornerCurve = .continuous
         view.layer?.masksToBounds = true
-        view.layer?.borderWidth = 1
-        view.layer?.borderColor = NSColor.white.withAlphaComponent(0.18).cgColor
+        view.layer?.borderWidth = LauncherChromeTokens.panelBorderWidth
+        view.layer?.borderColor = ColorTokens.panelBorderColor.cgColor
 
-        glassBackground.material = .underWindowBackground
+        // Popover material reads closer to Spotlight's frosted center panel.
+        glassBackground.material = .popover
         glassBackground.blendingMode = .behindWindow
         glassBackground.state = .active
         glassBackground.translatesAutoresizingMaskIntoConstraints = false
@@ -26,15 +28,13 @@ enum LauncherPanelChrome {
 
         let sheen = CAGradientLayer()
         sheen.colors = [
-            NSColor.white.withAlphaComponent(0.24).cgColor,
-            NSColor.white.withAlphaComponent(0.06).cgColor,
-            NSColor(calibratedRed: 0.80, green: 0.92, blue: 1.0, alpha: 0.20).cgColor,
-            NSColor(calibratedRed: 0.96, green: 0.93, blue: 1.0, alpha: 0.12).cgColor,
-            NSColor.white.withAlphaComponent(0.10).cgColor
+            NSColor.white.withAlphaComponent(LauncherChromeTokens.panelSheenTopAlpha).cgColor,
+            NSColor.white.withAlphaComponent(LauncherChromeTokens.panelSheenMidAlpha).cgColor,
+            NSColor.clear.cgColor
         ]
-        sheen.locations = [0.0, 0.22, 0.48, 0.78, 1.0]
-        sheen.startPoint = CGPoint(x: 0.0, y: 1.0)
-        sheen.endPoint = CGPoint(x: 1.0, y: 0.0)
+        sheen.locations = [0.0, 0.35, 1.0]
+        sheen.startPoint = CGPoint(x: 0.5, y: 1.0)
+        sheen.endPoint = CGPoint(x: 0.5, y: 0.0)
         sheen.name = "launcherSheen"
         view.layer?.addSublayer(sheen)
     }

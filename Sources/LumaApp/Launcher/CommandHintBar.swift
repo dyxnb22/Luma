@@ -12,7 +12,7 @@ final class CommandHintBar: NSView {
         super.init(frame: frameRect)
         translatesAutoresizingMaskIntoConstraints = false
 
-        triggerLabel.font = GeekStyleTokens.mono(size: 11, weight: .semibold)
+        triggerLabel.font = TypographyTokens.monoCaption(weight: .semibold)
         triggerLabel.textColor = .secondaryLabelColor
         triggerLabel.isBezeled = false
         triggerLabel.isEditable = false
@@ -20,7 +20,7 @@ final class CommandHintBar: NSView {
         triggerLabel.translatesAutoresizingMaskIntoConstraints = false
         triggerLabel.setContentHuggingPriority(.required, for: .horizontal)
 
-        titleLabel.font = .systemFont(ofSize: 11, weight: .medium)
+        titleLabel.font = TypographyTokens.caption2(weight: .medium)
         titleLabel.textColor = .secondaryLabelColor
         titleLabel.isBezeled = false
         titleLabel.isEditable = false
@@ -28,7 +28,7 @@ final class CommandHintBar: NSView {
         titleLabel.translatesAutoresizingMaskIntoConstraints = false
         titleLabel.lineBreakMode = .byTruncatingTail
 
-        exampleLabel.font = GeekStyleTokens.mono(size: 11)
+        exampleLabel.font = TypographyTokens.monoCaption()
         exampleLabel.textColor = .tertiaryLabelColor
         exampleLabel.alignment = .right
         exampleLabel.isBezeled = false
@@ -69,7 +69,7 @@ final class CommandHintBar: NSView {
             exampleLabel.isHidden = true
             return
         }
-        heightConstraint.constant = 20
+        heightConstraint.constant = LauncherChromeTokens.commandHintHeight
         triggerLabel.stringValue = hint.trigger
         titleLabel.stringValue = hint.title
         exampleLabel.stringValue = hint.example ?? ""

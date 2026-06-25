@@ -1,7 +1,10 @@
 import AppKit
+import LumaCore
 
 @MainActor
 enum LauncherLayoutBuilder {
+    private static let margin = LauncherChromeTokens.contentMargin
+
     static func install(
         on root: NSView,
         searchBar: LumaSearchBar,
@@ -31,32 +34,32 @@ enum LauncherLayoutBuilder {
         root.addSubview(actionPanel)
 
         NSLayoutConstraint.activate([
-            searchBar.topAnchor.constraint(equalTo: root.topAnchor, constant: 16),
-            searchBar.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 16),
-            searchBar.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -16),
-            searchBar.heightAnchor.constraint(equalToConstant: 52),
+            searchBar.topAnchor.constraint(equalTo: root.topAnchor, constant: margin),
+            searchBar.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: margin),
+            searchBar.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -margin),
+            searchBar.heightAnchor.constraint(equalToConstant: LauncherChromeTokens.searchBarHeight),
 
-            commandHintBar.topAnchor.constraint(equalTo: searchBar.bottomAnchor, constant: 2),
-            commandHintBar.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 16),
-            commandHintBar.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -16),
+            commandHintBar.topAnchor.constraint(equalTo: searchBar.bottomAnchor, constant: 4),
+            commandHintBar.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: margin),
+            commandHintBar.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -margin),
 
-            contentContainer.topAnchor.constraint(equalTo: commandHintBar.bottomAnchor, constant: 4),
-            contentContainer.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 16),
-            contentContainer.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -16),
-            contentContainer.bottomAnchor.constraint(equalTo: hintBar.topAnchor, constant: -4),
+            contentContainer.topAnchor.constraint(equalTo: commandHintBar.bottomAnchor, constant: LauncherChromeTokens.contentTopGap),
+            contentContainer.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: margin),
+            contentContainer.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -margin),
+            contentContainer.bottomAnchor.constraint(equalTo: hintBar.topAnchor, constant: -LauncherChromeTokens.contentBottomGap),
 
             listView.topAnchor.constraint(equalTo: contentContainer.topAnchor),
             listView.leadingAnchor.constraint(equalTo: contentContainer.leadingAnchor),
             listView.trailingAnchor.constraint(equalTo: contentContainer.trailingAnchor),
             listView.bottomAnchor.constraint(equalTo: contentContainer.bottomAnchor),
 
-            hintBar.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 16),
-            hintBar.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -16),
-            hintBar.bottomAnchor.constraint(equalTo: root.bottomAnchor, constant: -12),
+            hintBar.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: margin),
+            hintBar.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -margin),
+            hintBar.bottomAnchor.constraint(equalTo: root.bottomAnchor, constant: -14),
 
-            actionPanel.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 24),
-            actionPanel.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -24),
-            actionPanel.bottomAnchor.constraint(equalTo: hintBar.topAnchor, constant: -6)
+            actionPanel.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: margin + 4),
+            actionPanel.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -(margin + 4)),
+            actionPanel.bottomAnchor.constraint(equalTo: hintBar.topAnchor, constant: -8)
         ])
 
         installDetailContainer(
@@ -84,15 +87,10 @@ enum LauncherLayoutBuilder {
         detailTopBar.wantsLayer = true
 
         let backButton = NSButton(title: "", target: closeDetailTarget, action: closeDetailAction)
-        backButton.image = NSImage(systemSymbolName: "chevron.left", accessibilityDescription: nil)
-        backButton.imagePosition = .imageLeading
-        backButton.title = "Back"
-        backButton.bezelStyle = .regularSquare
-        backButton.isBordered = false
-        backButton.font = .systemFont(ofSize: 13, weight: .medium)
+        GeekUIKit.styleDetailBackButton(backButton)
         backButton.translatesAutoresizingMaskIntoConstraints = false
 
-        detailTitleLabel.font = .systemFont(ofSize: 15, weight: .semibold)
+        detailTitleLabel.font = TypographyTokens.callout
         detailTitleLabel.textColor = .labelColor
         detailTitleLabel.isEditable = false
         detailTitleLabel.isBordered = false
@@ -101,13 +99,11 @@ enum LauncherLayoutBuilder {
         detailTitleLabel.translatesAutoresizingMaskIntoConstraints = false
 
         let closeButton = NSButton(title: "", target: closeDetailTarget, action: closeDetailAction)
-        closeButton.image = NSImage(systemSymbolName: "xmark", accessibilityDescription: nil)
-        closeButton.bezelStyle = .regularSquare
-        closeButton.isBordered = false
+        GeekUIKit.styleDetailCloseButton(closeButton)
         closeButton.translatesAutoresizingMaskIntoConstraints = false
 
         let separator = NSBox()
-        separator.boxType = .separator
+        GeekUIKit.configureDetailSeparator(separator)
         separator.translatesAutoresizingMaskIntoConstraints = false
 
         detailTopBar.addSubview(backButton)
@@ -126,15 +122,15 @@ enum LauncherLayoutBuilder {
             detailTopBar.topAnchor.constraint(equalTo: detailContainer.topAnchor),
             detailTopBar.leadingAnchor.constraint(equalTo: detailContainer.leadingAnchor),
             detailTopBar.trailingAnchor.constraint(equalTo: detailContainer.trailingAnchor),
-            detailTopBar.heightAnchor.constraint(equalToConstant: 40),
+            detailTopBar.heightAnchor.constraint(equalToConstant: LauncherChromeTokens.detailTopBarHeight),
 
-            backButton.leadingAnchor.constraint(equalTo: detailTopBar.leadingAnchor, constant: 16),
+            backButton.leadingAnchor.constraint(equalTo: detailTopBar.leadingAnchor, constant: 4),
             backButton.centerYAnchor.constraint(equalTo: detailTopBar.centerYAnchor),
 
             detailTitleLabel.centerXAnchor.constraint(equalTo: detailTopBar.centerXAnchor),
             detailTitleLabel.centerYAnchor.constraint(equalTo: detailTopBar.centerYAnchor),
 
-            closeButton.trailingAnchor.constraint(equalTo: detailTopBar.trailingAnchor, constant: -16),
+            closeButton.trailingAnchor.constraint(equalTo: detailTopBar.trailingAnchor, constant: -4),
             closeButton.centerYAnchor.constraint(equalTo: detailTopBar.centerYAnchor),
 
             separator.leadingAnchor.constraint(equalTo: detailTopBar.leadingAnchor),

@@ -1,4 +1,5 @@
 import AppKit
+import LumaCore
 import LumaModules
 
 @MainActor
@@ -49,7 +50,7 @@ final class SecretsDetailView: NSObject, ModuleDetailView {
     private func setup(chrome: BaseDetailContainer) {
         lockedContainer.translatesAutoresizingMaskIntoConstraints = false
         unlockButton.title = "Unlock Vault"
-        unlockButton.bezelStyle = .rounded
+        GeekUIKit.stylePrimaryButton(unlockButton)
         unlockButton.target = self
         unlockButton.action = #selector(unlockVault)
         unlockButton.translatesAutoresizingMaskIntoConstraints = false
@@ -63,13 +64,12 @@ final class SecretsDetailView: NSObject, ModuleDetailView {
             toolbar.leadingAnchor.constraint(equalTo: toolbarContainer.leadingAnchor),
             toolbar.trailingAnchor.constraint(equalTo: toolbarContainer.trailingAnchor),
             toolbar.bottomAnchor.constraint(equalTo: toolbarContainer.bottomAnchor),
-            toolbar.heightAnchor.constraint(equalToConstant: 32)
+            toolbar.heightAnchor.constraint(equalToConstant: LauncherChromeTokens.detailToolbarHeight)
         ])
         toolbarContainer.translatesAutoresizingMaskIntoConstraints = false
 
         tableView.headerView = NSTableHeaderView()
-        tableView.style = .plain
-        tableView.rowHeight = 36
+        GeekUIKit.configureDetailTable(tableView)
         tableView.delegate = self
         tableView.dataSource = self
         tableView.target = self
@@ -86,6 +86,7 @@ final class SecretsDetailView: NSObject, ModuleDetailView {
             column.width = width
             tableView.addTableColumn(column)
         }
+        GeekUIKit.styleDetailTableColumns(tableView)
 
         tableScroll.documentView = tableView
         tableScroll.hasVerticalScroller = true
@@ -93,14 +94,11 @@ final class SecretsDetailView: NSObject, ModuleDetailView {
         tableScroll.borderType = .noBorder
         tableScroll.translatesAutoresizingMaskIntoConstraints = false
 
-        emptyStateLabel.font = .systemFont(ofSize: 13)
-        emptyStateLabel.textColor = .secondaryLabelColor
-        emptyStateLabel.alignment = .center
-        emptyStateLabel.maximumNumberOfLines = 3
+        GeekUIKit.configureEmptyStateLabel(emptyStateLabel, text: "")
         emptyStateLabel.isHidden = true
         emptyStateLabel.translatesAutoresizingMaskIntoConstraints = false
 
-        chrome.setToolbar(toolbarContainer, height: 32)
+        chrome.setToolbar(toolbarContainer, height: LauncherChromeTokens.detailToolbarHeight)
         chrome.setContent(tableScroll, embedInScroll: false)
         chrome.addSubview(lockedContainer)
         chrome.addSubview(emptyStateLabel)
@@ -127,13 +125,14 @@ final class SecretsDetailView: NSObject, ModuleDetailView {
         toolbar.translatesAutoresizingMaskIntoConstraints = false
 
         searchField.placeholderString = "Search secrets…"
+        GeekUIKit.styleDetailSearchField(searchField)
         searchField.translatesAutoresizingMaskIntoConstraints = false
 
-        let addButton = makeToolbarButton("Add", action: #selector(addSecret))
-        let editButton = makeToolbarButton("Edit", action: #selector(editSelected))
-        let deleteButton = makeToolbarButton("Delete", action: #selector(deleteSelected))
-        let revealButton = makeToolbarButton("Reveal", action: #selector(revealSelected))
-        let lockButton = makeToolbarButton("Lock Vault", action: #selector(lockVault))
+        let addButton = GeekUIKit.makeToolbarButton("Add", target: self, action: #selector(addSecret))
+        let editButton = GeekUIKit.makeToolbarButton("Edit", target: self, action: #selector(editSelected))
+        let deleteButton = GeekUIKit.makeToolbarButton("Delete", target: self, action: #selector(deleteSelected))
+        let revealButton = GeekUIKit.makeToolbarButton("Reveal", target: self, action: #selector(revealSelected))
+        let lockButton = GeekUIKit.makeToolbarButton("Lock Vault", target: self, action: #selector(lockVault))
 
         let buttonStack = NSStackView(views: [addButton, editButton, deleteButton, revealButton, lockButton])
         buttonStack.orientation = .horizontal
@@ -151,12 +150,6 @@ final class SecretsDetailView: NSObject, ModuleDetailView {
             buttonStack.centerYAnchor.constraint(equalTo: toolbar.centerYAnchor)
         ])
         return toolbar
-    }
-
-    private func makeToolbarButton(_ title: String, action: Selector) -> NSButton {
-        let button = NSButton(title: title, target: self, action: action)
-        button.bezelStyle = .rounded
-        return button
     }
 
     @objc private func searchChanged() {

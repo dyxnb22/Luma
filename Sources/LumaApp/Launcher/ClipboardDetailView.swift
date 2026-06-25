@@ -56,12 +56,8 @@ final class ClipboardDetailView: NSObject, ModuleDetailView {
         let toolbar = buildToolbar()
 
         tableView.headerView = nil
-        tableView.style = .plain
-        tableView.rowHeight = 56
-        tableView.intercellSpacing = NSSize(width: 0, height: 4)
-        tableView.backgroundColor = .clear
+        GeekUIKit.configureDetailTable(tableView, rowHeight: 56)
         tableView.selectionHighlightStyle = .regular
-        tableView.usesAlternatingRowBackgroundColors = false
         tableView.delegate = self
         tableView.dataSource = self
         tableView.onCopy = { [weak self] in self?.copySelected() }
@@ -89,14 +85,14 @@ final class ClipboardDetailView: NSObject, ModuleDetailView {
         tableScroll.borderType = .noBorder
         tableScroll.translatesAutoresizingMaskIntoConstraints = false
 
-        emptyStateLabel.font = .systemFont(ofSize: 13)
+        emptyStateLabel.font = TypographyTokens.body
         emptyStateLabel.textColor = .secondaryLabelColor
         emptyStateLabel.alignment = .center
         emptyStateLabel.maximumNumberOfLines = 3
         emptyStateLabel.isHidden = true
         emptyStateLabel.translatesAutoresizingMaskIntoConstraints = false
 
-        chrome.setToolbar(toolbar, height: 32)
+        chrome.setToolbar(toolbar, height: LauncherChromeTokens.detailToolbarHeight)
         chrome.setContent(tableScroll, embedInScroll: false)
         chrome.addSubview(emptyStateLabel)
 
@@ -117,6 +113,7 @@ final class ClipboardDetailView: NSObject, ModuleDetailView {
         toolbar.translatesAutoresizingMaskIntoConstraints = false
 
         searchField.placeholderString = "Search clipboard…"
+        GeekUIKit.styleDetailSearchField(searchField)
         searchField.translatesAutoresizingMaskIntoConstraints = false
 
         filterControl.segmentCount = 3
@@ -129,17 +126,17 @@ final class ClipboardDetailView: NSObject, ModuleDetailView {
         filterControl.translatesAutoresizingMaskIntoConstraints = false
 
         clearUnpinnedButton.title = "Clear Unpinned"
-        clearUnpinnedButton.bezelStyle = .rounded
+        GeekUIKit.styleToolbarButton(clearUnpinnedButton)
         clearUnpinnedButton.target = self
         clearUnpinnedButton.action = #selector(clearUnpinned)
         clearUnpinnedButton.translatesAutoresizingMaskIntoConstraints = false
 
         let clearRecentButton = NSButton(title: "Clear Recent…", target: self, action: #selector(clearRecent))
-        clearRecentButton.bezelStyle = .rounded
+        GeekUIKit.styleToolbarButton(clearRecentButton)
         clearRecentButton.translatesAutoresizingMaskIntoConstraints = false
 
         let settingsButton = NSButton(title: "Settings", target: self, action: #selector(openSettings))
-        settingsButton.bezelStyle = .rounded
+        GeekUIKit.styleToolbarButton(settingsButton)
         settingsButton.translatesAutoresizingMaskIntoConstraints = false
 
         toolbar.addSubview(searchField)
@@ -348,9 +345,8 @@ extension ClipboardDetailView: NSTableViewDataSource, NSTableViewDelegate {
         guard displayRows.indices.contains(row) else { return nil }
         switch displayRows[row] {
         case .header(let title):
-            let label = NSTextField(labelWithString: title)
-            label.font = .systemFont(ofSize: 11, weight: .semibold)
-            label.textColor = .tertiaryLabelColor
+            let label = NSTextField(labelWithString: "")
+            GeekUIKit.styleDetailSectionHeaderLabel(label, title: title)
             return label
         case .entry(let entry):
             let cellID = NSUserInterfaceItemIdentifier("ClipboardRowCell")
@@ -502,10 +498,9 @@ private final class ClipboardRowCell: NSTableCellView {
     }
 
     private func setup() {
-        wantsLayer = true
-        layer?.cornerRadius = 8
+        GeekUIKit.configureDetailTableRowSurface(self)
 
-        sectionLabel.font = .systemFont(ofSize: 11, weight: .semibold)
+        sectionLabel.font = TypographyTokens.caption2(weight: .semibold)
         sectionLabel.textColor = .tertiaryLabelColor
         sectionLabel.translatesAutoresizingMaskIntoConstraints = false
 
@@ -519,12 +514,12 @@ private final class ClipboardRowCell: NSTableCellView {
         thumbnailView.isHidden = true
         thumbnailView.translatesAutoresizingMaskIntoConstraints = false
 
-        previewLabel.font = .systemFont(ofSize: 13, weight: .medium)
+        previewLabel.font = TypographyTokens.body
         previewLabel.maximumNumberOfLines = 2
         previewLabel.lineBreakMode = .byTruncatingTail
         previewLabel.translatesAutoresizingMaskIntoConstraints = false
 
-        metaLabel.font = .systemFont(ofSize: 11)
+        metaLabel.font = TypographyTokens.caption2()
         metaLabel.textColor = .secondaryLabelColor
         metaLabel.translatesAutoresizingMaskIntoConstraints = false
 
@@ -562,14 +557,14 @@ private final class ClipboardRowCell: NSTableCellView {
 
         NSLayoutConstraint.activate([
             sectionLabel.topAnchor.constraint(equalTo: topAnchor, constant: 2),
-            sectionLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
+            sectionLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: LauncherChromeTokens.detailTableRowPaddingH),
 
-            iconView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
+            iconView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: LauncherChromeTokens.detailTableRowPaddingH),
             iconView.topAnchor.constraint(equalTo: sectionLabel.bottomAnchor, constant: 4),
             iconView.widthAnchor.constraint(equalToConstant: 18),
             iconView.heightAnchor.constraint(equalToConstant: 18),
 
-            thumbnailView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
+            thumbnailView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: LauncherChromeTokens.detailTableRowPaddingH),
             thumbnailView.centerYAnchor.constraint(equalTo: centerYAnchor, constant: 4),
             thumbnailView.widthAnchor.constraint(equalToConstant: 52),
             thumbnailView.heightAnchor.constraint(equalToConstant: 52),

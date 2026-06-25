@@ -124,9 +124,123 @@ enum GeekUIKit {
 
     static func styleSecondaryButton(_ button: NSButton) {
         button.bezelStyle = .rounded
-        button.font = .systemFont(ofSize: 12, weight: .medium)
+        button.font = TypographyTokens.caption(weight: .medium)
         button.contentTintColor = .labelColor
         button.bezelColor = NSColor.secondaryLabelColor.withAlphaComponent(0.12)
+    }
+
+    static func styleToolbarButton(_ button: NSButton) {
+        button.bezelStyle = .rounded
+        button.controlSize = .small
+        button.font = TypographyTokens.caption(weight: .medium)
+        button.contentTintColor = .labelColor
+        button.bezelColor = NSColor.secondaryLabelColor.withAlphaComponent(0.10)
+    }
+
+    static func styleIconToolbarButton(_ button: NSButton, symbol: String, tooltip: String? = nil) {
+        button.image = NSImage(systemSymbolName: symbol, accessibilityDescription: tooltip)
+        button.bezelStyle = .regularSquare
+        button.isBordered = false
+        button.contentTintColor = .secondaryLabelColor
+        button.toolTip = tooltip
+    }
+
+    static func styleDetailBackButton(_ button: NSButton) {
+        button.image = NSImage(systemSymbolName: "chevron.left", accessibilityDescription: nil)
+        button.imagePosition = .imageLeading
+        button.title = "Back"
+        button.bezelStyle = .regularSquare
+        button.isBordered = false
+        button.font = TypographyTokens.caption(weight: .medium)
+        button.contentTintColor = .secondaryLabelColor
+    }
+
+    static func styleDetailCloseButton(_ button: NSButton) {
+        button.image = NSImage(systemSymbolName: "xmark", accessibilityDescription: "Close")
+        button.bezelStyle = .regularSquare
+        button.isBordered = false
+        button.contentTintColor = .tertiaryLabelColor
+    }
+
+    static func styleDetailSearchField(_ field: NSSearchField) {
+        field.font = TypographyTokens.body
+        field.focusRingType = .none
+    }
+
+    static func configureEmptyStateLabel(_ label: NSTextField, text: String) {
+        label.stringValue = text
+        label.font = TypographyTokens.body
+        label.textColor = .secondaryLabelColor
+        label.alignment = .center
+        label.maximumNumberOfLines = 3
+        label.lineBreakMode = .byWordWrapping
+    }
+
+    static func configureStatusLabel(_ label: NSTextField) {
+        label.font = TypographyTokens.caption()
+        label.textColor = .secondaryLabelColor
+        label.lineBreakMode = .byTruncatingTail
+    }
+
+    static func configureDetailSeparator(_ box: NSBox) {
+        box.boxType = .separator
+        box.fillColor = NSColor.separatorColor.withAlphaComponent(0.45)
+    }
+
+    static func configureContentSurface(_ view: NSView) {
+        view.wantsLayer = true
+        view.layer?.cornerRadius = LauncherChromeTokens.detailSurfaceCornerRadius
+        view.layer?.cornerCurve = .continuous
+        view.layer?.borderWidth = 0.5
+        view.layer?.borderColor = NSColor.separatorColor
+            .withAlphaComponent(LauncherChromeTokens.detailSurfaceBorderAlpha).cgColor
+        view.layer?.backgroundColor = NSColor.controlBackgroundColor.withAlphaComponent(0.18).cgColor
+    }
+
+    static func installSearchSurface(on view: NSView) {
+        view.wantsLayer = true
+        view.layer?.cornerRadius = LauncherChromeTokens.searchBarCornerRadius
+        view.layer?.cornerCurve = .continuous
+        view.layer?.borderWidth = 0.5
+        view.layer?.borderColor = ColorTokens.searchSurfaceBorder.cgColor
+        view.layer?.backgroundColor = ColorTokens.searchSurfaceFill.cgColor
+    }
+
+    static func configureDetailTable(_ tableView: NSTableView, rowHeight: CGFloat = LauncherChromeTokens.detailTableRowHeight) {
+        tableView.style = .plain
+        tableView.rowHeight = rowHeight
+        tableView.backgroundColor = .clear
+        tableView.selectionHighlightStyle = .regular
+        tableView.usesAlternatingRowBackgroundColors = false
+        tableView.intercellSpacing = NSSize(width: 0, height: LauncherChromeTokens.detailTableRowSpacing)
+        styleDetailTableColumns(tableView)
+    }
+
+    static func styleDetailTableColumns(_ tableView: NSTableView) {
+        for column in tableView.tableColumns {
+            let headerCell = column.headerCell
+            headerCell.font = TypographyTokens.caption2(weight: .semibold)
+            headerCell.textColor = .secondaryLabelColor
+        }
+    }
+
+    static func configureDetailTableRowSurface(_ view: NSView) {
+        view.wantsLayer = true
+        view.layer?.cornerRadius = LauncherChromeTokens.detailTableRowCornerRadius
+        view.layer?.cornerCurve = .continuous
+        view.layer?.backgroundColor = NSColor.controlBackgroundColor.withAlphaComponent(0.10).cgColor
+    }
+
+    static func styleDetailSectionHeaderLabel(_ label: NSTextField, title: String) {
+        label.stringValue = title
+        label.font = TypographyTokens.caption2(weight: .semibold)
+        label.textColor = .tertiaryLabelColor
+    }
+
+    static func makeToolbarButton(_ title: String, target: AnyObject?, action: Selector) -> NSButton {
+        let button = NSButton(title: title, target: target, action: action)
+        styleToolbarButton(button)
+        return button
     }
 
     static func styleLanguageChip(_ chip: NSButton, selected: Bool) {

@@ -141,9 +141,7 @@ enum ModuleDetailRegistry {
         switch id {
         case .translate:
             guard let svc = translation, let config else { return nil }
-            return TranslateDetailView(translation: svc, config: config) {
-                LauncherCallbackRegistry.current?.onBackFromDetail()
-            } onContentChanged: { source, output in
+            return TranslateDetailView(translation: svc, config: config) { source, output in
                 LauncherCallbackRegistry.current?.onTranslateContentChanged(source, output)
             }
         case .clipboard:

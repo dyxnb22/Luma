@@ -33,6 +33,15 @@ final class AppCoordinator {
         }
     )
     private let reminders = RemindersService()
+    private let scriptRunner = ScriptRunnerService()
+    private lazy var currentProjectClient = CurrentProjectClientAdapter(service: CurrentProjectService.shared)
+    private let selectionClient = SelectionSnapshotClientAdapter()
+    private let projectsModule = ProjectsModule()
+
+    init() {
+        CurrentProjectService.bootstrap(matcher: ProjectsModuleMatcher(module: projectsModule))
+    }
+
     private lazy var context = ModuleContext(
         logger: logger,
         metrics: metrics,
@@ -46,7 +55,11 @@ final class AppCoordinator {
         clipboardSnapshot: clipboardSnapshotService,
         launcherUI: launcherUIService,
         processMemory: ProcessMemoryService(),
-        reminders: reminders
+        reminders: reminders,
+        scriptRunner: scriptRunner,
+        notifications: NotificationService(),
+        currentProject: currentProjectClient,
+        selectionSnapshot: selectionClient
     )
     private lazy var host = ModuleHost(context: context)
     private var hostClient: AppHostService!
@@ -64,7 +77,10 @@ final class AppCoordinator {
             translation: translation,
             workspace: workspace,
             host: hostClient,
-            launcherUI: launcherUIService
+            launcherUI: launcherUIService,
+            scriptRunner: scriptRunner,
+            currentProject: currentProjectClient,
+            selectionSnapshot: selectionClient
         ),
         usage: usage,
         resultCache: resultCache
@@ -227,8 +243,27 @@ final class AppCoordinator {
             mediaModule: mediaModule,
             todoModule: todoModule,
             wordbookStore: wordbookStore,
+            projectsModule: projectsModule,
             translation: translation,
-            config: config
+            config: config,
+            runProjectAction: { [weak self] action, completion in
+                guard let self else { return }
+                if action.hidesLauncher {
+                    self.windowController.hideImmediatelyForAction()
+                }
+                Task {
+                    let payload = (try? ModuleActionCoding.encode(action)) ?? Data()
+                    let act = Action(
+                        id: ActionID(module: .projects, key: "detail"),
+                        title: "Project",
+                        kind: .custom(payload: payload, handler: .projects)
+                    )
+                    await self.actionExecutor.run(act, for: ResultID(module: .projects, key: "detail"))
+                    await MainActor.run {
+                        completion()
+                    }
+                }
+            }
         )
         launcherEnv.install()
 
@@ -252,7 +287,8 @@ final class AppCoordinator {
                 wordbook: wordbookModule,
                 snippets: snippetsModule,
                 secrets: secretsModule,
-                media: mediaModule
+                media: mediaModule,
+                projects: projectsModule
             ))
             for module in modules {
                 await host.register(module)

@@ -40,6 +40,44 @@ public actor ProjectStore {
         try save(updated)
     }
 
+    public func upsertProject(_ record: ProjectRecord) throws {
+        var updated = config
+        if let index = updated.projects.firstIndex(where: { $0.path == record.path }) {
+            updated.projects[index] = record
+        } else {
+            updated.projects.append(record)
+        }
+        try save(updated)
+    }
+
+    public func togglePin(path: String) throws {
+        var updated = config
+        let normalized = ProjectRecord.normalizePath(path)
+        if let index = updated.projects.firstIndex(where: { $0.path == normalized }) {
+            updated.projects[index].pinned.toggle()
+        } else {
+            updated.projects.append(ProjectRecord(name: URL(fileURLWithPath: normalized).lastPathComponent, path: normalized, pinned: true))
+        }
+        try save(updated)
+    }
+
+    public func addRoot(_ path: String) throws {
+        var updated = config
+        let normalized = ProjectRecord.normalizePath(path)
+        guard !updated.roots.contains(normalized) else { return }
+        updated.roots.append(normalized)
+        try save(updated)
+    }
+
+    public func allRecordsIncludingScanned(_ scanned: [ProjectRecord]) -> [ProjectRecord] {
+        ProjectIndex(records: config.projects + scanned).all
+    }
+
+    public func isManualProject(path: String) -> Bool {
+        let normalized = ProjectRecord.normalizePath(path)
+        return config.projects.contains { $0.path == normalized }
+    }
+
     public func configFileURL() -> URL {
         fileURL
     }

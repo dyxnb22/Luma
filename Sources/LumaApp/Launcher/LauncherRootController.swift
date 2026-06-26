@@ -265,6 +265,17 @@ final class LauncherRootController {
            action == .review {
             LauncherSharedState.pendingWordbookAutoStartReview = true
         }
+        if moduleID == .projects,
+           let action = try? ModuleActionCoding.decode(ProjectAction.self, from: payload) {
+            switch action {
+            case .openCurrentDetail(let context):
+                LauncherSharedState.pendingCurrentProjectContext = context
+            case .openManage:
+                LauncherSharedState.pendingProjectsManage = true
+            default:
+                break
+            }
+        }
     }
 
     func handleEscape() {

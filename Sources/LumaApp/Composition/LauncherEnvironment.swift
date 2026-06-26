@@ -27,8 +27,10 @@ final class LauncherEnvironment {
     let mediaModule: MediaModule
     let todoModule: TodoModule
     let wordbookStore: WordbookStore
+    let projectsModule: ProjectsModule
     let translation: any TranslationClient
     let config: ConfigurationStore
+    let runProjectAction: (ProjectAction, @escaping () -> Void) -> Void
 
     init(
         openModuleDetail: @escaping (ModuleIdentifier) -> Void,
@@ -45,8 +47,10 @@ final class LauncherEnvironment {
         mediaModule: MediaModule,
         todoModule: TodoModule,
         wordbookStore: WordbookStore,
+        projectsModule: ProjectsModule,
         translation: any TranslationClient,
-        config: ConfigurationStore
+        config: ConfigurationStore,
+        runProjectAction: @escaping (ProjectAction, @escaping () -> Void) -> Void
     ) {
         self.openModuleDetail = openModuleDetail
         self.openSettings = openSettings
@@ -62,8 +66,10 @@ final class LauncherEnvironment {
         self.mediaModule = mediaModule
         self.todoModule = todoModule
         self.wordbookStore = wordbookStore
+        self.projectsModule = projectsModule
         self.translation = translation
         self.config = config
+        self.runProjectAction = runProjectAction
     }
 
     func install() {
@@ -94,6 +100,12 @@ final class LauncherEnvironment {
             return TodoDetailView(module: todoModule)
         case .wordbook:
             return WordbookDetailView(store: wordbookStore)
+        case .projects:
+            if LauncherSharedState.pendingProjectsManage {
+                LauncherSharedState.pendingProjectsManage = false
+                return ProjectsDetailView(module: projectsModule, onRunProjectAction: runProjectAction)
+            }
+            return CurrentProjectDetailView(onRunProjectAction: runProjectAction)
         default:
             return nil
         }

@@ -54,6 +54,30 @@ public struct ProjectIndex: Sendable {
         return results
     }
 
+    public func matchByLabel(_ label: String) -> ProjectRecord? {
+        let normalized = label.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !normalized.isEmpty else { return nil }
+
+        if let exact = records.first(where: { $0.name.lowercased() == normalized }) {
+            return exact
+        }
+
+        if let aliasMatch = records.first(where: { record in
+            record.aliases.contains { $0.lowercased() == normalized }
+        }) {
+            return aliasMatch
+        }
+
+        let basenameMatches = records.filter { record in
+            URL(fileURLWithPath: record.path).lastPathComponent.lowercased() == normalized
+        }
+        if basenameMatches.count == 1 {
+            return basenameMatches[0]
+        }
+
+        return nil
+    }
+
     public func search(_ query: String, limit: Int = 8) -> [ProjectSearchResult] {
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {

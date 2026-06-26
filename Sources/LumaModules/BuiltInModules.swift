@@ -10,6 +10,7 @@ public enum BuiltInModules {
         public var snippets: SnippetsModule?
         public var secrets: SecretsModule?
         public var media: MediaModule?
+        public var projects: ProjectsModule?
 
         public init(
             clipboard: ClipboardModule? = nil,
@@ -18,7 +19,8 @@ public enum BuiltInModules {
             wordbook: WordbookModule? = nil,
             snippets: SnippetsModule? = nil,
             secrets: SecretsModule? = nil,
-            media: MediaModule? = nil
+            media: MediaModule? = nil,
+            projects: ProjectsModule? = nil
         ) {
             self.clipboard = clipboard
             self.notes = notes
@@ -27,6 +29,7 @@ public enum BuiltInModules {
             self.snippets = snippets
             self.secrets = secrets
             self.media = media
+            self.projects = projects
         }
     }
 
@@ -44,7 +47,7 @@ public enum BuiltInModules {
             overrides.secrets ?? SecretsModule(),
             overrides.media ?? MediaModule(),
             WindowLayoutsModule(),
-            ProjectsModule()
+            overrides.projects ?? ProjectsModule()
         ]
     }
 

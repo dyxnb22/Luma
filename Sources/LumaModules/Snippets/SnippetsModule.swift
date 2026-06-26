@@ -64,16 +64,15 @@ public actor SnippetsModule: LumaModule {
             }
             _ = try await store.recordUsage(id: id)
             await refreshCache()
-            let clipboardText = await context.platform.pasteboard.readString()
-            await context.platform.pasteboard.write(SnippetVariableExpander.expand(snippet.content, clipboardText: clipboardText))
+            let expanded = await expandedContent(for: snippet.content, context: context)
+            await context.platform.pasteboard.write(expanded)
         case .paste(let id):
             guard let snippet = cachedSnippets.first(where: { $0.id == id }) else {
                 throw ModuleError.dataUnavailable
             }
             _ = try await store.recordUsage(id: id)
             await refreshCache()
-            let clipboardText = await context.platform.pasteboard.readString()
-            let expanded = SnippetVariableExpander.expand(snippet.content, clipboardText: clipboardText)
+            let expanded = await expandedContent(for: snippet.content, context: context)
             await context.platform.pasteboard.write(expanded)
             if await context.platform.accessibility.isTrusted() {
                 await context.platform.accessibility.insert(text: expanded)
@@ -121,6 +120,20 @@ public actor SnippetsModule: LumaModule {
 
     private func refreshCache() async {
         cachedSnippets = await store.all()
+    }
+
+    private func expandedContent(for content: String, context: ActionContext) async -> String {
+        let project = await context.platform.currentProject.snapshot()
+        let selection = await context.platform.selectionSnapshot.snapshot()
+        let clipboard = await context.platform.pasteboard.readString()
+        return SnippetVariableExpander.expand(
+            content,
+            context: SnippetExpansionContext.from(
+                project: project,
+                clipboardText: clipboard,
+                selectionText: selection
+            )
+        )
     }
 
     private func createRow(title: String) -> ResultItem {

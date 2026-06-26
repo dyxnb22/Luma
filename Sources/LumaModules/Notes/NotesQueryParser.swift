@@ -9,6 +9,7 @@ public enum NotesQuery: Equatable, Sendable {
     case daily
     case reviewWeek
     case doctor
+    case captureToDaily(text: String)
 }
 
 public enum NotesQueryParser {
@@ -52,6 +53,12 @@ public enum NotesQueryParser {
 
         if lower == "doctor" {
             return .doctor
+        }
+
+        if lower.hasPrefix("cap ") {
+            let text = String(trimmed.dropFirst(4)).trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !text.isEmpty else { return .search(trimmed) }
+            return .captureToDaily(text: text)
         }
 
         if lower.hasPrefix("list ") {

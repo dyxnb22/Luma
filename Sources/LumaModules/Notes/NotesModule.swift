@@ -84,6 +84,8 @@ public actor NotesModule: LumaModule {
             return await reviewWeekResult()
         case .doctor:
             return await doctorResult()
+        case .captureToDaily(let text):
+            return await captureToDailyResult(text: text)
         }
     }
 
@@ -134,6 +136,12 @@ public actor NotesModule: LumaModule {
                 root: root,
                 reviewsFolderName: config.reviewsFolderName,
                 modifiedNotes: modified
+            )
+        case .captureToDaily(let text):
+            url = try await actions.appendToDailyNote(
+                text: text,
+                root: root,
+                dailyFolderName: config.dailyFolderName
             )
         }
 
@@ -408,6 +416,30 @@ public actor NotesModule: LumaModule {
                 primaryAction: Action(
                     id: ActionID(module: Self.manifest.identifier, key: "daily"),
                     title: exists ? "Open Daily Note" : "Create Daily Note",
+                    kind: .custom(payload: payload, handler: Self.manifest.identifier)
+                ),
+                rankingHints: RankingHints(basePriority: Self.manifest.priority)
+            )
+        ])
+    }
+
+    private func captureToDailyResult(text: String) async -> ModuleResult {
+        let config = cachedConfig
+        guard config.root != nil else {
+            return ModuleResult(items: [noRootRow()])
+        }
+        let preview = String(text.prefix(64))
+        let payload = (try? ModuleActionCoding.encode(NotesAction.captureToDaily(text: text))) ?? Data()
+        return ModuleResult(items: [
+            ResultItem(
+                id: ResultID(module: Self.manifest.identifier, key: "capture.daily"),
+                title: "Append to today's daily note",
+                titleAttributed: AttributedString("Append to today's daily note"),
+                subtitle: preview,
+                icon: .symbol("square.and.pencil"),
+                primaryAction: Action(
+                    id: ActionID(module: Self.manifest.identifier, key: "capture.daily"),
+                    title: "Capture",
                     kind: .custom(payload: payload, handler: Self.manifest.identifier)
                 ),
                 rankingHints: RankingHints(basePriority: Self.manifest.priority)

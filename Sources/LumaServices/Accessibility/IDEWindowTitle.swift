@@ -86,6 +86,38 @@ public enum IDEWindowTitle {
         family(for: bundleID) != nil
     }
 
+    /// Returns the active source filename from an IDE window title, if present.
+    public static func filename(rawTitle: String, bundleID: String, appName: String) -> String? {
+        let trimmed = rawTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, isIDE(bundleID: bundleID) else { return nil }
+
+        let segments = splitSegments(trimmed)
+        guard let family = family(for: bundleID) else { return nil }
+        let appNames = appNameTokens(appName: appName, bundleID: bundleID)
+
+        switch family {
+        case .jetBrains:
+            if let file = segments.first(where: { looksLikeFilename($0) }) {
+                return fileNameOnly(file)
+            }
+        case .electron, .xcode:
+            if let file = segments.first(where: { looksLikeFilename($0) }) {
+                return fileNameOnly(file)
+            }
+            if segments.count >= 2,
+               looksLikeFilename(segments[0]),
+               !isAppName(segments[1], appNames: appNames) {
+                return fileNameOnly(segments[0])
+            }
+        }
+
+        return nil
+    }
+
+    private static func fileNameOnly(_ segment: String) -> String {
+        segment.split(separator: "/").last.map(String.init) ?? segment
+    }
+
     private enum Family {
         case electron
         case jetBrains

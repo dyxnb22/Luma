@@ -139,6 +139,23 @@ public actor NotesActions {
         return target
     }
 
+    public func appendToDailyNote(
+        text: String,
+        root: URL,
+        dailyFolderName: String,
+        now: Date = Date()
+    ) async throws -> URL {
+        let target = try await openOrCreateDailyNote(root: root, dailyFolderName: dailyFolderName, now: now)
+        let line = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !line.isEmpty else { return target }
+        let existing = (try? String(contentsOf: target, encoding: .utf8)) ?? ""
+        let suffix = existing.hasSuffix("\n") ? "" : "\n"
+        let appended = existing + suffix + "- " + line + "\n"
+        try appended.write(to: target, atomically: true, encoding: .utf8)
+        await index.rebuild(after: [FSChangeEvent(path: target.path, kind: .modified)])
+        return target
+    }
+
     public func createNoteFromTemplate(
         template: NotesTemplateInfo,
         title: String,

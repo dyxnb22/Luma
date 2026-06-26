@@ -32,7 +32,8 @@ let package = Package(
             linkerSettings: [
                 .linkedFramework("Translation", .when(platforms: [.macOS])),
                 .linkedFramework("EventKit", .when(platforms: [.macOS])),
-                .linkedFramework("AVFoundation", .when(platforms: [.macOS]))
+                .linkedFramework("AVFoundation", .when(platforms: [.macOS])),
+                .linkedFramework("UserNotifications", .when(platforms: [.macOS]))
             ]
         ),
         .target(

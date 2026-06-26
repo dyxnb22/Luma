@@ -6,4 +6,6 @@ import LumaCore
 public enum LauncherSharedState {
     public static var pendingMediaEditorDraft: MediaEditorDraft?
     public static var pendingWordbookAutoStartReview = false
+    public static var pendingCurrentProjectContext: CurrentProjectContext?
+    public static var pendingProjectsManage = false
 }

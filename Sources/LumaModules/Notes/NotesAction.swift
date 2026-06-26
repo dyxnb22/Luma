@@ -6,4 +6,5 @@ public enum NotesAction: Codable, Sendable {
     case createFromTemplate(template: String, title: String)
     case openOrCreateDaily
     case createWeeklyReview
+    case captureToDaily(text: String)
 }

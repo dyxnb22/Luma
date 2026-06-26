@@ -28,7 +28,11 @@ public struct ModuleContext: Sendable {
         clipboardSnapshot: any ClipboardSnapshotClient = NoopClipboardSnapshotClient(),
         launcherUI: any LauncherUIClient = NoopLauncherUIClient(),
         processMemory: any ProcessMemoryClient = NoopProcessMemoryClient(),
-        reminders: any RemindersClient = NoopRemindersClient()
+        reminders: any RemindersClient = NoopRemindersClient(),
+        scriptRunner: any ScriptRunnerClient = NoopScriptRunnerClient(),
+        notifications: any NotificationClient = NoopNotificationClient(),
+        currentProject: any CurrentProjectClient = NoopCurrentProjectClient(),
+        selectionSnapshot: any SelectionSnapshotClient = NoopSelectionSnapshotClient()
     ) {
         self.runtime = ModuleRuntimeClients(
             logger: logger,
@@ -44,7 +48,11 @@ public struct ModuleContext: Sendable {
             workspace: workspace,
             clipboardSnapshot: clipboardSnapshot,
             processMemory: processMemory,
-            reminders: reminders
+            reminders: reminders,
+            scriptRunner: scriptRunner,
+            notifications: notifications,
+            currentProject: currentProject,
+            selectionSnapshot: selectionSnapshot
         )
         self.launcherUI = launcherUI
     }
@@ -89,14 +97,20 @@ public struct ActionContext: Sendable {
         translation: any TranslationClient = NoopTranslationClient(),
         workspace: any WorkspaceClient = NoopWorkspaceClient(),
         host: any HostClient = NoopHostClient(),
-        launcherUI: any LauncherUIClient = NoopLauncherUIClient()
+        launcherUI: any LauncherUIClient = NoopLauncherUIClient(),
+        scriptRunner: any ScriptRunnerClient = NoopScriptRunnerClient(),
+        currentProject: any CurrentProjectClient = NoopCurrentProjectClient(),
+        selectionSnapshot: any SelectionSnapshotClient = NoopSelectionSnapshotClient()
     ) {
         self.runtime = ActionRuntimeClients(logger: logger, metrics: metrics)
         self.platform = ActionPlatformClients(
             pasteboard: pasteboard,
             accessibility: accessibility,
             translation: translation,
-            workspace: workspace
+            workspace: workspace,
+            scriptRunner: scriptRunner,
+            currentProject: currentProject,
+            selectionSnapshot: selectionSnapshot
         )
         self.host = host
         self.launcherUI = launcherUI

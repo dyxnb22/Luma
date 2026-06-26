@@ -9,6 +9,10 @@ public struct PlatformClients: Sendable {
     public let clipboardSnapshot: any ClipboardSnapshotClient
     public let processMemory: any ProcessMemoryClient
     public let reminders: any RemindersClient
+    public let scriptRunner: any ScriptRunnerClient
+    public let notifications: any NotificationClient
+    public let currentProject: any CurrentProjectClient
+    public let selectionSnapshot: any SelectionSnapshotClient
 
     public init(
         pasteboard: any PasteboardClient,
@@ -18,7 +22,11 @@ public struct PlatformClients: Sendable {
         workspace: any WorkspaceClient = NoopWorkspaceClient(),
         clipboardSnapshot: any ClipboardSnapshotClient = NoopClipboardSnapshotClient(),
         processMemory: any ProcessMemoryClient = NoopProcessMemoryClient(),
-        reminders: any RemindersClient = NoopRemindersClient()
+        reminders: any RemindersClient = NoopRemindersClient(),
+        scriptRunner: any ScriptRunnerClient = NoopScriptRunnerClient(),
+        notifications: any NotificationClient = NoopNotificationClient(),
+        currentProject: any CurrentProjectClient = NoopCurrentProjectClient(),
+        selectionSnapshot: any SelectionSnapshotClient = NoopSelectionSnapshotClient()
     ) {
         self.pasteboard = pasteboard
         self.accessibility = accessibility
@@ -28,6 +36,10 @@ public struct PlatformClients: Sendable {
         self.clipboardSnapshot = clipboardSnapshot
         self.processMemory = processMemory
         self.reminders = reminders
+        self.scriptRunner = scriptRunner
+        self.notifications = notifications
+        self.currentProject = currentProject
+        self.selectionSnapshot = selectionSnapshot
     }
 }
 
@@ -49,16 +61,25 @@ public struct ActionPlatformClients: Sendable {
     public let accessibility: any AccessibilityClient
     public let translation: any TranslationClient
     public let workspace: any WorkspaceClient
+    public let scriptRunner: any ScriptRunnerClient
+    public let currentProject: any CurrentProjectClient
+    public let selectionSnapshot: any SelectionSnapshotClient
 
     public init(
         pasteboard: any PasteboardClient,
         accessibility: any AccessibilityClient,
         translation: any TranslationClient = NoopTranslationClient(),
-        workspace: any WorkspaceClient = NoopWorkspaceClient()
+        workspace: any WorkspaceClient = NoopWorkspaceClient(),
+        scriptRunner: any ScriptRunnerClient = NoopScriptRunnerClient(),
+        currentProject: any CurrentProjectClient = NoopCurrentProjectClient(),
+        selectionSnapshot: any SelectionSnapshotClient = NoopSelectionSnapshotClient()
     ) {
         self.pasteboard = pasteboard
         self.accessibility = accessibility
         self.translation = translation
         self.workspace = workspace
+        self.scriptRunner = scriptRunner
+        self.currentProject = currentProject
+        self.selectionSnapshot = selectionSnapshot
     }
 }

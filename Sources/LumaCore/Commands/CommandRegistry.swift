@@ -263,6 +263,7 @@ public enum BuiltInCommandRegistry {
                 helpLines: [
                     "p — recent projects",
                     "p luma — open in preferred IDE",
+                    "proj manage — pin, aliases, roots",
                     "p ? — this help"
                 ],
                 discoverPriority: 10
@@ -359,6 +360,7 @@ public enum BuiltInCommandRegistry {
                     "n <query> — fuzzy find by filename",
                     "n new <title> — create in Inbox and open",
                     "n daily — open or create today's daily note",
+                    "n cap <text> — append bullet to today's daily note",
                     "n review week — weekly review with modified notes",
                     "n ? — this help"
                 ],
@@ -381,6 +383,7 @@ public enum BuiltInCommandRegistry {
                     "s new <title> — create snippet and open editor",
                     "s git — fuzzy search title/tags/content",
                     "Return — copy snippet",
+                    "Variables: {{uuid}} {{timestamp}} {{selection}} {{project}} {{file}} {{caret}}",
                     "s ? — this help"
                 ],
                 discoverPriority: 70

@@ -1,55 +1,8 @@
 import AppKit
-import ApplicationServices
 import Foundation
 import LumaCore
 import LumaModules
 import LumaServices
-
-actor ContextualSelectionCache {
-    static let shared = ContextualSelectionCache()
-
-    private var cachedText: String?
-    private var cachedAt: Date?
-    private var refreshInFlight = false
-    private let ttl: TimeInterval = 1.5
-
-    func snapshot() -> String? {
-        if let cachedAt, Date().timeIntervalSince(cachedAt) < ttl {
-            return cachedText
-        }
-        return nil
-    }
-
-    func refreshIfNeeded() {
-        if let cachedAt, Date().timeIntervalSince(cachedAt) < ttl { return }
-        if refreshInFlight { return }
-        refreshInFlight = true
-        Task { [weak self] in
-            let text = await MainActor.run { Self.readSelectedText() }
-            await self?.store(text)
-        }
-    }
-
-    private func store(_ text: String?) {
-        cachedText = text
-        cachedAt = Date()
-        refreshInFlight = false
-    }
-
-    @MainActor
-    private static func readSelectedText() -> String? {
-        guard AXService.isProcessTrusted(),
-              let app = NSWorkspace.shared.frontmostApplication else { return nil }
-        let appElement = AXUIElementCreateApplication(app.processIdentifier)
-        var focused: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(appElement, kAXFocusedUIElementAttribute as CFString, &focused) == .success,
-              let element = focused else { return nil }
-        var value: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(element as! AXUIElement, kAXSelectedTextAttribute as CFString, &value) == .success,
-              let text = value as? String else { return nil }
-        return text
-    }
-}
 
 struct ContextualHomeProvider: LauncherHomeProvider {
     private let todoModule: TodoModule?
@@ -62,30 +15,102 @@ struct ContextualHomeProvider: LauncherHomeProvider {
 
     func items() async -> [ResultItem] {
         var suggestions: [ResultItem] = []
-        await ContextualSelectionCache.shared.refreshIfNeeded()
 
-        if let text = await ContextualSelectionCache.shared.snapshot(),
+        if let text = await SelectionSnapshotService.shared.snapshot(),
            !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
            TranslationUserMessages.shouldTranslate(text) {
             suggestions.append(translateSelectedRow(text: text))
         }
 
-        if suggestions.count < 3,
+        if suggestions.count < 4,
+           let projectRow = await currentProjectRow() {
+            suggestions.append(projectRow)
+        }
+
+        if suggestions.count < 4,
+           let transformRow = await clipboardTransformRow() {
+            suggestions.append(transformRow)
+        }
+
+        if suggestions.count < 4,
            let clipRow = await clipboardRow() {
             suggestions.append(clipRow)
         }
 
-        if suggestions.count < 3,
+        if suggestions.count < 4,
            let recordsRow = await continueRecordsRow() {
             suggestions.append(recordsRow)
         }
 
-        if suggestions.count < 3,
+        if suggestions.count < 4,
            let todoRow = await todayTodosRow() {
             suggestions.append(todoRow)
         }
 
-        return Array(suggestions.prefix(3))
+        return Array(suggestions.prefix(4))
+    }
+
+    private func currentProjectRow() async -> ResultItem? {
+        guard let context = await CurrentProjectService.shared.snapshot() else { return nil }
+
+        let title = "In \(context.frontAppName): \(context.projectLabel)"
+        let subtitle = context.filename ?? context.matchedProjectPath ?? context.projectLabel
+        let payload = (try? ModuleActionCoding.encode(ProjectAction.openCurrentDetail(context))) ?? Data()
+
+        return ResultItem(
+            id: ResultID(module: .projects, key: "contextual.current"),
+            title: title,
+            titleAttributed: AttributedString(title),
+            subtitle: subtitle,
+            icon: .symbol("folder"),
+            primaryAction: Action(
+                id: ActionID(module: .projects, key: "contextual.current"),
+                title: "Current Project",
+                kind: .openModuleDetail(.projects, payload: payload)
+            ),
+            rankingHints: RankingHints(basePriority: 85),
+            rowKind: .starter
+        )
+    }
+
+    private func clipboardTransformRow() async -> ResultItem? {
+        guard let preview = await ClipboardPasteboardCache.shared.snapshot(),
+              !preview.isEmpty else { return nil }
+
+        if let json = ClipboardTransform.detectJSON(preview) {
+            return transformRow(
+                key: "format-json",
+                title: "Format JSON",
+                subtitle: String(preview.prefix(48)),
+                output: json
+            )
+        }
+        if let decoded = ClipboardTransform.decodeBase64(preview) {
+            return transformRow(
+                key: "decode-base64",
+                title: "Decode Base64",
+                subtitle: String(preview.prefix(48)),
+                output: decoded
+            )
+        }
+        return nil
+    }
+
+    private func transformRow(key: String, title: String, subtitle: String, output: String) -> ResultItem {
+        ResultItem(
+            id: ResultID(module: .clipboard, key: "contextual.\(key)"),
+            title: title,
+            titleAttributed: AttributedString(title),
+            subtitle: subtitle,
+            icon: .symbol("wand.and.stars"),
+            primaryAction: Action(
+                id: ActionID(module: .clipboard, key: "contextual.\(key)"),
+                title: title,
+                kind: .copyToPasteboard(output)
+            ),
+            rankingHints: RankingHints(basePriority: 82),
+            rowKind: .starter
+        )
     }
 
     private func translateSelectedRow(text: String) -> ResultItem {
@@ -169,5 +194,26 @@ struct ContextualHomeProvider: LauncherHomeProvider {
             rankingHints: RankingHints(basePriority: 70),
             rowKind: .starter
         )
+    }
+}
+
+enum ClipboardTransform {
+    static func detectJSON(_ text: String) -> String? {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.hasPrefix("{") || trimmed.hasPrefix("[") else { return nil }
+        guard let data = trimmed.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data),
+              let pretty = try? JSONSerialization.data(withJSONObject: object, options: [.prettyPrinted, .sortedKeys]),
+              let output = String(data: pretty, encoding: .utf8) else { return nil }
+        return output
+    }
+
+    static func decodeBase64(_ text: String) -> String? {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.count >= 8, trimmed.count % 4 == 0,
+              let data = Data(base64Encoded: trimmed),
+              let output = String(data: data, encoding: .utf8),
+              !output.isEmpty else { return nil }
+        return output
     }
 }

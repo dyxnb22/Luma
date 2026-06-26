@@ -6,36 +6,90 @@ public actor CommandsModule: LumaModule {
         identifier: .commands,
         displayName: "Commands",
         capabilities: [.queryable, .providesActions],
-        defaultEnabled: false,
+        defaultEnabled: true,
         priority: 4,
         queryTimeout: .milliseconds(20)
     )
 
-    private static let builtInKeys = ["open-settings", "reload-modules", "quit"]
+    private static let runnableBuiltIns = ["open-settings", "reload-modules", "quit"]
 
-    public init() {}
+    private let store: CommandsStore
+    private var cachedCommands: [ScriptCommand] = []
+    private var scriptRunner: any ScriptRunnerClient = NoopScriptRunnerClient()
+    private var currentProject: any CurrentProjectClient = NoopCurrentProjectClient()
+    private var selectionSnapshot: any SelectionSnapshotClient = NoopSelectionSnapshotClient()
+
+    public init(store: CommandsStore = CommandsStore()) {
+        self.store = store
+    }
+
+    public func warmup(_ context: ModuleContext) async {
+        await store.reload()
+        cachedCommands = await store.current().commands
+        scriptRunner = context.platform.scriptRunner
+        currentProject = context.platform.currentProject
+        selectionSnapshot = context.platform.selectionSnapshot
+    }
 
     public func handle(_ query: Query, context: QueryContext) async -> ModuleResult {
         if let payload = query.command?.payload ?? Self.extractPayload(raw: query.raw) {
-            return handlePayload(payload, parsedCommand: query.command)
+            return await handlePayload(payload, parsedCommand: query.command, context: context)
         }
-        return handleGlobal(query.normalized)
+        return await handleGlobal(query.normalized, context: context)
     }
 
     public func perform(_ action: Action, context: ActionContext) async throws {
-        guard case .custom(let payload, let handler) = action.kind, handler == Self.manifest.identifier else {
-            throw ModuleError.unsupportedAction(action.id)
+        if case .custom(let payload, let handler) = action.kind, handler == Self.manifest.identifier {
+            if let key = String(data: payload, encoding: .utf8),
+               Self.runnableBuiltIns.contains(key) || key == "settings" {
+                try await runBuiltIn(key == "settings" ? "open-settings" : key, context: context)
+                return
+            }
+            let decoded = try ModuleActionCoding.decode(CommandsAction.self, from: payload)
+            switch decoded {
+            case .run(let id):
+                guard let command = cachedCommands.first(where: { $0.id == id }) else {
+                    throw ModuleError.dataUnavailable
+                }
+                let expansion = await makeExpansionContext(context: context)
+                let cwd = command.cwd.map { TemplateExpander.expand($0, context: expansion) }
+                let args = command.args.map { TemplateExpander.expand($0, context: expansion) }
+                let request = ScriptRunRequest(
+                    title: command.title,
+                    executable: command.exec,
+                    arguments: args,
+                    workingDirectory: cwd,
+                    timeoutSeconds: command.timeoutSec
+                )
+                Task.detached { [scriptRunner] in
+                    _ = await scriptRunner.run(request)
+                }
+            case .revealConfig:
+                let url = await store.configFileURL()
+                await context.platform.workspace.revealInFinder(url)
+            case .doctor:
+                break
+            }
+            return
         }
-        guard let key = String(data: payload, encoding: .utf8) else {
-            throw ModuleError.unsupportedAction(action.id)
-        }
-        try await runBuiltIn(key, context: context)
+        throw ModuleError.unsupportedAction(action.id)
+    }
+
+    public func lastWarmupCommandCount() -> Int {
+        cachedCommands.count
+    }
+
+    public func commandsConfigValid() async -> Bool {
+        let url = await store.configFileURL()
+        guard let data = try? Data(contentsOf: url) else { return true }
+        return (try? JSONDecoder().decode(CommandsConfig.self, from: data)) != nil
     }
 
     public static func extractPayload(raw: String) -> String? {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         let lower = trimmed.lowercased()
-        if builtInKeys.contains(lower) || lower == "settings" || lower == "prefs" {
+        if lower == "doctor" { return "doctor" }
+        if runnableBuiltIns.contains(lower) || lower == "settings" || lower == "prefs" {
             return ""
         }
         if lower.hasPrefix("settings ") {
@@ -44,11 +98,20 @@ public actor CommandsModule: LumaModule {
         if lower.hasPrefix("prefs ") {
             return String(trimmed.dropFirst(6)).trimmingCharacters(in: .whitespacesAndNewlines)
         }
+        if lower == "cmd" || lower == "command" || lower == "commands" {
+            return ""
+        }
+        if lower.hasPrefix("cmd ") {
+            return String(trimmed.dropFirst(4)).trimmingCharacters(in: .whitespacesAndNewlines)
+        }
         return nil
     }
 
-    private func handlePayload(_ payload: String, parsedCommand: ParsedCommand?) -> ModuleResult {
+    private func handlePayload(_ payload: String, parsedCommand: ParsedCommand?, context: QueryContext) async -> ModuleResult {
         if let parsedCommand, let builtIn = Self.matchBuiltIn(parsedCommand.trigger) {
+            if builtIn == "doctor" {
+                return await doctorResult(context: context)
+            }
             return ModuleResult(items: [self.command(builtIn, title: Self.title(for: builtIn))])
         }
         let trimmed = payload.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -56,28 +119,119 @@ public actor CommandsModule: LumaModule {
             return ModuleResult(items: ModuleHelp.results(for: Self.manifest.identifier))
         }
         if trimmed.isEmpty {
-            return ModuleResult(items: [command("open-settings", title: "Open Settings")])
+            return listCommands(fallbackBuiltIn: "open-settings")
         }
-        if let builtIn = Self.matchBuiltIn(trimmed) {
+        if let builtIn = Self.matchBuiltInOrDoctor(trimmed) {
+            if builtIn == "doctor" {
+                return await doctorResult(context: context)
+            }
             return ModuleResult(items: [command(builtIn, title: Self.title(for: builtIn))])
         }
-        return handleGlobal(trimmed)
+        return listCommands(filter: trimmed)
     }
 
-    private func handleGlobal(_ normalized: String) -> ModuleResult {
+    private func handleGlobal(_ normalized: String, context: QueryContext) async -> ModuleResult {
         if ModuleHelp.isHelpQuery(normalized) {
             return ModuleResult(items: ModuleHelp.results(for: Self.manifest.identifier))
         }
-        if let builtIn = Self.matchBuiltIn(normalized) {
+        if let builtIn = Self.matchBuiltInOrDoctor(normalized) {
+            if builtIn == "doctor" {
+                return await doctorResult(context: context)
+            }
             return ModuleResult(items: [command(builtIn, title: Self.title(for: builtIn))])
         }
-        let commands = Self.builtInKeys.map { command($0, title: Self.title(for: $0)) }
-        let filtered = commands.filter {
-            normalized.isEmpty
-                || $0.title.lowercased().contains(normalized)
-                || $0.id.key.contains(normalized)
+        if normalized.isEmpty {
+            return listCommands()
         }
-        return ModuleResult(items: filtered)
+        return listCommands(filter: normalized)
+    }
+
+    private func listCommands(filter: String? = nil, fallbackBuiltIn: String? = nil) -> ModuleResult {
+        var items: [ResultItem] = []
+        if let fallbackBuiltIn {
+            items.append(command(fallbackBuiltIn, title: Self.title(for: fallbackBuiltIn)))
+        }
+        let normalized = filter?.lowercased() ?? ""
+        let matches = cachedCommands.filter { command in
+            normalized.isEmpty
+                || command.title.lowercased().contains(normalized)
+                || command.trigger.lowercased().contains(normalized)
+                || command.id.lowercased().contains(normalized)
+        }
+        items.append(contentsOf: matches.map(scriptRow))
+        if items.isEmpty {
+            items = Self.runnableBuiltIns.map { command($0, title: Self.title(for: $0)) }
+        }
+        return ModuleResult(items: items)
+    }
+
+    private func doctorResult(context: QueryContext) async -> ModuleResult {
+        let axTrusted = await context.platform.accessibility.isTrusted()
+        let configValid = await commandsConfigValid()
+        var rows: [ResultItem] = [
+            ResultItem(
+                id: ResultID(module: Self.manifest.identifier, key: "doctor.commands"),
+                title: "Script commands loaded: \(cachedCommands.count)",
+                titleAttributed: AttributedString("Script commands loaded: \(cachedCommands.count)"),
+                subtitle: configValid ? "commands.json OK" : "commands.json invalid",
+                icon: .symbol("stethoscope"),
+                primaryAction: Action(
+                    id: ActionID(module: Self.manifest.identifier, key: "doctor.commands"),
+                    title: "Commands",
+                    kind: .noop
+                ),
+                rankingHints: RankingHints(basePriority: Self.manifest.priority),
+                rowKind: .informational
+            ),
+            ResultItem(
+                id: ResultID(module: Self.manifest.identifier, key: "doctor.ax"),
+                title: axTrusted ? "Accessibility: trusted" : "Accessibility: not trusted",
+                titleAttributed: AttributedString(axTrusted ? "Accessibility: trusted" : "Accessibility: not trusted"),
+                subtitle: "Required for IDE context + snippets paste",
+                icon: .symbol(axTrusted ? "checkmark.shield" : "exclamationmark.shield"),
+                primaryAction: Action(
+                    id: ActionID(module: Self.manifest.identifier, key: "doctor.ax"),
+                    title: "AX",
+                    kind: .noop
+                ),
+                rankingHints: RankingHints(basePriority: Self.manifest.priority),
+                rowKind: .informational
+            )
+        ]
+        return ModuleResult(items: rows)
+    }
+
+    private func scriptRow(_ command: ScriptCommand) -> ResultItem {
+        let payload = (try? ModuleActionCoding.encode(CommandsAction.run(id: command.id))) ?? Data()
+        var secondary: [Action] = []
+        let revealPayload = (try? ModuleActionCoding.encode(CommandsAction.revealConfig)) ?? Data()
+        secondary.append(Action(
+            id: ActionID(module: Self.manifest.identifier, key: "reveal.\(command.id)"),
+            title: "Reveal Config",
+            kind: .custom(payload: revealPayload, handler: Self.manifest.identifier)
+        ))
+        return ResultItem(
+            id: ResultID(module: Self.manifest.identifier, key: "script.\(command.id)"),
+            title: command.title,
+            titleAttributed: AttributedString(command.title),
+            subtitle: command.trigger,
+            icon: .symbol("terminal"),
+            primaryAction: Action(
+                id: ActionID(module: Self.manifest.identifier, key: "run.\(command.id)"),
+                title: "Run \(command.title)",
+                kind: .custom(payload: payload, handler: Self.manifest.identifier),
+                runsOn: .background
+            ),
+            secondaryActions: secondary,
+            rankingHints: RankingHints(basePriority: Self.manifest.priority)
+        )
+    }
+
+    private func makeExpansionContext(context: ActionContext) async -> SnippetExpansionContext {
+        let project = await context.platform.currentProject.snapshot()
+        let selection = await context.platform.selectionSnapshot.snapshot()
+        let clipboard = await context.platform.pasteboard.readString()
+        return SnippetExpansionContext.from(project: project, clipboardText: clipboard, selectionText: selection)
     }
 
     private func runBuiltIn(_ key: String, context: ActionContext) async throws {
@@ -95,7 +249,14 @@ public actor CommandsModule: LumaModule {
 
     private static func matchBuiltIn(_ text: String) -> String? {
         let normalized = text.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        return builtInKeys.first { $0 == normalized }
+        if normalized == "settings" || normalized == "prefs" { return "open-settings" }
+        return runnableBuiltIns.first { $0 == normalized }
+    }
+
+    private static func matchBuiltInOrDoctor(_ text: String) -> String? {
+        let normalized = text.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if normalized == "doctor" { return "doctor" }
+        return matchBuiltIn(text)
     }
 
     private static func title(for key: String) -> String {
@@ -103,12 +264,19 @@ public actor CommandsModule: LumaModule {
         case "open-settings": "Open Settings"
         case "reload-modules": "Reload Modules"
         case "quit": "Quit Luma"
+        case "doctor": "Global Doctor"
         default: key
         }
     }
 
     private func command(_ key: String, title: String) -> ResultItem {
         let id = ResultID(module: Self.manifest.identifier, key: key)
+        let payload: Data
+        if key == "doctor" {
+            payload = (try? ModuleActionCoding.encode(CommandsAction.doctor)) ?? Data(key.utf8)
+        } else {
+            payload = Data(key.utf8)
+        }
         return ResultItem(
             id: id,
             title: title,
@@ -118,7 +286,7 @@ public actor CommandsModule: LumaModule {
             primaryAction: Action(
                 id: ActionID(module: Self.manifest.identifier, key: key),
                 title: title,
-                kind: .custom(payload: Data(key.utf8), handler: Self.manifest.identifier)
+                kind: .custom(payload: payload, handler: Self.manifest.identifier)
             ),
             rankingHints: RankingHints(basePriority: Self.manifest.priority)
         )

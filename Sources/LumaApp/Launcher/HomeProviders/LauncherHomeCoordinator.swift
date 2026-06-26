@@ -1,5 +1,6 @@
 import Foundation
 import LumaCore
+import LumaServices
 
 /// App-layer wiring for home list providers and open-apps expansion.
 actor LauncherHomeCoordinator {
@@ -31,6 +32,10 @@ actor LauncherHomeCoordinator {
     func setActive(_ active: Bool) async {
         await openApps.setActive(active)
         await ClipboardPasteboardCache.shared.setActive(active)
+        if active {
+            _ = await CurrentProjectService.shared.snapshot()
+            _ = await SelectionSnapshotService.shared.snapshot()
+        }
     }
 
     func toggleAppWindows(bundleID: String) {

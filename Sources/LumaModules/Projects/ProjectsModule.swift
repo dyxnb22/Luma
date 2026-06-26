@@ -20,9 +20,7 @@ public actor ProjectsModule: LumaModule {
     }
 
     public func warmup(_ context: ModuleContext) async {
-        let config = await store.current()
-        scannedRecords = ProjectScanner.scan(roots: config.roots)
-        index = ProjectIndex(records: config.projects + scannedRecords)
+        await refreshIndex()
     }
 
     public func handle(_ query: Query, context: QueryContext) async -> ModuleResult {
@@ -32,6 +30,11 @@ public actor ProjectsModule: LumaModule {
 
         if ModuleHelp.isHelpQuery(payload) {
             return ModuleResult(items: ModuleHelp.results(for: Self.manifest.identifier))
+        }
+
+        let lower = payload.lowercased()
+        if lower == "manage" {
+            return manageResult()
         }
 
         let config = await store.current()
@@ -66,12 +69,112 @@ public actor ProjectsModule: LumaModule {
         case .revealConfig:
             let url = await store.configFileURL()
             await context.platform.workspace.revealInFinder(url)
+        case .openCurrentDetail:
+            break
+        case .openManage:
+            break
+        case .openTerminal(let path):
+            try await ProjectOpenerRunner.open(path: path, opener: .terminal, workspace: context.platform.workspace)
+            try await store.recordOpened(path: path)
+            await refreshIndex()
+        case .openNotes(let path, let projectName):
+            let candidates = [
+                URL(fileURLWithPath: path).appendingPathComponent("NOTES.md"),
+                URL(fileURLWithPath: path).appendingPathComponent("notes/README.md"),
+                URL(fileURLWithPath: path).appendingPathComponent("README.md")
+            ]
+            if let existing = candidates.first(where: { FileManager.default.fileExists(atPath: $0.path) }) {
+                await context.platform.workspace.openURL(existing)
+            } else {
+                let notesRoot = FileManager.default.homeDirectoryForCurrentUser
+                    .appendingPathComponent("Documents/Notes/\(projectName).md")
+                if FileManager.default.fileExists(atPath: notesRoot.path) {
+                    await context.platform.workspace.openURL(notesRoot)
+                } else {
+                    await context.platform.workspace.revealInFinder(URL(fileURLWithPath: path, isDirectory: true))
+                }
+            }
+        case .togglePin(let path):
+            try await store.togglePin(path: path)
+            await refreshIndex()
+        case .updateAliases(let path, let aliases):
+            var config = await store.current()
+            let normalized = ProjectRecord.normalizePath(path)
+            if let idx = config.projects.firstIndex(where: { $0.path == normalized }) {
+                config.projects[idx].aliases = aliases
+            } else if let scanned = scannedRecords.first(where: { $0.path == normalized }) {
+                var record = scanned
+                record.aliases = aliases
+                config.projects.append(record)
+            }
+            try await store.save(config)
+            await refreshIndex()
+        case .updateOpener(let path, let opener):
+            var config = await store.current()
+            let normalized = ProjectRecord.normalizePath(path)
+            if let idx = config.projects.firstIndex(where: { $0.path == normalized }) {
+                config.projects[idx].preferredOpener = opener
+            } else if let scanned = scannedRecords.first(where: { $0.path == normalized }) {
+                var record = scanned
+                record.preferredOpener = opener
+                config.projects.append(record)
+            }
+            try await store.save(config)
+            await refreshIndex()
+        case .addRoot(let path):
+            try await store.addRoot(path)
+            scannedRecords = ProjectScanner.scan(roots: (await store.current()).roots)
+            await refreshIndex()
+        case .addManualProject(let name, let path):
+            let record = ProjectRecord(name: name, path: path)
+            try await store.upsertProject(record)
+            await refreshIndex()
         }
+    }
+
+    public func matchByLabel(_ label: String) -> ProjectRecord? {
+        index.matchByLabel(label)
+    }
+
+    public func allRecords() async -> [ProjectRecord] {
+        await store.allRecordsIncludingScanned(scannedRecords)
+    }
+
+    public func roots() async -> [String] {
+        await store.current().roots
+    }
+
+    public func isManualProject(path: String) async -> Bool {
+        await store.isManualProject(path: path)
+    }
+
+    public func configFileURL() async -> URL {
+        await store.configFileURL()
     }
 
     private func refreshIndex() async {
         let config = await store.current()
+        scannedRecords = ProjectScanner.scan(roots: config.roots)
         index = ProjectIndex(records: config.projects + scannedRecords)
+    }
+
+    private func manageResult() -> ModuleResult {
+        let payload = (try? ModuleActionCoding.encode(ProjectAction.openManage)) ?? Data()
+        return ModuleResult(items: [
+            ResultItem(
+                id: ResultID(module: Self.manifest.identifier, key: "manage"),
+                title: "Manage Projects",
+                titleAttributed: AttributedString("Manage Projects"),
+                subtitle: "Pin, aliases, roots",
+                icon: .symbol("folder.badge.gearshape"),
+                primaryAction: Action(
+                    id: ActionID(module: Self.manifest.identifier, key: "manage"),
+                    title: "Manage Projects",
+                    kind: .openModuleDetail(Self.manifest.identifier, payload: payload)
+                ),
+                rankingHints: RankingHints(basePriority: Self.manifest.priority)
+            )
+        ])
     }
 
     private func projectRow(_ record: ProjectRecord) -> ResultItem {

@@ -1,6 +1,6 @@
 # Dashboard Widget Polish Plan
 
-Status: **Historical** — Route B polish backlog; superseded by ADR-023.  
+Status: **Historical** — Route B polish backlog; superseded by ADR-023. Do not use for current roadmap or acceptance criteria.  
 Date: 2026-06-22
 
 ## Completed in Phase 8–10 polish

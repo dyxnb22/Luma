@@ -37,7 +37,7 @@
 - Enforces retention caps.
 - Clear history command works.
 
-## Dashboard Widget (Route B)
+## Launcher Home And Results (Route C)
 
 ### Panel Glass
 
@@ -47,26 +47,18 @@
 - 20 pt continuous corner radius.
 - Panel does not bleed background on light desktops.
 
-### Sidebar
+### Home List
 
 - Open Apps section appears with 11 pt uppercase header.
-- Up to 10 running apps shown.
-- Frontmost app row has accent background.
+- Open Apps rows render in the main unified list, not a permanent sidebar.
 - Order changes after switching apps externally.
-- Sidebar does not list Luma itself.
-- Clicking a sidebar row activates that app.
-
-### Feature Grid
-
-- Seven widget cards render: Translate, Clipboard, Notes, Todo, Wordbook, Snippets, Secrets (row-major order).
-- Each card has appearance-aware top-bright-to-bottom-dark gradient (light and dark desktops).
-- Hover scales card smoothly; press scales down.
-- Command+1…7 opens the corresponding card when visible.
+- Open Apps does not list Luma itself.
+- Return or click on an app row activates that app.
 
 ### Search Results
 
-- Typing fades feature grid out and results list in within ~80 ms.
-- Clearing text restores the feature grid.
+- Typing switches from home sections to search results within ~80 ms.
+- Clearing text restores the home list.
 - Up/Down moves selection without rebuilding rows.
 - Selected row shows accent background and Return hint capsule.
 - Return runs the selected item and hides the panel.
@@ -74,11 +66,11 @@
 
 ### Module Detail
 
-- Clicking a card swaps the center area to a `BaseDetailContainer` detail view (16 pt margins).
-- Sidebar and search bar remain visible.
+- Running a detail entry swaps the main content area to a `BaseDetailContainer` detail view (16 pt margins).
+- Search bar remains visible.
 - Top bar shows Back, module title, and close.
-- Esc in detail returns to the feature grid (does not close the panel).
-- Esc again on the grid closes the panel.
+- Esc in detail returns to the home list (does not close the panel).
+- Esc again on the home list closes the panel.
 
 ### Latency HUD
 
@@ -109,14 +101,14 @@
 
 ## Snippets
 
-- Dashboard green card opens detail view.
+- `s` / `snip` result rows and actions open the relevant snippet flow.
 - Add snippet via detail → `s <query>` finds it → Return copies content.
 - Tab on a snippet result pastes into front app (requires Accessibility).
 - Edit / Delete / Duplicate round-trip across app restart.
 
 ## Secrets
 
-- Dashboard gold card opens detail view.
+- `secret` result rows and actions open the relevant secrets flow.
 - Locked state shows Unlock button; unlocked shows CRUD table.
 - Add secret persists across restart; value only in Keychain.
 - `secret unlock` then `secret <label>` lists secrets in launcher.
@@ -124,7 +116,7 @@
 - After 5 min idle, vault auto-locks; menu bar icon updates.
 - Settings: auto-clear, re-lock timeout, require-unlock-on-launch.
 
-## Media
+## Records (`luma.media`)
 
 - `m Oppenheimer movie 9` captures and appears in `m oppen` search.
 - `m` shows recent items; `m log` opens detail view.
@@ -146,13 +138,13 @@
 
 ## Wordbook (ADR-013)
 
-- Cmd+Space → main panel → click Wordbook card → review view appears in-panel → Esc → home grid.
-- Cmd+Space → type `word` → first row "Start Review · N due" → Return → same-window review.
+- Cmd+Space → type `word` → first row "Start Review · N due" → Return → same-panel review.
+- Cmd+Space → type `word review` → first row "Start Review · N due" → Return → same-panel review.
 - During review: 1 (Known) / 2 (Fuzzy) / 3 (Unknown) grades; Space reveals/advances (search field empty).
 - After completion: "Done for today" message; Esc returns home.
 - Click settings gear during review → Settings opens → close Settings → review state preserved.
 - Cmd+Space hide → Cmd+Space show → **same word continues**; progress numbers unchanged.
-- Settings → Modules disable Wordbook → card disappears → re-enable → card returns.
+- Settings → Modules disable Wordbook → `word` trigger stops returning Wordbook rows → re-enable → rows return.
 
 ## v0.2 App Search (ADR-015)
 
@@ -168,7 +160,7 @@
 - [ ] Mock +1 day → `daily_new_seen` resets.
 - [ ] After 5 Unknown grades → fewer new cards in next 5 draws.
 - [ ] CSV import 100 rows with duplicates → toast shows imported/skipped counts.
-- [ ] Manage view Esc → home state; Esc again → launcher grid.
+- [ ] Manage view Esc → home state; Esc again → launcher home list.
 
 ## v0.2 Detail UX
 

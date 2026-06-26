@@ -4,6 +4,8 @@
 
 Superseded by ADR-023. Historical record of Route B implementation.
 
+This ADR is retained for implementation archaeology only. Do not use it as guidance for current home navigation, keyboard semantics, or launcher layout.
+
 ## Context
 
 Luma currently chooses a single-window shape where launcher, dashboard, and module detail views live in the same panel:

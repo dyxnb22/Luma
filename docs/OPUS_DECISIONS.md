@@ -8,7 +8,7 @@ These decisions answer the previous open questions and are now in force for Luma
 - Scope: strictly personal. Do not add public-distribution scaffolding, onboarding flows, telemetry consent, localization, or updater infrastructure.
 - Active strategic direction: **Route C**, Command-First Unified List, per ADR-023. Command+Space → single-column home/search list → primary action; module details stay in-panel; no dashboard card grid on home.
 - Route B (ADR-007) and Route A pure launcher convergence are historical reference only unless revived by a future superseding ADR.
-- Active built-in modules include Apps, Clipboard, Commands, Notes, Todo, Translate, Wordbook, Snippets, Secrets, Records, Window Layouts, and Projects. Deferred: Windows.
+- Active built-in modules include Apps, Clipboard, Commands, Notes, Todo, Translate, Wordbook, Snippets, Secrets, Records (`luma.media`), Window Layouts, and Projects. Deferred: Windows.
 - Default hotkey: Command+Space.
 - Menu bar item ships in Phase 0 with Show Luma, Settings..., and Quit Luma.
 
@@ -51,5 +51,5 @@ These decisions answer the previous open questions and are now in force for Luma
 ## Propagated Changes
 
 - Calculator and Events have been removed from source and product docs.
-- `TranslateModule`, `ProjectsModule`, `WindowLayoutsModule`, and `MediaModule`/Records are active core modules.
+- `TranslateModule`, `ProjectsModule`, `WindowLayoutsModule`, and `MediaModule` (user-facing title: Records) are active core modules.
 - Deferred modules need explicit product acceptance before re-entering `BuiltInModules.makeAll()`.

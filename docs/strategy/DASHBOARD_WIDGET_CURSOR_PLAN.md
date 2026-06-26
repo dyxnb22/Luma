@@ -1,6 +1,6 @@
 # Dashboard Widget Cursor Implementation Plan
 
-Status: **Historical** — superseded by ADR-023 (Route C).  
+Status: **Historical** — superseded by ADR-023 (Route C). Do not use for current implementation work.  
 Date: 2026-06-22  
 Companion: `docs/strategy/DASHBOARD_WIDGET_STRATEGY.md`
 
@@ -391,4 +391,3 @@ Task:
 
 - Phase 0 – Phase 7: completed.
 - Phase 8 (state stability), Phase 9 (I/O coalescing), Phase 10 (consistency + docs): tracked in `docs/strategy/DASHBOARD_WIDGET_POLISH_PLAN.md`.
-

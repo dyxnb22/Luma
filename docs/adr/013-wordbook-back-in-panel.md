@@ -16,12 +16,14 @@ The original rationale was that a 3–15 minute review session would "occupy" th
 - Other detail views (Notes, Translate, Clipboard) may also stay open for minutes without a separate window.
 - Hot-path budget is Cmd+Space → first interactive ≤ 50 ms, independent of detail-view dwell time.
 
+ADR-023 later superseded Route B home navigation. This ADR remains active for the Wordbook detail placement decision only: Wordbook review stays in-panel, but entry semantics now follow the Route C command-first unified list rather than dashboard cards or grid shortcuts.
+
 ## Decision
 
 - Delete `WordbookReviewPanel.swift`.
 - Add `WordbookDetailView: ModuleDetailView` in the main panel content area.
-- Entry: dashboard card, `word` trigger → "Start Review", Cmd+5.
-- Exit: Esc → home grid (same as Translate/Clipboard/Notes/Todo/Snippets/Secrets/Media).
+- Entry: `word` / `word review` query → "Start Review" result row → Return → in-panel detail.
+- Exit: Esc → home list (same as Translate/Clipboard/Notes/Todo/Snippets/Secrets/Records).
 - Review UI uses `BaseDetailContainer` with ~480 pt centered content width.
 - Remove `LauncherBridge.openWordbookReview`; use `LauncherBridge.openModuleDetail(.wordbook)`.
 - Grade shortcuts 1/2/3 and Space route through `ModuleDetailView.handleKeyDown` when the search field is empty.

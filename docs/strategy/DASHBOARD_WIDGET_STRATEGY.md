@@ -1,6 +1,6 @@
 # Dashboard Widget Strategy
 
-Status: **Historical** — superseded by ADR-023 (Route C). Retained for implementation archaeology only.  
+Status: **Historical** — superseded by ADR-023 (Route C). Retained for implementation archaeology only. Do not use for current product or UX decisions.  
 Date: 2026-06-22  
 Source: Opus dashboard implementation guidance, consolidated for project docs
 
@@ -278,4 +278,3 @@ Use hex colors only for feature-card gradients.
 - Do not hide search bar in detail state.
 - Do not accumulate multiple result/grid/detail regions on screen.
 - Do not leave debug HUD in the production panel.
-

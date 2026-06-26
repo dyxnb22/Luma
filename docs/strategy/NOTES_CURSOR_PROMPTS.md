@@ -1,6 +1,6 @@
 # Notes v0.1 — Cursor Prompt Sequence
 
-Status: operational prompt list for ADR-008 / `NOTES_MARKDOWN_CURSOR_PLAN.md`
+Status: **Historical operational prompt list** for ADR-008 / `NOTES_MARKDOWN_CURSOR_PLAN.md`. This file is retained for Notes implementation archaeology and still references older launcher-route assumptions.
 Date: 2026-06-22
 
 ## How To Use This File

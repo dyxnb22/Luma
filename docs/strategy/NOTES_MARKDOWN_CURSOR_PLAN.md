@@ -1,6 +1,6 @@
 # Notes Markdown Manager — Cursor Implementation Plan
 
-Status: implementation guide for ADR-008
+Status: **Historical implementation guide** for ADR-008. Notes functionality shipped, and this plan was written against the older Route B launcher shell. Use current active ADRs and code as the source of truth for launcher behavior.
 Date: 2026-06-22
 Companion: `docs/adr/008-notes-markdown-manager.md`
 

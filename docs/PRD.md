@@ -42,7 +42,7 @@ Historical route docs:
 
 ## Active Built-In Modules
 
-Registered at launch (`BuiltInModules.makeAll()`): Apps, Clipboard, Commands, Notes, Todo, Translate, Wordbook, Snippets, Secrets, Media, Window Layouts, Projects.
+Registered at launch (`BuiltInModules.makeAll()`): Apps, Clipboard, Commands, Notes, Todo, Translate, Wordbook, Snippets, Secrets, Records (`luma.media`), Window Layouts, Projects.
 
 Deferred (no warmup, not in default registry): Windows (window focus list).
 

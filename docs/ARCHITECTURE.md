@@ -43,7 +43,7 @@ flowchart TD
 | Wordbook | yes | `word` / `word <query>` | |
 | Snippets | yes | `s` / `snip` | requires Accessibility for paste |
 | Secrets | yes | `secret` / `secrets` | |
-| Media | no | `m` / `media` | |
+| Records (`luma.media`) | yes | `m` / `media` | detail title and manifest display use "Records" |
 | Window Layouts | yes | `layout` / `win` / `wl` | requires Accessibility; command-only |
 | Projects | yes | `proj` / `p` / `project` | config + warmup index; no per-query disk scan |
 
@@ -83,7 +83,8 @@ flowchart TD
 2. Non-empty query: `QueryDispatcher` results render as a flat list (max 8 rows).
 3. Tab / ⌘K opens `LauncherActionPanel` for primary and secondary actions.
 4. Module detail entry: trigger keyword → result row → Return (or contextual suggestion).
-5. `FeatureCatalog.dashboardCoreCards()` remains for detail header metadata only.
+5. Some command-style modules, including Wordbook, first surface a starter row whose primary action opens in-panel detail.
+6. `FeatureCatalog.dashboardCoreCards()` remains for detail header metadata only.
 
 ## Boundary Rules
 

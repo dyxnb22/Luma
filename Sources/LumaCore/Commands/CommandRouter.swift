@@ -57,4 +57,18 @@ public struct CommandRouter: Sendable {
 
         return .globalSearch(trimmed)
     }
+
+    /// True when Return should open the module detail panel instead of running the selected row.
+    public func isBareOpenDetailReturn(raw: String) -> Bool {
+        let route = route(raw: raw)
+        guard case .targeted(let module, _, let payload) = route else { return false }
+        guard let command = registry.command(forModule: module),
+              command.bareBehavior == .openDetail else { return false }
+        if payload.isEmpty { return true }
+        if module.rawValue == "luma.wordbook",
+           payload.compare("review", options: .caseInsensitive) == .orderedSame {
+            return true
+        }
+        return false
+    }
 }

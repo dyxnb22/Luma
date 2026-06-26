@@ -23,6 +23,12 @@ import LumaCore
     #expect(command?.bareBehavior == .openDetail)
 }
 
+@Test func notesBareUsesOpenDetailBehavior() {
+    let registry = BuiltInCommandRegistry.make()
+    let notes = registry.command(forTrigger: "notes")
+    #expect(notes?.bareBehavior == .openDetail)
+}
+
 @Test func resolveRunDetectsToggleWindowsRow() {
     let item = OpenAppsResultBuilder.expandableResultItem(
         for: RunningAppSnapshot(
@@ -89,6 +95,7 @@ import LumaCore
     let registry = router.registry
     let cases: [(trigger: String, moduleRaw: String)] = [
         ("word", "luma.wordbook"),
+        ("notes", "luma.notes"),
         ("tr",   "luma.translate"),
         ("rec",  "luma.media"),
         ("sec",  "luma.secrets")
@@ -99,10 +106,23 @@ import LumaCore
             continue
         }
         #expect(module.rawValue == c.moduleRaw)
-        #expect(trigger == c.trigger)
+        #expect(trigger == registry.command(forModule: module)?.primaryTrigger)
         #expect(payload.isEmpty)
         #expect(registry.command(forModule: module)?.bareBehavior == .openDetail)
     }
+}
+
+@Test func bareOpenDetailReturnPrefersPanelOverRowResults() {
+    let router = CommandRouter()
+    #expect(router.isBareOpenDetailReturn(raw: "notes"))
+    #expect(router.isBareOpenDetailReturn(raw: "n"))
+    #expect(router.isBareOpenDetailReturn(raw: "word"))
+    #expect(router.isBareOpenDetailReturn(raw: "word review"))
+    #expect(!router.isBareOpenDetailReturn(raw: "notes daily"))
+    #expect(!router.isBareOpenDetailReturn(raw: "n new idea"))
+    #expect(!router.isBareOpenDetailReturn(raw: "word abandon"))
+    #expect(!router.isBareOpenDetailReturn(raw: "t"))
+    #expect(!router.isBareOpenDetailReturn(raw: "s"))
 }
 
 @Test func wordReviewRouteIsTargetedWithReviewPayload() {

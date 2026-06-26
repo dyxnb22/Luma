@@ -354,14 +354,15 @@ public enum BuiltInCommandRegistry {
                 examples: ["n daily", "n new idea"],
                 sectionTitle: "NOTES",
                 helpLines: [
-                    "n — recent notes",
+                    "n — open Notes in panel",
                     "n <query> — fuzzy find by filename",
                     "n new <title> — create in Inbox and open",
                     "n daily — open or create today's daily note",
                     "n review week — weekly review with modified notes",
                     "n ? — this help"
                 ],
-                discoverPriority: 60
+                discoverPriority: 60,
+                bareBehavior: .openDetail
             ),
             CommandDefinition(
                 id: "snippets",

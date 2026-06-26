@@ -361,8 +361,8 @@ final class LauncherRootController {
             actionPanel.activateSelection()
             return
         }
+        if performBareCommandAction() { return }
         if !contentCoordinator.currentItems.indices.contains(contentCoordinator.selectedIndex) {
-            if performBareCommandAction() { return }
             commandHintBar.showStatus("No results yet")
             return
         }
@@ -372,11 +372,11 @@ final class LauncherRootController {
     @discardableResult
     private func performBareCommandAction() -> Bool {
         let raw = searchBar.stringValue
+        guard viewModel.commandRouter.isBareOpenDetailReturn(raw: raw) else { return false }
         let route = viewModel.commandRouter.route(raw: raw)
         guard case .targeted(let module, _, let payload) = route else { return false }
-        guard let command = viewModel.commandRouter.registry.command(forModule: module),
-              command.bareBehavior == .openDetail else { return false }
 
+        viewModel.recordExecutedCommand(for: raw)
         var detailPayload: Data?
         if module == .wordbook,
            payload.compare("review", options: .caseInsensitive) == .orderedSame {
@@ -389,6 +389,10 @@ final class LauncherRootController {
     private func syncRowActionHint() {
         guard contentCoordinator.showingResults || !contentCoordinator.showingDetail else {
             commandHintBar.setReturnAction(nil)
+            return
+        }
+        if viewModel.commandRouter.isBareOpenDetailReturn(raw: searchBar.stringValue) {
+            commandHintBar.setReturnAction("Open detail")
             return
         }
         if let item = contentCoordinator.currentItems[safe: contentCoordinator.selectedIndex] {

@@ -152,6 +152,37 @@ private struct SnippetsTestAccessibility: AccessibilityClient {
     #expect(CommandsModule.extractPayload(raw: "quit") == "")
 }
 
+@Test func commandsModuleBuiltInActionsUseHostClient() async throws {
+    let host = RecordingHostClient()
+    let module = CommandsModule()
+    let action = Action(
+        id: ActionID(module: .commands, key: "open-settings"),
+        title: "Open Settings",
+        kind: .custom(payload: Data("open-settings".utf8), handler: .commands)
+    )
+    try await module.perform(
+        action,
+        context: ActionContext(
+            logger: LumaLogger(category: "test"),
+            metrics: LumaMetrics(),
+            pasteboard: SnippetsTestPasteboard(),
+            accessibility: SnippetsTestAccessibility(),
+            host: host
+        )
+    )
+    #expect(await host.openedSettings == true)
+}
+
+private actor RecordingHostClient: HostClient {
+    private(set) var openedSettings = false
+    private(set) var reloadedModules = false
+    private(set) var quitRequested = false
+
+    func openSettings() async { openedSettings = true }
+    func reloadModules() async { reloadedModules = true }
+    func quitHost() async { quitRequested = true }
+}
+
 @Test func commandsModuleMatchesBuiltInKeys() async {
     let module = CommandsModule()
     let context = QueryContext(deadline: ContinuousClock().now.advanced(by: .milliseconds(20)))

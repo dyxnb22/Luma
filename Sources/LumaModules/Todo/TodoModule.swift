@@ -1,4 +1,3 @@
-import AppKit
 import EventKit
 import Foundation
 import LumaCore
@@ -137,10 +136,8 @@ public actor TodoModule: LumaModule {
             try await reminders.uncomplete(id: id)
             invalidateDueCache()
         case .grant:
-            await MainActor.run {
-                if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Reminders") {
-                    NSWorkspace.shared.open(url)
-                }
+            if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Reminders") {
+                await context.workspace.openURL(url)
             }
         }
     }

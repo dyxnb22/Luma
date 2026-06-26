@@ -1,4 +1,3 @@
-import AppKit
 import Foundation
 import LumaCore
 
@@ -48,11 +47,7 @@ public actor AppsModule: LumaModule {
         let decoded = try ModuleActionCoding.decode(AppsAction.self, from: payload)
         switch decoded {
         case .quit(let bundleID):
-            await MainActor.run {
-                NSWorkspace.shared.runningApplications
-                    .first { $0.bundleIdentifier == bundleID }?
-                    .terminate()
-            }
+            await context.workspace.terminateApplication(bundleID: bundleID)
         }
     }
 

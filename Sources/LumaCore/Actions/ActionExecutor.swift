@@ -1,4 +1,3 @@
-import AppKit
 import Foundation
 
 public actor ActionExecutor {
@@ -7,6 +6,7 @@ public actor ActionExecutor {
     private let pasteboard: any PasteboardClient
     private let accessibility: any AccessibilityClient
     private let translation: any TranslationClient
+    private let workspace: any WorkspaceClient
     private let usage: UsageTracking
     private let resultCache: UsageResultCache
 
@@ -16,6 +16,7 @@ public actor ActionExecutor {
         pasteboard: any PasteboardClient,
         accessibility: any AccessibilityClient,
         translation: any TranslationClient,
+        workspace: any WorkspaceClient,
         usage: UsageTracking,
         resultCache: UsageResultCache = UsageResultCache.defaultCache()
     ) {
@@ -24,6 +25,7 @@ public actor ActionExecutor {
         self.pasteboard = pasteboard
         self.accessibility = accessibility
         self.translation = translation
+        self.workspace = workspace
         self.usage = usage
         self.resultCache = resultCache
     }
@@ -54,19 +56,15 @@ public actor ActionExecutor {
                 }
             case .launchApp(let url):
                 do {
-                    try await Self.launchAndActivateApplication(at: url)
+                    try await workspace.launchApplication(at: url)
                 } catch {
                     await context.logger.error("Launch failed for \(url.path): \(error)")
                     throw error
                 }
             case .openURL(let url):
-                await MainActor.run {
-                    _ = NSWorkspace.shared.open(url)
-                }
+                await workspace.openURL(url)
             case .revealInFinder(let url):
-                await MainActor.run {
-                    NSWorkspace.shared.activateFileViewerSelecting([url])
-                }
+                await workspace.revealInFinder(url)
             case .custom(_, let handler):
                 guard let module = await host.module(handler) else {
                     throw ModuleError.unsupportedAction(action.id)
@@ -79,47 +77,5 @@ public actor ActionExecutor {
         } catch {
             await context.logger.error("Action failed: \(action.id.key): \(error)")
         }
-    }
-
-    @MainActor
-    private static func launchAndActivateApplication(at url: URL) async throws {
-        if let running = runningApplication(for: url) {
-            activate(running)
-            return
-        }
-
-        let configuration = NSWorkspace.OpenConfiguration()
-        configuration.activates = true
-        configuration.addsToRecentItems = true
-
-        let launched: NSRunningApplication? = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<NSRunningApplication?, any Error>) in
-            NSWorkspace.shared.openApplication(at: url, configuration: configuration) { app, error in
-                if let error {
-                    continuation.resume(throwing: error)
-                    return
-                }
-                continuation.resume(returning: app)
-            }
-        }
-
-        if let launched {
-            activate(launched)
-        } else if let running = runningApplication(for: url) {
-            activate(running)
-        }
-    }
-
-    @MainActor
-    private static func runningApplication(for url: URL) -> NSRunningApplication? {
-        let targetPath = url.resolvingSymlinksInPath().standardizedFileURL.path
-        return NSWorkspace.shared.runningApplications.first { app in
-            app.bundleURL?.resolvingSymlinksInPath().standardizedFileURL.path == targetPath
-        }
-    }
-
-    @MainActor
-    private static func activate(_ app: NSRunningApplication) {
-        app.unhide()
-        app.activate(from: NSRunningApplication.current, options: [.activateAllWindows])
     }
 }

@@ -16,6 +16,7 @@ final class AppCoordinator {
     private let database = ApplicationSupportPaths()
     private let pasteboard = PasteboardService()
     private let accessibility = AXService()
+    private let workspace = WorkspaceService()
     private let fileSystem = FSEventsService()
     private let config = ConfigurationStore()
     private lazy var translation = TranslationService(config: config)
@@ -27,19 +28,29 @@ final class AppCoordinator {
         accessibility: accessibility,
         fileSystem: fileSystem,
         translation: translation,
-        config: config
+        config: config,
+        workspace: workspace
     )
     private lazy var host = ModuleHost(context: context)
+    private var hostClient: AppHostService!
     private let usage = PersistentUsageTracker.defaultTracker()
     private let commandUsage = CommandUsageTracker.defaultTracker()
     private let resultCache = UsageResultCache.defaultCache()
     private lazy var dispatcher = QueryDispatcher(host: host, usage: usage, resultCache: resultCache, metrics: metrics)
     private lazy var actionExecutor = ActionExecutor(
         host: host,
-        context: ActionContext(logger: logger, metrics: metrics, pasteboard: pasteboard, accessibility: accessibility),
+        context: ActionContext(
+            logger: logger,
+            metrics: metrics,
+            pasteboard: pasteboard,
+            accessibility: accessibility,
+            workspace: workspace,
+            host: hostClient
+        ),
         pasteboard: pasteboard,
         accessibility: accessibility,
         translation: translation,
+        workspace: workspace,
         usage: usage,
         resultCache: resultCache
     )
@@ -58,6 +69,19 @@ final class AppCoordinator {
     private var terminationObserver: NSObjectProtocol?
 
     func start() {
+        hostClient = AppHostService(
+            onOpenSettings: { [weak self] in
+                self?.windowController.hideImmediatelyForAction()
+                self?.settingsWindowController?.show()
+            },
+            onReloadModules: { [weak self] in
+                guard let self else { return }
+                Task {
+                    await self.host.warmupAll()
+                    self.windowController.refreshOpenApps()
+                }
+            }
+        )
         settingsWindowController = SettingsWindowController(
             config: config,
             usage: usage,

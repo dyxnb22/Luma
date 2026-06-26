@@ -1,18 +1,16 @@
-import AppKit
 import Foundation
+import LumaCore
 
 public enum ProjectOpenerRunner {
-    public static func open(path: String, opener: ProjectOpener) async throws {
+    public static func open(path: String, opener: ProjectOpener, workspace: any WorkspaceClient) async throws {
         let url = URL(fileURLWithPath: path, isDirectory: true)
         switch opener {
         case .cursor:
-            try await runCLI(named: "cursor", arguments: [path], bundleID: "com.todesktop.230313mzl4w4u92")
+            try await runCLI(named: "cursor", arguments: [path], bundleID: "com.todesktop.230313mzl4w4u92", workspace: workspace)
         case .vscode:
-            try await runCLI(named: "code", arguments: [path], bundleID: "com.microsoft.VSCode")
+            try await runCLI(named: "code", arguments: [path], bundleID: "com.microsoft.VSCode", workspace: workspace)
         case .finder:
-            await MainActor.run {
-                NSWorkspace.shared.activateFileViewerSelecting([url])
-            }
+            await workspace.revealInFinder(url)
         case .terminal:
             let process = Process()
             process.executableURL = URL(fileURLWithPath: "/usr/bin/open")
@@ -21,7 +19,12 @@ public enum ProjectOpenerRunner {
         }
     }
 
-    private static func runCLI(named: String, arguments: [String], bundleID: String) async throws {
+    private static func runCLI(
+        named: String,
+        arguments: [String],
+        bundleID: String,
+        workspace: any WorkspaceClient
+    ) async throws {
         let candidates = [
             "/opt/homebrew/bin/\(named)",
             "/usr/local/bin/\(named)"
@@ -34,18 +37,6 @@ public enum ProjectOpenerRunner {
             return
         }
 
-        await MainActor.run {
-            if let appURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID) {
-                let config = NSWorkspace.OpenConfiguration()
-                config.arguments = arguments
-                NSWorkspace.shared.openApplication(at: appURL, configuration: config) { _, _ in }
-            } else if let path = arguments.first {
-                NSWorkspace.shared.open(urlForPath(path))
-            }
-        }
-    }
-
-    private static func urlForPath(_ path: String) -> URL {
-        URL(fileURLWithPath: path, isDirectory: true)
+        await workspace.openApplication(bundleID: bundleID, arguments: arguments)
     }
 }

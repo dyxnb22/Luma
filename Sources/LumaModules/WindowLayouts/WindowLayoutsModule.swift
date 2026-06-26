@@ -1,4 +1,3 @@
-import AppKit
 import Foundation
 import LumaCore
 import LumaServices
@@ -36,10 +35,8 @@ public actor WindowLayoutsModule: LumaModule {
         switch decoded {
         case .grantPermission:
             AXService.requestPermission()
-            await MainActor.run {
-                if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
-                    NSWorkspace.shared.open(url)
-                }
+            if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
+                await context.workspace.openURL(url)
             }
         }
     }

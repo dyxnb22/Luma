@@ -1,4 +1,3 @@
-import AppKit
 import Foundation
 import LumaCore
 
@@ -30,7 +29,7 @@ public actor CommandsModule: LumaModule {
         guard let key = String(data: payload, encoding: .utf8) else {
             throw ModuleError.unsupportedAction(action.id)
         }
-        try await runBuiltIn(key)
+        try await runBuiltIn(key, context: context)
     }
 
     public static func extractPayload(raw: String) -> String? {
@@ -81,20 +80,14 @@ public actor CommandsModule: LumaModule {
         return ModuleResult(items: filtered)
     }
 
-    private func runBuiltIn(_ key: String) async throws {
+    private func runBuiltIn(_ key: String, context: ActionContext) async throws {
         switch key {
         case "open-settings":
-            await MainActor.run {
-                LauncherCallbackRegistry.current?.onOpenSettings()
-            }
+            await context.host.openSettings()
         case "reload-modules":
-            await MainActor.run {
-                LauncherCallbackRegistry.current?.onReloadModules()
-            }
+            await context.host.reloadModules()
         case "quit":
-            await MainActor.run {
-                NSApp.terminate(nil)
-            }
+            await context.host.quitHost()
         default:
             throw ModuleError.unsupportedAction(ActionID(module: Self.manifest.identifier, key: key))
         }

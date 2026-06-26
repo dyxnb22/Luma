@@ -1,4 +1,3 @@
-import AppKit
 import Foundation
 import LumaCore
 
@@ -57,20 +56,16 @@ public actor ProjectsModule: LumaModule {
         let decoded = try ModuleActionCoding.decode(ProjectAction.self, from: payload)
         switch decoded {
         case .open(let path, let opener):
-            try await ProjectOpenerRunner.open(path: path, opener: opener)
+            try await ProjectOpenerRunner.open(path: path, opener: opener, workspace: context.workspace)
             try await store.recordOpened(path: path)
             await refreshIndex()
         case .copyPath(let path):
             await context.pasteboard.write(path)
         case .reveal(let path):
-            await MainActor.run {
-                NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path, isDirectory: true)])
-            }
+            await context.workspace.revealInFinder(URL(fileURLWithPath: path, isDirectory: true))
         case .revealConfig:
             let url = await store.configFileURL()
-            await MainActor.run {
-                NSWorkspace.shared.activateFileViewerSelecting([url])
-            }
+            await context.workspace.revealInFinder(url)
         }
     }
 

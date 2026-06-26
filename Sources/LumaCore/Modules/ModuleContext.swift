@@ -9,6 +9,7 @@ public struct ModuleContext: Sendable {
     public let fileSystem: any FileSystemClient
     public let translation: any TranslationClient
     public let config: any ConfigurationClient
+    public let workspace: any WorkspaceClient
 
     public init(
         logger: any LoggingClient,
@@ -18,7 +19,8 @@ public struct ModuleContext: Sendable {
         accessibility: any AccessibilityClient,
         fileSystem: any FileSystemClient,
         translation: any TranslationClient,
-        config: any ConfigurationClient
+        config: any ConfigurationClient,
+        workspace: any WorkspaceClient = NoopWorkspaceClient()
     ) {
         self.logger = logger
         self.metrics = metrics
@@ -28,6 +30,7 @@ public struct ModuleContext: Sendable {
         self.fileSystem = fileSystem
         self.translation = translation
         self.config = config
+        self.workspace = workspace
     }
 }
 
@@ -44,17 +47,23 @@ public struct ActionContext: Sendable {
     public let metrics: any MetricsClient
     public let pasteboard: any PasteboardClient
     public let accessibility: any AccessibilityClient
+    public let workspace: any WorkspaceClient
+    public let host: any HostClient
 
     public init(
         logger: any LoggingClient,
         metrics: any MetricsClient,
         pasteboard: any PasteboardClient,
-        accessibility: any AccessibilityClient
+        accessibility: any AccessibilityClient,
+        workspace: any WorkspaceClient = NoopWorkspaceClient(),
+        host: any HostClient = NoopHostClient()
     ) {
         self.logger = logger
         self.metrics = metrics
         self.pasteboard = pasteboard
         self.accessibility = accessibility
+        self.workspace = workspace
+        self.host = host
     }
 }
 

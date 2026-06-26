@@ -56,6 +56,7 @@ final class LauncherListRow: NSControl {
         self.onHover = onHover
         super.init(frame: .zero)
         wantsLayer = true
+        layer?.masksToBounds = true
         layer?.cornerRadius = LauncherChromeTokens.listRowCornerRadius
         layer?.cornerCurve = .continuous
         setup()
@@ -178,13 +179,14 @@ final class LauncherListRow: NSControl {
         titleLabel.font = .systemFont(ofSize: isNested ? 13 : 15, weight: isNested ? .regular : .semibold)
         titleLabel.textColor = isNested ? .secondaryLabelColor : .labelColor
         titleLabel.lineBreakMode = .byTruncatingTail
+        titleLabel.maximumNumberOfLines = 1
         titleLabel.translatesAutoresizingMaskIntoConstraints = false
 
         let hasSubtitle = !(item.subtitle ?? "").isEmpty
         subtitleLabel.stringValue = item.subtitle ?? ""
         subtitleLabel.font = .systemFont(ofSize: isNested ? 11 : 12)
         subtitleLabel.textColor = isNested ? .tertiaryLabelColor : .secondaryLabelColor
-        subtitleLabel.lineBreakMode = item.displayDensity == .expanded ? .byTruncatingMiddle : .byTruncatingTail
+        subtitleLabel.lineBreakMode = .byTruncatingTail
         subtitleLabel.maximumNumberOfLines = item.displayDensity == .expanded ? 2 : 1
         subtitleLabel.isHidden = !hasSubtitle
         subtitleLabel.translatesAutoresizingMaskIntoConstraints = false
@@ -230,6 +232,7 @@ final class LauncherListRow: NSControl {
         let leadingInset: CGFloat = isNested ? 22 : 4
         let treeGuideWidth: CGFloat = 18
         let titleGap: CGFloat = isNested ? 8 : 10
+        let trailingChromeInset: CGFloat = isNested ? 10 : 48
 
         var constraints: [NSLayoutConstraint] = [
             iconView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: leadingInset),
@@ -237,24 +240,32 @@ final class LauncherListRow: NSControl {
             iconView.widthAnchor.constraint(equalToConstant: iconSize),
             iconView.heightAnchor.constraint(equalToConstant: iconSize),
             titleLabel.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: titleGap),
-            titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: returnHintContainer.leadingAnchor, constant: -8),
+            titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -trailingChromeInset),
             subtitleLabel.leadingAnchor.constraint(equalTo: titleLabel.leadingAnchor),
-            subtitleLabel.trailingAnchor.constraint(equalTo: titleLabel.trailingAnchor),
+            subtitleLabel.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -trailingChromeInset),
             trailingLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -10),
-            trailingLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
             returnHintContainer.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -10),
-            returnHintContainer.centerYAnchor.constraint(equalTo: centerYAnchor),
             returnHint.leadingAnchor.constraint(equalTo: returnHintContainer.leadingAnchor, constant: 8),
             returnHint.trailingAnchor.constraint(equalTo: returnHintContainer.trailingAnchor, constant: -8),
             returnHint.topAnchor.constraint(equalTo: returnHintContainer.topAnchor, constant: 4),
             returnHint.bottomAnchor.constraint(equalTo: returnHintContainer.bottomAnchor, constant: -4)
         ]
 
+        if hasSubtitle && !isNested {
+            constraints.append(trailingLabel.centerYAnchor.constraint(equalTo: titleLabel.centerYAnchor))
+            constraints.append(returnHintContainer.centerYAnchor.constraint(equalTo: titleLabel.centerYAnchor))
+        } else {
+            constraints.append(trailingLabel.centerYAnchor.constraint(equalTo: centerYAnchor))
+            constraints.append(returnHintContainer.centerYAnchor.constraint(equalTo: centerYAnchor))
+        }
+
         if hasSubtitle {
-            let topPadding: CGFloat = isNested ? 4 : (item.displayDensity == .compact ? 7 : 10)
+            let topPadding: CGFloat = isNested ? 4 : (item.displayDensity == .compact ? 7 : 8)
+            let bottomPadding: CGFloat = isNested ? 4 : 8
             constraints += [
                 titleLabel.topAnchor.constraint(equalTo: topAnchor, constant: topPadding),
-                subtitleLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: isNested ? 1 : 2)
+                subtitleLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: isNested ? 1 : 3),
+                subtitleLabel.bottomAnchor.constraint(lessThanOrEqualTo: bottomAnchor, constant: -bottomPadding)
             ]
         } else {
             constraints.append(titleLabel.centerYAnchor.constraint(equalTo: iconView.centerYAnchor))

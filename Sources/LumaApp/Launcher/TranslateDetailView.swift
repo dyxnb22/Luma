@@ -4,7 +4,7 @@ import LumaInfrastructure
 import LumaServices
 
 @MainActor
-enum TranslateDashboardStatus {
+enum TranslateDetailStatus {
     static var summary: String = "Ready"
     static var targetLanguageCode: String = "en"
 }
@@ -123,7 +123,7 @@ final class TranslateDetailView: ModuleDetailView {
         let code = await config.translationTargetLanguage()
         await MainActor.run {
             selectTargetLanguage(code)
-            TranslateDashboardStatus.targetLanguageCode = code
+            TranslateDetailStatus.targetLanguageCode = code
             updateDashboardSummary()
         }
     }
@@ -382,7 +382,7 @@ final class TranslateDetailView: ModuleDetailView {
         Task {
             await config.setTranslationTargetLanguage(code)
             await MainActor.run {
-                TranslateDashboardStatus.targetLanguageCode = code
+                TranslateDetailStatus.targetLanguageCode = code
                 updateDashboardSummary()
                 if !inputTextView.string.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     performTranslation()
@@ -397,7 +397,7 @@ final class TranslateDetailView: ModuleDetailView {
         Task {
             await config.setTranslationTargetLanguage(code)
             await MainActor.run {
-                TranslateDashboardStatus.targetLanguageCode = code
+                TranslateDetailStatus.targetLanguageCode = code
                 updateDashboardSummary()
             }
         }
@@ -532,19 +532,19 @@ final class TranslateDetailView: ModuleDetailView {
         case .idle:
             statusLabel.stringValue = formattedStatusLine(state: "idle")
             statusLabel.textColor = .secondaryLabelColor
-            TranslateDashboardStatus.summary = "Ready"
+            TranslateDetailStatus.summary = "Ready"
         case .translating:
             statusLabel.stringValue = formattedStatusLine(state: "translating")
             statusLabel.textColor = .secondaryLabelColor
-            TranslateDashboardStatus.summary = "Translating…"
+            TranslateDetailStatus.summary = "Translating…"
         case .success:
             statusLabel.stringValue = formattedStatusLine(state: "success")
             statusLabel.textColor = .secondaryLabelColor
-            TranslateDashboardStatus.summary = "Last: success"
+            TranslateDetailStatus.summary = "Last: success"
         case .error:
             statusLabel.stringValue = formattedStatusLine(state: "error")
             statusLabel.textColor = .systemRed
-            TranslateDashboardStatus.summary = "Last: unavailable"
+            TranslateDetailStatus.summary = "Last: unavailable"
         }
         updateDashboardSummary()
         updateTranslateButtonState()
@@ -581,9 +581,9 @@ final class TranslateDetailView: ModuleDetailView {
     }
 
     private func updateDashboardSummary() {
-        let lang = displayName(for: TranslateDashboardStatus.targetLanguageCode)
-        if TranslateDashboardStatus.summary == "Ready" {
-            TranslateDashboardStatus.summary = "→ \(lang)"
+        let lang = displayName(for: TranslateDetailStatus.targetLanguageCode)
+        if TranslateDetailStatus.summary == "Ready" {
+            TranslateDetailStatus.summary = "→ \(lang)"
         }
     }
 
@@ -595,7 +595,7 @@ final class TranslateDetailView: ModuleDetailView {
             targetPopup.lastItem?.representedObject = code
             targetPopup.selectItem(at: targetPopup.numberOfItems - 1)
         }
-        TranslateDashboardStatus.targetLanguageCode = code
+        TranslateDetailStatus.targetLanguageCode = code
         updateChipHighlight(selectedCode: code)
     }
 

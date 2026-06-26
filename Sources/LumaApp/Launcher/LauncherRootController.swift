@@ -12,7 +12,7 @@ final class LauncherRootController {
     let hintBar: LauncherHintBar
     let actionPanel: LauncherActionPanel
     let contentCoordinator: LauncherContentCoordinator
-    let permissionController = PermissionBannerController()
+    let permissionController: PermissionBannerController
 
     private let performanceStrip: LauncherPerformanceStripView
 
@@ -61,6 +61,7 @@ final class LauncherRootController {
         self.onDismiss = onDismiss
         self.onActionDismiss = onActionDismiss
         self.onOpenSettings = onOpenSettings
+        self.permissionController = PermissionBannerController(config: config)
 
         wireCallbacks()
     }
@@ -303,6 +304,11 @@ final class LauncherRootController {
             return
         }
         guard modulesReady else { return }
+        if contentCoordinator.showingDetail {
+            contentCoordinator.closeDetail()
+        }
+        listView.isHidden = false
+        listView.alphaValue = 1
         contentCoordinator.beginShowingResults()
         hintBar.setContext(.results)
         syncPerformanceStripVisibility()
@@ -474,6 +480,13 @@ final class LauncherRootController {
     }
 
     private func handleKeyCommand(_ command: LumaSearchBar.KeyCommand) -> Bool {
+        if case .commandReturn = command {
+            guard !actionPanel.isVisible, !contentCoordinator.showingDetail,
+                  let item = contentCoordinator.currentItems[safe: contentCoordinator.selectedIndex],
+                  let secondary = item.secondaryActions.first else { return true }
+            runAction(secondary, for: item)
+            return true
+        }
         if actionPanel.isVisible {
             if case .commandNumber(let number) = command {
                 actionPanel.activateIndex(number - 1)
@@ -531,6 +544,7 @@ private extension LumaSearchBar.KeyCommand {
         case .down: .down
         case .tab: .tab
         case .actionPanel: .actionPanel
+        case .commandReturn: .commandReturn
         case .commandNumber(let n): .commandNumber(n)
         }
     }

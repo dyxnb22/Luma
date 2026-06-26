@@ -65,7 +65,9 @@ public actor TodoModule: LumaModule {
     }
 
     public func warmup(_ context: ModuleContext) async {
-        _ = try? await refreshDueCache(force: true)
+        if await reminders.authorization() == .authorized {
+            _ = try? await refreshDueCache(force: true)
+        }
         installStoreChangedObserverIfNeeded()
     }
 
@@ -74,7 +76,8 @@ public actor TodoModule: LumaModule {
     }
 
     public func todayDueCount() async throws -> Int {
-        try await reminders.todayDue(now: now(), limit: 100).count
+        guard await reminders.authorization() == .authorized else { return 0 }
+        return try await reminders.todayDue(now: now(), limit: 100).count
     }
 
     public func handle(_ query: Query, context: QueryContext) async -> ModuleResult {
@@ -83,13 +86,16 @@ public actor TodoModule: LumaModule {
             return ModuleResult(items: [])
         }
 
+        let trimmed = payload.trimmingCharacters(in: .whitespacesAndNewlines)
+
         // Permission gate: surface a single result to grant access if not yet authorized.
         let authorization = await reminders.authorization()
         if authorization == .denied {
             return ModuleResult(items: [permissionRow()])
         }
-
-        let trimmed = payload.trimmingCharacters(in: .whitespacesAndNewlines)
+        if authorization == .notDetermined, trimmed.isEmpty {
+            return ModuleResult(items: [permissionRow()])
+        }
         if ModuleHelp.isHelpQuery(trimmed) {
             return ModuleResult(items: ModuleHelp.results(for: Self.manifest.identifier))
         }

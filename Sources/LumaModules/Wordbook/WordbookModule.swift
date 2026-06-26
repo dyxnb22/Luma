@@ -14,6 +14,7 @@ public actor WordbookModule: LumaModule {
     private let store: WordbookStore
     private var cachedDue: [WordEntry] = []
     private var cachedDueAt: Date?
+    private var searchIndex: [WordEntry] = []
     private var dataChangeTask: Task<Void, Never>?
 
     public init(store: WordbookStore = WordbookStore()) {
@@ -22,11 +23,13 @@ public actor WordbookModule: LumaModule {
 
     public func warmup(_ context: ModuleContext) async {
         await refreshDueCache(force: true)
+        await reloadSearchIndex()
         dataChangeTask?.cancel()
         dataChangeTask = Task { [weak self] in
             for await _ in WordbookStoreChangeHub.dataChanges() {
                 guard let self else { return }
                 await self.invalidateDueCache()
+                await self.reloadSearchIndex()
             }
         }
     }
@@ -60,7 +63,8 @@ public actor WordbookModule: LumaModule {
             return ModuleResult(items: due.map(wordResult))
         }
 
-        if let matches = try? await store.search(searchText, limit: 10), !matches.isEmpty {
+        let matches = Self.searchInMemory(searchIndex, query: searchText, limit: 10)
+        if !matches.isEmpty {
             return ModuleResult(items: matches.map(wordResult))
         }
 
@@ -117,6 +121,31 @@ public actor WordbookModule: LumaModule {
             ),
             rankingHints: RankingHints(basePriority: Self.manifest.priority)
         )
+    }
+
+    private func reloadSearchIndex() async {
+        searchIndex = (try? await store.allWords(limit: 50_000, offset: 0)) ?? []
+    }
+
+    private static func searchInMemory(_ index: [WordEntry], query: String, limit: Int) -> [WordEntry] {
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !trimmed.isEmpty else { return [] }
+        let tokens = trimmed.split(whereSeparator: \.isWhitespace).map(String.init)
+        var matches = index.filter { entry in
+            let haystack = [entry.term, entry.meaning, entry.example, entry.category, entry.phonetic]
+                .joined(separator: " ")
+                .lowercased()
+            return tokens.allSatisfy { haystack.contains($0) }
+        }
+        if matches.isEmpty {
+            matches = index.filter { entry in
+                let haystack = [entry.term, entry.meaning, entry.example, entry.category]
+                    .joined(separator: " ")
+                    .lowercased()
+                return haystack.contains(trimmed)
+            }
+        }
+        return Array(matches.prefix(limit))
     }
 
     public static func extractPayload(raw: String) -> String? {

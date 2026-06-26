@@ -231,7 +231,7 @@ public actor ClipboardHistoryStore {
     }
 
     public func list(filter: ClipboardListFilter, query: String = "", limit: Int = 50) -> [ClipboardEntry] {
-        pruneAndPersistIfNeeded(now: Date())
+        prune(now: Date())
         let sorted = entries.sorted {
             if $0.isPinned != $1.isPinned { return $0.isPinned && !$1.isPinned }
             return $0.createdAt > $1.createdAt
@@ -244,7 +244,7 @@ public actor ClipboardHistoryStore {
     }
 
     public func statistics() -> ClipboardStatistics {
-        pruneAndPersistIfNeeded(now: Date())
+        prune(now: Date())
         let pinned = entries.filter(\.isPinned).count
         return ClipboardStatistics(total: entries.count, pinned: pinned)
     }
@@ -346,6 +346,10 @@ public actor ClipboardHistoryStore {
 
     private func prune(now: Date) {
         entries = Self.pruned(entries: entries, maxEntries: maxEntries, maxAge: maxAge, now: now)
+    }
+
+    public func persistPrunedStateIfNeeded(now: Date = Date()) {
+        pruneAndPersistIfNeeded(now: now)
     }
 
     private func pruneAndPersistIfNeeded(now: Date) {

@@ -64,6 +64,11 @@ import LumaCore
     #expect(LauncherKeyRouter.resolveRun(item: item) == .runItem(item))
 }
 
+@Test func keyRouterCommandReturnIsDefined() {
+    let command = LauncherKeyCommand.commandReturn
+    #expect(command == .commandReturn)
+}
+
 @Test func actionKeepsLauncherVisibleForInPanelIntents() {
     let wordbook = ModuleIdentifier(rawValue: "luma.wordbook")
     let openDetail = Action(

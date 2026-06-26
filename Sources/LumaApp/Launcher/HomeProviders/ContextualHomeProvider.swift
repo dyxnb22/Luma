@@ -107,9 +107,8 @@ struct ContextualHomeProvider: LauncherHomeProvider {
     }
 
     private func clipboardRow() async -> ResultItem? {
-        guard let value = await ClipboardPasteboardCache.shared.snapshot(),
-              !value.isEmpty else { return nil }
-        let preview = String(value.prefix(48))
+        guard let preview = await ClipboardPasteboardCache.shared.snapshot(),
+              !preview.isEmpty else { return nil }
         return ResultItem(
             id: ResultID(module: .clipboard, key: "contextual.clipboard"),
             title: "Open last clipboard item",

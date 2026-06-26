@@ -1,22 +1,46 @@
 import Foundation
 
 public enum Timeout {
+    /// Returns the first finished value from `operation` or `nil` when `duration` elapses.
+    /// Does not wait for a non-cooperative `operation` after the deadline; the work task is cancelled and abandoned.
     public static func run<T: Sendable>(
         after duration: Duration,
         operation: @Sendable @escaping () async -> T
     ) async -> T? {
-        await withTaskGroup(of: T?.self) { group in
-            group.addTask {
-                await operation()
+        await withCheckedContinuation { (continuation: CheckedContinuation<T?, Never>) in
+            let gate = RaceGate(continuation)
+            let work = Task.detached(priority: .high) {
+                let value = await operation()
+                gate.finish(value)
             }
-            group.addTask {
-                try? await Task.sleep(for: duration)
-                return nil
+            let seconds = max(Self.seconds(from: duration), 0.001)
+            DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + seconds) {
+                gate.finish(nil)
+                work.cancel()
             }
-
-            let result = await group.next() ?? nil
-            group.cancelAll()
-            return result
         }
+    }
+
+    private static func seconds(from duration: Duration) -> TimeInterval {
+        let components = duration.components
+        return Double(components.seconds) + Double(components.attoseconds) / 1_000_000_000_000_000_000
+    }
+}
+
+private final class RaceGate<T: Sendable>: @unchecked Sendable {
+    private let lock = NSLock()
+    private var finished = false
+    private let continuation: CheckedContinuation<T?, Never>
+
+    init(_ continuation: CheckedContinuation<T?, Never>) {
+        self.continuation = continuation
+    }
+
+    func finish(_ value: sending T?) {
+        lock.lock()
+        defer { lock.unlock() }
+        guard !finished else { return }
+        finished = true
+        continuation.resume(returning: value)
     }
 }

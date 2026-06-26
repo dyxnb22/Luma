@@ -104,6 +104,36 @@ public enum ClipboardFilter {
         !text.isEmpty && text.data(using: .utf8, allowLossyConversion: false)?.count ?? 0 <= maxBytes
     }
 
+    public static func isSafeForHomePreview(_ snapshot: ClipboardSnapshot) -> Bool {
+        if shouldSkip(types: snapshot.types) {
+            return false
+        }
+        if shouldSkipSource(bundleID: snapshot.sourceBundleID) {
+            return false
+        }
+        if let text = snapshot.text {
+            if looksSensitiveText(text) {
+                return false
+            }
+            return acceptsText(text)
+        }
+        return snapshot.imageData != nil || !snapshot.fileURLs.isEmpty
+    }
+
+    public static func homePreviewText(from snapshot: ClipboardSnapshot) -> String? {
+        guard isSafeForHomePreview(snapshot) else { return nil }
+        if let text = snapshot.text, !text.isEmpty {
+            return String(text.prefix(48))
+        }
+        if snapshot.imageData != nil {
+            return "[Image]"
+        }
+        if let path = snapshot.fileURLs.first {
+            return path.lastPathComponent
+        }
+        return nil
+    }
+
     private static func looksLikeJWT(_ text: String) -> Bool {
         guard !text.contains(where: \.isWhitespace) else { return false }
         let parts = text.split(separator: ".", omittingEmptySubsequences: false)

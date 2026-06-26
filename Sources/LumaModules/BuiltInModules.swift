@@ -55,7 +55,11 @@ public enum BuiltInModules {
 
     public static let accessibilityDependentModuleIDs: Set<ModuleIdentifier> = [.windows, .snippets, .windowLayouts]
 
+    public static func enabledModulesRequireAccessibility(_ enabled: Set<ModuleIdentifier>) -> Bool {
+        !accessibilityDependentModuleIDs.isDisjoint(with: enabled)
+    }
+
     public static func activeModulesRequireAccessibility() -> Bool {
-        !accessibilityDependentModuleIDs.isDisjoint(with: Set(makeAll().map { type(of: $0).manifest.identifier }))
+        enabledModulesRequireAccessibility(Set(makeAll().map { type(of: $0).manifest.identifier }))
     }
 }

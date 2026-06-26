@@ -75,7 +75,7 @@ public actor SnippetsModule: LumaModule {
             let expanded = SnippetVariableExpander.expand(snippet.content)
             await context.pasteboard.write(expanded)
             if AXService.isProcessTrusted() {
-                await context.accessibility.insert(text: snippet.content)
+                await context.accessibility.insert(text: expanded)
             }
         case .create:
             break

@@ -5,6 +5,7 @@ public enum LauncherKeyCommand: Sendable, Equatable {
     case down
     case tab
     case actionPanel
+    case commandReturn
     case commandNumber(Int)
 }
 
@@ -47,6 +48,8 @@ public enum LauncherKeyRouter {
         case .tab, .actionPanel:
             guard mode != .detail, itemCount > 0 else { return .handled }
             return .openActionPanel
+        case .commandReturn:
+            return .handled
         case .commandNumber(let number):
             let index = number - 1
             guard itemCount > index, index >= 0 else { return .handled }

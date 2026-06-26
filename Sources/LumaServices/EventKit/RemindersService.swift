@@ -91,8 +91,11 @@ public actor RemindersService {
     }
 
     /// Reminders due today (or overdue), incomplete, ordered by due date ascending.
+    /// Does not prompt for access; returns `.accessDenied` when authorization is not already granted.
     public func todayDue(now: Date = Date(), limit: Int = 8) async throws -> [ReminderSnapshot] {
-        try await ensureAuthorized()
+        guard authorization() == .authorized else {
+            throw RemindersServiceError.accessDenied
+        }
         let calendars = store.calendars(for: .reminder)
         let endOfToday = Calendar.current.startOfDay(for: now).addingTimeInterval(60 * 60 * 24)
         let predicate = store.predicateForIncompleteReminders(

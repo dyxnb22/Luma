@@ -316,11 +316,12 @@ public enum BuiltInCommandRegistry {
                 examples: ["clip jwt", "clip image"],
                 sectionTitle: "CLIPBOARD",
                 helpLines: [
-                    "clip — search clipboard history",
+                    "clip — open Clipboard in panel",
                     "clip https — filter links",
                     "clip ? — this help"
                 ],
-                discoverPriority: 40
+                discoverPriority: 40,
+                bareBehavior: .openDetail
             ),
             CommandDefinition(
                 id: "todo",

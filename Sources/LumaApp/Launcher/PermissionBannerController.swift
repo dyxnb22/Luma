@@ -1,13 +1,20 @@
 import AppKit
+import LumaCore
+import LumaInfrastructure
 import LumaModules
 import LumaServices
 
 @MainActor
 final class PermissionBannerController {
     let bannerView = NSView()
+    private let config: ConfigurationStore
     private let label = NSTextField(labelWithString: "")
     private var heightConstraint: NSLayoutConstraint?
     private var pollingTask: Task<Void, Never>?
+
+    init(config: ConfigurationStore) {
+        self.config = config
+    }
 
     func install(in parent: NSView) {
         bannerView.wantsLayer = true
@@ -47,7 +54,16 @@ final class PermissionBannerController {
     }
 
     func refresh() {
-        guard BuiltInModules.activeModulesRequireAccessibility() else {
+        Task { await refreshAsync() }
+    }
+
+    func startPollingIfNeeded() {
+        Task { await startPollingIfNeededAsync() }
+    }
+
+    private func refreshAsync() async {
+        let enabled = await resolvedEnabledModules()
+        guard BuiltInModules.enabledModulesRequireAccessibility(enabled) else {
             heightConstraint?.constant = 0
             bannerView.isHidden = true
             return
@@ -63,16 +79,15 @@ final class PermissionBannerController {
         }
     }
 
-    func startPollingIfNeeded() {
-        guard BuiltInModules.activeModulesRequireAccessibility(),
+    private func startPollingIfNeededAsync() async {
+        let enabled = await resolvedEnabledModules()
+        guard BuiltInModules.enabledModulesRequireAccessibility(enabled),
               !AXService.isProcessTrusted() else { return }
         pollingTask?.cancel()
         pollingTask = Task { [weak self] in
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(3))
-                await MainActor.run {
-                    self?.refresh()
-                }
+                await self?.refreshAsync()
             }
         }
     }
@@ -88,5 +103,14 @@ final class PermissionBannerController {
             NSWorkspace.shared.open(url)
         }
         refresh()
+    }
+
+    private func resolvedEnabledModules() async -> Set<ModuleIdentifier> {
+        let defaultEnabled = Set(
+            BuiltInModules.makeAll()
+                .filter { type(of: $0).manifest.defaultEnabled }
+                .map { type(of: $0).manifest.identifier }
+        )
+        return await config.enabledModules() ?? defaultEnabled
     }
 }

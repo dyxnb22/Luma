@@ -65,10 +65,6 @@ cat > "$APP_DIR/Contents/Info.plist" <<'EOF'
       <string>Luma needs Reminders access to create reminders and show your Todo list.</string>
       <key>NSRemindersUsageDescription</key>
       <string>Luma needs Reminders access to create reminders and show your Todo list.</string>
-      <key>NSCalendarsFullAccessUsageDescription</key>
-      <string>Luma needs Calendar access to create events and show today's schedule.</string>
-      <key>NSCalendarsUsageDescription</key>
-      <string>Luma needs Calendar access to create events and show today's schedule.</string>
 </dict>
 </plist>
 EOF

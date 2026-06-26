@@ -61,4 +61,13 @@ extension ClipboardEntry {
         }
         return parts.joined(separator: " ").lowercased()
     }
+
+    /// Collapsed preview for launcher result rows (newlines flattened).
+    public var launcherPreviewText: String {
+        let collapsed = displayText
+            .replacingOccurrences(of: "\n", with: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if collapsed.count <= 160 { return collapsed }
+        return String(collapsed.prefix(160)) + "…"
+    }
 }

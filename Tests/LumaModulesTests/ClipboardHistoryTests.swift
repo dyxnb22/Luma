@@ -246,6 +246,30 @@ import Testing
     #expect(!clipHelp.items.isEmpty)
 }
 
+@Test func clipboardBareQueryShowsOpenDetailStarterWhenEmpty() async {
+    let store = ClipboardHistoryStore()
+    let module = ClipboardModule(store: store, persistenceURL: URL(fileURLWithPath: "/tmp/luma-clip-empty-\(UUID().uuidString).json"))
+    let context = QueryContext(deadline: ContinuousClock().now.advanced(by: .milliseconds(30)))
+    let results = await module.handle(Query(raw: "clip", sequence: 1), context: context)
+    #expect(results.items.count == 1)
+    if case .openModuleDetail(let moduleID, _) = results.items.first?.primaryAction.kind {
+        #expect(moduleID == .clipboard)
+    } else {
+        Issue.record("Expected openModuleDetail starter row")
+    }
+}
+
+@Test func clipboardBareUsesOpenDetailBehavior() {
+    let registry = BuiltInCommandRegistry.make()
+    #expect(registry.command(forTrigger: "clip")?.bareBehavior == .openDetail)
+}
+
+@Test func bareOpenDetailReturnIncludesClipboard() {
+    let router = CommandRouter()
+    #expect(router.isBareOpenDetailReturn(raw: "clip"))
+    #expect(router.isBareOpenDetailReturn(raw: "cb"))
+}
+
 @Test func clipboardModuleImageResultUsesCustomCopyAction() async throws {
     let store = ClipboardHistoryStore()
     let imageData = Data([0x89, 0x50, 0x4E, 0x47])
@@ -260,7 +284,8 @@ import Testing
     let context = QueryContext(deadline: ContinuousClock().now.advanced(by: .milliseconds(30)))
     let results = await module.handle(Query(raw: "clip", sequence: 1), context: context)
     #expect(results.items.count == 1)
-    #expect(results.items.first?.title.contains("Image") == true)
+    #expect(results.items.first?.subtitle?.contains("[Image") == true)
+    #expect(results.items.first?.displayDensity == .regular)
     if case .custom(_, let handler) = results.items.first!.primaryAction.kind {
         #expect(handler == .clipboard)
     } else {
@@ -333,6 +358,38 @@ private struct NoopAccessibilityClient: AccessibilityClient {
     #expect(ClipboardFilter.shouldSkip(types: ["org.nspasteboard.ConcealedType"]))
     #expect(ClipboardFilter.shouldSkip(types: ["com.1password.item"]))
     #expect(ClipboardFilter.shouldSkip(types: ["public.password"]))
+}
+
+@Test func clipboardHomePreviewSkipsConcealedPasteboard() {
+    let snapshot = ClipboardSnapshot(
+        changeCount: 1,
+        types: ["org.nspasteboard.ConcealedType", "public.utf8-plain-text"],
+        text: "super-secret",
+        imageData: nil,
+        imageType: nil,
+        fileURLs: [],
+        sourceAppName: "1Password",
+        sourceBundleID: "com.agilebits.onepassword7"
+    )
+    #expect(ClipboardFilter.isSafeForHomePreview(snapshot) == false)
+    #expect(ClipboardFilter.homePreviewText(from: snapshot) == nil)
+}
+
+@Test func clipboardListDoesNotPersistPrunedEntries() async throws {
+    let url = FileManager.default.temporaryDirectory
+        .appendingPathComponent("clip-prune-\(UUID().uuidString).json")
+    defer { try? FileManager.default.removeItem(at: url) }
+
+    let store = ClipboardHistoryStore(maxEntries: 10, maxAge: 1, persistenceURL: url)
+    await store.add(text: "stale", types: ["public.text"])
+    try await Task.sleep(for: .seconds(1.1))
+    await store.add(text: "fresh", types: ["public.text"])
+    let bytesBeforeList = try Data(contentsOf: url)
+
+    _ = await store.list(filter: .all, query: "", limit: 10)
+
+    let bytesAfterList = try Data(contentsOf: url)
+    #expect(bytesBeforeList == bytesAfterList)
 }
 
 @Test func clipboardFilterAllowsChromeTextDespiteMetadataTokenType() async {

@@ -96,6 +96,7 @@ import LumaCore
     let cases: [(trigger: String, moduleRaw: String)] = [
         ("word", "luma.wordbook"),
         ("notes", "luma.notes"),
+        ("clip",  "luma.clipboard"),
         ("tr",   "luma.translate"),
         ("rec",  "luma.media"),
         ("sec",  "luma.secrets")
@@ -116,6 +117,7 @@ import LumaCore
     let router = CommandRouter()
     #expect(router.isBareOpenDetailReturn(raw: "notes"))
     #expect(router.isBareOpenDetailReturn(raw: "n"))
+    #expect(router.isBareOpenDetailReturn(raw: "clip"))
     #expect(router.isBareOpenDetailReturn(raw: "word"))
     #expect(router.isBareOpenDetailReturn(raw: "word review"))
     #expect(!router.isBareOpenDetailReturn(raw: "notes daily"))

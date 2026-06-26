@@ -43,3 +43,11 @@ import Testing
 @Test func activeModulesIncludeAccessibilityDependentSnippets() {
     #expect(BuiltInModules.activeModulesRequireAccessibility() == true)
 }
+
+@Test func enabledModulesRequireAccessibilityRespectsDisabledSet() {
+    let all = Set(BuiltInModules.makeAll().map { type(of: $0).manifest.identifier })
+    #expect(BuiltInModules.enabledModulesRequireAccessibility(all) == true)
+    #expect(
+        BuiltInModules.enabledModulesRequireAccessibility(all.subtracting([.snippets, .windowLayouts])) == false
+    )
+}

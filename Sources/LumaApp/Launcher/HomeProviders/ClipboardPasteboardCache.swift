@@ -29,11 +29,13 @@ actor ClipboardPasteboardCache {
     }
 
     private func refreshLoop() async {
+        let lumaBundleID = Bundle.main.bundleIdentifier
         while !Task.isCancelled {
-            let value = await MainActor.run {
-                NSPasteboard.general.string(forType: .string)
+            let preview = await MainActor.run {
+                let snapshot = ClipboardSnapshotReader.read(lumaBundleID: lumaBundleID)
+                return ClipboardFilter.homePreviewText(from: snapshot)
             }
-            cachedValue = value
+            cachedValue = preview
             try? await Task.sleep(for: .seconds(refreshInterval))
         }
     }

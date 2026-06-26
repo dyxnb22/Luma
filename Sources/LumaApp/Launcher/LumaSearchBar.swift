@@ -9,6 +9,7 @@ final class LumaSearchBar: NSView {
         case down
         case tab
         case actionPanel
+        case commandReturn
         case commandNumber(Int)
     }
 
@@ -246,6 +247,9 @@ private final class LumaSearchTextField: NSTextField {
         if event.modifierFlags.contains(.command),
            event.charactersIgnoringModifiers?.lowercased() == "k",
            onKeyCommand?(.actionPanel) == true { return }
+        if event.modifierFlags.contains(.command),
+           event.keyCode == 36,
+           onKeyCommand?(.commandReturn) == true { return }
         if event.modifierFlags.contains(.command),
            let chars = event.charactersIgnoringModifiers,
            let number = Int(chars),

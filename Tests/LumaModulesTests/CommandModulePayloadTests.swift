@@ -81,6 +81,58 @@ import LumaServices
     }
 }
 
+@Test func snippetsPasteWritesExpandedContentToPasteboard() async throws {
+    let pasteboard = SnippetsTestPasteboard()
+    let module = SnippetsModule()
+    let context = ModuleContext(
+        logger: LumaLogger(category: "test"),
+        metrics: LumaMetrics(),
+        database: ApplicationSupportPaths(),
+        pasteboard: pasteboard,
+        accessibility: SnippetsTestAccessibility(),
+        fileSystem: FSEventsService(),
+        translation: TranslationService(config: ConfigurationStore()),
+        config: ConfigurationStore()
+    )
+    await module.warmup(context)
+    let snippet = try await module.add(title: "Date", content: "Hello {{date}}", tags: [])
+    let payload = try ModuleActionCoding.encode(SnippetsAction.paste(id: snippet.id))
+    let action = Action(
+        id: ActionID(module: .snippets, key: "paste"),
+        title: "Paste",
+        kind: .custom(payload: payload, handler: .snippets)
+    )
+    try await module.perform(
+        action,
+        context: ActionContext(
+            logger: LumaLogger(category: "test"),
+            metrics: LumaMetrics(),
+            pasteboard: pasteboard,
+            accessibility: SnippetsTestAccessibility()
+        )
+    )
+    let recorded = await pasteboard.snapshot()
+    #expect(recorded?.contains("Hello ") == true)
+    #expect(recorded?.contains("{{date}}") == false)
+}
+
+private actor SnippetsTestPasteboard: PasteboardClient {
+    private var text: String?
+
+    func write(_ string: String) async { text = string }
+    func writeSecure(_ string: String, clearAfterSeconds: Int) async { await write(string) }
+    func writeImage(data: Data, pasteboardType: String) async {}
+    func writeFileURLs(_ urls: [URL]) async {}
+
+    func snapshot() -> String? { text }
+}
+
+private struct SnippetsTestAccessibility: AccessibilityClient {
+    func focus(windowID: UInt32, pid: Int32, title: String, axTitle: String?, bounds: WindowBounds?) async {}
+    func insert(text: String) async {}
+    func applyWindowLayout(_ preset: String) async {}
+}
+
 @Test func moduleHelpReadsFromRegistry() {
     let lines = ModuleHelp.lines(for: .media)
     #expect(lines.first?.contains("rec") == true)

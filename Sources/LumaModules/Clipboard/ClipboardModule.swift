@@ -64,6 +64,7 @@ public actor ClipboardModule: LumaModule {
             persistenceURL: persistenceURL
         )
         await store.updateCapturePolicy(ignoredBundleIDs: ignored)
+        await store.persistPrunedStateIfNeeded()
         if historyEnabled {
             startPolling()
         }
@@ -86,7 +87,41 @@ public actor ClipboardModule: LumaModule {
         let searchText = payload
 
         let entries = await store.search(searchText, limit: 10)
+        if entries.isEmpty {
+            return ModuleResult(items: emptyResults(for: searchText))
+        }
         return ModuleResult(items: entries.map(result))
+    }
+
+    private func emptyResults(for searchText: String) -> [ResultItem] {
+        if searchText.isEmpty {
+            return [openDetailRow(
+                title: "Open Clipboard history",
+                subtitle: "Browse and search captured clips in panel"
+            )]
+        }
+        return [openDetailRow(
+            title: "No clipboard matches",
+            subtitle: "Open Clipboard to browse full history",
+            key: "open-detail.no-matches"
+        )]
+    }
+
+    private func openDetailRow(title: String, subtitle: String, key: String = "open-detail") -> ResultItem {
+        ResultItem(
+            id: ResultID(module: Self.manifest.identifier, key: key),
+            title: title,
+            titleAttributed: AttributedString(title),
+            subtitle: subtitle,
+            icon: .symbol("doc.on.clipboard"),
+            primaryAction: Action(
+                id: ActionID(module: Self.manifest.identifier, key: key),
+                title: "Open Clipboard",
+                kind: .openModuleDetail(Self.manifest.identifier, payload: nil)
+            ),
+            rankingHints: RankingHints(basePriority: Self.manifest.priority + 1),
+            rowKind: .starter
+        )
     }
 
     public func perform(_ action: Action, context: ActionContext) async throws {
@@ -250,29 +285,21 @@ public actor ClipboardModule: LumaModule {
     }
 
     private func result(for entry: ClipboardEntry) -> ResultItem {
-        let display = entry.displayText
-        let title = display.count > 80 ? String(display.prefix(80)) + "..." : display
         let id = ResultID(module: Self.manifest.identifier, key: entry.id.uuidString)
         let payload = (try? ModuleActionCoding.encode(ClipboardAction.copyEntry(id: entry.id))) ?? Data()
-        let iconName: String
-        switch entry.detectedKind {
-        case .image: iconName = "photo"
-        case .file: iconName = "doc"
-        case .color: iconName = "paintpalette"
-        default: iconName = entry.imageData == nil ? "doc.on.clipboard" : "photo"
-        }
         return ResultItem(
             id: id,
-            title: title,
-            titleAttributed: AttributedString(title),
-            subtitle: entry.isPinned ? "Pinned Clipboard" : "Clipboard",
-            icon: .symbol(iconName),
+            title: entry.metadataLine,
+            titleAttributed: AttributedString(entry.metadataLine),
+            subtitle: entry.launcherPreviewText,
+            icon: .symbol(entry.symbolName),
             primaryAction: Action(
                 id: ActionID(module: Self.manifest.identifier, key: "copy.\(entry.id.uuidString)"),
                 title: "Copy",
                 kind: .custom(payload: payload, handler: Self.manifest.identifier)
             ),
-            rankingHints: RankingHints(basePriority: Self.manifest.priority)
+            rankingHints: RankingHints(basePriority: Self.manifest.priority),
+            displayDensity: .regular
         )
     }
 

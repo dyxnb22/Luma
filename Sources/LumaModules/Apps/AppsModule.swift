@@ -123,10 +123,7 @@ public actor AppsModule: LumaModule {
     private func result(for app: AppRecord) -> ResultItem {
         let id = ResultID(module: Self.manifest.identifier, key: app.bundleID)
         let title = app.displayTitle
-        var subtitle = app.subtitlePath
-        if let mb = Self.memoryMB(for: app.bundleID) {
-            subtitle += " · \(mb)"
-        }
+        let subtitle = app.subtitlePath
         return ResultItem(
             id: id,
             title: title,
@@ -140,12 +137,5 @@ public actor AppsModule: LumaModule {
             ),
             rankingHints: RankingHints(basePriority: Self.manifest.priority)
         )
-    }
-
-    private static func memoryMB(for bundleID: String) -> String? {
-        guard let sample = AppMemorySampler.topApplications(limit: 200).first(where: { $0.bundleID == bundleID }) else {
-            return nil
-        }
-        return String(format: "%.0f MB", sample.residentMB)
     }
 }

@@ -72,7 +72,7 @@ public actor ActionExecutor {
                     throw ModuleError.unsupportedAction(action.id)
                 }
                 try await module.perform(action, context: context)
-            case .noop:
+            case .noop, .openModuleDetail, .replaceQuery:
                 break
             }
             await usage.record(resultID, at: Date())

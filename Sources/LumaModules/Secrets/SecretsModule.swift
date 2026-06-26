@@ -61,7 +61,7 @@ public actor SecretsModule: LumaModule {
                 items.append(secretResult(record))
             }
             if items.isEmpty, searchText.isEmpty {
-                return ModuleResult(items: [lockedResult(title: "Secrets Vault Unlocked", subtitle: "Type secret <label> to search")])
+                return ModuleResult(items: [unlockedEmptyResult()])
             }
             return ModuleResult(items: items)
         } catch SecretsVaultError.locked {
@@ -143,6 +143,23 @@ public actor SecretsModule: LumaModule {
                 kind: .custom(payload: payload, handler: Self.manifest.identifier)
             ),
             rankingHints: RankingHints(basePriority: Self.manifest.priority)
+        )
+    }
+
+    private func unlockedEmptyResult() -> ResultItem {
+        ResultItem(
+            id: ResultID(module: Self.manifest.identifier, key: "open-vault"),
+            title: "Secrets Vault",
+            titleAttributed: AttributedString("Secrets Vault"),
+            subtitle: "Open vault to manage secrets",
+            icon: .symbol("lock.shield"),
+            primaryAction: Action(
+                id: ActionID(module: Self.manifest.identifier, key: "open-detail"),
+                title: "Open Vault",
+                kind: .openModuleDetail(Self.manifest.identifier, payload: nil)
+            ),
+            rankingHints: RankingHints(basePriority: Self.manifest.priority),
+            rowKind: .starter
         )
     }
 

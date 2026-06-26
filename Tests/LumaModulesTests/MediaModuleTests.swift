@@ -19,7 +19,7 @@ import Testing
     #expect(MediaModule.extractPayload(raw: "translate hello") == nil)
 }
 
-@Test func mediaModuleRecReturnsManageAndRecent() async throws {
+@Test func mediaModuleRecReturnsRecentOnly() async throws {
     let url = FileManager.default.temporaryDirectory.appendingPathComponent("media-mod-\(UUID().uuidString).json")
     defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
 
@@ -31,9 +31,9 @@ import Testing
     let context = QueryContext(deadline: ContinuousClock().now.advanced(by: .milliseconds(40)))
     let result = await module.handle(Query(raw: "rec", sequence: 1), context: context)
 
-    #expect(result.items.first?.title == "Records")
-    #expect(result.items.first?.subtitle == "Open full logbook")
-    #expect(result.items.contains { $0.title == "Dune" })
+    #expect(result.items.count == 1)
+    #expect(result.items.first?.title == "Dune")
+    #expect(!result.items.contains { $0.subtitle == "Open full logbook" })
 }
 
 @Test func mediaModuleRecLogOpensDetail() async {
@@ -145,7 +145,9 @@ import Testing
     #expect(result.items.count == 1)
     #expect(result.items.first?.title == "Complete Entry")
     #expect(result.items.first?.subtitle?.contains("#sci-fi") == true)
-    if case .custom(let payload, _) = result.items.first?.primaryAction.kind,
+    if case .openModuleDetail(let module, let payload) = result.items.first?.primaryAction.kind,
+       module.rawValue == "luma.media",
+       let payload,
        let action = try? ModuleActionCoding.decode(MediaAction.self, from: payload),
        case .editDraft(let draft) = action {
         #expect(draft.title == "Dune")

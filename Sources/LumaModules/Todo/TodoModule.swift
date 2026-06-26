@@ -346,7 +346,8 @@ public actor TodoModule: LumaModule {
                 title: "OK",
                 kind: .noop
             ),
-            rankingHints: RankingHints(basePriority: Self.manifest.priority)
+            rankingHints: RankingHints(basePriority: Self.manifest.priority),
+            rowKind: .informational
         )
     }
 

@@ -42,8 +42,22 @@ public enum ActionKind: Sendable, Hashable, Codable {
     case insertText(String)
     case applyWindowLayout(String)
     case translateText(String)
+    case openModuleDetail(ModuleIdentifier, payload: Data?)
+    case replaceQuery(String)
     case custom(payload: Data, handler: ModuleIdentifier)
     case noop
+}
+
+public extension Action {
+    /// When true, the launcher panel stays visible (in-panel navigation, query replace, informational noop).
+    var keepsLauncherVisible: Bool {
+        switch kind {
+        case .openModuleDetail, .translateText, .replaceQuery, .noop:
+            return true
+        default:
+            return false
+        }
+    }
 }
 
 public struct WindowBounds: Sendable, Hashable, Codable {

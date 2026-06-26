@@ -473,7 +473,7 @@ final class NotesDetailView: NSObject, ModuleDetailView {
         switch panel {
         case .outline:
             var recentNodes: [NotesNode] = []
-            if ModuleDetailRegistry.isLauncherQueryEmpty {
+            if LauncherEnvironment.current?.isLauncherQueryEmpty == true {
                 let paths = await module.recentNotePaths()
                 recentNodes = paths.compactMap { path in
                     guard FileManager.default.fileExists(atPath: path) else { return nil }

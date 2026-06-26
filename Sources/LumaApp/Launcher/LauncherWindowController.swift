@@ -26,6 +26,7 @@ final class LauncherWindowController {
         homeCoordinator: LauncherHomeCoordinator,
         actionExecutor: ActionExecutor,
         config: ConfigurationStore,
+        launcherEnvironment: LauncherEnvironment,
         onOpenSettings: @escaping () -> Void
     ) {
         let rootView = LauncherRootView(
@@ -33,6 +34,7 @@ final class LauncherWindowController {
             homeCoordinator: homeCoordinator,
             actionExecutor: actionExecutor,
             config: config,
+            launcherEnvironment: launcherEnvironment,
             onDismiss: { [weak self] in self?.hide() },
             onActionDismiss: { [weak self] in self?.hideImmediatelyForAction() },
             onOpenSettings: onOpenSettings
@@ -77,6 +79,7 @@ final class LauncherWindowController {
         rootView?.refreshPermissionStatus()
         rootView?.startPermissionPollingIfNeeded()
         rootView?.startPerformanceSampling()
+        rootView?.setHomeProvidersActive(true)
         rootView?.restoreLastSessionIfNeeded()
         rootView?.focusSearchField()
         rootView?.refreshOpenApps()
@@ -101,6 +104,7 @@ final class LauncherWindowController {
         rootView?.resetOpenAppsExpansion()
         rootView?.stopPermissionPolling()
         rootView?.stopPerformanceSampling()
+        rootView?.setHomeProvidersActive(false)
         let duration = MotionTokens.panelHideDuration
         NSAnimationContext.runAnimationGroup { context in
             context.duration = duration
@@ -122,6 +126,7 @@ final class LauncherWindowController {
             self.rootView?.resetOpenAppsExpansion()
             self.rootView?.stopPermissionPolling()
             self.rootView?.stopPerformanceSampling()
+            self.rootView?.setHomeProvidersActive(false)
             self.panel.orderOut(nil)
             self.panel.alphaValue = 1
         }

@@ -5,15 +5,17 @@
 - Hotkey toggles the launcher.
 - Default hotkey is Command+Space.
 - The launcher panel is not a dashboard.
-- Module detail surfaces open in separate windows, not inside the launcher panel.
-- Escape dismisses.
-- Return runs the selected primary action.
+- Module detail surfaces open inside the launcher panel (Route C).
+- Escape dismisses, or steps back through detail → results → home.
+- Return runs the selected row's primary action.
+- Tab opens the action panel for secondary actions; Tab again closes it.
 - Command+Return runs the first secondary action when present.
 - Arrow up/down moves selection.
-- Command+number selects or runs the visible nth result.
-- Panel dismisses immediately after action dispatch.
+- Command+number selects or runs the visible nth result (unified across home and results).
+- Panel dismisses immediately after immediate (leave-launcher) actions.
+- In-panel actions (open detail, replace query, translate) keep the panel visible.
 - Results update progressively as modules return.
-- Empty query shows the top 8 recent/frequent items.
+- Empty query shows the home screen: Open Apps and Suggested sections.
 
 ## Panel
 
@@ -30,6 +32,7 @@
 - Keep at most 50 ranked results per snapshot.
 - Preserve selection by `ResultID` across updates.
 - No visible tutorial copy in the launcher.
+- Row kinds: actionable (Return ↩), starter (→), informational (no Return hint).
 
 ## Settings
 

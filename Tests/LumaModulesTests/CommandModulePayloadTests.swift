@@ -1,7 +1,9 @@
 import Foundation
 import Testing
 import LumaCore
+import LumaInfrastructure
 import LumaModules
+import LumaServices
 
 @Test func snippetsModuleExtractPayload() {
     #expect(SnippetsModule.extractPayload(raw: "s") == "")
@@ -25,7 +27,7 @@ import LumaModules
     #expect(WordbookModule.extractPayload(raw: "word review") == "review")
 }
 
-@Test func wordbookModuleReviewCommandReturnsStarterRow() async throws {
+@Test func wordbookModuleReviewCommandDefersToLauncher() async throws {
     let (store, url) = try WordbookTestFixtures.makeStore()
     defer { try? FileManager.default.removeItem(at: url) }
 
@@ -37,9 +39,46 @@ import LumaModules
         Query(raw: "word review", sequence: 1, command: parsed),
         context: QueryContext(deadline: ContinuousClock().now.advanced(by: .milliseconds(40)))
     )
-    #expect(!result.items.isEmpty)
-    #expect(result.items[0].id.key == "review")
-    #expect(result.items[0].primaryAction.title == "Start Review")
+    #expect(result.items.isEmpty)
+}
+
+@Test func wordbookBareCommandReturnsNoStarterRow() async throws {
+    let (store, url) = try WordbookTestFixtures.makeStore()
+    defer { try? FileManager.default.removeItem(at: url) }
+
+    let module = WordbookModule(store: store)
+    let parsed = ParsedCommand(trigger: "word", payload: "", module: .wordbook)
+    let result = await module.handle(
+        Query(raw: "word", sequence: 1, command: parsed),
+        context: QueryContext(deadline: ContinuousClock().now.advanced(by: .milliseconds(40)))
+    )
+    #expect(!result.items.contains { $0.id.key == "review" })
+}
+
+@Test func snippetsNewCommandReturnsCreateRow() async {
+    let module = SnippetsModule()
+    await module.warmup(ModuleContext(
+        logger: LumaLogger(category: "test"),
+        metrics: LumaMetrics(),
+        database: ApplicationSupportPaths(),
+        pasteboard: PasteboardService(),
+        accessibility: AXService(),
+        fileSystem: FSEventsService(),
+        translation: TranslationService(config: ConfigurationStore()),
+        config: ConfigurationStore()
+    ))
+    let parsed = ParsedCommand(trigger: "s", payload: "new gitignore", module: .snippets)
+    let result = await module.handle(
+        Query(raw: "s new gitignore", sequence: 1, command: parsed),
+        context: QueryContext(deadline: ContinuousClock().now.advanced(by: .milliseconds(20)))
+    )
+    #expect(result.items.count == 1)
+    #expect(result.items.first?.subtitle == "gitignore")
+    if case .openModuleDetail(let module, _) = result.items.first?.primaryAction.kind {
+        #expect(module.rawValue == "luma.snippets")
+    } else {
+        Issue.record("Expected openModuleDetail")
+    }
 }
 
 @Test func moduleHelpReadsFromRegistry() {

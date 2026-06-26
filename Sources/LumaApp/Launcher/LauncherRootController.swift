@@ -21,6 +21,7 @@ final class LauncherRootController {
     private let actionExecutor: ActionExecutor
     private let config: ConfigurationStore
     private let sessionStore = LauncherSessionStore()
+    private let launcherEnvironment: LauncherEnvironment
     private let onDismiss: () -> Void
     private let onActionDismiss: () -> Void
     private let onOpenSettings: () -> Void
@@ -40,6 +41,7 @@ final class LauncherRootController {
         hintBar: LauncherHintBar,
         actionPanel: LauncherActionPanel,
         performanceStrip: LauncherPerformanceStripView,
+        launcherEnvironment: LauncherEnvironment,
         onDismiss: @escaping () -> Void,
         onActionDismiss: @escaping () -> Void,
         onOpenSettings: @escaping () -> Void
@@ -55,6 +57,7 @@ final class LauncherRootController {
         self.hintBar = hintBar
         self.actionPanel = actionPanel
         self.performanceStrip = performanceStrip
+        self.launcherEnvironment = launcherEnvironment
         self.onDismiss = onDismiss
         self.onActionDismiss = onActionDismiss
         self.onOpenSettings = onOpenSettings
@@ -67,6 +70,7 @@ final class LauncherRootController {
         contentCoordinator.onHomeSessionSaved = { [weak self] in self?.saveHomeSession() }
         contentCoordinator.onRun = { [weak self] item in self?.handleRun(item) }
         contentCoordinator.onRightClick = { [weak self] item in self?.openActionPanel(for: item) }
+        contentCoordinator.onSelectionChanged = { [weak self] in self?.syncRowActionHint() }
 
         actionPanel.onRun = { [weak self] action, item in self?.runAction(action, for: item) }
         actionPanel.onClose = { [weak self] in self?.focusSearchField() }
@@ -101,7 +105,7 @@ final class LauncherRootController {
     func showHome(focusSearch: Bool = true, persist: Bool = true) {
         searchBar.stringValue = ""
         commandHintBar.apply(nil)
-        ModuleDetailRegistry.isLauncherQueryEmpty = true
+        launcherEnvironment.isLauncherQueryEmpty = true
         contentCoordinator.tearDownDetailIfNeeded()
         contentCoordinator.resetResults()
         listView.isHidden = false
@@ -124,6 +128,7 @@ final class LauncherRootController {
                       !self.contentCoordinator.showingResults else { return }
                 self.contentCoordinator.showHome(snapshot)
                 self.hintBar.setContext(.home)
+                self.syncRowActionHint()
                 _ = HomeLatencyTracker.markHomeRendered()
             }
         }
@@ -131,7 +136,25 @@ final class LauncherRootController {
 
     func refreshOpenApps() { refreshHome() }
 
-    func resetOpenAppsExpansion() {}
+    func resetOpenAppsExpansion() {
+        Task {
+            await homeCoordinator.resetExpansion()
+        }
+    }
+
+    func expandOpenApps() {
+        Task {
+            await homeCoordinator.expandAllApps()
+            await MainActor.run { self.refreshHome() }
+        }
+    }
+
+    func toggleOpenAppWindows(bundleID: String) {
+        Task {
+            await homeCoordinator.toggleAppWindows(bundleID: bundleID)
+            await MainActor.run { self.refreshHome() }
+        }
+    }
 
     func focusSearchField() {
         if contentCoordinator.showingDetail {
@@ -176,7 +199,7 @@ final class LauncherRootController {
         }
         sessionStore.suppressPersistence = true
         searchBar.stringValue = ""
-        ModuleDetailRegistry.isLauncherQueryEmpty = true
+        launcherEnvironment.isLauncherQueryEmpty = true
         contentCoordinator.resetResults()
         viewModel.cancel()
         sessionStore.suppressPersistence = false
@@ -184,13 +207,63 @@ final class LauncherRootController {
         refreshHome()
     }
 
-    func openModuleDetail(for moduleID: ModuleIdentifier) {
-        guard let detail = ModuleDetailRegistry.make(for: moduleID) else {
+    func openModuleDetail(for moduleID: ModuleIdentifier, payload: Data? = nil) {
+        if moduleID == .snippets, let payload,
+           let action = try? ModuleActionCoding.decode(SnippetsAction.self, from: payload),
+           case .create(let title) = action {
+            Task {
+                do {
+                    _ = try await launcherEnvironment.snippetsModule.add(
+                        title: title,
+                        content: "",
+                        tags: [],
+                        trigger: ""
+                    )
+                    await MainActor.run {
+                        self.launcherEnvironment.reloadSnippetsDetail()
+                        self.presentModuleDetail(for: moduleID)
+                    }
+                } catch {
+                    await MainActor.run {
+                        self.commandHintBar.showStatus("Could not create snippet")
+                    }
+                }
+            }
+            return
+        }
+        applyModuleDetailPayload(moduleID: moduleID, payload: payload)
+        presentModuleDetail(for: moduleID)
+    }
+
+    private func presentModuleDetail(for moduleID: ModuleIdentifier) {
+        guard let detail = launcherEnvironment.makeDetailView(for: moduleID) else {
             showHome(focusSearch: true, persist: false)
             return
         }
         enterDetailContext()
         contentCoordinator.present(detail, moduleID: moduleID)
+        syncRowActionHint()
+    }
+
+    private func applyModuleDetailPayload(moduleID: ModuleIdentifier, payload: Data?) {
+        guard let payload else { return }
+        if moduleID == .media,
+           let action = try? ModuleActionCoding.decode(MediaAction.self, from: payload) {
+            switch action {
+            case .editDraft(let draft):
+                LauncherSharedState.pendingMediaEditorDraft = draft
+            case .openDetail:
+                LauncherSharedState.pendingMediaEditorDraft = nil
+            default:
+                break
+            }
+            return
+        }
+        if moduleID == .wordbook,
+           let action = try? ModuleActionCoding.decode(WordbookAction.self, from: payload),
+           action == .review {
+            LauncherSharedState.pendingWordbookAutoStartReview = true
+        }
     }
 
     func handleEscape() {
@@ -218,7 +291,7 @@ final class LauncherRootController {
     }
 
     func handleTextChange(_ text: String) {
-        ModuleDetailRegistry.isLauncherQueryEmpty = text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        launcherEnvironment.isLauncherQueryEmpty = text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         searchBar.setPlaceholder(ModuleSearchHints.placeholder(for: text))
         commandHintBar.apply(viewModel.commandRouter.registry.hint(for: text))
         sessionStore.saveSearchQuery(text)
@@ -264,6 +337,7 @@ final class LauncherRootController {
         contentCoordinator.apply(snapshot: snapshot)
         hintBar.setContext(.results)
         syncPerformanceStripVisibility()
+        syncRowActionHint()
         if let paintMs = LatencyTracker.shared.markFirstPaint() {
             LatencyTelemetry.report(p95Milliseconds: paintMs)
         }
@@ -279,11 +353,49 @@ final class LauncherRootController {
     }
 
     private func activateReturn() {
+        if !modulesReady {
+            commandHintBar.showStatus("Modules loading…")
+            return
+        }
         if actionPanel.isVisible {
             actionPanel.activateSelection()
             return
         }
+        if !contentCoordinator.currentItems.indices.contains(contentCoordinator.selectedIndex) {
+            if performBareCommandAction() { return }
+            commandHintBar.showStatus("No results yet")
+            return
+        }
         activateSelectedItem()
+    }
+
+    @discardableResult
+    private func performBareCommandAction() -> Bool {
+        let raw = searchBar.stringValue
+        let route = viewModel.commandRouter.route(raw: raw)
+        guard case .targeted(let module, _, let payload) = route else { return false }
+        guard let command = viewModel.commandRouter.registry.command(forModule: module),
+              command.bareBehavior == .openDetail else { return false }
+
+        var detailPayload: Data?
+        if module == .wordbook,
+           payload.compare("review", options: .caseInsensitive) == .orderedSame {
+            detailPayload = try? ModuleActionCoding.encode(WordbookAction.review)
+        }
+        openModuleDetail(for: module, payload: detailPayload)
+        return true
+    }
+
+    private func syncRowActionHint() {
+        guard contentCoordinator.showingResults || !contentCoordinator.showingDetail else {
+            commandHintBar.setReturnAction(nil)
+            return
+        }
+        if let item = contentCoordinator.currentItems[safe: contentCoordinator.selectedIndex] {
+            commandHintBar.setReturnAction(item.returnHint)
+        } else {
+            commandHintBar.setReturnAction(nil)
+        }
     }
 
     private func activateSelectedItem() {
@@ -292,58 +404,42 @@ final class LauncherRootController {
     }
 
     private func handleRun(_ item: ResultItem) {
-        if item.id.module == .commandEntry, item.id.key.hasPrefix("replace:") {
-            let replacement = String(item.id.key.dropFirst("replace:".count))
-            searchBar.stringValue = replacement
-            handleTextChange(replacement)
-            focusSearchField()
-            return
-        }
-        if item.id.module == .commandEntry,
-           item.id.key == "help.footer" || item.id.key == "help.footer.example" {
-            let query = "rec ?"
-            searchBar.stringValue = query
-            handleTextChange(query)
-            focusSearchField()
-            return
-        }
-        if item.id.module == .commandEntry,
-           item.id.key.hasPrefix("help."),
-           item.id.key != "help.footer",
-           item.id.key != "help.footer.example" {
-            let trigger = String(item.id.key.dropFirst("help.".count))
-            let query = "\(trigger) ?"
-            searchBar.stringValue = query
-            handleTextChange(query)
-            focusSearchField()
-            return
-        }
-        viewModel.recordExecutedCommand(for: searchBar.stringValue)
         switch LauncherKeyRouter.resolveRun(item: item) {
-        case .openTodoDetail:
-            openModuleDetail(for: .todo)
-        case .openClipboardDetail:
-            openModuleDetail(for: .clipboard)
-        case .openRecordsDetail:
-            openModuleDetail(for: .media)
+        case .expandOpenApps:
+            expandOpenApps()
+            return
+        case .toggleOpenAppWindows(let bundleID):
+            toggleOpenAppWindows(bundleID: bundleID)
+            return
         case .runItem(let item):
-            run(item: item)
+            viewModel.recordExecutedCommand(for: searchBar.stringValue)
+            dispatchAction(item.primaryAction, for: item)
         default:
-            run(item: item)
+            viewModel.recordExecutedCommand(for: searchBar.stringValue)
+            dispatchAction(item.primaryAction, for: item)
+        }
+    }
+
+    private func dispatchAction(_ action: Action, for item: ResultItem) {
+        switch action.kind {
+        case .noop:
+            focusSearchField()
+        case .replaceQuery(let query):
+            searchBar.stringValue = query
+            handleTextChange(query)
+            focusSearchField()
+        case .openModuleDetail(let moduleID, let payload):
+            openModuleDetail(for: moduleID, payload: payload)
+        case .translateText(let text):
+            openTranslateDetail(with: text)
+        default:
+            onActionDismiss()
+            Task { await actionExecutor.run(action, for: item) }
         }
     }
 
     private func run(item: ResultItem) {
-        if item.primaryAction.kind == .noop {
-            focusSearchField()
-            return
-        }
-        if case .translateText(let text) = item.primaryAction.kind {
-            openTranslateDetail(with: text)
-            return
-        }
-        onActionDismiss()
-        Task { await actionExecutor.run(item.primaryAction, for: item) }
+        dispatchAction(item.primaryAction, for: item)
     }
 
     private func runAction(_ action: Action, for item: ResultItem) {
@@ -351,12 +447,7 @@ final class LauncherRootController {
             handleRun(item)
             return
         }
-        if case .translateText(let text) = action.kind {
-            openTranslateDetail(with: text)
-            return
-        }
-        onActionDismiss()
-        Task { await actionExecutor.run(action, for: item) }
+        dispatchAction(action, for: item)
     }
 
     private func openTranslateDetail(with text: String) {
@@ -368,7 +459,7 @@ final class LauncherRootController {
             return
         }
         enterDetailContext()
-        guard let detail = ModuleDetailRegistry.make(for: .translate) else { return }
+        guard let detail = launcherEnvironment.makeDetailView(for: .translate) else { return }
         contentCoordinator.present(detail, moduleID: .translate, prefillTranslateText: text)
     }
 
@@ -380,6 +471,20 @@ final class LauncherRootController {
 
     private func handleKeyCommand(_ command: LumaSearchBar.KeyCommand) -> Bool {
         if actionPanel.isVisible {
+            if case .commandNumber(let number) = command {
+                actionPanel.activateIndex(number - 1)
+                return true
+            }
+            let outcome = LauncherKeyRouter.route(
+                command: command.launcherKeyCommand,
+                mode: .results,
+                itemCount: actionPanel.actionCount,
+                actionPanelVisible: true
+            )
+            if outcome == .dismissActionPanel {
+                actionPanel.dismiss()
+                return true
+            }
             return true
         }
         let mode: LauncherContentMode = contentCoordinator.showingDetail ? .detail
@@ -402,8 +507,13 @@ final class LauncherRootController {
             if let item = contentCoordinator.currentItems[safe: index] { handleRun(item) }
             return true
         case .runItem(let item): run(item: item); return true
-        case .expandOpenApps, .openTodoDetail, .openClipboardDetail, .openRecordsDetail:
-            handleRun(contentCoordinator.currentItems[contentCoordinator.selectedIndex])
+        case .expandOpenApps:
+            expandOpenApps()
+            return true
+        case .toggleOpenAppWindows:
+            return true
+        case .dismissActionPanel:
+            actionPanel.dismiss()
             return true
         case .passthrough: return false
         }

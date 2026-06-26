@@ -1,7 +1,6 @@
 import Foundation
 import LumaCore
 import LumaInfrastructure
-import LumaModules
 
 @MainActor
 final class LauncherSessionStore {
@@ -12,7 +11,7 @@ final class LauncherSessionStore {
         query: String,
         translateContent: (source: String, output: String)?
     ) {
-        guard !suppressPersistence, let config = ModuleDetailRegistry.config else { return }
+        guard !suppressPersistence, let config = LauncherEnvironment.current?.config else { return }
         Task {
             await config.setLauncherLastModuleID(moduleID?.rawValue)
             await config.setLauncherLastQuery(query)
@@ -24,7 +23,7 @@ final class LauncherSessionStore {
     }
 
     func saveHomeSession(query: String) {
-        guard !suppressPersistence, let config = ModuleDetailRegistry.config else { return }
+        guard !suppressPersistence, let config = LauncherEnvironment.current?.config else { return }
         Task {
             await config.setLauncherLastModuleID(nil)
             await config.setLauncherLastQuery(query)
@@ -32,7 +31,7 @@ final class LauncherSessionStore {
     }
 
     func saveSearchQuery(_ query: String) {
-        guard !suppressPersistence, let config = ModuleDetailRegistry.config else { return }
+        guard !suppressPersistence, let config = LauncherEnvironment.current?.config else { return }
         Task { await config.setLauncherLastQuery(query) }
     }
 
@@ -49,7 +48,7 @@ final class LauncherSessionStore {
         translateOutput: String
     ) -> RestoreDecision {
         if let moduleRaw,
-           ModuleDetailRegistry.make(for: ModuleIdentifier(rawValue: moduleRaw)) != nil {
+           LauncherEnvironment.current?.makeDetailView(for: ModuleIdentifier(rawValue: moduleRaw)) != nil {
             return .openModule(
                 ModuleIdentifier(rawValue: moduleRaw),
                 translateSource: translateSource,
@@ -62,7 +61,7 @@ final class LauncherSessionStore {
     }
 
     func loadPersistedSession() async -> (moduleRaw: String?, query: String, translateSource: String, translateOutput: String) {
-        guard let config = ModuleDetailRegistry.config else {
+        guard let config = LauncherEnvironment.current?.config else {
             return (nil, "", "", "")
         }
         let moduleRaw = await config.launcherLastModuleID()

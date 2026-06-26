@@ -312,7 +312,8 @@ public actor NotesModule: LumaModule {
                 title: "Stats",
                 kind: .noop
             ),
-            rankingHints: RankingHints(basePriority: Self.manifest.priority)
+            rankingHints: RankingHints(basePriority: Self.manifest.priority),
+            rowKind: .informational
         )
     }
 
@@ -329,7 +330,8 @@ public actor NotesModule: LumaModule {
                 title: "OK",
                 kind: .noop
             ),
-            rankingHints: RankingHints(basePriority: Self.manifest.priority)
+            rankingHints: RankingHints(basePriority: Self.manifest.priority),
+            rowKind: .informational
         )
     }
 
@@ -439,14 +441,15 @@ public actor NotesModule: LumaModule {
             id: id,
             title: "Set a Notes root first",
             titleAttributed: AttributedString("Set a Notes root first"),
-            subtitle: "Open the Notes card and choose a folder",
+            subtitle: "Open Notes detail and choose a folder",
             icon: .symbol("folder.badge.questionmark"),
             primaryAction: Action(
-                id: ActionID(module: Self.manifest.identifier, key: "noop"),
-                title: "OK",
-                kind: .noop
+                id: ActionID(module: Self.manifest.identifier, key: "open-detail"),
+                title: "Open Notes",
+                kind: .openModuleDetail(Self.manifest.identifier, payload: nil)
             ),
-            rankingHints: RankingHints(basePriority: Self.manifest.priority)
+            rankingHints: RankingHints(basePriority: Self.manifest.priority),
+            rowKind: .starter
         )
     }
 

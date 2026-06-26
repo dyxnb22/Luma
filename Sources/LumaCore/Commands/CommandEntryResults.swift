@@ -35,9 +35,10 @@ public enum CommandEntryResults {
                     primaryAction: Action(
                         id: ActionID(module: .commandEntry, key: "replace"),
                         title: "Use \(best.trigger)",
-                        kind: .noop
+                        kind: .replaceQuery(replacement)
                     ),
-                    rankingHints: RankingHints(basePriority: 100)
+                    rankingHints: RankingHints(basePriority: 100),
+                    rowKind: .informational
                 )
             )
         }
@@ -47,6 +48,7 @@ public enum CommandEntryResults {
 
     private static func helpRow(for command: CommandDefinition) -> ResultItem {
         let subtitle = command.resolvedDescription
+        let query = "\(command.primaryTrigger) ?"
         return ResultItem(
             id: ResultID(module: .commandEntry, key: "help.\(command.primaryTrigger)"),
             title: "\(command.primaryTrigger)  \(command.title)",
@@ -55,10 +57,11 @@ public enum CommandEntryResults {
             icon: .symbol("command"),
             primaryAction: Action(
                 id: ActionID(module: command.module, key: "help.open"),
-                title: "\(command.primaryTrigger) ?",
-                kind: .noop
+                title: query,
+                kind: .replaceQuery(query)
             ),
-            rankingHints: RankingHints(basePriority: 90)
+            rankingHints: RankingHints(basePriority: 90),
+            rowKind: .informational
         )
     }
 
@@ -72,14 +75,16 @@ public enum CommandEntryResults {
             primaryAction: Action(
                 id: ActionID(module: .commandEntry, key: "help.footer.example"),
                 title: "rec ?",
-                kind: .noop
+                kind: .replaceQuery("rec ?")
             ),
-            rankingHints: RankingHints(basePriority: 0)
+            rankingHints: RankingHints(basePriority: 0),
+            rowKind: .informational
         )
     }
 
     private static func suggestionRow(_ suggestion: CommandSuggestion, keyPrefix: String) -> ResultItem {
         let subtitle = suggestion.example ?? suggestion.subtitle
+        let query = "\(suggestion.trigger) "
         return ResultItem(
             id: ResultID(module: .commandEntry, key: "\(keyPrefix).\(suggestion.trigger)"),
             title: "\(suggestion.trigger)  \(suggestion.title)",
@@ -89,9 +94,10 @@ public enum CommandEntryResults {
             primaryAction: Action(
                 id: ActionID(module: suggestion.module, key: "\(keyPrefix).select"),
                 title: suggestion.title,
-                kind: .noop
+                kind: .replaceQuery(query)
             ),
-            rankingHints: RankingHints(basePriority: 90)
+            rankingHints: RankingHints(basePriority: 90),
+            rowKind: .informational
         )
     }
 }

@@ -15,8 +15,7 @@ enum LauncherModuleLabel {
         case .snippets: "snip"
         case .secrets: "vault"
         case .media: "rec"
-        case .windows: "win"
-        case .windowLayouts: "layout"
+        case .windows, .windowLayouts: "win"
         case .projects: "proj"
         default: module.rawValue.replacingOccurrences(of: "luma.", with: "")
         }
@@ -29,6 +28,7 @@ final class LauncherListRow: NSControl {
     private let moduleLabel: String
     private let onRun: (ResultItem) -> Void
     private let onRightClick: ((ResultItem) -> Void)?
+    private let onHover: (() -> Void)?
     private let treeGuideView = ListTreeGuideView()
     private let iconView = NSImageView()
     private let titleLabel = NSTextField(labelWithString: "")
@@ -46,17 +46,20 @@ final class LauncherListRow: NSControl {
         moduleLabel: String,
         isSelected: Bool,
         onRun: @escaping (ResultItem) -> Void,
-        onRightClick: ((ResultItem) -> Void)? = nil
+        onRightClick: ((ResultItem) -> Void)? = nil,
+        onHover: (() -> Void)? = nil
     ) {
         self.item = item
         self.moduleLabel = moduleLabel
         self.onRun = onRun
         self.onRightClick = onRightClick
+        self.onHover = onHover
         super.init(frame: .zero)
         wantsLayer = true
         layer?.cornerRadius = LauncherChromeTokens.listRowCornerRadius
         layer?.cornerCurve = .continuous
         setup()
+        configureReturnHint()
         setSelected(isSelected)
         target = self
         action = #selector(run)
@@ -86,7 +89,8 @@ final class LauncherListRow: NSControl {
 
     func setSelected(_ selected: Bool) {
         isSelected = selected
-        returnHintContainer.isHidden = !selected
+        let showsHint = selected && item.rowKind != .informational
+        returnHintContainer.isHidden = !showsHint
         trailingLabel.isHidden = selected
         selectionAccentLayer?.isHidden = !selected
         refreshRowAppearance()
@@ -107,6 +111,7 @@ final class LauncherListRow: NSControl {
 
     override func mouseEntered(with event: NSEvent) {
         isHovered = true
+        onHover?()
         refreshRowAppearance()
     }
 
@@ -132,6 +137,17 @@ final class LauncherListRow: NSControl {
 
     @objc private func run() {
         onRun(item)
+    }
+
+    private func configureReturnHint() {
+        switch item.rowKind {
+        case .starter:
+            returnHint.stringValue = "→"
+        case .informational:
+            returnHint.stringValue = ""
+        case .actionable:
+            returnHint.stringValue = "↩"
+        }
     }
 
     private func setup() {

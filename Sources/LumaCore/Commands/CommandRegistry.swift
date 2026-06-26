@@ -245,7 +245,9 @@ public enum BuiltInCommandRegistry {
                     "app ? — this help"
                 ],
                 discoverPriority: 110,
-                isDiscoverable: true
+                isDiscoverable: true,
+                bareBehavior: .globalSearchShadow,
+                bareReservedPayloads: ["top", "?", "help"]
             ),
             CommandDefinition(
                 id: "projects",
@@ -299,7 +301,8 @@ public enum BuiltInCommandRegistry {
                     "translate <text> — same command",
                     "Open detail for language settings"
                 ],
-                discoverPriority: 30
+                discoverPriority: 30,
+                bareBehavior: .openDetail
             ),
             CommandDefinition(
                 id: "clipboard",
@@ -373,6 +376,7 @@ public enum BuiltInCommandRegistry {
                 sectionTitle: "SNIPPETS",
                 helpLines: [
                     "s — top snippets by frecency",
+                    "s new <title> — create snippet and open editor",
                     "s git — fuzzy search title/tags/content",
                     "Return — copy snippet",
                     "s ? — this help"
@@ -397,7 +401,8 @@ public enum BuiltInCommandRegistry {
                     "rec 三体 — search or partial capture",
                     "rec ? — this help"
                 ],
-                discoverPriority: 80
+                discoverPriority: 80,
+                bareBehavior: .openDetail
             ),
             CommandDefinition(
                 id: "secrets",
@@ -416,7 +421,8 @@ public enum BuiltInCommandRegistry {
                     "Return — copy secret (auto-clear pasteboard)",
                     "sec ? — this help"
                 ],
-                discoverPriority: 90
+                discoverPriority: 90,
+                bareBehavior: .openDetail
             ),
             CommandDefinition(
                 id: "wordbook",
@@ -430,12 +436,13 @@ public enum BuiltInCommandRegistry {
                 examples: ["word review"],
                 sectionTitle: "WORDBOOK",
                 helpLines: [
-                    "word — today's due words + start review",
+                    "word — open Wordbook in panel",
+                    "word review — start review session",
                     "word abandon — search term/meaning",
-                    "Start Review — opens review panel",
                     "word ? — this help"
                 ],
-                discoverPriority: 100
+                discoverPriority: 100,
+                bareBehavior: .openDetail
             ),
             CommandDefinition(
                 id: "settings",

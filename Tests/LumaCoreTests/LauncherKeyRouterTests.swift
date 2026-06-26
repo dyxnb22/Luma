@@ -12,6 +12,16 @@ import LumaCore
     #expect(outcome == .openActionPanel)
 }
 
+@Test func keyRouterDismissesActionPanelOnTabWhenVisible() {
+    let outcome = LauncherKeyRouter.route(
+        command: .tab,
+        mode: .results,
+        itemCount: 3,
+        actionPanelVisible: true
+    )
+    #expect(outcome == .dismissActionPanel)
+}
+
 @Test func keyRouterIgnoresTabInDetailMode() {
     let outcome = LauncherKeyRouter.route(
         command: .tab,
@@ -37,34 +47,46 @@ import LumaCore
     #expect(LauncherKeyRouter.resolveRun(item: item) == .expandOpenApps)
 }
 
-@Test func resolveRunDetectsContextualTodo() {
+@Test func resolveRunUsesOpenModuleDetailAction() {
+    let todo = ModuleIdentifier(rawValue: "luma.todo")
     let item = ResultItem(
-        id: ResultID(module: ModuleIdentifier(rawValue: "luma.todo"), key: "contextual.today"),
+        id: ResultID(module: todo, key: "contextual.today"),
         title: "Todos",
         titleAttributed: "Todos",
         icon: .none,
         primaryAction: Action(
-            id: ActionID(module: ModuleIdentifier(rawValue: "luma.todo"), key: "x"),
+            id: ActionID(module: todo, key: "open"),
             title: "Open",
-            kind: .noop
+            kind: .openModuleDetail(todo, payload: nil)
         ),
         rankingHints: RankingHints()
     )
-    #expect(LauncherKeyRouter.resolveRun(item: item) == .openTodoDetail)
+    #expect(LauncherKeyRouter.resolveRun(item: item) == .runItem(item))
 }
 
-@Test func resolveRunDetectsContextualRecords() {
-    let item = ResultItem(
-        id: ResultID(module: ModuleIdentifier(rawValue: "luma.media"), key: "contextual.records"),
-        title: "Continue Records",
-        titleAttributed: "Continue Records",
-        icon: .none,
-        primaryAction: Action(
-            id: ActionID(module: ModuleIdentifier(rawValue: "luma.media"), key: "contextual.open"),
-            title: "Open Records",
-            kind: .noop
-        ),
-        rankingHints: RankingHints()
+@Test func actionKeepsLauncherVisibleForInPanelIntents() {
+    let wordbook = ModuleIdentifier(rawValue: "luma.wordbook")
+    let openDetail = Action(
+        id: ActionID(module: wordbook, key: "open"),
+        title: "Open",
+        kind: .openModuleDetail(wordbook, payload: nil)
     )
-    #expect(LauncherKeyRouter.resolveRun(item: item) == .openRecordsDetail)
+    #expect(openDetail.keepsLauncherVisible)
+
+    let apps = ModuleIdentifier(rawValue: "luma.apps")
+    let launch = Action(
+        id: ActionID(module: apps, key: "launch"),
+        title: "Launch",
+        kind: .launchApp(URL(fileURLWithPath: "/Applications"))
+    )
+    #expect(!launch.keepsLauncherVisible)
+}
+
+@Test func replaceQueryActionKeepsLauncherVisible() {
+    let action = Action(
+        id: ActionID(module: .commandEntry, key: "replace"),
+        title: "Use apps",
+        kind: .replaceQuery("apps ")
+    )
+    #expect(action.keepsLauncherVisible)
 }

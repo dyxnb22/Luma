@@ -34,7 +34,9 @@ public struct CommandRouter: Sendable {
                 return .help(module: command.module)
             }
 
-            if command.id == "apps", !restTrimmed.isEmpty, !Self.isAppsSpecialPayload(restLower) {
+            if command.bareBehavior == .globalSearchShadow,
+               !restTrimmed.isEmpty,
+               !command.bareReservedPayloads.contains(where: { $0.caseInsensitiveCompare(restLower) == .orderedSame }) {
                 return .globalSearch(trimmed)
             }
 
@@ -54,9 +56,5 @@ public struct CommandRouter: Sendable {
         }
 
         return .globalSearch(trimmed)
-    }
-
-    private static func isAppsSpecialPayload(_ payload: String) -> Bool {
-        payload == "top" || payload == "?" || payload == "help"
     }
 }

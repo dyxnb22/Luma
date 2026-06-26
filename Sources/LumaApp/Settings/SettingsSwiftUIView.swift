@@ -430,7 +430,7 @@ struct WordbookSettingsView: View {
                         .lineLimit(2)
                 }
                 .onAppear {
-                    if let store = ModuleDetailRegistry.wordbookStore {
+                    if let store = LauncherEnvironment.current?.wordbookStore {
                         Task { let url = await store.databaseURL(); dbPath = url.path }
                     }
                 }
@@ -444,7 +444,7 @@ struct WordbookSettingsView: View {
                             .confirmationDialog("Reset today's progress?", isPresented: $resetConfirm) {
                                 Button("Reset", role: .destructive) {
                                     Task {
-                                        guard let store = ModuleDetailRegistry.wordbookStore else { return }
+                                        guard let store = LauncherEnvironment.current?.wordbookStore else { return }
                                         try? await store.resetTodayProgress()
                                         await MainActor.run { resetDone = true }
                                         try? await Task.sleep(for: .seconds(2))

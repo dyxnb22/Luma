@@ -47,4 +47,4 @@ Negative:
 
 - `LauncherListView` replaces `FeatureFlowView` + sidebar + dual scroll views.
 - `LauncherHomeAggregator` composes two providers on empty query only.
-- `FeatureCatalog.dashboardCoreCards()` may remain for detail header metadata until a later cleanup.
+- `FeatureCatalog.moduleDetailMetadata()` may remain for detail header chrome until fully inlined.

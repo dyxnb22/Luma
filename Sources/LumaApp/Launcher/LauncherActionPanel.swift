@@ -43,6 +43,7 @@ final class LauncherActionPanel: NSView {
     }
 
     var isVisible: Bool { !isHidden && alphaValue > 0.5 }
+    var actionCount: Int { actions.count }
 
     func present(item: ResultItem, relativeTo anchor: NSView) {
         self.item = item
@@ -82,6 +83,12 @@ final class LauncherActionPanel: NSView {
         dismiss()
     }
 
+    func activateIndex(_ index: Int) {
+        guard actions.indices.contains(index) else { return }
+        selectedIndex = index
+        activateSelection()
+    }
+
     func handleKeyDown(_ event: NSEvent) -> Bool {
         guard isVisible else { return false }
         switch event.keyCode {
@@ -89,6 +96,7 @@ final class LauncherActionPanel: NSView {
         case 126: moveSelection(delta: -1); return true
         case 36: activateSelection(); return true
         case 53: dismiss(); return true
+        case 48: dismiss(); return true
         default: return false
         }
     }
@@ -123,9 +131,19 @@ final class LauncherActionPanel: NSView {
         label.textColor = .labelColor
         label.translatesAutoresizingMaskIntoConstraints = false
         container.addSubview(label)
+
+        let shortcut = NSTextField(labelWithString: index < 9 ? "⌘\(index + 1)" : "")
+        shortcut.font = .systemFont(ofSize: 11, weight: .medium)
+        shortcut.textColor = .tertiaryLabelColor
+        shortcut.translatesAutoresizingMaskIntoConstraints = false
+        container.addSubview(shortcut)
+
         NSLayoutConstraint.activate([
             label.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 4),
-            label.centerYAnchor.constraint(equalTo: container.centerYAnchor)
+            label.centerYAnchor.constraint(equalTo: container.centerYAnchor),
+            shortcut.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -4),
+            shortcut.centerYAnchor.constraint(equalTo: container.centerYAnchor),
+            label.trailingAnchor.constraint(lessThanOrEqualTo: shortcut.leadingAnchor, constant: -8)
         ])
         return container
     }

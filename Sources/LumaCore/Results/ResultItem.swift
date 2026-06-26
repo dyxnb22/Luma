@@ -22,6 +22,15 @@ public enum ResultListNest: Sendable, Hashable, Codable {
     case child(isLast: Bool)
 }
 
+public enum ResultRowKind: Sendable, Hashable, Codable {
+    /// Return runs a side effect or opens detail.
+    case actionable
+    /// Starter row that advances into module detail or a sub-flow.
+    case starter
+    /// Status or help text; Return does not dismiss the launcher.
+    case informational
+}
+
 public struct ResultItem: Identifiable, Sendable, Hashable {
     public let id: ResultID
     public let title: String
@@ -33,6 +42,7 @@ public struct ResultItem: Identifiable, Sendable, Hashable {
     public var rankingHints: RankingHints
     public var displayDensity: ResultDisplayDensity
     public var listNest: ResultListNest
+    public var rowKind: ResultRowKind
 
     public init(
         id: ResultID,
@@ -44,7 +54,8 @@ public struct ResultItem: Identifiable, Sendable, Hashable {
         secondaryActions: [Action] = [],
         rankingHints: RankingHints,
         displayDensity: ResultDisplayDensity = .regular,
-        listNest: ResultListNest = .none
+        listNest: ResultListNest = .none,
+        rowKind: ResultRowKind = .actionable
     ) {
         self.id = id
         self.title = title
@@ -56,6 +67,7 @@ public struct ResultItem: Identifiable, Sendable, Hashable {
         self.rankingHints = rankingHints
         self.displayDensity = displayDensity
         self.listNest = listNest
+        self.rowKind = rowKind
     }
 }
 

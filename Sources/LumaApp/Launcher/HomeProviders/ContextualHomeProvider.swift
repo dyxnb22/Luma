@@ -5,6 +5,52 @@ import LumaCore
 import LumaModules
 import LumaServices
 
+actor ContextualSelectionCache {
+    static let shared = ContextualSelectionCache()
+
+    private var cachedText: String?
+    private var cachedAt: Date?
+    private var refreshInFlight = false
+    private let ttl: TimeInterval = 1.5
+
+    func snapshot() -> String? {
+        if let cachedAt, Date().timeIntervalSince(cachedAt) < ttl {
+            return cachedText
+        }
+        return nil
+    }
+
+    func refreshIfNeeded() {
+        if let cachedAt, Date().timeIntervalSince(cachedAt) < ttl { return }
+        if refreshInFlight { return }
+        refreshInFlight = true
+        Task { [weak self] in
+            let text = await MainActor.run { Self.readSelectedText() }
+            await self?.store(text)
+        }
+    }
+
+    private func store(_ text: String?) {
+        cachedText = text
+        cachedAt = Date()
+        refreshInFlight = false
+    }
+
+    @MainActor
+    private static func readSelectedText() -> String? {
+        guard AXService.isProcessTrusted(),
+              let app = NSWorkspace.shared.frontmostApplication else { return nil }
+        let appElement = AXUIElementCreateApplication(app.processIdentifier)
+        var focused: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(appElement, kAXFocusedUIElementAttribute as CFString, &focused) == .success,
+              let element = focused else { return nil }
+        var value: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(element as! AXUIElement, kAXSelectedTextAttribute as CFString, &value) == .success,
+              let text = value as? String else { return nil }
+        return text
+    }
+}
+
 struct ContextualHomeProvider: LauncherHomeProvider {
     private let todoModule: TodoModule?
     private let mediaModule: MediaModule?
@@ -16,8 +62,9 @@ struct ContextualHomeProvider: LauncherHomeProvider {
 
     func items() async -> [ResultItem] {
         var suggestions: [ResultItem] = []
+        await ContextualSelectionCache.shared.refreshIfNeeded()
 
-        if let text = await MainActor.run(body: { Self.selectedText() }),
+        if let text = await ContextualSelectionCache.shared.snapshot(),
            !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
            TranslationUserMessages.shouldTranslate(text) {
             suggestions.append(translateSelectedRow(text: text))
@@ -60,10 +107,8 @@ struct ContextualHomeProvider: LauncherHomeProvider {
     }
 
     private func clipboardRow() async -> ResultItem? {
-        let value = await MainActor.run {
-            NSPasteboard.general.string(forType: .string)
-        }
-        guard let value, !value.isEmpty else { return nil }
+        guard let value = await ClipboardPasteboardCache.shared.snapshot(),
+              !value.isEmpty else { return nil }
         let preview = String(value.prefix(48))
         return ResultItem(
             id: ResultID(module: .clipboard, key: "contextual.clipboard"),
@@ -74,9 +119,10 @@ struct ContextualHomeProvider: LauncherHomeProvider {
             primaryAction: Action(
                 id: ActionID(module: .clipboard, key: "contextual.open"),
                 title: "Open Clipboard",
-                kind: .custom(payload: Data(), handler: .clipboard)
+                kind: .openModuleDetail(.clipboard, payload: nil)
             ),
-            rankingHints: RankingHints(basePriority: 80)
+            rankingHints: RankingHints(basePriority: 80),
+            rowKind: .starter
         )
     }
 
@@ -94,9 +140,10 @@ struct ContextualHomeProvider: LauncherHomeProvider {
             primaryAction: Action(
                 id: ActionID(module: .media, key: "contextual.open"),
                 title: "Open Records",
-                kind: .noop
+                kind: .openModuleDetail(.media, payload: nil)
             ),
-            rankingHints: RankingHints(basePriority: 75)
+            rankingHints: RankingHints(basePriority: 75),
+            rowKind: .starter
         )
     }
 
@@ -118,23 +165,10 @@ struct ContextualHomeProvider: LauncherHomeProvider {
             primaryAction: Action(
                 id: ActionID(module: .todo, key: "contextual.open"),
                 title: "Open Todo",
-                kind: .noop
+                kind: .openModuleDetail(.todo, payload: nil)
             ),
-            rankingHints: RankingHints(basePriority: 70)
+            rankingHints: RankingHints(basePriority: 70),
+            rowKind: .starter
         )
-    }
-
-    @MainActor
-    private static func selectedText() -> String? {
-        guard AXService.isProcessTrusted(),
-              let app = NSWorkspace.shared.frontmostApplication else { return nil }
-        let appElement = AXUIElementCreateApplication(app.processIdentifier)
-        var focused: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(appElement, kAXFocusedUIElementAttribute as CFString, &focused) == .success,
-              let element = focused else { return nil }
-        var value: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(element as! AXUIElement, kAXSelectedTextAttribute as CFString, &value) == .success,
-              let text = value as? String else { return nil }
-        return text
     }
 }

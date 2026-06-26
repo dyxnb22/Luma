@@ -1,6 +1,6 @@
 import AppKit
 
-/// Centralized visual tokens for dashboard cards and launcher chrome.
+/// Centralized visual tokens for module detail chrome and launcher list UI.
 @MainActor
 public enum ColorTokens {
     public static var cardGradientTopAlpha: CGFloat {

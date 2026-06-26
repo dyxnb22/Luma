@@ -18,7 +18,8 @@ public enum ModuleHelp {
                     title: "Help",
                     kind: .noop
                 ),
-                rankingHints: RankingHints(basePriority: 0)
+                rankingHints: RankingHints(basePriority: 0),
+                rowKind: .informational
             )
         }
     }

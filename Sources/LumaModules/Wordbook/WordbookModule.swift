@@ -52,39 +52,23 @@ public actor WordbookModule: LumaModule {
         let searchText = payload
 
         if searchText.compare("review", options: .caseInsensitive) == .orderedSame {
-            return await reviewLandingResult()
+            return ModuleResult(items: [])
         }
 
-        if !searchText.isEmpty, let matches = try? await store.search(searchText, limit: 10), !matches.isEmpty {
+        if searchText.isEmpty {
+            let due = await cachedDueList()
+            return ModuleResult(items: due.map(wordResult))
+        }
+
+        if let matches = try? await store.search(searchText, limit: 10), !matches.isEmpty {
             return ModuleResult(items: matches.map(wordResult))
         }
 
-        return await reviewLandingResult()
-    }
-
-    private func reviewLandingResult() async -> ModuleResult {
-        let due = await cachedDueList()
-        if !due.isEmpty {
-            var items = [reviewStarterRow(dueCount: due.count)]
-            items.append(contentsOf: due.map(wordResult))
-            return ModuleResult(items: items)
-        }
-
-        let count = (try? await store.count()) ?? 0
-        return ModuleResult(items: [reviewStarterRow(dueCount: 0, total: count)])
+        return ModuleResult(items: [])
     }
 
     public func perform(_ action: Action, context: ActionContext) async throws {
-        guard case .custom(let payload, let handler) = action.kind, handler == Self.manifest.identifier else {
-            throw ModuleError.unsupportedAction(action.id)
-        }
-        let decoded = try ModuleActionCoding.decode(WordbookAction.self, from: payload)
-        switch decoded {
-        case .review:
-            await MainActor.run {
-                LauncherCallbackRegistry.current?.openModuleDetail(.wordbook)
-            }
-        }
+        throw ModuleError.unsupportedAction(action.id)
     }
 
     public func invalidateDueCache() async {
@@ -110,33 +94,6 @@ public actor WordbookModule: LumaModule {
         cachedDue = due
         cachedDueAt = now
         return due
-    }
-
-    private func reviewStarterRow(dueCount: Int, total: Int? = nil) -> ResultItem {
-        let id = ResultID(module: Self.manifest.identifier, key: "review")
-        let title = dueCount > 0 ? "Start Review · \(dueCount) due" : "Wordbook"
-        let subtitle: String
-        if dueCount > 0 {
-            subtitle = "Start review in panel"
-        } else if let total {
-            subtitle = "\(total) words · nothing due today"
-        } else {
-            subtitle = "No due words"
-        }
-        let payload = (try? ModuleActionCoding.encode(WordbookAction.review)) ?? Data()
-        return ResultItem(
-            id: id,
-            title: title,
-            titleAttributed: AttributedString(title),
-            subtitle: subtitle,
-            icon: .symbol("text.book.closed.fill"),
-            primaryAction: Action(
-                id: ActionID(module: Self.manifest.identifier, key: "review"),
-                title: "Start Review",
-                kind: .custom(payload: payload, handler: Self.manifest.identifier)
-            ),
-            rankingHints: RankingHints(basePriority: Self.manifest.priority)
-        )
     }
 
     private func wordResult(_ word: WordEntry) -> ResultItem {

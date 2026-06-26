@@ -74,21 +74,8 @@ public actor MediaModule: LumaModule {
         let decoded = try ModuleActionCoding.decode(MediaAction.self, from: payload)
 
         switch decoded {
-        case .openDetail:
-            await MainActor.run { LauncherCallbackRegistry.current?.openModuleDetail(.media) }
-        case .edit(let id):
-            guard let item = cachedItems.first(where: { $0.id == id }) else {
-                throw ModuleError.dataUnavailable
-            }
-            await MainActor.run {
-                LauncherSharedState.pendingMediaEditorDraft = MediaEditorDraft(item: item)
-                LauncherCallbackRegistry.current?.openModuleDetail(.media)
-            }
-        case .editDraft(let draft):
-            await MainActor.run {
-                LauncherSharedState.pendingMediaEditorDraft = draft
-                LauncherCallbackRegistry.current?.openModuleDetail(.media)
-            }
+        case .openDetail, .edit, .editDraft:
+            break
         case .capture(let draft):
             _ = try await store.add(from: draft)
             await refreshCache()
@@ -188,30 +175,11 @@ public actor MediaModule: LumaModule {
     }
 
     private func emptyQueryResult() async -> ModuleResult {
-        var items: [ResultItem] = [manageLogResult()]
         let recent = MediaIndex.recent(cachedItems, limit: 8)
-        items.append(contentsOf: recent.map { itemResult($0) })
-        if items.count == 1 {
-            let count = cachedItems.count
-            let subtitle = count == 0 ? "No items logged yet" : "\(count) items · type `rec log` to manage"
-            let payload = (try? ModuleActionCoding.encode(MediaAction.openDetail)) ?? Data()
-            return ModuleResult(items: [
-                ResultItem(
-                    id: ResultID(module: Self.manifest.identifier, key: "empty"),
-                    title: "Records",
-                    titleAttributed: AttributedString("Records"),
-                    subtitle: subtitle,
-                    icon: .symbol("books.vertical"),
-                    primaryAction: Action(
-                        id: ActionID(module: Self.manifest.identifier, key: "open-detail"),
-                        title: "Open Records",
-                        kind: .custom(payload: payload, handler: Self.manifest.identifier)
-                    ),
-                    rankingHints: RankingHints(basePriority: Self.manifest.priority)
-                )
-            ])
+        guard !recent.isEmpty else {
+            return ModuleResult(items: [])
         }
-        return ModuleResult(items: items)
+        return ModuleResult(items: recent.map { itemResult($0) })
     }
 
     private func manageLogResult() -> ResultItem {
@@ -225,9 +193,10 @@ public actor MediaModule: LumaModule {
             primaryAction: Action(
                 id: ActionID(module: Self.manifest.identifier, key: "open-detail"),
                 title: "Open Records",
-                kind: .custom(payload: payload, handler: Self.manifest.identifier)
+                kind: .openModuleDetail(Self.manifest.identifier, payload: payload)
             ),
-            rankingHints: RankingHints(basePriority: Self.manifest.priority + 1)
+            rankingHints: RankingHints(basePriority: Self.manifest.priority + 1),
+            rowKind: .starter
         )
     }
 
@@ -266,13 +235,11 @@ public actor MediaModule: LumaModule {
                 )
             )
         } else {
+            let draftPayload = (try? ModuleActionCoding.encode(MediaAction.editDraft(draft))) ?? Data()
             primary = Action(
                 id: ActionID(module: Self.manifest.identifier, key: "edit-draft"),
                 title: "Complete Entry",
-                kind: .custom(
-                    payload: (try? ModuleActionCoding.encode(MediaAction.editDraft(draft))) ?? Data(),
-                    handler: Self.manifest.identifier
-                )
+                kind: .openModuleDetail(Self.manifest.identifier, payload: draftPayload)
             )
         }
 
@@ -293,6 +260,7 @@ public actor MediaModule: LumaModule {
         var subtitleParts = [item.category.displayName, item.status.verb(for: item.category)]
         if let rating = item.rating { subtitleParts.append("★\(rating)") }
         subtitleParts.append(contentsOf: item.tags.map { "#\($0)" })
+        let editPayload = (try? ModuleActionCoding.encode(MediaAction.editDraft(MediaEditorDraft(item: item)))) ?? Data()
         return ResultItem(
             id: id,
             title: item.title,
@@ -302,10 +270,7 @@ public actor MediaModule: LumaModule {
             primaryAction: Action(
                 id: ActionID(module: Self.manifest.identifier, key: "edit.\(item.id.uuidString)"),
                 title: "Edit Item",
-                kind: .custom(
-                    payload: (try? ModuleActionCoding.encode(MediaAction.edit(id: item.id))) ?? Data(),
-                    handler: Self.manifest.identifier
-                )
+                kind: .openModuleDetail(Self.manifest.identifier, payload: editPayload)
             ),
             secondaryActions: [
                 Action(

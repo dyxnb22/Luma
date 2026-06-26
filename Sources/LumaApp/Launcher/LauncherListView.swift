@@ -12,6 +12,7 @@ final class LauncherListView: NSView {
 
     var onRun: ((ResultItem) -> Void)?
     var onRightClick: ((ResultItem) -> Void)?
+    var onSelectionChanged: ((Int) -> Void)?
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -79,6 +80,7 @@ final class LauncherListView: NSView {
         selectedFlatIndex = clamped
         updateRowHighlight(oldFlatIndex: oldIndex, newFlatIndex: clamped)
         scrollToSelected()
+        onSelectionChanged?(clamped)
     }
 
     private func apply(rows newRows: [LauncherListRows.Row], preserveSelection: Bool) {
@@ -121,7 +123,8 @@ final class LauncherListView: NSView {
                 moduleLabel: LauncherModuleLabel.shortName(for: item.id.module),
                 isSelected: flatIndex == selectedFlatIndex,
                 onRun: { [weak self] item in self?.onRun?(item) },
-                onRightClick: { [weak self] item in self?.onRightClick?(item) }
+                onRightClick: { [weak self] item in self?.onRightClick?(item) },
+                onHover: { [weak self] in self?.updateSelection(to: flatIndex) }
             )
             return listRow
         case .placeholder(let text):

@@ -38,7 +38,7 @@ import LumaCore
     let review = ReviewScheduler.schedule(familiarity: .known, currentStage: 0, wrongCount: 0)
     #expect(review.stage == 1)
 
-    let cards = FeatureCatalog.dashboardCoreCards()
+    let cards = FeatureCatalog.moduleDetailMetadata()
     #expect(cards.count >= 6)
     #expect(Set(cards.map(\.position)).count == cards.count)
 }

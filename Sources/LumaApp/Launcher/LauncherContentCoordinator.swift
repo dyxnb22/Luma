@@ -23,6 +23,7 @@ final class LauncherContentCoordinator {
     var onHomeSessionSaved: (() -> Void)?
     var onRun: ((ResultItem) -> Void)?
     var onRightClick: ((ResultItem) -> Void)?
+    var onSelectionChanged: (() -> Void)?
 
     init(
         listView: LauncherListView,
@@ -38,6 +39,12 @@ final class LauncherContentCoordinator {
         self.contentContainer = contentContainer
         listView.onRun = { [weak self] item in self?.onRun?(item) }
         listView.onRightClick = { [weak self] item in self?.onRightClick?(item) }
+        listView.onSelectionChanged = { [weak self] index in
+            guard let self else { return }
+            self.selectedIndex = index
+            self.currentItems = self.listView.currentItems
+            self.onSelectionChanged?()
+        }
     }
 
     func tearDownDetailIfNeeded() {

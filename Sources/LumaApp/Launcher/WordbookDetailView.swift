@@ -74,6 +74,11 @@ final class WordbookDetailView: ModuleDetailView {
     }
 
     func activate() {
+        if LauncherSharedState.pendingWordbookAutoStartReview {
+            LauncherSharedState.pendingWordbookAutoStartReview = false
+            startSession(newWordsOnly: false)
+            return
+        }
         switch subState {
         case .home:
             refreshHome()

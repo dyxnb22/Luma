@@ -47,7 +47,7 @@ flowchart TD
 | Window Layouts | yes | `layout` / `win` / `wl` | requires Accessibility; command-only |
 | Projects | yes | `proj` / `p` / `project` | config + warmup index; no per-query disk scan |
 
-`FeatureCatalog.dashboardCoreCards()` remains for detail-header metadata only under Route C; it is not the home-screen entry model.
+`FeatureCatalog.moduleDetailMetadata()` supplies detail-header chrome only under Route C; it is not the home-screen entry model.
 
 ### Deferred (source retained, excluded from `makeAll()`)
 
@@ -84,7 +84,7 @@ flowchart TD
 3. Tab / ⌘K opens `LauncherActionPanel` for primary and secondary actions.
 4. Module detail entry: trigger keyword → result row → Return (or contextual suggestion).
 5. Some command-style modules, including Wordbook, first surface a starter row whose primary action opens in-panel detail.
-6. `FeatureCatalog.dashboardCoreCards()` remains for detail header metadata only.
+6. `FeatureCatalog.moduleDetailMetadata()` supplies detail header chrome only.
 
 ## Boundary Rules
 

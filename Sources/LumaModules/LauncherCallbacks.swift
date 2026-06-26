@@ -54,4 +54,5 @@ public enum LauncherCallbackRegistry {
 @MainActor
 public enum LauncherSharedState {
     public static var pendingMediaEditorDraft: MediaEditorDraft?
+    public static var pendingWordbookAutoStartReview = false
 }

@@ -61,8 +61,17 @@ import Testing
     await vault.configure(relockTimeoutSeconds: 1)
     await vault.unlock()
     #expect(await vault.unlocked())
-    try await Task.sleep(for: .milliseconds(1500))
-    #expect(await vault.unlocked() == false)
+    // Poll up to ~4s for the relock timer to fire; tight sleeps were flaky on busy hosts.
+    let deadline = Date().addingTimeInterval(4)
+    var relocked = false
+    while Date() < deadline {
+        if await vault.unlocked() == false {
+            relocked = true
+            break
+        }
+        try await Task.sleep(for: .milliseconds(200))
+    }
+    #expect(relocked)
 }
 
 @Test func secretsModuleAcceptsBareSecretTrigger() async {

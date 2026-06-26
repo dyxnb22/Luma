@@ -1,5 +1,14 @@
 import Foundation
 
+public enum CommandBareBehavior: Sendable, Equatable {
+  /// Bare trigger shows module rows; Return follows the selected row.
+  case browse
+  /// Bare trigger + Return opens module detail in-panel (empty payload).
+  case openDetail
+  /// Non-empty payload falls through to global search unless reserved.
+  case globalSearchShadow
+}
+
 public struct CommandDefinition: Sendable, Equatable {
     public let id: String
     public let module: ModuleIdentifier
@@ -14,6 +23,9 @@ public struct CommandDefinition: Sendable, Equatable {
     public let helpLines: [String]
     public let discoverPriority: Int
     public let isDiscoverable: Bool
+    public let bareBehavior: CommandBareBehavior
+    /// Payloads that stay targeted when `bareBehavior` is `globalSearchShadow` (e.g. app top).
+    public let bareReservedPayloads: [String]
 
     public init(
         id: String,
@@ -28,7 +40,9 @@ public struct CommandDefinition: Sendable, Equatable {
         sectionTitle: String? = nil,
         helpLines: [String] = [],
         discoverPriority: Int = 100,
-        isDiscoverable: Bool = true
+        isDiscoverable: Bool = true,
+        bareBehavior: CommandBareBehavior = .browse,
+        bareReservedPayloads: [String] = []
     ) {
         self.id = id
         self.module = module
@@ -43,6 +57,8 @@ public struct CommandDefinition: Sendable, Equatable {
         self.helpLines = helpLines
         self.discoverPriority = discoverPriority
         self.isDiscoverable = isDiscoverable
+        self.bareBehavior = bareBehavior
+        self.bareReservedPayloads = bareReservedPayloads
     }
 
     public var allTriggers: [String] {

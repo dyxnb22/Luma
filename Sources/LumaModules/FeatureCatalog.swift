@@ -1,7 +1,8 @@
 import LumaCore
 
 public enum FeatureCatalog {
-    public static func dashboardCoreCards() -> [FeatureCard] {
+    /// Visual metadata (gradients, triggers) for in-panel module detail headers under Route C.
+    public static func moduleDetailMetadata() -> [FeatureCard] {
         [
             FeatureCard(
                 id: .translate,
@@ -62,10 +63,15 @@ public enum FeatureCatalog {
                 title: "Secrets",
                 subtitle: "Developer vault",
                 icon: .symbol("lock.shield.fill"),
-                triggerKeyword: "secret ",
+                triggerKeyword: "sec ",
                 position: CardPosition(column: 2, row: 1),
                 widgetStyle: WidgetCardStyle(symbolName: "lock.shield.fill", topHex: "#FFD60A", bottomHex: "#FF9F0A")
             )
         ]
+    }
+
+    @available(*, deprecated, renamed: "moduleDetailMetadata()")
+    public static func dashboardCoreCards() -> [FeatureCard] {
+        moduleDetailMetadata()
     }
 }

@@ -18,13 +18,12 @@ public enum LauncherKeyRouter {
     public enum Outcome: Equatable {
         case handled
         case openActionPanel
+        case dismissActionPanel
         case moveSelection(delta: Int)
         case jumpToFlatIndex(Int)
         case runItem(ResultItem)
         case expandOpenApps
-        case openTodoDetail
-        case openClipboardDetail
-        case openRecordsDetail
+        case toggleOpenAppWindows(String)
         case passthrough
     }
 
@@ -35,7 +34,7 @@ public enum LauncherKeyRouter {
         actionPanelVisible: Bool
     ) -> Outcome {
         if actionPanelVisible, case .tab = command {
-            return .handled
+            return .dismissActionPanel
         }
 
         switch command {
@@ -59,14 +58,9 @@ public enum LauncherKeyRouter {
         if item.id.key == "openApps.more" || item.primaryAction.id.key == "openApps.expand" {
             return .expandOpenApps
         }
-        if item.id.module.rawValue == "luma.todo", item.id.key.hasPrefix("contextual") {
-            return .openTodoDetail
-        }
-        if item.id.module.rawValue == "luma.clipboard", item.id.key.hasPrefix("contextual") {
-            return .openClipboardDetail
-        }
-        if item.id.module.rawValue == "luma.media", item.id.key.hasPrefix("contextual") {
-            return .openRecordsDetail
+        if item.id.key.hasPrefix(OpenAppsResultBuilder.toggleWindowsKeyPrefix) {
+            let bundleID = String(item.id.key.dropFirst(OpenAppsResultBuilder.toggleWindowsKeyPrefix.count))
+            return .toggleOpenAppWindows(bundleID)
         }
         return .runItem(item)
     }

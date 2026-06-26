@@ -7,7 +7,10 @@ final class CommandHintBar: NSView {
     private let formatLine = CommandHintBar.makeLine(mono: true)
     private let descriptionLine = CommandHintBar.makeLine(mono: false)
     private let exampleLine = CommandHintBar.makeLine(mono: true)
+    private let returnLine = CommandHintBar.makeLine(mono: true)
+    private let statusLine = CommandHintBar.makeLine(mono: false)
     private var heightConstraint: NSLayoutConstraint!
+    private var statusDismissTask: Task<Void, Never>?
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -20,7 +23,13 @@ final class CommandHintBar: NSView {
         stack.addArrangedSubview(formatLine)
         stack.addArrangedSubview(descriptionLine)
         stack.addArrangedSubview(exampleLine)
+        stack.addArrangedSubview(returnLine)
+        stack.addArrangedSubview(statusLine)
         addSubview(stack)
+
+        returnLine.isHidden = true
+        statusLine.isHidden = true
+        statusLine.textColor = .secondaryLabelColor
 
         heightConstraint = heightAnchor.constraint(equalToConstant: 0)
         heightConstraint.isActive = true
@@ -39,12 +48,15 @@ final class CommandHintBar: NSView {
     }
 
     func apply(_ hint: CommandHint?) {
+        statusDismissTask?.cancel()
+        statusLine.isHidden = true
         guard let hint else {
-            heightConstraint.constant = 0
-            isHidden = true
+            collapse()
             formatLine.stringValue = ""
             descriptionLine.stringValue = ""
             exampleLine.stringValue = ""
+            returnLine.stringValue = ""
+            returnLine.isHidden = true
             return
         }
 
@@ -59,6 +71,37 @@ final class CommandHintBar: NSView {
             exampleLine.stringValue = ""
             exampleLine.isHidden = true
         }
+    }
+
+    func setReturnAction(_ text: String?) {
+        guard let text, !text.isEmpty else {
+            returnLine.stringValue = ""
+            returnLine.isHidden = true
+            return
+        }
+        returnLine.stringValue = "Return: \(text)"
+        returnLine.isHidden = false
+    }
+
+    func showStatus(_ message: String, duration: TimeInterval = 1.6) {
+        statusDismissTask?.cancel()
+        statusLine.stringValue = message
+        statusLine.isHidden = false
+        isHidden = false
+        heightConstraint.constant = LauncherChromeTokens.commandHintHeight
+        statusDismissTask = Task {
+            try? await Task.sleep(for: .seconds(duration))
+            guard !Task.isCancelled else { return }
+            await MainActor.run {
+                self.statusLine.isHidden = true
+                self.statusLine.stringValue = ""
+            }
+        }
+    }
+
+    private func collapse() {
+        heightConstraint.constant = 0
+        isHidden = true
     }
 
     private static func makeLine(mono: Bool) -> NSTextField {

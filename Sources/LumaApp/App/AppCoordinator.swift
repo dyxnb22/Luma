@@ -88,17 +88,6 @@ final class AppCoordinator {
                 self?.windowController.setLatencyHUDEnabled(enabled)
             }
         )
-        windowController.configure(
-            viewModel: viewModel,
-            homeCoordinator: homeCoordinator,
-            actionExecutor: actionExecutor,
-            config: config,
-            onOpenSettings: { [weak self] in
-                // Hide the launcher first so the settings window isn't behind the .modalPanel
-                self?.windowController.hideImmediatelyForAction()
-                self?.settingsWindowController?.show()
-            }
-        )
         activationObserver = NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.didActivateApplicationNotification,
             object: nil,
@@ -208,8 +197,19 @@ final class AppCoordinator {
             translation: translation,
             config: config
         )
-        launcherEnv.applyToModuleDetailRegistry()
-        launcherEnv.installCallbacks()
+        launcherEnv.install()
+
+        windowController.configure(
+            viewModel: viewModel,
+            homeCoordinator: homeCoordinator,
+            actionExecutor: actionExecutor,
+            config: config,
+            launcherEnvironment: launcherEnv,
+            onOpenSettings: { [weak self] in
+                self?.windowController.hideImmediatelyForAction()
+                self?.settingsWindowController?.show()
+            }
+        )
 
         Task {
             let modules = BuiltInModules.makeAll(overrides: .init(

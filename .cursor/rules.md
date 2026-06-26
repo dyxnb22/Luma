@@ -58,7 +58,7 @@ Recent command-first modules to mirror when adding features:
 - **Window Layouts** (`layout` / `win` / `wl`) — prefix-only trigger, in-memory command catalog, Accessibility required.
 - **Projects** (`proj` / `p` / `project`) — `~/Library/Application Support/Luma/projects.json`, warmup index + shallow root scan, no per-keystroke filesystem scan.
 
-`FeatureCatalog.dashboardCoreCards()` is legacy metadata for detail headers; it is not the home-screen entry model under Route C.
+`FeatureCatalog.moduleDetailMetadata()` supplies detail-header chrome; it is not the home-screen entry model under Route C.
 
 ## Architecture Boundaries
 

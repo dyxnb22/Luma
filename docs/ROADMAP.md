@@ -63,22 +63,16 @@ Reference: `docs/adr/015-app-search-fuzzy-pinyin.md`, `docs/adr/016-wordbook-dai
 
 ## Snippets + Secrets v0.1 (ADR-010)
 
-- Snippets: local plaintext cheatsheet library. Trigger `s `. Dashboard green card.
-- Secrets: Keychain developer-credential vault. Trigger `secret `. Dashboard gold card. Auto-clear pasteboard + idle re-lock.
+- Snippets: local plaintext cheatsheet library. Trigger `s ` / `s new <title>`.
+- Secrets: Keychain developer-credential vault. Trigger `sec `. Auto-clear pasteboard + idle re-lock.
 
 Reference: `docs/adr/010-snippets-secrets.md`, `docs/strategy/SNIPPETS_SECRETS_PLAN.md`
 
 ## Records v0.1 (ADR-011)
 
 - Lightweight local-only log for movies / TV / anime / games / books. Trigger `rec ` (legacy `m ` / `media ` still accepted).
-- Trigger-only: no dashboard card. Detail view via `rec log` or manage row.
-
-Reference: `docs/adr/011-media-tracker.md`, `docs/strategy/MEDIA_TRACKER_PLAN.md`
-- Trigger-only — no dashboard card (8-slot ceiling preserved).
-- One-line capture DSL (`m Oppenheimer movie 9`). Same-panel detail view for browse/edit. CSV export.
-- No social features, no metadata fetch, no posters, no episode-level tracking, no streaming integration.
-
-Reference: `docs/strategy/MEDIA_TRACKER_PLAN.md`
+- Command-first: bare `rec` opens Records detail; `rec log` opens full logbook. Same-panel detail for browse/edit. CSV export.
+- One-line capture DSL (`rec Oppenheimer movie 9`). No social features, no metadata fetch.
 
 ## Notes v0.1 (ADR-008)
 

@@ -32,6 +32,13 @@ public actor SnippetsModule: LumaModule {
             return ModuleResult(items: ModuleHelp.results(for: Self.manifest.identifier))
         }
 
+        let lower = payload.lowercased()
+        if lower.hasPrefix("new ") {
+            let title = String(payload.dropFirst(4)).trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !title.isEmpty else { return ModuleResult(items: []) }
+            return ModuleResult(items: [createRow(title: title)])
+        }
+
         let searchText = payload
 
         let matches = SnippetIndex.search(cachedSnippets, query: searchText, limit: 8)
@@ -70,6 +77,8 @@ public actor SnippetsModule: LumaModule {
             if AXService.isProcessTrusted() {
                 await context.accessibility.insert(text: snippet.content)
             }
+        case .create:
+            break
         }
     }
 
@@ -113,20 +122,38 @@ public actor SnippetsModule: LumaModule {
         cachedSnippets = await store.all()
     }
 
+    private func createRow(title: String) -> ResultItem {
+        let payload = (try? ModuleActionCoding.encode(SnippetsAction.create(title: title))) ?? Data()
+        return ResultItem(
+            id: ResultID(module: Self.manifest.identifier, key: "create.\(title)"),
+            title: "Create Snippet",
+            titleAttributed: AttributedString("Create Snippet"),
+            subtitle: title,
+            icon: .symbol("plus.circle"),
+            primaryAction: Action(
+                id: ActionID(module: Self.manifest.identifier, key: "create"),
+                title: "Create & Open",
+                kind: .openModuleDetail(Self.manifest.identifier, payload: payload)
+            ),
+            rankingHints: RankingHints(basePriority: Self.manifest.priority + 2)
+        )
+    }
+
     private func emptyLibraryResult() -> ResultItem {
         let id = ResultID(module: Self.manifest.identifier, key: "empty")
         return ResultItem(
             id: id,
             title: "Snippets",
             titleAttributed: AttributedString("Snippets"),
-            subtitle: "No snippets yet — open the dashboard card to add one",
+            subtitle: "No snippets yet — open Snippets to add one",
             icon: .symbol("text.cursor"),
             primaryAction: Action(
-                id: ActionID(module: Self.manifest.identifier, key: "noop"),
-                title: "Snippets",
-                kind: .noop
+                id: ActionID(module: Self.manifest.identifier, key: "open-detail"),
+                title: "Open Snippets",
+                kind: .openModuleDetail(Self.manifest.identifier, payload: nil)
             ),
-            rankingHints: RankingHints(basePriority: Self.manifest.priority)
+            rankingHints: RankingHints(basePriority: Self.manifest.priority),
+            rowKind: .starter
         )
     }
 

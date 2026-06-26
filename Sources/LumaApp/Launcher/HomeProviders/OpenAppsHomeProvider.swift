@@ -13,14 +13,45 @@ private struct AppRuntimeSnapshot: Sendable {
 }
 
 actor OpenAppsHomeProvider: LauncherHomeProvider {
+    static let defaultAppLimit = 8
+
     private let appActivationTracker: AppActivationTracker
+    private var cachedSnapshots: [AppRuntimeSnapshot] = []
+    private var appLimit: Int? = defaultAppLimit
+    private var expandedBundleIDs = Set<String>()
+    private var refreshTask: Task<Void, Never>?
+    private var isActive = false
 
     init(appActivationTracker: AppActivationTracker) {
         self.appActivationTracker = appActivationTracker
     }
 
+    func setActive(_ active: Bool) {
+        guard isActive != active else { return }
+        isActive = active
+        if active {
+            refreshTask?.cancel()
+            refreshTask = Task { [weak self] in await self?.refreshLoop() }
+        } else {
+            refreshTask?.cancel()
+            refreshTask = nil
+        }
+    }
+
+    func configure(appLimit: Int?, expandedBundleIDs: Set<String>) {
+        self.appLimit = appLimit
+        self.expandedBundleIDs = expandedBundleIDs
+    }
+
+    func invalidateCache() {
+        Task { [weak self] in await self?.refreshOnce() }
+    }
+
     func items() async -> [ResultItem] {
-        let snapshots = await MainActor.run { Self.collectRunningApps() }
+        if cachedSnapshots.isEmpty {
+            await refreshOnce()
+        }
+        let snapshots = cachedSnapshots
         guard !snapshots.isEmpty else { return [] }
 
         let bundleIDs = snapshots.map(\.bundleID)
@@ -28,20 +59,42 @@ actor OpenAppsHomeProvider: LauncherHomeProvider {
         let byID = Dictionary(uniqueKeysWithValues: snapshots.map { ($0.bundleID, $0) })
         let ordered = rankedIDs.compactMap { byID[$0] }
 
+        let limit = appLimit ?? ordered.count
+        let visible = Array(ordered.prefix(limit))
+        let hiddenCount = max(0, ordered.count - visible.count)
+
         var items: [ResultItem] = []
-        for app in ordered {
-            items.append(Self.appRow(for: app))
+        for app in visible {
             if app.windows.count > 1 {
-                items.append(contentsOf: app.windows.enumerated().map { index, window in
-                    Self.windowRow(
-                        for: window,
-                        app: app,
-                        isLast: index == app.windows.count - 1
-                    )
-                })
+                let isExpanded = expandedBundleIDs.contains(app.bundleID)
+                items.append(Self.expandableAppRow(for: app, isExpanded: isExpanded))
+                if isExpanded {
+                    items.append(contentsOf: app.windows.enumerated().map { index, window in
+                        Self.windowRow(for: window, app: app, isLast: index == app.windows.count - 1)
+                    })
+                }
+            } else {
+                items.append(Self.appRow(for: app))
             }
         }
+        if hiddenCount > 0 {
+            items.append(OpenAppsResultBuilder.moreRow(hiddenCount: hiddenCount))
+        }
         return items
+    }
+
+    private func refreshLoop() async {
+        await refreshOnce()
+        while !Task.isCancelled {
+            try? await Task.sleep(for: .seconds(2))
+            if Task.isCancelled { break }
+            await refreshOnce()
+        }
+    }
+
+    private func refreshOnce() async {
+        let snapshots = await MainActor.run { Self.collectRunningApps() }
+        cachedSnapshots = snapshots
     }
 
     @MainActor
@@ -99,6 +152,20 @@ actor OpenAppsHomeProvider: LauncherHomeProvider {
             windowCount: app.windowCount
         )
         return OpenAppsResultBuilder.resultItem(for: snapshot, secondaryActions: secondaryActions(for: app))
+    }
+
+    private static func expandableAppRow(for app: AppRuntimeSnapshot, isExpanded: Bool) -> ResultItem {
+        let snapshot = RunningAppSnapshot(
+            bundleID: app.bundleID,
+            name: app.name,
+            appPath: app.appURL.path,
+            windowCount: app.windowCount
+        )
+        return OpenAppsResultBuilder.expandableResultItem(
+            for: snapshot,
+            isExpanded: isExpanded,
+            secondaryActions: secondaryActions(for: app)
+        )
     }
 
     private static func windowRow(

@@ -24,7 +24,7 @@ public actor TranslateModule: LumaModule {
         }
 
         if payload.isEmpty {
-            return ModuleResult(items: [landingResult()])
+            return ModuleResult(items: [])
         }
 
         let id = ResultID(module: Self.manifest.identifier, key: Self.resultKey(for: payload))
@@ -57,26 +57,6 @@ public actor TranslateModule: LumaModule {
             return String(trimmed.dropFirst("tr ".count)).trimmingCharacters(in: .whitespacesAndNewlines)
         }
         return nil
-    }
-
-    private func landingResult() -> ResultItem {
-        ResultItem(
-            id: ResultID(module: Self.manifest.identifier, key: "landing"),
-            title: "Translate",
-            titleAttributed: AttributedString("Translate"),
-            subtitle: "Text to translate",
-            icon: .symbol("character.bubble"),
-            primaryAction: Action(
-                id: ActionID(module: Self.manifest.identifier, key: "landing"),
-                title: "Translate",
-                kind: .noop
-            ),
-            rankingHints: RankingHints(basePriority: Self.manifest.priority)
-        )
-    }
-
-    private static func translationText(from raw: String) -> String {
-        extractPayload(raw: raw) ?? ""
     }
 
     static func resultKey(for text: String) -> String {

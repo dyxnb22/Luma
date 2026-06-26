@@ -319,7 +319,7 @@ final class ClipboardDetailView: NSObject, ModuleDetailView {
         let title = String(draftTitle.prefix(60))
         let draft = Snippet(title: title, content: entry.text, tags: ["clipboard"])
         let sheet = SnippetEditorSheet(snippet: draft) { [weak self] savedTitle, trigger, content, tags in
-            guard let mod = ModuleDetailRegistry.snippetsModule else { return }
+            guard let mod = LauncherEnvironment.current?.snippetsModule else { return }
             Task {
                 _ = try? await mod.add(title: savedTitle, content: content, tags: tags, trigger: trigger)
                 await MainActor.run {

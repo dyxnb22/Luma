@@ -40,6 +40,7 @@ final class LauncherRootView: NSView {
         hintBar: hintBar,
         actionPanel: actionPanel,
         performanceStrip: performanceStrip,
+        launcherEnvironment: launcherEnvironment,
         onDismiss: onDismiss,
         onActionDismiss: onActionDismiss,
         onOpenSettings: onOpenSettings
@@ -49,6 +50,7 @@ final class LauncherRootView: NSView {
     private let homeCoordinator: LauncherHomeCoordinator
     private let actionExecutor: ActionExecutor
     private let config: ConfigurationStore
+    private let launcherEnvironment: LauncherEnvironment
     private let onDismiss: () -> Void
     private let onActionDismiss: () -> Void
     private let onOpenSettings: () -> Void
@@ -58,11 +60,13 @@ final class LauncherRootView: NSView {
         homeCoordinator: LauncherHomeCoordinator,
         actionExecutor: ActionExecutor,
         config: ConfigurationStore,
+        launcherEnvironment: LauncherEnvironment,
         onDismiss: @escaping () -> Void,
         onActionDismiss: @escaping () -> Void,
         onOpenSettings: @escaping () -> Void
     ) {
         self.config = config
+        self.launcherEnvironment = launcherEnvironment
         self.viewModel = viewModel
         self.homeCoordinator = homeCoordinator
         self.actionExecutor = actionExecutor
@@ -106,6 +110,9 @@ final class LauncherRootView: NSView {
 
     func setModulesReady(_ ready: Bool) { controller.setModulesReady(ready) }
     func showHome(focusSearch: Bool = true, persist: Bool = true) { controller.showHome(focusSearch: focusSearch, persist: persist) }
+    func setHomeProvidersActive(_ active: Bool) {
+        Task { [homeCoordinator] in await homeCoordinator.setActive(active) }
+    }
     func refreshOpenApps() { controller.refreshOpenApps() }
     func resetOpenAppsExpansion() { controller.resetOpenAppsExpansion() }
     func focusSearchField() { controller.focusSearchField() }
@@ -126,14 +133,12 @@ final class LauncherRootView: NSView {
         resourceSampler.onUpdate = { [weak self] presentation in
             self?.performanceStrip.apply(presentation)
         }
-        resourceSampler.summaryProvider = {
+        resourceSampler.summaryProvider = { [launcherEnvironment] in
             async let todayCount: Int? = {
-                guard let todoModule = ModuleDetailRegistry.todoModule else { return nil }
-                return try? await todoModule.todayDueCount()
+                return try? await launcherEnvironment.todoModule.todayDueCount()
             }()
             async let reviewCount: Int? = {
-                guard let wordbookStore = ModuleDetailRegistry.wordbookStore else { return nil }
-                return try? await wordbookStore.dueTodayCount()
+                return try? await launcherEnvironment.wordbookStore.dueTodayCount()
             }()
             return await PerformanceStripSummarySnapshot(
                 todayCount: todayCount,

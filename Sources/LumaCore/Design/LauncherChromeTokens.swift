@@ -28,7 +28,7 @@ public enum LauncherChromeTokens {
     public static let searchBarIconSize: CGFloat = 18
     public static let searchFontSize: CGFloat = 20
 
-    public static let commandHintHeight: CGFloat = 22
+    public static let commandHintHeight: CGFloat = 50
     public static let hintBarHeight: CGFloat = 30
     public static let contentTopGap: CGFloat = 8
     public static let contentBottomGap: CGFloat = 6

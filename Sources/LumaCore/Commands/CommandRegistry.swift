@@ -71,13 +71,17 @@ public struct CommandRegistry: Sendable {
 
         let parts = trimmed.split(separator: " ", maxSplits: 1, omittingEmptySubsequences: false)
         let firstToken = String(parts[0]).lowercased()
-        guard let command = command(forTrigger: firstToken) else { return nil }
+        let rest = parts.count > 1 ? String(parts[1]).trimmingCharacters(in: .whitespacesAndNewlines) : ""
 
-        return CommandHint(
-            trigger: command.primaryTrigger,
-            title: command.title,
-            example: command.examples.first
-        )
+        if firstToken == "?" || firstToken == "help" {
+            guard !rest.isEmpty else { return nil }
+            let helpTarget = rest.split(separator: " ", maxSplits: 1).first.map(String.init) ?? rest
+            guard let command = command(forTrigger: helpTarget.lowercased()) else { return nil }
+            return command.commandHint
+        }
+
+        guard let command = command(forTrigger: firstToken) else { return nil }
+        return command.commandHint
     }
 
     public func parsedCommand(for raw: String, route: CommandRoute) -> ParsedCommand? {
@@ -231,6 +235,8 @@ public enum BuiltInCommandRegistry {
                 primaryTrigger: "app",
                 aliases: ["apps"],
                 placeholder: "Search apps or type app top for memory usage",
+                usageFormat: "app / apps <query>",
+                description: "Launch or focus apps, or show memory usage leaders",
                 examples: ["chrome", "app top"],
                 sectionTitle: "APPS",
                 helpLines: [
@@ -248,6 +254,8 @@ public enum BuiltInCommandRegistry {
                 primaryTrigger: "p",
                 aliases: ["proj", "project"],
                 placeholder: "Open a project in Cursor, VS Code, Finder, or Terminal",
+                usageFormat: "p / proj / project <name>",
+                description: "Open a recent project in your preferred IDE or Finder",
                 examples: ["p luma", "proj api"],
                 sectionTitle: "PROJECTS",
                 helpLines: [
@@ -264,6 +272,8 @@ public enum BuiltInCommandRegistry {
                 primaryTrigger: "win",
                 aliases: ["wl", "layout"],
                 placeholder: "Move focused window: left, right, max, center",
+                usageFormat: "win / wl / layout <position>",
+                description: "Move the focused window left, right, maximized, or centered",
                 examples: ["win left", "wl center"],
                 sectionTitle: "WINDOWS",
                 helpLines: [
@@ -280,6 +290,8 @@ public enum BuiltInCommandRegistry {
                 primaryTrigger: "tr",
                 aliases: ["translate"],
                 placeholder: "Text to translate",
+                usageFormat: "tr / translate <text>",
+                description: "Translate input text to your target language",
                 examples: ["tr hello"],
                 sectionTitle: "TRANSLATE",
                 helpLines: [
@@ -296,6 +308,8 @@ public enum BuiltInCommandRegistry {
                 primaryTrigger: "clip",
                 aliases: ["cb"],
                 placeholder: "Search clipboard history",
+                usageFormat: "clip / cb <query>",
+                description: "Search clipboard history",
                 examples: ["clip jwt", "clip image"],
                 sectionTitle: "CLIPBOARD",
                 helpLines: [
@@ -312,6 +326,8 @@ public enum BuiltInCommandRegistry {
                 primaryTrigger: "t",
                 aliases: ["todo"],
                 placeholder: "Add a task or list today's reminders",
+                usageFormat: "t / todo <task>",
+                description: "List today's reminders or create a new task",
                 examples: ["t buy milk tomorrow"],
                 sectionTitle: "TODO",
                 helpLines: [
@@ -330,6 +346,8 @@ public enum BuiltInCommandRegistry {
                 primaryTrigger: "n",
                 aliases: ["note", "notes"],
                 placeholder: "New note, daily, or search by filename",
+                usageFormat: "n / note / notes <query>",
+                description: "Search notes or create and open notes",
                 examples: ["n daily", "n new idea"],
                 sectionTitle: "NOTES",
                 helpLines: [
@@ -349,6 +367,8 @@ public enum BuiltInCommandRegistry {
                 primaryTrigger: "s",
                 aliases: ["snip"],
                 placeholder: "Find a snippet",
+                usageFormat: "s / snip <query>",
+                description: "Find snippets by title, tags, or content",
                 examples: ["s git"],
                 sectionTitle: "SNIPPETS",
                 helpLines: [
@@ -366,6 +386,8 @@ public enum BuiltInCommandRegistry {
                 primaryTrigger: "rec",
                 aliases: ["record", "log", "m", "media"],
                 placeholder: "Log a book, movie, show, anime, or game",
+                usageFormat: "rec / record / log / m / media <query>",
+                description: "Log or search books, movies, shows, anime, and games",
                 examples: ["rec 三体 book done 9 #sci-fi"],
                 sectionTitle: "RECORDS",
                 helpLines: [
@@ -384,6 +406,8 @@ public enum BuiltInCommandRegistry {
                 primaryTrigger: "sec",
                 aliases: ["secret", "secrets"],
                 placeholder: "Search saved secrets",
+                usageFormat: "sec / secret / secrets <query>",
+                description: "Search saved secrets in the vault",
                 examples: ["sec aws"],
                 sectionTitle: "SECRETS",
                 helpLines: [
@@ -401,6 +425,8 @@ public enum BuiltInCommandRegistry {
                 primaryTrigger: "word",
                 aliases: ["wb"],
                 placeholder: "Search vocabulary or start review",
+                usageFormat: "word / wb <query>",
+                description: "Search vocabulary or start review",
                 examples: ["word review"],
                 sectionTitle: "WORDBOOK",
                 helpLines: [
@@ -418,6 +444,8 @@ public enum BuiltInCommandRegistry {
                 primaryTrigger: "settings",
                 aliases: ["prefs"],
                 placeholder: "Open Luma preferences",
+                usageFormat: "settings / prefs",
+                description: "Open Luma preferences",
                 examples: ["settings"],
                 sectionTitle: "COMMANDS",
                 helpLines: [
@@ -435,6 +463,8 @@ public enum BuiltInCommandRegistry {
                 title: "Open Settings",
                 primaryTrigger: "open-settings",
                 placeholder: "Open Luma preferences",
+                usageFormat: "open-settings",
+                description: "Open Luma preferences",
                 examples: ["open-settings"],
                 sectionTitle: "COMMANDS",
                 helpLines: ["Open Luma preferences"],
@@ -446,6 +476,8 @@ public enum BuiltInCommandRegistry {
                 title: "Reload Modules",
                 primaryTrigger: "reload-modules",
                 placeholder: "Refresh module registry",
+                usageFormat: "reload-modules",
+                description: "Refresh the module registry and warm up modules",
                 examples: ["reload-modules"],
                 sectionTitle: "COMMANDS",
                 helpLines: ["Reload module registry and warm up modules"],
@@ -457,6 +489,8 @@ public enum BuiltInCommandRegistry {
                 title: "Quit Luma",
                 primaryTrigger: "quit",
                 placeholder: "Exit Luma",
+                usageFormat: "quit",
+                description: "Exit Luma",
                 examples: ["quit"],
                 sectionTitle: "COMMANDS",
                 helpLines: ["Quit Luma"],

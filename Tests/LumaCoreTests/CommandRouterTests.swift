@@ -122,7 +122,7 @@ import LumaCore
     #expect(rows.last?.id.key == "help.footer")
     #expect(rows.last?.subtitle == "Example: rec ?")
     let recRow = rows.first { $0.id.key == "help.rec" }
-    #expect(recRow?.subtitle?.contains("rec") == true)
+    #expect(recRow?.subtitle == "Log or search books, movies, shows, anime, and games")
 }
 
 @Test func globalHelpSortsByDiscoverPriority() {

@@ -131,9 +131,7 @@ final class LauncherRootController {
 
     func refreshOpenApps() { refreshHome() }
 
-    func resetOpenAppsExpansion() {
-        Task { await homeCoordinator.resetOpenAppsExpansion(); await MainActor.run { self.refreshHome() } }
-    }
+    func resetOpenAppsExpansion() {}
 
     func focusSearchField() {
         if contentCoordinator.showingDetail {
@@ -322,8 +320,6 @@ final class LauncherRootController {
         }
         viewModel.recordExecutedCommand(for: searchBar.stringValue)
         switch LauncherKeyRouter.resolveRun(item: item) {
-        case .expandOpenApps:
-            Task { await homeCoordinator.expandOpenApps(); await MainActor.run { self.refreshHome() } }
         case .openTodoDetail:
             openModuleDetail(for: .todo)
         case .openClipboardDetail:

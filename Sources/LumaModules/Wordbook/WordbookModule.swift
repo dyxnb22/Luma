@@ -51,10 +51,18 @@ public actor WordbookModule: LumaModule {
 
         let searchText = payload
 
+        if searchText.compare("review", options: .caseInsensitive) == .orderedSame {
+            return await reviewLandingResult()
+        }
+
         if !searchText.isEmpty, let matches = try? await store.search(searchText, limit: 10), !matches.isEmpty {
             return ModuleResult(items: matches.map(wordResult))
         }
 
+        return await reviewLandingResult()
+    }
+
+    private func reviewLandingResult() async -> ModuleResult {
         let due = await cachedDueList()
         if !due.isEmpty {
             var items = [reviewStarterRow(dueCount: due.count)]

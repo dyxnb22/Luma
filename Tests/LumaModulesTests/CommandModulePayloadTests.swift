@@ -25,6 +25,23 @@ import LumaModules
     #expect(WordbookModule.extractPayload(raw: "word review") == "review")
 }
 
+@Test func wordbookModuleReviewCommandReturnsStarterRow() async throws {
+    let (store, url) = try WordbookTestFixtures.makeStore()
+    defer { try? FileManager.default.removeItem(at: url) }
+
+    _ = try await store.upsertWords([WordbookTestFixtures.newWord(term: "alpha")])
+    let module = WordbookModule(store: store)
+
+    let parsed = ParsedCommand(trigger: "word", payload: "review", module: .wordbook)
+    let result = await module.handle(
+        Query(raw: "word review", sequence: 1, command: parsed),
+        context: QueryContext(deadline: ContinuousClock().now.advanced(by: .milliseconds(40)))
+    )
+    #expect(!result.items.isEmpty)
+    #expect(result.items[0].id.key == "review")
+    #expect(result.items[0].primaryAction.title == "Start Review")
+}
+
 @Test func moduleHelpReadsFromRegistry() {
     let lines = ModuleHelp.lines(for: .media)
     #expect(lines.first?.contains("rec") == true)

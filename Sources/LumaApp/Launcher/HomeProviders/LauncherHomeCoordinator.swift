@@ -17,13 +17,6 @@ actor LauncherHomeCoordinator {
         )
     }
 
-    func resetOpenAppsExpansion() async {
-        await openApps.resetExpanded()
-    }
-
-    func expandOpenApps() async {
-        await openApps.expandAll()
-    }
 
     func snapshot() async -> LauncherHomeSnapshot {
         await aggregator.snapshot()

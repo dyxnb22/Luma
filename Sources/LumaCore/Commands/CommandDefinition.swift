@@ -7,6 +7,8 @@ public struct CommandDefinition: Sendable, Equatable {
     public let primaryTrigger: String
     public let aliases: [String]
     public let placeholder: String
+    public let usageFormat: String
+    public let description: String
     public let examples: [String]
     public let sectionTitle: String
     public let helpLines: [String]
@@ -20,6 +22,8 @@ public struct CommandDefinition: Sendable, Equatable {
         primaryTrigger: String,
         aliases: [String] = [],
         placeholder: String,
+        usageFormat: String = "",
+        description: String = "",
         examples: [String] = [],
         sectionTitle: String? = nil,
         helpLines: [String] = [],
@@ -32,6 +36,8 @@ public struct CommandDefinition: Sendable, Equatable {
         self.primaryTrigger = primaryTrigger
         self.aliases = aliases
         self.placeholder = placeholder
+        self.usageFormat = usageFormat
+        self.description = description
         self.examples = examples
         self.sectionTitle = sectionTitle ?? title.uppercased()
         self.helpLines = helpLines
@@ -41,5 +47,24 @@ public struct CommandDefinition: Sendable, Equatable {
 
     public var allTriggers: [String] {
         [primaryTrigger] + aliases
+    }
+
+    public var resolvedUsageFormat: String {
+        if !usageFormat.isEmpty { return usageFormat }
+        let triggers = allTriggers.joined(separator: " / ")
+        return "\(triggers) <query>"
+    }
+
+    public var resolvedDescription: String {
+        if !description.isEmpty { return description }
+        return placeholder
+    }
+
+    public var commandHint: CommandHint {
+        CommandHint(
+            usageFormat: resolvedUsageFormat,
+            description: resolvedDescription,
+            example: examples.first
+        )
     }
 }

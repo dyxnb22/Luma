@@ -46,7 +46,7 @@ public enum CommandEntryResults {
     }
 
     private static func helpRow(for command: CommandDefinition) -> ResultItem {
-        let subtitle = command.helpLines.first ?? command.examples.first
+        let subtitle = command.resolvedDescription
         return ResultItem(
             id: ResultID(module: .commandEntry, key: "help.\(command.primaryTrigger)"),
             title: "\(command.primaryTrigger)  \(command.title)",

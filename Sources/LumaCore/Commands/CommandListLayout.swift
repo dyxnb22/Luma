@@ -13,13 +13,13 @@ public struct ParsedCommand: Sendable, Hashable {
 }
 
 public struct CommandHint: Sendable, Equatable {
-    public let trigger: String
-    public let title: String
+    public let usageFormat: String
+    public let description: String
     public let example: String?
 
-    public init(trigger: String, title: String, example: String? = nil) {
-        self.trigger = trigger
-        self.title = title
+    public init(usageFormat: String, description: String, example: String? = nil) {
+        self.usageFormat = usageFormat
+        self.description = description
         self.example = example
     }
 }

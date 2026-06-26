@@ -5,14 +5,40 @@ import LumaCore
 @Test func commandRegistryHintForActivePrefix() {
     let registry = BuiltInCommandRegistry.make()
     let hint = registry.hint(for: "rec 三体")
-    #expect(hint?.trigger == "rec")
-    #expect(hint?.title == "Log Record")
+    #expect(hint?.usageFormat == "rec / record / log / m / media <query>")
+    #expect(hint?.description == "Log or search books, movies, shows, anime, and games")
     #expect(hint?.example == "rec 三体 book done 9 #sci-fi")
+}
+
+@Test func commandRegistryHintForWordPrefix() {
+    let registry = BuiltInCommandRegistry.make()
+    let hint = registry.hint(for: "word review")
+    #expect(hint?.usageFormat == "word / wb <query>")
+    #expect(hint?.description == "Search vocabulary or start review")
+    #expect(hint?.example == "word review")
+}
+
+@Test func commandRegistryHintForHelpPrefix() {
+    let registry = BuiltInCommandRegistry.make()
+    let hint = registry.hint(for: "? word")
+    #expect(hint?.usageFormat == "word / wb <query>")
+    #expect(hint?.description == "Search vocabulary or start review")
 }
 
 @Test func commandRegistryHintNilForPlainSearch() {
     let registry = BuiltInCommandRegistry.make()
     #expect(registry.hint(for: "chrome") == nil)
+}
+
+@Test func allBuiltInCommandsExposeHelpMetadata() {
+    let registry = BuiltInCommandRegistry.make()
+    for command in registry.allCommands {
+        #expect(!command.resolvedUsageFormat.isEmpty, "Missing usage format for \(command.id)")
+        #expect(!command.resolvedDescription.isEmpty, "Missing description for \(command.id)")
+        let hint = command.commandHint
+        #expect(!hint.usageFormat.isEmpty)
+        #expect(!hint.description.isEmpty)
+    }
 }
 
 @Test func commandRegistrySectionTitleForMedia() {

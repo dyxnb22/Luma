@@ -164,11 +164,13 @@ final class LauncherListRow: NSControl {
         titleLabel.lineBreakMode = .byTruncatingTail
         titleLabel.translatesAutoresizingMaskIntoConstraints = false
 
+        let hasSubtitle = !(item.subtitle ?? "").isEmpty
         subtitleLabel.stringValue = item.subtitle ?? ""
         subtitleLabel.font = .systemFont(ofSize: isNested ? 11 : 12)
         subtitleLabel.textColor = isNested ? .tertiaryLabelColor : .secondaryLabelColor
         subtitleLabel.lineBreakMode = item.displayDensity == .expanded ? .byTruncatingMiddle : .byTruncatingTail
         subtitleLabel.maximumNumberOfLines = item.displayDensity == .expanded ? 2 : 1
+        subtitleLabel.isHidden = !hasSubtitle
         subtitleLabel.translatesAutoresizingMaskIntoConstraints = false
 
         trailingLabel.stringValue = isNested ? "" : "· \(moduleLabel)"
@@ -206,24 +208,22 @@ final class LauncherListRow: NSControl {
         addSubview(trailingLabel)
         addSubview(returnHintContainer)
 
-        let topPadding: CGFloat = isNested ? 4 : (item.displayDensity == .compact ? 7 : 11)
         let iconSize: CGFloat = isNested
             ? LauncherChromeTokens.listRowIconSizeNested
             : LauncherChromeTokens.listRowIconSize
-        let leadingInset: CGFloat = isNested ? 22 : 0
+        let leadingInset: CGFloat = isNested ? 22 : 4
         let treeGuideWidth: CGFloat = 18
+        let titleGap: CGFloat = isNested ? 8 : 10
 
         var constraints: [NSLayoutConstraint] = [
             iconView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: leadingInset),
             iconView.centerYAnchor.constraint(equalTo: centerYAnchor),
             iconView.widthAnchor.constraint(equalToConstant: iconSize),
             iconView.heightAnchor.constraint(equalToConstant: iconSize),
-            titleLabel.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: isNested ? 8 : 12),
+            titleLabel.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: titleGap),
             titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: returnHintContainer.leadingAnchor, constant: -8),
-            titleLabel.topAnchor.constraint(equalTo: topAnchor, constant: topPadding),
             subtitleLabel.leadingAnchor.constraint(equalTo: titleLabel.leadingAnchor),
             subtitleLabel.trailingAnchor.constraint(equalTo: titleLabel.trailingAnchor),
-            subtitleLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: isNested ? 1 : 2),
             trailingLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -10),
             trailingLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
             returnHintContainer.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -10),
@@ -233,6 +233,16 @@ final class LauncherListRow: NSControl {
             returnHint.topAnchor.constraint(equalTo: returnHintContainer.topAnchor, constant: 4),
             returnHint.bottomAnchor.constraint(equalTo: returnHintContainer.bottomAnchor, constant: -4)
         ]
+
+        if hasSubtitle {
+            let topPadding: CGFloat = isNested ? 4 : (item.displayDensity == .compact ? 7 : 10)
+            constraints += [
+                titleLabel.topAnchor.constraint(equalTo: topAnchor, constant: topPadding),
+                subtitleLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: isNested ? 1 : 2)
+            ]
+        } else {
+            constraints.append(titleLabel.centerYAnchor.constraint(equalTo: iconView.centerYAnchor))
+        }
 
         if case .child(let isLast) = item.listNest {
             treeGuideView.isLast = isLast

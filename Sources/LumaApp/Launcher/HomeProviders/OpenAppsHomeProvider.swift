@@ -14,19 +14,9 @@ private struct AppRuntimeSnapshot: Sendable {
 
 actor OpenAppsHomeProvider: LauncherHomeProvider {
     private let appActivationTracker: AppActivationTracker
-    private var showsAll = false
-    private static let collapsedLimit = 6
 
     init(appActivationTracker: AppActivationTracker) {
         self.appActivationTracker = appActivationTracker
-    }
-
-    func resetExpanded() {
-        showsAll = false
-    }
-
-    func expandAll() {
-        showsAll = true
     }
 
     func items() async -> [ResultItem] {
@@ -38,9 +28,8 @@ actor OpenAppsHomeProvider: LauncherHomeProvider {
         let byID = Dictionary(uniqueKeysWithValues: snapshots.map { ($0.bundleID, $0) })
         let ordered = rankedIDs.compactMap { byID[$0] }
 
-        let visible = showsAll ? ordered : Array(ordered.prefix(Self.collapsedLimit))
         var items: [ResultItem] = []
-        for app in visible {
+        for app in ordered {
             items.append(Self.appRow(for: app))
             if app.windows.count > 1 {
                 items.append(contentsOf: app.windows.enumerated().map { index, window in
@@ -51,10 +40,6 @@ actor OpenAppsHomeProvider: LauncherHomeProvider {
                     )
                 })
             }
-        }
-
-        if !showsAll, ordered.count > Self.collapsedLimit {
-            items.append(OpenAppsResultBuilder.moreRow(hiddenCount: ordered.count - Self.collapsedLimit))
         }
         return items
     }

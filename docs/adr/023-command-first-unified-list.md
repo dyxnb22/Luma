@@ -40,7 +40,7 @@ Positive:
 Negative:
 
 - No visible multi-module grid; users rely on triggers and suggestions.
-- Only top 6 open apps on home; overflow via "+N more".
+- Home may show the full ranked Open Apps section without a collapsed "+N more" step.
 - ADR-007 dashboard strategy docs become historical reference.
 
 ## Implementation Notes

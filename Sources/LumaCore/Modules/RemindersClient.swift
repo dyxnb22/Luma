@@ -11,6 +11,8 @@ public protocol RemindersClient: Sendable {
     func complete(id: String) async throws
     func uncomplete(id: String) async throws
     func update(id: String, title: String, dueDate: Date?, clearDueDate: Bool) async throws -> ReminderSnapshot
+    /// Yields when the backing reminder store changes externally (e.g. Reminders.app edits).
+    func storeChanges() async -> AsyncStream<Void>
 }
 
 public struct NoopRemindersClient: RemindersClient {
@@ -65,5 +67,9 @@ public struct NoopRemindersClient: RemindersClient {
         _ = dueDate
         _ = clearDueDate
         throw RemindersServiceError.accessDenied
+    }
+
+    public func storeChanges() async -> AsyncStream<Void> {
+        AsyncStream { $0.finish() }
     }
 }

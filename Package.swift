@@ -24,7 +24,7 @@ let package = Package(
         ),
         .target(
             name: "LumaModules",
-            dependencies: ["LumaCore", "LumaInfrastructure"]
+            dependencies: ["LumaCore"]
         ),
         .target(
             name: "LumaServices",

@@ -243,4 +243,45 @@ public actor RemindersService: RemindersClient {
             completionDate: reminder.completionDate
         )
     }
+
+    public func storeChanges() async -> AsyncStream<Void> {
+        let observedStore = store
+        return AsyncStream { continuation in
+            let observer = StoreChangeObserver()
+            observer.install(store: observedStore) {
+                continuation.yield(())
+            }
+            continuation.onTermination = { _ in
+                observer.remove()
+            }
+        }
+    }
+}
+
+private final class StoreChangeObserver: @unchecked Sendable {
+    private let lock = NSLock()
+    private nonisolated(unsafe) var token: (any NSObjectProtocol)?
+
+    func install(store: EKEventStore, onChange: @escaping () -> Void) {
+        let newToken = NotificationCenter.default.addObserver(
+            forName: .EKEventStoreChanged,
+            object: store,
+            queue: nil
+        ) { _ in
+            onChange()
+        }
+        lock.lock()
+        token = newToken
+        lock.unlock()
+    }
+
+    func remove() {
+        lock.lock()
+        let current = token
+        token = nil
+        lock.unlock()
+        if let current {
+            NotificationCenter.default.removeObserver(current)
+        }
+    }
 }

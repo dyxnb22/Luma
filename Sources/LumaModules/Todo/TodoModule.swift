@@ -1,4 +1,3 @@
-import EventKit
 import Foundation
 import LumaCore
 
@@ -53,14 +52,11 @@ public actor TodoModule: LumaModule {
     private let now: @Sendable () -> Date
     private var cachedDue: [ReminderSnapshot]?
     private var cachedAt: Date?
-    private let storeChangedObserver = NotificationObserverBox()
+    private var storeChangesTask: Task<Void, Never>?
 
     private static let dueListLimit = 8
 
-    public init(reminders: (any RemindersClient)? = nil, now: @Sendable @escaping () -> Date = { Date() }) {
-        if let reminders {
-            self.reminders = reminders
-        }
+    public init(now: @Sendable @escaping () -> Date = { Date() }) {
         self.now = now
     }
 
@@ -69,11 +65,12 @@ public actor TodoModule: LumaModule {
         if await reminders.authorization() == .authorized {
             _ = try? await refreshDueCache(force: true)
         }
-        installStoreChangedObserverIfNeeded()
+        startStoreChangesListener()
     }
 
     public func teardown() async {
-        storeChangedObserver.clear()
+        storeChangesTask?.cancel()
+        storeChangesTask = nil
     }
 
     public func todayDueCount() async throws -> Int {
@@ -251,21 +248,17 @@ public actor TodoModule: LumaModule {
         TodoChangeHub.publishDataChanged()
     }
 
-    private func installStoreChangedObserverIfNeeded() {
-        storeChangedObserver.set(
-            NotificationCenter.default.addObserver(
-                forName: .EKEventStoreChanged,
-                object: nil,
-                queue: nil
-            ) { [weak self] _ in
-                guard let self else { return }
-                Task { await self.handleExternalStoreChange() }
-            }
-        )
+    private func startStoreChangesListener() {
+        storeChangesTask?.cancel()
+        storeChangesTask = Task { await observeStoreChanges() }
     }
 
-    private func handleExternalStoreChange() {
-        invalidateDueCache()
+    private func observeStoreChanges() async {
+        let stream = await reminders.storeChanges()
+        for await _ in stream {
+            if Task.isCancelled { break }
+            invalidateDueCache()
+        }
     }
 
     // MARK: - Trigger parsing

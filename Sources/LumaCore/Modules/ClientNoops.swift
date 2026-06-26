@@ -34,6 +34,14 @@ public struct NoopAccessibilityClient: AccessibilityClient {
     public func applyWindowLayout(_ preset: String) async { _ = preset }
 }
 
+public struct NoopTranslationClient: TranslationClient {
+    public init() {}
+
+    public func translate(_ text: String) async throws -> TranslationOutcome {
+        TranslationOutcome(text: text)
+    }
+}
+
 public struct NoopFileSystemClient: FileSystemClient {
     public init() {}
 

@@ -86,6 +86,7 @@ public struct ActionContext: Sendable {
         metrics: any MetricsClient,
         pasteboard: any PasteboardClient,
         accessibility: any AccessibilityClient,
+        translation: any TranslationClient = NoopTranslationClient(),
         workspace: any WorkspaceClient = NoopWorkspaceClient(),
         host: any HostClient = NoopHostClient(),
         launcherUI: any LauncherUIClient = NoopLauncherUIClient()
@@ -94,6 +95,7 @@ public struct ActionContext: Sendable {
         self.platform = ActionPlatformClients(
             pasteboard: pasteboard,
             accessibility: accessibility,
+            translation: translation,
             workspace: workspace
         )
         self.host = host

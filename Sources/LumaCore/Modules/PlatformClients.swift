@@ -47,15 +47,18 @@ public struct QueryPlatformClients: Sendable {
 public struct ActionPlatformClients: Sendable {
     public let pasteboard: any PasteboardClient
     public let accessibility: any AccessibilityClient
+    public let translation: any TranslationClient
     public let workspace: any WorkspaceClient
 
     public init(
         pasteboard: any PasteboardClient,
         accessibility: any AccessibilityClient,
+        translation: any TranslationClient = NoopTranslationClient(),
         workspace: any WorkspaceClient = NoopWorkspaceClient()
     ) {
         self.pasteboard = pasteboard
         self.accessibility = accessibility
+        self.translation = translation
         self.workspace = workspace
     }
 }

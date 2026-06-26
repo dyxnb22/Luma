@@ -61,14 +61,11 @@ final class AppCoordinator {
             metrics: metrics,
             pasteboard: pasteboard,
             accessibility: accessibility,
+            translation: translation,
             workspace: workspace,
             host: hostClient,
             launcherUI: launcherUIService
         ),
-        pasteboard: pasteboard,
-        accessibility: accessibility,
-        translation: translation,
-        workspace: workspace,
         usage: usage,
         resultCache: resultCache
     )
@@ -76,7 +73,7 @@ final class AppCoordinator {
     private let appActivationTracker = AppActivationTracker.defaultTracker()
     private lazy var openAppsProvider = OpenAppsHomeProvider(appActivationTracker: appActivationTracker)
     private lazy var clipboardModule = ClipboardModule(pasteboard: pasteboard, accessibility: accessibility)
-    private lazy var todoModule = TodoModule(reminders: reminders)
+    private lazy var todoModule = TodoModule()
     private let secretsModule = SecretsModule()
     private let mediaModule = MediaModule()
     private lazy var homeCoordinator = LauncherHomeCoordinator(

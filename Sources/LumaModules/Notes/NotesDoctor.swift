@@ -1,5 +1,4 @@
 import Foundation
-import LumaServices
 
 public struct NotesHealthIssue: Sendable, Equatable {
     public enum Kind: String, Sendable {

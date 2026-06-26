@@ -9,6 +9,7 @@ final class SnippetsDetailView: NSObject, ModuleDetailView {
     let usesSharedTopBar = true
 
     private let module: SnippetsModule
+    private let detailReloadRouter: ModuleDetailReloadRouter
     private let searchField = NSSearchField()
     private let tableScroll = NSScrollView()
     private let tableView = NSTableView()
@@ -18,16 +19,17 @@ final class SnippetsDetailView: NSObject, ModuleDetailView {
     private var refreshTask: Task<Void, Never>?
     private var copiedFeedbackTask: Task<Void, Never>?
 
-    init(module: SnippetsModule) {
+    init(module: SnippetsModule, detailReloadRouter: ModuleDetailReloadRouter) {
         self.module = module
+        self.detailReloadRouter = detailReloadRouter
         let chrome = BaseDetailContainer()
         self.detailView = chrome
         super.init()
         setup(chrome: chrome)
-        ModuleDetailReloads.reloadSnippetsDetail = { [weak self] in self?.refresh() }
     }
 
     func activate() {
+        detailReloadRouter.register(.snippets) { [weak self] in self?.refresh() }
         refresh()
         DispatchQueue.main.async { [weak self] in
             self?.tableView.window?.makeFirstResponder(self?.tableView)
@@ -35,6 +37,7 @@ final class SnippetsDetailView: NSObject, ModuleDetailView {
     }
 
     func deactivate() {
+        detailReloadRouter.unregister(.snippets)
         refreshTask?.cancel()
         refreshTask = nil
         copiedFeedbackTask?.cancel()

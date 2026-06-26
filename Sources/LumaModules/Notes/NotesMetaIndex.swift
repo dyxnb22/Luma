@@ -1,5 +1,4 @@
 import Foundation
-import LumaServices
 
 public actor NotesMetaIndex {
     private var entries: [String: NotesMeta] = [:]

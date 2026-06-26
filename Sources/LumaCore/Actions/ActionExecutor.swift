@@ -51,14 +51,14 @@ public actor ActionExecutor {
                     let outcome = try await translation.translate(text)
                     await pasteboard.write(outcome.text)
                 } catch {
-                    await context.logger.error("Translation action failed: \(error)")
+                    await context.runtime.logger.error("Translation action failed: \(error)")
                     throw error
                 }
             case .launchApp(let url):
                 do {
                     try await workspace.launchApplication(at: url)
                 } catch {
-                    await context.logger.error("Launch failed for \(url.path): \(error)")
+                    await context.runtime.logger.error("Launch failed for \(url.path): \(error)")
                     throw error
                 }
             case .openURL(let url):
@@ -75,7 +75,7 @@ public actor ActionExecutor {
             }
             await usage.record(resultID, at: Date())
         } catch {
-            await context.logger.error("Action failed: \(action.id.key): \(error)")
+            await context.runtime.logger.error("Action failed: \(action.id.key): \(error)")
         }
     }
 }

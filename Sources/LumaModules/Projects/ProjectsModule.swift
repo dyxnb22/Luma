@@ -56,16 +56,16 @@ public actor ProjectsModule: LumaModule {
         let decoded = try ModuleActionCoding.decode(ProjectAction.self, from: payload)
         switch decoded {
         case .open(let path, let opener):
-            try await ProjectOpenerRunner.open(path: path, opener: opener, workspace: context.workspace)
+            try await ProjectOpenerRunner.open(path: path, opener: opener, workspace: context.platform.workspace)
             try await store.recordOpened(path: path)
             await refreshIndex()
         case .copyPath(let path):
-            await context.pasteboard.write(path)
+            await context.platform.pasteboard.write(path)
         case .reveal(let path):
-            await context.workspace.revealInFinder(URL(fileURLWithPath: path, isDirectory: true))
+            await context.platform.workspace.revealInFinder(URL(fileURLWithPath: path, isDirectory: true))
         case .revealConfig:
             let url = await store.configFileURL()
-            await context.workspace.revealInFinder(url)
+            await context.platform.workspace.revealInFinder(url)
         }
     }
 

@@ -19,12 +19,21 @@ private struct TestDoubles {
     }
 
     struct Accessibility: AccessibilityClient {
+        func isTrusted() async -> Bool { false }
+        func requestPermission() async {}
         func focus(windowID: UInt32, pid: Int32, title: String, axTitle: String?, bounds: WindowBounds?) async {}
         func insert(text: String) async {}
         func applyWindowLayout(_ preset: String) async {}
     }
 
-    struct FileSystem: FileSystemClient {}
+    struct FileSystem: FileSystemClient {
+        func watch(root: URL, debounceMillis: Int) async -> AsyncStream<[FSChangeEvent]> {
+            _ = root
+            _ = debounceMillis
+            return AsyncStream { $0.finish() }
+        }
+        func stopWatching(root: URL) async { _ = root }
+    }
 
     struct Translation: TranslationClient {
         func translate(_ text: String) async throws -> TranslationOutcome {

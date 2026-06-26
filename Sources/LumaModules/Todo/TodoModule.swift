@@ -1,7 +1,6 @@
 import EventKit
 import Foundation
 import LumaCore
-import LumaServices
 
 public enum TodoChangeHub {
     private static let lock = NSLock()
@@ -50,7 +49,7 @@ public actor TodoModule: LumaModule {
         queryTimeout: .milliseconds(60)
     )
 
-    private let reminders: RemindersService
+    private var reminders: any RemindersClient = NoopRemindersClient()
     private let now: @Sendable () -> Date
     private var cachedDue: [ReminderSnapshot]?
     private var cachedAt: Date?
@@ -58,12 +57,15 @@ public actor TodoModule: LumaModule {
 
     private static let dueListLimit = 8
 
-    public init(reminders: RemindersService = RemindersService(), now: @Sendable @escaping () -> Date = { Date() }) {
-        self.reminders = reminders
+    public init(reminders: (any RemindersClient)? = nil, now: @Sendable @escaping () -> Date = { Date() }) {
+        if let reminders {
+            self.reminders = reminders
+        }
         self.now = now
     }
 
     public func warmup(_ context: ModuleContext) async {
+        reminders = context.platform.reminders
         if await reminders.authorization() == .authorized {
             _ = try? await refreshDueCache(force: true)
         }
@@ -127,7 +129,7 @@ public actor TodoModule: LumaModule {
         switch decoded {
         case .create(let title):
             let parsed = TodoTimeParser.parse(title, now: now())
-            _ = try await reminders.create(title: parsed.title.isEmpty ? title : parsed.title, dueDate: parsed.dueDate)
+            _ = try await reminders.create(title: parsed.title.isEmpty ? title : parsed.title, dueDate: parsed.dueDate, notes: nil)
             invalidateDueCache()
         case .complete(let id):
             try await reminders.complete(id: id)
@@ -137,7 +139,7 @@ public actor TodoModule: LumaModule {
             invalidateDueCache()
         case .grant:
             if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Reminders") {
-                await context.workspace.openURL(url)
+                await context.platform.workspace.openURL(url)
             }
         }
     }
@@ -183,7 +185,7 @@ public actor TodoModule: LumaModule {
     public func createReminder(from rawTitle: String) async throws -> ReminderSnapshot {
         let parsed = TodoTimeParser.parse(rawTitle, now: now())
         let title = parsed.title.isEmpty ? rawTitle : parsed.title
-        let snapshot = try await reminders.create(title: title, dueDate: parsed.dueDate)
+        let snapshot = try await reminders.create(title: title, dueDate: parsed.dueDate, notes: nil)
         invalidateDueCache()
         return snapshot
     }
@@ -202,21 +204,21 @@ public actor TodoModule: LumaModule {
     public func updateReminder(id: String, rawTitle: String, existingDueDate: Date? = nil) async throws -> ReminderSnapshot {
         let parsed = TodoTimeParser.parse(rawTitle, now: now())
         let title = parsed.title.isEmpty ? rawTitle : parsed.title
-        let snapshot = try await reminders.update(id: id, title: title, dueDate: parsed.dueDate ?? existingDueDate)
+        let snapshot = try await reminders.update(id: id, title: title, dueDate: parsed.dueDate ?? existingDueDate, clearDueDate: false)
         invalidateDueCache()
         return snapshot
     }
 
     @discardableResult
     public func clearDueDate(id: String, title: String) async throws -> ReminderSnapshot {
-        let snapshot = try await reminders.update(id: id, title: title, clearDueDate: true)
+        let snapshot = try await reminders.update(id: id, title: title, dueDate: nil, clearDueDate: true)
         invalidateDueCache()
         return snapshot
     }
 
     @discardableResult
     public func scheduleReminder(id: String, title: String, dueDate: Date) async throws -> ReminderSnapshot {
-        let snapshot = try await reminders.update(id: id, title: title, dueDate: dueDate)
+        let snapshot = try await reminders.update(id: id, title: title, dueDate: dueDate, clearDueDate: false)
         invalidateDueCache()
         return snapshot
     }

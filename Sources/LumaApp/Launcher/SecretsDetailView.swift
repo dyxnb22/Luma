@@ -9,6 +9,7 @@ final class SecretsDetailView: NSObject, ModuleDetailView {
     let usesSharedTopBar = true
 
     private let module: SecretsModule
+    private let detailReloadRouter: ModuleDetailReloadRouter
     private let searchField = NSSearchField()
     private let toolbarContainer = NSView()
     private let tableScroll = NSScrollView()
@@ -20,20 +21,22 @@ final class SecretsDetailView: NSObject, ModuleDetailView {
     private var refreshTask: Task<Void, Never>?
     private var isUnlocked = false
 
-    init(module: SecretsModule) {
+    init(module: SecretsModule, detailReloadRouter: ModuleDetailReloadRouter) {
         self.module = module
+        self.detailReloadRouter = detailReloadRouter
         let chrome = BaseDetailContainer()
         self.detailView = chrome
         super.init()
         setup(chrome: chrome)
-        ModuleDetailReloads.reloadSecretsDetail = { [weak self] in self?.refresh() }
     }
 
     func activate() {
+        detailReloadRouter.register(.secrets) { [weak self] in self?.refresh() }
         refresh()
     }
 
     func deactivate() {
+        detailReloadRouter.unregister(.secrets)
         refreshTask?.cancel()
         refreshTask = nil
     }

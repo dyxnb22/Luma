@@ -85,7 +85,7 @@ public actor MediaModule: LumaModule {
                 throw ModuleError.dataUnavailable
             }
             let summary = Self.summaryLine(for: item)
-            await context.pasteboard.write(summary)
+            await context.platform.pasteboard.write(summary)
         }
     }
 

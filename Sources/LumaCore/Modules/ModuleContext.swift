@@ -1,17 +1,19 @@
 import Foundation
 
 public struct ModuleContext: Sendable {
-    public let logger: any LoggingClient
-    public let metrics: any MetricsClient
-    public let database: any DatabaseClient
-    public let pasteboard: any PasteboardClient
-    public let accessibility: any AccessibilityClient
-    public let fileSystem: any FileSystemClient
-    public let translation: any TranslationClient
-    public let config: any ConfigurationClient
-    public let workspace: any WorkspaceClient
-    public let clipboardSnapshot: any ClipboardSnapshotClient
+    public let runtime: ModuleRuntimeClients
+    public let platform: PlatformClients
     public let launcherUI: any LauncherUIClient
+
+    public init(
+        runtime: ModuleRuntimeClients,
+        platform: PlatformClients,
+        launcherUI: any LauncherUIClient = NoopLauncherUIClient()
+    ) {
+        self.runtime = runtime
+        self.platform = platform
+        self.launcherUI = launcherUI
+    }
 
     public init(
         logger: any LoggingClient,
@@ -24,38 +26,60 @@ public struct ModuleContext: Sendable {
         config: any ConfigurationClient,
         workspace: any WorkspaceClient = NoopWorkspaceClient(),
         clipboardSnapshot: any ClipboardSnapshotClient = NoopClipboardSnapshotClient(),
-        launcherUI: any LauncherUIClient = NoopLauncherUIClient()
+        launcherUI: any LauncherUIClient = NoopLauncherUIClient(),
+        processMemory: any ProcessMemoryClient = NoopProcessMemoryClient(),
+        reminders: any RemindersClient = NoopRemindersClient()
     ) {
-        self.logger = logger
-        self.metrics = metrics
-        self.database = database
-        self.pasteboard = pasteboard
-        self.accessibility = accessibility
-        self.fileSystem = fileSystem
-        self.translation = translation
-        self.config = config
-        self.workspace = workspace
-        self.clipboardSnapshot = clipboardSnapshot
+        self.runtime = ModuleRuntimeClients(
+            logger: logger,
+            metrics: metrics,
+            database: database,
+            config: config
+        )
+        self.platform = PlatformClients(
+            pasteboard: pasteboard,
+            accessibility: accessibility,
+            fileSystem: fileSystem,
+            translation: translation,
+            workspace: workspace,
+            clipboardSnapshot: clipboardSnapshot,
+            processMemory: processMemory,
+            reminders: reminders
+        )
         self.launcherUI = launcherUI
     }
 }
 
 public struct QueryContext: Sendable {
     public let deadline: ContinuousClock.Instant
+    public let platform: QueryPlatformClients
 
-    public init(deadline: ContinuousClock.Instant) {
+    public init(
+        deadline: ContinuousClock.Instant,
+        platform: QueryPlatformClients = QueryPlatformClients()
+    ) {
         self.deadline = deadline
+        self.platform = platform
     }
 }
 
 public struct ActionContext: Sendable {
-    public let logger: any LoggingClient
-    public let metrics: any MetricsClient
-    public let pasteboard: any PasteboardClient
-    public let accessibility: any AccessibilityClient
-    public let workspace: any WorkspaceClient
+    public let runtime: ActionRuntimeClients
+    public let platform: ActionPlatformClients
     public let host: any HostClient
     public let launcherUI: any LauncherUIClient
+
+    public init(
+        runtime: ActionRuntimeClients,
+        platform: ActionPlatformClients,
+        host: any HostClient = NoopHostClient(),
+        launcherUI: any LauncherUIClient = NoopLauncherUIClient()
+    ) {
+        self.runtime = runtime
+        self.platform = platform
+        self.host = host
+        self.launcherUI = launcherUI
+    }
 
     public init(
         logger: any LoggingClient,
@@ -66,11 +90,12 @@ public struct ActionContext: Sendable {
         host: any HostClient = NoopHostClient(),
         launcherUI: any LauncherUIClient = NoopLauncherUIClient()
     ) {
-        self.logger = logger
-        self.metrics = metrics
-        self.pasteboard = pasteboard
-        self.accessibility = accessibility
-        self.workspace = workspace
+        self.runtime = ActionRuntimeClients(logger: logger, metrics: metrics)
+        self.platform = ActionPlatformClients(
+            pasteboard: pasteboard,
+            accessibility: accessibility,
+            workspace: workspace
+        )
         self.host = host
         self.launcherUI = launcherUI
     }
@@ -104,12 +129,17 @@ public protocol PasteboardClient: Sendable {
 }
 
 public protocol AccessibilityClient: Sendable {
+    func isTrusted() async -> Bool
+    func requestPermission() async
     func focus(windowID: UInt32, pid: Int32, title: String, axTitle: String?, bounds: WindowBounds?) async
     func insert(text: String) async
     func applyWindowLayout(_ preset: String) async
 }
 
-public protocol FileSystemClient: Sendable {}
+public protocol FileSystemClient: Sendable {
+    func watch(root: URL, debounceMillis: Int) async -> AsyncStream<[FSChangeEvent]>
+    func stopWatching(root: URL) async
+}
 
 public protocol TranslationClient: Sendable {
     func translate(_ text: String) async throws -> TranslationOutcome

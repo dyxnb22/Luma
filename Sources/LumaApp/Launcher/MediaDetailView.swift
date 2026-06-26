@@ -28,6 +28,7 @@ final class MediaDetailView: NSObject, ModuleDetailView {
     let usesSharedTopBar = true
 
     private let module: MediaModule
+    private let detailReloadRouter: ModuleDetailReloadRouter
     private let searchField = NSSearchField()
     private let filterPopup = NSPopUpButton()
     private let sortPopup = NSPopUpButton()
@@ -38,16 +39,17 @@ final class MediaDetailView: NSObject, ModuleDetailView {
     private var refreshTask: Task<Void, Never>?
     private var selectedFilter: RecordFilter = .all
 
-    init(module: MediaModule) {
+    init(module: MediaModule, detailReloadRouter: ModuleDetailReloadRouter) {
         self.module = module
+        self.detailReloadRouter = detailReloadRouter
         let chrome = BaseDetailContainer()
         self.detailView = chrome
         super.init()
         setup(chrome: chrome)
-        ModuleDetailReloads.reloadMediaDetail = { [weak self] in self?.refresh() }
     }
 
     func activate() {
+        detailReloadRouter.register(.media) { [weak self] in self?.refresh() }
         refresh()
         if let draft = LauncherSharedState.pendingMediaEditorDraft {
             LauncherSharedState.pendingMediaEditorDraft = nil
@@ -56,6 +58,7 @@ final class MediaDetailView: NSObject, ModuleDetailView {
     }
 
     func deactivate() {
+        detailReloadRouter.unregister(.media)
         refreshTask?.cancel()
         refreshTask = nil
     }

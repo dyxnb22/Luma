@@ -325,7 +325,7 @@ final class ClipboardDetailView: NSObject, ModuleDetailView {
             Task {
                 _ = try? await mod.add(title: savedTitle, content: content, tags: tags, trigger: trigger)
                 await MainActor.run {
-                    LauncherEnvironment.current?.reloadSnippetsDetail()
+                    LauncherEnvironment.current?.detailReloadRouter.reload(.snippets)
                     self?.detailView.window?.makeFirstResponder(self?.tableView)
                 }
             }

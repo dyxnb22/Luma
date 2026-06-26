@@ -1,53 +1,13 @@
 import Foundation
 import EventKit
-
-public struct ReminderSnapshot: Sendable, Hashable, Identifiable {
-    public let id: String
-    public let title: String
-    public let dueDate: Date?
-    public let isCompleted: Bool
-    public let calendarTitle: String
-    public let creationDate: Date?
-    public let completionDate: Date?
-
-    public init(
-        id: String,
-        title: String,
-        dueDate: Date?,
-        isCompleted: Bool,
-        calendarTitle: String,
-        creationDate: Date? = nil,
-        completionDate: Date? = nil
-    ) {
-        self.id = id
-        self.title = title
-        self.dueDate = dueDate
-        self.isCompleted = isCompleted
-        self.calendarTitle = calendarTitle
-        self.creationDate = creationDate
-        self.completionDate = completionDate
-    }
-}
-
-public enum RemindersServiceError: Error, Equatable, Sendable {
-    case accessDenied
-    case noDefaultCalendar
-    case notFound(id: String)
-    case saveFailed(message: String)
-}
-
-public enum RemindersAuthorization: Sendable {
-    case authorized
-    case denied
-    case notDetermined
-}
+import LumaCore
 
 /// Thin EventKit pass-through used by the Todo module.
 ///
 /// Ownership boundary: this service never holds reminder data of its own. Reminders.app remains the
 /// source of truth; Luma only requests access, reads today's due items, creates new items, and marks
 /// existing items complete. See ADR-009.
-public actor RemindersService {
+public actor RemindersService: RemindersClient {
     private let store: EKEventStore
 
     public init(store: EKEventStore = EKEventStore()) {

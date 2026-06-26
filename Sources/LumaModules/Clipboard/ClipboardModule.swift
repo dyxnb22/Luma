@@ -1,6 +1,5 @@
 import Foundation
 import LumaCore
-import LumaServices
 
 public actor ClipboardModule: LumaModule {
     public static let manifest = ModuleManifest(
@@ -25,8 +24,8 @@ public actor ClipboardModule: LumaModule {
 
     public init(
         fileManager: FileManager = .default,
-        pasteboard: any PasteboardClient = PasteboardService(),
-        accessibility: any AccessibilityClient = AXService()
+        pasteboard: any PasteboardClient = NoopPasteboardClient(),
+        accessibility: any AccessibilityClient = NoopAccessibilityClient()
     ) {
         let base = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? fileManager.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support")
@@ -41,9 +40,9 @@ public actor ClipboardModule: LumaModule {
     init(
         store: ClipboardHistoryStore,
         persistenceURL: URL,
-        pasteboard: any PasteboardClient = PasteboardService(),
-        accessibility: any AccessibilityClient = AXService(),
-        clipboardSnapshot: any ClipboardSnapshotClient = ClipboardSnapshotService()
+        pasteboard: any PasteboardClient = NoopPasteboardClient(),
+        accessibility: any AccessibilityClient = NoopAccessibilityClient(),
+        clipboardSnapshot: any ClipboardSnapshotClient = NoopClipboardSnapshotClient()
     ) {
         self.store = store
         self.persistenceURL = persistenceURL
@@ -53,13 +52,13 @@ public actor ClipboardModule: LumaModule {
     }
 
     public func warmup(_ context: ModuleContext) async {
-        clipboardSnapshot = context.clipboardSnapshot
-        let maxEntries = await context.config.clipboardMaxEntries()
-        let maxAgeDays = await context.config.clipboardMaxAgeDays()
-        let maxEntrySizeKB = await context.config.clipboardMaxEntrySizeKB()
-        historyEnabled = await context.config.clipboardHistoryEnabled()
-        pasteBehavior = ClipboardPasteBehavior(rawValue: await context.config.clipboardPasteBehavior()) ?? .pasteDirectly
-        let ignored = Set(await context.config.clipboardIgnoredBundleIDs())
+        clipboardSnapshot = context.platform.clipboardSnapshot
+        let maxEntries = await context.runtime.config.clipboardMaxEntries()
+        let maxAgeDays = await context.runtime.config.clipboardMaxAgeDays()
+        let maxEntrySizeKB = await context.runtime.config.clipboardMaxEntrySizeKB()
+        historyEnabled = await context.runtime.config.clipboardHistoryEnabled()
+        pasteBehavior = ClipboardPasteBehavior(rawValue: await context.runtime.config.clipboardPasteBehavior()) ?? .pasteDirectly
+        let ignored = Set(await context.runtime.config.clipboardIgnoredBundleIDs())
         store = ClipboardHistoryStore(
             maxEntries: maxEntries,
             maxAge: TimeInterval(maxAgeDays * 24 * 60 * 60),
@@ -135,7 +134,7 @@ public actor ClipboardModule: LumaModule {
         let decoded = try ModuleActionCoding.decode(ClipboardAction.self, from: payload)
         switch decoded {
         case .copyEntry(let id):
-            try await copyEntry(id: id, pasteboard: context.pasteboard, plainTextOnly: false)
+            try await copyEntry(id: id, pasteboard: context.platform.pasteboard, plainTextOnly: false)
         }
     }
 
@@ -154,7 +153,7 @@ public actor ClipboardModule: LumaModule {
         guard pasteBehavior == .pasteDirectly else { return }
         guard entry.imageData == nil, entry.fileURLs?.isEmpty != false else { return }
         try? await Task.sleep(for: .milliseconds(80))
-        if AXService.isProcessTrusted() {
+        if await accessibility.isTrusted() {
             await accessibility.insert(text: entry.plainTextForCopy)
         }
     }

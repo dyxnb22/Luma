@@ -1,6 +1,7 @@
 import AppKit
 import LumaCore
 import LumaModules
+import LumaServices
 
 @MainActor
 final class NotesDetailView: NSObject, ModuleDetailView {
@@ -11,6 +12,7 @@ final class NotesDetailView: NSObject, ModuleDetailView {
     let usesSharedTopBar = true
 
     private let module: NotesModule
+    private let workspace = WorkspaceService()
     private let topStrip = NSView()
     private let chipBar = NotesDetailChipBar()
     private let filterStrip = NSView()
@@ -629,7 +631,7 @@ final class NotesDetailView: NSObject, ModuleDetailView {
         let url = URL(fileURLWithPath: node.path)
         Task {
             await module.recordOpenedNote(path: node.path)
-            await MainActor.run { NotesTypora.open(url) }
+            await workspace.openURL(url)
         }
     }
 
@@ -1026,6 +1028,7 @@ extension NotesDetailView: NSMenuDelegate {
 @MainActor
 private final class LinkedNotesDataSource: NSObject, NSTableViewDataSource, NSTableViewDelegate {
     private let urls: [URL]
+    private let workspace = WorkspaceService()
 
     init(urls: [URL]) {
         self.urls = urls
@@ -1043,6 +1046,6 @@ private final class LinkedNotesDataSource: NSObject, NSTableViewDataSource, NSTa
         guard let tableView = notification.object as? NSTableView else { return }
         let row = tableView.selectedRow
         guard row >= 0 else { return }
-        NotesTypora.open(urls[row])
+        Task { await workspace.openURL(urls[row]) }
     }
 }

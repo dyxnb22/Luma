@@ -2,17 +2,6 @@ import CoreServices
 import Foundation
 import LumaCore
 
-public struct FSChangeEvent: Sendable, Hashable {
-    public enum Kind: Sendable { case created, removed, renamed, modified, unknown }
-    public let path: String
-    public let kind: Kind
-
-    public init(path: String, kind: Kind) {
-        self.path = path
-        self.kind = kind
-    }
-}
-
 private final class FSEventsCallbackContext: @unchecked Sendable {
     let service: FSEventsService
     let rootPath: String
@@ -37,7 +26,15 @@ public actor FSEventsService: FileSystemClient {
 
     public init() {}
 
-    public func watch(root: URL, debounceMillis: Int = 200) -> AsyncStream<[FSChangeEvent]> {
+    public func watch(root: URL, debounceMillis: Int = 200) async -> AsyncStream<[FSChangeEvent]> {
+        makeWatchStream(root: root, debounceMillis: debounceMillis)
+    }
+
+    public func stopWatching(root: URL) async {
+        stop(root: root)
+    }
+
+    private func makeWatchStream(root: URL, debounceMillis: Int = 200) -> AsyncStream<[FSChangeEvent]> {
         let rootPath = root.standardizedFileURL.path
         stop(root: root)
 

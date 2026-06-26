@@ -33,7 +33,7 @@ public actor QueryDispatcher {
                 group.addTask {
                     await self.metrics.mark("module.\(manifest.identifier.rawValue).start")
                     let deadline = ContinuousClock().now.advanced(by: manifest.queryTimeout)
-                    let context = QueryContext(deadline: deadline)
+                    let context = await self.host.makeQueryContext(deadline: deadline)
                     let result = await Timeout.run(after: manifest.queryTimeout) {
                         await module.handle(query, context: context)
                     } ?? ModuleResult.empty(
@@ -79,7 +79,7 @@ public actor QueryDispatcher {
 
         let usageRecords = await usage.snapshot()
         let deadline = ContinuousClock().now.advanced(by: manifest.queryTimeout)
-        let context = QueryContext(deadline: deadline)
+        let context = await host.makeQueryContext(deadline: deadline)
         let result = await Timeout.run(after: manifest.queryTimeout) {
             await module.handle(query, context: context)
         } ?? ModuleResult.empty(

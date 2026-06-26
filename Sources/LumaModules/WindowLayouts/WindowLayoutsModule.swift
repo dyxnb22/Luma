@@ -1,6 +1,5 @@
 import Foundation
 import LumaCore
-import LumaServices
 
 public actor WindowLayoutsModule: LumaModule {
     public static let manifest = ModuleManifest(
@@ -19,7 +18,7 @@ public actor WindowLayoutsModule: LumaModule {
             return ModuleResult(items: [])
         }
 
-        if !AXService.isProcessTrusted() {
+        if !(await context.platform.accessibility.isTrusted()) {
             return ModuleResult(items: [permissionRow()])
         }
 
@@ -34,9 +33,9 @@ public actor WindowLayoutsModule: LumaModule {
         let decoded = try ModuleActionCoding.decode(WindowLayoutsAction.self, from: payload)
         switch decoded {
         case .grantPermission:
-            AXService.requestPermission()
+            await context.platform.accessibility.requestPermission()
             if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
-                await context.workspace.openURL(url)
+                await context.platform.workspace.openURL(url)
             }
         }
     }

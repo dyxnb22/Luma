@@ -10,11 +10,23 @@ public actor AXService: AccessibilityClient {
     }
 
     public nonisolated static func requestPermission() {
+        promptForPermission()
+    }
+
+    public nonisolated static func promptForPermission() {
         let opts = ["AXTrustedCheckOptionPrompt": true] as NSDictionary
         _ = AXIsProcessTrustedWithOptions(opts)
     }
 
     public init() {}
+
+    public func isTrusted() async -> Bool {
+        Self.isProcessTrusted()
+    }
+
+    public func requestPermission() async {
+        Self.promptForPermission()
+    }
 
     public func windows(for pid: Int32) async -> [OpenWindowSnapshot] {
         Self.enumerateWindows(for: pid)

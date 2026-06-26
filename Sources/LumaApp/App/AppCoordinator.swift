@@ -20,16 +20,19 @@ final class AppCoordinator {
     private let fileSystem = FSEventsService()
     private let config = ConfigurationStore()
     private lazy var translation = TranslationService(config: config)
+    private let detailReloadRouter = ModuleDetailReloadRouter()
     private lazy var clipboardSnapshotService = ClipboardSnapshotService()
     private lazy var launcherUIService = AppLauncherUIService(
+        detailReloadRouter: detailReloadRouter,
         onSecretsLockStateChanged: { [weak self] locked in
             self?.menuBarController?.setSecretsLockState(locked: locked)
-            ModuleDetailReloads.reloadSecretsDetail?()
+            self?.detailReloadRouter.reload(.secrets)
         },
         onHideLauncher: { [weak self] in
             self?.windowController.hideImmediatelyForAction()
         }
     )
+    private let reminders = RemindersService()
     private lazy var context = ModuleContext(
         logger: logger,
         metrics: metrics,
@@ -41,7 +44,9 @@ final class AppCoordinator {
         config: config,
         workspace: workspace,
         clipboardSnapshot: clipboardSnapshotService,
-        launcherUI: launcherUIService
+        launcherUI: launcherUIService,
+        processMemory: ProcessMemoryService(),
+        reminders: reminders
     )
     private lazy var host = ModuleHost(context: context)
     private var hostClient: AppHostService!
@@ -70,8 +75,8 @@ final class AppCoordinator {
     private lazy var viewModel = LauncherViewModel(dispatcher: dispatcher, commandUsage: commandUsage)
     private let appActivationTracker = AppActivationTracker.defaultTracker()
     private lazy var openAppsProvider = OpenAppsHomeProvider(appActivationTracker: appActivationTracker)
-    private let clipboardModule = ClipboardModule()
-    private let todoModule = TodoModule()
+    private lazy var clipboardModule = ClipboardModule(pasteboard: pasteboard, accessibility: accessibility)
+    private lazy var todoModule = TodoModule(reminders: reminders)
     private let secretsModule = SecretsModule()
     private let mediaModule = MediaModule()
     private lazy var homeCoordinator = LauncherHomeCoordinator(
@@ -217,7 +222,7 @@ final class AppCoordinator {
             onHideLauncher: { [weak self] in
                 self?.windowController.hideImmediatelyForAction()
             },
-            reloadSnippetsDetail: { ModuleDetailReloads.reloadSnippetsDetail?() },
+            detailReloadRouter: detailReloadRouter,
             clipboardModule: clipboardModule,
             notesModule: notesModule,
             snippetsModule: snippetsModule,

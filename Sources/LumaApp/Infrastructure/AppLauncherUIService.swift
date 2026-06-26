@@ -3,13 +3,16 @@ import LumaCore
 
 @MainActor
 final class AppLauncherUIService: LauncherUIClient {
+    private let detailReloadRouter: ModuleDetailReloadRouter
     private let onSecretsLockStateChanged: (Bool) -> Void
     private let onHideLauncher: () -> Void
 
     init(
+        detailReloadRouter: ModuleDetailReloadRouter,
         onSecretsLockStateChanged: @escaping (Bool) -> Void,
         onHideLauncher: @escaping () -> Void
     ) {
+        self.detailReloadRouter = detailReloadRouter
         self.onSecretsLockStateChanged = onSecretsLockStateChanged
         self.onHideLauncher = onHideLauncher
     }
@@ -19,16 +22,7 @@ final class AppLauncherUIService: LauncherUIClient {
     }
 
     func reloadModuleDetail(_ moduleID: ModuleIdentifier) async {
-        switch moduleID {
-        case .secrets:
-            ModuleDetailReloads.reloadSecretsDetail?()
-        case .snippets:
-            ModuleDetailReloads.reloadSnippetsDetail?()
-        case .media:
-            ModuleDetailReloads.reloadMediaDetail?()
-        default:
-            break
-        }
+        detailReloadRouter.reload(moduleID)
     }
 
     func hideLauncher() async {

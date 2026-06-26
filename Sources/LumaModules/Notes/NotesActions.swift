@@ -1,5 +1,5 @@
 import Foundation
-import LumaServices
+import LumaCore
 
 public enum NotesActionError: Error, Sendable {
     case emptyName

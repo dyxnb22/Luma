@@ -1,5 +1,4 @@
 import Foundation
-import LumaServices
 
 public struct NotesTemplateInfo: Sendable, Equatable {
     public let name: String

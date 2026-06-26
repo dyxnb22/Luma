@@ -2,7 +2,8 @@ import Foundation
 
 public enum Timeout {
     /// Returns the first finished value from `operation` or `nil` when `duration` elapses.
-    /// Does not wait for a non-cooperative `operation` after the deadline; the work task is cancelled and abandoned.
+    /// Returns when `duration` elapses even if `operation` keeps running; the detached work task is
+    /// cancelled but non-cooperative module warmup may still mutate actor state after the caller continues.
     public static func run<T: Sendable>(
         after duration: Duration,
         operation: @Sendable @escaping () async -> T

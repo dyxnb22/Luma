@@ -34,6 +34,16 @@ public actor ModuleHost {
         modules[id]
     }
 
+    public func makeQueryContext(deadline: ContinuousClock.Instant) -> QueryContext {
+        QueryContext(
+            deadline: deadline,
+            platform: QueryPlatformClients(
+                accessibility: context.platform.accessibility,
+                processMemory: context.platform.processMemory
+            )
+        )
+    }
+
     public func warmupAll(budget: Duration = .seconds(1)) async {
         let context = context
         let active = enabled.compactMap { modules[$0] }

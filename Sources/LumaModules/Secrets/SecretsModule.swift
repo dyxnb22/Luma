@@ -20,12 +20,12 @@ public actor SecretsModule: LumaModule {
     }
     public func warmup(_ context: ModuleContext) async {
         launcherUI = context.launcherUI
-        autoClearSeconds = await context.config.secretsAutoClearSeconds()
-        let relockSeconds = await context.config.secretsRelockTimeoutSeconds()
+        autoClearSeconds = await context.runtime.config.secretsAutoClearSeconds()
+        let relockSeconds = await context.runtime.config.secretsRelockTimeoutSeconds()
         await vault.configure(relockTimeoutSeconds: relockSeconds) { locked in
             await context.launcherUI.notifySecretsLockStateChanged(locked)
         }
-        if !(await context.config.secretsRequireUnlockOnLaunch()) {
+        if !(await context.runtime.config.secretsRequireUnlockOnLaunch()) {
             await vault.unlock()
         } else {
             await context.launcherUI.notifySecretsLockStateChanged(true)
@@ -78,7 +78,7 @@ public actor SecretsModule: LumaModule {
             await vault.unlock()
         case .copySecret(let id):
             let value = try await vault.revealValue(id: id)
-            await context.pasteboard.writeSecure(value, clearAfterSeconds: autoClearSeconds)
+            await context.platform.pasteboard.writeSecure(value, clearAfterSeconds: autoClearSeconds)
         }
     }
 

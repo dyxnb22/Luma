@@ -1,6 +1,5 @@
 import Foundation
 import LumaCore
-import LumaServices
 
 public actor NotesModule: LumaModule {
     public static let manifest = ModuleManifest(
@@ -15,7 +14,7 @@ public actor NotesModule: LumaModule {
     private let index: NotesTreeIndex
     private let metaIndex: NotesMetaIndex
     private let configStore: NotesRootConfigStore
-    private var fsEvents: FSEventsService?
+    private var fileSystem: any FileSystemClient = NoopFileSystemClient()
     private var watchTask: Task<Void, Never>?
     private var watchRoot: URL?
     private var rootPath: String?
@@ -37,19 +36,15 @@ public actor NotesModule: LumaModule {
     }
 
     public func warmup(_ context: ModuleContext) async {
-        if let service = context.fileSystem as? FSEventsService {
-            fsEvents = service
-        } else {
-            fsEvents = FSEventsService()
-        }
+        fileSystem = context.platform.fileSystem
         await reloadFromConfig()
     }
 
     public func teardown() async {
         watchTask?.cancel()
         watchTask = nil
-        if let watchRoot, let fsEvents {
-            await fsEvents.stop(root: watchRoot)
+        if let watchRoot {
+            await fileSystem.stopWatching(root: watchRoot)
         }
         self.watchRoot = nil
     }
@@ -109,7 +104,7 @@ public actor NotesModule: LumaModule {
         case .open(let path):
             url = URL(fileURLWithPath: path)
             await recordRecent(path: path)
-            await MainActor.run { NotesTypora.open(url) }
+            await context.platform.workspace.openURL(url)
             return
         case .createInInbox(let title):
             url = try await actions.createNoteInInbox(
@@ -143,7 +138,7 @@ public actor NotesModule: LumaModule {
         }
 
         await recordRecent(path: url.path)
-        await MainActor.run { NotesTypora.open(url) }
+        await context.platform.workspace.openURL(url)
     }
 
     public func recordOpenedNote(path: String) async {
@@ -204,8 +199,8 @@ public actor NotesModule: LumaModule {
     public func reloadFromConfig() async {
         watchTask?.cancel()
         watchTask = nil
-        if let watchRoot, let fsEvents {
-            await fsEvents.stop(root: watchRoot)
+        if let watchRoot {
+            await fileSystem.stopWatching(root: watchRoot)
         }
         self.watchRoot = nil
 
@@ -235,9 +230,8 @@ public actor NotesModule: LumaModule {
     }
 
     private func startWatching(root: URL) async {
-        guard let fsEvents else { return }
         watchRoot = root
-        let stream = await fsEvents.watch(root: root)
+        let stream = await fileSystem.watch(root: root, debounceMillis: 200)
         watchTask = Task { [index, metaIndex] in
             for await batch in stream {
                 if Task.isCancelled { break }

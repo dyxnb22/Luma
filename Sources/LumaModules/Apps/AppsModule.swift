@@ -34,7 +34,7 @@ public actor AppsModule: LumaModule {
 
     public func handle(_ query: Query, context: QueryContext) async -> ModuleResult {
         if let payload = query.command?.payload ?? Self.extractPayload(raw: query.raw) {
-            return handlePayload(payload)
+            return await handlePayload(payload, context: context)
         }
         let matches = index.search(query.raw).map(result)
         return ModuleResult(items: matches)
@@ -47,7 +47,7 @@ public actor AppsModule: LumaModule {
         let decoded = try ModuleActionCoding.decode(AppsAction.self, from: payload)
         switch decoded {
         case .quit(let bundleID):
-            await context.workspace.terminateApplication(bundleID: bundleID)
+            await context.platform.workspace.terminateApplication(bundleID: bundleID)
         }
     }
 
@@ -66,28 +66,28 @@ public actor AppsModule: LumaModule {
         return nil
     }
 
-    private func handlePayload(_ payload: String) -> ModuleResult {
+    private func handlePayload(_ payload: String, context: QueryContext) async -> ModuleResult {
         let trimmed = payload.trimmingCharacters(in: .whitespacesAndNewlines)
         if ModuleHelp.isHelpQuery(trimmed) {
             return ModuleResult(items: ModuleHelp.results(for: Self.manifest.identifier))
         }
         if trimmed.lowercased() == "top" {
-            return memoryTopResult()
+            return await memoryTopResult(context: context)
         }
         let searchText = trimmed
         let matches = index.search(searchText).map(result)
         return ModuleResult(items: matches)
     }
 
-    private func memoryTopResult() -> ModuleResult {
-        let samples = AppMemorySampler.topApplications()
+    private func memoryTopResult(context: QueryContext) async -> ModuleResult {
+        let samples = await context.platform.processMemory.topApplications(limit: 8)
         if samples.isEmpty {
             return ModuleResult(items: [])
         }
         return ModuleResult(items: samples.map(memoryRow))
     }
 
-    private func memoryRow(_ sample: AppMemorySample) -> ResultItem {
+    private func memoryRow(_ sample: RunningApplicationMemory) -> ResultItem {
         let mb = String(format: "%.0f MB", sample.residentMB)
         let url = index.search(sample.name).first?.url
             ?? URL(fileURLWithPath: "/Applications")

@@ -1,4 +1,5 @@
 import Foundation
+import LumaCore
 
 public enum ClipboardEntryKind: String, Sendable, Hashable, Codable {
     case text
@@ -103,28 +104,15 @@ public enum ClipboardEntryKind: String, Sendable, Hashable, Codable {
     }
 
     public static func isImageTypes(_ types: [String]) -> Bool {
-        let imagePrefixes = ["public.png", "public.tiff", "public.jpeg", "public.image", "com.apple.pict", "com.compuserve.gif"]
-        return types.contains { type in
-            imagePrefixes.contains { type.hasPrefix($0) || type == $0 }
-        }
+        ClipboardPasteboardTypes.isImageTypes(types)
     }
 
     public static func isTextTypes(_ types: [String]) -> Bool {
-        let textTypes: Set<String> = [
-            "public.utf8-plain-text",
-            "NSStringPboardType",
-            "public.plain-text",
-            "public.text",
-            "public.html",
-            "public.rtf"
-        ]
-        return types.contains { type in
-            textTypes.contains(type) || type.hasPrefix("public.text")
-        }
+        ClipboardPasteboardTypes.isTextTypes(types)
     }
 
     public static func isFileTypes(_ types: [String]) -> Bool {
-        types.contains { $0 == "public.file-url" || $0 == "NSURLPboardType" }
+        ClipboardPasteboardTypes.isFileTypes(types)
     }
 }
 

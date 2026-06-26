@@ -1,6 +1,5 @@
 import Foundation
 import LumaCore
-import LumaServices
 
 public struct NotesNode: Sendable, Hashable {
     public enum Kind: Sendable { case folder, note }

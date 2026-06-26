@@ -26,7 +26,7 @@ public struct ClipboardSnapshotService: ClipboardSnapshotClient, Sendable {
         let skipSource = bundleID == lumaBundleID
 
         var fileURLs: [URL] = []
-        if isFileTypes(types) {
+        if ClipboardPasteboardTypes.isFileTypes(types) {
             if let urls = pasteboard.readObjects(forClasses: [NSURL.self], options: nil) as? [URL] {
                 fileURLs = urls
             }
@@ -34,7 +34,7 @@ public struct ClipboardSnapshotService: ClipboardSnapshotClient, Sendable {
 
         var imageData: Data?
         var imageType: String?
-        if isImageTypes(types) {
+        if ClipboardPasteboardTypes.isImageTypes(types) {
             for type in ["public.png", "public.tiff", "public.jpeg", "public.image"] {
                 if let data = pasteboard.data(forType: NSPasteboard.PasteboardType(type)) {
                     imageData = data
@@ -61,17 +61,6 @@ public struct ClipboardSnapshotService: ClipboardSnapshotClient, Sendable {
             sourceBundleID: skipSource ? nil : bundleID,
             sourceIsLuma: skipSource
         )
-    }
-
-    private static func isImageTypes(_ types: [String]) -> Bool {
-        let imagePrefixes = ["public.png", "public.tiff", "public.jpeg", "public.image", "com.apple.pict", "com.compuserve.gif"]
-        return types.contains { type in
-            imagePrefixes.contains { type.hasPrefix($0) || type == $0 }
-        }
-    }
-
-    private static func isFileTypes(_ types: [String]) -> Bool {
-        types.contains { $0 == "public.file-url" || $0 == "NSURLPboardType" }
     }
 
     private static let textPasteboardTypes: [NSPasteboard.PasteboardType] = [

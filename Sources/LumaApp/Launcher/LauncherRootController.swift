@@ -221,7 +221,7 @@ final class LauncherRootController {
                         trigger: ""
                     )
                     await MainActor.run {
-                        self.launcherEnvironment.reloadSnippetsDetail()
+                        self.launcherEnvironment.detailReloadRouter.reload(.snippets)
                         self.presentModuleDetail(for: moduleID)
                     }
                 } catch {

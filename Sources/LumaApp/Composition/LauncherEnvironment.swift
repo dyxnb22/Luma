@@ -18,7 +18,7 @@ final class LauncherEnvironment {
     let onBackFromDetail: () -> Void
     let onTranslateContentChanged: (String, String) -> Void
     let onHideLauncher: () -> Void
-    let reloadSnippetsDetail: () -> Void
+    let detailReloadRouter: ModuleDetailReloadRouter
 
     let clipboardModule: ClipboardModule
     let notesModule: NotesModule
@@ -37,7 +37,7 @@ final class LauncherEnvironment {
         onBackFromDetail: @escaping () -> Void,
         onTranslateContentChanged: @escaping (String, String) -> Void,
         onHideLauncher: @escaping () -> Void,
-        reloadSnippetsDetail: @escaping () -> Void,
+        detailReloadRouter: ModuleDetailReloadRouter,
         clipboardModule: ClipboardModule,
         notesModule: NotesModule,
         snippetsModule: SnippetsModule,
@@ -54,7 +54,7 @@ final class LauncherEnvironment {
         self.onBackFromDetail = onBackFromDetail
         self.onTranslateContentChanged = onTranslateContentChanged
         self.onHideLauncher = onHideLauncher
-        self.reloadSnippetsDetail = reloadSnippetsDetail
+        self.detailReloadRouter = detailReloadRouter
         self.clipboardModule = clipboardModule
         self.notesModule = notesModule
         self.snippetsModule = snippetsModule
@@ -85,11 +85,11 @@ final class LauncherEnvironment {
         case .notes:
             return NotesDetailView(module: notesModule)
         case .snippets:
-            return SnippetsDetailView(module: snippetsModule)
+            return SnippetsDetailView(module: snippetsModule, detailReloadRouter: detailReloadRouter)
         case .secrets:
-            return SecretsDetailView(module: secretsModule)
+            return SecretsDetailView(module: secretsModule, detailReloadRouter: detailReloadRouter)
         case .media:
-            return MediaDetailView(module: mediaModule)
+            return MediaDetailView(module: mediaModule, detailReloadRouter: detailReloadRouter)
         case .todo:
             return TodoDetailView(module: todoModule)
         case .wordbook:

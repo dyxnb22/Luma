@@ -1,4 +1,3 @@
-import AppKit
 import Foundation
 import LumaCore
 import LumaModules
@@ -7,6 +6,7 @@ import LumaServices
 actor ClipboardPasteboardCache {
     static let shared = ClipboardPasteboardCache()
 
+    private let snapshotService = ClipboardSnapshotService()
     private var cachedValue: String?
     private var refreshTask: Task<Void, Never>?
     private var isActive = false
@@ -29,13 +29,9 @@ actor ClipboardPasteboardCache {
     }
 
     private func refreshLoop() async {
-        let lumaBundleID = Bundle.main.bundleIdentifier
         while !Task.isCancelled {
-            let preview = await MainActor.run {
-                let snapshot = ClipboardSnapshotReader.read(lumaBundleID: lumaBundleID)
-                return ClipboardFilter.homePreviewText(from: snapshot)
-            }
-            cachedValue = preview
+            let snapshot = await snapshotService.readSnapshot()
+            cachedValue = ClipboardFilter.homePreviewText(from: snapshot)
             try? await Task.sleep(for: .seconds(refreshInterval))
         }
     }

@@ -21,10 +21,12 @@ final class ClipboardDetailView: NSObject, ModuleDetailView {
     private var refreshTask: Task<Void, Never>?
     private var currentFilter: ClipboardListFilter = .all
     private var onOpenSettings: (() -> Void)?
+    private var onHideLauncher: (() -> Void)?
 
-    init(module: ClipboardModule, onOpenSettings: (() -> Void)? = nil) {
+    init(module: ClipboardModule, onOpenSettings: (() -> Void)? = nil, onHideLauncher: (() -> Void)? = nil) {
         self.module = module
         self.onOpenSettings = onOpenSettings
+        self.onHideLauncher = onHideLauncher
         let chrome = BaseDetailContainer()
         self.detailView = chrome
         super.init()
@@ -244,7 +246,7 @@ final class ClipboardDetailView: NSObject, ModuleDetailView {
     }
 
     private func pasteEntry(_ entry: ClipboardEntry) {
-        LauncherCallbackRegistry.current?.onHideLauncher()
+        onHideLauncher?()
         Task { try? await module.pasteEntry(id: entry.id) }
     }
 
@@ -323,7 +325,7 @@ final class ClipboardDetailView: NSObject, ModuleDetailView {
             Task {
                 _ = try? await mod.add(title: savedTitle, content: content, tags: tags, trigger: trigger)
                 await MainActor.run {
-                    ModuleDetailReloads.reloadSnippetsDetail?()
+                    LauncherEnvironment.current?.reloadSnippetsDetail()
                     self?.detailView.window?.makeFirstResponder(self?.tableView)
                 }
             }

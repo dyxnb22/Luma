@@ -10,6 +10,8 @@ public struct ModuleContext: Sendable {
     public let translation: any TranslationClient
     public let config: any ConfigurationClient
     public let workspace: any WorkspaceClient
+    public let clipboardSnapshot: any ClipboardSnapshotClient
+    public let launcherUI: any LauncherUIClient
 
     public init(
         logger: any LoggingClient,
@@ -20,7 +22,9 @@ public struct ModuleContext: Sendable {
         fileSystem: any FileSystemClient,
         translation: any TranslationClient,
         config: any ConfigurationClient,
-        workspace: any WorkspaceClient = NoopWorkspaceClient()
+        workspace: any WorkspaceClient = NoopWorkspaceClient(),
+        clipboardSnapshot: any ClipboardSnapshotClient = NoopClipboardSnapshotClient(),
+        launcherUI: any LauncherUIClient = NoopLauncherUIClient()
     ) {
         self.logger = logger
         self.metrics = metrics
@@ -31,6 +35,8 @@ public struct ModuleContext: Sendable {
         self.translation = translation
         self.config = config
         self.workspace = workspace
+        self.clipboardSnapshot = clipboardSnapshot
+        self.launcherUI = launcherUI
     }
 }
 
@@ -49,6 +55,7 @@ public struct ActionContext: Sendable {
     public let accessibility: any AccessibilityClient
     public let workspace: any WorkspaceClient
     public let host: any HostClient
+    public let launcherUI: any LauncherUIClient
 
     public init(
         logger: any LoggingClient,
@@ -56,7 +63,8 @@ public struct ActionContext: Sendable {
         pasteboard: any PasteboardClient,
         accessibility: any AccessibilityClient,
         workspace: any WorkspaceClient = NoopWorkspaceClient(),
-        host: any HostClient = NoopHostClient()
+        host: any HostClient = NoopHostClient(),
+        launcherUI: any LauncherUIClient = NoopLauncherUIClient()
     ) {
         self.logger = logger
         self.metrics = metrics
@@ -64,6 +72,7 @@ public struct ActionContext: Sendable {
         self.accessibility = accessibility
         self.workspace = workspace
         self.host = host
+        self.launcherUI = launcherUI
     }
 }
 
@@ -91,6 +100,7 @@ public protocol PasteboardClient: Sendable {
     func writeSecure(_ string: String, clearAfterSeconds: Int) async
     func writeImage(data: Data, pasteboardType: String) async
     func writeFileURLs(_ urls: [URL]) async
+    func readString() async -> String?
 }
 
 public protocol AccessibilityClient: Sendable {

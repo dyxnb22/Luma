@@ -1,44 +1,22 @@
-import Foundation
-
-public struct ClipboardSnapshot: Sendable, Equatable {
-    public let changeCount: Int
-    public let types: [String]
-    public let text: String?
-    public let imageData: Data?
-    public let imageType: String?
-    public let fileURLs: [URL]
-    public let sourceAppName: String?
-    public let sourceBundleID: String?
-    public let sourceIsLuma: Bool
-
-    public init(
-        changeCount: Int,
-        types: [String],
-        text: String?,
-        imageData: Data?,
-        imageType: String?,
-        fileURLs: [URL],
-        sourceAppName: String?,
-        sourceBundleID: String?,
-        sourceIsLuma: Bool = false
-    ) {
-        self.changeCount = changeCount
-        self.types = types
-        self.text = text
-        self.imageData = imageData
-        self.imageType = imageType
-        self.fileURLs = fileURLs
-        self.sourceAppName = sourceAppName
-        self.sourceBundleID = sourceBundleID
-        self.sourceIsLuma = sourceIsLuma
-    }
-}
-
-#if canImport(AppKit)
 import AppKit
+import Foundation
+import LumaCore
 
-public enum ClipboardSnapshotReader {
-    public static func read(lumaBundleID: String?) -> ClipboardSnapshot {
+public struct ClipboardSnapshotService: ClipboardSnapshotClient, Sendable {
+    private let lumaBundleID: String?
+
+    public init(lumaBundleID: String? = Bundle.main.bundleIdentifier) {
+        self.lumaBundleID = lumaBundleID
+    }
+
+    public func readSnapshot() async -> ClipboardSnapshot {
+        await MainActor.run {
+            Self.read(lumaBundleID: lumaBundleID)
+        }
+    }
+
+    @MainActor
+    private static func read(lumaBundleID: String?) -> ClipboardSnapshot {
         let pasteboard = NSPasteboard.general
         let changeCount = pasteboard.changeCount
         let types = pasteboard.types?.map(\.rawValue) ?? []
@@ -48,7 +26,7 @@ public enum ClipboardSnapshotReader {
         let skipSource = bundleID == lumaBundleID
 
         var fileURLs: [URL] = []
-        if ClipboardEntryKind.isFileTypes(types) {
+        if isFileTypes(types) {
             if let urls = pasteboard.readObjects(forClasses: [NSURL.self], options: nil) as? [URL] {
                 fileURLs = urls
             }
@@ -56,7 +34,7 @@ public enum ClipboardSnapshotReader {
 
         var imageData: Data?
         var imageType: String?
-        if ClipboardEntryKind.isImageTypes(types) {
+        if isImageTypes(types) {
             for type in ["public.png", "public.tiff", "public.jpeg", "public.image"] {
                 if let data = pasteboard.data(forType: NSPasteboard.PasteboardType(type)) {
                     imageData = data
@@ -70,7 +48,7 @@ public enum ClipboardSnapshotReader {
             }
         }
 
-        let text = Self.readText(from: pasteboard)
+        let text = readText(from: pasteboard)
 
         return ClipboardSnapshot(
             changeCount: changeCount,
@@ -85,12 +63,24 @@ public enum ClipboardSnapshotReader {
         )
     }
 
+    private static func isImageTypes(_ types: [String]) -> Bool {
+        let imagePrefixes = ["public.png", "public.tiff", "public.jpeg", "public.image", "com.apple.pict", "com.compuserve.gif"]
+        return types.contains { type in
+            imagePrefixes.contains { type.hasPrefix($0) || type == $0 }
+        }
+    }
+
+    private static func isFileTypes(_ types: [String]) -> Bool {
+        types.contains { $0 == "public.file-url" || $0 == "NSURLPboardType" }
+    }
+
     private static let textPasteboardTypes: [NSPasteboard.PasteboardType] = [
         .string,
         NSPasteboard.PasteboardType("NSStringPboardType"),
         NSPasteboard.PasteboardType("public.plain-text")
     ]
 
+    @MainActor
     private static func readText(from pasteboard: NSPasteboard) -> String? {
         for type in textPasteboardTypes {
             if let text = pasteboard.string(forType: type), !text.isEmpty {
@@ -121,4 +111,3 @@ public enum ClipboardSnapshotReader {
         return nil
     }
 }
-#endif

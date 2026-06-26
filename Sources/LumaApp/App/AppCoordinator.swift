@@ -20,6 +20,16 @@ final class AppCoordinator {
     private let fileSystem = FSEventsService()
     private let config = ConfigurationStore()
     private lazy var translation = TranslationService(config: config)
+    private lazy var clipboardSnapshotService = ClipboardSnapshotService()
+    private lazy var launcherUIService = AppLauncherUIService(
+        onSecretsLockStateChanged: { [weak self] locked in
+            self?.menuBarController?.setSecretsLockState(locked: locked)
+            ModuleDetailReloads.reloadSecretsDetail?()
+        },
+        onHideLauncher: { [weak self] in
+            self?.windowController.hideImmediatelyForAction()
+        }
+    )
     private lazy var context = ModuleContext(
         logger: logger,
         metrics: metrics,
@@ -29,7 +39,9 @@ final class AppCoordinator {
         fileSystem: fileSystem,
         translation: translation,
         config: config,
-        workspace: workspace
+        workspace: workspace,
+        clipboardSnapshot: clipboardSnapshotService,
+        launcherUI: launcherUIService
     )
     private lazy var host = ModuleHost(context: context)
     private var hostClient: AppHostService!
@@ -45,7 +57,8 @@ final class AppCoordinator {
             pasteboard: pasteboard,
             accessibility: accessibility,
             workspace: workspace,
-            host: hostClient
+            host: hostClient,
+            launcherUI: launcherUIService
         ),
         pasteboard: pasteboard,
         accessibility: accessibility,
@@ -201,16 +214,10 @@ final class AppCoordinator {
                     await self.config.setLauncherTranslateOutputText(output)
                 }
             },
-            onSecretsLockStateChanged: { [weak self] locked in
-                self?.menuBarController?.setSecretsLockState(locked: locked)
-                ModuleDetailReloads.reloadSecretsDetail?()
-            },
             onHideLauncher: { [weak self] in
                 self?.windowController.hideImmediatelyForAction()
             },
-            reloadSecretsDetail: { ModuleDetailReloads.reloadSecretsDetail?() },
             reloadSnippetsDetail: { ModuleDetailReloads.reloadSnippetsDetail?() },
-            reloadMediaDetail: { ModuleDetailReloads.reloadMediaDetail?() },
             clipboardModule: clipboardModule,
             notesModule: notesModule,
             snippetsModule: snippetsModule,

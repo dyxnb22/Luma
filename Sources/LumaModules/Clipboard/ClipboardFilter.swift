@@ -1,4 +1,5 @@
 import Foundation
+import LumaCore
 
 public enum ClipboardFilter {
     private static let exactBlockedTypes: Set<String> = [

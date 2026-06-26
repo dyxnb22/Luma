@@ -15,6 +15,7 @@ private struct TestDoubles {
         func writeSecure(_ string: String, clearAfterSeconds: Int) async {}
         func writeImage(data: Data, pasteboardType: String) async {}
         func writeFileURLs(_ urls: [URL]) async {}
+        func readString() async -> String? { nil }
     }
 
     struct Accessibility: AccessibilityClient {

@@ -338,6 +338,8 @@ private actor RecordingPasteboardClient: PasteboardClient {
         imageType = nil
     }
 
+    func readString() async -> String? { text }
+
     func snapshot() -> (text: String?, imageData: Data?, imageType: String?, fileURLs: [URL]?) {
         (text, imageData, imageType, fileURLs)
     }

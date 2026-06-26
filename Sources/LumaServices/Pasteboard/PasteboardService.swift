@@ -42,4 +42,10 @@ public actor PasteboardService: PasteboardClient {
             NSPasteboard.general.writeObjects(urls as [NSURL])
         }
     }
+
+    public func readString() async -> String? {
+        await MainActor.run {
+            NSPasteboard.general.string(forType: .string)
+        }
+    }
 }

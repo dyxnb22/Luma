@@ -1,63 +1,64 @@
 import AppKit
+import LumaCore
 
 /// Centralized visual tokens for module detail chrome and launcher list UI.
 @MainActor
-public enum ColorTokens {
-    public static var cardGradientTopAlpha: CGFloat {
+enum ColorTokens {
+    static var cardGradientTopAlpha: CGFloat {
         isDarkAppearance ? 0.50 : GeekStyleTokens.cardGradientTopAlphaLight
     }
 
-    public static var cardGradientBottomAlpha: CGFloat {
+    static var cardGradientBottomAlpha: CGFloat {
         isDarkAppearance ? 0.55 : GeekStyleTokens.cardGradientBottomAlphaLight
     }
 
-    public static let cardBorderAlpha: CGFloat = 0.32
-    public static let cardBorderHighlightedAlpha: CGFloat = 0.85
-    public static let cardTitleSubtitleAlpha: CGFloat = 0.62
-    public static let cardStatusAlpha: CGFloat = 0.72
-    public static let cardShortcutAlpha: CGFloat = 0.65
-    public static let returnHintCapsuleAlpha: CGFloat = 0.24
-    public static let listRowSelectionAlpha: CGFloat = LauncherChromeTokens.listRowSelectionAlpha
-    public static let searchSurfaceAlpha: CGFloat = 0.42
-    public static let searchSurfaceBorderAlpha: CGFloat = 0.35
+    static let cardBorderAlpha: CGFloat = 0.32
+    static let cardBorderHighlightedAlpha: CGFloat = 0.85
+    static let cardTitleSubtitleAlpha: CGFloat = 0.62
+    static let cardStatusAlpha: CGFloat = 0.72
+    static let cardShortcutAlpha: CGFloat = 0.65
+    static let returnHintCapsuleAlpha: CGFloat = 0.24
+    static let listRowSelectionAlpha: CGFloat = LauncherChromeTokens.listRowSelectionAlpha
+    static let searchSurfaceAlpha: CGFloat = 0.42
+    static let searchSurfaceBorderAlpha: CGFloat = 0.35
 
-    public static var panelBorderColor: NSColor {
+    static var panelBorderColor: NSColor {
         separatorBlend(alpha: LauncherChromeTokens.panelBorderAlpha)
     }
 
-    public static var searchSurfaceFill: NSColor {
+    static var searchSurfaceFill: NSColor {
         controlFillBlend(alpha: searchSurfaceAlpha)
     }
 
-    public static var searchSurfaceBorder: NSColor {
+    static var searchSurfaceBorder: NSColor {
         separatorBlend(alpha: searchSurfaceBorderAlpha)
     }
 
-    public static var listRowSelectionFill: NSColor {
+    static var listRowSelectionFill: NSColor {
         NSColor.controlAccentColor.withAlphaComponent(listRowSelectionAlpha)
     }
 
-    public static var listRowHoverFill: NSColor {
+    static var listRowHoverFill: NSColor {
         NSColor.labelColor.withAlphaComponent(LauncherChromeTokens.listRowHoverAlpha)
     }
 
-    public static var performanceStripSurfaceFill: NSColor {
+    static var performanceStripSurfaceFill: NSColor {
         NSColor.quaternaryLabelColor.withAlphaComponent(0.08)
     }
 
-    public static var performanceStripNormalText: NSColor {
+    static var performanceStripNormalText: NSColor {
         .tertiaryLabelColor
     }
 
-    public static var performanceStripMetricText: NSColor {
+    static var performanceStripMetricText: NSColor {
         .secondaryLabelColor
     }
 
-    public static var performanceStripElevatedMetricText: NSColor {
+    static var performanceStripElevatedMetricText: NSColor {
         .labelColor.withAlphaComponent(0.78)
     }
 
-    public static var performanceStripWarningAccent: NSColor {
+    static var performanceStripWarningAccent: NSColor {
         NSColor.systemOrange.withAlphaComponent(0.88)
     }
 
@@ -65,7 +66,7 @@ public enum ColorTokens {
         NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
     }
 
-    public static func cardIconTint(for topHex: String) -> NSColor {
+    static func cardIconTint(for topHex: String) -> NSColor {
         let base = color(hex: topHex)
         let blend: CGFloat = isDarkAppearance ? 0.35 : 0.25
         return base.blended(withFraction: blend, of: .white) ?? base
@@ -79,7 +80,7 @@ public enum ColorTokens {
         NSColor.controlBackgroundColor.withAlphaComponent(alpha)
     }
 
-    public static func color(hex: String) -> NSColor {
+    static func color(hex: String) -> NSColor {
         let sanitized = hex.trimmingCharacters(in: CharacterSet(charactersIn: "#"))
         guard sanitized.count == 6, let value = UInt64(sanitized, radix: 16) else {
             return .gray

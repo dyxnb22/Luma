@@ -79,7 +79,7 @@ public actor MediaModule: LumaModule {
         case .capture(let draft):
             _ = try await store.add(from: draft)
             await refreshCache()
-            await MainActor.run { LauncherCallbackRegistry.current?.reloadMediaDetail() }
+            await context.launcherUI.reloadModuleDetail(.media)
         case .copy(let id):
             guard let item = cachedItems.first(where: { $0.id == id }) else {
                 throw ModuleError.dataUnavailable

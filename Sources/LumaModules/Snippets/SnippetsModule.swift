@@ -65,14 +65,16 @@ public actor SnippetsModule: LumaModule {
             }
             _ = try await store.recordUsage(id: id)
             await refreshCache()
-            await context.pasteboard.write(SnippetVariableExpander.expand(snippet.content))
+            let clipboardText = await context.pasteboard.readString()
+            await context.pasteboard.write(SnippetVariableExpander.expand(snippet.content, clipboardText: clipboardText))
         case .paste(let id):
             guard let snippet = cachedSnippets.first(where: { $0.id == id }) else {
                 throw ModuleError.dataUnavailable
             }
             _ = try await store.recordUsage(id: id)
             await refreshCache()
-            let expanded = SnippetVariableExpander.expand(snippet.content)
+            let clipboardText = await context.pasteboard.readString()
+            let expanded = SnippetVariableExpander.expand(snippet.content, clipboardText: clipboardText)
             await context.pasteboard.write(expanded)
             if AXService.isProcessTrusted() {
                 await context.accessibility.insert(text: expanded)

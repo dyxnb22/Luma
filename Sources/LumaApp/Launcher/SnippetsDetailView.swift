@@ -161,7 +161,8 @@ final class SnippetsDetailView: NSObject, ModuleDetailView {
         let row = tableView.selectedRow
         guard snippets.indices.contains(row) else { return }
         let snippet = snippets[row]
-        let expanded = SnippetVariableExpander.expand(snippet.content)
+        let clipboardText = NSPasteboard.general.string(forType: .string)
+        let expanded = SnippetVariableExpander.expand(snippet.content, clipboardText: clipboardText)
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(expanded, forType: .string)
         showCopiedFeedback()

@@ -17,11 +17,8 @@ final class LauncherEnvironment {
     let reloadModules: () -> Void
     let onBackFromDetail: () -> Void
     let onTranslateContentChanged: (String, String) -> Void
-    let onSecretsLockStateChanged: (Bool) -> Void
     let onHideLauncher: () -> Void
-    let reloadSecretsDetail: () -> Void
     let reloadSnippetsDetail: () -> Void
-    let reloadMediaDetail: () -> Void
 
     let clipboardModule: ClipboardModule
     let notesModule: NotesModule
@@ -39,11 +36,8 @@ final class LauncherEnvironment {
         reloadModules: @escaping () -> Void,
         onBackFromDetail: @escaping () -> Void,
         onTranslateContentChanged: @escaping (String, String) -> Void,
-        onSecretsLockStateChanged: @escaping (Bool) -> Void,
         onHideLauncher: @escaping () -> Void,
-        reloadSecretsDetail: @escaping () -> Void,
         reloadSnippetsDetail: @escaping () -> Void,
-        reloadMediaDetail: @escaping () -> Void,
         clipboardModule: ClipboardModule,
         notesModule: NotesModule,
         snippetsModule: SnippetsModule,
@@ -59,11 +53,8 @@ final class LauncherEnvironment {
         self.reloadModules = reloadModules
         self.onBackFromDetail = onBackFromDetail
         self.onTranslateContentChanged = onTranslateContentChanged
-        self.onSecretsLockStateChanged = onSecretsLockStateChanged
         self.onHideLauncher = onHideLauncher
-        self.reloadSecretsDetail = reloadSecretsDetail
         self.reloadSnippetsDetail = reloadSnippetsDetail
-        self.reloadMediaDetail = reloadMediaDetail
         self.clipboardModule = clipboardModule
         self.notesModule = notesModule
         self.snippetsModule = snippetsModule
@@ -77,18 +68,6 @@ final class LauncherEnvironment {
 
     func install() {
         LauncherEnvironment.current = self
-        LauncherCallbackRegistry.install(LauncherCallbacks(
-            openModuleDetail: openModuleDetail,
-            onOpenSettings: openSettings,
-            onReloadModules: reloadModules,
-            onBackFromDetail: onBackFromDetail,
-            onTranslateContentChanged: onTranslateContentChanged,
-            onSecretsLockStateChanged: onSecretsLockStateChanged,
-            onHideLauncher: onHideLauncher,
-            reloadSecretsDetail: reloadSecretsDetail,
-            reloadSnippetsDetail: reloadSnippetsDetail,
-            reloadMediaDetail: reloadMediaDetail
-        ))
     }
 
     func makeDetailView(for id: ModuleIdentifier) -> (any ModuleDetailView)? {
@@ -100,6 +79,8 @@ final class LauncherEnvironment {
         case .clipboard:
             return ClipboardDetailView(module: clipboardModule, onOpenSettings: { [weak self] in
                 self?.openSettings()
+            }, onHideLauncher: { [weak self] in
+                self?.onHideLauncher()
             })
         case .notes:
             return NotesDetailView(module: notesModule)

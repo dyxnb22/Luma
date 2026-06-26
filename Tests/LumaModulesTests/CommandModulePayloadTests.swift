@@ -124,6 +124,8 @@ private actor SnippetsTestPasteboard: PasteboardClient {
     func writeImage(data: Data, pasteboardType: String) async {}
     func writeFileURLs(_ urls: [URL]) async {}
 
+    func readString() async -> String? { text }
+
     func snapshot() -> String? { text }
 }
 

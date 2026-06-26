@@ -1,4 +1,5 @@
-import AppKit
+import CoreGraphics
+import Foundation
 
 /// Launcher panel geometry, spacing, and chrome values shared by home and detail surfaces.
 @MainActor

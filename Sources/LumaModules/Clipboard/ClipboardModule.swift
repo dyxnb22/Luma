@@ -1,4 +1,3 @@
-import AppKit
 import Foundation
 import LumaCore
 import LumaServices
@@ -17,6 +16,7 @@ public actor ClipboardModule: LumaModule {
     private let persistenceURL: URL
     private let pasteboard: any PasteboardClient
     private let accessibility: any AccessibilityClient
+    private var clipboardSnapshot: any ClipboardSnapshotClient = NoopClipboardSnapshotClient()
     private var pollingTask: Task<Void, Never>?
     private var lastChangeCount = -1
     private var suppressedChangeCount: Int?
@@ -42,15 +42,18 @@ public actor ClipboardModule: LumaModule {
         store: ClipboardHistoryStore,
         persistenceURL: URL,
         pasteboard: any PasteboardClient = PasteboardService(),
-        accessibility: any AccessibilityClient = AXService()
+        accessibility: any AccessibilityClient = AXService(),
+        clipboardSnapshot: any ClipboardSnapshotClient = ClipboardSnapshotService()
     ) {
         self.store = store
         self.persistenceURL = persistenceURL
         self.pasteboard = pasteboard
         self.accessibility = accessibility
+        self.clipboardSnapshot = clipboardSnapshot
     }
 
     public func warmup(_ context: ModuleContext) async {
+        clipboardSnapshot = context.clipboardSnapshot
         let maxEntries = await context.config.clipboardMaxEntries()
         let maxAgeDays = await context.config.clipboardMaxAgeDays()
         let maxEntrySizeKB = await context.config.clipboardMaxEntrySizeKB()
@@ -217,7 +220,7 @@ public actor ClipboardModule: LumaModule {
         } else {
             await pasteboard.write(entry.plainTextForCopy)
         }
-        suppressedChangeCount = await MainActor.run { NSPasteboard.general.changeCount }
+        suppressedChangeCount = (await clipboardSnapshot.readSnapshot()).changeCount
     }
 
     private func startPolling() {
@@ -237,9 +240,7 @@ public actor ClipboardModule: LumaModule {
         if let snapshot {
             board = snapshot
         } else {
-            board = await MainActor.run {
-                ClipboardSnapshotReader.read(lumaBundleID: Bundle.main.bundleIdentifier)
-            }
+            board = await clipboardSnapshot.readSnapshot()
         }
 
         guard board.changeCount != lastChangeCount else { return }

@@ -13,25 +13,22 @@ public actor SecretsModule: LumaModule {
 
     private let vault: SecretsVault
     private var autoClearSeconds = 10
+    private var launcherUI: any LauncherUIClient = NoopLauncherUIClient()
 
     public init(vault: SecretsVault = SecretsVault()) {
         self.vault = vault
     }
-
     public func warmup(_ context: ModuleContext) async {
+        launcherUI = context.launcherUI
         autoClearSeconds = await context.config.secretsAutoClearSeconds()
         let relockSeconds = await context.config.secretsRelockTimeoutSeconds()
         await vault.configure(relockTimeoutSeconds: relockSeconds) { locked in
-            await MainActor.run {
-                LauncherCallbackRegistry.current?.onSecretsLockStateChanged(locked)
-            }
+            await context.launcherUI.notifySecretsLockStateChanged(locked)
         }
         if !(await context.config.secretsRequireUnlockOnLaunch()) {
             await vault.unlock()
         } else {
-            await MainActor.run {
-                LauncherCallbackRegistry.current?.onSecretsLockStateChanged(true)
-            }
+            await context.launcherUI.notifySecretsLockStateChanged(true)
         }
     }
 
@@ -119,10 +116,8 @@ public actor SecretsModule: LumaModule {
 
     public func applySettings(autoClearSeconds: Int, relockTimeoutSeconds: Int) async {
         self.autoClearSeconds = max(1, autoClearSeconds)
-        await vault.configure(relockTimeoutSeconds: relockTimeoutSeconds) { locked in
-            await MainActor.run {
-                LauncherCallbackRegistry.current?.onSecretsLockStateChanged(locked)
-            }
+        await vault.configure(relockTimeoutSeconds: relockTimeoutSeconds) { [launcherUI] locked in
+            await launcherUI.notifySecretsLockStateChanged(locked)
         }
     }
 

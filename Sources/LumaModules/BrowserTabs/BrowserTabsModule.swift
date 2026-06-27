@@ -1,0 +1,92 @@
+import Foundation
+import LumaCore
+import LumaServices
+
+public actor BrowserTabsModule: LumaModule {
+    public static let manifest = ModuleManifest(
+        identifier: .browserTabs,
+        displayName: "Browser Tabs",
+        capabilities: [.queryable, .providesActions, .backgroundUpdater],
+        defaultEnabled: false,
+        priority: 3,
+        queryTimeout: .milliseconds(900)
+    )
+
+    private let service: BrowserTabsService
+
+    public init(service: BrowserTabsService = .shared) {
+        self.service = service
+    }
+
+    public func warmup(_ context: ModuleContext) async {
+        await service.refresh()
+    }
+
+    public func handle(_ query: Query, context: QueryContext) async -> ModuleResult {
+        guard let payload = query.command?.payload ?? Self.extractPayload(raw: query.raw) else {
+            return ModuleResult(items: [])
+        }
+        if ModuleHelp.isHelpQuery(payload) {
+            return ModuleResult(items: ModuleHelp.results(for: Self.manifest.identifier))
+        }
+        let tabs = await service.searchableTabs()
+        let matches = BrowserTabsIndex.search(tabs, query: payload, limit: 8)
+        return ModuleResult(items: matches.map(row))
+    }
+
+    public func perform(_ action: Action, context: ActionContext) async throws {
+        guard case .custom(let payload, let handler) = action.kind, handler == Self.manifest.identifier else {
+            throw ModuleError.unsupportedAction(action.id)
+        }
+        let decoded = try ModuleActionCoding.decode(BrowserTabsAction.self, from: payload)
+        switch decoded {
+        case .activate(let record):
+            try await service.activate(record.tabRecord)
+        }
+    }
+
+    private func row(_ record: TabRecord) -> ResultItem {
+        let payload = (try? ModuleActionCoding.encode(BrowserTabsAction.activate(record: CodableTabRecord(record)))) ?? Data()
+        return ResultItem(
+            id: ResultID(module: Self.manifest.identifier, key: "\(record.bundleID).\(record.windowIndex).\(record.tabIndex).\(record.url)"),
+            title: record.title.isEmpty ? record.url : record.title,
+            titleAttributed: AttributedString(record.title.isEmpty ? record.url : record.title),
+            subtitle: "\(record.browserName) · \(record.url)",
+            icon: .bundleID(record.bundleID),
+            primaryAction: Action(
+                id: ActionID(module: Self.manifest.identifier, key: "activate"),
+                title: "Activate Tab",
+                kind: .custom(payload: payload, handler: Self.manifest.identifier)
+            ),
+            rankingHints: RankingHints(basePriority: Self.manifest.priority)
+        )
+    }
+
+    public static func extractPayload(raw: String) -> String? {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        let lower = trimmed.lowercased()
+        for trigger in ["tab", "tabs"] {
+            if lower == trigger { return "" }
+            if lower.hasPrefix(trigger + " ") {
+                return String(trimmed.dropFirst(trigger.count + 1)).trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+        }
+        return nil
+    }
+}
+
+public enum BrowserTabsIndex {
+    public static func search(_ records: [TabRecord], query: String, limit: Int = 8) -> [TabRecord] {
+        let q = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !q.isEmpty else { return Array(records.prefix(limit)) }
+        return records.compactMap { record -> (TabRecord, Double)? in
+            let target = "\(record.title) \(record.url) \(record.browserName)".lowercased()
+            let score = FuzzyMatcher.score(query: q, target: target)
+            guard score > 0 else { return nil }
+            return (record, score)
+        }
+        .sorted { $0.1 > $1.1 }
+        .prefix(limit)
+        .map(\.0)
+    }
+}

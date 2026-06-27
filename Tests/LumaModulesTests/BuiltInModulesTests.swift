@@ -37,6 +37,7 @@ import Testing
 @Test func accessibilityDependentModulesAreDeclared() {
     #expect(BuiltInModules.accessibilityDependentModuleIDs.contains(.snippets))
     #expect(BuiltInModules.accessibilityDependentModuleIDs.contains(.windowLayouts))
+    #expect(BuiltInModules.accessibilityDependentModuleIDs.contains(.menuItems))
     #expect(!BuiltInModules.accessibilityDependentModuleIDs.contains(.clipboard))
 }
 
@@ -48,6 +49,6 @@ import Testing
     let all = Set(BuiltInModules.makeAll().map { type(of: $0).manifest.identifier })
     #expect(BuiltInModules.enabledModulesRequireAccessibility(all) == true)
     #expect(
-        BuiltInModules.enabledModulesRequireAccessibility(all.subtracting([.snippets, .windowLayouts])) == false
+        BuiltInModules.enabledModulesRequireAccessibility(all.subtracting([.snippets, .windowLayouts, .menuItems])) == false
     )
 }

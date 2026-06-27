@@ -2,6 +2,7 @@ import Foundation
 import LumaCore
 
 public struct SnippetExpansionContext: Sendable {
+    public var queryText: String?
     public var clipboardText: String?
     public var selectionText: String?
     public var projectName: String?
@@ -10,6 +11,7 @@ public struct SnippetExpansionContext: Sendable {
     public var now: Date
 
     public init(
+        queryText: String? = nil,
         clipboardText: String? = nil,
         selectionText: String? = nil,
         projectName: String? = nil,
@@ -17,6 +19,7 @@ public struct SnippetExpansionContext: Sendable {
         filename: String? = nil,
         now: Date = Date()
     ) {
+        self.queryText = queryText
         self.clipboardText = clipboardText
         self.selectionText = selectionText
         self.projectName = projectName

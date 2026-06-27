@@ -125,6 +125,42 @@
 - Export CSV writes to Downloads and opens in Finder.
 - Tab on search result copies `title — rating/10`.
 
+## Quicklinks
+
+- Cmd+Space → `gh swift package` shows GitHub Search with an encoded GitHub URL.
+- Return opens the URL in the default browser.
+- Tab on the row shows Copy URL and Reveal Quicklinks Config.
+- `ql` opens the same-panel Quicklinks manager.
+- Add, edit, delete one quicklink and confirm the trigger works after returning to results.
+- Test Chinese, emoji, quote characters, duplicate triggers, malformed URL templates, and missing config file.
+
+## Menu Bar Search
+
+- Put Cursor frontmost → Cmd+Space → `mb fold` shows matching menu items with path and shortcut.
+- Return on a menu item performs the command without leaving a raw AX error.
+- `mb ?` shows help rows.
+- Switch frontmost apps (Finder, Safari, Xcode/Cursor if installed) and confirm results follow the active app cache.
+- Deny Accessibility permission and verify the permission banner / friendly failure appears.
+- Test disabled bundle config, no-window apps, rapid typing, and Escape within 100 ms of typing.
+
+## Kill Process
+
+- Cmd+Space → `kill` lists recent running GUI apps, excluding Luma.
+- `kill preview` finds Preview when running and shows bundle ID plus memory.
+- Return sends normal Quit and the list refreshes.
+- Tab shows Force Kill and Relaunch; Force Kill requires the second modifier.
+- Finder/Dock/SystemUIServer rows require confirmation before quit/relaunch.
+- Test empty list behavior, app relaunch, fuzzy bundle ID search, and rapid typing.
+
+## Browser Tabs
+
+- Enable Browser Tabs in Settings → Modules.
+- Open Safari/Chrome tabs → Cmd+Space → `tab github` shows matching title/URL rows.
+- Return activates the browser window and selects the tab.
+- `tab ?` shows help rows and notes Automation permission.
+- Test Safari closed, Chrome not running, Arc/Edge/Brave in background, duplicate titles, stale cache after tab switch.
+- Deny Automation permission and verify the failure is user-facing rather than raw script output.
+
 ## Notes v0.1
 
 - Root picker writes `notes.json`.

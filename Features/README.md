@@ -6,7 +6,7 @@ This folder is the maintenance index for Luma's feature modules. Each feature ow
 
 **Home sections:** Open Apps, Suggested (no dashboard card grid).
 
-**Modules (registered at launch):** Apps, Clipboard, Commands, Notes, Todo, Translate, Wordbook, Snippets, Secrets, Media, Window Layouts, Projects.
+**Modules (registered at launch):** Apps, Clipboard, Commands, Notes, Todo, Translate, Wordbook, Snippets, Secrets, Media, Window Layouts, Projects, Quicklinks, Menu Bar Search, Kill Process, Browser Tabs.
 
 **Deferred:** Windows (source retained, not in `BuiltInModules.makeAll()`).
 

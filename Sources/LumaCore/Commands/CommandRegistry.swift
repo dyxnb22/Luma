@@ -224,6 +224,10 @@ public enum BuiltInCommandRegistry {
         static let secrets = ModuleIdentifier(rawValue: "luma.secrets")
         static let wordbook = ModuleIdentifier(rawValue: "luma.wordbook")
         static let commands = ModuleIdentifier(rawValue: "luma.commands")
+        static let quicklinks = ModuleIdentifier(rawValue: "luma.quicklinks")
+        static let menuItems = ModuleIdentifier(rawValue: "luma.menu-items")
+        static let killProcess = ModuleIdentifier(rawValue: "luma.kill-process")
+        static let browserTabs = ModuleIdentifier(rawValue: "luma.browser-tabs")
     }
 
     public static func make() -> CommandRegistry {
@@ -448,6 +452,87 @@ public enum BuiltInCommandRegistry {
                 ],
                 discoverPriority: 100,
                 bareBehavior: .openDetail
+            ),
+            CommandDefinition(
+                id: "quicklinks",
+                module: ID.quicklinks,
+                title: "Quicklinks",
+                primaryTrigger: "ql",
+                aliases: ["quicklinks"],
+                placeholder: "Manage URL templates or use gh/g/swift triggers",
+                usageFormat: "ql / quicklinks",
+                description: "Manage exact-trigger URL templates",
+                examples: ["gh swift package", "ql"],
+                sectionTitle: "QUICKLINKS",
+                helpLines: [
+                    "gh <query> — GitHub Search",
+                    "g <query> — Google",
+                    "swift <query> — Apple Developer",
+                    "ql — manage Quicklinks",
+                    "ql ? — this help"
+                ],
+                discoverPriority: 25,
+                bareBehavior: .openDetail
+            ),
+            CommandDefinition(
+                id: "menu-items",
+                module: ID.menuItems,
+                title: "Menu Bar Search",
+                primaryTrigger: "mb",
+                aliases: ["menu"],
+                placeholder: "Search the frontmost app menu",
+                usageFormat: "mb / menu <menu item>",
+                description: "Search and press a menu item in the frontmost app",
+                examples: ["mb fold"],
+                sectionTitle: "MENU",
+                helpLines: [
+                    "mb — recent cached menu items for frontmost app",
+                    "mb fold — fuzzy search menu paths",
+                    "menu <query> — same command",
+                    "Requires Accessibility permission",
+                    "mb ? — this help"
+                ],
+                discoverPriority: 35
+            ),
+            CommandDefinition(
+                id: "kill-process",
+                module: ID.killProcess,
+                title: "Kill Process",
+                primaryTrigger: "kill",
+                aliases: ["quit", "k"],
+                placeholder: "Quit, force kill, or relaunch a running app",
+                usageFormat: "kill / quit / k <app>",
+                description: "Search GUI apps and quit, force kill, or relaunch",
+                examples: ["kill Preview"],
+                sectionTitle: "PROCESS",
+                helpLines: [
+                    "kill — recent running GUI apps",
+                    "kill preview — search running apps",
+                    "Return — standard quit",
+                    "Tab — force kill or relaunch actions",
+                    "kill ? — this help"
+                ],
+                discoverPriority: 45
+            ),
+            CommandDefinition(
+                id: "browser-tabs",
+                module: ID.browserTabs,
+                title: "Browser Tabs",
+                primaryTrigger: "tab",
+                aliases: ["tabs"],
+                placeholder: "Search open browser tabs",
+                usageFormat: "tab / tabs <query>",
+                description: "Search cached Safari, Chrome, Brave, Edge, and Arc tabs",
+                examples: ["tab github"],
+                sectionTitle: "TABS",
+                helpLines: [
+                    "tab — cached browser tabs",
+                    "tab github — search title and URL",
+                    "Requires Automation permission per browser",
+                    "Disabled by default; enable in Settings → Modules",
+                    "tab ? — this help"
+                ],
+                discoverPriority: 55
             ),
             CommandDefinition(
                 id: "settings",

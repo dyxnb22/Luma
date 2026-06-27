@@ -147,6 +147,27 @@ final class LumaSearchBar: NSView {
         }
     }
 
+    var queryText: String {
+        if let editor = textField.currentEditor() {
+            return editor.string
+        }
+        return textField.stringValue
+    }
+
+    var isActivelyEditing: Bool {
+        guard let window = textField.window else { return false }
+        let responder = window.firstResponder
+        return responder === textField || responder === textField.currentEditor()
+    }
+
+    func commitEditingIfNeeded() {
+        guard let editor = textField.currentEditor() else { return }
+        let text = editor.string
+        guard textField.stringValue != text else { return }
+        textField.stringValue = text
+        updateClearButtonVisibility()
+    }
+
     func setPlaceholder(_ text: String) {
         textField.placeholderString = text
     }
@@ -211,7 +232,12 @@ extension LumaSearchBar: NSTextFieldDelegate {
         let now = CFAbsoluteTimeGetCurrent()
         LatencyTracker.shared.markKeystroke(at: now)
         updateClearButtonVisibility()
-        onTextChange?(textField.stringValue)
+        onTextChange?(queryText)
+    }
+
+    func controlTextDidEndEditing(_ obj: Notification) {
+        commitEditingIfNeeded()
+        onTextChange?(queryText)
     }
 }
 
@@ -237,6 +263,31 @@ private final class LumaSearchTextField: NSTextField {
     var onKeyCommand: ((LumaSearchBar.KeyCommand) -> Bool)?
     var onDetailKey: ((NSEvent) -> Bool)?
     var onInterceptKeyDown: ((NSEvent) -> Bool)?
+
+    override var stringValue: String {
+        get { super.stringValue }
+        set {
+            let before = super.stringValue
+            super.stringValue = newValue
+            guard newValue != before else { return }
+            notifyTextDidChange()
+        }
+    }
+
+    private func notifyTextDidChange() {
+        NotificationCenter.default.post(name: NSControl.textDidChangeNotification, object: self)
+    }
+
+    override func setAccessibilityValue(_ accessibilityValue: Any?) {
+        let before = stringValue
+        super.setAccessibilityValue(accessibilityValue)
+        guard stringValue != before else { return }
+        notifyTextDidChange()
+    }
+
+    override func insertText(_ insertString: Any) {
+        super.insertText(insertString)
+    }
 
     override func keyDown(with event: NSEvent) {
         if onInterceptKeyDown?(event) == true { return }

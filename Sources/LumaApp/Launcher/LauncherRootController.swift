@@ -28,6 +28,8 @@ final class LauncherRootController {
 
     private var modulesReady = false
     private var homeRefreshTask: Task<Void, Never>?
+    private var querySyncTimer: Timer?
+    private var lastSyncedQuery = ""
 
     init(
         viewModel: LauncherViewModel,
@@ -99,12 +101,40 @@ final class LauncherRootController {
         if ready, searchBar.stringValue.isEmpty {
             refreshHome()
         } else if ready {
-            handleTextChange(searchBar.stringValue)
+            handleTextChange(searchBar.queryText)
         }
+    }
+
+    func startQuerySync() {
+        stopQuerySync()
+        lastSyncedQuery = searchBar.queryText
+        querySyncTimer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.syncQueryIfNeeded()
+            }
+        }
+    }
+
+    func stopQuerySync() {
+        querySyncTimer?.invalidate()
+        querySyncTimer = nil
+    }
+
+    private func syncQueryIfNeeded() {
+        searchBar.commitEditingIfNeeded()
+        let text = searchBar.queryText
+        guard text != lastSyncedQuery else { return }
+        if text.isEmpty {
+            let committed = searchBar.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !committed.isEmpty { return }
+            if !lastSyncedQuery.isEmpty, searchBar.isActivelyEditing { return }
+        }
+        handleTextChange(text)
     }
 
     func showHome(focusSearch: Bool = true, persist: Bool = true) {
         searchBar.stringValue = ""
+        lastSyncedQuery = ""
         commandHintBar.apply(nil)
         launcherEnvironment.isLauncherQueryEmpty = true
         contentCoordinator.tearDownDetailIfNeeded()
@@ -166,6 +196,8 @@ final class LauncherRootController {
     }
 
     func restoreLastSessionIfNeeded() {
+        if UserDefaults.standard.bool(forKey: "lumaQASkipRestore") { return }
+        guard ProcessInfo.processInfo.environment["LUMA_QA"] != "1" else { return }
         guard !contentCoordinator.showingDetail, searchBar.stringValue.isEmpty else { return }
         Task {
             let persisted = await sessionStore.loadPersistedSession()
@@ -303,6 +335,8 @@ final class LauncherRootController {
     }
 
     func handleTextChange(_ text: String) {
+        guard text != lastSyncedQuery else { return }
+        lastSyncedQuery = text
         launcherEnvironment.isLauncherQueryEmpty = text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         searchBar.setPlaceholder(ModuleSearchHints.placeholder(for: text))
         commandHintBar.apply(viewModel.commandRouter.registry.hint(for: text))

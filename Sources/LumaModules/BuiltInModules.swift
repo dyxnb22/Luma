@@ -11,6 +11,7 @@ public enum BuiltInModules {
         public var secrets: SecretsModule?
         public var media: MediaModule?
         public var projects: ProjectsModule?
+        public var quicklinks: QuicklinksModule?
 
         public init(
             clipboard: ClipboardModule? = nil,
@@ -20,7 +21,8 @@ public enum BuiltInModules {
             snippets: SnippetsModule? = nil,
             secrets: SecretsModule? = nil,
             media: MediaModule? = nil,
-            projects: ProjectsModule? = nil
+            projects: ProjectsModule? = nil,
+            quicklinks: QuicklinksModule? = nil
         ) {
             self.clipboard = clipboard
             self.notes = notes
@@ -30,6 +32,7 @@ public enum BuiltInModules {
             self.secrets = secrets
             self.media = media
             self.projects = projects
+            self.quicklinks = quicklinks
         }
     }
 
@@ -47,7 +50,11 @@ public enum BuiltInModules {
             overrides.secrets ?? SecretsModule(),
             overrides.media ?? MediaModule(),
             WindowLayoutsModule(),
-            overrides.projects ?? ProjectsModule()
+            overrides.projects ?? ProjectsModule(),
+            overrides.quicklinks ?? QuicklinksModule(),
+            MenuItemsModule(),
+            KillProcessModule(),
+            BrowserTabsModule()
         ]
     }
 
@@ -56,7 +63,7 @@ public enum BuiltInModules {
         [WindowsModule()]
     }
 
-    public static let accessibilityDependentModuleIDs: Set<ModuleIdentifier> = [.windows, .snippets, .windowLayouts]
+    public static let accessibilityDependentModuleIDs: Set<ModuleIdentifier> = [.windows, .snippets, .windowLayouts, .menuItems]
 
     public static func enabledModulesRequireAccessibility(_ enabled: Set<ModuleIdentifier>) -> Bool {
         !accessibilityDependentModuleIDs.isDisjoint(with: enabled)

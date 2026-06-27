@@ -29,7 +29,15 @@ if [[ "$RESTART_AFTER_BUILD" -eq 1 ]]; then
   pkill -x Luma 2>/dev/null || true
 fi
 
-swift build -c release
+SWIFT_BUILD_FLAGS=()
+if [[ -n "${LUMA_SWIFT_BUILD_FLAGS:-}" ]]; then
+  read -r -a SWIFT_BUILD_FLAGS <<< "$LUMA_SWIFT_BUILD_FLAGS"
+fi
+if ((${#SWIFT_BUILD_FLAGS[@]} > 0)); then
+  swift build -c release "${SWIFT_BUILD_FLAGS[@]}"
+else
+  swift build -c release
+fi
 
 rm -rf "$APP_DIR"
 mkdir -p "$MACOS_DIR"

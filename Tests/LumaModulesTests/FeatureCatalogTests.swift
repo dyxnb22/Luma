@@ -18,7 +18,7 @@ import Testing
 
 @Test func moduleDetailMetadataIncludesActiveModules() {
     let cards = FeatureCatalog.moduleDetailMetadata()
-    #expect(cards.count == 7)
+    #expect(cards.count == 8)
     let ids = Set(cards.map(\.id))
     #expect(ids.contains(.translate))
     #expect(ids.contains(.clipboard))
@@ -27,8 +27,10 @@ import Testing
     #expect(ids.contains(.wordbook))
     #expect(ids.contains(.snippets))
     #expect(ids.contains(.secrets))
+    #expect(ids.contains(.quicklinks))
     #expect(cards.first { $0.id == .secrets }?.triggerKeyword == "sec ")
     #expect(cards.first { $0.id == .snippets }?.triggerKeyword == "s ")
+    #expect(cards.first { $0.id == .quicklinks }?.triggerKeyword == "ql ")
 }
 
 @Test func moduleDetailMetadataDoesNotExceedCeiling() {

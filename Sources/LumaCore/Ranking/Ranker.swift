@@ -2,8 +2,12 @@ import Foundation
 
 public enum Ranker {
     public static func score(item: ResultItem, query: Query, usage: UsageRecord?, now: Date = Date()) -> Double {
-        let fuzzy = query.normalized.isEmpty ? 1.0 : FuzzyMatcher.score(query: query.normalized, target: item.title.lowercased())
-        if !query.normalized.isEmpty && fuzzy <= 0 {
+        let fuzzy = fuzzyScore(
+            query: query,
+            target: item.title.lowercased(),
+            secondary: item.subtitle?.lowercased()
+        )
+        if !fuzzyMatchingText(for: query).isEmpty && fuzzy <= 0 {
             return -.infinity
         }
 
@@ -28,5 +32,42 @@ public enum Ranker {
             + 0.20 * recency
             + 0.15 * frequency
             + 0.10 * modulePriority
+    }
+
+    static func fuzzyMatchingText(for query: Query) -> String {
+        if let command = query.command {
+            let payload = command.payload.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !payload.isEmpty {
+                return payload.lowercased()
+            }
+            // Empty payload is a module home view — do not filter rows by the trigger token.
+            return ""
+        }
+        return query.normalized
+    }
+
+    static func fuzzyScore(query: Query, target: String, secondary: String? = nil) -> Double {
+        let text = fuzzyMatchingText(for: query)
+        guard !text.isEmpty else { return 1.0 }
+
+        let direct = FuzzyMatcher.score(query: text, target: target)
+        if direct > 0 { return direct }
+
+        if let secondary, !secondary.isEmpty {
+            let secondaryScore = FuzzyMatcher.score(query: text, target: secondary)
+            if secondaryScore > 0 { return secondaryScore }
+        }
+
+        let tokens = text.split(separator: " ")
+        guard tokens.count > 1 else { return direct }
+
+        return tokens
+            .map { token in
+                max(
+                    FuzzyMatcher.score(query: String(token), target: target),
+                    secondary.map { FuzzyMatcher.score(query: String(token), target: $0) } ?? 0
+                )
+            }
+            .max() ?? 0
     }
 }

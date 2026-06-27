@@ -146,9 +146,11 @@ final class LauncherRootView: NSView {
             )
         }
         resourceSampler.start()
+        controller.startQuerySync()
     }
 
     func stopPerformanceSampling() {
+        controller.stopQuerySync()
         resourceSampler.stop()
         resourceSampler.onUpdate = nil
         resourceSampler.summaryProvider = nil

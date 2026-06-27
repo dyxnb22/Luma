@@ -14,4 +14,8 @@ extension ModuleIdentifier {
     public static let snippets = ModuleIdentifier(rawValue: "luma.snippets")
     public static let media = ModuleIdentifier(rawValue: "luma.media")
     public static let projects = ModuleIdentifier(rawValue: "luma.projects")
+    public static let quicklinks = ModuleIdentifier(rawValue: "luma.quicklinks")
+    public static let menuItems = ModuleIdentifier(rawValue: "luma.menu-items")
+    public static let killProcess = ModuleIdentifier(rawValue: "luma.kill-process")
+    public static let browserTabs = ModuleIdentifier(rawValue: "luma.browser-tabs")
 }

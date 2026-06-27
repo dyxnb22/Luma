@@ -66,6 +66,15 @@ public enum FeatureCatalog {
                 triggerKeyword: "sec ",
                 position: CardPosition(column: 2, row: 1),
                 widgetStyle: WidgetCardStyle(symbolName: "lock.shield.fill", topHex: "#FFD60A", bottomHex: "#FF9F0A")
+            ),
+            FeatureCard(
+                id: .quicklinks,
+                title: "Quicklinks",
+                subtitle: "URL templates",
+                icon: .symbol("link"),
+                triggerKeyword: "ql ",
+                position: CardPosition(column: 3, row: 1),
+                widgetStyle: WidgetCardStyle(symbolName: "link", topHex: "#30D158", bottomHex: "#0A7A35")
             )
         ]
     }

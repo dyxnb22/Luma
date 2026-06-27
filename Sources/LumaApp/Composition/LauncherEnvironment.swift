@@ -28,6 +28,7 @@ final class LauncherEnvironment {
     let todoModule: TodoModule
     let wordbookStore: WordbookStore
     let projectsModule: ProjectsModule
+    let quicklinksModule: QuicklinksModule
     let translation: any TranslationClient
     let config: ConfigurationStore
     let runProjectAction: (ProjectAction, @escaping () -> Void) -> Void
@@ -48,6 +49,7 @@ final class LauncherEnvironment {
         todoModule: TodoModule,
         wordbookStore: WordbookStore,
         projectsModule: ProjectsModule,
+        quicklinksModule: QuicklinksModule,
         translation: any TranslationClient,
         config: ConfigurationStore,
         runProjectAction: @escaping (ProjectAction, @escaping () -> Void) -> Void
@@ -67,6 +69,7 @@ final class LauncherEnvironment {
         self.todoModule = todoModule
         self.wordbookStore = wordbookStore
         self.projectsModule = projectsModule
+        self.quicklinksModule = quicklinksModule
         self.translation = translation
         self.config = config
         self.runProjectAction = runProjectAction
@@ -106,6 +109,8 @@ final class LauncherEnvironment {
                 return ProjectsDetailView(module: projectsModule, onRunProjectAction: runProjectAction)
             }
             return CurrentProjectDetailView(onRunProjectAction: runProjectAction)
+        case .quicklinks:
+            return QuicklinksDetailView(module: quicklinksModule)
         default:
             return nil
         }

@@ -8,6 +8,7 @@ public enum SnippetVariableExpander {
 
         result = result.replacingOccurrences(of: "{{uuid}}", with: UUID().uuidString)
         result = result.replacingOccurrences(of: "{{timestamp}}", with: ISO8601DateFormatter().string(from: context.now))
+        result = result.replacingOccurrences(of: "{{query}}", with: context.queryText ?? "")
         result = result.replacingOccurrences(of: "{{clipboard}}", with: context.clipboardText ?? "")
         result = result.replacingOccurrences(of: "{{selection}}", with: context.selectionText ?? "")
         result = result.replacingOccurrences(of: "{{project}}", with: context.projectName ?? "")
@@ -46,6 +47,7 @@ public enum SnippetVariableExpander {
     public static let documentedVariables: [String] = [
         "{{uuid}} — random UUID",
         "{{timestamp}} — ISO8601 timestamp",
+        "{{query}} — command payload text",
         "{{date}} — medium-style date",
         "{{date:FORMAT}} — custom DateFormatter format",
         "{{clipboard}} — pasteboard text",

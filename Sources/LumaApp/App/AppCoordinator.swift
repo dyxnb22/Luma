@@ -92,6 +92,7 @@ final class AppCoordinator {
     private lazy var todoModule = TodoModule()
     private let secretsModule = SecretsModule()
     private let mediaModule = MediaModule()
+    private let quicklinksModule = QuicklinksModule()
     private lazy var homeCoordinator = LauncherHomeCoordinator(
         openApps: openAppsProvider,
         contextual: ContextualHomeProvider(todoModule: todoModule, mediaModule: mediaModule)
@@ -244,6 +245,7 @@ final class AppCoordinator {
             todoModule: todoModule,
             wordbookStore: wordbookStore,
             projectsModule: projectsModule,
+            quicklinksModule: quicklinksModule,
             translation: translation,
             config: config,
             runProjectAction: { [weak self] action, completion in
@@ -288,7 +290,8 @@ final class AppCoordinator {
                 snippets: snippetsModule,
                 secrets: secretsModule,
                 media: mediaModule,
-                projects: projectsModule
+                projects: projectsModule,
+                quicklinks: quicklinksModule
             ))
             for module in modules {
                 await host.register(module)

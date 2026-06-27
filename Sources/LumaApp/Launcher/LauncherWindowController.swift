@@ -72,6 +72,12 @@ final class LauncherWindowController {
     func show() {
         HomeLatencyTracker.markHotkey()
         positionPanel()
+        let previousBundleID = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
+        LauncherMenuTarget.set(bundleID: previousBundleID)
+        Task {
+            await MenuBarTreeService.shared.setLauncherContextBundleID(previousBundleID)
+            await MenuBarTreeService.shared.scheduleRefreshForFrontmost()
+        }
         panel.alphaValue = 0
         panel.contentView?.layer?.transform = CATransform3DMakeScale(0.96, 0.96, 1)
         panel.orderFrontRegardless()

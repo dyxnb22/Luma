@@ -115,6 +115,7 @@ public enum AppScanner {
         let roots = [
             URL(fileURLWithPath: "/Applications"),
             URL(fileURLWithPath: "/System/Applications"),
+            URL(fileURLWithPath: "/System/Cryptexes/App/System/Applications"),
             fileManager.homeDirectoryForCurrentUser.appendingPathComponent("Applications")
         ]
 
@@ -123,13 +124,14 @@ public enum AppScanner {
         for root in roots where fileManager.fileExists(atPath: root.path) {
             guard let enumerator = fileManager.enumerator(
                 at: root,
-                includingPropertiesForKeys: [.isDirectoryKey],
+                includingPropertiesForKeys: [.isDirectoryKey, .isSymbolicLinkKey],
                 options: [.skipsHiddenFiles, .skipsPackageDescendants]
             ) else { continue }
 
             for case let url as URL in enumerator where url.pathExtension == "app" {
-                guard seen.insert(url).inserted else { continue }
-                guard let bundle = Bundle(url: url) else { continue }
+                let resolved = url.resolvingSymlinksInPath()
+                guard seen.insert(resolved).inserted else { continue }
+                guard let bundle = Bundle(url: url) ?? Bundle(url: resolved) else { continue }
                 let bundleID = bundle.bundleIdentifier ?? url.lastPathComponent
                 let stem = url.deletingPathExtension().lastPathComponent
                 let displayName = bundle.localizedInfoDictionary?["CFBundleDisplayName"] as? String
@@ -144,7 +146,7 @@ public enum AppScanner {
                 let pinyinInitials = PinyinIndex.initials(from: allText)
                 records.append(AppRecord(
                     bundleID: bundleID,
-                    url: url,
+                    url: resolved,
                     name: stem,
                     localizedName: displayName,
                     aliases: Array(Set(alias + zhNames)),

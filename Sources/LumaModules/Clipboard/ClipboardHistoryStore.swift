@@ -263,6 +263,31 @@ public actor ClipboardHistoryStore {
         persist()
     }
 
+    @discardableResult
+    public func updateText(_ id: UUID, text: String) -> Bool {
+        guard let index = entries.firstIndex(where: { $0.id == id }) else { return false }
+        entries[index].text = text
+        let detectedKind = ClipboardEntryKind.detect(
+            from: text,
+            pasteboardTypes: [],
+            fileURLs: entries[index].fileURLs
+        )
+        entries[index].detectedKind = detectedKind
+        if detectedKind == .color {
+            entries[index].colorHex = ClipboardEntryKind.normalizedColorHex(from: text)
+        } else {
+            entries[index].colorHex = nil
+        }
+        entries[index].contentHash = ClipboardContentHash.compute(
+            text: text,
+            imageData: entries[index].imageData,
+            fileURLs: entries[index].fileURLs,
+            colorHex: entries[index].colorHex
+        )
+        persist()
+        return true
+    }
+
     public func clear() {
         entries.removeAll()
         persist()

@@ -1,5 +1,6 @@
 import Foundation
 
 public enum WindowLayoutsAction: Codable, Sendable {
-    case grantPermission
+    case requestAccess
+    case openSettings
 }

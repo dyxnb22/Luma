@@ -195,3 +195,10 @@ private func date(_ string: String, in calendar: Calendar) -> Date {
     #expect(TodoModule.extractPayload(raw: "translate hello") == nil)
     #expect(TodoModule.extractPayload(raw: "trash") == nil)
 }
+
+@Test func todoModuleResumeQueryAvoidsDuplicatePrefixes() {
+    #expect(TodoModule.resumeQuery(forCapture: "buy milk") == "todo buy milk")
+    #expect(TodoModule.resumeQuery(forCapture: "todo buy milk") == "todo buy milk")
+    #expect(TodoModule.resumeQuery(forCapture: "t buy milk") == "t buy milk")
+    #expect(TodoModule.resumeQuery(forCapture: "") == "todo")
+}

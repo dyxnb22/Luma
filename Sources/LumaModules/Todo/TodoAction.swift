@@ -5,4 +5,5 @@ public enum TodoAction: Codable, Sendable, Equatable {
     case complete(id: String)
     case uncomplete(id: String)
     case grant
+    case requestAccess
 }

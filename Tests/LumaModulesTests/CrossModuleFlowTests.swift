@@ -116,3 +116,56 @@ import LumaCore
     }
     #expect(text == "clip")
 }
+
+@Test func quicklinksStoreDetectsDuplicateURL() async throws {
+    let url = FileManager.default.temporaryDirectory.appendingPathComponent("quicklinks-dup-\(UUID().uuidString).json")
+    defer { try? FileManager.default.removeItem(at: url) }
+    try "[]".write(to: url, atomically: true, encoding: .utf8)
+    let store = QuicklinksStore(url: url, fileManager: .default)
+    _ = try await store.add(Quicklink(name: "Example", trigger: "ex", urlTemplate: "https://example.com/docs"))
+
+    let duplicate = await store.duplicateQuicklink(urlTemplate: "https://example.com/docs")
+    #expect(duplicate?.name == "Example")
+
+    let noSelfConflict = await store.duplicateQuicklink(
+        urlTemplate: "https://example.com/docs",
+        excluding: duplicate?.id
+    )
+    #expect(noSelfConflict == nil)
+}
+
+@Test func snippetsStoreDetectsTriggerAndSimilarContent() async throws {
+    let snippetsURL = FileManager.default.temporaryDirectory.appendingPathComponent("snippets-\(UUID().uuidString).json")
+    defer { try? FileManager.default.removeItem(at: snippetsURL) }
+    let store = SnippetsStore(persistenceURL: snippetsURL)
+    let saved = try await store.add(title: "Addr", content: "123 Main Street", tags: [], trigger: ";addr")
+
+    let triggerConflict = await store.conflictingSnippet(trigger: ";addr")
+    #expect(triggerConflict?.id == saved.id)
+
+    let similar = await store.similarSnippet(content: "123 Main Street")
+    #expect(similar?.id == saved.id)
+}
+
+@Test func projectNotesPathsFindsExistingNote() throws {
+    let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: dir) }
+    let notes = dir.appendingPathComponent("NOTES.md")
+    try "hello".write(to: notes, atomically: true, encoding: .utf8)
+    let found = ProjectNotesPaths.existingNotePath(projectPath: dir.path, projectName: "Demo")
+    #expect(found == notes.path)
+}
+
+@Test func quicklinksURLValidationRequiresProtocolForBareHosts() {
+    #expect(QuicklinksStore.validateURLTemplate("example.com")?.contains("http") == true)
+    #expect(QuicklinksStore.validateURLTemplate("https://example.com/{{query}}") == nil)
+}
+
+@Test func clipboardTextOpsClassifiesJSONAndTransforms() {
+    let json = "{\"a\":1}"
+    #expect(ClipboardTextOps.classify(json) == .json)
+    #expect(ClipboardTextOps.detectJSON(json)?.contains("\"a\"") == true)
+    let text = "  hello\n\nworld  "
+    #expect(ClipboardTextOps.collapseLines(text) == "hello world")
+}

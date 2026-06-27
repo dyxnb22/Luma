@@ -1,5 +1,6 @@
 import Foundation
 import LumaCore
+import LumaServices
 
 public actor CommandsModule: LumaModule {
     public static let manifest = ModuleManifest(
@@ -168,36 +169,41 @@ public actor CommandsModule: LumaModule {
     private func doctorResult(context: QueryContext) async -> ModuleResult {
         let axTrusted = await context.platform.accessibility.isTrusted()
         let configValid = await commandsConfigValid()
-        var rows: [ResultItem] = [
-            ResultItem(
-                id: ResultID(module: Self.manifest.identifier, key: "doctor.commands"),
-                title: "Script commands loaded: \(cachedCommands.count)",
-                titleAttributed: AttributedString("Script commands loaded: \(cachedCommands.count)"),
-                subtitle: configValid ? "commands.json OK" : "commands.json invalid",
-                icon: .symbol("stethoscope"),
-                primaryAction: Action(
-                    id: ActionID(module: Self.manifest.identifier, key: "doctor.commands"),
-                    title: "Commands",
-                    kind: .noop
-                ),
-                rankingHints: RankingHints(basePriority: Self.manifest.priority),
-                rowKind: .informational
-            ),
-            ResultItem(
-                id: ResultID(module: Self.manifest.identifier, key: "doctor.ax"),
-                title: axTrusted ? "Accessibility: trusted" : "Accessibility: not trusted",
-                titleAttributed: AttributedString(axTrusted ? "Accessibility: trusted" : "Accessibility: not trusted"),
-                subtitle: "Required for IDE context + snippets paste",
-                icon: .symbol(axTrusted ? "checkmark.shield" : "exclamationmark.shield"),
-                primaryAction: Action(
-                    id: ActionID(module: Self.manifest.identifier, key: "doctor.ax"),
-                    title: "AX",
-                    kind: .noop
-                ),
-                rankingHints: RankingHints(basePriority: Self.manifest.priority),
-                rowKind: .informational
+        let menuCache = await MenuBarTreeService.shared.staleRecordsForFrontmost().count
+        let notesConfig = await NotesRootConfigStore().load()
+        let notesRootConfigured = notesConfig.root != nil
+        let remindersAuthorization = await RemindersService().authorization()
+        let manifests = BuiltInModules.manifestCatalog()
+        let summary = LumaDiagnostics.summarize(
+            manifests: manifests,
+            context: LumaDoctorContext(
+                accessibilityTrusted: axTrusted,
+                remindersAuthorization: remindersAuthorization,
+                notesRootConfigured: notesRootConfigured,
+                enabledModuleCount: manifests.filter(\.defaultEnabled).count,
+                totalModuleCount: manifests.count,
+                menuItemsCachedCount: menuCache
             )
-        ]
+        )
+        var rows = LumaDiagnostics.doctorRows(
+            from: summary,
+            module: Self.manifest.identifier,
+            basePriority: Self.manifest.priority
+        )
+        rows.insert(ResultItem(
+            id: ResultID(module: Self.manifest.identifier, key: "doctor.commands"),
+            title: "Script commands loaded: \(cachedCommands.count)",
+            titleAttributed: AttributedString("Script commands loaded: \(cachedCommands.count)"),
+            subtitle: configValid ? "commands.json OK" : "commands.json invalid",
+            icon: .symbol("terminal"),
+            primaryAction: Action(
+                id: ActionID(module: Self.manifest.identifier, key: "doctor.commands"),
+                title: "Commands",
+                kind: .noop
+            ),
+            rankingHints: RankingHints(basePriority: Self.manifest.priority),
+            rowKind: .informational
+        ), at: 1)
         return ModuleResult(items: rows)
     }
 

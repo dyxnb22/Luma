@@ -84,6 +84,7 @@ final class LauncherWindowController {
         }
         panel.alphaValue = 0
         panel.contentView?.layer?.transform = CATransform3DMakeScale(0.96, 0.96, 1)
+        NSApp.activate(ignoringOtherApps: true)
         panel.orderFrontRegardless()
         panel.makeKey()
         rootView?.refreshPermissionStatus()
@@ -91,14 +92,22 @@ final class LauncherWindowController {
         rootView?.startPerformanceSampling()
         rootView?.setHomeProvidersActive(true)
         rootView?.restoreLastSessionIfNeeded()
-        rootView?.focusSearchField()
+        ensureSearchFieldFocused()
         rootView?.refreshOpenApps()
         let duration = MotionTokens.panelShowDuration
+        let qaMode = ProcessInfo.processInfo.environment["LUMA_QA"] == "1"
         NSAnimationContext.runAnimationGroup { context in
             context.duration = duration
             context.timingFunction = CAMediaTimingFunction(name: .easeOut)
             panel.animator().alphaValue = 1
             panel.contentView?.layer?.transform = CATransform3DIdentity
+        } completionHandler: { [weak self] in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                if qaMode {
+                    self.ensureSearchFieldFocused()
+                }
+            }
         }
     }
 
@@ -155,6 +164,12 @@ final class LauncherWindowController {
         guard panel.isVisible else { return }
         guard bundleID != Bundle.main.bundleIdentifier else { return }
         hideImmediatelyForAction()
+    }
+
+    private func ensureSearchFieldFocused() {
+        NSApp.activate(ignoringOtherApps: true)
+        panel.makeKey()
+        rootView?.focusSearchField()
     }
 
     private func positionPanel() {

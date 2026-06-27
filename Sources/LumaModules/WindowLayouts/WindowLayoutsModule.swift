@@ -32,8 +32,9 @@ public actor WindowLayoutsModule: LumaModule {
         }
         let decoded = try ModuleActionCoding.decode(WindowLayoutsAction.self, from: payload)
         switch decoded {
-        case .grantPermission:
+        case .requestAccess:
             await context.platform.accessibility.requestPermission()
+        case .openSettings:
             if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
                 await context.platform.workspace.openURL(url)
             }
@@ -58,19 +59,26 @@ public actor WindowLayoutsModule: LumaModule {
     }
 
     private func permissionRow() -> ResultItem {
-        let payload = (try? ModuleActionCoding.encode(WindowLayoutsAction.grantPermission)) ?? Data()
-        return ResultItem(
-            id: ResultID(module: Self.manifest.identifier, key: "grant"),
-            title: "Grant Accessibility Permission",
-            titleAttributed: AttributedString("Grant Accessibility Permission"),
-            subtitle: "Required to move the focused window",
-            icon: .symbol("lock.shield"),
-            primaryAction: Action(
-                id: ActionID(module: Self.manifest.identifier, key: "grant"),
-                title: "Open Settings",
-                kind: .custom(payload: payload, handler: Self.manifest.identifier)
-            ),
-            rankingHints: RankingHints(basePriority: Self.manifest.priority)
+        let requestPayload = (try? ModuleActionCoding.encode(WindowLayoutsAction.requestAccess)) ?? Data()
+        let settingsPayload = (try? ModuleActionCoding.encode(WindowLayoutsAction.openSettings)) ?? Data()
+        return PermissionResultBuilder.row(
+            spec: PermissionCardSpec(
+                module: Self.manifest.identifier,
+                title: "Accessibility access needed",
+                explanation: "Luma needs Accessibility to move and resize the focused window",
+                icon: .symbol("accessibility"),
+                requestAction: Action(
+                    id: ActionID(module: Self.manifest.identifier, key: "request"),
+                    title: "Allow Accessibility",
+                    kind: .custom(payload: requestPayload, handler: Self.manifest.identifier)
+                ),
+                settingsAction: Action(
+                    id: ActionID(module: Self.manifest.identifier, key: "grant"),
+                    title: "Open System Settings",
+                    kind: .custom(payload: settingsPayload, handler: Self.manifest.identifier)
+                ),
+                accessDenied: false
+            )
         )
     }
 

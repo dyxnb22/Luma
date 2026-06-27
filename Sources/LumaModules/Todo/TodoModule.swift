@@ -89,10 +89,10 @@ public actor TodoModule: LumaModule {
         // Permission gate: surface a single result to grant access if not yet authorized.
         let authorization = await reminders.authorization()
         if authorization == .denied {
-            return ModuleResult(items: [permissionRow()])
+            return ModuleResult(items: [permissionRow(authorization: authorization)])
         }
         if authorization == .notDetermined, trimmed.isEmpty {
-            return ModuleResult(items: [permissionRow()])
+            return ModuleResult(items: [permissionRow(authorization: authorization)])
         }
         if ModuleHelp.isHelpQuery(trimmed) {
             return ModuleResult(items: ModuleHelp.results(for: Self.manifest.identifier))
@@ -106,7 +106,7 @@ public actor TodoModule: LumaModule {
                 }
                 return ModuleResult(items: due.map(dueRow(_:)))
             } catch RemindersServiceError.accessDenied {
-                return ModuleResult(items: [permissionRow()])
+                return ModuleResult(items: [permissionRow(authorization: .denied)])
             } catch {
                 return ModuleResult(items: [])
             }
@@ -138,6 +138,9 @@ public actor TodoModule: LumaModule {
             if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Reminders") {
                 await context.platform.workspace.openURL(url)
             }
+        case .requestAccess:
+            _ = await reminders.requestAccess()
+            invalidateDueCache()
         }
     }
 
@@ -269,7 +272,7 @@ public actor TodoModule: LumaModule {
 
     /// Returns the text after the `t ` / `todo ` prefix, or nil if the query does not target Todo.
     /// Empty string is valid (used to list today's due).
-    static func extractPayload(raw: String) -> String? {
+    public static func extractPayload(raw: String) -> String? {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         let lower = trimmed.lowercased()
         if lower == "t" || lower == "todo" {
@@ -282,6 +285,16 @@ public actor TodoModule: LumaModule {
             return String(trimmed.dropFirst(5))
         }
         return nil
+    }
+
+    /// Builds a launcher query that restores a todo capture without duplicating command prefixes.
+    public static func resumeQuery(forCapture capture: String) -> String {
+        let trimmed = capture.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return "todo" }
+        if extractPayload(raw: trimmed) != nil {
+            return trimmed
+        }
+        return "todo \(trimmed)"
     }
 
     // MARK: - Result rows
@@ -353,21 +366,27 @@ public actor TodoModule: LumaModule {
         )
     }
 
-    private func permissionRow() -> ResultItem {
-        let id = ResultID(module: Self.manifest.identifier, key: "grant")
-        let payload = (try? ModuleActionCoding.encode(TodoAction.grant)) ?? Data()
-        return ResultItem(
-            id: id,
-            title: "Grant Reminders Access",
-            titleAttributed: AttributedString("Grant Reminders Access"),
-            subtitle: "Open System Settings to allow Luma",
-            icon: .symbol("lock.shield"),
-            primaryAction: Action(
-                id: ActionID(module: Self.manifest.identifier, key: "grant"),
-                title: "Open Settings",
-                kind: .custom(payload: payload, handler: Self.manifest.identifier)
-            ),
-            rankingHints: RankingHints(basePriority: Self.manifest.priority)
+    private func permissionRow(authorization: RemindersAuthorization) -> ResultItem {
+        let requestPayload = (try? ModuleActionCoding.encode(TodoAction.requestAccess)) ?? Data()
+        let settingsPayload = (try? ModuleActionCoding.encode(TodoAction.grant)) ?? Data()
+        return PermissionResultBuilder.row(
+            spec: PermissionCardSpec(
+                module: Self.manifest.identifier,
+                title: "Reminders access needed",
+                explanation: "Luma can list today's tasks and add reminders from the launcher",
+                icon: .symbol("checklist"),
+                requestAction: Action(
+                    id: ActionID(module: Self.manifest.identifier, key: "request"),
+                    title: "Allow Reminders Access",
+                    kind: .custom(payload: requestPayload, handler: Self.manifest.identifier)
+                ),
+                settingsAction: Action(
+                    id: ActionID(module: Self.manifest.identifier, key: "grant"),
+                    title: "Open System Settings",
+                    kind: .custom(payload: settingsPayload, handler: Self.manifest.identifier)
+                ),
+                accessDenied: authorization == .denied
+            )
         )
     }
 

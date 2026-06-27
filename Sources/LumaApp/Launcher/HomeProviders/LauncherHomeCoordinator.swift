@@ -11,11 +11,15 @@ actor LauncherHomeCoordinator {
 
     init(
         openApps: OpenAppsHomeProvider,
+        recentActions: RecentActionsHomeProvider = RecentActionsHomeProvider(),
+        resume: ResumeHomeProvider = ResumeHomeProvider(),
         contextual: ContextualHomeProvider
     ) {
         self.openApps = openApps
         self.aggregator = LauncherHomeAggregator(
             openApps: openApps,
+            recentActions: recentActions,
+            resume: resume,
             contextual: contextual
         )
     }

@@ -133,8 +133,8 @@ public actor ClipboardModule: LumaModule {
         }
         let decoded = try ModuleActionCoding.decode(ClipboardAction.self, from: payload)
         switch decoded {
-        case .copyEntry(let id):
-            try await copyEntry(id: id, pasteboard: context.platform.pasteboard, plainTextOnly: false)
+        case .copyEntry(let id, let plainTextOnly):
+            try await copyEntry(id: id, pasteboard: context.platform.pasteboard, plainTextOnly: plainTextOnly)
         case .pasteEntry(let id):
             try await pasteEntry(id: id)
         case .togglePin(let id):
@@ -177,6 +177,11 @@ public actor ClipboardModule: LumaModule {
     public func togglePin(_ id: UUID) async {
         guard let entry = await store.entry(id: id) else { return }
         await store.pin(id, isPinned: !entry.isPinned)
+    }
+
+    @discardableResult
+    public func updateEntryText(id: UUID, text: String) async -> Bool {
+        await store.updateText(id, text: text)
     }
 
     public func remove(_ id: UUID) async {
@@ -306,15 +311,21 @@ public actor ClipboardModule: LumaModule {
                 let notePayload = (try? ModuleActionCoding.encode(NotesAction.captureToDaily(text: text))) ?? Data()
                 secondary.append(Action(
                     id: ActionID(module: Self.manifest.identifier, key: "note.\(entry.id.uuidString)"),
-                    title: "Append to Note",
+                    title: CrossModuleActionTitles.appendToNote,
                     kind: .custom(payload: notePayload, handler: .notes)
                 ))
                 let draft = SnippetDraft.fromClipboard(text)
                 let snippetPayload = (try? ModuleActionCoding.encode(SnippetsAction.prepareDraft(draft))) ?? Data()
                 secondary.append(Action(
                     id: ActionID(module: Self.manifest.identifier, key: "snippet.\(entry.id.uuidString)"),
-                    title: "Create Snippet",
+                    title: CrossModuleActionTitles.createSnippet,
                     kind: .openModuleDetail(.snippets, payload: snippetPayload)
+                ))
+                let plainPayload = (try? ModuleActionCoding.encode(ClipboardAction.copyEntry(id: entry.id, plainTextOnly: true))) ?? Data()
+                secondary.append(Action(
+                    id: ActionID(module: Self.manifest.identifier, key: "plain.\(entry.id.uuidString)"),
+                    title: CrossModuleActionTitles.copyAsPlainText,
+                    kind: .custom(payload: plainPayload, handler: Self.manifest.identifier)
                 ))
             }
         }

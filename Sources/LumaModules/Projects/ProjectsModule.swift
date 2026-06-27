@@ -78,21 +78,11 @@ public actor ProjectsModule: LumaModule {
             try await store.recordOpened(path: path)
             await refreshIndex()
         case .openNotes(let path, let projectName):
-            let candidates = [
-                URL(fileURLWithPath: path).appendingPathComponent("NOTES.md"),
-                URL(fileURLWithPath: path).appendingPathComponent("notes/README.md"),
-                URL(fileURLWithPath: path).appendingPathComponent("README.md")
-            ]
+            let candidates = ProjectNotesPaths.candidates(projectPath: path, projectName: projectName)
             if let existing = candidates.first(where: { FileManager.default.fileExists(atPath: $0.path) }) {
                 await context.platform.workspace.openURL(existing)
             } else {
-                let notesRoot = FileManager.default.homeDirectoryForCurrentUser
-                    .appendingPathComponent("Documents/Notes/\(projectName).md")
-                if FileManager.default.fileExists(atPath: notesRoot.path) {
-                    await context.platform.workspace.openURL(notesRoot)
-                } else {
-                    await context.platform.workspace.revealInFinder(URL(fileURLWithPath: path, isDirectory: true))
-                }
+                await context.platform.workspace.revealInFinder(URL(fileURLWithPath: path, isDirectory: true))
             }
         case .togglePin(let path):
             try await store.togglePin(path: path)
@@ -203,7 +193,7 @@ public actor ProjectsModule: LumaModule {
         let notesPayload = (try? ModuleActionCoding.encode(ProjectAction.openNotes(path: record.path, projectName: record.name))) ?? Data()
         secondary.append(Action(
             id: ActionID(module: Self.manifest.identifier, key: "notes.\(key)"),
-            title: "Open Notes",
+            title: CrossModuleActionTitles.openNotesForProject,
             kind: .custom(payload: notesPayload, handler: Self.manifest.identifier)
         ))
 

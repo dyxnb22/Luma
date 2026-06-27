@@ -48,6 +48,11 @@ final class TodoDetailView: NSObject, ModuleDetailView {
         statusResetTask = nil
     }
 
+    func pendingCaptureText() -> String? {
+        let trimmed = inputField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
     func handleKeyDown(_ event: NSEvent) -> Bool {
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         if flags.contains(.command), event.charactersIgnoringModifiers?.lowercased() == "t" {

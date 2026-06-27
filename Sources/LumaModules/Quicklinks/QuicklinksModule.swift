@@ -1,5 +1,6 @@
 import Foundation
 import LumaCore
+import LumaServices
 
 public actor QuicklinksModule: LumaModule {
     public static let manifest = ModuleManifest(
@@ -32,7 +33,7 @@ public actor QuicklinksModule: LumaModule {
         }
 
         guard let match = index.match(raw: query.raw),
-              let expansion = expand(match.quicklink, query: match.query) else {
+              let expansion = await expand(match.quicklink, query: match.query) else {
             return ModuleResult(items: [])
         }
         return ModuleResult(items: [row(for: expansion)])
@@ -89,6 +90,14 @@ public actor QuicklinksModule: LumaModule {
         await store.conflictingQuicklink(trigger: trigger, excluding: id)
     }
 
+    public func duplicateQuicklink(urlTemplate: String, excluding id: UUID? = nil) async -> Quicklink? {
+        await store.duplicateQuicklink(urlTemplate: urlTemplate, excluding: id)
+    }
+
+    public func validateURLTemplate(_ template: String) -> String? {
+        QuicklinksStore.validateURLTemplate(template)
+    }
+
     public func sampleExpansion(
         template: String,
         query: String = "swift package",
@@ -112,8 +121,18 @@ public actor QuicklinksModule: LumaModule {
         index = QuicklinksIndex(quicklinks: cachedQuicklinks)
     }
 
-    private func expand(_ quicklink: Quicklink, query: String) -> QuicklinkExpansion? {
-        let urlString = QuicklinkTemplateRenderer.render(template: quicklink.urlTemplate, query: query)
+    private func expand(_ quicklink: Quicklink, query: String) async -> QuicklinkExpansion? {
+        let project = await CurrentProjectService.shared.snapshot()
+        let selection = await SelectionSnapshotService.shared.snapshot()
+        let clipboard = await PasteboardService().readString()
+        let urlString = QuicklinkTemplateRenderer.render(
+            template: quicklink.urlTemplate,
+            query: query,
+            clipboard: clipboard,
+            selection: selection,
+            project: project?.projectName ?? project?.projectLabel,
+            projectPath: project?.matchedProjectPath
+        )
         guard let url = URL(string: urlString), let scheme = url.scheme, !scheme.isEmpty else { return nil }
         return QuicklinkExpansion(quicklink: quicklink, query: query, urlString: urlString, url: url)
     }

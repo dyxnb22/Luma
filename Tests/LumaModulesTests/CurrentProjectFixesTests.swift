@@ -26,4 +26,5 @@ import Testing
         context: QueryContext(deadline: ContinuousClock().now.advanced(by: .milliseconds(20)))
     )
     #expect(result.items.contains { $0.id.key == "doctor.commands" })
+    #expect(result.items.contains { $0.id.key == "doctor.summary" })
 }

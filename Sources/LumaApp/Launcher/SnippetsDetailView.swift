@@ -170,16 +170,16 @@ final class SnippetsDetailView: NSObject, ModuleDetailView {
         let row = tableView.selectedRow
         guard snippets.indices.contains(row) else { return }
         let snippet = snippets[row]
-        let clipboardText = NSPasteboard.general.string(forType: .string)
-        let expanded = SnippetVariableExpander.expand(snippet.content, clipboardText: clipboardText)
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(expanded, forType: .string)
-        showCopiedFeedback()
+        onHideLauncherIfNeeded()
         Task { [weak self] in
             guard let self else { return }
-            _ = try? await self.module.markUsed(id: snippet.id)
+            try? await self.module.insertSnippet(id: snippet.id)
             await MainActor.run { self.refresh() }
         }
+    }
+
+    private func onHideLauncherIfNeeded() {
+        LauncherEnvironment.current?.onHideLauncher()
     }
 
     private func showCopiedFeedback() {

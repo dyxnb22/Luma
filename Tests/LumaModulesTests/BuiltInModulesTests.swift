@@ -20,6 +20,12 @@ import Testing
     #expect(ids.contains(.projects))
 }
 
+@Test func manifestCatalogMatchesRegisteredModuleOrder() {
+    let registered = BuiltInModules.makeAll().map { type(of: $0).manifest.identifier }
+    let catalog = BuiltInModules.manifestCatalog().map(\.identifier)
+    #expect(catalog == registered)
+}
+
 @Test func deferredModulesRemainAvailableInSource() {
     let deferred = BuiltInModules.makeDeferred().map { type(of: $0).manifest.identifier }
     #expect(deferred.contains(.windows))

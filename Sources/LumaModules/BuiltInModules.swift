@@ -72,4 +72,26 @@ public enum BuiltInModules {
     public static func activeModulesRequireAccessibility() -> Bool {
         enabledModulesRequireAccessibility(Set(makeAll().map { type(of: $0).manifest.identifier }))
     }
+
+    /// Single source of truth for built-in module manifests (registration order).
+    public static func manifestCatalog() -> [ModuleManifest] {
+        [
+            AppsModule.manifest,
+            ClipboardModule.manifest,
+            CommandsModule.manifest,
+            NotesModule.manifest,
+            TodoModule.manifest,
+            TranslateModule.manifest,
+            WordbookModule.manifest,
+            SnippetsModule.manifest,
+            SecretsModule.manifest,
+            MediaModule.manifest,
+            WindowLayoutsModule.manifest,
+            ProjectsModule.manifest,
+            QuicklinksModule.manifest,
+            MenuItemsModule.manifest,
+            KillProcessModule.manifest,
+            BrowserTabsModule.manifest
+        ]
+    }
 }

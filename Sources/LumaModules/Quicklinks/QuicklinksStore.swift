@@ -61,6 +61,41 @@ public actor QuicklinksStore {
         }
     }
 
+    public func duplicateQuicklink(urlTemplate: String, excluding id: UUID? = nil) -> Quicklink? {
+        let normalized = Self.normalizedURLKey(urlTemplate)
+        guard !normalized.isEmpty else { return nil }
+        return quicklinks.first { link in
+            link.id != id && Self.normalizedURLKey(link.urlTemplate) == normalized
+        }
+    }
+
+    public static func normalizedURLKey(_ template: String) -> String {
+        let trimmed = template.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard var components = URLComponents(string: trimmed.hasPrefix("http") ? trimmed : "https://\(trimmed)") else {
+            return trimmed
+        }
+        components.fragment = nil
+        if components.path == "/" { components.path = "" }
+        return components.string?.lowercased() ?? trimmed
+    }
+
+    public static func validateURLTemplate(_ template: String) -> String? {
+        let trimmed = template.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return "URL template is empty" }
+        if !trimmed.contains("{{") {
+            if let url = URL(string: trimmed), url.scheme?.isEmpty == false { return nil }
+            if trimmed.hasPrefix("http://") || trimmed.hasPrefix("https://") {
+                return "URL doesn't look valid"
+            }
+            return "URL needs http:// or https://"
+        }
+        let sample = QuicklinkTemplateRenderer.render(template: trimmed, query: "test")
+        guard let url = URL(string: sample), let scheme = url.scheme, !scheme.isEmpty else {
+            return "Rendered URL doesn't look valid"
+        }
+        return nil
+    }
+
     public static func defaultURL() -> URL {
         FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent("Library/Application Support/Luma/quicklinks.json")

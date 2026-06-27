@@ -160,6 +160,27 @@ public actor SnippetsStore {
         return result
     }
 
+    public func conflictingSnippet(trigger: String, excluding id: UUID? = nil) async -> Snippet? {
+        let normalized = trigger.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !normalized.isEmpty else { return nil }
+        let items = await backing.items
+        return items.first { snippet in
+            snippet.id != id && snippet.displayTrigger.lowercased() == normalized
+        }
+    }
+
+    public func similarSnippet(content: String, excluding id: UUID? = nil) async -> Snippet? {
+        let normalized = content.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard normalized.count >= 12 else { return nil }
+        let prefix = String(normalized.prefix(80))
+        let items = await backing.items
+        return items.first { snippet in
+            guard snippet.id != id else { return false }
+            let other = snippet.content.trimmingCharacters(in: .whitespacesAndNewlines)
+            return other == normalized || String(other.prefix(80)) == prefix
+        }
+    }
+
     public func flush() async throws {
         do {
             try await backing.flushIfNeeded()

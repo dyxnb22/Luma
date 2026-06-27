@@ -162,6 +162,16 @@ final class QuicklinksDetailView: NSObject, ModuleDetailView {
             let urlTemplate = self.urlField.stringValue
             let openWith = self.openWithField.stringValue.isEmpty ? nil : self.openWithField.stringValue
             let editingID = self.quicklinks.indices.contains(row) ? self.quicklinks[row].id : nil
+            if let validation = await self.module.validateURLTemplate(urlTemplate) {
+                await MainActor.run {
+                    self.conflictLabel.stringValue = validation
+                    self.conflictLabel.isHidden = false
+                    if validation.contains("http") {
+                        LauncherEnvironment.current?.showStatus?(LauncherStatusMessages.quicklinkMissingProtocol)
+                    }
+                }
+                return
+            }
             if let conflict = await self.module.conflictingQuicklink(trigger: trigger, excluding: editingID) {
                 await MainActor.run {
                     self.conflictLabel.stringValue =
@@ -170,6 +180,15 @@ final class QuicklinksDetailView: NSObject, ModuleDetailView {
                     LauncherEnvironment.current?.showStatus?(LauncherStatusMessages.quicklinkTriggerTaken)
                 }
                 return
+            }
+            let duplicate = await self.module.duplicateQuicklink(urlTemplate: urlTemplate, excluding: editingID)
+            if let duplicate {
+                await MainActor.run {
+                    self.conflictLabel.stringValue =
+                        "URL matches “\(duplicate.name)” (\(duplicate.trigger)). Review before saving another quicklink."
+                    self.conflictLabel.isHidden = false
+                    LauncherEnvironment.current?.showStatus?(LauncherStatusMessages.quicklinkURLDuplicate)
+                }
             }
             if self.quicklinks.indices.contains(row) {
                 var quicklink = self.quicklinks[row]
@@ -214,6 +233,8 @@ final class QuicklinksDetailView: NSObject, ModuleDetailView {
         guard quicklinks.indices.contains(row) else {
             for field in [nameField, triggerField, urlField, openWithField] { field.stringValue = "" }
             previewLabel.stringValue = ""
+            conflictLabel.isHidden = true
+            conflictLabel.stringValue = ""
             return
         }
         let quicklink = quicklinks[row]
@@ -222,14 +243,16 @@ final class QuicklinksDetailView: NSObject, ModuleDetailView {
         urlField.stringValue = quicklink.urlTemplate
         openWithField.stringValue = quicklink.openWith ?? ""
         updatePreview()
+        updateConflictHint()
     }
 
     private func loadDraftIntoEditor(_ draft: URLQuicklinkDraft) {
         triggerField.stringValue = draft.trigger
-        nameField.stringValue = draft.name
+        nameField.stringValue = draft.name.isEmpty ? draft.trigger.uppercased() : draft.name
         urlField.stringValue = draft.urlTemplate
         openWithField.stringValue = ""
         updatePreview()
+        updateConflictHint()
     }
 
     private func updatePreview() {
@@ -249,17 +272,33 @@ final class QuicklinksDetailView: NSObject, ModuleDetailView {
         Task { [weak self] in
             guard let self else { return }
             let trigger = await MainActor.run { self.triggerField.stringValue }
+            let urlTemplate = await MainActor.run { self.urlField.stringValue }
+            if let validation = await self.module.validateURLTemplate(urlTemplate) {
+                await MainActor.run {
+                    self.conflictLabel.stringValue = validation
+                    self.conflictLabel.isHidden = false
+                }
+                return
+            }
             if let conflict = await self.module.conflictingQuicklink(trigger: trigger, excluding: editingID) {
                 await MainActor.run {
                     self.conflictLabel.stringValue =
                         "Trigger “\(conflict.trigger)” is used by “\(conflict.name)”."
                     self.conflictLabel.isHidden = false
                 }
-            } else {
+                return
+            }
+            if let duplicate = await self.module.duplicateQuicklink(urlTemplate: urlTemplate, excluding: editingID) {
                 await MainActor.run {
-                    self.conflictLabel.isHidden = true
-                    self.conflictLabel.stringValue = ""
+                    self.conflictLabel.stringValue =
+                        "URL matches existing quicklink “\(duplicate.name)”."
+                    self.conflictLabel.isHidden = false
                 }
+                return
+            }
+            await MainActor.run {
+                self.conflictLabel.isHidden = true
+                self.conflictLabel.stringValue = ""
             }
         }
     }

@@ -93,7 +93,7 @@ import LumaCore
                 rankingHints: RankingHints()
             )
         ]),
-        LauncherHomeSection(kind: .suggested, items: [
+        LauncherHomeSection(kind: .create, items: [
             ResultItem(
                 id: ResultID(module: todoID, key: "b"),
                 title: "B",
@@ -112,11 +112,11 @@ import LumaCore
     } else {
         Issue.record("Expected section header")
     }
-    if case .sectionHeader(let suggestedTitle, let suggestedShortcut) = rows[2].kind {
-        #expect(suggestedTitle == "SUGGESTED")
-        #expect(suggestedShortcut == 2)
+    if case .sectionHeader(let createTitle, let createShortcut) = rows[2].kind {
+        #expect(createTitle == "CREATE")
+        #expect(createShortcut == 2)
     } else {
-        Issue.record("Expected SUGGESTED section header")
+        Issue.record("Expected CREATE section header")
     }
     if case .item(_, let index) = rows[3].kind {
         #expect(index == 1)

@@ -1,5 +1,6 @@
 import Foundation
 import LumaCore
+import LumaServices
 
 public actor SnippetsModule: LumaModule {
     public static let manifest = ModuleManifest(
@@ -118,6 +119,45 @@ public actor SnippetsModule: LumaModule {
     public func markUsed(id: UUID) async throws {
         _ = try await store.recordUsage(id: id)
         await refreshCache()
+    }
+
+    public func conflictingSnippet(trigger: String, excluding id: UUID? = nil) async -> Snippet? {
+        await store.conflictingSnippet(trigger: trigger, excluding: id)
+    }
+
+    public func similarSnippet(content: String, excluding id: UUID? = nil) async -> Snippet? {
+        await store.similarSnippet(content: content, excluding: id)
+    }
+
+    /// Expands and inserts a snippet from detail UI with full project/selection/clipboard context.
+    public func insertSnippet(id: UUID) async throws {
+        guard let snippet = cachedSnippets.first(where: { $0.id == id }) else {
+            throw ModuleError.dataUnavailable
+        }
+        _ = try await store.recordUsage(id: id)
+        await refreshCache()
+        let expanded = await expandedContentForLauncher(snippet.content)
+        let pasteboard = PasteboardService()
+        await pasteboard.write(expanded)
+        let ax = AXService()
+        if await ax.isTrusted() {
+            try? await Task.sleep(for: .milliseconds(80))
+            await ax.insert(text: expanded)
+        }
+    }
+
+    private func expandedContentForLauncher(_ content: String) async -> String {
+        let project = await CurrentProjectService.shared.snapshot()
+        let selection = await SelectionSnapshotService.shared.snapshot()
+        let clipboard = await PasteboardService().readString()
+        return SnippetVariableExpander.expand(
+            content,
+            context: SnippetExpansionContext.from(
+                project: project,
+                clipboardText: clipboard,
+                selectionText: selection
+            )
+        )
     }
 
     private func refreshCache() async {

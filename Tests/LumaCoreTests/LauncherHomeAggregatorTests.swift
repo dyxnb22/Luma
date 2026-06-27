@@ -8,6 +8,17 @@ private struct StubHomeProvider: LauncherHomeProvider {
     func items() async -> [ResultItem] { rows }
 }
 
+private struct StubContextualProvider: ContextualHomeSectionProvider {
+    let continueRows: [ResultItem]
+    let createRows: [ResultItem]
+
+    func items() async -> [ResultItem] { continueRows + createRows }
+
+    func sectionedItems() async -> (continue: [ResultItem], create: [ResultItem]) {
+        (continue: continueRows, create: createRows)
+    }
+}
+
 @Test func homeAggregatorMergesProvidersAndFiltersEmptySections() async {
     let appsID = ModuleIdentifier(rawValue: "luma.apps")
     let openApps = StubHomeProvider(rows: [
@@ -23,7 +34,9 @@ private struct StubHomeProvider: LauncherHomeProvider {
 
     let aggregator = LauncherHomeAggregator(
         openApps: openApps,
-        contextual: StubHomeProvider(rows: [])
+        recentActions: StubHomeProvider(rows: []),
+        resume: StubHomeProvider(rows: []),
+        contextual: StubContextualProvider(continueRows: [], createRows: [])
     )
     let snapshot = await aggregator.snapshot()
     #expect(snapshot.sections.count == 1)
@@ -52,7 +65,7 @@ private struct StubHomeProvider: LauncherHomeProvider {
     )
     let snapshot = LauncherHomeSnapshot(sections: [
         LauncherHomeSection(kind: .openApps, items: [itemA]),
-        LauncherHomeSection(kind: .suggested, items: [itemB])
+        LauncherHomeSection(kind: .create, items: [itemB])
     ])
     #expect(snapshot.flatItems.map(\.title) == ["A", "B"])
 }

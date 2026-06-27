@@ -1,6 +1,8 @@
 import Foundation
-import Testing
 import LumaCore
+import LumaInfrastructure
+import LumaServices
+import Testing
 @testable import LumaModules
 
 private func sampleApp(
@@ -85,4 +87,31 @@ private func sampleApp(
         if case .launchApp = item.primaryAction.kind { return true }
         return false
     })
+}
+
+@Test func appsModuleSearchIncludesSecondaryActions() async {
+    let module = AppsModule()
+    await module.warmup(testAppsModuleContext())
+    let context = QueryContext(deadline: ContinuousClock().now.advanced(by: .milliseconds(40)))
+    let result = await module.handle(Query(raw: "app safari", sequence: 1), context: context)
+    guard let item = result.items.first else {
+        Issue.record("Expected at least one app result")
+        return
+    }
+    #expect(!item.secondaryActions.isEmpty)
+    #expect(item.secondaryActions.contains { $0.title == "Reveal in Finder" })
+    #expect(item.secondaryActions.contains { $0.title == "Copy App Path" })
+}
+
+private func testAppsModuleContext() -> ModuleContext {
+    ModuleContext(
+        logger: LumaLogger(),
+        metrics: LumaMetrics(),
+        database: ApplicationSupportPaths(),
+        pasteboard: PasteboardService(),
+        accessibility: AXService(),
+        fileSystem: FSEventsService(),
+        translation: TranslationService(),
+        config: ConfigurationStore()
+    )
 }

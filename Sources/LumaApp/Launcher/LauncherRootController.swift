@@ -141,12 +141,15 @@ final class LauncherRootController {
         contentCoordinator.resetResults()
         listView.isHidden = false
         listView.alphaValue = 1
-        hintBar.setContext(.home)
+        syncKeyHints()
         syncPerformanceStripVisibility()
         refreshHome()
         permissionController.refresh()
         if focusSearch { focusSearchField() }
-        if persist { saveHomeSession() }
+        if persist {
+            saveHomeSession()
+            persistResumeState(translateContent: nil)
+        }
     }
 
     func refreshHome() {
@@ -158,10 +161,9 @@ final class LauncherRootController {
                 guard self.searchBar.stringValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
                       !self.contentCoordinator.showingResults else { return }
                 self.contentCoordinator.showHome(snapshot)
-                self.hintBar.setContext(.home)
                 self.syncRowActionHint()
                 let suggestedKeys = snapshot.sections
-                    .filter { $0.kind == .suggested }
+                    .filter { $0.kind == .create || $0.kind == .continueFlow }
                     .flatMap(\.items)
                     .map(\.id.key)
                 Task { await HomeSuggestionMemory.shared.recordShown(keys: suggestedKeys) }
@@ -223,6 +225,45 @@ final class LauncherRootController {
             query: searchBar.stringValue,
             translateContent: translateContent.map { ($0.source, $0.output) }
         )
+        persistResumeState(translateContent: translateContent)
+    }
+
+    private func persistResumeState(translateContent: (source: String, output: String)?) {
+        var state = LauncherResumeState(
+            moduleRaw: contentCoordinator.currentDetailModuleID?.rawValue,
+            query: searchBar.stringValue
+        )
+
+        let resolvedTranslate = translateContent
+            ?? (contentCoordinator.currentDetailObject as? TranslateDetailView)?.currentContent()
+        if let resolvedTranslate {
+            let source = resolvedTranslate.source.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !source.isEmpty {
+                state.translateSource = resolvedTranslate.source
+                state.translateOutput = resolvedTranslate.output
+            }
+        }
+
+        if let draft = LauncherSharedState.pendingSnippetDraft,
+           let data = try? JSONEncoder().encode(draft) {
+            state.snippetDraftJSON = data
+        }
+
+        if let draft = LauncherSharedState.pendingQuicklinkDraft,
+           let data = try? JSONEncoder().encode(draft) {
+            state.quicklinkDraftJSON = data
+        }
+
+        if let todoText = (contentCoordinator.currentDetailObject as? TodoDetailView)?.pendingCaptureText() {
+            state.todoCaptureText = todoText
+        } else {
+            let trimmedQuery = searchBar.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+            if let payload = TodoModule.extractPayload(raw: trimmedQuery), !payload.isEmpty {
+                state.todoCaptureText = payload
+            }
+        }
+
+        LauncherResumeStore.save(state)
     }
 
     func saveHomeSession() {
@@ -241,6 +282,7 @@ final class LauncherRootController {
         viewModel.cancel()
         sessionStore.suppressPersistence = false
         saveHomeSession()
+        persistResumeState(translateContent: nil)
         refreshHome()
     }
 
@@ -249,18 +291,27 @@ final class LauncherRootController {
            let action = try? ModuleActionCoding.decode(SnippetsAction.self, from: payload),
            case .prepareDraft(let draft) = action {
             LauncherSharedState.pendingSnippetDraft = draft
-            launcherEnvironment.showStatus?(LauncherStatusMessages.draftLoadedInSnippets)
+            if let message = draftLoadedStatus(for: moduleID, payload: payload) {
+                launcherEnvironment.showStatus?(message)
+            }
             presentModuleDetail(for: moduleID)
             return
         }
         applyModuleDetailPayload(moduleID: moduleID, payload: payload)
-        if moduleID == .quicklinks,
-           let payload,
-           let action = try? ModuleActionCoding.decode(QuicklinksAction.self, from: payload),
-           case .prepareDraft = action {
-            launcherEnvironment.showStatus?(LauncherStatusMessages.draftLoadedInQuicklinks)
+        if let message = draftLoadedStatus(for: moduleID, payload: payload) {
+            launcherEnvironment.showStatus?(message)
         }
         presentModuleDetail(for: moduleID)
+    }
+
+    private func draftLoadedStatus(for moduleID: ModuleIdentifier, payload: Data?) -> String? {
+        guard let payload else { return nil }
+        let probe = Action(
+            id: ActionID(module: moduleID, key: "draft-probe"),
+            title: "",
+            kind: .openModuleDetail(moduleID, payload: payload)
+        )
+        return LauncherActionFeedback.statusMessage(for: probe)
     }
 
     private func presentModuleDetail(for moduleID: ModuleIdentifier) {
@@ -270,6 +321,13 @@ final class LauncherRootController {
         }
         enterDetailContext()
         contentCoordinator.present(detail, moduleID: moduleID)
+        if moduleID == .translate,
+           let translate = contentCoordinator.currentDetailObject as? TranslateDetailView {
+            let state = LauncherResumeStore.load()
+            if !state.translateSource.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                translate.restore(sourceText: state.translateSource, outputText: state.translateOutput)
+            }
+        }
         syncRowActionHint()
     }
 
@@ -331,7 +389,7 @@ final class LauncherRootController {
 
     func closeDetail() {
         contentCoordinator.closeDetail()
-        hintBar.setContext(.home)
+        syncKeyHints()
         syncPerformanceStripVisibility()
     }
 
@@ -360,7 +418,7 @@ final class LauncherRootController {
         listView.isHidden = false
         listView.alphaValue = 1
         contentCoordinator.beginShowingResults()
-        hintBar.setContext(.results)
+        syncKeyHints()
         syncPerformanceStripVisibility()
         viewModel.queryChanged(text, issuedAt: .now)
     }
@@ -391,7 +449,6 @@ final class LauncherRootController {
 
     private func apply(snapshot: ResultSnapshot) {
         contentCoordinator.apply(snapshot: snapshot)
-        hintBar.setContext(.results)
         syncPerformanceStripVisibility()
         syncRowActionHint()
         if let paintMs = LatencyTracker.shared.markFirstPaint() {
@@ -410,7 +467,7 @@ final class LauncherRootController {
 
     private func activateReturn() {
         if !modulesReady {
-            commandHintBar.showStatus("Modules loading…")
+            commandHintBar.showStatus(LauncherStatusMessages.modulesLoading)
             return
         }
         if actionPanel.isVisible {
@@ -443,6 +500,7 @@ final class LauncherRootController {
     }
 
     private func syncRowActionHint() {
+        syncKeyHints()
         guard contentCoordinator.showingResults || !contentCoordinator.showingDetail else {
             commandHintBar.setReturnAction(nil)
             return
@@ -456,6 +514,16 @@ final class LauncherRootController {
         } else {
             commandHintBar.setReturnAction(nil)
         }
+    }
+
+    private func syncKeyHints() {
+        if contentCoordinator.showingDetail {
+            hintBar.setContext(.detail)
+            return
+        }
+        let context: LauncherHintContext = contentCoordinator.showingResults ? .results : .home
+        let item = contentCoordinator.currentItems[safe: contentCoordinator.selectedIndex]
+        hintBar.setContext(context, selectedItem: item)
     }
 
     private func activateSelectedItem() {
@@ -489,22 +557,92 @@ final class LauncherRootController {
             handleTextChange(query)
             focusSearchField()
         case .openModuleDetail(let moduleID, let payload):
+            recordHomeCompletionIfNeeded(for: item)
             openModuleDetail(for: moduleID, payload: payload)
         case .translateText(let text):
+            recordHomeCompletionIfNeeded(for: item)
             openTranslateDetail(with: text)
+        case .custom(let payload, let handler):
+            if handler == .notes,
+               let notesAction = try? ModuleActionCoding.decode(NotesAction.self, from: payload) {
+                switch notesAction {
+                case .captureToDaily(let text):
+                    runNotesCapture(text: text, for: item)
+                    return
+                case .open(let path):
+                    runNotesOpen(path: path, action: action, for: item)
+                    return
+                default:
+                    break
+                }
+            }
+            runWithFeedback(action: action, for: item)
         default:
-            if let status = LauncherActionFeedback.statusMessage(for: action) {
-                commandHintBar.showStatus(status)
-                Task {
-                    await actionExecutor.run(action, for: item)
+            runWithFeedback(action: action, for: item)
+        }
+    }
+
+    private func runNotesCapture(text: String, for item: ResultItem) {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            commandHintBar.showStatus(LauncherStatusMessages.nothingToCapture)
+            return
+        }
+        Task {
+            let outcome = await NotesCaptureHelper.appendToDailyNote(trimmed, openAfterCapture: false)
+            guard case .appended = outcome else { return }
+            await recordHomeCompletion(for: item)
+            try? await Task.sleep(for: .milliseconds(900))
+            await MainActor.run { self.onActionDismiss() }
+        }
+    }
+
+    private func runNotesOpen(path: String, action: Action, for item: ResultItem) {
+        Task {
+            if let daily = await launcherEnvironment.notesModule.dailyNotePath(), daily == path {
+                await HomeSuggestionMemory.shared.recordDailyNoteOpened()
+            }
+            await recordHomeCompletion(for: item)
+            await MainActor.run { self.onActionDismiss() }
+            await actionExecutor.run(action, for: item)
+        }
+    }
+
+    private func runWithFeedback(action: Action, for item: ResultItem) {
+        if let feedback = LauncherActionFeedback.feedback(for: action) {
+            commandHintBar.showStatus(feedback.message)
+            Task {
+                await actionExecutor.run(action, for: item)
+                await recordHomeCompletion(for: item)
+                await recordRecentAction(action: action, item: item)
+                if feedback.delayDismiss {
                     try? await Task.sleep(for: .milliseconds(900))
                     await MainActor.run { self.onActionDismiss() }
                 }
-            } else {
-                onActionDismiss()
-                Task { await actionExecutor.run(action, for: item) }
+            }
+        } else {
+            onActionDismiss()
+            Task {
+                await actionExecutor.run(action, for: item)
+                await recordHomeCompletion(for: item)
+                await recordRecentAction(action: action, item: item)
             }
         }
+    }
+
+    private func recordHomeCompletionIfNeeded(for item: ResultItem) {
+        guard item.rowKind == .starter else { return }
+        Task { await recordHomeCompletion(for: item) }
+    }
+
+    private func recordHomeCompletion(for item: ResultItem) async {
+        if item.id.key.hasPrefix("contextual.") {
+            await HomeSuggestionMemory.shared.recordCompleted(key: item.id.key)
+        }
+    }
+
+    private func recordRecentAction(action: Action, item: ResultItem) async {
+        await RecentActionMemory.shared.record(action: action, item: item)
     }
 
     private func run(item: ResultItem) {
@@ -535,14 +673,21 @@ final class LauncherRootController {
     private func openActionPanel(for item: ResultItem? = nil) {
         let target = item ?? contentCoordinator.currentItems[safe: contentCoordinator.selectedIndex]
         guard let target else { return }
+        guard !target.secondaryActions.isEmpty else {
+            commandHintBar.showStatus(LauncherStatusMessages.noActionPanelActions)
+            return
+        }
         actionPanel.present(item: target, relativeTo: hintBar)
     }
 
     private func handleKeyCommand(_ command: LumaSearchBar.KeyCommand) -> Bool {
         if case .commandReturn = command {
             guard !actionPanel.isVisible, !contentCoordinator.showingDetail,
-                  let item = contentCoordinator.currentItems[safe: contentCoordinator.selectedIndex],
-                  let secondary = item.secondaryActions.first else { return true }
+                  let item = contentCoordinator.currentItems[safe: contentCoordinator.selectedIndex] else { return false }
+            guard let secondary = item.secondaryActions.first else {
+                commandHintBar.showStatus(LauncherStatusMessages.noAlternateActions)
+                return true
+            }
             runAction(secondary, for: item)
             return true
         }

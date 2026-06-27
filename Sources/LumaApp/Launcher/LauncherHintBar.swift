@@ -53,15 +53,32 @@ final class LauncherHintBar: NSView {
         fatalError("init(coder:) has not been implemented")
     }
 
-    func setContext(_ context: LauncherHintContext) {
+    func setContext(_ context: LauncherHintContext, selectedItem: ResultItem? = nil) {
         switch context {
-        case .home:
-            leftLabel.stringValue = "↩ Open    ⇥ Actions    ⌘K Actions    Esc Close"
-        case .results:
-            leftLabel.stringValue = "↩ Open    ⇥ Actions    Esc Clear"
+        case .home, .results:
+            leftLabel.stringValue = keyHints(for: context, selectedItem: selectedItem)
         case .detail:
             leftLabel.stringValue = "Esc Back    ⌘W Close detail"
         }
+    }
+
+    private func keyHints(for context: LauncherHintContext, selectedItem: ResultItem?) -> String {
+        let escLabel = context == .home ? "Close" : "Clear"
+        var parts = ["↩ Open"]
+        if let secondary = selectedItem?.secondaryActions.first {
+            parts.append("⇥ More")
+            parts.append("⌘↩ \(shortActionLabel(secondary.title))")
+        } else {
+            parts.append("⇥ More")
+        }
+        parts.append("Esc \(escLabel)")
+        return parts.joined(separator: "    ")
+    }
+
+    private func shortActionLabel(_ title: String) -> String {
+        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.count <= 18 { return trimmed }
+        return String(trimmed.prefix(16)) + "…"
     }
 
     func setModulesReady(_ ready: Bool) {

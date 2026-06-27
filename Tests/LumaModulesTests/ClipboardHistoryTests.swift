@@ -566,6 +566,17 @@ private struct NoopAccessibilityClient: AccessibilityClient {
     #expect(await again.search("keep").isEmpty)
 }
 
+@Test func clipboardUpdateTextSyncsColorHex() async {
+    let store = ClipboardHistoryStore()
+    await store.add(text: "plain", types: ["public.text"])
+    let id = await store.search("plain").first!.id
+    #expect(await store.updateText(id, text: "#ff0000"))
+    let entry = await store.entry(id: id)
+    #expect(entry?.detectedKind == .color)
+    #expect(entry?.colorHex == "#FF0000")
+    #expect(entry?.displayText == "#FF0000")
+}
+
 @Test func clipboardDetectsEntryKinds() {
     #expect(ClipboardEntryKind.detect(from: "https://example.com") == .link)
     #expect(ClipboardEntryKind.detect(from: "user@example.com") == .email)

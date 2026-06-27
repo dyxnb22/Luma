@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import LumaCore
 
@@ -36,7 +37,8 @@ public actor AppsModule: LumaModule {
         if let payload = query.command?.payload ?? Self.extractPayload(raw: query.raw) {
             return await handlePayload(payload, context: context)
         }
-        let matches = index.search(query.raw).map(result)
+        let running = await runningBundleIDs()
+        let matches = index.search(query.raw).map { result(for: $0, isRunning: running.contains($0.bundleID)) }
         return ModuleResult(items: matches)
     }
 
@@ -75,7 +77,8 @@ public actor AppsModule: LumaModule {
             return await memoryTopResult(context: context)
         }
         let searchText = trimmed
-        let matches = index.search(searchText).map(result)
+        let running = await runningBundleIDs()
+        let matches = index.search(searchText).map { result(for: $0, isRunning: running.contains($0.bundleID)) }
         return ModuleResult(items: matches)
     }
 
@@ -115,21 +118,64 @@ public actor AppsModule: LumaModule {
         )
     }
 
-    private func result(for app: AppRecord) -> ResultItem {
+    private func runningBundleIDs() async -> Set<String> {
+        await MainActor.run {
+            Set(NSWorkspace.shared.runningApplications.compactMap(\.bundleIdentifier))
+        }
+    }
+
+    private func secondaryActions(for app: AppRecord, isRunning: Bool) -> [Action] {
+        var actions: [Action] = [
+            Action(
+                id: ActionID(module: Self.manifest.identifier, key: "reveal.\(app.bundleID)"),
+                title: "Reveal in Finder",
+                kind: .revealInFinder(app.url)
+            ),
+            Action(
+                id: ActionID(module: Self.manifest.identifier, key: "copyPath.\(app.bundleID)"),
+                title: "Copy App Path",
+                kind: .copyToPasteboard(app.url.path)
+            )
+        ]
+        if let loginURL = URL(string: "x-apple.systempreferences:com.apple.LoginItems-Settings.extension") {
+            actions.append(Action(
+                id: ActionID(module: Self.manifest.identifier, key: "loginItems.\(app.bundleID)"),
+                title: "Open Login Items Settings",
+                kind: .openURL(loginURL)
+            ))
+        }
+        if isRunning, let quitPayload = try? ModuleActionCoding.encode(AppsAction.quit(bundleID: app.bundleID)) {
+            actions.append(Action(
+                id: ActionID(module: Self.manifest.identifier, key: "quit.\(app.bundleID)"),
+                title: "Quit \(app.displayTitle)",
+                kind: .custom(payload: quitPayload, handler: Self.manifest.identifier),
+                confirmation: .requireReturn
+            ))
+        }
+        return actions
+    }
+
+    private func result(for app: AppRecord, isRunning: Bool) -> ResultItem {
         let id = ResultID(module: Self.manifest.identifier, key: app.bundleID)
         let title = app.displayTitle
-        let subtitle = app.subtitlePath
+        let subtitle: String
+        if isRunning {
+            subtitle = app.subtitlePath.isEmpty ? "Running" : "\(app.subtitlePath) · Running"
+        } else {
+            subtitle = app.subtitlePath
+        }
         return ResultItem(
             id: id,
             title: title,
             titleAttributed: AttributedString(title),
-            subtitle: subtitle,
+            subtitle: subtitle.isEmpty ? nil : subtitle,
             icon: .bundleID(app.bundleID),
             primaryAction: Action(
                 id: ActionID(module: Self.manifest.identifier, key: "launch.\(app.bundleID)"),
-                title: "Open \(title)",
+                title: isRunning ? "Activate \(title)" : "Open \(title)",
                 kind: .launchApp(app.url)
             ),
+            secondaryActions: secondaryActions(for: app, isRunning: isRunning),
             rankingHints: RankingHints(basePriority: Self.manifest.priority)
         )
     }

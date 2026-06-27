@@ -13,7 +13,7 @@ public actor MenuItemsModule: LumaModule {
         capabilities: [.queryable, .providesActions, .backgroundUpdater],
         defaultEnabled: true,
         priority: 3,
-        queryTimeout: .milliseconds(500)
+        queryTimeout: .milliseconds(800)
     )
 
     private let service: MenuBarTreeService

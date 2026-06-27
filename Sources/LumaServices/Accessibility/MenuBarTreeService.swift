@@ -52,23 +52,31 @@ public actor MenuBarTreeService {
     }
 
     public func cachedRecordsForFrontmost() -> [MenuItemRecord] {
+        staleRecordsForFrontmost(maxAge: ttl)
+    }
+
+    /// Returns cached menu items even when stale — used for stale-while-revalidate queries.
+    public func staleRecordsForFrontmost(maxAge: TimeInterval? = nil) -> [MenuItemRecord] {
         guard let bundleID = effectiveTargetBundleID(),
               !disabledBundleIDs.contains(bundleID),
-              let cached = cache[bundleID],
-              Date().timeIntervalSince(cached.date) <= ttl else { return [] }
+              let cached = cache[bundleID] else { return [] }
+        if let maxAge, Date().timeIntervalSince(cached.date) > maxAge { return [] }
         return cached.records
     }
 
     public func recordsForTarget(deadline: ContinuousClock.Instant) async -> [MenuItemRecord] {
-        let existing = cachedRecordsForFrontmost()
-        if !existing.isEmpty { return existing }
+        let stale = staleRecordsForFrontmost()
+        if !stale.isEmpty {
+            scheduleRefreshForFrontmost()
+            return stale
+        }
         scheduleRefreshForFrontmost()
         while ContinuousClock.now < deadline {
             let records = cachedRecordsForFrontmost()
             if !records.isEmpty { return records }
             try? await Task.sleep(for: .milliseconds(25))
         }
-        return cachedRecordsForFrontmost()
+        return staleRecordsForFrontmost()
     }
 
     private func effectiveTargetBundleID() -> String? {
@@ -117,12 +125,12 @@ public actor MenuBarTreeService {
 
         var output: [MenuItemRecord] = []
         var queue: [(element: AXUIElement, path: [String], axPath: [Int], depth: Int)] = [(menuBar as! AXUIElement, [], [], 0)]
-        while !queue.isEmpty, Date().timeIntervalSince(start) < 0.5 {
+        while !queue.isEmpty, Date().timeIntervalSince(start) < 1.2 {
             let current = queue.removeFirst()
             guard current.depth < 6 else { continue }
             let children = childElements(of: current.element)
             for (index, child) in children.enumerated() {
-                guard Date().timeIntervalSince(start) < 0.5 else { break }
+                guard Date().timeIntervalSince(start) < 1.2 else { break }
                 let role = stringAttribute(child, kAXRoleAttribute as CFString) ?? ""
                 if role == "AXSeparator" { continue }
                 let title = (stringAttribute(child, kAXTitleAttribute as CFString) ?? "")

@@ -13,6 +13,11 @@ final class ClipboardDetailView: NSObject, ModuleDetailView {
     private let searchField = NSSearchField()
     private let filterControl = NSSegmentedControl()
     private let clearUnpinnedButton = NSButton()
+    private let transformPopup = NSPopUpButton()
+    private let transformPreviewLabel = NSTextField(wrappingLabelWithString: "")
+    private let copyTransformButton = NSButton()
+    private let replaceTransformButton = NSButton()
+    private var pendingTransformOutput: String?
     private let tableScroll = NSScrollView()
     private let tableView = ClipboardEntriesTableView()
     private let emptyStateLabel = NSTextField(labelWithString: "")
@@ -97,12 +102,25 @@ final class ClipboardDetailView: NSObject, ModuleDetailView {
         chrome.setToolbar(toolbar, height: LauncherChromeTokens.detailToolbarHeight)
         chrome.setContent(tableScroll, embedInScroll: false)
         chrome.addSubview(emptyStateLabel)
+        chrome.addSubview(transformPreviewLabel)
+        chrome.addSubview(copyTransformButton)
+        chrome.addSubview(replaceTransformButton)
 
         NSLayoutConstraint.activate([
             emptyStateLabel.centerXAnchor.constraint(equalTo: tableScroll.centerXAnchor),
             emptyStateLabel.centerYAnchor.constraint(equalTo: tableScroll.centerYAnchor),
             emptyStateLabel.leadingAnchor.constraint(greaterThanOrEqualTo: tableScroll.leadingAnchor, constant: 24),
-            emptyStateLabel.trailingAnchor.constraint(lessThanOrEqualTo: tableScroll.trailingAnchor, constant: -24)
+            emptyStateLabel.trailingAnchor.constraint(lessThanOrEqualTo: tableScroll.trailingAnchor, constant: -24),
+
+            transformPreviewLabel.leadingAnchor.constraint(equalTo: tableScroll.leadingAnchor, constant: 8),
+            transformPreviewLabel.trailingAnchor.constraint(equalTo: copyTransformButton.leadingAnchor, constant: -8),
+            transformPreviewLabel.bottomAnchor.constraint(equalTo: chrome.bottomAnchor, constant: -8),
+
+            replaceTransformButton.trailingAnchor.constraint(equalTo: chrome.trailingAnchor, constant: -8),
+            replaceTransformButton.bottomAnchor.constraint(equalTo: chrome.bottomAnchor, constant: -8),
+
+            copyTransformButton.trailingAnchor.constraint(equalTo: replaceTransformButton.leadingAnchor, constant: -8),
+            copyTransformButton.centerYAnchor.constraint(equalTo: replaceTransformButton.centerYAnchor)
         ])
 
         searchField.target = self
@@ -133,6 +151,35 @@ final class ClipboardDetailView: NSObject, ModuleDetailView {
         clearUnpinnedButton.action = #selector(clearUnpinned)
         clearUnpinnedButton.translatesAutoresizingMaskIntoConstraints = false
 
+        transformPopup.addItem(withTitle: "Text Actions")
+        for (title, _) in Self.textTransformActions {
+            transformPopup.addItem(withTitle: title)
+        }
+        transformPopup.target = self
+        transformPopup.action = #selector(previewTextTransform)
+        transformPopup.translatesAutoresizingMaskIntoConstraints = false
+
+        transformPreviewLabel.font = TypographyTokens.monoCaption()
+        transformPreviewLabel.textColor = .secondaryLabelColor
+        transformPreviewLabel.isHidden = true
+        transformPreviewLabel.maximumNumberOfLines = 4
+        transformPreviewLabel.lineBreakMode = .byTruncatingTail
+        transformPreviewLabel.translatesAutoresizingMaskIntoConstraints = false
+
+        copyTransformButton.title = "Copy Result"
+        GeekUIKit.styleToolbarButton(copyTransformButton)
+        copyTransformButton.target = self
+        copyTransformButton.action = #selector(copyTransformResult)
+        copyTransformButton.isHidden = true
+        copyTransformButton.translatesAutoresizingMaskIntoConstraints = false
+
+        replaceTransformButton.title = "Replace Entry"
+        GeekUIKit.styleToolbarButton(replaceTransformButton)
+        replaceTransformButton.target = self
+        replaceTransformButton.action = #selector(replaceWithTransform)
+        replaceTransformButton.isHidden = true
+        replaceTransformButton.translatesAutoresizingMaskIntoConstraints = false
+
         let clearRecentButton = NSButton(title: "Clear Recent…", target: self, action: #selector(clearRecent))
         GeekUIKit.styleToolbarButton(clearRecentButton)
         clearRecentButton.translatesAutoresizingMaskIntoConstraints = false
@@ -143,6 +190,7 @@ final class ClipboardDetailView: NSObject, ModuleDetailView {
 
         toolbar.addSubview(searchField)
         toolbar.addSubview(filterControl)
+        toolbar.addSubview(transformPopup)
         toolbar.addSubview(clearUnpinnedButton)
         toolbar.addSubview(clearRecentButton)
         toolbar.addSubview(settingsButton)
@@ -155,7 +203,10 @@ final class ClipboardDetailView: NSObject, ModuleDetailView {
             filterControl.leadingAnchor.constraint(equalTo: searchField.trailingAnchor, constant: 10),
             filterControl.centerYAnchor.constraint(equalTo: toolbar.centerYAnchor),
 
-            clearUnpinnedButton.leadingAnchor.constraint(equalTo: filterControl.trailingAnchor, constant: 10),
+            transformPopup.leadingAnchor.constraint(equalTo: filterControl.trailingAnchor, constant: 10),
+            transformPopup.centerYAnchor.constraint(equalTo: toolbar.centerYAnchor),
+
+            clearUnpinnedButton.leadingAnchor.constraint(equalTo: transformPopup.trailingAnchor, constant: 10),
             clearUnpinnedButton.centerYAnchor.constraint(equalTo: toolbar.centerYAnchor),
 
             clearRecentButton.leadingAnchor.constraint(equalTo: clearUnpinnedButton.trailingAnchor, constant: 8),
@@ -218,6 +269,68 @@ final class ClipboardDetailView: NSObject, ModuleDetailView {
             await self.module.clearRecent(window)
             await MainActor.run { self.refresh() }
         }
+    }
+
+    private static let textTransformActions: [(String, (String) -> String)] = [
+        (CrossModuleActionTitles.trimWhitespace, ClipboardTextOps.trimWhitespace),
+        (CrossModuleActionTitles.collapseLines, ClipboardTextOps.collapseLines),
+        (CrossModuleActionTitles.quoteLines, ClipboardTextOps.quoteLines),
+        (CrossModuleActionTitles.unquoteLines, ClipboardTextOps.unquoteLines),
+        (CrossModuleActionTitles.copyAsOneLine, ClipboardTextOps.copyAsOneLine)
+    ]
+
+    @objc private func previewTextTransform() {
+        clearTransformPreview()
+        let index = transformPopup.indexOfSelectedItem
+        guard index > 0, Self.textTransformActions.indices.contains(index - 1) else {
+            transformPopup.selectItem(at: 0)
+            return
+        }
+        guard let entry = selectedEntry(),
+              entry.imageData == nil, entry.fileURLs?.isEmpty != false else {
+            transformPopup.selectItem(at: 0)
+            return
+        }
+        let (_, transform) = Self.textTransformActions[index - 1]
+        let output = transform(entry.plainTextForCopy)
+        pendingTransformOutput = output
+        transformPreviewLabel.stringValue = "Preview: \(output)"
+        transformPreviewLabel.isHidden = false
+        copyTransformButton.isHidden = false
+        replaceTransformButton.isHidden = false
+    }
+
+    @objc private func copyTransformResult() {
+        guard let output = pendingTransformOutput else { return }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(output, forType: .string)
+        LauncherEnvironment.current?.showStatus?(LauncherStatusMessages.copiedToClipboard)
+        clearTransformPreview()
+    }
+
+    @objc private func replaceWithTransform() {
+        guard let output = pendingTransformOutput,
+              let entry = selectedEntry() else { return }
+        Task { [weak self] in
+            guard let self else { return }
+            let updated = await self.module.updateEntryText(id: entry.id, text: output)
+            await MainActor.run {
+                if updated {
+                    LauncherEnvironment.current?.showStatus?("Clipboard entry updated")
+                    self.clearTransformPreview()
+                    self.refresh()
+                }
+            }
+        }
+    }
+
+    private func clearTransformPreview() {
+        pendingTransformOutput = nil
+        transformPreviewLabel.stringValue = ""
+        transformPreviewLabel.isHidden = true
+        copyTransformButton.isHidden = true
+        replaceTransformButton.isHidden = true
+        transformPopup.selectItem(at: 0)
     }
 
     @objc private func openSettings() {
@@ -314,22 +427,9 @@ final class ClipboardDetailView: NSObject, ModuleDetailView {
 
     private func saveAsSnippet(_ entry: ClipboardEntry) {
         let draft = SnippetDraft.fromClipboard(entry.plainTextForCopy)
-        let sheet = SnippetEditorSheet(snippet: nil, draft: draft) { [weak self] savedTitle, trigger, content, tags in
-            guard let mod = LauncherEnvironment.current?.snippetsModule else { return }
-            Task {
-                let saved = try? await mod.add(title: savedTitle, content: content, tags: tags, trigger: trigger)
-                await MainActor.run {
-                    LauncherEnvironment.current?.showStatus?(
-                        saved == nil ? LauncherStatusMessages.snippetSaveFailed : LauncherStatusMessages.snippetCreated
-                    )
-                    LauncherEnvironment.current?.detailReloadRouter.reload(.snippets)
-                    self?.detailView.window?.makeFirstResponder(self?.tableView)
-                }
-            }
-        }
-        if let window = detailView.window {
-            window.beginSheet(sheet) { _ in }
-        }
+        LauncherSharedState.pendingSnippetDraft = draft
+        LauncherEnvironment.current?.openModuleDetail(.snippets)
+        LauncherEnvironment.current?.showStatus?(LauncherStatusMessages.draftLoadedInSnippets)
     }
 
     private func saveAsNote(_ entry: ClipboardEntry) {

@@ -6,7 +6,7 @@ cd "$ROOT"
 
 echo "== Automated QA gate =="
 swift build
-swift test
+./scripts/test_unit.sh
 
 echo ""
 echo "== Manual QA checklist =="

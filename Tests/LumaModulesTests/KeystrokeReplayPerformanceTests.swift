@@ -5,6 +5,8 @@ import LumaModules
 import LumaServices
 import Testing
 
+// Fast-path global search replay (default module set; Browser Tabs stays default-off).
+// Slow targeted modules: see SlowModuleQueryPerformanceTests.swift
 @Test func appSearchThousandKeystrokeReplayStaysUnderBudget() async {
     let logger = LumaLogger()
     let metrics = LumaMetrics()

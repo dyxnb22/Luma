@@ -10,7 +10,9 @@ Open browser tabs are high-value navigation targets, but AppleScript calls are s
 
 ## Decision
 
-Add Browser Tabs as a default-off module. Browser adapters fetch tab records through AppleScript with an 800 ms timeout and a five-second cache. `handle()` only searches cached records.
+Add Browser Tabs as a default-off module. Browser adapters fetch tab records through AppleScript with an 800 ms timeout and a five-second cache. `handle()` searches cached records and awaits refresh when the cache is empty or stale (see F-F-04).
+
+Module diagnostics (automation denied, timeout, degraded) surface as informational launcher rows via `QueryDispatcher`.
 
 ## Consequences
 

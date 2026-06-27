@@ -103,6 +103,62 @@ private actor BetaModule: LumaModule {
     }
 }
 
+private actor DiagnosticModule: LumaModule {
+    static let manifest = ModuleManifest(
+        identifier: ModuleIdentifier(rawValue: "luma.diagnostic"),
+        displayName: "Diagnostic",
+        capabilities: [.queryable],
+        defaultEnabled: true,
+        priority: 1,
+        queryTimeout: .milliseconds(20)
+    )
+
+    func warmup(_ context: ModuleContext) async {}
+
+    func handle(_ query: Query, context: QueryContext) async -> ModuleResult {
+        ModuleResult(
+            items: [],
+            diagnostic: ModuleDiagnostic(kind: .permissionRequired, message: "Automation denied for Safari")
+        )
+    }
+}
+
+private actor AlphaLifecycleModule: LumaModule {
+    static let manifest = ModuleManifest(
+        identifier: ModuleIdentifier(rawValue: "luma.lifecycle.alpha"),
+        displayName: "Alpha Lifecycle",
+        capabilities: [.queryable],
+        defaultEnabled: true,
+        priority: 1,
+        queryTimeout: .milliseconds(20)
+    )
+
+    private(set) var warmupCount = 0
+    private(set) var teardownCount = 0
+
+    func warmup(_ context: ModuleContext) async { warmupCount += 1 }
+    func handle(_ query: Query, context: QueryContext) async -> ModuleResult { ModuleResult(items: []) }
+    func teardown() async { teardownCount += 1 }
+}
+
+private actor BetaLifecycleModule: LumaModule {
+    static let manifest = ModuleManifest(
+        identifier: ModuleIdentifier(rawValue: "luma.lifecycle.beta"),
+        displayName: "Beta Lifecycle",
+        capabilities: [.queryable],
+        defaultEnabled: false,
+        priority: 1,
+        queryTimeout: .milliseconds(20)
+    )
+
+    private(set) var warmupCount = 0
+    private(set) var teardownCount = 0
+
+    func warmup(_ context: ModuleContext) async { warmupCount += 1 }
+    func handle(_ query: Query, context: QueryContext) async -> ModuleResult { ModuleResult(items: []) }
+    func teardown() async { teardownCount += 1 }
+}
+
 private func row(title: String, module: ModuleIdentifier) -> ResultItem {
     ResultItem(
         id: ResultID(module: module, key: title),
@@ -161,6 +217,45 @@ private actor SnapshotCollector {
     let titles = Set(snapshots.last?.items.map(\.title) ?? [])
     #expect(titles.contains("Alpha hello"))
     #expect(titles.contains("Beta hello"))
+}
+
+@Test func targetedDispatchSurfacesModuleDiagnosticAsInformationalRow() async {
+    let host = ModuleHost(context: TestDoubles.context())
+    await host.register(DiagnosticModule())
+    let dispatcher = QueryDispatcher(host: host)
+
+    let query = Query(raw: "tab github", sequence: 3)
+    let collector = SnapshotCollector()
+    await dispatcher.dispatchTargeted(query, moduleID: DiagnosticModule.manifest.identifier) { snapshot in
+        await collector.append(snapshot)
+    }
+
+    let snapshots = await collector.values
+    #expect(snapshots.count == 1)
+    #expect(snapshots[0].items.count == 1)
+    #expect(snapshots[0].items[0].rowKind == .informational)
+    #expect(snapshots[0].items[0].title == "Automation denied for Safari")
+    #expect(snapshots[0].items[0].subtitle == "Permission required")
+}
+
+@Test func moduleHostApplyEnabledSetWarmupsAddedAndTearsDownRemoved() async {
+    let host = ModuleHost(context: TestDoubles.context())
+    let alpha = AlphaLifecycleModule()
+    let beta = BetaLifecycleModule()
+    await host.register(alpha)
+    await host.register(beta)
+
+    await host.applyEnabledSet([AlphaLifecycleModule.manifest.identifier])
+    await host.applyEnabledSet([
+        AlphaLifecycleModule.manifest.identifier,
+        BetaLifecycleModule.manifest.identifier,
+    ])
+    await host.applyEnabledSet([BetaLifecycleModule.manifest.identifier])
+
+    #expect(await alpha.warmupCount == 0)
+    #expect(await beta.warmupCount == 1)
+    #expect(await alpha.teardownCount == 1)
+    #expect(await beta.teardownCount == 0)
 }
 
 @Test func commandEntryUnknownPrefixBuildsCorrectionRow() {

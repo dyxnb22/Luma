@@ -11,6 +11,11 @@ Date: 2026-06-27
 | F-F-03 | P1 | `proj` / `tab` home rows empty | Ranker filtered on trigger token when payload empty | Empty command payload → no fuzzy filter |
 | F-F-04 | P2 | Stale browser tab cache on first query | `cachedTabs()` fired async refresh but returned immediately | `searchableTabs()` awaits refresh when stale/empty |
 | F-F-05 | P2 | Doctor perf query pollution | `run_doctor_perf.sh` typed into same field | Close/open between each query |
+| F-F-06 | P1 | Module diagnostics invisible in launcher | `QueryDispatcher` dropped `ModuleResult.diagnostic`; no UI row | `ModuleDiagnosticResults` + merge in dispatcher |
+| F-F-07 | P1 | Module toggle did not warmup/teardown | `applyEnabledSet` only swapped enabled set | Diff enabled set; call `warmup`/`teardown` on change |
+| F-F-08 | P2 | Perf gate missed slow module paths | Keystroke replay only covered global search | `SlowModuleQueryPerformanceTests` + doctor `tab`/`kill` queries |
+| F-F-09 | P2 | Duplicate smoke entry points | `qa/final/run_smoke.sh` vs `run_round1_smoke.sh` diverged | Canonical `scripts/qa/run_full_smoke.sh` |
+| F-F-10 | P2 | Safari tests in default gate | `/Applications/Safari.app` required in CI | `@Tag integration` + `scripts/test_unit.sh` |
 
 ## Prior rounds (already fixed)
 
@@ -22,7 +27,8 @@ Date: 2026-06-27
 ## Final status
 
 - P0/P1/P2: **0 open**
-- `swift test`: **368 passed**
+- `scripts/test_unit.sh`: deterministic unit gate (skips `tag:integration` unless `LUMA_INTEGRATION_TESTS=1`)
+- `swift test`: run after F-F-06–F-F-10
 - Full smoke (`qa/final/run_smoke.sh`): **pass** (screenshots reviewed)
 - Keystroke replay perf test: p95 < 30 ms (unit test)
 

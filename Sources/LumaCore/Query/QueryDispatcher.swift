@@ -27,7 +27,7 @@ public actor QueryDispatcher {
         let usageRecords = await usage.snapshot()
         var merged: [ResultID: ScoredItem] = [:]
 
-        await withTaskGroup(of: ModuleResult.self) { group in
+        await withTaskGroup(of: (ModuleIdentifier, ModuleResult).self) { group in
             for module in modules {
                 let manifest = type(of: module).manifest
                 group.addTask {
@@ -41,20 +41,13 @@ public actor QueryDispatcher {
                         diagnostic: ModuleDiagnostic(kind: .timeout, message: "Module timed out")
                     )
                     await self.metrics.mark("module.\(manifest.identifier.rawValue).finish")
-                    return result
+                    return (manifest.identifier, result)
                 }
             }
 
-            for await result in group {
+            for await (moduleID, result) in group {
                 guard !Task.isCancelled else { break }
-                for item in result.items {
-                    let usage = usageRecords[item.id]
-                    var ranked = item
-                    let score = Ranker.score(item: item, query: query, usage: usage)
-                    ranked.rankingHints.fuzzyScore = FuzzyMatcher.score(query: query.normalized, target: item.title.lowercased())
-                    ranked.rankingHints.finalScore = score
-                    merged[item.id] = ScoredItem(item: ranked, score: score)
-                }
+                Self.mergeItems(from: result, moduleID: moduleID, query: query, usageRecords: usageRecords, into: &merged)
                 await onSnapshot(Self.snapshot(from: merged, sequence: query.sequence))
             }
         }
@@ -88,14 +81,7 @@ public actor QueryDispatcher {
         )
 
         var merged: [ResultID: ScoredItem] = [:]
-        for item in result.items {
-            let usage = usageRecords[item.id]
-            var ranked = item
-            let score = Ranker.score(item: item, query: query, usage: usage)
-            ranked.rankingHints.fuzzyScore = FuzzyMatcher.score(query: query.normalized, target: item.title.lowercased())
-            ranked.rankingHints.finalScore = score
-            merged[item.id] = ScoredItem(item: ranked, score: score)
-        }
+        Self.mergeItems(from: result, moduleID: moduleID, query: query, usageRecords: usageRecords, into: &merged)
         await onSnapshot(Self.snapshot(from: merged, sequence: query.sequence))
         await metrics.mark("query.dispatch.targeted.finish")
     }
@@ -107,6 +93,27 @@ public actor QueryDispatcher {
             .prefix(50)
             .map(\.item)
         return ResultSnapshot(querySequence: sequence, items: Array(items))
+    }
+
+    private static func mergeItems(
+        from result: ModuleResult,
+        moduleID: ModuleIdentifier,
+        query: Query,
+        usageRecords: [ResultID: UsageRecord],
+        into merged: inout [ResultID: ScoredItem]
+    ) {
+        for item in result.items {
+            let usage = usageRecords[item.id]
+            var ranked = item
+            let score = Ranker.score(item: item, query: query, usage: usage)
+            ranked.rankingHints.fuzzyScore = FuzzyMatcher.score(query: query.normalized, target: item.title.lowercased())
+            ranked.rankingHints.finalScore = score
+            merged[item.id] = ScoredItem(item: ranked, score: score)
+        }
+        if result.items.isEmpty, let diagnostic = result.diagnostic {
+            let row = ModuleDiagnosticResults.informationalRow(module: moduleID, diagnostic: diagnostic)
+            merged[row.id] = ScoredItem(item: row, score: 1_000)
+        }
     }
 }
 

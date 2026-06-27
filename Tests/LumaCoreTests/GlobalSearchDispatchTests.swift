@@ -5,7 +5,8 @@ import LumaModules
 import LumaServices
 import Testing
 
-@Test func appScannerIncludesSafariOnThisMachine() {
+@Test(.tags(.integration), .enabled(if: IntegrationTestSettings.enabled))
+func appScannerIncludesSafariOnThisMachine() {
     let safariURL = URL(fileURLWithPath: "/Applications/Safari.app")
     #expect(FileManager.default.fileExists(atPath: safariURL.path))
     #expect(Bundle(url: safariURL) != nil)
@@ -18,7 +19,8 @@ import Testing
     #expect(index.search("safari").first?.bundleID == "com.apple.Safari")
 }
 
-@Test func appsModuleFindsSafariAfterWarmup() async {
+@Test(.tags(.integration), .enabled(if: IntegrationTestSettings.enabled))
+func appsModuleFindsSafariAfterWarmup() async {
     let context = QueryContext(deadline: ContinuousClock().now.advanced(by: .milliseconds(200)))
     let module = AppsModule()
     let moduleContext = ModuleContext(
@@ -37,7 +39,8 @@ import Testing
     #expect(result.items.contains { $0.title.localizedCaseInsensitiveContains("Safari") })
 }
 
-@Test func globalSearchDispatchReturnsSafariApp() async {
+@Test(.tags(.integration), .enabled(if: IntegrationTestSettings.enabled))
+func globalSearchDispatchReturnsSafariApp() async {
     let context = ModuleContext(
         logger: LumaLogger(),
         metrics: LumaMetrics(),

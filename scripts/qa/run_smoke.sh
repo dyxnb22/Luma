@@ -1,6 +1,6 @@
 #!/bin/zsh
-# run_smoke.sh <round_dir> <case_name> <query>
-# Standard smoke: esc → hotkey → screenshot home → type query → screenshot results
+# Ad-hoc single-case smoke helper: run_smoke_case.sh <round_dir> <case_name> <query>
+# Full trigger suite: scripts/qa/run_full_smoke.sh (qa/final/run_smoke.sh wraps it)
 set -e
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 DRIVE="$ROOT/scripts/qa/drive.sh"

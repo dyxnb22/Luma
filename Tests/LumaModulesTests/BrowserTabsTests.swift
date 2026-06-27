@@ -26,7 +26,8 @@ import LumaServices
     #expect(BrowserTabsIndex.search(tabs, query: "zzzz").isEmpty)
 }
 
-@Test func appleScriptRunnerFetchesSafariTabTSV() async throws {
+@Test(.tags(.integration), .enabled(if: IntegrationTestSettings.enabled))
+func appleScriptRunnerFetchesSafariTabTSV() async throws {
     let running = await MainActor.run {
         NSWorkspace.shared.runningApplications.contains { $0.bundleIdentifier == "com.apple.Safari" }
     }
@@ -54,7 +55,8 @@ import LumaServices
     #expect(rows[0].url.hasPrefix("http") || rows[0].url.hasPrefix("favorites:"))
 }
 
-@Test func browserTabsServiceFetchesSafariTabsWhenRunning() async {
+@Test(.tags(.integration), .enabled(if: IntegrationTestSettings.enabled))
+func browserTabsServiceFetchesSafariTabsWhenRunning() async {
     let running = await MainActor.run {
         NSWorkspace.shared.runningApplications.contains { $0.bundleIdentifier == "com.apple.Safari" }
     }

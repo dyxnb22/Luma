@@ -11,7 +11,7 @@ sleep 0.5
 "$DRIVE" open
 sleep 0.5
 
-for q in "s" "gh swift" "Safari" "clip luma"; do
+for q in "s" "gh swift" "Safari" "clip luma" "tab github" "kill preview"; do
   "$DRIVE" close
   sleep 0.3
   "$DRIVE" open

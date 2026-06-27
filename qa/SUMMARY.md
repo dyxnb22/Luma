@@ -7,7 +7,9 @@ Four modules (Quicklinks, Menu Items, Kill Process, Browser Tabs) plus QA harnes
 | Area | Key files |
 |------|-----------|
 | QA driver | `scripts/qa/drive.sh`, `paste_query.swift`, `prep_smoke_env.sh` |
-| Final smoke | `qa/final/run_smoke.sh`, `qa/final/run_doctor_perf.sh` |
+| Full smoke | `scripts/qa/run_full_smoke.sh` (entry: `qa/final/run_smoke.sh`) |
+| Doctor perf | `qa/final/run_doctor_perf.sh` |
+| Unit gate | `scripts/test_unit.sh` (integration: `LUMA_INTEGRATION_TESTS=1 swift test --filter tag:integration`) |
 | Ranker | `Sources/LumaCore/Ranking/Ranker.swift` |
 | Browser tabs | `SafariAdapter.swift`, `ChromiumAdapter.swift`, `BrowserTabsService.swift` |
 | Projects QA seed | `scripts/qa/prep_smoke_env.sh` → `projects.json` |
@@ -29,7 +31,9 @@ Four modules (Quicklinks, Menu Items, Kill Process, Browser Tabs) plus QA harnes
 
 ## Performance
 
-- `KeystrokeReplayPerformanceTests.appSearchThousandKeystrokeReplayStaysUnderBudget`: p95 < 30 ms
+- **Fast path:** `KeystrokeReplayPerformanceTests` — global search replay, p95 < 30 ms (Browser Tabs default-off)
+- **Slow modules:** `SlowModuleQueryPerformanceTests` — `tab` p95 < 950 ms, warm cache p95 < 50 ms; `kill preview` p95 < 200 ms
+- **Doctor:** `run_doctor_perf.sh` includes `tab github` and `kill preview`
 - Latency HUD enabled in QA via `latencyHUDEnabled` default
 
 ## Screenshots
@@ -42,6 +46,6 @@ Four modules (Quicklinks, Menu Items, Kill Process, Browser Tabs) plus QA harnes
 - [x] Four modules implemented and registered
 - [x] `swift test` green (368 tests)
 - [x] App builds (`./scripts/build_app.sh`)
-- [x] Full screenshot smoke via `qa/final/run_smoke.sh`
+- [x] Full screenshot smoke via `scripts/qa/run_full_smoke.sh`
 - [x] Final round P0/P1/P2 = 0
 - [x] Keystroke replay p95 ≤ 30 ms (unit test)

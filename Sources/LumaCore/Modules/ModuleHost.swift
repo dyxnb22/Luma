@@ -17,9 +17,24 @@ public actor ModuleHost {
         }
     }
 
-    public func applyEnabledSet(_ ids: Set<ModuleIdentifier>?) {
-        if let ids {
-            enabled = ids
+    public func applyEnabledSet(_ ids: Set<ModuleIdentifier>?) async {
+        guard let ids else { return }
+
+        let removed = enabled.subtracting(ids)
+        let added = ids.subtracting(enabled)
+
+        for id in removed {
+            if let module = modules[id] {
+                await module.teardown()
+            }
+        }
+
+        enabled = ids
+
+        for id in added {
+            if let module = modules[id] {
+                await module.warmup(context)
+            }
         }
     }
 

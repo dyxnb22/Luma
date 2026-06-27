@@ -26,6 +26,30 @@ import LumaServices
     #expect(BrowserTabsIndex.search(tabs, query: "zzzz").isEmpty)
 }
 
+@Test func browserTabsIndexPreservesDistinctTabsWithSameURL() {
+    let tabs = [
+        TabRecord(bundleID: "com.apple.Safari", browserName: "Safari", windowIndex: 1, tabIndex: 1, title: "GitHub A", url: "https://github.com"),
+        TabRecord(bundleID: "com.apple.Safari", browserName: "Safari", windowIndex: 2, tabIndex: 1, title: "GitHub B", url: "https://github.com"),
+        TabRecord(bundleID: "com.google.Chrome", browserName: "Chrome", windowIndex: 1, tabIndex: 1, title: "GitHub C", url: "https://github.com")
+    ]
+    let matches = BrowserTabsIndex.search(tabs, query: "github")
+    #expect(matches.count == 3)
+    #expect(Set(matches.map { "\($0.bundleID)|\($0.windowIndex)|\($0.tabIndex)" }).count == 3)
+}
+
+@Test func browserTabsIndexDedupesExactDuplicateRecords() {
+    let original = TabRecord(
+        bundleID: "com.apple.Safari",
+        browserName: "Safari",
+        windowIndex: 1,
+        tabIndex: 1,
+        title: "GitHub",
+        url: "https://github.com"
+    )
+    let matches = BrowserTabsIndex.search([original, original], query: "github")
+    #expect(matches.count == 1)
+}
+
 @Test(.tags(.integration), .enabled(if: IntegrationTestSettings.enabled))
 func appleScriptRunnerFetchesSafariTabTSV() async throws {
     let running = await MainActor.run {

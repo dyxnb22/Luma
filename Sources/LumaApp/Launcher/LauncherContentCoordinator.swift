@@ -154,11 +154,10 @@ final class LauncherContentCoordinator {
         let previouslySelectedID: ResultID? = currentItems[safe: selectedIndex]?.id
         currentItems = newItems
         guard !newItems.isEmpty else {
-            if showingResults {
-                showingResults = false
-                currentItems = []
-                listView.clear()
-            }
+            showingResults = true
+            currentItems = []
+            selectedIndex = 0
+            listView.renderResults([], layout: layout)
             return
         }
         showingResults = true

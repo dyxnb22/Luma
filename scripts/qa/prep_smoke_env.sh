@@ -11,12 +11,16 @@ BACKUP_DIR="$HOME/.qa-backup"
 BACKUP_MARKER="$BACKUP_DIR/luma-smoke.exists"
 BACKUP_PROJECTS="$BACKUP_DIR/luma-projects.json"
 BACKUP_DEFAULTS="$BACKUP_DIR/luma-defaults.plist"
+BACKUP_NOTES="$BACKUP_DIR/luma-notes.json"
+QA_NOTES_ROOT="$HOME/.qa-luma-notes"
+NOTES_CONFIG="$SUPPORT/notes.json"
 
 mkdir -p "$SUPPORT"
 
 if [[ ! -f "$BACKUP_MARKER" ]]; then
   mkdir -p "$BACKUP_DIR"
   [[ -f "$SUPPORT/projects.json" ]] && cp "$SUPPORT/projects.json" "$BACKUP_PROJECTS"
+  [[ -f "$NOTES_CONFIG" ]] && cp "$NOTES_CONFIG" "$BACKUP_NOTES"
   defaults export app.luma "$BACKUP_DEFAULTS" 2>/dev/null || true
   touch "$BACKUP_MARKER"
   echo "Backed up QA state to $BACKUP_DIR"
@@ -27,6 +31,19 @@ cat > "$SUPPORT/projects.json" <<EOF
   "roots": ["$ROOT"],
   "projects": [],
   "recent": []
+}
+EOF
+
+mkdir -p "$QA_NOTES_ROOT"
+cat > "$NOTES_CONFIG" <<EOF
+{
+  "root": "$QA_NOTES_ROOT",
+  "expandedFolders": ["$QA_NOTES_ROOT"],
+  "recent": [],
+  "inboxFolderName": "Inbox",
+  "dailyFolderName": "Daily",
+  "templatesFolderName": "_templates",
+  "reviewsFolderName": "Reviews"
 }
 EOF
 
@@ -80,5 +97,5 @@ else
   echo "warn: $APP not found — run ./scripts/build_app.sh first" >&2
 fi
 
-echo "Smoke env ready (projects.json + browser tabs + Safari GitHub tab)"
+echo "Smoke env ready (projects.json + isolated notes root + browser tabs + Safari GitHub tab)"
 echo "Restore with: ./scripts/qa/restore_smoke_env.sh"

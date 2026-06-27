@@ -32,14 +32,23 @@ public enum LauncherListRows {
         return result
     }
 
+    public static let noMatchingResultsMessage = "No matching results."
+
     public static func rows(for results: [ResultItem], layout: ResultListLayout = .flat) -> [Row] {
         switch layout {
         case .flat:
+            if results.isEmpty {
+                return [Row(kind: .placeholder(noMatchingResultsMessage))]
+            }
             return results.enumerated().map { index, item in
                 Row(kind: .item(item, flatIndex: index))
             }
         case .sectioned(let sections):
-            return rows(for: sections)
+            let sectionRows = rows(for: sections)
+            if sectionRows.isEmpty {
+                return [Row(kind: .placeholder(noMatchingResultsMessage))]
+            }
+            return sectionRows
         }
     }
 

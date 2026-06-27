@@ -103,6 +103,7 @@ public enum BrowserTabsIndex {
     public static func search(_ records: [TabRecord], query: String, limit: Int = 8) -> [TabRecord] {
         let q = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         guard !q.isEmpty else { return Array(records.prefix(limit)) }
+        var seen = Set<TabRecord>()
         return records.compactMap { record -> (TabRecord, Double)? in
             let target = "\(record.title) \(record.url) \(record.browserName)".lowercased()
             let score = FuzzyMatcher.score(query: q, target: target)
@@ -110,6 +111,10 @@ public enum BrowserTabsIndex {
             return (record, score)
         }
         .sorted { $0.1 > $1.1 }
+        .filter { pair in
+            guard seen.insert(pair.0).inserted else { return false }
+            return true
+        }
         .prefix(limit)
         .map(\.0)
     }

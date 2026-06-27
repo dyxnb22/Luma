@@ -7,7 +7,7 @@ actor LauncherHomeCoordinator {
     private let aggregator: LauncherHomeAggregator
     private let openApps: OpenAppsHomeProvider
     private var showAllApps = false
-    private var expandedAppBundleIDs = Set<String>()
+    private var collapsedAppBundleIDs = Set<String>()
 
     init(
         openApps: OpenAppsHomeProvider,
@@ -30,7 +30,7 @@ actor LauncherHomeCoordinator {
 
     func resetExpansion() {
         showAllApps = false
-        expandedAppBundleIDs.removeAll()
+        collapsedAppBundleIDs.removeAll()
     }
 
     func setActive(_ active: Bool) async {
@@ -43,17 +43,17 @@ actor LauncherHomeCoordinator {
     }
 
     func toggleAppWindows(bundleID: String) {
-        if expandedAppBundleIDs.contains(bundleID) {
-            expandedAppBundleIDs.remove(bundleID)
+        if collapsedAppBundleIDs.contains(bundleID) {
+            collapsedAppBundleIDs.remove(bundleID)
         } else {
-            expandedAppBundleIDs.insert(bundleID)
+            collapsedAppBundleIDs.insert(bundleID)
         }
     }
 
     func snapshot() async -> LauncherHomeSnapshot {
         await openApps.configure(
             appLimit: showAllApps ? nil : OpenAppsHomeProvider.defaultAppLimit,
-            expandedBundleIDs: expandedAppBundleIDs
+            collapsedBundleIDs: collapsedAppBundleIDs
         )
         return await aggregator.snapshot()
     }

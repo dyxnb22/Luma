@@ -17,15 +17,17 @@ Primary entry points:
 
 | Round | P0 | P1 | P2 | P3 |
 |-------|----|----|----|-----|
-| 1 | 0 | 3 | 2 | 0 |
-| 2 | 0 | 0 | 1 | 1 |
-| Final | 0 | 0 | 0 | 3 |
+| 1 | 0 | 0 | 1 | 4 |
+| 2 | 0 | 0 | 0 | 0 |
+| Final (prior) | 0 | 0 | 0 | 3 |
 
 ## Final Regression State
 
-- Final recorded/smoke baseline reached P0/P1/P2 = 0 open.
+- Round 2 recorded/smoke baseline: **pass** (no new P2+).
+- Fixes shipped this session: empty search placeholder (`No matching results.`), Browser Tabs exact-duplicate record dedup without collapsing distinct same-URL tabs.
+- Open items: Todo Reminders is still **host permission/setup** (P3, actionable UI).
 - The canonical smoke entry point is `scripts/qa/run_full_smoke.sh`.
-- The current product-review pass should judge more than feature pass/fail: visual polish, usability, keyboard-only fluency, permissions, and recovery behavior.
+- Findings log: `qa/RECORDED_REVIEW_TEMPLATE.md` (Round 3 session).
 
 ## Performance
 

@@ -209,6 +209,7 @@ struct ModulesSettingsView: View {
                         Label(module.name, systemImage: moduleIcon(module.id))
                             .font(.system(size: 13))
                     }
+                    .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, 12).padding(.vertical, 8)
                 }
             }

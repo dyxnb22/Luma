@@ -56,6 +56,21 @@ import LumaCore
     #expect(item.primaryAction.title == "Show Windows")
 }
 
+@Test func openAppsBuilderCreatesExpandedMultiWindowRow() {
+    let item = OpenAppsResultBuilder.expandableResultItem(
+        for: RunningAppSnapshot(
+            bundleID: "com.todesktop.230313mzl4w4u92",
+            name: "Cursor",
+            appPath: "/Applications/Cursor.app",
+            windowCount: 3
+        ),
+        isExpanded: true,
+        secondaryActions: []
+    )
+    #expect(item.subtitle == "3 windows expanded")
+    #expect(item.primaryAction.title == "Hide Windows")
+}
+
 @Test func openAppsBuilderCreatesWindowFocusRow() {
     let item = OpenAppsResultBuilder.windowRow(for: RunningWindowSnapshot(
         bundleID: "com.todesktop.230313mzl4w4u92",
@@ -122,5 +137,15 @@ import LumaCore
         #expect(index == 1)
     } else {
         Issue.record("Expected second item at flat index 1")
+    }
+}
+
+@Test func listRowsShowPlaceholderWhenSearchResultsEmpty() {
+    let rows = LauncherListRows.rows(for: [], layout: .flat)
+    #expect(rows.count == 1)
+    if case .placeholder(let message) = rows[0].kind {
+        #expect(message == LauncherListRows.noMatchingResultsMessage)
+    } else {
+        Issue.record("Expected placeholder row")
     }
 }

@@ -18,7 +18,7 @@ actor OpenAppsHomeProvider: LauncherHomeProvider {
     private let appActivationTracker: AppActivationTracker
     private var cachedSnapshots: [AppRuntimeSnapshot] = []
     private var appLimit: Int? = defaultAppLimit
-    private var expandedBundleIDs = Set<String>()
+    private var collapsedBundleIDs = Set<String>()
     private var refreshTask: Task<Void, Never>?
     private var isActive = false
 
@@ -38,9 +38,9 @@ actor OpenAppsHomeProvider: LauncherHomeProvider {
         }
     }
 
-    func configure(appLimit: Int?, expandedBundleIDs: Set<String>) {
+    func configure(appLimit: Int?, collapsedBundleIDs: Set<String>) {
         self.appLimit = appLimit
-        self.expandedBundleIDs = expandedBundleIDs
+        self.collapsedBundleIDs = collapsedBundleIDs
     }
 
     func invalidateCache() {
@@ -66,7 +66,7 @@ actor OpenAppsHomeProvider: LauncherHomeProvider {
         var items: [ResultItem] = []
         for app in visible {
             if app.windows.count > 1 {
-                let isExpanded = expandedBundleIDs.contains(app.bundleID)
+                let isExpanded = !collapsedBundleIDs.contains(app.bundleID)
                 items.append(Self.expandableAppRow(for: app, isExpanded: isExpanded))
                 if isExpanded {
                     items.append(contentsOf: app.windows.enumerated().map { index, window in

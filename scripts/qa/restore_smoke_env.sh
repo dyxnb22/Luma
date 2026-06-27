@@ -6,6 +6,9 @@ BACKUP_DIR="$HOME/.qa-backup"
 BACKUP_MARKER="$BACKUP_DIR/luma-smoke.exists"
 BACKUP_PROJECTS="$BACKUP_DIR/luma-projects.json"
 BACKUP_DEFAULTS="$BACKUP_DIR/luma-defaults.plist"
+BACKUP_NOTES="$BACKUP_DIR/luma-notes.json"
+NOTES_CONFIG="$SUPPORT/notes.json"
+QA_NOTES_ROOT="$HOME/.qa-luma-notes"
 
 if [[ ! -f "$BACKUP_MARKER" ]]; then
   echo "No QA backup found at $BACKUP_DIR" >&2
@@ -18,6 +21,12 @@ else
   rm -f "$SUPPORT/projects.json"
 fi
 
+if [[ -f "$BACKUP_NOTES" ]]; then
+  cp "$BACKUP_NOTES" "$NOTES_CONFIG"
+else
+  rm -f "$NOTES_CONFIG"
+fi
+
 if [[ -f "$BACKUP_DEFAULTS" ]]; then
   defaults import app.luma "$BACKUP_DEFAULTS"
 else
@@ -28,8 +37,9 @@ else
   defaults delete app.luma lumaQASkipRestore 2>/dev/null || true
 fi
 
-rm -f "$BACKUP_MARKER" "$BACKUP_PROJECTS" "$BACKUP_DEFAULTS"
+rm -f "$BACKUP_MARKER" "$BACKUP_PROJECTS" "$BACKUP_DEFAULTS" "$BACKUP_NOTES"
 rmdir "$BACKUP_DIR" 2>/dev/null || true
+rm -rf "$QA_NOTES_ROOT"
 pkill -x Luma 2>/dev/null || true
 sleep 0.5
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"

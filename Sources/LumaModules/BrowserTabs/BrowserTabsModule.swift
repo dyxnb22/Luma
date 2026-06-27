@@ -31,7 +31,13 @@ public actor BrowserTabsModule: LumaModule {
         }
         let tabs = await service.searchableTabs()
         let matches = BrowserTabsIndex.search(tabs, query: payload, limit: 8)
-        return ModuleResult(items: matches.map(row))
+        if !matches.isEmpty {
+            return ModuleResult(items: matches.map(row))
+        }
+        if let diagnostic = await service.lastDiagnostic() {
+            return ModuleResult(items: [], diagnostic: diagnostic)
+        }
+        return ModuleResult(items: [])
     }
 
     public func perform(_ action: Action, context: ActionContext) async throws {

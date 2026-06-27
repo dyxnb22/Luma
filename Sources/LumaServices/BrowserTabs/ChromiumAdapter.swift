@@ -29,14 +29,6 @@ public struct ChromiumAdapter: BrowserAdapter {
     }
 
     public func activate(record: TabRecord, runner: AppleScriptRunner) async throws {
-        let appName = applicationName
-        let script = """
-        tell application "\(appName)"
-          set index of window \(record.windowIndex) to 1
-          tell window \(record.windowIndex) to set active tab index to \(record.tabIndex)
-          activate
-        end tell
-        """
-        _ = try await runner.run(script)
+        _ = try await runner.run(BrowserTabActivationScripts.chromium(applicationName: applicationName, record: record))
     }
 }

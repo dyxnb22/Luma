@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import LumaCore
 
 public actor BrowserTabsService {
     public static let shared = BrowserTabsService()
@@ -11,6 +12,7 @@ public actor BrowserTabsService {
     private var refreshTask: Task<Void, Never>?
     private var isRefreshing = false
     private let ttl: TimeInterval = 5
+    private var lastRefreshDiagnostic: ModuleDiagnostic?
 
     public init(
         runner: AppleScriptRunner = AppleScriptRunner(),
@@ -38,19 +40,66 @@ public actor BrowserTabsService {
         }
         let runnable = adapters.filter { runningBundleIDs.contains($0.bundleID) }
         var records: [TabRecord] = []
-        await withTaskGroup(of: [TabRecord].self) { group in
+        var issues: [String] = []
+        lastRefreshDiagnostic = nil
+        await withTaskGroup(of: (String, Result<[TabRecord], Error>).self) { group in
             for adapter in runnable {
                 let runner = self.runner
+                let browserName = adapter.applicationName
                 group.addTask {
-                    (try? await adapter.fetchTabs(runner: runner)) ?? []
+                    do {
+                        let tabs = try await adapter.fetchTabs(runner: runner)
+                        return (browserName, .success(tabs))
+                    } catch {
+                        return (browserName, .failure(error))
+                    }
                 }
             }
-            for await batch in group {
-                records.append(contentsOf: batch)
+            for await (browserName, result) in group {
+                switch result {
+                case .success(let tabs):
+                    records.append(contentsOf: tabs)
+                case .failure(let error):
+                    issues.append(Self.issueMessage(browser: browserName, error: error))
+                }
             }
         }
         cached = records
         lastRefresh = Date()
+        lastRefreshDiagnostic = Self.diagnostic(records: records, issues: issues)
+    }
+
+    public func lastDiagnostic() -> ModuleDiagnostic? {
+        lastRefreshDiagnostic
+    }
+
+    private static func issueMessage(browser: String, error: Error) -> String {
+        switch error {
+        case AppleScriptRunner.RunnerError.timedOut:
+            return "\(browser) timed out"
+        case AppleScriptRunner.RunnerError.failed(let message):
+            if message.localizedCaseInsensitiveContains("not authorized")
+                || message.contains("-1743")
+                || message.localizedCaseInsensitiveContains("assistive") {
+                return "\(browser) automation denied"
+            }
+            return "\(browser): \(message.trimmingCharacters(in: .whitespacesAndNewlines))"
+        default:
+            return "\(browser): \(error.localizedDescription)"
+        }
+    }
+
+    private static func diagnostic(records: [TabRecord], issues: [String]) -> ModuleDiagnostic? {
+        guard !issues.isEmpty else { return nil }
+        let message = issues.joined(separator: "; ")
+        if records.isEmpty,
+           issues.contains(where: { $0.localizedCaseInsensitiveContains("automation denied") }) {
+            return ModuleDiagnostic(kind: .permissionRequired, message: message)
+        }
+        if records.isEmpty {
+            return ModuleDiagnostic(kind: .error, message: message)
+        }
+        return ModuleDiagnostic(kind: .degraded, message: message)
     }
 
     public func searchableTabs() async -> [TabRecord] {

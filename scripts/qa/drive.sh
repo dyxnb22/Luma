@@ -7,7 +7,6 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 clear_persisted_query() {
   defaults write app.luma launcherLastQuery "" 2>/dev/null || true
   defaults delete app.luma launcherLastModuleID 2>/dev/null || true
-  defaults write app.luma lumaQASkipRestore -bool true 2>/dev/null || true
 }
 
 escape_applescript() {

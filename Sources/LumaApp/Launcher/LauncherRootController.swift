@@ -196,7 +196,6 @@ final class LauncherRootController {
     }
 
     func restoreLastSessionIfNeeded() {
-        if UserDefaults.standard.bool(forKey: "lumaQASkipRestore") { return }
         guard ProcessInfo.processInfo.environment["LUMA_QA"] != "1" else { return }
         guard !contentCoordinator.showingDetail, searchBar.stringValue.isEmpty else { return }
         Task {

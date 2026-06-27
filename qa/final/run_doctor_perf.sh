@@ -6,9 +6,6 @@ DRIVE="$ROOT/scripts/qa/drive.sh"
 SHOTS="$(cd "$(dirname "$0")" && pwd)/screenshots"
 mkdir -p "$SHOTS"
 
-defaults write app.luma lumaQASkipRestore -bool true 2>/dev/null || true
-defaults write app.luma latencyHUDEnabled -bool true 2>/dev/null || true
-
 "$DRIVE" close
 sleep 0.5
 "$DRIVE" open

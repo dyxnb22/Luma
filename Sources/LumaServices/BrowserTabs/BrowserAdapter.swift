@@ -25,6 +25,31 @@ public protocol BrowserAdapter: Sendable {
     func activate(record: TabRecord, runner: AppleScriptRunner) async throws
 }
 
+public enum BrowserTabActivationScripts {
+    /// Bind the target window before reordering so indices cannot drift after `set index to 1`.
+    public static func safari(record: TabRecord) -> String {
+        """
+        tell application "Safari"
+          set targetWindow to window \(record.windowIndex)
+          set index of targetWindow to 1
+          tell targetWindow to set current tab to tab \(record.tabIndex)
+          activate
+        end tell
+        """
+    }
+
+    public static func chromium(applicationName: String, record: TabRecord) -> String {
+        """
+        tell application "\(applicationName)"
+          set targetWindow to window \(record.windowIndex)
+          set index of targetWindow to 1
+          tell targetWindow to set active tab index to \(record.tabIndex)
+          activate
+        end tell
+        """
+    }
+}
+
 public enum BrowserTabParser {
     public static func parseTSV(_ output: String, bundleID: String, browserName: String) -> [TabRecord] {
         output.split(separator: "\n").compactMap { line in

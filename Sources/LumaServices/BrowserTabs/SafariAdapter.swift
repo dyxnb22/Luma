@@ -25,13 +25,6 @@ public struct SafariAdapter: BrowserAdapter {
     }
 
     public func activate(record: TabRecord, runner: AppleScriptRunner) async throws {
-        let script = """
-        tell application "Safari"
-          set index of window \(record.windowIndex) to 1
-          tell window \(record.windowIndex) to set current tab to tab \(record.tabIndex)
-          activate
-        end tell
-        """
-        _ = try await runner.run(script)
+        _ = try await runner.run(BrowserTabActivationScripts.safari(record: record))
     }
 }

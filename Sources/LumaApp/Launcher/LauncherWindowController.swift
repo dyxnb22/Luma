@@ -105,7 +105,15 @@ final class LauncherWindowController {
         }
     }
 
+    private func clearMenuTarget() {
+        LauncherMenuTarget.clear()
+        Task {
+            await MenuBarTreeService.shared.setLauncherContextBundleID(nil)
+        }
+    }
+
     private func finishHide() {
+        clearMenuTarget()
         rootView?.saveCurrentSession()
         rootView?.resetOpenAppsExpansion()
         rootView?.stopPermissionPolling()
@@ -128,6 +136,7 @@ final class LauncherWindowController {
     func hideImmediatelyForAction() {
         Task { @MainActor in
             await self.rootView?.prepareDetailForHide()
+            self.clearMenuTarget()
             self.rootView?.resetForActionDismiss()
             self.rootView?.resetOpenAppsExpansion()
             self.rootView?.stopPermissionPolling()

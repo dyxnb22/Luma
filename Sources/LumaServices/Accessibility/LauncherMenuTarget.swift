@@ -16,4 +16,8 @@ public enum LauncherMenuTarget {
         defer { lock.unlock() }
         return bundleID
     }
+
+    public static func clear() {
+        set(bundleID: nil)
+    }
 }

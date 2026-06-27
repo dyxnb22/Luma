@@ -6,7 +6,7 @@ public actor MediaModule: LumaModule {
         identifier: .media,
         displayName: "Records",
         capabilities: [.queryable, .providesActions],
-        defaultEnabled: true,
+        defaultEnabled: false,
         priority: 3,
         queryTimeout: .milliseconds(30)
     )

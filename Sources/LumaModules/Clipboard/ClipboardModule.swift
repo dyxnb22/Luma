@@ -135,6 +135,10 @@ public actor ClipboardModule: LumaModule {
         switch decoded {
         case .copyEntry(let id):
             try await copyEntry(id: id, pasteboard: context.platform.pasteboard, plainTextOnly: false)
+        case .pasteEntry(let id):
+            try await pasteEntry(id: id)
+        case .togglePin(let id):
+            await togglePin(id)
         }
     }
 
@@ -286,7 +290,26 @@ public actor ClipboardModule: LumaModule {
 
     private func result(for entry: ClipboardEntry) -> ResultItem {
         let id = ResultID(module: Self.manifest.identifier, key: entry.id.uuidString)
-        let payload = (try? ModuleActionCoding.encode(ClipboardAction.copyEntry(id: entry.id))) ?? Data()
+        let copyPayload = (try? ModuleActionCoding.encode(ClipboardAction.copyEntry(id: entry.id))) ?? Data()
+        let pastePayload = (try? ModuleActionCoding.encode(ClipboardAction.pasteEntry(id: entry.id))) ?? Data()
+        let pinPayload = (try? ModuleActionCoding.encode(ClipboardAction.togglePin(id: entry.id))) ?? Data()
+        let secondary: [Action] = [
+            Action(
+                id: ActionID(module: Self.manifest.identifier, key: "paste.\(entry.id.uuidString)"),
+                title: "Paste",
+                kind: .custom(payload: pastePayload, handler: Self.manifest.identifier)
+            ),
+            Action(
+                id: ActionID(module: Self.manifest.identifier, key: "pin.\(entry.id.uuidString)"),
+                title: entry.isPinned ? "Unpin" : "Pin",
+                kind: .custom(payload: pinPayload, handler: Self.manifest.identifier)
+            ),
+            Action(
+                id: ActionID(module: Self.manifest.identifier, key: "open-detail"),
+                title: "Open Clipboard",
+                kind: .openModuleDetail(Self.manifest.identifier, payload: nil)
+            )
+        ]
         return ResultItem(
             id: id,
             title: entry.metadataLine,
@@ -296,8 +319,9 @@ public actor ClipboardModule: LumaModule {
             primaryAction: Action(
                 id: ActionID(module: Self.manifest.identifier, key: "copy.\(entry.id.uuidString)"),
                 title: "Copy",
-                kind: .custom(payload: payload, handler: Self.manifest.identifier)
+                kind: .custom(payload: copyPayload, handler: Self.manifest.identifier)
             ),
+            secondaryActions: secondary,
             rankingHints: RankingHints(basePriority: Self.manifest.priority),
             displayDensity: .regular
         )

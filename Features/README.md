@@ -8,6 +8,8 @@ This folder is the maintenance index for Luma's feature modules. Each feature ow
 
 **Modules (registered at launch):** Apps, Clipboard, Commands, Notes, Todo, Translate, Wordbook, Snippets, Secrets, Media, Window Layouts, Projects, Quicklinks, Menu Bar Search, Kill Process, Browser Tabs.
 
+**Default off:** Commands, Media, Browser Tabs.
+
 **Deferred:** Windows (source retained, not in `BuiltInModules.makeAll()`).
 
 See `docs/adr/023-command-first-unified-list.md` and `docs/ARCHITECTURE.md` for the current product surface.

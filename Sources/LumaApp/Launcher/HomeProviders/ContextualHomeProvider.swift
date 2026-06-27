@@ -5,10 +5,16 @@ import LumaModules
 import LumaServices
 
 struct ContextualHomeProvider: LauncherHomeProvider {
+    private let notesModule: NotesModule?
     private let todoModule: TodoModule?
     private let mediaModule: MediaModule?
 
-    init(todoModule: TodoModule? = nil, mediaModule: MediaModule? = nil) {
+    init(
+        notesModule: NotesModule? = nil,
+        todoModule: TodoModule? = nil,
+        mediaModule: MediaModule? = nil
+    ) {
+        self.notesModule = notesModule
         self.todoModule = todoModule
         self.mediaModule = mediaModule
     }
@@ -28,23 +34,38 @@ struct ContextualHomeProvider: LauncherHomeProvider {
         }
 
         if suggestions.count < 4,
+           let dailyRow = await continueDailyNoteRow() {
+            suggestions.append(dailyRow)
+        }
+
+        if suggestions.count < 4,
+           let todoRow = await topTodoRow() {
+            suggestions.append(todoRow)
+        }
+
+        if suggestions.count < 4,
            let transformRow = await clipboardTransformRow() {
             suggestions.append(transformRow)
         }
 
         if suggestions.count < 4,
-           let clipRow = await clipboardRow() {
-            suggestions.append(clipRow)
+           let noteRow = await saveClipboardToNoteRow() {
+            suggestions.append(noteRow)
+        }
+
+        if suggestions.count < 4,
+           let snippetRow = await saveClipboardAsSnippetRow() {
+            suggestions.append(snippetRow)
+        }
+
+        if suggestions.count < 4,
+           let quicklinkRow = await saveURLAsQuicklinkRow() {
+            suggestions.append(quicklinkRow)
         }
 
         if suggestions.count < 4,
            let recordsRow = await continueRecordsRow() {
             suggestions.append(recordsRow)
-        }
-
-        if suggestions.count < 4,
-           let todoRow = await todayTodosRow() {
-            suggestions.append(todoRow)
         }
 
         return Array(suggestions.prefix(4))
@@ -68,7 +89,55 @@ struct ContextualHomeProvider: LauncherHomeProvider {
                 title: "Current Project",
                 kind: .openModuleDetail(.projects, payload: payload)
             ),
-            rankingHints: RankingHints(basePriority: 85),
+            rankingHints: RankingHints(basePriority: 88),
+            rowKind: .starter
+        )
+    }
+
+    private func continueDailyNoteRow() async -> ResultItem? {
+        guard let notesModule,
+              let path = await notesModule.dailyNotePath() else { return nil }
+        let name = URL(fileURLWithPath: path).deletingPathExtension().lastPathComponent
+        let payload = (try? ModuleActionCoding.encode(NotesAction.open(path: path))) ?? Data()
+        return ResultItem(
+            id: ResultID(module: .notes, key: "contextual.daily"),
+            title: "Continue daily note",
+            titleAttributed: AttributedString("Continue daily note"),
+            subtitle: name,
+            icon: .symbol("calendar"),
+            primaryAction: Action(
+                id: ActionID(module: .notes, key: "contextual.daily"),
+                title: "Open Daily Note",
+                kind: .custom(payload: payload, handler: .notes)
+            ),
+            rankingHints: RankingHints(basePriority: 87),
+            rowKind: .starter
+        )
+    }
+
+    private func topTodoRow() async -> ResultItem? {
+        guard let todoModule else { return nil }
+        guard let reminder = try? await todoModule.firstTodayDueReminder() else { return nil }
+        let payload = (try? ModuleActionCoding.encode(TodoAction.complete(id: reminder.id))) ?? Data()
+        return ResultItem(
+            id: ResultID(module: .todo, key: "contextual.complete.\(reminder.id)"),
+            title: reminder.title,
+            titleAttributed: AttributedString(reminder.title),
+            subtitle: "Mark complete · due today",
+            icon: .symbol("checkmark.circle"),
+            primaryAction: Action(
+                id: ActionID(module: .todo, key: "contextual.complete"),
+                title: "Mark Complete",
+                kind: .custom(payload: payload, handler: .todo)
+            ),
+            secondaryActions: [
+                Action(
+                    id: ActionID(module: .todo, key: "contextual.open"),
+                    title: "Open Todo",
+                    kind: .openModuleDetail(.todo, payload: nil)
+                )
+            ],
+            rankingHints: RankingHints(basePriority: 86),
             rowKind: .starter
         )
     }
@@ -108,7 +177,93 @@ struct ContextualHomeProvider: LauncherHomeProvider {
                 title: title,
                 kind: .copyToPasteboard(output)
             ),
+            rankingHints: RankingHints(basePriority: 84),
+            rowKind: .starter
+        )
+    }
+
+    private func saveClipboardToNoteRow() async -> ResultItem? {
+        guard let preview = await ClipboardPasteboardCache.shared.snapshot(),
+              !preview.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              URLTextParser.firstHTTPURL(in: preview) == nil else { return nil }
+        let text = preview.trimmingCharacters(in: .whitespacesAndNewlines)
+        let payload = (try? ModuleActionCoding.encode(NotesAction.captureToDaily(text: text))) ?? Data()
+        return ResultItem(
+            id: ResultID(module: .notes, key: "contextual.clip-note"),
+            title: "Append clipboard to daily note",
+            titleAttributed: AttributedString("Append clipboard to daily note"),
+            subtitle: String(text.prefix(48)),
+            icon: .symbol("square.and.pencil"),
+            primaryAction: Action(
+                id: ActionID(module: .notes, key: "contextual.clip-note"),
+                title: "Capture to Note",
+                kind: .custom(payload: payload, handler: .notes)
+            ),
+            rankingHints: RankingHints(basePriority: 83),
+            rowKind: .starter
+        )
+    }
+
+    private func saveClipboardAsSnippetRow() async -> ResultItem? {
+        guard let preview = await ClipboardPasteboardCache.shared.snapshot(),
+              !preview.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              preview.count >= 8,
+              URLTextParser.firstHTTPURL(in: preview) == nil else { return nil }
+        let firstLine = preview
+            .split(separator: "\n", maxSplits: 1, omittingEmptySubsequences: true)
+            .first
+            .map(String.init)?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let snippetTitle = firstLine.isEmpty ? "Clipboard clip" : String(firstLine.prefix(40))
+        let payload = (try? ModuleActionCoding.encode(
+            SnippetsAction.prepareDraft(
+                SnippetDraft(
+                    title: snippetTitle,
+                    content: preview,
+                    tags: ["clipboard"]
+                )
+            )
+        )) ?? Data()
+        return ResultItem(
+            id: ResultID(module: .snippets, key: "contextual.clip-snippet"),
+            title: "Save clipboard as snippet",
+            titleAttributed: AttributedString("Save clipboard as snippet"),
+            subtitle: String(preview.prefix(48)),
+            icon: .symbol("text.badge.plus"),
+            primaryAction: Action(
+                id: ActionID(module: .snippets, key: "contextual.clip-snippet"),
+                title: "Create Snippet",
+                kind: .openModuleDetail(.snippets, payload: payload)
+            ),
             rankingHints: RankingHints(basePriority: 82),
+            rowKind: .starter
+        )
+    }
+
+    private func saveURLAsQuicklinkRow() async -> ResultItem? {
+        guard let preview = await ClipboardPasteboardCache.shared.snapshot(),
+              let url = URLTextParser.firstHTTPURL(in: preview) else { return nil }
+        let draft = URLQuicklinkDraft.from(url: url)
+        let payload = (try? ModuleActionCoding.encode(QuicklinksAction.prepareDraft(draft))) ?? Data()
+        return ResultItem(
+            id: ResultID(module: .quicklinks, key: "contextual.url-quicklink"),
+            title: "Save URL as Quicklink",
+            titleAttributed: AttributedString("Save URL as Quicklink"),
+            subtitle: url.host ?? url.absoluteString,
+            icon: .symbol("link.badge.plus"),
+            primaryAction: Action(
+                id: ActionID(module: .quicklinks, key: "contextual.url-quicklink"),
+                title: "Add Quicklink",
+                kind: .openModuleDetail(.quicklinks, payload: payload)
+            ),
+            secondaryActions: [
+                Action(
+                    id: ActionID(module: .quicklinks, key: "contextual.copy-url"),
+                    title: "Copy URL",
+                    kind: .copyToPasteboard(url.absoluteString)
+                )
+            ],
+            rankingHints: RankingHints(basePriority: 81),
             rowKind: .starter
         )
     }
@@ -131,25 +286,6 @@ struct ContextualHomeProvider: LauncherHomeProvider {
         )
     }
 
-    private func clipboardRow() async -> ResultItem? {
-        guard let preview = await ClipboardPasteboardCache.shared.snapshot(),
-              !preview.isEmpty else { return nil }
-        return ResultItem(
-            id: ResultID(module: .clipboard, key: "contextual.clipboard"),
-            title: "Open last clipboard item",
-            titleAttributed: AttributedString("Open last clipboard item"),
-            subtitle: preview,
-            icon: .symbol("doc.on.clipboard"),
-            primaryAction: Action(
-                id: ActionID(module: .clipboard, key: "contextual.open"),
-                title: "Open Clipboard",
-                kind: .openModuleDetail(.clipboard, payload: nil)
-            ),
-            rankingHints: RankingHints(basePriority: 80),
-            rowKind: .starter
-        )
-    }
-
     private func continueRecordsRow() async -> ResultItem? {
         guard let mediaModule else { return nil }
         let count = await mediaModule.inProgressCount()
@@ -167,31 +303,6 @@ struct ContextualHomeProvider: LauncherHomeProvider {
                 kind: .openModuleDetail(.media, payload: nil)
             ),
             rankingHints: RankingHints(basePriority: 75),
-            rowKind: .starter
-        )
-    }
-
-    private func todayTodosRow() async -> ResultItem? {
-        guard let todoModule else { return nil }
-        let count: Int
-        do {
-            count = try await todoModule.todayDueCount()
-        } catch {
-            return nil
-        }
-        guard count > 0 else { return nil }
-        return ResultItem(
-            id: ResultID(module: .todo, key: "contextual.today"),
-            title: "Open today's todos",
-            titleAttributed: AttributedString("Open today's todos"),
-            subtitle: "\(count) due today",
-            icon: .symbol("checkmark.circle"),
-            primaryAction: Action(
-                id: ActionID(module: .todo, key: "contextual.open"),
-                title: "Open Todo",
-                kind: .openModuleDetail(.todo, payload: nil)
-            ),
-            rankingHints: RankingHints(basePriority: 70),
             rowKind: .starter
         )
     }

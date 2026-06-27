@@ -89,13 +89,18 @@ final class AppCoordinator {
     private let appActivationTracker = AppActivationTracker.defaultTracker()
     private lazy var openAppsProvider = OpenAppsHomeProvider(appActivationTracker: appActivationTracker)
     private lazy var clipboardModule = ClipboardModule(pasteboard: pasteboard, accessibility: accessibility)
+    private lazy var notesModule = NotesModule()
     private lazy var todoModule = TodoModule()
     private let secretsModule = SecretsModule()
     private let mediaModule = MediaModule()
     private let quicklinksModule = QuicklinksModule()
     private lazy var homeCoordinator = LauncherHomeCoordinator(
         openApps: openAppsProvider,
-        contextual: ContextualHomeProvider(todoModule: todoModule, mediaModule: mediaModule)
+        contextual: ContextualHomeProvider(
+            notesModule: notesModule,
+            todoModule: todoModule,
+            mediaModule: mediaModule
+        )
     )
     private var activationObserver: NSObjectProtocol?
     private var terminationObserver: NSObjectProtocol?
@@ -188,8 +193,6 @@ final class AppCoordinator {
             }
             menuBarController?.markHotkeyFailed()
         }
-
-        let notesModule = NotesModule()
 
         // One-way migration of the wordbot SQLite into Luma's Application Support (ADR-009).
         // Idempotent: re-running the app never overwrites the Luma copy.

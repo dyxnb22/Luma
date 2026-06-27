@@ -36,16 +36,20 @@ flowchart TD
 | --- | --- | --- | --- |
 | Apps | yes | root search | Open Apps home section |
 | Clipboard | yes | `clip` / `clip <query>` | |
-| Commands | no | built-in commands | |
-| Notes | yes | `note` / `note <query>` | warmup index |
+| Commands | no | built-in commands | Default off; enable in Settings → Modules |
+| Notes | yes | `n` / `note` / `notes` | warmup index |
 | Todo | yes | `t` / `t <task>` / `todo` | |
 | Translate | yes | `tr <text>` / `translate <text>` | |
 | Wordbook | yes | `word` / `word <query>` | |
 | Snippets | yes | `s` / `snip` | requires Accessibility for paste |
-| Secrets | yes | `secret` / `secrets` | |
-| Records (`luma.media`) | yes | `m` / `media` | detail title and manifest display use "Records" |
+| Secrets | yes | `sec` / `secret` / `secrets` | |
+| Records (`luma.media`) | no | `rec` / `record` / `log` / `m` / `media` | Default off; enable in Settings → Modules |
 | Window Layouts | yes | `layout` / `win` / `wl` | requires Accessibility; command-only |
 | Projects | yes | `proj` / `p` / `project` | config + warmup index; no per-query disk scan |
+| Quicklinks | yes | exact triggers + `ql` | |
+| Menu Bar Search | yes | `mb` / `menu` | requires Accessibility |
+| Kill Process | yes | `kill` / `quit` / `k` | |
+| Browser Tabs | no | `tab` / `tabs` | Default off; requires Automation per browser |
 
 `FeatureCatalog.moduleDetailMetadata()` supplies detail-header chrome only under Route C; it is not the home-screen entry model.
 

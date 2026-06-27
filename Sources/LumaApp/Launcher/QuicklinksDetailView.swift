@@ -17,6 +17,7 @@ final class QuicklinksDetailView: NSObject, ModuleDetailView {
     private let previewLabel = NSTextField(labelWithString: "")
     private var quicklinks: [Quicklink] = []
     private var refreshTask: Task<Void, Never>?
+    private var pendingDraft: URLQuicklinkDraft?
 
     init(module: QuicklinksModule) {
         self.module = module
@@ -27,6 +28,10 @@ final class QuicklinksDetailView: NSObject, ModuleDetailView {
     }
 
     func activate() {
+        if let draft = LauncherSharedState.pendingQuicklinkDraft {
+            LauncherSharedState.pendingQuicklinkDraft = nil
+            pendingDraft = draft
+        }
         refresh()
     }
 
@@ -108,12 +113,18 @@ final class QuicklinksDetailView: NSObject, ModuleDetailView {
             await MainActor.run {
                 self.quicklinks = loaded
                 self.tableView.reloadData()
-                if let id, let idx = loaded.firstIndex(where: { $0.id == id }) {
+                if let draft = self.pendingDraft {
+                    self.tableView.deselectAll(nil)
+                    self.loadDraftIntoEditor(draft)
+                    self.pendingDraft = nil
+                } else if let id, let idx = loaded.firstIndex(where: { $0.id == id }) {
                     self.tableView.selectRowIndexes(IndexSet(integer: idx), byExtendingSelection: false)
                 } else if !loaded.isEmpty, self.tableView.selectedRow < 0 {
                     self.tableView.selectRowIndexes(IndexSet(integer: 0), byExtendingSelection: false)
                 }
-                self.loadSelectedIntoEditor()
+                if self.tableView.selectedRow >= 0 {
+                    self.loadSelectedIntoEditor()
+                }
             }
         }
     }
@@ -138,16 +149,26 @@ final class QuicklinksDetailView: NSObject, ModuleDetailView {
 
     @objc private func saveSelected() {
         let row = tableView.selectedRow
-        guard quicklinks.indices.contains(row) else { return }
-        var quicklink = quicklinks[row]
-        quicklink.trigger = triggerField.stringValue
-        quicklink.name = nameField.stringValue
-        quicklink.urlTemplate = urlField.stringValue
-        quicklink.openWith = openWithField.stringValue.isEmpty ? nil : openWithField.stringValue
         Task { [weak self] in
             guard let self else { return }
-            let saved = try? await self.module.update(quicklink)
-            await MainActor.run { self.refresh(select: saved?.id ?? quicklink.id) }
+            let trigger = self.triggerField.stringValue
+            let name = self.nameField.stringValue
+            let urlTemplate = self.urlField.stringValue
+            let openWith = self.openWithField.stringValue.isEmpty ? nil : self.openWithField.stringValue
+            if self.quicklinks.indices.contains(row) {
+                var quicklink = self.quicklinks[row]
+                quicklink.trigger = trigger
+                quicklink.name = name
+                quicklink.urlTemplate = urlTemplate
+                quicklink.openWith = openWith
+                let saved = try? await self.module.update(quicklink)
+                await MainActor.run { self.refresh(select: saved?.id ?? quicklink.id) }
+            } else {
+                let saved = try? await self.module.add(
+                    Quicklink(name: name, trigger: trigger, urlTemplate: urlTemplate, openWith: openWith, icon: "link")
+                )
+                await MainActor.run { self.refresh(select: saved?.id) }
+            }
         }
     }
 
@@ -171,6 +192,14 @@ final class QuicklinksDetailView: NSObject, ModuleDetailView {
         nameField.stringValue = quicklink.name
         urlField.stringValue = quicklink.urlTemplate
         openWithField.stringValue = quicklink.openWith ?? ""
+        updatePreview()
+    }
+
+    private func loadDraftIntoEditor(_ draft: URLQuicklinkDraft) {
+        triggerField.stringValue = draft.trigger
+        nameField.stringValue = draft.name
+        urlField.stringValue = draft.urlTemplate
+        openWithField.stringValue = ""
         updatePreview()
     }
 

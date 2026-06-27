@@ -220,6 +220,10 @@ public actor TodoModule: LumaModule {
         return snapshot
     }
 
+    public func firstTodayDueReminder() async throws -> ReminderSnapshot? {
+        try await cachedTodayDue().first
+    }
+
     // MARK: - Due cache
 
     private func cachedTodayDue() async throws -> [ReminderSnapshot] {

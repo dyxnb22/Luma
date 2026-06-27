@@ -9,7 +9,11 @@ final class SnippetEditorSheet: NSWindow {
     private let tagsField = NSTextField()
     private let bodyTextView = NSTextView()
 
-    init(snippet: Snippet?, onSave: @escaping (String, String, String, [String]) -> Void) {
+    init(
+        snippet: Snippet?,
+        draft: SnippetDraft? = nil,
+        onSave: @escaping (String, String, String, [String]) -> Void
+    ) {
         self.onSave = onSave
         super.init(
             contentRect: NSRect(x: 0, y: 0, width: 480, height: 400),
@@ -18,25 +22,25 @@ final class SnippetEditorSheet: NSWindow {
             defer: false
         )
         title = snippet == nil ? "Add Snippet" : "Edit Snippet"
-        setup(snippet: snippet)
+        setup(snippet: snippet, draft: draft)
     }
 
-    private func setup(snippet: Snippet?) {
+    private func setup(snippet: Snippet?, draft: SnippetDraft?) {
         let container = NSView(frame: NSRect(x: 0, y: 0, width: 480, height: 400))
 
-        titleField.stringValue = snippet?.title ?? ""
+        titleField.stringValue = snippet?.title ?? draft?.title ?? ""
         titleField.placeholderString = "Title"
         titleField.translatesAutoresizingMaskIntoConstraints = false
 
-        triggerField.stringValue = snippet?.trigger ?? ""
+        triggerField.stringValue = snippet?.trigger ?? draft?.trigger ?? ""
         triggerField.placeholderString = "Trigger (e.g. ;addr)"
         triggerField.translatesAutoresizingMaskIntoConstraints = false
 
-        tagsField.stringValue = snippet?.tags.joined(separator: ", ") ?? ""
+        tagsField.stringValue = snippet?.tags.joined(separator: ", ") ?? draft?.tags.joined(separator: ", ") ?? ""
         tagsField.placeholderString = "Tags (comma-separated)"
         tagsField.translatesAutoresizingMaskIntoConstraints = false
 
-        bodyTextView.string = snippet?.content ?? ""
+        bodyTextView.string = snippet?.content ?? draft?.content ?? ""
         bodyTextView.isRichText = false
         bodyTextView.font = .monospacedSystemFont(ofSize: 12, weight: .regular)
         bodyTextView.translatesAutoresizingMaskIntoConstraints = false

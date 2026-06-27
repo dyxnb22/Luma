@@ -64,8 +64,26 @@ public actor BrowserTabsModule: LumaModule {
                 title: "Activate Tab",
                 kind: .custom(payload: payload, handler: Self.manifest.identifier)
             ),
+            secondaryActions: [
+                Action(
+                    id: ActionID(module: Self.manifest.identifier, key: "copy.\(record.url)"),
+                    title: "Copy URL",
+                    kind: .copyToPasteboard(record.url)
+                ),
+                Action(
+                    id: ActionID(module: Self.manifest.identifier, key: "quicklink.\(record.url)"),
+                    title: "Save as Quicklink",
+                    kind: .openModuleDetail(.quicklinks, payload: quicklinkPayload(for: record.url))
+                )
+            ],
             rankingHints: RankingHints(basePriority: Self.manifest.priority)
         )
+    }
+
+    private func quicklinkPayload(for urlString: String) -> Data? {
+        guard let url = URL(string: urlString) else { return nil }
+        let draft = URLQuicklinkDraft.from(url: url)
+        return try? ModuleActionCoding.encode(QuicklinksAction.prepareDraft(draft))
     }
 
     public static func extractPayload(raw: String) -> String? {

@@ -31,6 +31,12 @@ final class SnippetsDetailView: NSObject, ModuleDetailView {
     func activate() {
         detailReloadRouter.register(.snippets) { [weak self] in self?.refresh() }
         refresh()
+        if let draft = LauncherSharedState.pendingSnippetDraft {
+            LauncherSharedState.pendingSnippetDraft = nil
+            DispatchQueue.main.async { [weak self] in
+                self?.presentEditor(snippet: nil, draft: draft)
+            }
+        }
         DispatchQueue.main.async { [weak self] in
             self?.tableView.window?.makeFirstResponder(self?.tableView)
         }
@@ -157,7 +163,7 @@ final class SnippetsDetailView: NSObject, ModuleDetailView {
     }
 
     @objc private func addSnippet() {
-        presentEditor(snippet: nil)
+        presentEditor(snippet: nil, draft: nil)
     }
 
     @objc private func useSelected() {
@@ -192,7 +198,7 @@ final class SnippetsDetailView: NSObject, ModuleDetailView {
     @objc private func editSelected() {
         let row = tableView.selectedRow
         guard snippets.indices.contains(row) else { return }
-        presentEditor(snippet: snippets[row])
+        presentEditor(snippet: snippets[row], draft: nil)
     }
 
     @objc private func deleteSelected() {
@@ -224,8 +230,8 @@ final class SnippetsDetailView: NSObject, ModuleDetailView {
         }
     }
 
-    private func presentEditor(snippet: Snippet?) {
-        let sheet = SnippetEditorSheet(snippet: snippet) { [weak self] title, trigger, content, tags in
+    private func presentEditor(snippet: Snippet?, draft: SnippetDraft?) {
+        let sheet = SnippetEditorSheet(snippet: snippet, draft: draft) { [weak self] title, trigger, content, tags in
             guard let self else { return }
             Task {
                 if var existing = snippet {

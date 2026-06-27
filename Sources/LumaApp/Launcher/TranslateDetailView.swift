@@ -34,6 +34,7 @@ final class TranslateDetailView: ModuleDetailView {
     private let clearButton = NSButton()
     private let pasteButton = NSButton()
     private let copySourceButton = NSButton()
+    private let appendToNoteButton = NSButton()
 
     private var sourceLanguageCode: String? = nil
     private var pendingTask: Task<Void, Never>?
@@ -101,6 +102,7 @@ final class TranslateDetailView: ModuleDetailView {
         outputTextView.string = outputText
         inputTextView.refreshPlaceholder()
         copyResultButton.isEnabled = !outputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        appendToNoteButton.isEnabled = !outputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         updateTranslateButtonState()
         setState(outputText.isEmpty ? .idle : .success)
         notifyContentChanged()
@@ -175,6 +177,7 @@ final class TranslateDetailView: ModuleDetailView {
         container.addSubview(clearButton)
         container.addSubview(pasteButton)
         container.addSubview(copySourceButton)
+        container.addSubview(appendToNoteButton)
 
         NSLayoutConstraint.activate([
             toolbar.topAnchor.constraint(equalTo: container.topAnchor, constant: LauncherChromeTokens.detailSectionGap),
@@ -211,7 +214,10 @@ final class TranslateDetailView: ModuleDetailView {
             pasteButton.leadingAnchor.constraint(equalTo: clearButton.trailingAnchor, constant: 8),
 
             copySourceButton.centerYAnchor.constraint(equalTo: copyResultButton.centerYAnchor),
-            copySourceButton.leadingAnchor.constraint(equalTo: pasteButton.trailingAnchor, constant: 8)
+            copySourceButton.leadingAnchor.constraint(equalTo: pasteButton.trailingAnchor, constant: 8),
+
+            appendToNoteButton.centerYAnchor.constraint(equalTo: copyResultButton.centerYAnchor),
+            appendToNoteButton.leadingAnchor.constraint(equalTo: copySourceButton.trailingAnchor, constant: 8)
         ])
 
         inputTextView.onCommandReturn = { [weak self] in self?.performTranslation() }
@@ -370,6 +376,13 @@ final class TranslateDetailView: ModuleDetailView {
         copySourceButton.target = self
         copySourceButton.action = #selector(copySource)
         copySourceButton.translatesAutoresizingMaskIntoConstraints = false
+
+        appendToNoteButton.title = "Append to Note"
+        GeekUIKit.styleSecondaryButton(appendToNoteButton)
+        appendToNoteButton.target = self
+        appendToNoteButton.action = #selector(appendToDailyNote)
+        appendToNoteButton.isEnabled = false
+        appendToNoteButton.translatesAutoresizingMaskIntoConstraints = false
     }
 
     @objc private func translateTapped() {
@@ -439,6 +452,8 @@ final class TranslateDetailView: ModuleDetailView {
         outputTextView.string = ""
         inputTextView.refreshPlaceholder()
         updateTranslateButtonState()
+        copyResultButton.isEnabled = false
+        appendToNoteButton.isEnabled = false
         sourceLanguageCode = nil
         sourceLabel.stringValue = "auto"
         swapButton.isEnabled = false
@@ -457,6 +472,23 @@ final class TranslateDetailView: ModuleDetailView {
         performTranslation()
     }
 
+    @objc private func appendToDailyNote() {
+        let source = inputTextView.string.trimmingCharacters(in: .whitespacesAndNewlines)
+        let output = outputTextView.string.trimmingCharacters(in: .whitespacesAndNewlines)
+        let line: String
+        if !output.isEmpty, !source.isEmpty {
+            line = "\(source) → \(output)"
+        } else if !output.isEmpty {
+            line = output
+        } else {
+            line = source
+        }
+        guard !line.isEmpty else { return }
+        Task {
+            _ = await NotesCaptureHelper.appendToDailyNote(line)
+        }
+    }
+
     @objc private func copySource() {
         let text = inputTextView.string.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
@@ -467,6 +499,8 @@ final class TranslateDetailView: ModuleDetailView {
     private func performTranslation() {
         let text = inputTextView.string.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else {
+            copyResultButton.isEnabled = false
+            appendToNoteButton.isEnabled = false
             setState(.idle)
             return
         }
@@ -490,6 +524,7 @@ final class TranslateDetailView: ModuleDetailView {
                     self.hideErrorBanner()
                     self.setState(.success)
                     self.copyResultButton.isEnabled = true
+                    self.appendToNoteButton.isEnabled = true
                     self.updateTranslateButtonState()
                     self.notifyContentChanged()
                 }
@@ -501,6 +536,7 @@ final class TranslateDetailView: ModuleDetailView {
                     self.showErrorBanner(Self.userFacingError(error))
                     self.setState(.error(Self.userFacingError(error)))
                     self.copyResultButton.isEnabled = false
+                    self.appendToNoteButton.isEnabled = false
                     self.updateTranslateButtonState()
                     self.notifyContentChanged()
                 }

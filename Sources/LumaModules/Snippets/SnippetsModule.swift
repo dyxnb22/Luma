@@ -79,6 +79,8 @@ public actor SnippetsModule: LumaModule {
             }
         case .create:
             break
+        case .prepareDraft:
+            break
         }
     }
 

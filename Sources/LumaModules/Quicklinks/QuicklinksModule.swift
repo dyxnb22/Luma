@@ -55,6 +55,8 @@ public actor QuicklinksModule: LumaModule {
             await context.platform.pasteboard.write(url)
         case .revealConfig:
             await context.platform.workspace.revealInFinder(await store.configFileURL())
+        case .prepareDraft:
+            break
         }
     }
 

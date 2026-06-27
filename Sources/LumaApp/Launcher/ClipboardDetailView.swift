@@ -335,6 +335,14 @@ final class ClipboardDetailView: NSObject, ModuleDetailView {
         }
     }
 
+    private func saveAsNote(_ entry: ClipboardEntry) {
+        let text = entry.plainTextForCopy.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return }
+        Task {
+            _ = await NotesCaptureHelper.appendToDailyNote(text)
+        }
+    }
+
     private func pinnedSectionLabelRow(for row: Int) -> Bool { false }
 }
 
@@ -366,7 +374,8 @@ extension ClipboardDetailView: NSTableViewDataSource, NSTableViewDelegate {
                 },
                 onPin: { [weak self] in self?.togglePin(at: entryRow) },
                 onDelete: { [weak self] in self?.deleteEntry(at: entryRow) },
-                onSaveAsSnippet: { [weak self] in self?.saveAsSnippet(entry) }
+                onSaveAsSnippet: { [weak self] in self?.saveAsSnippet(entry) },
+                onSaveAsNote: entry.imageData == nil ? { [weak self] in self?.saveAsNote(entry) } : nil
             )
             return cell
         }
@@ -433,10 +442,12 @@ private final class ClipboardRowCell: NSTableCellView {
     private let actionsStack = NSStackView()
     private let copyButton = NSButton()
     private let snippetButton = NSButton()
+    private let noteButton = NSButton()
     private let pinButton = NSButton()
     private let deleteButton = NSButton()
     private var onCopy: (() -> Void)?
     private var onSaveAsSnippet: (() -> Void)?
+    private var onSaveAsNote: (() -> Void)?
     private var onPin: (() -> Void)?
     private var onDelete: (() -> Void)?
     private var metaLeadingToPreview: NSLayoutConstraint!
@@ -461,12 +472,15 @@ private final class ClipboardRowCell: NSTableCellView {
         onCopy: @escaping () -> Void,
         onPin: @escaping () -> Void,
         onDelete: @escaping () -> Void,
-        onSaveAsSnippet: @escaping () -> Void
+        onSaveAsSnippet: @escaping () -> Void,
+        onSaveAsNote: (() -> Void)? = nil
     ) {
         self.onCopy = onCopy
         self.onPin = onPin
         self.onDelete = onDelete
         self.onSaveAsSnippet = onSaveAsSnippet
+        self.onSaveAsNote = onSaveAsNote
+        noteButton.isHidden = onSaveAsNote == nil
 
         sectionLabel.isHidden = !showsPinnedSection
         let useThumbnail = imageLayout && entry.imageData != nil
@@ -525,18 +539,21 @@ private final class ClipboardRowCell: NSTableCellView {
         metaLabel.textColor = .secondaryLabelColor
         metaLabel.translatesAutoresizingMaskIntoConstraints = false
 
-        for button in [copyButton, snippetButton, pinButton, deleteButton] {
+        for button in [copyButton, snippetButton, noteButton, pinButton, deleteButton] {
             button.bezelStyle = .regularSquare
             button.isBordered = false
             button.alphaValue = 0.85
         }
         copyButton.image = NSImage(systemSymbolName: "doc.on.doc", accessibilityDescription: "Copy")
         snippetButton.image = NSImage(systemSymbolName: "text.badge.plus", accessibilityDescription: "Save as Snippet")
+        noteButton.image = NSImage(systemSymbolName: "square.and.pencil", accessibilityDescription: "Save to Note")
         deleteButton.image = NSImage(systemSymbolName: "trash", accessibilityDescription: "Delete")
         copyButton.target = self
         copyButton.action = #selector(copyTapped)
         snippetButton.target = self
         snippetButton.action = #selector(snippetTapped)
+        noteButton.target = self
+        noteButton.action = #selector(noteTapped)
         pinButton.target = self
         pinButton.action = #selector(pinTapped)
         deleteButton.target = self
@@ -546,6 +563,7 @@ private final class ClipboardRowCell: NSTableCellView {
         actionsStack.spacing = 4
         actionsStack.translatesAutoresizingMaskIntoConstraints = false
         actionsStack.addArrangedSubview(copyButton)
+        actionsStack.addArrangedSubview(noteButton)
         actionsStack.addArrangedSubview(snippetButton)
         actionsStack.addArrangedSubview(pinButton)
         actionsStack.addArrangedSubview(deleteButton)
@@ -592,6 +610,7 @@ private final class ClipboardRowCell: NSTableCellView {
 
     @objc private func copyTapped() { onCopy?() }
     @objc private func snippetTapped() { onSaveAsSnippet?() }
+    @objc private func noteTapped() { onSaveAsNote?() }
     @objc private func pinTapped() { onPin?() }
     @objc private func deleteTapped() { onDelete?() }
 

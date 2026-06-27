@@ -200,6 +200,13 @@ public actor ProjectsModule: LumaModule {
             kind: .custom(payload: copyPayload, handler: Self.manifest.identifier)
         ))
 
+        let notesPayload = (try? ModuleActionCoding.encode(ProjectAction.openNotes(path: record.path, projectName: record.name))) ?? Data()
+        secondary.append(Action(
+            id: ActionID(module: Self.manifest.identifier, key: "notes.\(key)"),
+            title: "Open Notes",
+            kind: .custom(payload: notesPayload, handler: Self.manifest.identifier)
+        ))
+
         let revealConfigPayload = (try? ModuleActionCoding.encode(ProjectAction.revealConfig)) ?? Data()
         secondary.append(Action(
             id: ActionID(module: Self.manifest.identifier, key: "config"),

@@ -242,25 +242,9 @@ final class LauncherRootController {
     func openModuleDetail(for moduleID: ModuleIdentifier, payload: Data? = nil) {
         if moduleID == .snippets, let payload,
            let action = try? ModuleActionCoding.decode(SnippetsAction.self, from: payload),
-           case .create(let title) = action {
-            Task {
-                do {
-                    _ = try await launcherEnvironment.snippetsModule.add(
-                        title: title,
-                        content: "",
-                        tags: [],
-                        trigger: ""
-                    )
-                    await MainActor.run {
-                        self.launcherEnvironment.detailReloadRouter.reload(.snippets)
-                        self.presentModuleDetail(for: moduleID)
-                    }
-                } catch {
-                    await MainActor.run {
-                        self.commandHintBar.showStatus("Could not create snippet")
-                    }
-                }
-            }
+           case .prepareDraft(let draft) = action {
+            LauncherSharedState.pendingSnippetDraft = draft
+            presentModuleDetail(for: moduleID)
             return
         }
         applyModuleDetailPayload(moduleID: moduleID, payload: payload)
@@ -306,6 +290,12 @@ final class LauncherRootController {
             default:
                 break
             }
+            return
+        }
+        if moduleID == .quicklinks,
+           let action = try? ModuleActionCoding.decode(QuicklinksAction.self, from: payload),
+           case .prepareDraft(let draft) = action {
+            LauncherSharedState.pendingQuicklinkDraft = draft
         }
     }
 

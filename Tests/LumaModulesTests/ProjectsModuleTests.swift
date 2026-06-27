@@ -117,6 +117,7 @@ import Testing
     #expect(secondaryTitles.contains("Open in Finder"))
     #expect(secondaryTitles.contains("Open in Terminal"))
     #expect(secondaryTitles.contains("Copy Path"))
+    #expect(secondaryTitles.contains("Open Notes"))
     #expect(secondaryTitles.contains("Reveal Config"))
 }
 

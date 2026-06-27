@@ -158,7 +158,7 @@ import Testing
 }
 
 @Test func mediaModuleDefaultEnabled() {
-    #expect(MediaModule.manifest.defaultEnabled == true)
+    #expect(MediaModule.manifest.defaultEnabled == false)
     #expect(MediaModule.manifest.displayName == "Records")
 }
 

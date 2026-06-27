@@ -8,4 +8,6 @@ public enum LauncherSharedState {
     public static var pendingWordbookAutoStartReview = false
     public static var pendingCurrentProjectContext: CurrentProjectContext?
     public static var pendingProjectsManage = false
+    public static var pendingSnippetDraft: SnippetDraft?
+    public static var pendingQuicklinkDraft: URLQuicklinkDraft?
 }

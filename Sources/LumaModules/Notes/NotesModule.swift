@@ -1,6 +1,12 @@
 import Foundation
 import LumaCore
 
+public enum NotesDailyCaptureOutcome: Sendable {
+    case appended(URL)
+    case rootNotConfigured
+    case failed
+}
+
 public actor NotesModule: LumaModule {
     public static let manifest = ModuleManifest(
         identifier: .notes,
@@ -202,6 +208,23 @@ public actor NotesModule: LumaModule {
         let fileName = NotesActions.dailyFileName(for: Date()) + ".md"
         let path = root.appendingPathComponent(config.dailyFolderName).appendingPathComponent(fileName).path
         return await noteExistsInIndex(path: path) ? path : nil
+    }
+
+    public func captureTextToDailyNote(_ text: String) async -> NotesDailyCaptureOutcome {
+        let config = cachedConfig
+        guard let root = config.root else { return .rootNotConfigured }
+        let actions = NotesActions(index: index)
+        do {
+            let url = try await actions.appendToDailyNote(
+                text: text,
+                root: root,
+                dailyFolderName: config.dailyFolderName
+            )
+            await recordRecent(path: url.path)
+            return .appended(url)
+        } catch {
+            return .failed
+        }
     }
 
     public func reloadFromConfig() async {

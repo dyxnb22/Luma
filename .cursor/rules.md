@@ -1,101 +1,60 @@
 # Cursor Rules for Luma
 
-Cursor should act as a precise implementation assistant for Luma. Do not reinterpret product direction while coding.
+Cursor should be a precise implementation assistant for Luma. Keep edits scoped and aligned with the current product.
 
 ## Read First
 
-Before non-trivial edits, read:
-
-- `docs/adr/023-command-first-unified-list.md` (active UI route)
+- `README.md`
 - `docs/PRD.md`
-- `docs/ENGINEERING_PACKAGE.md`
 - `docs/ARCHITECTURE.md`
-- `docs/specs/PERFORMANCE.md`
+- `docs/ENGINEERING_PACKAGE.md`
 - `docs/specs/MODULE_CONTRACT.md`
+- `docs/specs/PERFORMANCE.md`
+- `docs/MANUAL_QA_CHECKLIST.md`
 
-Historical only — do not implement unless the user revives with a new ADR:
+## Current Focus
 
-- Route A: `docs/strategy/LAUNCHER_CONVERGENCE_STRATEGY.md`, `docs/adr/006-launcher-convergence.md`
-- Route B: `docs/strategy/DASHBOARD_WIDGET_STRATEGY.md`, `docs/adr/007-dashboard-widget-single-window.md`
+- Active route: **Route C** (`docs/adr/023-command-first-unified-list.md`)
+- Luma is already mostly built.
+- Current work should prioritize **wiring together existing features**, fixing rough edges, and improving trust.
 
-## Product Route Guardrail
+## Route Guardrail
 
-Active route: **Route C — Command-First Unified List** (`docs/adr/023-command-first-unified-list.md`).
+- Single command-first panel
+- Empty query: Open Apps + Suggested
+- Non-empty query: flat results
+- Same-panel detail views
+- No dashboard card grid
+- No permanent sidebar
 
-- Single-column list; empty query shows Open Apps / Suggested sections.
-- Search yields flat `QueryDispatcher` results; Return runs primary action.
-- Tab / ⌘K opens Action Panel; module details stay in the same panel.
-- **No dashboard feature-card grid** and **no permanent sidebar** on the home screen.
+## Composer Rules
 
-Do not reintroduce Route B patterns (860 × 540 widget grid, sidebar-first layout, card-jump ⌘N semantics) unless the user explicitly supersedes ADR-023.
+- Use normal mode only.
+- Do not enable Fast mode.
+- Do one scoped task at a time.
+- Do not add adjacent features unless explicitly requested.
+- If a request conflicts with Route C, stop and ask.
 
-## Cursor Composer Rules
+## Product Rules
 
-- Use Composer in normal mode only.
-- Do not enable Fast mode for this project.
-- Execute one phase or one prompt at a time.
-- Follow the named files, constants, dimensions, and acceptance checks exactly.
-- Do not add adjacent features while implementing a prompt.
-- If a prompt conflicts with the active route, stop and ask for a route decision.
+- Default hotkey is Command+Space.
+- AppKit owns the launcher.
+- SwiftUI only for Settings/About.
+- No Electron, Tauri, WebView launcher UI, React shell, plugin marketplace, JS/Lua runtime, custom file index, cloud sync, telemetry, onboarding, or updater work.
 
-## Hard Product Rules
+## Implementation Rules
 
-- Default hotkey is Command+Space. Do not change it.
-- If hotkey registration fails, show a visible menu bar warning. Do not auto-switch hotkeys.
-- Do not convert the launcher to SwiftUI. AppKit owns the launcher panel.
-- SwiftUI is allowed for Settings/About only.
-- No Electron, Tauri, WebView primary UI, React, or frontend build tooling.
-- No public plugin marketplace or JS/Lua runtime in v1.
-- No custom file index. Use system facilities when file search is needed.
-- Do not add cloud sync, telemetry, onboarding, or updater infrastructure.
-
-## Module Conventions
-
-Active built-ins live in `BuiltInModules.makeAll()`. Deferred: Windows.
-
-Recent command-first modules to mirror when adding features:
-
-- **Window Layouts** (`layout` / `win` / `wl`) — prefix-only trigger, in-memory command catalog, Accessibility required.
-- **Projects** (`proj` / `p` / `project`) — `~/Library/Application Support/Luma/projects.json`, warmup index + shallow root scan, no per-keystroke filesystem scan.
-
-`FeatureCatalog.moduleDetailMetadata()` supplies detail-header chrome; it is not the home-screen entry model under Route C.
-
-## Architecture Boundaries
-
-- `LumaCore`: pure models, protocols, ranking, actions. No AppKit.
-- `LumaApp`: AppKit UI, coordinator, launcher window, settings.
-- `LumaModules`: query/action modules behind `LumaModule`.
-- `LumaServices`: system boundaries such as AX, Pasteboard, Translation, FSEvents, Keychain.
-- `LumaInfrastructure`: logging, metrics, config, application support paths.
-
-Do not call AX, Pasteboard, Keychain, NSWorkspace, or filesystem-heavy services directly from random UI code when an existing service boundary exists.
-
-## Performance Rules
-
-- Hotkey -> interactive panel p95 target: <= 50 ms.
-- Keystroke -> first result paint p95 target: <= 30 ms.
-- No disk or network I/O in per-keystroke hot paths.
-- Module `handle` methods must be cancellation-aware and timeout-safe.
-- Selection changes should not rebuild the entire result list.
+- Prefer integration fixes over new modules.
+- Improve permissions, recovery, empty states, cross-module flows, and keyboard-first behavior.
+- Keep heavy work out of the query hot path.
+- Use existing service boundaries.
+- Do not filesystem-scan on each keystroke.
 
 ## Verification
 
-After Swift code changes:
+- `swift build`
+- `swift test` for module, ranking, persistence, and action changes
+- `./scripts/build_app.sh` for runtime or bundle changes
+- `./scripts/qa/run_full_smoke.sh` for meaningful launcher UX changes
 
-```bash
-swift build
-```
-
-After module, ranking, persistence, or action changes:
-
-```bash
-swift test
-```
-
-After bundle/runtime changes:
-
-```bash
-./scripts/build_app.sh
-```
-
-Do not claim completion unless the relevant command passes or you clearly report why it was not run.
+Do not claim completion without honest verification status.

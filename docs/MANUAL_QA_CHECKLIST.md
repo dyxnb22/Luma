@@ -1,5 +1,21 @@
 # Manual QA Checklist
 
+## Recorded Review Setup
+
+- Build the current app with `./scripts/build_app.sh`.
+- If the pass should be deterministic, run `./scripts/qa/prep_smoke_env.sh` first.
+- Confirm whether the session is a scripted smoke pass, a freeform product-review pass, or both.
+- Start the recording before the first launcher invocation so first-run and permission states are captured.
+- Record machine context: macOS version, display count, input method, Accessibility state, Automation state.
+
+## Review Lenses
+
+- **Functional correctness:** feature works end to end and state persists as expected.
+- **Usability:** labels, flows, defaults, and recovery paths are understandable without prior project context.
+- **Keyboard-first quality:** a user can complete the flow confidently without reaching for the mouse.
+- **Visual polish:** spacing, density, hierarchy, alignment, empty states, and feedback feel modern and intentional.
+- **Performance feel:** the UI looks stable and immediate, not just technically correct.
+
 ## Hotkey
 
 - Works after launch.
@@ -28,6 +44,8 @@
 - Accessibility denied state is clear.
 - Accessibility granted state enables window focus.
 - Settings links to System Settings when permission is missing.
+- Automation-denied state for Browser Tabs is actionable and not raw AppleScript noise.
+- Permission banners do not trap keyboard focus or block Esc dismissal unexpectedly.
 
 ## Clipboard
 
@@ -225,3 +243,23 @@
 - [ ] Snippets: double-click copies snippet; ⌘E edits.
 - [ ] Todo tabs show counts when non-zero.
 - [ ] App search "微信" surfaces WeChat first row.
+
+## Recorded Product Review Additions
+
+- First-run flow is understandable without reading docs.
+- Spotlight conflict guidance is clear if Command+Space registration fails.
+- Empty states explain what the user can do next.
+- Error states suggest recovery rather than exposing internal wording.
+- Search result ordering feels intuitive for the first 3 rows.
+- Detail views feel visually related to the launcher rather than bolted on.
+- Back/Esc behavior is consistent across all detail surfaces.
+- Dense lists remain readable on both a 13-inch and larger display setup.
+- Mixed-language input feels natural with Chinese and English queries.
+- The app still feels coherent after enabling default-off modules.
+
+## Issue Logging Rules
+
+- Record each issue with repro steps, expected behavior, actual behavior, severity, and affected module.
+- Distinguish product defects from optimization suggestions.
+- Capture screenshot or recording timestamp for every medium-or-higher severity issue.
+- Tag findings by lens when possible: functional, usability, keyboard, visual, performance, permissions.

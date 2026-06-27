@@ -12,6 +12,9 @@ If you are new to the repo or preparing to make changes, read these documents fi
 6. [Module Contract](specs/MODULE_CONTRACT.md) — module responsibilities and interfaces.
 7. [Performance](specs/PERFORMANCE.md) — latency budgets and performance constraints.
 8. [UX Behavior Rules](specs/UX_BEHAVIOR_RULES.md) — current launcher interaction rules.
+9. [Manual QA Checklist](MANUAL_QA_CHECKLIST.md) — current product-review and regression checks.
+10. [Recorded QA Brief](RECORDED_QA_BRIEF.md) — recorded walkthrough scope and findings format.
+11. [Integration P0](INTEGRATION_P0.md) — current short list for wiring together existing functionality.
 
 Recommended reading order for most engineering work:
 
@@ -21,18 +24,9 @@ Recommended reading order for most engineering work:
 4. Constraints: [Module Contract](specs/MODULE_CONTRACT.md), [Performance](specs/PERFORMANCE.md), [UX Behavior Rules](specs/UX_BEHAVIOR_RULES.md)
 5. Repo navigation: [Project Structure](PROJECT_STRUCTURE.md)
 
-## Historical Documents
+## Priority Order
 
-Some documents are intentionally retained for implementation archaeology. They are useful for understanding how the project evolved, but they are not current product or UX guidance.
-
-Do not use these as the primary basis for new changes unless you are explicitly researching old behavior:
-
-- [ADR-007 Dashboard Widget Single Window](adr/007-dashboard-widget-single-window.md)
-- `docs/strategy/DASHBOARD_WIDGET_*`
-- `docs/strategy/NOTES_MARKDOWN_CURSOR_PLAN.md`
-- `docs/strategy/NOTES_CURSOR_PROMPTS.md`
-
-When a historical document conflicts with an active document, follow:
+When documents conflict, follow:
 
 1. [ADR-023](adr/023-command-first-unified-list.md)
 2. [PRD](PRD.md)
@@ -45,6 +39,7 @@ When a historical document conflicts with an active document, follow:
 - Empty query shows home sections, not a dashboard card grid.
 - Module details open in the same panel.
 - User-facing media functionality is named Records; the technical module identifier remains `luma.media`.
+- The product is already broadly built; current priority is integration and polish over new scope.
 
 ## Implementation Defaults
 
@@ -82,7 +77,3 @@ See [UX Behavior Rules](specs/UX_BEHAVIOR_RULES.md).
 ## Milestones
 
 See [Roadmap](ROADMAP.md).
-
-## Opus Decisions
-
-See [Opus Decisions](OPUS_DECISIONS.md), [Product Route Options](strategy/PRODUCT_ROUTE_OPTIONS.md), and [Launcher Convergence Strategy](strategy/LAUNCHER_CONVERGENCE_STRATEGY.md).

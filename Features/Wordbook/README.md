@@ -2,12 +2,17 @@
 
 ## Goal
 
-Move the native functionality from `/Users/diaoyuxuan/wordbot` into Luma as a modular vocabulary review system.
+Provide a same-panel vocabulary review workflow inside Luma while preserving the existing Wordbot data and review logic where practical.
+
+## Migration Context
+
+- Legacy source: `/Users/diaoyuxuan/wordbot/data/wordpet.sqlite3`.
+- The migration source remains useful for compatibility checks and import behavior.
+- Luma should keep review behavior stable rather than reinvent the learning model casually.
 
 ## Existing Wordbot Capabilities
 
 - SQLite word database at `/Users/diaoyuxuan/wordbot/data/wordpet.sqlite3`.
-- 1,341 words currently present.
 - Fields: term, phonetic, meaning, example, category, familiarity, review stage/count, wrong count, next review time, last review time.
 - British English pronunciation preference.
 - CSV and Markdown/table/text import.
@@ -24,29 +29,23 @@ Move the native functionality from `/Users/diaoyuxuan/wordbot` into Luma as a mo
 - Review responses: known, fuzzy, unknown.
 - Daily goal and progress.
 
-## Luma MVP Behavior
+## Active Behavior (Route C)
 
-- Search words from launcher.
-- Show due review card.
-- Review known/fuzzy/unknown.
+- `word` or `word review` opens the same-panel review flow.
+- `word <query>` searches vocabulary from the launcher.
+- Review uses the current three-grade flow and keyboard shortcuts.
+- The session survives panel hide/show and returns to the same word when appropriate.
 - Speak word and example using macOS voice.
-- Import existing wordbot database.
-- Open word management card.
-- Current implementation reads `/Users/diaoyuxuan/wordbot/data/wordpet.sqlite3` directly and can search/detect due words.
+- Manage view, CSV import, and settings live in-panel.
+- Current implementation uses the Luma-owned Wordbook store after migration, with legacy Wordbot data retained as source material.
 
 ## Migration Plan
 
-1. Read wordbot SQLite directly.
-2. Create Luma tables with compatible columns.
-3. Import words and settings.
-4. Preserve review scheduling.
-5. Keep a backup before migration.
-
-## UI Card
-
-- Shows due count, daily progress, next word, and review buttons.
-- Edit button opens word manager.
-- Drag position persists in dashboard layout.
+1. Read Wordbot SQLite.
+2. Import words and settings into Luma storage.
+3. Preserve review scheduling and due counts.
+4. Keep a backup before migration.
+5. Verify same-panel review after import.
 
 ## Implementation Entry
 

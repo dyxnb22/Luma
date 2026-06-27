@@ -13,12 +13,12 @@ Authoritative planning docs:
 - `docs/adr/023-command-first-unified-list.md`
 - `docs/PRD.md` (this file)
 - `docs/ARCHITECTURE.md`
+- `docs/OPUS_DECISIONS.md`
 
 Historical route docs:
 
 - `docs/adr/007-dashboard-widget-single-window.md` (Route B, superseded)
 - `docs/adr/006-launcher-convergence.md` (Route A, historical)
-- `docs/strategy/PRODUCT_ROUTE_OPTIONS.md`
 
 ## Product Goals
 
@@ -27,6 +27,16 @@ Historical route docs:
 - Modular query/action implementation behind a simple launcher UX.
 - Local-first data for clipboard, usage, configuration, and app cache.
 - A small core feature set that remains fast under repeated daily use.
+
+## Current Phase
+
+The product is already mostly formed. Current work should prioritize:
+
+- wiring existing flows together
+- improving permissions and recovery paths
+- smoothing keyboard-only behavior
+- tightening visual consistency and empty states
+- fixing trust gaps before adding scope
 
 ## Required Features
 

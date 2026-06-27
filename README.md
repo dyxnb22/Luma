@@ -18,6 +18,16 @@ The project is macOS-only: Swift 6, AppKit for the launcher surface, SwiftUI onl
 - Translation uses Apple Translation / Shortcuts fallback — no network API.
 - Clipboard history is local-first with secret filtering, image support, and pin/search.
 
+## Current Focus
+
+Luma is already broadly formed. The current phase is not feature sprawl; it is **making existing functionality feel fully connected and trustworthy**:
+
+- wire cross-module flows cleanly
+- improve permission and recovery UX
+- remove dead or misleading docs and prompts
+- tighten keyboard-first behavior, visual consistency, and empty states
+- keep the hot path fast while polishing detail views
+
 ## Feature Direction
 
 The launcher should prove:
@@ -34,6 +44,7 @@ The launcher should prove:
 ```bash
 swift build
 swift test
+./scripts/run_recorded_review.sh
 ```
 
 ## Build & Run
@@ -77,10 +88,23 @@ The LaunchAgent points at `build/Luma.app/Contents/MacOS/Luma` and restarts Luma
 - [Architecture](docs/ARCHITECTURE.md)
 - [ADR-023 Route C](docs/adr/023-command-first-unified-list.md)
 - [Engineering Package](docs/ENGINEERING_PACKAGE.md)
+- [Opus Decisions](docs/OPUS_DECISIONS.md)
 - [Roadmap](docs/ROADMAP.md)
+- [Integration P0](docs/INTEGRATION_P0.md)
 - [Feature Index](Features/README.md)
 - [Performance Spec](docs/specs/PERFORMANCE.md)
 - [Manual QA Checklist](docs/MANUAL_QA_CHECKLIST.md)
+- [Recorded QA Brief](docs/RECORDED_QA_BRIEF.md)
+
+## Quick Review
+
+For a one-command recorded review pass:
+
+```bash
+./scripts/run_recorded_review.sh
+```
+
+It will build Luma, prepare the QA environment, run the scripted smoke pass, and then leave you at the recorded walkthrough stage with the current brief, checklist, and findings template.
 
 ## Non-Negotiables
 

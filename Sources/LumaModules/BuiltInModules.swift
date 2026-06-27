@@ -58,7 +58,7 @@ public enum BuiltInModules {
         ]
     }
 
-    /// Deferred modules kept in source but excluded from active dashboard, warmup, and default registration.
+    /// Deferred modules kept in source but excluded from active registration, warmup, and default enablement.
     public static func makeDeferred() -> [any LumaModule] {
         [WindowsModule()]
     }

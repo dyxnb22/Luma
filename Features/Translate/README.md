@@ -28,10 +28,11 @@ Provide quick translation from selected text, clipboard text, or typed query. Th
 - Recent translation pairs may be cached locally.
 - Cache must not store text classified as secret.
 
-## UI Card
+## Current UX
 
-- Shows source language, target language, last translated snippet, and copy button.
-- Edit button opens language preferences.
+- `tr <text>` or `translate <text>` returns a translate result in the unified list.
+- Return copies the translated text and can enter the same-panel Translate detail view where supported.
+- Language chips and retry behavior live inside the panel, not on a dashboard card.
 
 ## Implementation Entry
 

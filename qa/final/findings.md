@@ -14,7 +14,7 @@ Date: 2026-06-27
 | F-F-06 | P1 | Module diagnostics invisible in launcher | `QueryDispatcher` dropped `ModuleResult.diagnostic`; no UI row | `ModuleDiagnosticResults` + merge in dispatcher |
 | F-F-07 | P1 | Module toggle did not warmup/teardown | `applyEnabledSet` only swapped enabled set | Diff enabled set; call `warmup`/`teardown` on change |
 | F-F-08 | P2 | Perf gate missed slow module paths | Keystroke replay only covered global search | `SlowModuleQueryPerformanceTests` + doctor `tab`/`kill` queries |
-| F-F-09 | P2 | Duplicate smoke entry points | `qa/final/run_smoke.sh` vs `run_round1_smoke.sh` diverged | Canonical `scripts/qa/run_full_smoke.sh` |
+| F-F-09 | P2 | Duplicate smoke entry points | Multiple smoke wrappers diverged | Canonical `scripts/qa/run_full_smoke.sh` |
 | F-F-10 | P2 | Safari tests in default gate | `/Applications/Safari.app` required in CI | `@Tag integration` + `scripts/test_unit.sh` |
 
 ## Prior rounds (already fixed)

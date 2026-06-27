@@ -23,11 +23,12 @@ Store key information such as passwords, API keys, tokens, recovery codes, and s
 - Auto-lock after inactivity.
 - Pasteboard writes from this module should use short-lived clearing later.
 
-## UI Card
+## Current UX
 
-- Locked state by default.
-- Shows number of saved items and stale items.
-- Edit button opens vault management after unlock.
+- `secret` / `sec` opens the same-panel Secrets detail view.
+- Locked state is the default; unlocked state exposes search plus CRUD actions.
+- Search results never reveal secret values in row titles or subtitles.
+- There is no dashboard card in Route C.
 
 ## Implementation Entry
 

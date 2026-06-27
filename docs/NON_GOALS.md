@@ -12,7 +12,7 @@
 - Developer credential vault (Secrets module) covers API keys and similar; see ADR-010.
 - TOTP / 2FA code generation in v1.
 - Notion-style Luma-owned TODO database. (Todo is an EventKit pass-through; see ADR-009.)
-- Floating Wordbook desktop-pet mode in v0.1. (Wordbook entry is the launcher card and `word ` trigger; see ADR-009.)
+- Floating Wordbook desktop-pet mode in v0.1. (Wordbook entry is through the launcher and `word` trigger; see ADR-009.)
 - ChatGPT-paste or CSV import UI for Wordbook in v0.1. (CSV import/export shipped; see ADR-020.)
 
 ## Wordbook Module
@@ -59,7 +59,7 @@ Reference: ADR-021 Clipboard v1 frozen scope.
 - AI summarisation or auto-generated reviews.
 - Cloud sync, sharing, multi-device.
 - Metadata enrichment (TMDB / OMDb / Open Library / Google Books / RAWG) in v1.
-- Media tracker as a dashboard card (trigger-only by design; see ADR-011).
+- Media tracker as a home-screen card or dashboard surface.
 - Window tiling/layout engine as a v1 core feature.
 - Dashboard-first launcher panel.
 - Shortcut automation replacement.
@@ -77,4 +77,4 @@ Reference: ADR-021 Clipboard v1 frozen scope.
 - Multi-vault, vault sync, vault import/export, version history.
 - Image insertion / paste interception / image gallery / image compression / format conversion.
 - Drag-to-move tree nodes.
-- Inbox count, recent count, orphan count surfaced on the dashboard card.
+- Inbox count, recent count, orphan count surfaced on the launcher home.

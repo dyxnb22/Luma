@@ -38,11 +38,12 @@ Skip the entire pasteboard change if any type matches:
 - `com.apple.security.*`
 - Any type containing `password`, `secret`, `token`, or `secure` case-insensitively.
 
-## UI Card
+## Current UX
 
-- Shows last copied item, count, and pinned count.
-- Edit button opens retention and filtering settings.
-- Drag position persists in dashboard layout.
+- `clip` opens Clipboard detail in the same launcher panel.
+- `clip <query>` searches history in the shared result list.
+- Detail view supports search, pin filtering, preview, and destructive actions without leaving the panel.
+- There is no dashboard card or separate clipboard window in Route C.
 
 ## Implementation Entry
 

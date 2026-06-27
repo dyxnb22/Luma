@@ -79,8 +79,4 @@ public enum FeatureCatalog {
         ]
     }
 
-    @available(*, deprecated, renamed: "moduleDetailMetadata()")
-    public static func dashboardCoreCards() -> [FeatureCard] {
-        moduleDetailMetadata()
-    }
 }

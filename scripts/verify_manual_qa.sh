@@ -11,4 +11,4 @@ swift build
 echo ""
 echo "== Manual QA checklist =="
 echo "See docs/MANUAL_QA_CHECKLIST.md for interactive checks."
-echo "Sections: Hotkey, Panel, Performance, Permissions, Clipboard, Dashboard (7 cards), Modules (11), Events, Latency HUD, Activity settings."
+echo "Focus on: Hotkey, Panel, Performance, Permissions, Launcher Home/Results, module detail flows, default-off modules, visual polish, and recorded-review notes."

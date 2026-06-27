@@ -75,7 +75,6 @@ Negative:
 
 ## Implementation Notes
 
-- Implementation phases are defined in `docs/strategy/NOTES_MARKDOWN_CURSOR_PLAN.md`.
 - `Features/NotesGraph/README.md` is marked superseded by this ADR and should not be treated as a source of truth.
 - Existing files to delete: `Sources/LumaModules/Notes/NotesGraphIndexer.swift`, `Sources/LumaModules/Notes/NotesVaultStore.swift`. Replace with `NotesTreeIndex.swift`, `NotesActions.swift`, `NotesRootConfig.swift`.
 - Persistence file: `~/Library/Application Support/Luma/notes.json` (schema: `{ "root": "...", "expandedFolders": [...] }`).

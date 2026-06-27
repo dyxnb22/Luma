@@ -14,9 +14,9 @@ This folder is the maintenance index for Luma's feature modules. Each feature ow
 
 See `docs/adr/023-command-first-unified-list.md` and `docs/ARCHITECTURE.md` for the current product surface.
 
-## Historical / Experimental Docs
+## Source Of Truth
 
-Older per-feature READMEs under this folder may describe pre–Route B experiments. Treat `BuiltInModules.swift`, `FeatureCatalog.swift`, and `docs/ARCHITECTURE.md` as source of truth for what ships today.
+Treat `BuiltInModules.swift`, `FeatureCatalog.swift`, and `docs/ARCHITECTURE.md` as source of truth for what ships today.
 
 ## Module Rules
 

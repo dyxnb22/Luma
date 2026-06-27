@@ -49,6 +49,6 @@ Negative:
 
 ## Implementation Notes
 
-- Add feature cards, sidebar frecency, module detail views, and search result UI in later phases per `docs/strategy/DASHBOARD_WIDGET_CURSOR_PLAN.md`.
-- Do not delete experimental module code while stabilizing the Route B shell.
+- This ADR is historical only; the old Route B implementation plans were removed during documentation cleanup.
+- Do not delete historical code blindly; confirm current ownership and active references first.
 - Keep LatencyHUD and other debug UI out of the production panel.

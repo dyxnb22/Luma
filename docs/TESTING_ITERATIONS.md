@@ -1,32 +1,51 @@
 # Testing Iterations
 
-## Current Automated Coverage
+## Current Test Strategy
 
-The current suite simulates the requested features through module-level and user-flow tests:
+Luma uses three complementary layers:
 
-- App search and launch-action generation.
-- Translate command result flow.
-- Clipboard filtering, search, duplicate handling, pinning, pruning, and oversized rejection.
-- Secrets vault lock/unlock/search/reveal safety.
-- Window layout frame calculation for halves, center, offset, and small screens.
-- Notes graph parsing for wiki links, tags, duplicate tags, empty notes, and malformed links.
-- Wordbook review scheduling for known, fuzzy, and unknown responses.
-- Keychain round-trip integration for secrets.
-- Notes vault create/scan/graph integration.
-- Existing wordbot SQLite read integration.
-- Feature card catalog presence and unique positions.
-- Combined user flow touching every requested feature once.
+1. Unit and module tests via `swift test`
+2. Tagged integration tests via `LUMA_INTEGRATION_TESTS=1 swift test --filter tag:integration`
+3. Scripted manual smoke and recorded review passes through `scripts/qa/`
+
+Primary references:
+
+- `docs/MANUAL_QA_CHECKLIST.md`
+- `docs/specs/PERFORMANCE.md`
+- `qa/SUMMARY.md`
+- `qa/final/findings.md`
+- `scripts/run_recorded_review.sh`
+
+## Automated Coverage
+
+The current suite covers launcher behavior and module logic including:
+
+- Query routing, command hints, result ranking, and selection preservation
+- App search fuzzy/pinyin matching
+- Clipboard retention, filtering, pinning, image support, and destructive actions
+- Notes indexing, capture, rename/delete/move flows, and detail support logic
+- Wordbook scheduling, daily planning, manage flows, and review continuity
+- Secrets vault metadata handling, lock/unlock behavior, and Keychain integration
+- Quicklinks trigger expansion and variable substitution
+- Menu Bar Search parser and cached query behavior
+- Kill Process result generation and guarded actions
+- Browser Tabs parsing, cache refresh behavior, and automation-path handling
+- Performance gates including keystroke replay and slow-module budgets
 
 ## Iteration Rule
 
-For each round:
+For each meaningful product change:
 
-1. Run the basic suite.
-2. Add divergent tests equal to roughly 50% of the new baseline surface.
-3. If a test fails, keep it as part of the baseline.
-4. Fix the implementation or test setup.
-5. Re-run until the suite passes.
+1. Keep `swift test` green.
+2. Add or adjust tests when behavior changes.
+3. Run a smoke pass through `scripts/qa/run_full_smoke.sh` when launcher-facing behavior changes.
+4. Run a focused recorded review when changes affect UX, permissions, navigation, or visual polish.
+5. Log any defect or usability issue in `qa/` artifacts with reproduction steps and severity.
 
 ## Current Status
 
-The latest suite passes with 35 tests and no known failing test items.
+As of 2026-06-27:
+
+- `qa/SUMMARY.md` records a green final QA round with P0/P1/P2 = 0 open.
+- The project summary notes `swift test` passing with 368 tests at that point.
+- The canonical scripted smoke entry point is `scripts/qa/run_full_smoke.sh`.

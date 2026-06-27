@@ -1,18 +1,17 @@
 # Luma QA Summary
 
-## Implementation Overview
+## Current QA Baseline
 
-Four modules (Quicklinks, Menu Items, Kill Process, Browser Tabs) plus QA harness and launcher fixes.
+Luma is already broadly formed. QA now focuses on validating that existing launcher flows, module triggers, detail views, permissions, and cross-module actions feel connected and trustworthy.
 
-| Area | Key files |
-|------|-----------|
-| QA driver | `scripts/qa/drive.sh`, `paste_query.swift`, `prep_smoke_env.sh` |
-| Full smoke | `scripts/qa/run_full_smoke.sh` (entry: `qa/final/run_smoke.sh`) |
-| Doctor perf | `qa/final/run_doctor_perf.sh` |
-| Unit gate | `scripts/test_unit.sh` (integration: `LUMA_INTEGRATION_TESTS=1 swift test --filter tag:integration`) |
-| Ranker | `Sources/LumaCore/Ranking/Ranker.swift` |
-| Browser tabs | `SafariAdapter.swift`, `ChromiumAdapter.swift`, `BrowserTabsService.swift` |
-| Projects QA seed | `scripts/qa/prep_smoke_env.sh` → `projects.json` |
+Primary entry points:
+
+- One-command review: `scripts/run_recorded_review.sh`
+- Scripted smoke: `scripts/qa/run_full_smoke.sh`
+- Environment prep: `scripts/qa/prep_smoke_env.sh`
+- Recorded review brief: `docs/RECORDED_QA_BRIEF.md`
+- Manual checklist: `docs/MANUAL_QA_CHECKLIST.md`
+- Findings template: `qa/RECORDED_REVIEW_TEMPLATE.md`
 
 ## Findings by Round
 
@@ -22,12 +21,11 @@ Four modules (Quicklinks, Menu Items, Kill Process, Browser Tabs) plus QA harnes
 | 2 | 0 | 0 | 1 | 1 |
 | Final | 0 | 0 | 0 | 3 |
 
-## Final session fixes
+## Final Regression State
 
-1. **Browser tab AppleScript** — `tab` inside `tell application "Safari"` is the tab class, not ASCII 9; use `ASCII character 9`.
-2. **Ranker home views** — empty command payload must not fuzzy-filter on trigger (`proj`, `tab`, `clip`, …).
-3. **Browser tab cache** — `searchableTabs()` blocks until refresh when cache empty/stale.
-4. **Smoke prep** — seeds projects root, enables `luma.browser-tabs`, opens Safari GitHub tab, restarts app.
+- Final recorded/smoke baseline reached P0/P1/P2 = 0 open.
+- The canonical smoke entry point is `scripts/qa/run_full_smoke.sh`.
+- The current product-review pass should judge more than feature pass/fail: visual polish, usability, keyboard-only fluency, permissions, and recovery behavior.
 
 ## Performance
 
@@ -36,16 +34,9 @@ Four modules (Quicklinks, Menu Items, Kill Process, Browser Tabs) plus QA harnes
 - **Doctor:** `run_doctor_perf.sh` includes `tab github` and `kill preview`
 - Latency HUD enabled in QA via `latencyHUDEnabled` default
 
-## Screenshots
+## Current Priorities
 
-- `qa/final/screenshots/` — full trigger smoke (2026-06-27)
-- `qa/final/screenshots/doctor-latency-hud.png` — perf HUD after isolated queries
-
-## Stop Criteria Status
-
-- [x] Four modules implemented and registered
-- [x] `swift test` green (368 tests)
-- [x] App builds (`./scripts/build_app.sh`)
-- [x] Full screenshot smoke via `scripts/qa/run_full_smoke.sh`
-- [x] Final round P0/P1/P2 = 0
-- [x] Keystroke replay p95 ≤ 30 ms (unit test)
+- Preserve the fast path while polishing detail surfaces.
+- Validate default-off modules when enabled in realistic sessions.
+- Catch doc/code mismatches early.
+- Keep issue logging reproducible and timestamped for recorded reviews.

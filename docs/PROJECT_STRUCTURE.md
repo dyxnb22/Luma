@@ -13,7 +13,6 @@ Tests/
 docs/
   adr/
   specs/
-  planning/
 .claude/
 .cursor/
 .codex/

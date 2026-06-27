@@ -13,22 +13,12 @@ public struct WidgetCardStyle: Sendable, Hashable {
 }
 
 public struct FeatureCard: Identifiable, Sendable, Hashable {
-    public enum SizeMode: String, Sendable, Codable {
-        case compact
-        case normal
-        case expanded
-    }
-
     public let id: ModuleIdentifier
     public var title: String
     public var subtitle: String
     public var icon: IconRef
-    public var isEnabled: Bool
-    public var sizeMode: SizeMode
     public var position: CardPosition
-    public var editAction: Action?
     public var widgetStyle: WidgetCardStyle?
-
     public let triggerKeyword: String
 
     public init(
@@ -37,10 +27,7 @@ public struct FeatureCard: Identifiable, Sendable, Hashable {
         subtitle: String,
         icon: IconRef,
         triggerKeyword: String = "",
-        isEnabled: Bool = true,
-        sizeMode: SizeMode = .normal,
         position: CardPosition = .zero,
-        editAction: Action? = nil,
         widgetStyle: WidgetCardStyle? = nil
     ) {
         self.id = id
@@ -48,10 +35,7 @@ public struct FeatureCard: Identifiable, Sendable, Hashable {
         self.subtitle = subtitle
         self.icon = icon
         self.triggerKeyword = triggerKeyword
-        self.isEnabled = isEnabled
-        self.sizeMode = sizeMode
         self.position = position
-        self.editAction = editAction
         self.widgetStyle = widgetStyle
     }
 }

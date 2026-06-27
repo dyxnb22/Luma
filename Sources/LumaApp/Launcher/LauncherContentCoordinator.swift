@@ -1,6 +1,5 @@
 import AppKit
 import LumaCore
-import LumaModules
 
 /// Home / search-results / module-detail transitions for the launcher main area.
 @MainActor
@@ -76,7 +75,6 @@ final class LauncherContentCoordinator {
     func present(
         _ detail: any ModuleDetailView,
         moduleID: ModuleIdentifier,
-        card: FeatureCard? = nil,
         prefillTranslateText: String? = nil
     ) {
         currentDetailObject?.deactivate()

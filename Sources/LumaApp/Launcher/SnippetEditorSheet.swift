@@ -7,6 +7,7 @@ final class SnippetEditorSheet: NSWindow {
     private let titleField = NSTextField()
     private let triggerField = NSTextField()
     private let tagsField = NSTextField()
+    private let contentHintLabel = NSTextField(labelWithString: "")
     private let bodyTextView = NSTextView()
 
     init(
@@ -16,7 +17,7 @@ final class SnippetEditorSheet: NSWindow {
     ) {
         self.onSave = onSave
         super.init(
-            contentRect: NSRect(x: 0, y: 0, width: 480, height: 400),
+            contentRect: NSRect(x: 0, y: 0, width: 480, height: 420),
             styleMask: [.titled, .closable],
             backing: .buffered,
             defer: false
@@ -26,13 +27,16 @@ final class SnippetEditorSheet: NSWindow {
     }
 
     private func setup(snippet: Snippet?, draft: SnippetDraft?) {
-        let container = NSView(frame: NSRect(x: 0, y: 0, width: 480, height: 400))
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: 480, height: 420))
 
         titleField.stringValue = snippet?.title ?? draft?.title ?? ""
         titleField.placeholderString = "Title"
         titleField.translatesAutoresizingMaskIntoConstraints = false
 
-        triggerField.stringValue = snippet?.trigger ?? draft?.trigger ?? ""
+        let resolvedTrigger = snippet?.trigger
+            ?? draft?.trigger
+            ?? (draft.map { Snippet(title: $0.title, content: $0.content).displayTrigger } ?? "")
+        triggerField.stringValue = resolvedTrigger
         triggerField.placeholderString = "Trigger (e.g. ;addr)"
         triggerField.translatesAutoresizingMaskIntoConstraints = false
 
@@ -40,9 +44,26 @@ final class SnippetEditorSheet: NSWindow {
         tagsField.placeholderString = "Tags (comma-separated)"
         tagsField.translatesAutoresizingMaskIntoConstraints = false
 
+        contentHintLabel.font = .systemFont(ofSize: 11)
+        contentHintLabel.textColor = .secondaryLabelColor
+        contentHintLabel.lineBreakMode = .byWordWrapping
+        contentHintLabel.maximumNumberOfLines = 2
+        contentHintLabel.translatesAutoresizingMaskIntoConstraints = false
+        if let draft, draft.isLongClipboardClip {
+            let extra = draft.content.count - SnippetDraft.clipboardContentPreviewLimit
+            contentHintLabel.stringValue =
+                "Long clipboard clip (\(draft.content.count) chars). Full text is below; line breaks are preserved."
+            if extra > 0 {
+                contentHintLabel.stringValue += " \(extra) chars over preview limit."
+            }
+        } else {
+            contentHintLabel.isHidden = true
+        }
+
         bodyTextView.string = snippet?.content ?? draft?.content ?? ""
         bodyTextView.isRichText = false
         bodyTextView.font = .monospacedSystemFont(ofSize: 12, weight: .regular)
+        bodyTextView.isAutomaticQuoteSubstitutionEnabled = false
         bodyTextView.translatesAutoresizingMaskIntoConstraints = false
 
         let scroll = NSScrollView()
@@ -63,6 +84,7 @@ final class SnippetEditorSheet: NSWindow {
         container.addSubview(titleField)
         container.addSubview(triggerField)
         container.addSubview(tagsField)
+        container.addSubview(contentHintLabel)
         container.addSubview(scroll)
         container.addSubview(saveButton)
         container.addSubview(cancelButton)
@@ -81,7 +103,11 @@ final class SnippetEditorSheet: NSWindow {
             tagsField.leadingAnchor.constraint(equalTo: titleField.leadingAnchor),
             tagsField.trailingAnchor.constraint(equalTo: titleField.trailingAnchor),
 
-            scroll.topAnchor.constraint(equalTo: tagsField.bottomAnchor, constant: 8),
+            contentHintLabel.topAnchor.constraint(equalTo: tagsField.bottomAnchor, constant: 6),
+            contentHintLabel.leadingAnchor.constraint(equalTo: titleField.leadingAnchor),
+            contentHintLabel.trailingAnchor.constraint(equalTo: titleField.trailingAnchor),
+
+            scroll.topAnchor.constraint(equalTo: contentHintLabel.bottomAnchor, constant: 6),
             scroll.leadingAnchor.constraint(equalTo: titleField.leadingAnchor),
             scroll.trailingAnchor.constraint(equalTo: titleField.trailingAnchor),
             scroll.heightAnchor.constraint(equalToConstant: 200),

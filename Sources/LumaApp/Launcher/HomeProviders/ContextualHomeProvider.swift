@@ -8,63 +8,77 @@ struct ContextualHomeProvider: LauncherHomeProvider {
     private let notesModule: NotesModule?
     private let todoModule: TodoModule?
     private let mediaModule: MediaModule?
+    private let suggestionMemory: HomeSuggestionMemory
 
     init(
         notesModule: NotesModule? = nil,
         todoModule: TodoModule? = nil,
-        mediaModule: MediaModule? = nil
+        mediaModule: MediaModule? = nil,
+        suggestionMemory: HomeSuggestionMemory = .shared
     ) {
         self.notesModule = notesModule
         self.todoModule = todoModule
         self.mediaModule = mediaModule
+        self.suggestionMemory = suggestionMemory
     }
 
     func items() async -> [ResultItem] {
         var suggestions: [ResultItem] = []
+        let memory = suggestionMemory
 
         if let text = await SelectionSnapshotService.shared.snapshot(),
            !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-           TranslationUserMessages.shouldTranslate(text) {
+           TranslationUserMessages.shouldTranslate(text),
+           await !memory.shouldSuppressSuggestion(key: "contextual.translate") {
             suggestions.append(translateSelectedRow(text: text))
         }
 
         if suggestions.count < 4,
-           let projectRow = await currentProjectRow() {
+           let projectRow = await currentProjectRow(),
+           await !memory.shouldSuppressSuggestion(key: "contextual.current") {
             suggestions.append(projectRow)
         }
 
         if suggestions.count < 4,
-           let dailyRow = await continueDailyNoteRow() {
+           let dailyRow = await continueDailyNoteRow(),
+           await !memory.shouldSuppressDailyNoteSuggestion(),
+           await !memory.shouldSuppressSuggestion(key: "contextual.daily") {
             suggestions.append(dailyRow)
         }
 
         if suggestions.count < 4,
-           let todoRow = await topTodoRow() {
+           let todoRow = await topTodoRow(),
+           await !memory.shouldSuppressSuggestion(key: todoRow.id.key) {
             suggestions.append(todoRow)
         }
 
         if suggestions.count < 4,
-           let transformRow = await clipboardTransformRow() {
+           let transformRow = await clipboardTransformRow(),
+           await !memory.shouldSuppressSuggestion(key: transformRow.id.key) {
             suggestions.append(transformRow)
         }
 
         if suggestions.count < 4,
-           let noteRow = await saveClipboardToNoteRow() {
+           let noteRow = await saveClipboardToNoteRow(),
+           await !memory.shouldSuppressSuggestion(key: "contextual.clip-note") {
             suggestions.append(noteRow)
         }
 
         if suggestions.count < 4,
-           let snippetRow = await saveClipboardAsSnippetRow() {
+           let snippetRow = await saveClipboardAsSnippetRow(),
+           await !memory.shouldSuppressSuggestion(key: "contextual.clip-snippet") {
             suggestions.append(snippetRow)
         }
 
         if suggestions.count < 4,
-           let quicklinkRow = await saveURLAsQuicklinkRow() {
+           let quicklinkRow = await saveURLAsQuicklinkRow(),
+           await !memory.shouldSuppressSuggestion(key: "contextual.url-quicklink") {
             suggestions.append(quicklinkRow)
         }
 
         if suggestions.count < 4,
-           let recordsRow = await continueRecordsRow() {
+           let recordsRow = await continueRecordsRow(),
+           await !memory.shouldSuppressSuggestion(key: "contextual.records") {
             suggestions.append(recordsRow)
         }
 
@@ -118,23 +132,23 @@ struct ContextualHomeProvider: LauncherHomeProvider {
     private func topTodoRow() async -> ResultItem? {
         guard let todoModule else { return nil }
         guard let reminder = try? await todoModule.firstTodayDueReminder() else { return nil }
-        let payload = (try? ModuleActionCoding.encode(TodoAction.complete(id: reminder.id))) ?? Data()
+        let completePayload = (try? ModuleActionCoding.encode(TodoAction.complete(id: reminder.id))) ?? Data()
         return ResultItem(
-            id: ResultID(module: .todo, key: "contextual.complete.\(reminder.id)"),
+            id: ResultID(module: .todo, key: "contextual.open.\(reminder.id)"),
             title: reminder.title,
             titleAttributed: AttributedString(reminder.title),
-            subtitle: "Mark complete · due today",
+            subtitle: "Due today",
             icon: .symbol("checkmark.circle"),
             primaryAction: Action(
-                id: ActionID(module: .todo, key: "contextual.complete"),
-                title: "Mark Complete",
-                kind: .custom(payload: payload, handler: .todo)
+                id: ActionID(module: .todo, key: "contextual.open"),
+                title: "Open Todo",
+                kind: .openModuleDetail(.todo, payload: nil)
             ),
             secondaryActions: [
                 Action(
-                    id: ActionID(module: .todo, key: "contextual.open"),
-                    title: "Open Todo",
-                    kind: .openModuleDetail(.todo, payload: nil)
+                    id: ActionID(module: .todo, key: "contextual.complete"),
+                    title: "Mark Complete",
+                    kind: .custom(payload: completePayload, handler: .todo)
                 )
             ],
             rankingHints: RankingHints(basePriority: 86),
@@ -196,7 +210,7 @@ struct ContextualHomeProvider: LauncherHomeProvider {
             icon: .symbol("square.and.pencil"),
             primaryAction: Action(
                 id: ActionID(module: .notes, key: "contextual.clip-note"),
-                title: "Capture to Note",
+                title: "Append to Note",
                 kind: .custom(payload: payload, handler: .notes)
             ),
             rankingHints: RankingHints(basePriority: 83),
@@ -209,21 +223,8 @@ struct ContextualHomeProvider: LauncherHomeProvider {
               !preview.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
               preview.count >= 8,
               URLTextParser.firstHTTPURL(in: preview) == nil else { return nil }
-        let firstLine = preview
-            .split(separator: "\n", maxSplits: 1, omittingEmptySubsequences: true)
-            .first
-            .map(String.init)?
-            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        let snippetTitle = firstLine.isEmpty ? "Clipboard clip" : String(firstLine.prefix(40))
-        let payload = (try? ModuleActionCoding.encode(
-            SnippetsAction.prepareDraft(
-                SnippetDraft(
-                    title: snippetTitle,
-                    content: preview,
-                    tags: ["clipboard"]
-                )
-            )
-        )) ?? Data()
+        let draft = SnippetDraft.fromClipboard(preview)
+        let payload = (try? ModuleActionCoding.encode(SnippetsAction.prepareDraft(draft))) ?? Data()
         return ResultItem(
             id: ResultID(module: .snippets, key: "contextual.clip-snippet"),
             title: "Save clipboard as snippet",

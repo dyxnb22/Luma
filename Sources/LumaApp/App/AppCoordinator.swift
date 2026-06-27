@@ -283,6 +283,9 @@ final class AppCoordinator {
                 self?.settingsWindowController?.show()
             }
         )
+        launcherEnv.showStatus = { [weak self] message in
+            self?.windowController.showStatus(message)
+        }
 
         Task {
             let modules = BuiltInModules.makeAll(overrides: .init(

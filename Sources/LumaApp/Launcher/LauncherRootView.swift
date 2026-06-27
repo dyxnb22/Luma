@@ -123,6 +123,8 @@ final class LauncherRootView: NSView {
     func handleEscape() { controller.handleEscape() }
     func closeDetail() { controller.closeDetail() }
 
+    func showStatus(_ message: String) { controller.showStatus(message) }
+
     @objc private func closeDetailAction() { controller.closeDetail() }
     func prepareDetailForHide() async { await contentCoordinator.currentDetailObject?.prepareForLauncherHide() }
     func refreshPermissionStatus() { controller.permissionController.refresh() }

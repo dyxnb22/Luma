@@ -160,6 +160,11 @@ final class LauncherRootController {
                 self.contentCoordinator.showHome(snapshot)
                 self.hintBar.setContext(.home)
                 self.syncRowActionHint()
+                let suggestedKeys = snapshot.sections
+                    .filter { $0.kind == .suggested }
+                    .flatMap(\.items)
+                    .map(\.id.key)
+                Task { await HomeSuggestionMemory.shared.recordShown(keys: suggestedKeys) }
                 _ = HomeLatencyTracker.markHomeRendered()
             }
         }
@@ -244,10 +249,17 @@ final class LauncherRootController {
            let action = try? ModuleActionCoding.decode(SnippetsAction.self, from: payload),
            case .prepareDraft(let draft) = action {
             LauncherSharedState.pendingSnippetDraft = draft
+            launcherEnvironment.showStatus?(LauncherStatusMessages.draftLoadedInSnippets)
             presentModuleDetail(for: moduleID)
             return
         }
         applyModuleDetailPayload(moduleID: moduleID, payload: payload)
+        if moduleID == .quicklinks,
+           let payload,
+           let action = try? ModuleActionCoding.decode(QuicklinksAction.self, from: payload),
+           case .prepareDraft = action {
+            launcherEnvironment.showStatus?(LauncherStatusMessages.draftLoadedInQuicklinks)
+        }
         presentModuleDetail(for: moduleID)
     }
 
@@ -321,6 +333,10 @@ final class LauncherRootController {
         contentCoordinator.closeDetail()
         hintBar.setContext(.home)
         syncPerformanceStripVisibility()
+    }
+
+    func showStatus(_ message: String) {
+        commandHintBar.showStatus(message)
     }
 
     func handleTextChange(_ text: String) {
@@ -477,8 +493,17 @@ final class LauncherRootController {
         case .translateText(let text):
             openTranslateDetail(with: text)
         default:
-            onActionDismiss()
-            Task { await actionExecutor.run(action, for: item) }
+            if let status = LauncherActionFeedback.statusMessage(for: action) {
+                commandHintBar.showStatus(status)
+                Task {
+                    await actionExecutor.run(action, for: item)
+                    try? await Task.sleep(for: .milliseconds(900))
+                    await MainActor.run { self.onActionDismiss() }
+                }
+            } else {
+                onActionDismiss()
+                Task { await actionExecutor.run(action, for: item) }
+            }
         }
     }
 

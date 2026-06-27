@@ -51,6 +51,16 @@ public actor QuicklinksStore {
         try Self.persist(quicklinks, to: url, fileManager: fileManager)
     }
 
+    public func conflictingQuicklink(trigger: String, excluding id: UUID? = nil) -> Quicklink? {
+        let normalizedTrigger = Self.normalized(
+            Quicklink(name: "", trigger: trigger, urlTemplate: "https://example.com")
+        ).trigger
+        guard !normalizedTrigger.isEmpty else { return nil }
+        return quicklinks.first { link in
+            link.trigger == normalizedTrigger && link.id != id
+        }
+    }
+
     public static func defaultURL() -> URL {
         FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent("Library/Application Support/Luma/quicklinks.json")

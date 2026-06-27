@@ -313,18 +313,15 @@ final class ClipboardDetailView: NSObject, ModuleDetailView {
     }
 
     private func saveAsSnippet(_ entry: ClipboardEntry) {
-        let draftTitle = entry.text
-            .split(separator: "\n", maxSplits: 1, omittingEmptySubsequences: true)
-            .first
-            .map(String.init)?
-            .trimmingCharacters(in: .whitespacesAndNewlines) ?? "Clipboard clip"
-        let title = String(draftTitle.prefix(60))
-        let draft = Snippet(title: title, content: entry.text, tags: ["clipboard"])
-        let sheet = SnippetEditorSheet(snippet: draft) { [weak self] savedTitle, trigger, content, tags in
+        let draft = SnippetDraft.fromClipboard(entry.plainTextForCopy)
+        let sheet = SnippetEditorSheet(snippet: nil, draft: draft) { [weak self] savedTitle, trigger, content, tags in
             guard let mod = LauncherEnvironment.current?.snippetsModule else { return }
             Task {
-                _ = try? await mod.add(title: savedTitle, content: content, tags: tags, trigger: trigger)
+                let saved = try? await mod.add(title: savedTitle, content: content, tags: tags, trigger: trigger)
                 await MainActor.run {
+                    LauncherEnvironment.current?.showStatus?(
+                        saved == nil ? LauncherStatusMessages.snippetSaveFailed : LauncherStatusMessages.snippetCreated
+                    )
                     LauncherEnvironment.current?.detailReloadRouter.reload(.snippets)
                     self?.detailView.window?.makeFirstResponder(self?.tableView)
                 }
@@ -545,8 +542,8 @@ private final class ClipboardRowCell: NSTableCellView {
             button.alphaValue = 0.85
         }
         copyButton.image = NSImage(systemSymbolName: "doc.on.doc", accessibilityDescription: "Copy")
-        snippetButton.image = NSImage(systemSymbolName: "text.badge.plus", accessibilityDescription: "Save as Snippet")
-        noteButton.image = NSImage(systemSymbolName: "square.and.pencil", accessibilityDescription: "Save to Note")
+        snippetButton.image = NSImage(systemSymbolName: "text.badge.plus", accessibilityDescription: "Create Snippet")
+        noteButton.image = NSImage(systemSymbolName: "square.and.pencil", accessibilityDescription: "Append to Note")
         deleteButton.image = NSImage(systemSymbolName: "trash", accessibilityDescription: "Delete")
         copyButton.target = self
         copyButton.action = #selector(copyTapped)

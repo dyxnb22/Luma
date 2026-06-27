@@ -293,12 +293,32 @@ public actor ClipboardModule: LumaModule {
         let copyPayload = (try? ModuleActionCoding.encode(ClipboardAction.copyEntry(id: entry.id))) ?? Data()
         let pastePayload = (try? ModuleActionCoding.encode(ClipboardAction.pasteEntry(id: entry.id))) ?? Data()
         let pinPayload = (try? ModuleActionCoding.encode(ClipboardAction.togglePin(id: entry.id))) ?? Data()
-        let secondary: [Action] = [
+        var secondary: [Action] = [
             Action(
                 id: ActionID(module: Self.manifest.identifier, key: "paste.\(entry.id.uuidString)"),
                 title: "Paste",
                 kind: .custom(payload: pastePayload, handler: Self.manifest.identifier)
-            ),
+            )
+        ]
+        if entry.imageData == nil, entry.fileURLs?.isEmpty != false {
+            let text = entry.plainTextForCopy.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !text.isEmpty {
+                let notePayload = (try? ModuleActionCoding.encode(NotesAction.captureToDaily(text: text))) ?? Data()
+                secondary.append(Action(
+                    id: ActionID(module: Self.manifest.identifier, key: "note.\(entry.id.uuidString)"),
+                    title: "Append to Note",
+                    kind: .custom(payload: notePayload, handler: .notes)
+                ))
+                let draft = SnippetDraft.fromClipboard(text)
+                let snippetPayload = (try? ModuleActionCoding.encode(SnippetsAction.prepareDraft(draft))) ?? Data()
+                secondary.append(Action(
+                    id: ActionID(module: Self.manifest.identifier, key: "snippet.\(entry.id.uuidString)"),
+                    title: "Create Snippet",
+                    kind: .openModuleDetail(.snippets, payload: snippetPayload)
+                ))
+            }
+        }
+        secondary.append(contentsOf: [
             Action(
                 id: ActionID(module: Self.manifest.identifier, key: "pin.\(entry.id.uuidString)"),
                 title: entry.isPinned ? "Unpin" : "Pin",
@@ -309,7 +329,7 @@ public actor ClipboardModule: LumaModule {
                 title: "Open Clipboard",
                 kind: .openModuleDetail(Self.manifest.identifier, payload: nil)
             )
-        ]
+        ])
         return ResultItem(
             id: id,
             title: entry.metadataLine,

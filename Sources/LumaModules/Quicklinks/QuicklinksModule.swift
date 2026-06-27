@@ -85,6 +85,10 @@ public actor QuicklinksModule: LumaModule {
         await refreshCache()
     }
 
+    public func conflictingQuicklink(trigger: String, excluding id: UUID? = nil) async -> Quicklink? {
+        await store.conflictingQuicklink(trigger: trigger, excluding: id)
+    }
+
     public func sampleExpansion(
         template: String,
         query: String = "swift package",

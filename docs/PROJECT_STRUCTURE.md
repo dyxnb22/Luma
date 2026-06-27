@@ -4,7 +4,7 @@
 Sources/
   LumaApp/              App lifecycle, AppKit launcher, hotkey
   LumaCore/             Protocols, models, query, actions, ranking, persistence
-  LumaModules/          Built-in modules; active set is Apps, Clipboard, Commands, Notes, Todo, Translate, Wordbook, Snippets, Secrets, Media, Window Layouts, Projects
+  LumaModules/          Built-in modules; active set includes Apps, Clipboard, Commands, Notes, Todo, Translate, Wordbook, Snippets, Secrets, Media, Window Layouts, Projects, Quicklinks, Menu Bar Search, Kill Process, Browser Tabs (optional)
   LumaServices/         System API wrappers
   LumaInfrastructure/   Logging, metrics, configuration
 Tests/

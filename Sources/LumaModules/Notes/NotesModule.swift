@@ -462,7 +462,7 @@ public actor NotesModule: LumaModule {
                 icon: .symbol("square.and.pencil"),
                 primaryAction: Action(
                     id: ActionID(module: Self.manifest.identifier, key: "capture.daily"),
-                    title: "Capture",
+                    title: "Append to Note",
                     kind: .custom(payload: payload, handler: Self.manifest.identifier)
                 ),
                 rankingHints: RankingHints(basePriority: Self.manifest.priority)

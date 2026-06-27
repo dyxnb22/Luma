@@ -8,7 +8,7 @@ These decisions answer the previous open questions and are now in force for Luma
 - Scope: strictly personal. Do not add public-distribution scaffolding, onboarding flows, telemetry consent, localization, or updater infrastructure.
 - Active strategic direction: **Route C**, Command-First Unified List, per ADR-023. Command+Space → single-column home/search list → primary action; module details stay in-panel; no dashboard card grid on home.
 - Route B (ADR-007) and Route A pure launcher convergence are historical reference only unless revived by a future superseding ADR.
-- Active built-in modules include Apps, Clipboard, Commands, Notes, Todo, Translate, Wordbook, Snippets, Secrets, Records (`luma.media`), Window Layouts, and Projects. Deferred: Windows.
+- Active built-in modules include Apps, Clipboard, Commands, Notes, Todo, Translate, Wordbook, Snippets, Secrets, Records (`luma.media`), Window Layouts, Projects, Quicklinks, Menu Bar Search, and Kill Process. Browser Tabs is registered but default-off. Deferred: Windows.
 - Default hotkey: Command+Space.
 - Menu bar item ships in Phase 0 with Show Luma, Settings..., and Quit Luma.
 
@@ -32,7 +32,10 @@ These decisions answer the previous open questions and are now in force for Luma
 
 ## UX
 
-- Empty query shows the Route C home list: Open Apps and Suggested.
+- Empty query shows the Route C home list: Open Apps and Suggested (contextual cross-module actions such as clipboard → note/snippet, URL → quicklink draft).
+- Home Suggested uses light memory: suppress repeats within ~2 minutes and deprioritize “continue daily note” for ~5 minutes after opening one.
+- Top due todo on home opens Todo on Return; Mark Complete is secondary (Tab).
+- Cross-module save actions show short status hints (e.g. “Saved to daily note”, “Draft loaded in Quicklinks”).
 - Use same-panel module detail surfaces for modules that need richer management.
 - Panel hides before action completion, in the same runloop turn as Return.
 - `secondaryActions` model ships in v1.
@@ -44,6 +47,7 @@ These decisions answer the previous open questions and are now in force for Luma
 
 - No automated AppKit panel/hotkey/Spaces UI tests.
 - Maintain the manual QA checklist.
+- Automate cross-module flow tests in `LumaModulesTests` (clipboard → note/snippet, URL → quicklink draft, notes capture) and home suggestion memory in `LumaCoreTests`.
 - Automate the 1,000-keystroke replay perf test.
 - Release path: Developer ID signed and notarized DMG from v1.
 - Skip CI for v1; run local tests and release script.

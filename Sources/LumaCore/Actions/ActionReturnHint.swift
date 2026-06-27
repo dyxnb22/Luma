@@ -21,7 +21,7 @@ public extension Action {
         case .translateText:
             return "Open Translate"
         case .openModuleDetail:
-            return "Open detail"
+            return title.isEmpty ? "Open detail" : title
         case .replaceQuery:
             return "Replace query"
         case .custom(_, let handler):

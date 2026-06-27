@@ -15,6 +15,7 @@ final class QuicklinksDetailView: NSObject, ModuleDetailView {
     private let urlField = NSTextField()
     private let openWithField = NSTextField()
     private let previewLabel = NSTextField(labelWithString: "")
+    private let conflictLabel = NSTextField(labelWithString: "")
     private var quicklinks: [Quicklink] = []
     private var refreshTask: Task<Void, Never>?
     private var pendingDraft: URLQuicklinkDraft?
@@ -77,13 +78,18 @@ final class QuicklinksDetailView: NSObject, ModuleDetailView {
             [label("Name"), nameField],
             [label("URL Template"), urlField],
             [label("Open With Bundle ID"), openWithField],
-            [label("Sample"), previewLabel]
+            [label("Sample"), previewLabel],
+            [label(""), conflictLabel]
         ])
         editor.rowSpacing = 8
         editor.columnSpacing = 10
         editor.translatesAutoresizingMaskIntoConstraints = false
         previewLabel.lineBreakMode = .byTruncatingMiddle
         previewLabel.textColor = .secondaryLabelColor
+        conflictLabel.lineBreakMode = .byWordWrapping
+        conflictLabel.maximumNumberOfLines = 2
+        conflictLabel.textColor = .systemOrange
+        conflictLabel.isHidden = true
         for field in [nameField, triggerField, urlField, openWithField] {
             field.target = self
             field.action = #selector(editorChanged)
@@ -155,6 +161,16 @@ final class QuicklinksDetailView: NSObject, ModuleDetailView {
             let name = self.nameField.stringValue
             let urlTemplate = self.urlField.stringValue
             let openWith = self.openWithField.stringValue.isEmpty ? nil : self.openWithField.stringValue
+            let editingID = self.quicklinks.indices.contains(row) ? self.quicklinks[row].id : nil
+            if let conflict = await self.module.conflictingQuicklink(trigger: trigger, excluding: editingID) {
+                await MainActor.run {
+                    self.conflictLabel.stringValue =
+                        "Trigger “\(conflict.trigger)” is used by “\(conflict.name)”. Pick another trigger."
+                    self.conflictLabel.isHidden = false
+                    LauncherEnvironment.current?.showStatus?(LauncherStatusMessages.quicklinkTriggerTaken)
+                }
+                return
+            }
             if self.quicklinks.indices.contains(row) {
                 var quicklink = self.quicklinks[row]
                 quicklink.trigger = trigger
@@ -162,12 +178,24 @@ final class QuicklinksDetailView: NSObject, ModuleDetailView {
                 quicklink.urlTemplate = urlTemplate
                 quicklink.openWith = openWith
                 let saved = try? await self.module.update(quicklink)
-                await MainActor.run { self.refresh(select: saved?.id ?? quicklink.id) }
+                await MainActor.run {
+                    self.conflictLabel.isHidden = true
+                    LauncherEnvironment.current?.showStatus?(
+                        saved == nil ? LauncherStatusMessages.quicklinkSaveFailed : LauncherStatusMessages.quicklinkSaved
+                    )
+                    self.refresh(select: saved?.id ?? quicklink.id)
+                }
             } else {
                 let saved = try? await self.module.add(
                     Quicklink(name: name, trigger: trigger, urlTemplate: urlTemplate, openWith: openWith, icon: "link")
                 )
-                await MainActor.run { self.refresh(select: saved?.id) }
+                await MainActor.run {
+                    self.conflictLabel.isHidden = true
+                    LauncherEnvironment.current?.showStatus?(
+                        saved == nil ? LauncherStatusMessages.quicklinkSaveFailed : LauncherStatusMessages.quicklinkSaved
+                    )
+                    self.refresh(select: saved?.id)
+                }
             }
         }
     }
@@ -178,6 +206,7 @@ final class QuicklinksDetailView: NSObject, ModuleDetailView {
 
     @objc private func editorChanged() {
         updatePreview()
+        updateConflictHint()
     }
 
     private func loadSelectedIntoEditor() {
@@ -212,6 +241,27 @@ final class QuicklinksDetailView: NSObject, ModuleDetailView {
             project: nil,
             projectPath: nil
         )
+    }
+
+    private func updateConflictHint() {
+        let row = tableView.selectedRow
+        let editingID = quicklinks.indices.contains(row) ? quicklinks[row].id : nil
+        Task { [weak self] in
+            guard let self else { return }
+            let trigger = await MainActor.run { self.triggerField.stringValue }
+            if let conflict = await self.module.conflictingQuicklink(trigger: trigger, excluding: editingID) {
+                await MainActor.run {
+                    self.conflictLabel.stringValue =
+                        "Trigger “\(conflict.trigger)” is used by “\(conflict.name)”."
+                    self.conflictLabel.isHidden = false
+                }
+            } else {
+                await MainActor.run {
+                    self.conflictLabel.isHidden = true
+                    self.conflictLabel.stringValue = ""
+                }
+            }
+        }
     }
 }
 

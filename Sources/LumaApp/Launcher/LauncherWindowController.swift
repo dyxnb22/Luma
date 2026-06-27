@@ -61,6 +61,10 @@ final class LauncherWindowController {
         rootView?.closeDetail()
     }
 
+    func showStatus(_ message: String) {
+        rootView?.showStatus(message)
+    }
+
     func openModuleDetail(for moduleID: ModuleIdentifier) {
         rootView?.openModuleDetail(for: moduleID)
     }

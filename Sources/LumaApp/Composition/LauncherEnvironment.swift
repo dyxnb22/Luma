@@ -18,6 +18,7 @@ final class LauncherEnvironment {
     let onBackFromDetail: () -> Void
     let onTranslateContentChanged: (String, String) -> Void
     let onHideLauncher: () -> Void
+    var showStatus: ((String) -> Void)?
     let detailReloadRouter: ModuleDetailReloadRouter
 
     let clipboardModule: ClipboardModule

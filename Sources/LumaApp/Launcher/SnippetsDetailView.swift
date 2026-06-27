@@ -239,11 +239,22 @@ final class SnippetsDetailView: NSObject, ModuleDetailView {
                     existing.trigger = trigger
                     existing.content = content
                     existing.tags = tags
-                    _ = try? await self.module.update(existing)
+                    let saved = try? await self.module.update(existing)
+                    await MainActor.run {
+                        if saved == nil {
+                            LauncherEnvironment.current?.showStatus?(LauncherStatusMessages.snippetSaveFailed)
+                        }
+                        self.refresh()
+                    }
                 } else {
-                    _ = try? await self.module.add(title: title, content: content, tags: tags, trigger: trigger)
+                    let saved = try? await self.module.add(title: title, content: content, tags: tags, trigger: trigger)
+                    await MainActor.run {
+                        LauncherEnvironment.current?.showStatus?(
+                            saved == nil ? LauncherStatusMessages.snippetSaveFailed : LauncherStatusMessages.snippetCreated
+                        )
+                        self.refresh()
+                    }
                 }
-                await MainActor.run { self.refresh() }
             }
         }
         if let window = detailView.window {

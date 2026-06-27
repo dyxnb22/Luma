@@ -9,14 +9,17 @@ enum NotesCaptureHelper {
         let outcome = await env.notesModule.captureTextToDailyNote(text)
         switch outcome {
         case .appended(let url):
+            await HomeSuggestionMemory.shared.recordDailyNoteOpened()
+            env.showStatus?(LauncherStatusMessages.savedToDailyNote)
             if openAfterCapture {
                 env.onHideLauncher()
                 NSWorkspace.shared.open(url)
             }
         case .rootNotConfigured:
+            env.showStatus?(LauncherStatusMessages.notesRootNotConfigured)
             env.openModuleDetail(.notes)
         case .failed:
-            break
+            env.showStatus?(LauncherStatusMessages.noteSaveFailed)
         }
         return outcome
     }

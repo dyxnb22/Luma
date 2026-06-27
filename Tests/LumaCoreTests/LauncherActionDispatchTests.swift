@@ -54,7 +54,7 @@ import LumaCore
         title: "Open",
         kind: .openModuleDetail(wordbook, payload: nil)
     )
-    #expect(action.returnHint == "Open detail")
+    #expect(action.returnHint == "Open")
     #expect(action.keepsLauncherVisible)
 }
 

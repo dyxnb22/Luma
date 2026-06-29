@@ -186,7 +186,7 @@ final class SnippetEditorSheet: NSWindow {
       return
     }
     if !conflictLabel.isHidden, conflictLabel.stringValue.contains("Trigger") {
-      LauncherEnvironment.current?.showStatus?(LauncherStatusMessages.snippetTriggerTaken)
+      LauncherEnvironment.current?.showStatus(LauncherStatusMessages.snippetTriggerTaken)
       triggerField.becomeFirstResponder()
       return
     }

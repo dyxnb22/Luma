@@ -288,18 +288,24 @@ final class LauncherRootController {
 
     func openModuleDetail(for moduleID: ModuleIdentifier, payload: Data? = nil) {
         if moduleID == .snippets, let payload,
-           let action = try? ModuleActionCoding.decode(SnippetsAction.self, from: payload),
-           case .prepareDraft(let draft) = action {
-            LauncherSharedState.pendingSnippetDraft = draft
+           let action = try? ModuleActionCoding.decode(SnippetsAction.self, from: payload) {
+            switch action {
+            case .prepareDraft(let draft):
+                LauncherSharedState.pendingSnippetDraft = draft
+            case .create(let title):
+                LauncherSharedState.pendingSnippetDraft = SnippetDraft(title: title, content: "")
+            default:
+                break
+            }
             if let message = draftLoadedStatus(for: moduleID, payload: payload) {
-                launcherEnvironment.showStatus?(message)
+                launcherEnvironment.showStatus(message)
             }
             presentModuleDetail(for: moduleID)
             return
         }
         applyModuleDetailPayload(moduleID: moduleID, payload: payload)
         if let message = draftLoadedStatus(for: moduleID, payload: payload) {
-            launcherEnvironment.showStatus?(message)
+            launcherEnvironment.showStatus(message)
         }
         presentModuleDetail(for: moduleID)
     }

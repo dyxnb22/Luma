@@ -239,6 +239,9 @@ final class AppCoordinator {
             onHideLauncher: { [weak self] in
                 self?.windowController.hideImmediatelyForAction()
             },
+            showStatus: { [weak self] message in
+                self?.windowController.showStatus(message)
+            },
             detailReloadRouter: detailReloadRouter,
             clipboardModule: clipboardModule,
             notesModule: notesModule,
@@ -283,10 +286,6 @@ final class AppCoordinator {
                 self?.settingsWindowController?.show()
             }
         )
-        launcherEnv.showStatus = { [weak self] message in
-            self?.windowController.showStatus(message)
-        }
-
         Task {
             let modules = BuiltInModules.makeAll(overrides: .init(
                 clipboard: clipboardModule,

@@ -18,7 +18,7 @@ final class LauncherEnvironment {
     let onBackFromDetail: () -> Void
     let onTranslateContentChanged: (String, String) -> Void
     let onHideLauncher: () -> Void
-    var showStatus: ((String) -> Void)?
+    let showStatus: (String) -> Void
     let detailReloadRouter: ModuleDetailReloadRouter
 
     let clipboardModule: ClipboardModule
@@ -41,6 +41,7 @@ final class LauncherEnvironment {
         onBackFromDetail: @escaping () -> Void,
         onTranslateContentChanged: @escaping (String, String) -> Void,
         onHideLauncher: @escaping () -> Void,
+        showStatus: @escaping (String) -> Void,
         detailReloadRouter: ModuleDetailReloadRouter,
         clipboardModule: ClipboardModule,
         notesModule: NotesModule,
@@ -61,6 +62,7 @@ final class LauncherEnvironment {
         self.onBackFromDetail = onBackFromDetail
         self.onTranslateContentChanged = onTranslateContentChanged
         self.onHideLauncher = onHideLauncher
+        self.showStatus = showStatus
         self.detailReloadRouter = detailReloadRouter
         self.clipboardModule = clipboardModule
         self.notesModule = notesModule

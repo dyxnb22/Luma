@@ -242,14 +242,14 @@ final class SnippetsDetailView: NSObject, ModuleDetailView {
                     let saved = try? await self.module.update(existing)
                     await MainActor.run {
                         if saved == nil {
-                            LauncherEnvironment.current?.showStatus?(LauncherStatusMessages.snippetSaveFailed)
+                            LauncherEnvironment.current?.showStatus(LauncherStatusMessages.snippetSaveFailed)
                         }
                         self.refresh()
                     }
                 } else {
                     let saved = try? await self.module.add(title: title, content: content, tags: tags, trigger: trigger)
                     await MainActor.run {
-                        LauncherEnvironment.current?.showStatus?(
+                        LauncherEnvironment.current?.showStatus(
                             saved == nil ? LauncherStatusMessages.snippetSaveFailed : LauncherStatusMessages.snippetCreated
                         )
                         self.refresh()

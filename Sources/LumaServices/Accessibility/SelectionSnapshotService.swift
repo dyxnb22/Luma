@@ -25,7 +25,11 @@ public actor SelectionSnapshotService {
         }
 
         let task = Task {
-            let text = await MainActor.run { Self.readSelectedText() }
+            // Capture PID on MainActor (fast AppKit property access), then do
+            // the synchronous AX IPC calls on this background task to avoid
+            // blocking the main thread for the full cross-process round-trip.
+            let pid = await MainActor.run { NSWorkspace.shared.frontmostApplication?.processIdentifier }
+            let text = pid.flatMap { Self.readSelectedText(pid: $0) }
             await self.store(text)
         }
         refreshTask = task
@@ -38,11 +42,9 @@ public actor SelectionSnapshotService {
         cachedAt = Date()
     }
 
-    @MainActor
-    private static func readSelectedText() -> String? {
-        guard AXService.isProcessTrusted(),
-              let app = NSWorkspace.shared.frontmostApplication else { return nil }
-        let appElement = AXUIElementCreateApplication(app.processIdentifier)
+    private static func readSelectedText(pid: pid_t) -> String? {
+        guard AXService.isProcessTrusted() else { return nil }
+        let appElement = AXUIElementCreateApplication(pid)
         var focused: CFTypeRef?
         guard AXUIElementCopyAttributeValue(appElement, kAXFocusedUIElementAttribute as CFString, &focused) == .success,
               let element = focused else { return nil }

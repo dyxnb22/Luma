@@ -33,48 +33,44 @@ struct ContextualHomeProvider: LauncherHomeProvider, ContextualHomeSectionProvid
 
   private func rankedSectionItems() async -> (continue: [ResultItem], create: [ResultItem]) {
     let memory = suggestionMemory
+
+    // Run all independent fetches concurrently so their latencies overlap.
+    async let projectContext = CurrentProjectService.shared.snapshot()
+    async let selectedText = SelectionSnapshotService.shared.snapshot()
+    async let dailyRow = continueDailyNoteRow()
+    async let todoRow = topTodoRow()
+    async let transformRow = clipboardTransformRow()
+    async let noteRow = saveClipboardToNoteRow()
+    async let snippetRow = saveClipboardAsSnippetRow()
+    async let quicklinkRow = saveURLAsQuicklinkRow()
+    async let recordsRow = continueRecordsRow()
+
+    let (context, text, daily, todo, transform, note, snippet, quicklink, records) = await (
+      projectContext, selectedText, dailyRow, todoRow, transformRow, noteRow, snippetRow, quicklinkRow, recordsRow
+    )
+
     var candidates: [(item: ResultItem, key: String, kind: HomeSuggestionKind, base: Int)] = []
 
-    if let context = await CurrentProjectService.shared.snapshot() {
+    if let context {
       await memory.boostSessionContext(key: "contextual.current")
       if let row = currentProjectRow(context: context) {
         candidates.append((row, "contextual.current", .continueFlow, 88))
       }
     }
 
-    if let text = await SelectionSnapshotService.shared.snapshot(),
+    if let text,
        !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
        TranslationUserMessages.shouldTranslate(text) {
       candidates.append((translateSelectedRow(text: text), "contextual.translate", .utility, 90))
     }
 
-    if let dailyRow = await continueDailyNoteRow() {
-      candidates.append((dailyRow, "contextual.daily", .continueFlow, 87))
-    }
-
-    if let todoRow = await topTodoRow() {
-      candidates.append((todoRow, todoRow.id.key, .continueFlow, 86))
-    }
-
-    if let transformRow = await clipboardTransformRow() {
-      candidates.append((transformRow, transformRow.id.key, .transform, 84))
-    }
-
-    if let noteRow = await saveClipboardToNoteRow() {
-      candidates.append((noteRow, "contextual.clip-note", .create, 83))
-    }
-
-    if let snippetRow = await saveClipboardAsSnippetRow() {
-      candidates.append((snippetRow, "contextual.clip-snippet", .create, 82))
-    }
-
-    if let quicklinkRow = await saveURLAsQuicklinkRow() {
-      candidates.append((quicklinkRow, "contextual.url-quicklink", .create, 81))
-    }
-
-    if let recordsRow = await continueRecordsRow() {
-      candidates.append((recordsRow, "contextual.records", .continueFlow, 75))
-    }
+    if let daily { candidates.append((daily, "contextual.daily", .continueFlow, 87)) }
+    if let todo { candidates.append((todo, "contextual.todo", .continueFlow, 86)) }
+    if let transform { candidates.append((transform, transform.id.key, .transform, 84)) }
+    if let note { candidates.append((note, "contextual.clip-note", .create, 83)) }
+    if let snippet { candidates.append((snippet, "contextual.clip-snippet", .create, 82)) }
+    if let quicklink { candidates.append((quicklink, "contextual.url-quicklink", .create, 81)) }
+    if let records { candidates.append((records, "contextual.records", .continueFlow, 75)) }
 
     var ranked: [(item: ResultItem, kind: HomeSuggestionKind, priority: Int)] = []
     for candidate in candidates {
@@ -152,7 +148,7 @@ struct ContextualHomeProvider: LauncherHomeProvider, ContextualHomeSectionProvid
     guard let reminder = try? await todoModule.firstTodayDueReminder() else { return nil }
     let completePayload = (try? ModuleActionCoding.encode(TodoAction.complete(id: reminder.id))) ?? Data()
     return ResultItem(
-      id: ResultID(module: .todo, key: "contextual.open.\(reminder.id)"),
+      id: ResultID(module: .todo, key: "contextual.todo"),
       title: reminder.title,
       titleAttributed: AttributedString(reminder.title),
       subtitle: "Due today",

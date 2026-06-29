@@ -167,7 +167,7 @@ final class QuicklinksDetailView: NSObject, ModuleDetailView {
                     self.conflictLabel.stringValue = validation
                     self.conflictLabel.isHidden = false
                     if validation.contains("http") {
-                        LauncherEnvironment.current?.showStatus?(LauncherStatusMessages.quicklinkMissingProtocol)
+                        LauncherEnvironment.current?.showStatus(LauncherStatusMessages.quicklinkMissingProtocol)
                     }
                 }
                 return
@@ -177,7 +177,7 @@ final class QuicklinksDetailView: NSObject, ModuleDetailView {
                     self.conflictLabel.stringValue =
                         "Trigger “\(conflict.trigger)” is used by “\(conflict.name)”. Pick another trigger."
                     self.conflictLabel.isHidden = false
-                    LauncherEnvironment.current?.showStatus?(LauncherStatusMessages.quicklinkTriggerTaken)
+                    LauncherEnvironment.current?.showStatus(LauncherStatusMessages.quicklinkTriggerTaken)
                 }
                 return
             }
@@ -187,7 +187,7 @@ final class QuicklinksDetailView: NSObject, ModuleDetailView {
                     self.conflictLabel.stringValue =
                         "URL matches “\(duplicate.name)” (\(duplicate.trigger)). Review before saving another quicklink."
                     self.conflictLabel.isHidden = false
-                    LauncherEnvironment.current?.showStatus?(LauncherStatusMessages.quicklinkURLDuplicate)
+                    LauncherEnvironment.current?.showStatus(LauncherStatusMessages.quicklinkURLDuplicate)
                 }
             }
             if self.quicklinks.indices.contains(row) {
@@ -199,7 +199,7 @@ final class QuicklinksDetailView: NSObject, ModuleDetailView {
                 let saved = try? await self.module.update(quicklink)
                 await MainActor.run {
                     self.conflictLabel.isHidden = true
-                    LauncherEnvironment.current?.showStatus?(
+                    LauncherEnvironment.current?.showStatus(
                         saved == nil ? LauncherStatusMessages.quicklinkSaveFailed : LauncherStatusMessages.quicklinkSaved
                     )
                     self.refresh(select: saved?.id ?? quicklink.id)
@@ -210,7 +210,7 @@ final class QuicklinksDetailView: NSObject, ModuleDetailView {
                 )
                 await MainActor.run {
                     self.conflictLabel.isHidden = true
-                    LauncherEnvironment.current?.showStatus?(
+                    LauncherEnvironment.current?.showStatus(
                         saved == nil ? LauncherStatusMessages.quicklinkSaveFailed : LauncherStatusMessages.quicklinkSaved
                     )
                     self.refresh(select: saved?.id)

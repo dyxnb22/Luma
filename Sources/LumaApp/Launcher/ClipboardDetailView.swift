@@ -304,7 +304,7 @@ final class ClipboardDetailView: NSObject, ModuleDetailView {
         guard let output = pendingTransformOutput else { return }
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(output, forType: .string)
-        LauncherEnvironment.current?.showStatus?(LauncherStatusMessages.copiedToClipboard)
+        LauncherEnvironment.current?.showStatus(LauncherStatusMessages.copiedToClipboard)
         clearTransformPreview()
     }
 
@@ -316,7 +316,7 @@ final class ClipboardDetailView: NSObject, ModuleDetailView {
             let updated = await self.module.updateEntryText(id: entry.id, text: output)
             await MainActor.run {
                 if updated {
-                    LauncherEnvironment.current?.showStatus?("Clipboard entry updated")
+                    LauncherEnvironment.current?.showStatus("Clipboard entry updated")
                     self.clearTransformPreview()
                     self.refresh()
                 }
@@ -429,14 +429,14 @@ final class ClipboardDetailView: NSObject, ModuleDetailView {
         let draft = SnippetDraft.fromClipboard(entry.plainTextForCopy)
         LauncherSharedState.pendingSnippetDraft = draft
         LauncherEnvironment.current?.openModuleDetail(.snippets)
-        LauncherEnvironment.current?.showStatus?(LauncherStatusMessages.draftLoadedInSnippets)
+        LauncherEnvironment.current?.showStatus(LauncherStatusMessages.draftLoadedInSnippets)
     }
 
     private func saveAsNote(_ entry: ClipboardEntry) {
         let text = entry.plainTextForCopy.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
         Task {
-            _ = await NotesCaptureHelper.appendToDailyNote(text)
+            _ = await NotesCaptureHelper.appendToDailyNote(text, openAfterCapture: false)
         }
     }
 

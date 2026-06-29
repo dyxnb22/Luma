@@ -102,7 +102,10 @@ public actor BrowserTabsModule: LumaModule {
 public enum BrowserTabsIndex {
     public static func search(_ records: [TabRecord], query: String, limit: Int = 8) -> [TabRecord] {
         let q = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        guard !q.isEmpty else { return Array(records.prefix(limit)) }
+        guard !q.isEmpty else {
+            var seen = Set<TabRecord>()
+            return Array(records.filter { seen.insert($0).inserted }.prefix(limit))
+        }
         var seen = Set<TabRecord>()
         return records.compactMap { record -> (TabRecord, Double)? in
             let target = "\(record.title) \(record.url) \(record.browserName)".lowercased()

@@ -10,16 +10,16 @@ enum NotesCaptureHelper {
         switch outcome {
         case .appended(let url):
             await HomeSuggestionMemory.shared.recordDailyNoteOpened()
-            env.showStatus?(LauncherStatusMessages.savedToDailyNote)
+            env.showStatus(LauncherStatusMessages.savedToDailyNote)
             if openAfterCapture {
                 env.onHideLauncher()
                 NSWorkspace.shared.open(url)
             }
         case .rootNotConfigured:
-            env.showStatus?(LauncherStatusMessages.notesRootNotConfigured)
+            env.showStatus(LauncherStatusMessages.notesRootNotConfigured)
             env.openModuleDetail(.notes)
         case .failed:
-            env.showStatus?(LauncherStatusMessages.noteSaveFailed)
+            env.showStatus(LauncherStatusMessages.noteSaveFailed)
         }
         return outcome
     }

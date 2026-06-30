@@ -31,6 +31,8 @@ public actor QueryDispatcher {
             for module in modules {
                 let manifest = type(of: module).manifest
                 group.addTask {
+                    await self.host.warmupIfNeeded(id: manifest.identifier, reason: .query)
+                    await self.host.markUsed(id: manifest.identifier)
                     await self.metrics.mark("module.\(manifest.identifier.rawValue).start")
                     let deadline = ContinuousClock().now.advanced(by: manifest.queryTimeout)
                     let context = await self.host.makeQueryContext(deadline: deadline)
@@ -71,6 +73,8 @@ public actor QueryDispatcher {
         }
 
         let usageRecords = await usage.snapshot()
+        await host.warmupIfNeeded(id: moduleID, reason: .query)
+        await host.markUsed(id: moduleID)
         let deadline = ContinuousClock().now.advanced(by: manifest.queryTimeout)
         let context = await host.makeQueryContext(deadline: deadline)
         let result = await Timeout.run(after: manifest.queryTimeout) {

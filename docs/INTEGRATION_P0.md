@@ -1,39 +1,46 @@
 # Integration P0
 
-Luma is already broadly built. The next step is not more feature breadth; it is making existing flows feel complete, reliable, and fast.
+Luma is broadly built. The task here is making existing flows feel complete, reliable, and fast — not adding surface area.
+
+Status legend: ✅ done · 🔄 in progress · ☐ not started
 
 ## 1. Permissions
 
-- Accessibility-denied states must always show an actionable path, never a silent failure or raw system wording.
-- Automation-denied Browser Tabs flows must degrade cleanly and teach recovery.
-- Permission banners must not trap focus or break Esc/back behavior.
-- Default-off modules should explain why they are off and what enabling them implies.
+- ✅ Accessibility-denied states show an actionable path (permission banner with Settings link)
+- ✅ Permission banners do not trap focus; Esc/back behavior is preserved
+- ✅ `LauncherEnvironment.showStatus` is non-optional — permission state is always surfaced
+- ✅ Automation-denied Browser Tabs flows degrade cleanly (actionable error, not raw AppleScript)
+- ✅ Default-off modules explain why they are off and what enabling them implies (Settings → Modules)
 
 ## 2. Empty States
 
-- Every detail view needs a useful empty state with a next action.
-- Empty search results should clarify whether the issue is query, missing data, disabled module, or missing permission.
-- First-run states should point to setup, not expose implementation details.
+- ✅ Snippets detail shows empty state with "add one" prompt
+- ✅ Todo shows "Nothing due today · Type a task to add it"
+- ✅ Notes and Secrets detail empty states with next actions
+- ✅ Media and Projects detail views show actionable empty states
+- ✅ Empty search results clarify query vs missing data via `SearchEmptyState` hints
+- ✅ First-run state points to setup rather than exposing implementation details (`SetupHomeProvider`)
 
 ## 3. Cross-Module Flows
 
-- Clipboard -> Snippet
-- Clipboard / Translate -> Note
-- URL / selection -> Quicklink draft
-- Current project context -> Commands / Snippets / Quicklinks
-- Records / Wordbook / Notes actions should round-trip cleanly back into launcher search and detail views
+- ✅ Clipboard → Snippet (save as snippet from clipboard detail)
+- ✅ Clipboard / selection → Note (append to daily note action)
+- ✅ Clipboard entry → inline expansion via snippet trigger
+- ✅ URL / selection → Quicklink draft
+- ✅ Current project context surfaced in Commands / Snippets / Quicklinks suggestions
+- ✅ Records / Wordbook / Notes actions round-trip cleanly back into launcher search
 
 ## 4. Detail Return Chain
 
-- Esc must unwind consistently: action panel -> detail -> results/home -> close
-- Back button and Esc must land in the same place
-- Return from a detail-triggering row should preserve a coherent session
-- Hide/show launcher should preserve or intentionally reset state, never do something ambiguous
+- ✅ Esc unwinds: action panel → detail → results/home → close
+- ✅ Back button and Esc land in the same place
+- ✅ Return from a detail-triggering row preserves a coherent session (Wordbook verified)
+- ✅ Hide/show launcher preserves query/detail via `LauncherSessionStore`
 
 ## Done When
 
-- Core permission flows are understandable without docs
-- Empty states always suggest a next step
-- Cross-module actions visibly land where the user expects
-- Detail navigation feels consistent across modules
-- No P0/P1 regressions appear in the recorded review pass
+- ✅ Core permission flows are understandable without docs
+- ✅ Empty states always suggest a next step
+- ✅ Cross-module actions visibly land where the user expects (project context + resume rows)
+- ✅ Detail navigation feels consistent across modules
+- 🔄 No P0/P1 regressions in the recorded review pass

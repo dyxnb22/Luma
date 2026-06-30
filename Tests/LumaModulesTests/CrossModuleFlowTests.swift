@@ -32,6 +32,15 @@ import LumaCore
     #expect(url.host == "example.com")
 }
 
+@Test func textQuicklinkDraftSourceFindsEmbeddedHTTPURL() {
+    let draft = TextQuicklinkDraftSource(
+        text: "see https://developer.apple.com/documentation for more"
+    ).quicklinkDraft()
+    #expect(draft?.name == "developer.apple.com")
+    #expect(draft?.trigger == "developer")
+    #expect(draft?.urlTemplate == "https://developer.apple.com/documentation")
+}
+
 @Test func notesCaptureTextToDailyNoteAppendsContent() async throws {
     let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)

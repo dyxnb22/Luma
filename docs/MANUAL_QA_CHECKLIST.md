@@ -103,6 +103,13 @@
 
 - Clipboard detail row action saves entry via snippet editor sheet.
 
+## Clipboard Global Search
+
+- Type 3+ characters in global search → clipboard entries matching the query appear inline (up to 3 rows, ranked alongside other modules).
+- Queries shorter than 3 characters do not surface clipboard entries.
+- `clip` / `cb` prefix still works as before and is not affected.
+- Privacy: concealed / transient pasteboard types are never captured and never appear in global search results.
+
 ### Settings Activity
 
 - Settings → Activity tab shows 7-day and 30-day sparklines plus per-module counts.
@@ -123,6 +130,9 @@
 - Add snippet via detail → `s <query>` finds it → Return copies content.
 - Tab on a snippet result pastes into front app (requires Accessibility).
 - Edit / Delete / Duplicate round-trip across app restart.
+- **Trigger expansion**: create a snippet with a trigger (e.g. `;hdr`) → type `;hdr` in the launcher search bar → Return expands and pastes inline → panel dismisses → status bar shows "Snippet expanded".
+- Trigger expansion only fires in global search mode (not when already scoped to `s` / `snip`).
+- Trigger match is case-insensitive; a query with spaces does not trigger expansion.
 
 ## Secrets
 

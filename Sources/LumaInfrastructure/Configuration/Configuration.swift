@@ -19,6 +19,9 @@ public actor ConfigurationStore: ConfigurationClient {
     private let launcherTranslateSourceTextKey = "launcherTranslateSourceText"
     private let launcherTranslateOutputTextKey = "launcherTranslateOutputText"
     private let latencyHUDEnabledKey = "latencyHUDEnabled"
+    private let pinnedModuleIDsKey = "pinnedModuleIDs"
+    private let warmupPolicyKey = "warmupPolicy"
+    private let setupHintsDismissedKey = "setupHintsDismissed"
 
     public init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
@@ -163,5 +166,36 @@ public actor ConfigurationStore: ConfigurationClient {
 
     public func setLatencyHUDEnabled(_ value: Bool) {
         defaults.set(value, forKey: latencyHUDEnabledKey)
+    }
+
+    public func pinnedModuleIDs() async -> Set<ModuleIdentifier> {
+        guard let raw = defaults.stringArray(forKey: pinnedModuleIDsKey) else {
+            return ModuleWarmupDefaults.defaultPinnedModuleIDs
+        }
+        return Set(raw.map(ModuleIdentifier.init(rawValue:)))
+    }
+
+    public func setPinnedModuleIDs(_ ids: Set<ModuleIdentifier>) {
+        defaults.set(ids.map(\.rawValue).sorted(), forKey: pinnedModuleIDsKey)
+    }
+
+    public func warmupPolicy() async -> WarmupPolicy {
+        guard let raw = defaults.string(forKey: warmupPolicyKey),
+              let policy = WarmupPolicy(rawValue: raw) else {
+            return .eagerPinnedOnly
+        }
+        return policy
+    }
+
+    public func setWarmupPolicy(_ policy: WarmupPolicy) {
+        defaults.set(policy.rawValue, forKey: warmupPolicyKey)
+    }
+
+    public func setupHintsDismissed() -> Bool {
+        defaults.bool(forKey: setupHintsDismissedKey)
+    }
+
+    public func setSetupHintsDismissed(_ value: Bool) {
+        defaults.set(value, forKey: setupHintsDismissedKey)
     }
 }

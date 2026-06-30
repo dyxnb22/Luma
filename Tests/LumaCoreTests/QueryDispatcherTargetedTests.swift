@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 import LumaCore
+import LumaModules
 
 private struct TestDoubles {
     struct Logger: LoggingClient {
@@ -244,6 +245,7 @@ private actor SnapshotCollector {
     let beta = BetaLifecycleModule()
     await host.register(alpha)
     await host.register(beta)
+    await host.configureWarmupPolicy(pinned: [BetaLifecycleModule.manifest.identifier])
 
     await host.applyEnabledSet([AlphaLifecycleModule.manifest.identifier])
     await host.applyEnabledSet([

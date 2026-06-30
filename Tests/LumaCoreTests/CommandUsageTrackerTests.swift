@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 import LumaCore
+import LumaModules
 
 @Test func commandUsageTrackerPersistsCounts() async throws {
     let url = FileManager.default.temporaryDirectory
@@ -30,7 +31,7 @@ import LumaCore
 }
 
 @Test func commandRouterOpenSettingsRoutesTargeted() {
-    let router = CommandRouter()
+    let router = CommandRouter(registry: BuiltInCommandRegistry.make())
     let commands = ModuleIdentifier(rawValue: "luma.commands")
     #expect(router.route(raw: "open-settings") == .targeted(module: commands, trigger: "open-settings", payload: ""))
     #expect(router.route(raw: "quit") == .targeted(module: commands, trigger: "quit", payload: ""))

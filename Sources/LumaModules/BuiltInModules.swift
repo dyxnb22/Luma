@@ -38,24 +38,7 @@ public enum BuiltInModules {
 
     /// Active modules registered at launch and warmed up by `ModuleHost`.
     public static func makeAll(overrides: Overrides = .init()) -> [any LumaModule] {
-        [
-            AppsModule(),
-            overrides.clipboard ?? ClipboardModule(),
-            CommandsModule(),
-            overrides.notes ?? NotesModule(),
-            overrides.todo ?? TodoModule(),
-            TranslateModule(),
-            overrides.wordbook ?? WordbookModule(),
-            overrides.snippets ?? SnippetsModule(),
-            overrides.secrets ?? SecretsModule(),
-            overrides.media ?? MediaModule(),
-            WindowLayoutsModule(),
-            overrides.projects ?? ProjectsModule(),
-            overrides.quicklinks ?? QuicklinksModule(),
-            MenuItemsModule(),
-            KillProcessModule(),
-            BrowserTabsModule()
-        ]
+        ModuleRegistry.makeAll(overrides: overrides)
     }
 
     /// Deferred modules kept in source but excluded from active registration, warmup, and default enablement.
@@ -64,6 +47,11 @@ public enum BuiltInModules {
     }
 
     public static let accessibilityDependentModuleIDs: Set<ModuleIdentifier> = [.windows, .snippets, .windowLayouts, .menuItems]
+
+    /// Modules with hotPath warmup tier (legacy alias; prefer ModuleRegistry.hotPathModuleIDs).
+    public static var fastModuleIDs: Set<ModuleIdentifier> {
+        ModuleRegistry.hotPathModuleIDs
+    }
 
     public static func enabledModulesRequireAccessibility(_ enabled: Set<ModuleIdentifier>) -> Bool {
         !accessibilityDependentModuleIDs.isDisjoint(with: enabled)
@@ -75,23 +63,6 @@ public enum BuiltInModules {
 
     /// Single source of truth for built-in module manifests (registration order).
     public static func manifestCatalog() -> [ModuleManifest] {
-        [
-            AppsModule.manifest,
-            ClipboardModule.manifest,
-            CommandsModule.manifest,
-            NotesModule.manifest,
-            TodoModule.manifest,
-            TranslateModule.manifest,
-            WordbookModule.manifest,
-            SnippetsModule.manifest,
-            SecretsModule.manifest,
-            MediaModule.manifest,
-            WindowLayoutsModule.manifest,
-            ProjectsModule.manifest,
-            QuicklinksModule.manifest,
-            MenuItemsModule.manifest,
-            KillProcessModule.manifest,
-            BrowserTabsModule.manifest
-        ]
+        ModuleRegistry.manifestCatalog()
     }
 }

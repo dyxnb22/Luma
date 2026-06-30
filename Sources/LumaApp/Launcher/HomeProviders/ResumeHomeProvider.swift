@@ -87,17 +87,19 @@ struct ResumeHomeProvider: LauncherHomeProvider {
        state.quicklinkDraftJSON == nil {
       let moduleID = ModuleIdentifier(rawValue: moduleRaw)
       let trimmed = state.query.trimmingCharacters(in: .whitespacesAndNewlines)
-      if !trimmed.isEmpty {
+      let resolved = LauncherModuleResumeQuery.normalizedQuery(for: moduleID, raw: state.query)
+      let display = trimmed.isEmpty ? resolved.trimmingCharacters(in: .whitespacesAndNewlines) : trimmed
+      if !display.isEmpty {
         rows.append(ResultItem(
           id: ResultID(module: moduleID, key: "resume.module"),
-          title: "Resume last search",
-          titleAttributed: AttributedString("Resume last search"),
-          subtitle: trimmed,
+          title: LauncherModuleResumeQuery.resumeTitle(for: moduleID),
+          titleAttributed: AttributedString(LauncherModuleResumeQuery.resumeTitle(for: moduleID)),
+          subtitle: display,
           icon: .symbol("arrow.uturn.backward"),
           primaryAction: Action(
             id: ActionID(module: moduleID, key: "resume"),
             title: "Restore query",
-            kind: .replaceQuery(trimmed)
+            kind: .replaceQuery(resolved)
           ),
           rankingHints: RankingHints(basePriority: 91),
           rowKind: .starter

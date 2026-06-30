@@ -1,9 +1,10 @@
 import Foundation
 import Testing
 import LumaCore
+import LumaModules
 
 @Test func appsBarePayloadShadowsToGlobalSearch() {
-    let router = CommandRouter()
+    let router = CommandRouter(registry: BuiltInCommandRegistry.make())
     guard case .globalSearch(let query) = router.route(raw: "app chrome") else {
         Issue.record("Expected globalSearch for app chrome")
         return
@@ -12,7 +13,7 @@ import LumaCore
 }
 
 @Test func appsTopStaysTargeted() {
-    let router = CommandRouter()
+    let router = CommandRouter(registry: BuiltInCommandRegistry.make())
     let apps = ModuleIdentifier(rawValue: "luma.apps")
     #expect(router.route(raw: "app top") == .targeted(module: apps, trigger: "app", payload: "top"))
 }
@@ -91,7 +92,7 @@ import LumaCore
 // docs/specs/UX_BEHAVIOR_RULES.md.
 
 @Test func bareOpenDetailCommandsTargetTheirModule() {
-    let router = CommandRouter()
+    let router = CommandRouter(registry: BuiltInCommandRegistry.make())
     let registry = router.registry
     let cases: [(trigger: String, moduleRaw: String)] = [
         ("word", "luma.wordbook"),
@@ -114,7 +115,7 @@ import LumaCore
 }
 
 @Test func bareOpenDetailReturnPrefersPanelOverRowResults() {
-    let router = CommandRouter()
+    let router = CommandRouter(registry: BuiltInCommandRegistry.make())
     #expect(router.isBareOpenDetailReturn(raw: "notes"))
     #expect(router.isBareOpenDetailReturn(raw: "n"))
     #expect(router.isBareOpenDetailReturn(raw: "clip"))
@@ -130,7 +131,7 @@ import LumaCore
 @Test func wordReviewRouteIsTargetedWithReviewPayload() {
     // The launcher reads this exact payload string to decide whether to set
     // `LauncherSharedState.pendingWordbookAutoStartReview` before opening detail.
-    let router = CommandRouter()
+    let router = CommandRouter(registry: BuiltInCommandRegistry.make())
     guard case .targeted(let module, _, let payload) = router.route(raw: "word review") else {
         Issue.record("Expected .targeted for `word review`")
         return
@@ -146,7 +147,7 @@ import LumaCore
 }
 
 @Test func appsShadowReservesPayloadsKeepTargeted() {
-    let router = CommandRouter()
+    let router = CommandRouter(registry: BuiltInCommandRegistry.make())
     let registry = router.registry
     let apps = registry.command(forTrigger: "app")
     #expect(apps?.bareBehavior == .globalSearchShadow)

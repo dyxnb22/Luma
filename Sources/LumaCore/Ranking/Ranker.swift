@@ -28,10 +28,17 @@ public enum Ranker {
 
         let modulePriority = Double(item.rankingHints.basePriority) / 10.0
 
-        return 0.55 * fuzzy
+        // Boost items whose title exactly matches the query so they reliably
+        // surface first (e.g. a snippet trigger typed verbatim, or an exact
+        // app name vs a fuzzy near-match from another module).
+        let matchText = fuzzyMatchingText(for: query)
+        let exactBoost: Double = (!matchText.isEmpty && item.title.lowercased() == matchText) ? 0.3 : 0.0
+
+        return 0.45 * fuzzy
             + 0.20 * recency
             + 0.15 * frequency
             + 0.10 * modulePriority
+            + exactBoost
     }
 
     static func fuzzyMatchingText(for query: Query) -> String {

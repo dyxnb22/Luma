@@ -85,7 +85,11 @@ final class AppCoordinator {
         usage: usage,
         resultCache: resultCache
     )
-    private lazy var viewModel = LauncherViewModel(dispatcher: dispatcher, commandUsage: commandUsage)
+    private lazy var viewModel = LauncherViewModel(
+        dispatcher: dispatcher,
+        commandRouter: CommandRouter(registry: ModuleRegistry.makeCommandRegistry()),
+        commandUsage: commandUsage
+    )
     private let appActivationTracker = AppActivationTracker.defaultTracker()
     private lazy var openAppsProvider = OpenAppsHomeProvider(appActivationTracker: appActivationTracker)
     private lazy var clipboardModule = ClipboardModule(pasteboard: pasteboard, accessibility: accessibility)
@@ -94,16 +98,24 @@ final class AppCoordinator {
     private let secretsModule = SecretsModule()
     private let mediaModule = MediaModule()
     private let quicklinksModule = QuicklinksModule()
+    private lazy var wordbookStore = WordbookStore()
+    private lazy var wordbookModule = WordbookModule(store: wordbookStore)
+    private lazy var snippetsModule = SnippetsModule()
+    private lazy var contextualHomeProvider = ContextualHomeProvider(
+        notesModule: notesModule,
+        todoModule: todoModule,
+        mediaModule: mediaModule,
+        wordbookModule: wordbookModule
+    )
+    private lazy var setupHomeProvider = SetupHomeProvider(config: config)
     private lazy var homeCoordinator = LauncherHomeCoordinator(
         openApps: openAppsProvider,
-        contextual: ContextualHomeProvider(
-            notesModule: notesModule,
-            todoModule: todoModule,
-            mediaModule: mediaModule
-        )
+        contextual: contextualHomeProvider,
+        setup: setupHomeProvider
     )
     private var activationObserver: NSObjectProtocol?
     private var terminationObserver: NSObjectProtocol?
+    private var idleTeardownTask: Task<Void, Never>?
 
     func start() {
         hostClient = AppHostService(
@@ -124,7 +136,18 @@ final class AppCoordinator {
             usage: usage,
             onModulesChanged: { [weak self] enabled in
                 guard let self else { return }
-                Task { await self.host.applyEnabledSet(enabled) }
+                Task {
+                    await self.host.applyEnabledSet(enabled)
+                    await self.homeCoordinator.updateEnabledModuleIDs(enabled)
+                }
+            },
+            onPinnedChanged: { [weak self] pinned in
+                guard let self else { return }
+                Task {
+                    await self.host.configureWarmupPolicy(pinned: pinned)
+                    await self.host.warmupIfNeeded(ids: pinned, reason: .startup)
+                    await self.homeCoordinator.updatePinnedModuleIDs(pinned)
+                }
             },
             onClipboardSettingsChanged: { [weak self] snapshot in
                 guard let self else { return }
@@ -205,9 +228,9 @@ final class AppCoordinator {
             }
         }
 
-        let wordbookStore = WordbookStore()
-        let wordbookModule = WordbookModule(store: wordbookStore)
-        let snippetsModule = SnippetsModule()
+        let wordbookStore = self.wordbookStore
+        let wordbookModule = self.wordbookModule
+        let snippetsModule = self.snippetsModule
 
         let launcherEnv = LauncherEnvironment(
             openModuleDetail: { [weak self] id in
@@ -243,6 +266,9 @@ final class AppCoordinator {
                 self?.windowController.showStatus(message)
             },
             detailReloadRouter: detailReloadRouter,
+            warmModuleForDetail: { [weak self] id in
+                await self?.host.warmupIfNeeded(id: id, reason: .detail)
+            },
             clipboardModule: clipboardModule,
             notesModule: notesModule,
             snippetsModule: snippetsModule,
@@ -281,6 +307,12 @@ final class AppCoordinator {
             actionExecutor: actionExecutor,
             config: config,
             launcherEnvironment: launcherEnv,
+            onWillShow: { [weak self] in
+                self?.cancelIdleModuleTeardown()
+            },
+            onDidHide: { [weak self] in
+                self?.scheduleIdleModuleTeardown()
+            },
             onOpenSettings: { [weak self] in
                 self?.windowController.hideImmediatelyForAction()
                 self?.settingsWindowController?.show()
@@ -301,9 +333,36 @@ final class AppCoordinator {
             for module in modules {
                 await host.register(module)
             }
-            await host.applyEnabledSet(await config.enabledModules())
-            await host.warmupAll()
+            let enabled = await config.enabledModules()
+            let pinned = await config.pinnedModuleIDs()
+            let policy = await config.warmupPolicy()
+            await homeCoordinator.updatePinnedModuleIDs(pinned)
+            await homeCoordinator.updateEnabledModuleIDs(enabled ?? Set(modules.map { type(of: $0).manifest.identifier }))
+            await host.configureWarmupPolicy(pinned: pinned)
+            await host.applyEnabledSet(enabled)
+
+            let startupWarm = pinned.intersection(enabled ?? Set(modules.map { type(of: $0).manifest.identifier }))
+            await host.warmupIfNeeded(ids: startupWarm, reason: .startup)
             windowController.setModulesReady(true)
+
+            if policy == .eagerAllEnabled {
+                await host.warmupRemainingEnabled()
+            }
+        }
+    }
+
+    private func cancelIdleModuleTeardown() {
+        idleTeardownTask?.cancel()
+        idleTeardownTask = nil
+    }
+
+    private func scheduleIdleModuleTeardown() {
+        idleTeardownTask?.cancel()
+        idleTeardownTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(30))
+            guard !Task.isCancelled, let self else { return }
+            let pinned = await self.config.pinnedModuleIDs()
+            await self.host.teardownIdleModules(olderThan: .seconds(300), pinned: pinned)
         }
     }
 }

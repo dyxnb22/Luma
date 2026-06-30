@@ -8,6 +8,7 @@ enum LauncherStatusMessages {
   static let snippetCreated = "Snippet created"
   static let quicklinkSaved = "Quicklink saved"
   static let copiedToClipboard = "Copied to clipboard"
+  static let snippetExpanded = "Snippet expanded"
 
   // Warnings
   static let notesRootNotConfigured = "Set a Notes root first"
@@ -28,6 +29,8 @@ enum LauncherStatusMessages {
   static let modulesLoading = "Modules loading…"
   static let noAlternateActions = "No alternate actions for this item"
   static let noActionPanelActions = "No extra actions — press Return to open"
+  static let noResultsYet = "No results yet"
+  static let clipboardEntryUpdated = "Clipboard entry updated"
 }
 
 enum LauncherFeedbackKind {

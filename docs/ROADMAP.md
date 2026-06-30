@@ -10,22 +10,22 @@ Implementation reference:
 
 Historical route records remain in ADRs, but current work should follow Route C and the current codebase rather than old strategy drafts.
 
-## Current Strategic Roadmap
+## Milestone Status
 
-| Version | Focus | Do | Do Not Do |
-| --- | --- | --- | --- |
-| 0.1 Daily self-use | Command-first launcher | Route C unified list, Open Apps, App Search, **Projects + Window Layouts + Translate + Clipboard + Notes + Todo + Wordbook + Snippets + Secrets + Records**, Commands/Settings, same-panel details, compact action panel | Dashboard/card home, Calculator, Events, Plugin API, Notion-style TODO database, Floating Wordbook pet, ChatGPT-paste import, browser password autofill, Douban-style social/discovery features in Records, streaming integration, Records metadata fetch (TMDB/OMDb/Google Books) in v1 |
-| 0.2 Stability and trust | Reliability, permissions, resilience | Better first-run guidance, denial/recovery UX, deterministic QA, module diagnostics, corrupt-config recovery, stronger warmup/teardown behavior | New surface-area expansion that weakens launch speed or clarity |
-| 0.3 UX refinement | Search quality and workflow polish | Better ranking, cleaner empty states, stronger keyboard-only flows, visual consistency, clearer detail navigation, improved module-level help | Reintroducing cards, sidebars, or multi-window drift |
-| 0.5 Distribution readiness | Release hardening | Signed distribution, regression checklist, launch-on-login polish, documentation cleanup, repeatable release process | Premature plugin/runtime architecture |
+| Version | Focus | Status |
+| --- | --- | --- |
+| 0.1 Daily self-use | Command-first launcher: Route C unified list, Open Apps, App Search, Projects, Window Layouts, Translate, Clipboard, Notes, Todo, Wordbook, Snippets, Secrets, Records, Commands, same-panel details | **Complete** |
+| 0.2 Stability and trust | Permission UX, first-run guidance, denial/recovery, module diagnostics, warmup/teardown correctness | **In progress (current)** |
+| 0.3 UX refinement | Better ranking, cleaner empty states, stronger keyboard-only flows, visual consistency, detail navigation | **In progress (current)** |
+| 0.5 Distribution readiness | Signed distribution, regression checklist, launch-on-login polish, repeatable release process | Planned |
 
 ## Current Product Priorities
 
-- Make first-run, permission-denied, and recovery states feel intentional rather than incidental.
-- Preserve the fast path: hotkey to panel, keystroke to first paint, and slow-module isolation.
-- Improve keyboard-only confidence across search, action panels, and detail navigation.
+- Close remaining permission-denied and recovery paths so they feel intentional, not incidental.
+- Tighten keyboard-only confidence across search, action panels, and detail navigation.
 - Keep result ranking intuitive for app names, commands, aliases, pinyin, and exact triggers.
-- Tighten visual consistency without drifting back into a dashboard product shape.
+- Maintain visual consistency without drifting back into a dashboard product shape.
+- No new feature scope until 0.2/0.3 work is clean.
 
 ## Current Module Scope
 

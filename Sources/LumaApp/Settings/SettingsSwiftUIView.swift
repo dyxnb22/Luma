@@ -56,6 +56,7 @@ struct SettingsSwiftUIView: View {
     let config: ConfigurationStore
     let usage: PersistentUsageTracker
     let onModulesChanged: @MainActor (Set<ModuleIdentifier>) -> Void
+    let onPinnedChanged: @MainActor (Set<ModuleIdentifier>) -> Void
     let onClipboardSettingsChanged: @MainActor (SettingsSnapshot) -> Void
     let onSecretsSettingsChanged: @MainActor (Int, Int) -> Void
     let onLatencyHUDChanged: @MainActor (Bool) -> Void
@@ -95,7 +96,8 @@ struct SettingsSwiftUIView: View {
             ModulesSettingsView(
                 snapshot: snapshot,
                 config: config,
-                onModulesChanged: onModulesChanged
+                onModulesChanged: onModulesChanged,
+                onPinnedChanged: onPinnedChanged
             )
         case .clipboard:
             ClipboardSettingsView(
@@ -176,38 +178,89 @@ struct ModulesSettingsView: View {
     let snapshot: SettingsSnapshot
     let config: ConfigurationStore
     let onModulesChanged: @MainActor (Set<ModuleIdentifier>) -> Void
+    let onPinnedChanged: @MainActor (Set<ModuleIdentifier>) -> Void
 
     @State private var enabledModules: Set<ModuleIdentifier>
+    @State private var pinnedModules: Set<ModuleIdentifier>
     @State private var debounceTask: Task<Void, Never>?
 
     init(snapshot: SettingsSnapshot,
          config: ConfigurationStore,
-         onModulesChanged: @escaping @MainActor (Set<ModuleIdentifier>) -> Void) {
-        self.snapshot = snapshot; self.config = config; self.onModulesChanged = onModulesChanged
+         onModulesChanged: @escaping @MainActor (Set<ModuleIdentifier>) -> Void,
+         onPinnedChanged: @escaping @MainActor (Set<ModuleIdentifier>) -> Void) {
+        self.snapshot = snapshot; self.config = config
+        self.onModulesChanged = onModulesChanged
+        self.onPinnedChanged = onPinnedChanged
         _enabledModules = State(initialValue: snapshot.enabledModules)
+        _pinnedModules = State(initialValue: snapshot.pinnedModuleIDs)
     }
 
     var body: some View {
         SettingsPage("Modules") {
+            SettingsCard("Pin to hot path") {
+                Text("Pinned modules warm at startup and stay ready for search.")
+                    .font(.caption).foregroundStyle(.secondary)
+                    .padding(.horizontal, 12).padding(.top, 8)
+                ForEach(Array(snapshot.modules.enumerated()), id: \.element.id) { index, module in
+                    if index > 0 { Divider() }
+                    HStack {
+                        Toggle(isOn: Binding(
+                            get: { pinnedModules.contains(module.id) },
+                            set: { on in
+                                if on { pinnedModules.insert(module.id) } else { pinnedModules.remove(module.id) }
+                                let snap = pinnedModules
+                                Task {
+                                    await config.setPinnedModuleIDs(snap)
+                                    await MainActor.run { onPinnedChanged(snap) }
+                                }
+                            }
+                        )) {
+                            Label(module.name, systemImage: moduleIcon(module.id))
+                                .font(.system(size: 13))
+                        }
+                        .disabled(!enabledModules.contains(module.id))
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 12).padding(.vertical, 8)
+                }
+            }
+
             SettingsCard("Enabled modules") {
                 ForEach(Array(snapshot.modules.enumerated()), id: \.element.id) { index, module in
                     if index > 0 { Divider() }
-                    Toggle(isOn: Binding(
-                        get: { enabledModules.contains(module.id) },
-                        set: { on in
-                            if on { enabledModules.insert(module.id) } else { enabledModules.remove(module.id) }
-                            debounceTask?.cancel()
-                            let snap = enabledModules
-                            debounceTask = Task {
-                                try? await Task.sleep(for: .milliseconds(200))
-                                guard !Task.isCancelled else { return }
-                                await config.setEnabledModules(snap)
-                                await MainActor.run { onModulesChanged(snap) }
+                    VStack(alignment: .leading, spacing: 4) {
+                        Toggle(isOn: Binding(
+                            get: { enabledModules.contains(module.id) },
+                            set: { on in
+                                if on { enabledModules.insert(module.id) } else {
+                                    enabledModules.remove(module.id)
+                                    pinnedModules.remove(module.id)
+                                }
+                                debounceTask?.cancel()
+                                let snap = enabledModules
+                                let pins = pinnedModules
+                                debounceTask = Task {
+                                    try? await Task.sleep(for: .milliseconds(200))
+                                    guard !Task.isCancelled else { return }
+                                    await config.setEnabledModules(snap)
+                                    await config.setPinnedModuleIDs(pins)
+                                    await MainActor.run {
+                                        onModulesChanged(snap)
+                                        onPinnedChanged(pins)
+                                    }
+                                }
                             }
+                        )) {
+                            Label(module.name, systemImage: moduleIcon(module.id))
+                                .font(.system(size: 13))
                         }
-                    )) {
-                        Label(module.name, systemImage: moduleIcon(module.id))
-                            .font(.system(size: 13))
+                        if ModuleRegistry.bundle(for: module.id)?.manifest.defaultEnabled == false,
+                           let note = ModuleRegistry.defaultOffNote(for: module.id) {
+                            Text(note)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .padding(.leading, 28)
+                        }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, 12).padding(.vertical, 8)
@@ -220,18 +273,7 @@ struct ModulesSettingsView: View {
     }
 
     private func moduleIcon(_ id: ModuleIdentifier) -> String {
-        switch id {
-        case .translate:  return "character.bubble"
-        case .clipboard:  return "doc.on.clipboard"
-        case .notes:      return "note.text"
-        case .todo:       return "checkmark.circle"
-        case .wordbook:   return "text.book.closed"
-        case .snippets:   return "text.cursor"
-        case .secrets:    return "lock.shield"
-        case .media:      return "books.vertical"
-        case .apps:       return "app.badge"
-        default:          return "puzzlepiece"
-        }
+        ModuleRegistry.presentation(for: id)?.settingsSymbol ?? "puzzlepiece"
     }
 }
 

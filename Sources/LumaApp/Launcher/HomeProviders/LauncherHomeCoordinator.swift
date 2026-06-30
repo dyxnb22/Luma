@@ -6,6 +6,7 @@ import LumaServices
 actor LauncherHomeCoordinator {
     private let aggregator: LauncherHomeAggregator
     private let openApps: OpenAppsHomeProvider
+    private var contextual: ContextualHomeProvider
     private var showAllApps = false
     private var collapsedAppBundleIDs = Set<String>()
 
@@ -13,15 +14,26 @@ actor LauncherHomeCoordinator {
         openApps: OpenAppsHomeProvider,
         recentActions: RecentActionsHomeProvider = RecentActionsHomeProvider(),
         resume: ResumeHomeProvider = ResumeHomeProvider(),
-        contextual: ContextualHomeProvider
+        contextual: ContextualHomeProvider,
+        setup: SetupHomeProvider? = nil
     ) {
         self.openApps = openApps
+        self.contextual = contextual
         self.aggregator = LauncherHomeAggregator(
             openApps: openApps,
             recentActions: recentActions,
             resume: resume,
-            contextual: contextual
+            contextual: contextual,
+            setup: setup
         )
+    }
+
+    func updatePinnedModuleIDs(_ ids: Set<ModuleIdentifier>) {
+        contextual.updatePinnedModuleIDs(ids)
+    }
+
+    func updateEnabledModuleIDs(_ ids: Set<ModuleIdentifier>) {
+        contextual.updateEnabledModuleIDs(ids)
     }
 
     func expandAllApps() {

@@ -32,6 +32,23 @@ Launcher convergence strategy adds a stricter working rule: warm keystroke p95 a
 - Notes module reads happen only in `warmup` and on FSEvents callbacks. `handle` never touches disk.
 - `n doctor` is the on-demand health surface for frontmatter, duplicate names, and broken wiki links; it may read note bodies but is not on the keystroke hot path.
 - Notes warmup duration is reported in `n doctor` stats and tracked in `NotesModule.lastWarmupMilliseconds()`.
+- `SelectionSnapshotService.readSelectedText` runs on a background Task; only `frontmostApplication` PID capture happens on the MainActor. AX IPC calls do not block the main thread.
+- `ContextualHomeProvider.rankedSectionItems` runs its `HomeContributor` set concurrently; latency is the maximum of parallel contributors, not their sum.
+- `ClipboardModule.handle` participates in global search with an in-memory store search capped at 3 results; it stays within the module's 30 ms query timeout.
+
+## Warmup
+
+`AppCoordinator` keeps startup warmup bounded by user pins and module enablement:
+
+1. Register all built-in bundles through `ModuleRegistry`.
+2. Apply the enabled-module set.
+3. Warm `pinned ∩ enabled` via `ModuleHost.warmupIfNeeded(ids:reason:)`.
+4. Call `setModulesReady(true)`.
+5. Only when `warmupPolicy == eagerAllEnabled`, warm the remaining enabled modules in the background.
+
+Modules pinned to the hot path should complete warmup well within 300 ms under normal conditions. On-demand modules, especially filesystem-heavy modules such as Notes, Projects, and Menu Bar Search, must keep `handle` memory-only and perform any disk work in warmup or detail paths.
+
+After the panel hides, `AppCoordinator` schedules idle teardown. Reopening the launcher cancels the scheduled teardown; pinned modules are never torn down by the idle pass.
 
 ## Measurement
 

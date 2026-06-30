@@ -42,7 +42,7 @@ let package = Package(
         ),
         .testTarget(
             name: "LumaCoreTests",
-            dependencies: ["LumaCore"]
+            dependencies: ["LumaCore", "LumaModules"]
         ),
         .testTarget(
             name: "LumaModulesTests",

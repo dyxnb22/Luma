@@ -236,15 +236,49 @@ import Testing
 
 // MARK: - Copy image bytes
 
-@Test func clipboardModuleRequiresClipPrefixInRootSearch() async {
-    let module = ClipboardModule()
+@Test func clipboardGlobalSearchReturnsEmptyWhenNoMatches() async {
+    // Use an isolated empty store so global search returns nothing for a query
+    // that has no clipboard entries to match against.
+    let url = FileManager.default.temporaryDirectory
+        .appendingPathComponent("clip-global-\(UUID().uuidString).json")
+    defer { try? FileManager.default.removeItem(at: url) }
+    let store = ClipboardHistoryStore(persistenceURL: url)
+    let module = ClipboardModule(store: store, persistenceURL: url)
     let context = QueryContext(deadline: ContinuousClock().now.advanced(by: .milliseconds(30)))
 
-    let appOnlySearch = await module.handle(Query(raw: "cursor", sequence: 1), context: context)
-    #expect(appOnlySearch.items.isEmpty)
+    let noMatch = await module.handle(Query(raw: "cursor", sequence: 1), context: context)
+    #expect(noMatch.items.isEmpty)
 
     let clipHelp = await module.handle(Query(raw: "clip ?", sequence: 2), context: context)
     #expect(!clipHelp.items.isEmpty)
+}
+
+@Test func clipboardGlobalSearchSurfacesMatchingEntries() async {
+    let url = FileManager.default.temporaryDirectory
+        .appendingPathComponent("clip-global-match-\(UUID().uuidString).json")
+    defer { try? FileManager.default.removeItem(at: url) }
+    let store = ClipboardHistoryStore(persistenceURL: url)
+    await store.add(text: "git commit --allow-empty -m 'init'", types: [], sourceAppName: nil, sourceBundleID: nil)
+    let module = ClipboardModule(store: store, persistenceURL: url)
+    let context = QueryContext(deadline: ContinuousClock().now.advanced(by: .milliseconds(30)))
+
+    let results = await module.handle(Query(raw: "git commit", sequence: 1), context: context)
+    #expect(!results.items.isEmpty)
+    #expect(results.items.count <= 3)
+}
+
+@Test func clipboardGlobalSearchIgnoresShortQueries() async {
+    let url = FileManager.default.temporaryDirectory
+        .appendingPathComponent("clip-short-\(UUID().uuidString).json")
+    defer { try? FileManager.default.removeItem(at: url) }
+    let store = ClipboardHistoryStore(persistenceURL: url)
+    await store.add(text: "ab trigger match", types: [], sourceAppName: nil, sourceBundleID: nil)
+    let module = ClipboardModule(store: store, persistenceURL: url)
+    let context = QueryContext(deadline: ContinuousClock().now.advanced(by: .milliseconds(30)))
+
+    // Queries shorter than 3 chars must not participate in global search.
+    let tooShort = await module.handle(Query(raw: "ab", sequence: 1), context: context)
+    #expect(tooShort.items.isEmpty)
 }
 
 @Test func clipboardBareQueryShowsOpenDetailStarterWhenEmpty() async {
@@ -266,7 +300,7 @@ import Testing
 }
 
 @Test func bareOpenDetailReturnIncludesClipboard() {
-    let router = CommandRouter()
+    let router = CommandRouter(registry: BuiltInCommandRegistry.make())
     #expect(router.isBareOpenDetailReturn(raw: "clip"))
     #expect(router.isBareOpenDetailReturn(raw: "cb"))
 }

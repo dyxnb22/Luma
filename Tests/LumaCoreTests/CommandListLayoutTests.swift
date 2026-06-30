@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 import LumaCore
+import LumaModules
 
 @Test func commandRegistryHintForActivePrefix() {
     let registry = BuiltInCommandRegistry.make()

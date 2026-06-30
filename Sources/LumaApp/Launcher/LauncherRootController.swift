@@ -229,9 +229,15 @@ final class LauncherRootController {
     }
 
     private func persistResumeState(translateContent: (source: String, output: String)?) {
+        var query = searchBar.stringValue
+        if let moduleID = contentCoordinator.currentDetailModuleID,
+           LauncherModuleResumeQuery.roundTripModules.contains(moduleID) {
+            query = LauncherModuleResumeQuery.normalizedQuery(for: moduleID, raw: query)
+        }
+
         var state = LauncherResumeState(
             moduleRaw: contentCoordinator.currentDetailModuleID?.rawValue,
-            query: searchBar.stringValue
+            query: query
         )
 
         let resolvedTranslate = translateContent
@@ -321,20 +327,23 @@ final class LauncherRootController {
     }
 
     private func presentModuleDetail(for moduleID: ModuleIdentifier) {
-        guard let detail = launcherEnvironment.makeDetailView(for: moduleID) else {
-            showHome(focusSearch: true, persist: false)
-            return
-        }
-        enterDetailContext()
-        contentCoordinator.present(detail, moduleID: moduleID)
-        if moduleID == .translate,
-           let translate = contentCoordinator.currentDetailObject as? TranslateDetailView {
-            let state = LauncherResumeStore.load()
-            if !state.translateSource.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                translate.restore(sourceText: state.translateSource, outputText: state.translateOutput)
+        Task { @MainActor in
+            await launcherEnvironment.warmModuleForDetail(moduleID)
+            guard let detail = launcherEnvironment.makeDetailView(for: moduleID) else {
+                showHome(focusSearch: true, persist: false)
+                return
             }
+            enterDetailContext()
+            contentCoordinator.present(detail, moduleID: moduleID)
+            if moduleID == .translate,
+               let translate = contentCoordinator.currentDetailObject as? TranslateDetailView {
+                let state = LauncherResumeStore.load()
+                if !state.translateSource.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    translate.restore(sourceText: state.translateSource, outputText: state.translateOutput)
+                }
+            }
+            syncRowActionHint()
         }
-        syncRowActionHint()
     }
 
     private func applyModuleDetailPayload(moduleID: ModuleIdentifier, payload: Data?) {
@@ -481,8 +490,43 @@ final class LauncherRootController {
             return
         }
         if performBareCommandAction() { return }
+
+        // Snippet trigger expansion: if the raw query exactly matches a snippet
+        // trigger, expand and paste it without navigating to results.
+        let raw = searchBar.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !raw.isEmpty, !contentCoordinator.showingDetail {
+            let route = viewModel.commandRouter.route(raw: raw)
+            if case .globalSearch = route {
+                Task {
+                    if let snippet = await launcherEnvironment.snippetsModule.snippetForTrigger(raw) {
+                        launcherEnvironment.showStatus(LauncherStatusMessages.snippetExpanded)
+                        try? await launcherEnvironment.snippetsModule.insertSnippet(id: snippet.id)
+                        await MainActor.run { self.onActionDismiss() }
+                        return
+                    }
+                    await MainActor.run { self.activateSelectedOrShowNoResults() }
+                }
+                return
+            }
+        }
+
+        activateSelectedOrShowNoResults()
+    }
+
+    private func activateSelectedOrShowNoResults() {
+        if contentCoordinator.currentItems.isEmpty {
+            let raw = searchBar.stringValue
+            let route = viewModel.commandRouter.route(raw: raw)
+            let message = SearchEmptyState.message(
+                for: route,
+                query: raw,
+                registry: viewModel.commandRouter.registry
+            )
+            commandHintBar.showStatus(message)
+            return
+        }
         if !contentCoordinator.currentItems.indices.contains(contentCoordinator.selectedIndex) {
-            commandHintBar.showStatus("No results yet")
+            commandHintBar.showStatus(LauncherStatusMessages.noResultsYet)
             return
         }
         activateSelectedItem()
@@ -555,6 +599,9 @@ final class LauncherRootController {
     }
 
     private func dispatchAction(_ action: Action, for item: ResultItem) {
+        if item.id.key.hasPrefix("setup.") {
+            Task { await config.setSetupHintsDismissed(true) }
+        }
         switch action.kind {
         case .noop:
             focusSearchField()
@@ -597,6 +644,7 @@ final class LauncherRootController {
         Task {
             let outcome = await NotesCaptureHelper.appendToDailyNote(trimmed, openAfterCapture: false)
             guard case .appended = outcome else { return }
+            saveModuleRoundTripResume(module: .notes)
             await recordHomeCompletion(for: item)
             try? await Task.sleep(for: .milliseconds(900))
             await MainActor.run { self.onActionDismiss() }
@@ -645,6 +693,17 @@ final class LauncherRootController {
         if item.id.key.hasPrefix("contextual.") {
             await HomeSuggestionMemory.shared.recordCompleted(key: item.id.key)
         }
+        if item.id.key.hasPrefix("setup.") {
+            await config.setSetupHintsDismissed(true)
+        }
+    }
+
+    private func saveModuleRoundTripResume(module: ModuleIdentifier, query: String? = nil) {
+        let resolved = LauncherModuleResumeQuery.normalizedQuery(
+            for: module,
+            raw: query ?? searchBar.stringValue
+        )
+        LauncherResumeStore.save(LauncherResumeState(moduleRaw: module.rawValue, query: resolved))
     }
 
     private func recordRecentAction(action: Action, item: ResultItem) async {

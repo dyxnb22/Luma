@@ -1,53 +1,54 @@
 import Foundation
 import Testing
 import LumaCore
+import LumaModules
 
 @Test func commandRouterEmptyQueryRoutesToEmpty() {
-    let router = CommandRouter()
+    let router = CommandRouter(registry: BuiltInCommandRegistry.make())
     #expect(router.route(raw: "") == .empty)
     #expect(router.route(raw: "   ") == .empty)
 }
 
 @Test func commandRouterQuestionMarkRoutesGlobalHelp() {
-    let router = CommandRouter()
+    let router = CommandRouter(registry: BuiltInCommandRegistry.make())
     #expect(router.route(raw: "?") == .help(module: nil))
     #expect(router.route(raw: "help") == .help(module: nil))
 }
 
 @Test func commandRouterModuleHelpRoutesMedia() {
-    let router = CommandRouter()
+    let router = CommandRouter(registry: BuiltInCommandRegistry.make())
     let media = ModuleIdentifier(rawValue: "luma.media")
     #expect(router.route(raw: "rec ?") == .help(module: media))
     #expect(router.route(raw: "rec help") == .help(module: media))
 }
 
 @Test func commandRouterRecRoutesTargetedMedia() {
-    let router = CommandRouter()
+    let router = CommandRouter(registry: BuiltInCommandRegistry.make())
     let media = ModuleIdentifier(rawValue: "luma.media")
     #expect(router.route(raw: "rec 三体") == .targeted(module: media, trigger: "rec", payload: "三体"))
     #expect(router.route(raw: "rec") == .targeted(module: media, trigger: "rec", payload: ""))
 }
 
 @Test func commandRouterProjectsRoutesTargeted() {
-    let router = CommandRouter()
+    let router = CommandRouter(registry: BuiltInCommandRegistry.make())
     let projects = ModuleIdentifier(rawValue: "luma.projects")
     #expect(router.route(raw: "p luma") == .targeted(module: projects, trigger: "p", payload: "luma"))
 }
 
 @Test func commandRouterWindowLayoutsRoutesTargeted() {
-    let router = CommandRouter()
+    let router = CommandRouter(registry: BuiltInCommandRegistry.make())
     let layouts = ModuleIdentifier(rawValue: "luma.window-layouts")
     #expect(router.route(raw: "win left") == .targeted(module: layouts, trigger: "win", payload: "left"))
 }
 
 @Test func commandRouterBareTranslateRoutesTargeted() {
-    let router = CommandRouter()
+    let router = CommandRouter(registry: BuiltInCommandRegistry.make())
     let translate = ModuleIdentifier(rawValue: "luma.translate")
     #expect(router.route(raw: "tr") == .targeted(module: translate, trigger: "tr", payload: ""))
 }
 
 @Test func commandRouterTypoPrefixSuggestsWin() {
-    let router = CommandRouter()
+    let router = CommandRouter(registry: BuiltInCommandRegistry.make())
     let route = router.route(raw: "wni left")
     guard case .unknownPrefix(let prefix, let remainder, let suggestions) = route else {
         Issue.record("Expected unknownPrefix route")
@@ -59,7 +60,7 @@ import LumaCore
 }
 
 @Test func commandRouterPlainSearchRoutesGlobal() {
-    let router = CommandRouter()
+    let router = CommandRouter(registry: BuiltInCommandRegistry.make())
     guard case .globalSearch(let query) = router.route(raw: "chrome") else {
         Issue.record("Expected globalSearch route")
         return
@@ -68,7 +69,7 @@ import LumaCore
 }
 
 @Test func commandRouterPlainShortSearchDoesNotBecomeCommandTypo() {
-    let router = CommandRouter()
+    let router = CommandRouter(registry: BuiltInCommandRegistry.make())
     guard case .globalSearch(let query) = router.route(raw: "git status") else {
         Issue.record("Expected globalSearch route")
         return
@@ -77,7 +78,7 @@ import LumaCore
 }
 
 @Test func commandRouterNearTriggerTypoStillSuggestsCommand() {
-    let router = CommandRouter()
+    let router = CommandRouter(registry: BuiltInCommandRegistry.make())
     let route = router.route(raw: "re dune")
     guard case .unknownPrefix(let prefix, let remainder, let suggestions) = route else {
         Issue.record("Expected unknownPrefix route")
@@ -89,7 +90,7 @@ import LumaCore
 }
 
 @Test func commandRouterAppChromeRoutesGlobalSearch() {
-    let router = CommandRouter()
+    let router = CommandRouter(registry: BuiltInCommandRegistry.make())
     guard case .globalSearch(let query) = router.route(raw: "app chrome") else {
         Issue.record("Expected globalSearch for app chrome")
         return
@@ -98,13 +99,13 @@ import LumaCore
 }
 
 @Test func commandRouterAppTopRoutesTargetedApps() {
-    let router = CommandRouter()
+    let router = CommandRouter(registry: BuiltInCommandRegistry.make())
     let apps = ModuleIdentifier(rawValue: "luma.apps")
     #expect(router.route(raw: "app top") == .targeted(module: apps, trigger: "app", payload: "top"))
 }
 
 @Test func commandRouterBareERoutesGlobalSearch() {
-    let router = CommandRouter()
+    let router = CommandRouter(registry: BuiltInCommandRegistry.make())
     guard case .globalSearch(let query) = router.route(raw: "e") else {
         Issue.record("Expected globalSearch route for bare e")
         return

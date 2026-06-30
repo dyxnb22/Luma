@@ -16,6 +16,7 @@
 - In-panel actions (open detail, replace query, translate) keep the panel visible.
 - Results update progressively as modules return.
 - Empty query shows the home screen: Open Apps and Suggested sections.
+- If the raw query exactly matches a snippet trigger word (case-insensitive) in global search mode, Return expands and pastes the snippet inline — the panel dismisses without opening Snippets detail.
 
 ## Panel
 
@@ -33,6 +34,13 @@
 - Preserve selection by `ResultID` across updates.
 - No visible tutorial copy in the launcher.
 - Row kinds: actionable (Return ↩), starter (→), informational (no Return hint).
+- Items whose title exactly matches the query receive a ranking boost (+0.30 additive) so precise matches reliably surface first.
+
+## Home — Suggested Section
+
+- Maximum 2 continue-flow suggestions and 1 create suggestion (3 total) per Home render.
+- `HomeSuggestionMemory` gates items by recency and completion cooldown before they appear.
+- Suggestions include: current project context, daily note, top due reminder, clipboard transforms, clipboard-to-note, clipboard-to-snippet, URL-to-quicklink, in-progress Records.
 
 ## Settings
 

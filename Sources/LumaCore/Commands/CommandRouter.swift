@@ -3,7 +3,7 @@ import Foundation
 public struct CommandRouter: Sendable {
     public let registry: CommandRegistry
 
-    public init(registry: CommandRegistry = BuiltInCommandRegistry.make()) {
+    public init(registry: CommandRegistry = CommandRegistry([])) {
         self.registry = registry
     }
 

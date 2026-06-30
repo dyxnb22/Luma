@@ -7,6 +7,8 @@ import LumaServices
 
 struct SettingsSnapshot {
     var enabledModules: Set<ModuleIdentifier>
+    var pinnedModuleIDs: Set<ModuleIdentifier>
+    var warmupPolicy: WarmupPolicy
     var clipboardMaxEntries: Int
     var clipboardMaxAgeDays: Int
     var clipboardMaxEntrySizeKB: Int
@@ -27,6 +29,7 @@ final class SettingsWindowController {
     private let config: ConfigurationStore
     private let usage: PersistentUsageTracker
     private let onModulesChanged: @MainActor (Set<ModuleIdentifier>) -> Void
+    private let onPinnedChanged: @MainActor (Set<ModuleIdentifier>) -> Void
     private let onClipboardSettingsChanged: @MainActor (SettingsSnapshot) -> Void
     private let onSecretsSettingsChanged: @MainActor (Int, Int) -> Void
     private let onLatencyHUDChanged: @MainActor (Bool) -> Void
@@ -35,6 +38,7 @@ final class SettingsWindowController {
         config: ConfigurationStore,
         usage: PersistentUsageTracker,
         onModulesChanged: @escaping @MainActor (Set<ModuleIdentifier>) -> Void,
+        onPinnedChanged: @escaping @MainActor (Set<ModuleIdentifier>) -> Void,
         onClipboardSettingsChanged: @escaping @MainActor (SettingsSnapshot) -> Void,
         onSecretsSettingsChanged: @escaping @MainActor (Int, Int) -> Void,
         onLatencyHUDChanged: @escaping @MainActor (Bool) -> Void
@@ -42,6 +46,7 @@ final class SettingsWindowController {
         self.config = config
         self.usage = usage
         self.onModulesChanged = onModulesChanged
+        self.onPinnedChanged = onPinnedChanged
         self.onClipboardSettingsChanged = onClipboardSettingsChanged
         self.onSecretsSettingsChanged = onSecretsSettingsChanged
         self.onLatencyHUDChanged = onLatencyHUDChanged
@@ -88,6 +93,7 @@ final class SettingsWindowController {
             config: config,
             usage: usage,
             onModulesChanged: onModulesChanged,
+            onPinnedChanged: onPinnedChanged,
             onClipboardSettingsChanged: onClipboardSettingsChanged,
             onSecretsSettingsChanged: onSecretsSettingsChanged,
             onLatencyHUDChanged: onLatencyHUDChanged
@@ -99,6 +105,8 @@ final class SettingsWindowController {
         let defaultEnabled = Set(BuiltInModules.makeAll().filter { type(of: $0).manifest.defaultEnabled }.map { type(of: $0).manifest.identifier })
         return SettingsSnapshot(
             enabledModules: await config.enabledModules() ?? defaultEnabled,
+            pinnedModuleIDs: await config.pinnedModuleIDs(),
+            warmupPolicy: await config.warmupPolicy(),
             clipboardMaxEntries: await config.clipboardMaxEntries(),
             clipboardMaxAgeDays: await config.clipboardMaxAgeDays(),
             clipboardMaxEntrySizeKB: await config.clipboardMaxEntrySizeKB(),

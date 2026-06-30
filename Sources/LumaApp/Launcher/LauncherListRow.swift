@@ -4,21 +4,10 @@ import LumaModules
 
 enum LauncherModuleLabel {
     static func shortName(for module: ModuleIdentifier) -> String {
-        switch module {
-        case .apps: "apps"
-        case .clipboard: "clip"
-        case .commands: "cmd"
-        case .notes: "notes"
-        case .todo: "todo"
-        case .translate: "tr"
-        case .wordbook: "word"
-        case .snippets: "snip"
-        case .secrets: "vault"
-        case .media: "rec"
-        case .windows, .windowLayouts: "win"
-        case .projects: "proj"
-        default: module.rawValue.replacingOccurrences(of: "luma.", with: "")
+        if let badge = ModuleRegistry.presentation(for: module)?.listBadge {
+            return badge
         }
+        return module.rawValue.replacingOccurrences(of: "luma.", with: "")
     }
 }
 

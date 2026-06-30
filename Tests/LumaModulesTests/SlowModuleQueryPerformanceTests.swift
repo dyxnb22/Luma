@@ -24,7 +24,7 @@ private func moduleContext() -> ModuleContext {
 }
 
 private func targetedQuery(raw: String) -> Query {
-    let router = CommandRouter()
+    let router = CommandRouter(registry: BuiltInCommandRegistry.make())
     let route = router.route(raw: raw)
     return Query(
         raw: raw,

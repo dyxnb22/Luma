@@ -316,7 +316,7 @@ final class ClipboardDetailView: NSObject, ModuleDetailView {
             let updated = await self.module.updateEntryText(id: entry.id, text: output)
             await MainActor.run {
                 if updated {
-                    LauncherEnvironment.current?.showStatus("Clipboard entry updated")
+                    LauncherEnvironment.current?.showStatus(LauncherStatusMessages.clipboardEntryUpdated)
                     self.clearTransformPreview()
                     self.refresh()
                 }

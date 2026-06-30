@@ -146,6 +146,13 @@ public actor SnippetsModule: LumaModule {
         }
     }
 
+    /// Returns the cached snippet whose trigger exactly matches `raw` (case-insensitive).
+    public func snippetForTrigger(_ raw: String) async -> Snippet? {
+        let normalized = raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !normalized.isEmpty else { return nil }
+        return cachedSnippets.first { !$0.trigger.isEmpty && $0.trigger.lowercased() == normalized }
+    }
+
     private func expandedContentForLauncher(_ content: String) async -> String {
         let project = await CurrentProjectService.shared.snapshot()
         let selection = await SelectionSnapshotService.shared.snapshot()

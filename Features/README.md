@@ -4,7 +4,7 @@ This folder is the maintenance index for Luma's feature modules. Each feature ow
 
 ## Active v1 Launcher Set (Route C — ADR-023)
 
-**Home sections:** Open Apps, Suggested (no dashboard card grid).
+**Home sections:** Open Apps, Suggested (no dashboard card grid). Suggested shows at most 2 continue-flow + 1 create item; `HomeSuggestionMemory` gates eligibility by recency and completion cooldown.
 
 **Modules (registered at launch):** Apps, Clipboard, Commands, Notes, Todo, Translate, Wordbook, Snippets, Secrets, Media, Window Layouts, Projects, Quicklinks, Menu Bar Search, Kill Process, Browser Tabs.
 
@@ -13,6 +13,31 @@ This folder is the maintenance index for Luma's feature modules. Each feature ow
 **Deferred:** Windows (source retained, not in `BuiltInModules.makeAll()`).
 
 See `docs/adr/023-command-first-unified-list.md` and `docs/ARCHITECTURE.md` for the current product surface.
+
+## Feature Index
+
+| Module | Default | Folder |
+|--------|---------|--------|
+| Apps | on | [AppSearch](AppSearch/) |
+| Clipboard | on | [ClipboardHistory](ClipboardHistory/) |
+| Commands | off | [CommandsScripts](CommandsScripts/) |
+| Notes | on | [Notes](Notes/) |
+| Todo | on | [Todo](Todo/) |
+| Translate | on | [Translate](Translate/) |
+| Wordbook | on | [Wordbook](Wordbook/) |
+| Snippets | on | [Snippets](Snippets/) |
+| Secrets | on | [SecretsVault](SecretsVault/) |
+| Media (Records) | off | [Media](Media/) |
+| Window Layouts | on | [WindowLayouts](WindowLayouts/) |
+| Projects | on | [Projects](Projects/) |
+| Quicklinks | on | [Quicklinks](Quicklinks/) |
+| Menu Bar Search | on | [MenuItems](MenuItems/) |
+| Kill Process | on | [KillProcess](KillProcess/) |
+| Browser Tabs | off | [BrowserTabs](BrowserTabs/) |
+
+Deferred (source retained, not registered): Windows
+
+Historical / superseded: [DashboardCards](DashboardCards/), [NotesGraph](NotesGraph/)
 
 ## Source Of Truth
 

@@ -15,14 +15,16 @@ Cursor should be a precise implementation assistant for Luma. Keep edits scoped 
 ## Current Focus
 
 - Active route: **Route C** (`docs/adr/023-command-first-unified-list.md`)
-- Luma is already mostly built.
-- Current work should prioritize **wiring together existing features**, fixing rough edges, and improving trust.
+- Luma is feature-complete and in final close-out / polish phase.
+- Current work should prioritize **finish quality**: fixing rough edges, improving trust, closing empty states, and consistency — not adding new surface area.
 
 ## Route Guardrail
 
 - Single command-first panel
-- Empty query: Open Apps + Suggested
-- Non-empty query: flat results
+- Empty query: Open Apps + Suggested (max 2 continue-flow + 1 create)
+- Non-empty query: flat results; exact title match gets +0.30 ranking boost
+- Snippet trigger word in global search + Return → inline expansion, no detail
+- Global queries ≥ 3 chars surface up to 3 clipboard entries alongside other results
 - Same-panel detail views
 - No dashboard card grid
 - No permanent sidebar
@@ -49,6 +51,11 @@ Cursor should be a precise implementation assistant for Luma. Keep edits scoped 
 - Keep heavy work out of the query hot path.
 - Use existing service boundaries.
 - Do not filesystem-scan on each keystroke.
+- `LauncherEnvironment.showStatus` is `let (String) -> Void` — inject at init, never post-assign.
+- AX IPC calls must not run on the MainActor; only PID capture (`frontmostApplication`) is allowed on main.
+- `BuiltInModules.fastModuleIDs` is Phase 1 warmup; Notes/Projects/MenuItems/Media stay in Phase 2 (`warmupAll`).
+- `ContextualHomeProvider.rankedSectionItems` uses `async let` for all 9 fetches — keep them concurrent.
+- New `LauncherEnvironment` callbacks must be `let` parameters in `init`, not optional `var`.
 
 ## Verification
 

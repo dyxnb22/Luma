@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 import LumaCore
+import LumaModules
 
 /// Simulates launcher input-box flows: routing, hint bar, placeholder, help.
 private struct InputSimulation {

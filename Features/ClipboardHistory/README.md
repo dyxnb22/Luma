@@ -4,23 +4,25 @@
 
 Local clipboard history similar in spirit to Raycast Clipboard History: fast search, preview, pin, copy back, and strict sensitive-content filtering.
 
-## MVP Behavior
+## Behavior
 
-- Default-on after filters are implemented.
-- Current implementation polls `NSPasteboard.general` once per second.
+- Default-on. Sensitive-content filters are active.
+- Polls `NSPasteboard.general` once per second.
 - Retention caps are OR'd:
   - 500 entries.
   - 7 days.
   - 100 KB per text body.
-- Supported item types for v1:
+- Supported item types:
   - Plain text.
   - URLs.
-  - File paths later.
+  - Images.
 - Actions:
   - Copy item.
   - Pin item.
   - Delete item.
   - Clear history.
+  - Save as snippet (text entries).
+  - Append to daily note (text entries).
 
 ## Hard Privacy Rules
 
@@ -42,7 +44,9 @@ Skip the entire pasteboard change if any type matches:
 
 - `clip` opens Clipboard detail in the same launcher panel.
 - `clip <query>` searches history in the shared result list.
+- Any global search query of 3+ characters also searches clipboard history and surfaces up to 3 matching entries inline — no prefix required.
 - Detail view supports search, pin filtering, preview, and destructive actions without leaving the panel.
+- Text entries in detail support text transforms (trim, collapse lines, quote/unquote, copy as one line) and cross-module actions (save as snippet, append to daily note).
 - There is no dashboard card or separate clipboard window in Route C.
 
 ## Implementation Entry

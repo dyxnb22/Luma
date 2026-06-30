@@ -8,6 +8,8 @@ import LumaServices
 final class LauncherWindowController {
     private let panel = LauncherPanel()
     private var rootView: LauncherRootView?
+    private var onWillShow: (() -> Void)?
+    private var onDidHide: (() -> Void)?
 
     init() {
         panel.onEscape = { [weak self] in
@@ -27,8 +29,12 @@ final class LauncherWindowController {
         actionExecutor: ActionExecutor,
         config: ConfigurationStore,
         launcherEnvironment: LauncherEnvironment,
+        onWillShow: @escaping () -> Void = {},
+        onDidHide: @escaping () -> Void = {},
         onOpenSettings: @escaping () -> Void
     ) {
+        self.onWillShow = onWillShow
+        self.onDidHide = onDidHide
         let rootView = LauncherRootView(
             viewModel: viewModel,
             homeCoordinator: homeCoordinator,
@@ -74,6 +80,7 @@ final class LauncherWindowController {
     }
 
     func show() {
+        onWillShow?()
         HomeLatencyTracker.markHotkey()
         positionPanel()
         let previousBundleID = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
@@ -142,6 +149,7 @@ final class LauncherWindowController {
                 guard let self else { return }
                 self.panel.orderOut(nil)
                 self.panel.alphaValue = 1
+                self.onDidHide?()
             }
         }
     }
@@ -157,6 +165,7 @@ final class LauncherWindowController {
             self.rootView?.setHomeProvidersActive(false)
             self.panel.orderOut(nil)
             self.panel.alphaValue = 1
+            self.onDidHide?()
         }
     }
 

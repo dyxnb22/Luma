@@ -15,14 +15,16 @@ Codex should act as Luma's implementation agent: inspect first, edit narrowly, v
 ## Current Product State
 
 - Active route: **Route C** (`docs/adr/023-command-first-unified-list.md`)
-- The software is mostly formed.
-- The current priority is **connecting and polishing existing functionality**, not adding more surface area.
+- Luma is feature-complete and in final close-out / polish phase.
+- The current priority is **finish quality**: consistency, permission UX, empty states, and cross-module correctness — not adding new surface area.
 
 ## Route Guardrails
 
 - Command+Space opens one command-first panel.
-- Empty query shows Open Apps and Suggested.
-- Non-empty query shows flat ranked results.
+- Empty query shows Open Apps and Suggested (max 2 continue-flow + 1 create suggestion).
+- Non-empty query shows flat ranked results; exact title match gets +0.30 ranking boost.
+- Typing a snippet trigger word in global search + Return expands and pastes inline (no detail view).
+- Global queries of 3+ chars also search clipboard history (≤ 3 results).
 - Return runs primary action.
 - Tab / `⌘K` opens secondary actions.
 - Module detail stays in the same panel.
@@ -52,6 +54,11 @@ Codex should act as Luma's implementation agent: inspect first, edit narrowly, v
 - No disk or network I/O per keystroke.
 - Respect query cancellation and module timeouts.
 - Keep row height, selection, and panel dismissal behavior stable.
+- `LauncherEnvironment.showStatus` is a non-optional `let (String) -> Void`; inject at init, never assign post-construction.
+- Filesystem-heavy modules (Notes, Projects, MenuItems, Media) must **not** be added to `BuiltInModules.fastModuleIDs`; they belong in Phase 2 warmup only.
+- AX IPC (accessibility API calls) must run off the MainActor; only PID/frontmostApplication capture is allowed on MainActor.
+- `ContextualHomeProvider.rankedSectionItems` uses `async let` for all candidate fetches; do not add sequential `await` calls there.
+- New `LauncherEnvironment` callbacks must be injected as `let` parameters in `init`, not set as optional `var` after construction.
 
 ## Verification
 

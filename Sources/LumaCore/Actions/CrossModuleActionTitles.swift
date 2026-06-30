@@ -18,4 +18,10 @@ public enum CrossModuleActionTitles {
   public static let quoteLines = "Quote Lines"
   public static let unquoteLines = "Unquote Lines"
   public static let copyAsOneLine = "Copy as One Line"
+  public static let newProjectSnippet = "New Project Snippet"
+  public static let projectFolderQuicklink = "Quicklink to Project"
+  public static let editScriptCommands = "Edit Script Commands"
+  public static let setupNotes = "Set Up Notes"
+  public static let reviewModules = "Review Modules"
+  public static let continueWordbook = "Continue Wordbook"
 }

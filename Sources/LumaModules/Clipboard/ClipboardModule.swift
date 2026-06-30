@@ -78,20 +78,24 @@ public actor ClipboardModule: LumaModule {
     }
 
     public func handle(_ query: Query, context: QueryContext) async -> ModuleResult {
-        guard let payload = query.command?.payload ?? Self.extractPayload(raw: query.raw) else {
-            return ModuleResult(items: [])
+        // Targeted via 'clip'/'cb' prefix
+        if let payload = query.command?.payload ?? Self.extractPayload(raw: query.raw) {
+            if ModuleHelp.isHelpQuery(payload) {
+                return ModuleResult(items: ModuleHelp.results(for: Self.manifest.identifier))
+            }
+            let entries = await store.search(payload, limit: 10)
+            if entries.isEmpty {
+                return ModuleResult(items: emptyResults(for: payload))
+            }
+            return ModuleResult(items: entries.map(result))
         }
 
-        if ModuleHelp.isHelpQuery(payload) {
-            return ModuleResult(items: ModuleHelp.results(for: Self.manifest.identifier))
-        }
-
-        let searchText = payload
-
-        let entries = await store.search(searchText, limit: 10)
-        if entries.isEmpty {
-            return ModuleResult(items: emptyResults(for: searchText))
-        }
+        // Global search: surface clipboard matches for substantive queries.
+        // Capped at 3 results so clipboard doesn't crowd out other modules.
+        guard query.command == nil else { return ModuleResult(items: []) }
+        let globalText = query.raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard globalText.count >= 3 else { return ModuleResult(items: []) }
+        let entries = await store.search(globalText, limit: 3)
         return ModuleResult(items: entries.map(result))
     }
 

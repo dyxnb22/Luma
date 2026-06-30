@@ -62,6 +62,33 @@ When documents conflict, follow:
 - [ADR-007 Dashboard Widget Single Window](adr/007-dashboard-widget-single-window.md) — superseded by ADR-023
 - [ADR-023 Command-First Unified List (Route C)](adr/023-command-first-unified-list.md) — **active UI route**
 
+## How to Add a New Module
+
+1. **Create the module actor** in `Sources/LumaModules/<Name>/`. Implement `LumaModule`: `manifest`, `warmup`, `handle`, `perform`, `teardown`.
+2. **Create `<Name>ModuleBundle.swift`** in the same folder with `manifest`, `warmupTier`, `commands`, optional `detailMetadata` / `presentation` / `defaultOffNote`, and `makeModule()`.
+3. **Register the bundle** — add `NameModuleBundle.self` to `ModuleRegistry.allBundles` in `Sources/LumaModules/ModuleRegistry.swift`.
+4. **Add detail view** (if needed) in `Sources/LumaApp/Launcher/<Name>DetailView.swift` and register the factory in `ModuleDetailRegistry.makeDefault()`.
+5. **Write tests** in `Tests/LumaModulesTests/` and run `swift test`.
+
+Warmup tiers:
+
+- `hotPath` — warms at startup when pinned (default for in-memory modules).
+- `onDemand` — warms on first query or detail open (filesystem-heavy modules: Notes, Projects, MenuItems).
+
+Users can pin modules in Settings → Modules for always-hot startup behavior.
+
+Home and cross-module rules:
+
+- Add contextual Home rows through a focused `HomeContributor`, then compose it in `ContextualHomeProvider`.
+- Keep cross-module draft construction behind narrow helpers/protocols such as `ProjectContextSuggestions` or `QuicklinkDraftSource`.
+- Do not add new App-layer switches for commands, feature cards, or detail metadata; read those from `ModuleRegistry` / `ModuleDetailRegistry`.
+
+Key constraints from [Module Contract](specs/MODULE_CONTRACT.md):
+- `handle` must be memory-only (no disk/network I/O).
+- `handle` must respect query cancellation.
+- State must stay private to the module actor.
+- Do not reach into other modules or touch AppKit views.
+
 ## Module Contract
 
 See [Module Contract](specs/MODULE_CONTRACT.md).

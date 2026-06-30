@@ -33,6 +33,9 @@ final class LauncherEnvironment {
     let translation: any TranslationClient
     let config: ConfigurationStore
     let runProjectAction: (ProjectAction, @escaping () -> Void) -> Void
+    let warmModuleForDetail: (ModuleIdentifier) async -> Void
+
+    private let detailRegistry: ModuleDetailRegistry
 
     init(
         openModuleDetail: @escaping (ModuleIdentifier) -> Void,
@@ -43,6 +46,8 @@ final class LauncherEnvironment {
         onHideLauncher: @escaping () -> Void,
         showStatus: @escaping (String) -> Void,
         detailReloadRouter: ModuleDetailReloadRouter,
+        detailRegistry: ModuleDetailRegistry = .makeDefault(),
+        warmModuleForDetail: @escaping (ModuleIdentifier) async -> Void = { _ in },
         clipboardModule: ClipboardModule,
         notesModule: NotesModule,
         snippetsModule: SnippetsModule,
@@ -64,6 +69,7 @@ final class LauncherEnvironment {
         self.onHideLauncher = onHideLauncher
         self.showStatus = showStatus
         self.detailReloadRouter = detailReloadRouter
+        self.detailRegistry = detailRegistry
         self.clipboardModule = clipboardModule
         self.notesModule = notesModule
         self.snippetsModule = snippetsModule
@@ -76,6 +82,7 @@ final class LauncherEnvironment {
         self.translation = translation
         self.config = config
         self.runProjectAction = runProjectAction
+        self.warmModuleForDetail = warmModuleForDetail
     }
 
     func install() {
@@ -83,39 +90,27 @@ final class LauncherEnvironment {
     }
 
     func makeDetailView(for id: ModuleIdentifier) -> (any ModuleDetailView)? {
-        switch id {
-        case .translate:
-            return TranslateDetailView(translation: translation, config: config) { [weak self] source, output in
-                self?.onTranslateContentChanged(source, output)
-            }
-        case .clipboard:
-            return ClipboardDetailView(module: clipboardModule, onOpenSettings: { [weak self] in
-                self?.openSettings()
-            }, onHideLauncher: { [weak self] in
-                self?.onHideLauncher()
-            })
-        case .notes:
-            return NotesDetailView(module: notesModule)
-        case .snippets:
-            return SnippetsDetailView(module: snippetsModule, detailReloadRouter: detailReloadRouter)
-        case .secrets:
-            return SecretsDetailView(module: secretsModule, detailReloadRouter: detailReloadRouter)
-        case .media:
-            return MediaDetailView(module: mediaModule, detailReloadRouter: detailReloadRouter)
-        case .todo:
-            return TodoDetailView(module: todoModule)
-        case .wordbook:
-            return WordbookDetailView(store: wordbookStore)
-        case .projects:
-            if LauncherSharedState.pendingProjectsManage {
-                LauncherSharedState.pendingProjectsManage = false
-                return ProjectsDetailView(module: projectsModule, onRunProjectAction: runProjectAction)
-            }
-            return CurrentProjectDetailView(onRunProjectAction: runProjectAction)
-        case .quicklinks:
-            return QuicklinksDetailView(module: quicklinksModule)
-        default:
-            return nil
-        }
+        detailRegistry.makeDetailView(for: id, context: uiContext)
+    }
+
+    private var uiContext: ModuleUIContext {
+        ModuleUIContext(
+            detailReloadRouter: detailReloadRouter,
+            clipboardModule: clipboardModule,
+            notesModule: notesModule,
+            snippetsModule: snippetsModule,
+            secretsModule: secretsModule,
+            mediaModule: mediaModule,
+            todoModule: todoModule,
+            wordbookStore: wordbookStore,
+            projectsModule: projectsModule,
+            quicklinksModule: quicklinksModule,
+            translation: translation,
+            config: config,
+            onOpenSettings: openSettings,
+            onHideLauncher: onHideLauncher,
+            onTranslateContentChanged: onTranslateContentChanged,
+            runProjectAction: runProjectAction
+        )
     }
 }

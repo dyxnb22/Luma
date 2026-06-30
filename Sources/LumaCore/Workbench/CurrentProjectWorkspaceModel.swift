@@ -1,5 +1,55 @@
 import Foundation
 
+public enum CurrentProjectWorkspaceRowAction: Sendable, Equatable, Codable {
+    case resumeActivity(entryID: UUID)
+    case openLinked(linkID: UUID)
+    case openModule(moduleID: ModuleIdentifier)
+    case replaceQuery(String)
+    case openNotePath(String)
+    case status(String)
+}
+
+public struct CurrentProjectWorkspaceLinkedRow: Sendable, Equatable {
+    public let title: String
+    public let subtitle: String
+    public let action: CurrentProjectWorkspaceRowAction
+    public let moduleID: ModuleIdentifier
+
+    public init(
+        title: String,
+        subtitle: String,
+        action: CurrentProjectWorkspaceRowAction,
+        moduleID: ModuleIdentifier
+    ) {
+        self.title = title
+        self.subtitle = subtitle
+        self.action = action
+        self.moduleID = moduleID
+    }
+}
+
+public struct CurrentProjectWorkspaceActionRow: Sendable, Equatable {
+    public let title: String
+    public let subtitle: String
+    public let action: CurrentProjectWorkspaceRowAction
+    public let entryID: UUID?
+    public let isInteractive: Bool
+
+    public init(
+        title: String,
+        subtitle: String,
+        action: CurrentProjectWorkspaceRowAction,
+        entryID: UUID? = nil,
+        isInteractive: Bool = false
+    ) {
+        self.title = title
+        self.subtitle = subtitle
+        self.action = action
+        self.entryID = entryID
+        self.isInteractive = isInteractive
+    }
+}
+
 public struct CurrentProjectWorkspaceCaptureAction: Sendable, Equatable {
     public let title: String
     public let source: WorkbenchCaptureSource
@@ -35,6 +85,8 @@ public struct CurrentProjectWorkspaceModel: Sendable, Equatable {
     public let headerLines: [String]
     public let quickCaptureActions: [CurrentProjectWorkspaceCaptureAction]
     public let quickCaptureDisabledHint: String?
+    public let linkedItemRows: [CurrentProjectWorkspaceLinkedRow]
+    public let recentActivityRows: [CurrentProjectWorkspaceActionRow]
     public let recentActivityLines: [CurrentProjectWorkspaceActivityLine]
     public let showsProjectActions: Bool
 
@@ -43,6 +95,8 @@ public struct CurrentProjectWorkspaceModel: Sendable, Equatable {
         headerLines: [String],
         quickCaptureActions: [CurrentProjectWorkspaceCaptureAction],
         quickCaptureDisabledHint: String?,
+        linkedItemRows: [CurrentProjectWorkspaceLinkedRow],
+        recentActivityRows: [CurrentProjectWorkspaceActionRow],
         recentActivityLines: [CurrentProjectWorkspaceActivityLine],
         showsProjectActions: Bool
     ) {
@@ -50,6 +104,8 @@ public struct CurrentProjectWorkspaceModel: Sendable, Equatable {
         self.headerLines = headerLines
         self.quickCaptureActions = quickCaptureActions
         self.quickCaptureDisabledHint = quickCaptureDisabledHint
+        self.linkedItemRows = linkedItemRows
+        self.recentActivityRows = recentActivityRows
         self.recentActivityLines = recentActivityLines
         self.showsProjectActions = showsProjectActions
     }
@@ -86,6 +142,7 @@ public enum CurrentProjectWorkspaceModelBuilder {
     public static func build(
         context: CurrentProjectContext?,
         activitySnapshot: WorkbenchActivitySnapshot,
+        linkSnapshot: WorkbenchLinkSnapshot = WorkbenchLinkSnapshot(),
         enabledModuleIDs: Set<ModuleIdentifier>,
         existingProjectNotePath: String? = nil
     ) -> CurrentProjectWorkspaceModel {
@@ -108,11 +165,15 @@ public enum CurrentProjectWorkspaceModelBuilder {
             ? "Enable Snippets, Quicklinks, Todo, or Notes in Settings for quick capture."
             : nil
 
-        let activityLines = activitySnapshot.currentProjectRecent
+        let linkedRows = linkSnapshot.enabledLinks(enabledModuleIDs: enabledModuleIDs, limit: 5)
+            .compactMap { linkRow(for: $0) }
+
+        let recentRows = activitySnapshot.currentProjectRecent
             .filter { enabledModuleIDs.contains($0.moduleID) }
-            .map { entry in
-            let subtitle = entry.preview ?? entry.detail ?? ""
-            return CurrentProjectWorkspaceActivityLine(title: entry.title, subtitle: subtitle)
+            .map { actionRow(for: $0) }
+
+        let activityLines = recentRows.map {
+            CurrentProjectWorkspaceActivityLine(title: $0.title, subtitle: $0.subtitle)
         }
 
         return CurrentProjectWorkspaceModel(
@@ -120,6 +181,8 @@ public enum CurrentProjectWorkspaceModelBuilder {
             headerLines: headerLines,
             quickCaptureActions: context.matchedProjectPath == nil ? [] : quickCapture,
             quickCaptureDisabledHint: context.matchedProjectPath == nil ? nil : disabledHint,
+            linkedItemRows: linkedRows,
+            recentActivityRows: recentRows,
             recentActivityLines: activityLines,
             showsProjectActions: context.matchedProjectPath != nil
         )
@@ -132,6 +195,8 @@ public enum CurrentProjectWorkspaceModelBuilder {
                 headerLines: ["Loading…"],
                 quickCaptureActions: [],
                 quickCaptureDisabledHint: nil,
+                linkedItemRows: [],
+                recentActivityRows: [],
                 recentActivityLines: [],
                 showsProjectActions: false
             )
@@ -142,8 +207,52 @@ public enum CurrentProjectWorkspaceModelBuilder {
             headerLines: ["Loading \(name)…"],
             quickCaptureActions: [],
             quickCaptureDisabledHint: nil,
+            linkedItemRows: [],
+            recentActivityRows: [],
             recentActivityLines: [],
             showsProjectActions: false
+        )
+    }
+
+    static func actionRow(for entry: WorkbenchActivityEntry) -> CurrentProjectWorkspaceActionRow {
+        let subtitle = entry.preview ?? entry.detail ?? ""
+        let action = WorkbenchLinkedEntityOpenPlanner.rowAction(for: entry)
+        let isInteractive: Bool
+        let displaySubtitle: String
+        switch action {
+        case .status:
+            isInteractive = false
+            displaySubtitle = subtitle.isEmpty ? "Recorded activity" : subtitle
+        case .resumeActivity:
+            isInteractive = true
+            displaySubtitle = subtitle.isEmpty ? "Press to resume draft" : subtitle
+        case .replaceQuery, .openNotePath:
+            isInteractive = true
+            displaySubtitle = subtitle
+        case .openModule:
+            isInteractive = true
+            displaySubtitle = subtitle.isEmpty ? "Open in module" : subtitle
+        case .openLinked:
+            isInteractive = true
+            displaySubtitle = subtitle
+        }
+        return CurrentProjectWorkspaceActionRow(
+            title: entry.title,
+            subtitle: displaySubtitle,
+            action: action,
+            entryID: entry.id,
+            isInteractive: isInteractive
+        )
+    }
+
+    private static func linkRow(for link: WorkbenchProjectLink) -> CurrentProjectWorkspaceLinkedRow? {
+        let ref = link.entityRef
+        let subtitle = ref.subtitle ?? ""
+        return CurrentProjectWorkspaceLinkedRow(
+            title: ref.title,
+            subtitle: subtitle,
+            action: .openLinked(linkID: link.id),
+            moduleID: ref.moduleID
         )
     }
 
@@ -153,6 +262,8 @@ public enum CurrentProjectWorkspaceModelBuilder {
             headerLines: [context == nil ? "No IDE project detected." : "No project context."],
             quickCaptureActions: [],
             quickCaptureDisabledHint: nil,
+            linkedItemRows: [],
+            recentActivityRows: [],
             recentActivityLines: [],
             showsProjectActions: false
         )
@@ -162,5 +273,17 @@ public enum CurrentProjectWorkspaceModelBuilder {
         let home = FileManager.default.homeDirectoryForCurrentUser.path
         if path.hasPrefix(home) { return "~" + path.dropFirst(home.count) }
         return path
+    }
+}
+
+/// Avoids LumaCore depending on LumaModules for todo resume query formatting.
+public enum TodoModuleResumeQuery {
+    public static func resumeQuery(forCapture text: String) -> String {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return "t " }
+        if trimmed.lowercased().hasPrefix("t ") || trimmed.lowercased().hasPrefix("todo ") {
+            return trimmed
+        }
+        return "t \(trimmed)"
     }
 }

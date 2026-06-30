@@ -193,6 +193,19 @@ struct ProjectActivityHomeContributor: HomeContributor {
             ))
         }
 
+        let linked = workbench.linkSnapshot.enabledLinks(
+            enabledModuleIDs: context.enabledModuleIDs,
+            limit: 2
+        )
+        for link in linked {
+            rows.append(HomeContribution(
+                item: linkedItemRow(link: link),
+                key: "contextual.project-link.\(link.id.uuidString)",
+                kind: .continueFlow,
+                basePriority: 83
+            ))
+        }
+
         let activities = workbench.activitySnapshot.enabledCurrentProjectRecent(
             enabledModuleIDs: context.enabledModuleIDs,
             limit: 1,
@@ -255,6 +268,21 @@ struct ProjectActivityHomeContributor: HomeContributor {
             icon: .symbol("doc.badge.clock"),
             primaryAction: WorkbenchHomeCaptureRows.resumeAction(entry: entry),
             rankingHints: RankingHints(basePriority: 85),
+            rowKind: .starter
+        )
+    }
+
+    private func linkedItemRow(link: WorkbenchProjectLink) -> ResultItem {
+        let ref = link.entityRef
+        let action = WorkbenchHomeCaptureRows.openLinkedAction(link: link)
+        return ResultItem(
+            id: ResultID(module: ref.moduleID, key: "contextual.project-link.\(link.id.uuidString)"),
+            title: "Review linked: \(ref.title)",
+            titleAttributed: AttributedString("Review linked: \(ref.title)"),
+            subtitle: ref.subtitle ?? "Project linked item",
+            icon: .symbol("link"),
+            primaryAction: action,
+            rankingHints: RankingHints(basePriority: 83),
             rowKind: .starter
         )
     }

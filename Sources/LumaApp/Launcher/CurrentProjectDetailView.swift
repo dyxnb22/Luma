@@ -12,6 +12,7 @@ final class CurrentProjectDetailView: NSObject, ModuleDetailView {
   private let config: ConfigurationStore
   private let onRunProjectAction: (ProjectAction, @escaping () -> Void) -> Void
   private let onRunWorkbenchCapture: (WorkbenchCaptureSource, WorkbenchCaptureTarget) -> Void
+  private let onRunWorkspaceRow: (CurrentProjectWorkspaceRowAction) -> Void
   private let stackView = NSStackView()
   private var pendingActions: [ProjectAction] = []
   private var context: CurrentProjectContext?
@@ -21,11 +22,13 @@ final class CurrentProjectDetailView: NSObject, ModuleDetailView {
   init(
     config: ConfigurationStore,
     onRunProjectAction: @escaping (ProjectAction, @escaping () -> Void) -> Void,
-    onRunWorkbenchCapture: @escaping (WorkbenchCaptureSource, WorkbenchCaptureTarget) -> Void
+    onRunWorkbenchCapture: @escaping (WorkbenchCaptureSource, WorkbenchCaptureTarget) -> Void,
+    onRunWorkspaceRow: @escaping (CurrentProjectWorkspaceRowAction) -> Void
   ) {
     self.config = config
     self.onRunProjectAction = onRunProjectAction
     self.onRunWorkbenchCapture = onRunWorkbenchCapture
+    self.onRunWorkspaceRow = onRunWorkspaceRow
     let chrome = BaseDetailContainer()
     self.detailView = chrome
     super.init()
@@ -64,8 +67,13 @@ final class CurrentProjectDetailView: NSObject, ModuleDetailView {
     async let activitySnapshot = WorkbenchActivityStore.shared.activitySnapshot(
       projectIdentity: projectIdentity
     )
+    async let linkSnapshot = WorkbenchLinkStore.shared.snapshot(
+      for: projectIdentity?.identity,
+      limit: 10
+    )
     let enabled = await enabledModules
     let snapshot = await activitySnapshot
+    let links = await linkSnapshot
     guard !Task.isCancelled, generation == loadGeneration else { return }
 
     let notePath: String?
@@ -79,6 +87,7 @@ final class CurrentProjectDetailView: NSObject, ModuleDetailView {
     let model = CurrentProjectWorkspaceModelBuilder.build(
       context: projectContext,
       activitySnapshot: snapshot,
+      linkSnapshot: WorkbenchLinkSnapshot(currentProjectLinks: links),
       enabledModuleIDs: enabled,
       existingProjectNotePath: notePath
     )
@@ -105,11 +114,23 @@ final class CurrentProjectDetailView: NSObject, ModuleDetailView {
       }
     }
 
-    if !model.recentActivityLines.isEmpty {
+    if !model.linkedItemRows.isEmpty {
+      addHeading("Linked items")
+      for row in model.linkedItemRows {
+        let suffix = row.subtitle.isEmpty ? "" : " — \(row.subtitle)"
+        addWorkspaceRowButton("\(row.title)\(suffix)", action: row.action)
+      }
+    }
+
+    if !model.recentActivityRows.isEmpty {
       addHeading("Recent project activity")
-      for line in model.recentActivityLines {
-        let suffix = line.subtitle.isEmpty ? "" : " — \(line.subtitle)"
-        addLabel("• \(line.title)\(suffix)")
+      for row in model.recentActivityRows {
+        let suffix = row.subtitle.isEmpty ? "" : " — \(row.subtitle)"
+        if row.isInteractive {
+          addWorkspaceRowButton("\(row.title)\(suffix)", action: row.action)
+        } else {
+          addLabel("• \(row.title)\(suffix)")
+        }
       }
     }
 
@@ -154,17 +175,71 @@ final class CurrentProjectDetailView: NSObject, ModuleDetailView {
   ) {
     let button = NSButton(title: title, target: self, action: #selector(runCapture(_:)))
     button.bezelStyle = .rounded
-    button.identifier = NSUserInterfaceItemIdentifier("\(source.rawValue)|\(target.rawValue)")
+    button.identifier = NSUserInterfaceItemIdentifier("capture|\(source.rawValue)|\(target.rawValue)")
     stackView.addArrangedSubview(button)
+  }
+
+  private func addWorkspaceRowButton(_ title: String, action: CurrentProjectWorkspaceRowAction) {
+    let key = workspaceRowKey(for: action)
+    let button = NSButton(title: title, target: self, action: #selector(runWorkspaceRow(_:)))
+    button.bezelStyle = .rounded
+    button.identifier = NSUserInterfaceItemIdentifier(key)
+    stackView.addArrangedSubview(button)
+  }
+
+  private func workspaceRowKey(for action: CurrentProjectWorkspaceRowAction) -> String {
+    switch action {
+    case .resumeActivity(let entryID):
+      return "row|resume|\(entryID.uuidString)"
+    case .openLinked(let linkID):
+      return "row|link|\(linkID.uuidString)"
+    case .openModule(let moduleID):
+      return "row|open|\(moduleID.rawValue)"
+    case .replaceQuery(let query):
+      return "row|query|\(query)"
+    case .openNotePath(let path):
+      return "row|note|\(path)"
+    case .status(let message):
+      return "row|status|\(message)"
+    }
+  }
+
+  private func workspaceRowAction(from key: String) -> CurrentProjectWorkspaceRowAction? {
+    let parts = key.split(separator: "|", omittingEmptySubsequences: false).map(String.init)
+    guard parts.count >= 3, parts[0] == "row" else { return nil }
+    switch parts[1] {
+    case "resume":
+      guard let id = UUID(uuidString: parts[2]) else { return nil }
+      return .resumeActivity(entryID: id)
+    case "link":
+      guard let id = UUID(uuidString: parts[2]) else { return nil }
+      return .openLinked(linkID: id)
+    case "open":
+      return .openModule(moduleID: ModuleIdentifier(rawValue: parts[2]))
+    case "query":
+      return .replaceQuery(parts.dropFirst(2).joined(separator: "|"))
+    case "note":
+      return .openNotePath(parts.dropFirst(2).joined(separator: "|"))
+    case "status":
+      return .status(parts.dropFirst(2).joined(separator: "|"))
+    default:
+      return nil
+    }
   }
 
   @objc private func runCapture(_ sender: NSButton) {
     guard let id = sender.identifier?.rawValue else { return }
-    let parts = id.split(separator: "|", maxSplits: 1).map(String.init)
-    guard parts.count == 2,
-          let source = WorkbenchCaptureSource(rawValue: parts[0]),
-          let target = WorkbenchCaptureTarget(rawValue: parts[1]) else { return }
+    let parts = id.split(separator: "|", maxSplits: 2).map(String.init)
+    guard parts.count == 3, parts[0] == "capture",
+          let source = WorkbenchCaptureSource(rawValue: parts[1]),
+          let target = WorkbenchCaptureTarget(rawValue: parts[2]) else { return }
     onRunWorkbenchCapture(source, target)
+  }
+
+  @objc private func runWorkspaceRow(_ sender: NSButton) {
+    guard let id = sender.identifier?.rawValue,
+          let action = workspaceRowAction(from: id) else { return }
+    onRunWorkspaceRow(action)
   }
 
   @objc private func runAction(_ sender: NSButton) {

@@ -156,6 +156,25 @@ final class LauncherRootController {
                 await MainActor.run { self.onActionDismiss() }
             }
             return true
+        case .resumeActivity(let entryID):
+            runWorkbenchResumeActivity(entryID: entryID, for: ResultItem(
+                id: ResultID(module: .workbench, key: "command.resume.\(entryID.uuidString)"),
+                title: "Resume activity",
+                titleAttributed: AttributedString("Resume activity"),
+                subtitle: nil,
+                icon: .symbol("clock.arrow.circlepath"),
+                primaryAction: Action(
+                    id: ActionID(module: .workbench, key: "command.resume"),
+                    title: "Resume",
+                    kind: .noop
+                ),
+                rankingHints: RankingHints(basePriority: 0),
+                rowKind: .starter
+            ))
+            return true
+        case .openLinked(let linkID):
+            runOpenLinkedEntity(linkID: linkID)
+            return true
         }
     }
 
@@ -712,6 +731,10 @@ final class LauncherRootController {
                     runWorkbenchCommand(commandAction, for: item)
                     return
                 }
+                if let entityAction = try? ModuleActionCoding.decode(WorkbenchEntityAction.self, from: payload) {
+                    runWorkbenchEntity(entityAction, for: item)
+                    return
+                }
             }
             if handler == .notes,
                let notesAction = try? ModuleActionCoding.decode(NotesAction.self, from: payload) {
@@ -757,6 +780,91 @@ final class LauncherRootController {
             rowKind: .starter
         )
         runWorkbenchPrepareDraft(source: source, target: target, for: item)
+    }
+
+    func runWorkspaceRowActionFromDetail(_ action: CurrentProjectWorkspaceRowAction) {
+        switch action {
+        case .resumeActivity(let entryID):
+            runWorkbenchResumeActivity(entryID: entryID, for: ResultItem(
+                id: ResultID(module: .workbench, key: "detail.resume.\(entryID.uuidString)"),
+                title: "Resume activity",
+                titleAttributed: AttributedString("Resume activity"),
+                subtitle: nil,
+                icon: .symbol("clock.arrow.circlepath"),
+                primaryAction: Action(
+                    id: ActionID(module: .workbench, key: "detail.resume"),
+                    title: "Resume",
+                    kind: .noop
+                ),
+                rankingHints: RankingHints(basePriority: 0),
+                rowKind: .starter
+            ))
+        case .openModule(let moduleID):
+            openModuleDetail(for: moduleID)
+        case .replaceQuery(let text):
+            searchBar.stringValue = text
+            lastSyncedQuery = ""
+            handleTextChange(text)
+        case .openNotePath(let path):
+            runNotesOpen(path: path, action: Action(
+                id: ActionID(module: .notes, key: "detail.note"),
+                title: "Open note",
+                kind: .noop
+            ), for: ResultItem(
+                id: ResultID(module: .notes, key: "detail.note"),
+                title: "Open note",
+                titleAttributed: AttributedString("Open note"),
+                subtitle: nil,
+                icon: .symbol("note.text"),
+                primaryAction: Action(
+                    id: ActionID(module: .notes, key: "detail.note"),
+                    title: "Open note",
+                    kind: .noop
+                ),
+                rankingHints: RankingHints(basePriority: 0),
+                rowKind: .starter
+            ))
+        case .openLinked(let linkID):
+            runOpenLinkedEntity(linkID: linkID)
+        case .status(let message):
+            commandHintBar.showStatus(message)
+        }
+    }
+
+    private func runWorkbenchEntity(_ action: WorkbenchEntityAction, for item: ResultItem) {
+        switch action {
+        case .openLinked(let linkID):
+            recordHomeCompletionIfNeeded(for: item)
+            runOpenLinkedEntity(linkID: linkID)
+        }
+    }
+
+    func runOpenLinkedEntity(linkID: UUID) {
+        Task {
+            let links = await WorkbenchLinkStore.shared.allLinks()
+            guard let link = links.first(where: { $0.id == linkID }) else {
+                await MainActor.run { commandHintBar.showStatus("Linked item no longer available") }
+                return
+            }
+            let entry: WorkbenchActivityEntry?
+            if let entryID = link.activityEntryID {
+                let activities = await WorkbenchActivityStore.shared.allEntries()
+                entry = activities.first { $0.id == entryID }
+            } else {
+                entry = nil
+            }
+            let enabled = await config.enabledModules()
+                ?? Set(ModuleRegistry.allBundles.map { $0.identifier })
+            guard enabled.contains(link.entityRef.moduleID) else {
+                await MainActor.run { commandHintBar.showStatus("Module disabled in Settings") }
+                return
+            }
+            let rowAction = WorkbenchLinkedEntityOpenPlanner.rowAction(for: link, entry: entry)
+            await MainActor.run {
+                runWorkspaceRowActionFromDetail(rowAction)
+                persistResumeState(translateContent: nil)
+            }
+        }
     }
 
     private func runWorkbenchPrepareDraft(
@@ -865,6 +973,9 @@ final class LauncherRootController {
             searchBar.stringValue = TodoModule.resumeQuery(forCapture: text)
             lastSyncedQuery = ""
             handleTextChange(searchBar.stringValue)
+        case .noteReference(let path, _):
+            commandHintBar.showStatus("Open note: \(path)")
+            openModuleDetail(for: .notes)
         }
     }
 

@@ -46,12 +46,12 @@ import LumaCore
 
     let data = try Data(contentsOf: url)
     let raw = String(data: data, encoding: .utf8) ?? ""
-    #expect(raw.contains("\"version\":1"))
+    #expect(raw.contains("\"version\":2"))
 
     let reloaded = WorkbenchActivityStore(fileURL: url)
     let entries = await reloaded.allEntries()
     #expect(entries.count == 1)
-    #expect(entries[0].project?.projectPath == "/Users/dev/Luma")
+    #expect(entries[0].projectIdentity?.matchedPath == "/Users/dev/Luma")
     #expect(entries[0].sourceKind == .home)
 }
 
@@ -158,7 +158,7 @@ import LumaCore
         attribution: WorkbenchCaptureAttribution(sourceKind: .home, followUp: .openDetail)
     )
     let entry = await store.snapshot(limit: 1)[0]
-    #expect(entry.project?.projectPath == "/Users/dev/Luma")
+    #expect(entry.projectIdentity?.matchedPath == "/Users/dev/Luma")
     #expect(entry.sourceKind == .home)
     #expect(entry.kind == .projectLinked)
     #expect(entry.resumeRef?.kind == .snippetDraft)

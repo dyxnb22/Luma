@@ -123,6 +123,9 @@ final class LauncherRootView: NSView {
     func runWorkbenchCaptureFromDetail(source: WorkbenchCaptureSource, target: WorkbenchCaptureTarget) {
         controller.runWorkbenchCaptureFromDetail(source: source, target: target)
     }
+    func runWorkspaceRowActionFromDetail(_ action: CurrentProjectWorkspaceRowAction) {
+        controller.runWorkspaceRowActionFromDetail(action)
+    }
     func handleEscape() { controller.handleEscape() }
     func closeDetail() { controller.closeDetail() }
 

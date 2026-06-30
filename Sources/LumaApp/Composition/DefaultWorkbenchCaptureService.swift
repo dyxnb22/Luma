@@ -30,11 +30,21 @@ struct DefaultWorkbenchCaptureService: WorkbenchCaptureService {
         }
         LauncherResumeStore.save(resume)
 
-        await WorkbenchActivityStore.shared.recordCapture(
-            result: result,
-            context: context,
-            attribution: attribution
-        )
+        if let project = context.currentProject {
+            let identity = ProjectIdentity(context: project)
+            let entry = await WorkbenchActivityStore.shared.recordCapture(
+                result: result,
+                context: context,
+                attribution: attribution
+            )
+            await WorkbenchLinkStore.shared.recordLink(for: entry, identity: identity)
+        } else {
+            await WorkbenchActivityStore.shared.recordCapture(
+                result: result,
+                context: context,
+                attribution: attribution
+            )
+        }
     }
 
     @MainActor

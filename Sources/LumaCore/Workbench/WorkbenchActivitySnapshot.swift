@@ -22,23 +22,22 @@ public struct WorkbenchActivitySnapshot: Sendable, Equatable {
 
     public static func build(
         entries: [WorkbenchActivityEntry],
-        projectIdentity: WorkbenchProjectIdentity?,
+        projectIdentity: ProjectIdentity?,
         globalLimit: Int = globalRecentLimit,
         projectRecentLimit: Int = projectRecentLimit,
         projectDraftsLimit: Int = projectDraftsLimit
     ) -> WorkbenchActivitySnapshot {
         let global = WorkbenchActivityQuery.recent(entries: entries, limit: globalLimit)
-        guard let identity = projectIdentity,
-              let queryKey = identity.activityQueryKey else {
+        guard let identity = projectIdentity else {
             return WorkbenchActivitySnapshot(globalRecent: global)
         }
         let projectRecent = WorkbenchActivityQuery.recent(
-            forProject: queryKey,
+            for: identity,
             entries: entries,
             limit: projectRecentLimit
         )
         let projectDrafts = WorkbenchActivityQuery.recentDrafts(
-            forProject: queryKey,
+            for: identity,
             entries: entries,
             limit: projectDraftsLimit
         )
@@ -51,13 +50,53 @@ public struct WorkbenchActivitySnapshot: Sendable, Equatable {
 
     public static func build(
         entries: [WorkbenchActivityEntry],
+        projectIdentity: WorkbenchProjectIdentity?,
+        globalLimit: Int = globalRecentLimit,
+        projectRecentLimit: Int = projectRecentLimit,
+        projectDraftsLimit: Int = projectDraftsLimit
+    ) -> WorkbenchActivitySnapshot {
+        build(
+            entries: entries,
+            projectIdentity: projectIdentity?.identity,
+            globalLimit: globalLimit,
+            projectRecentLimit: projectRecentLimit,
+            projectDraftsLimit: projectDraftsLimit
+        )
+    }
+
+    @available(*, deprecated, message: "Use build(entries:projectIdentity:)")
+    public static func build(
+        entries: [WorkbenchActivityEntry],
         currentProjectPath: String?,
         globalLimit: Int = globalRecentLimit,
         projectRecentLimit: Int = projectRecentLimit,
         projectDraftsLimit: Int = projectDraftsLimit
     ) -> WorkbenchActivitySnapshot {
-        let identity = currentProjectPath.map {
-            WorkbenchProjectIdentity(matchedPath: $0, labelFallback: $0)
+        let identity: ProjectIdentity?
+        if let path = currentProjectPath?.trimmingCharacters(in: .whitespacesAndNewlines), !path.isEmpty {
+            if ProjectIdentity.looksLikePath(path) {
+                identity = ProjectIdentity(
+                    stableProjectID: ProjectIdentity.makeStableID(
+                        matchedPath: path,
+                        labelFallback: path,
+                        sourceBundleID: nil
+                    ),
+                    matchedPath: path,
+                    labelFallback: path
+                )
+            } else {
+                identity = ProjectIdentity(
+                    stableProjectID: ProjectIdentity.makeStableID(
+                        matchedPath: nil,
+                        labelFallback: path,
+                        sourceBundleID: nil
+                    ),
+                    matchedPath: nil,
+                    labelFallback: path
+                )
+            }
+        } else {
+            identity = nil
         }
         return build(
             entries: entries,

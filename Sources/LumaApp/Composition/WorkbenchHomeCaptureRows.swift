@@ -22,12 +22,28 @@ enum WorkbenchHomeCaptureRows {
     }
 
     static func resumeAction(entry: WorkbenchActivityEntry) -> Action {
+        resumeAction(entryID: entry.id, moduleID: entry.moduleID, title: entry.title, key: "contextual.project-activity.\(entry.id.uuidString)")
+    }
+
+    static func resumeAction(entryID: UUID, moduleID: ModuleIdentifier, title: String? = nil, key: String? = nil) -> Action {
         let payload = (try? ModuleActionCoding.encode(
-            WorkbenchCaptureAction.resumeActivity(entryID: entry.id)
+            WorkbenchCaptureAction.resumeActivity(entryID: entryID)
         )) ?? Data()
         return Action(
-            id: ActionID(module: entry.moduleID, key: "contextual.project-activity.\(entry.id.uuidString)"),
-            title: entry.title,
+            id: ActionID(module: moduleID, key: key ?? "contextual.project-activity.\(entryID.uuidString)"),
+            title: title ?? "Resume activity",
+            kind: .custom(payload: payload, handler: .workbench)
+        )
+    }
+
+    static func openLinkedAction(link: WorkbenchProjectLink) -> Action {
+        let ref = link.entityRef
+        let payload = (try? ModuleActionCoding.encode(
+            WorkbenchEntityAction.openLinked(linkID: link.id)
+        )) ?? Data()
+        return Action(
+            id: ActionID(module: ref.moduleID, key: "contextual.project-link.\(link.id.uuidString)"),
+            title: ref.title,
             kind: .custom(payload: payload, handler: .workbench)
         )
     }

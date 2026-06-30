@@ -23,6 +23,7 @@ struct ModuleUIContext {
     let onTranslateContentChanged: (String, String) -> Void
     let runProjectAction: (ProjectAction, @escaping () -> Void) -> Void
     let runWorkbenchCapture: (WorkbenchCaptureSource, WorkbenchCaptureTarget) -> Void
+    let runWorkspaceRow: (CurrentProjectWorkspaceRowAction) -> Void
 }
 
 @MainActor
@@ -79,7 +80,8 @@ final class ModuleDetailRegistry {
             return CurrentProjectDetailView(
                 config: ctx.config,
                 onRunProjectAction: ctx.runProjectAction,
-                onRunWorkbenchCapture: ctx.runWorkbenchCapture
+                onRunWorkbenchCapture: ctx.runWorkbenchCapture,
+                onRunWorkspaceRow: ctx.runWorkspaceRow
             )
         }
         registry.register(.quicklinks) { ctx in

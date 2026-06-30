@@ -24,7 +24,7 @@ struct WorkbenchCommandExecutor {
         switch route {
         case .none:
             return .notHandled
-        case .continueProject, .projectWork:
+        case .continueProject, .projectWork, .projectOpen:
             return continueProject(context: context)
         case .attachProject, .attachClipboard, .attachSelection:
             return await attachProject(
@@ -33,6 +33,12 @@ struct WorkbenchCommandExecutor {
             )
         case .projectRecent:
             return projectRecent(context: context)
+        case .projectResume:
+            return projectResume(context: context)
+        case .projectLinks:
+            return projectLinks(context: context)
+        case .projectCapture:
+            return await projectCapture(context: context)
         case .capture(let definition):
             return await executeCapture(definition: definition, context: context)
         }
@@ -47,7 +53,7 @@ struct WorkbenchCommandExecutor {
     }
 
     private func continueProject(context: WorkbenchContext) -> WorkbenchCommandOutcome {
-        guard context.isEnabled(.projects), let project = context.currentProject else {
+        guard context.isEnabled(.workbenchProjects), let project = context.currentProject else {
             return .status("No active project context")
         }
         let payload = (try? ModuleActionCoding.encode(ProjectAction.openCurrentDetail(project))) ?? Data()
@@ -55,38 +61,104 @@ struct WorkbenchCommandExecutor {
     }
 
     private func projectRecent(context: WorkbenchContext) -> WorkbenchCommandOutcome {
-        guard context.isEnabled(.projects), let project = context.currentProject,
-              let path = project.matchedProjectPath else {
+        guard context.isEnabled(.workbenchProjects), context.currentProject != nil else {
             return .status("No active project context")
         }
-        let payload = (try? ModuleActionCoding.encode(ProjectAction.openCurrentDetail(project))) ?? Data()
-        _ = path
-        return .openDetail(.projects, payload: payload)
+        let recent = context.activitySnapshot.enabledCurrentProjectRecent(
+            enabledModuleIDs: context.enabledModuleIDs,
+            limit: 1
+        )
+        if let top = recent.first, top.isResumableDraft {
+            return .resumeActivity(top.id)
+        }
+        return continueProject(context: context)
+    }
+
+    private func projectResume(context: WorkbenchContext) -> WorkbenchCommandOutcome {
+        guard context.isEnabled(.workbenchProjects), context.currentProject != nil else {
+            return .status("No active project context")
+        }
+        let drafts = context.activitySnapshot.enabledCurrentProjectDrafts(
+            enabledModuleIDs: context.enabledModuleIDs,
+            limit: 1
+        )
+        if let draft = drafts.first {
+            return .resumeActivity(draft.id)
+        }
+        return continueProject(context: context)
+    }
+
+    private func projectLinks(context: WorkbenchContext) -> WorkbenchCommandOutcome {
+        guard context.isEnabled(.workbenchProjects), context.currentProject != nil else {
+            return .status("No active project context")
+        }
+        let links = context.linkSnapshot.enabledLinks(
+            enabledModuleIDs: context.enabledModuleIDs,
+            limit: 1
+        )
+        if let link = links.first {
+            return .openLinked(link.id)
+        }
+        return continueProject(context: context)
+    }
+
+    private func projectCapture(context: WorkbenchContext) async -> WorkbenchCommandOutcome {
+        guard context.isEnabled(.workbenchProjects), context.currentProject != nil else {
+            return .status("No active project context")
+        }
+        let targets: [(WorkbenchCaptureTarget, ModuleIdentifier)] = [
+            (.projectSnippetDraft, .workbenchSnippets),
+            (.quicklinkDraft, .workbenchQuicklinks),
+            (.todoDraft, .workbenchTodo),
+            (.noteDraft, .workbenchNotes)
+        ]
+        guard let first = targets.first(where: { context.isEnabled($0.1) }) else {
+            return .status("Enable capture modules in Settings")
+        }
+        return await executeProjectCapture(target: first.0, context: context)
     }
 
     private func attachProject(
         context: WorkbenchContext,
         source: WorkbenchCaptureSource
     ) async -> WorkbenchCommandOutcome {
-        guard context.isEnabled(.snippets), context.currentProject != nil else {
+        guard context.isEnabled(.workbenchSnippets), context.currentProject != nil else {
             return .status("Enable Snippets and open a project context first")
         }
+        return await executeProjectCapture(target: .projectSnippetDraft, context: context, source: source)
+    }
+
+    private func executeProjectCapture(
+        target: WorkbenchCaptureTarget,
+        context: WorkbenchContext,
+        source: WorkbenchCaptureSource = .projectContext
+    ) async -> WorkbenchCommandOutcome {
         guard let result = await captureService.capture(
             source: source,
-            target: .projectSnippetDraft,
+            target: target,
             context: context
         ) else {
-            return .status("Could not attach to project")
+            return .status("Could not capture to project")
         }
         await captureService.applyResult(
             result,
             context: context,
-            attribution: WorkbenchCaptureAttribution(sourceKind: .command, followUp: .openDetail)
+            attribution: WorkbenchCaptureAttribution(sourceKind: .command, followUp: followUp(for: target))
         )
         await MainActor.run {
             captureService.stagePendingState(for: result)
         }
-        return .openDetail(result.moduleID, payload: result.openDetailPayload)
+        switch target {
+        case .noteDraft:
+            if let payload = result.actionPayload {
+                return .runAction(.custom(payload: payload, handler: .notes))
+            }
+            return .status("Note capture failed")
+        case .todoDraft:
+            return .replaceQuery(TodoModule.resumeQuery(forCapture: result.preview))
+        case .snippetDraft, .quicklinkDraft, .projectSnippetDraft:
+            return .openDetail(result.moduleID, payload: result.openDetailPayload)
+        }
     }
 
     private func executeCapture(
@@ -144,9 +216,9 @@ struct WorkbenchCommandExecutor {
         selectionText: String?
     ) async -> WorkbenchCommandOutcome {
         switch commandID {
-        case .continueProject, .projectWork:
+        case .continueProject, .projectWork, .projectOpen:
             return await handle(
-                route: .projectWork,
+                route: commandID == .projectOpen ? .projectOpen : .projectWork,
                 enabledModuleIDs: enabledModuleIDs,
                 pinnedModuleIDs: pinnedModuleIDs,
                 clipboardPreview: clipboardPreview,
@@ -168,6 +240,30 @@ struct WorkbenchCommandExecutor {
         case .projectRecent:
             return await handle(
                 route: .projectRecent,
+                enabledModuleIDs: enabledModuleIDs,
+                pinnedModuleIDs: pinnedModuleIDs,
+                clipboardPreview: clipboardPreview,
+                selectionText: selectionText
+            )
+        case .projectLinks:
+            return await handle(
+                route: .projectLinks,
+                enabledModuleIDs: enabledModuleIDs,
+                pinnedModuleIDs: pinnedModuleIDs,
+                clipboardPreview: clipboardPreview,
+                selectionText: selectionText
+            )
+        case .projectResume:
+            return await handle(
+                route: .projectResume,
+                enabledModuleIDs: enabledModuleIDs,
+                pinnedModuleIDs: pinnedModuleIDs,
+                clipboardPreview: clipboardPreview,
+                selectionText: selectionText
+            )
+        case .projectCapture:
+            return await handle(
+                route: .projectCapture,
                 enabledModuleIDs: enabledModuleIDs,
                 pinnedModuleIDs: pinnedModuleIDs,
                 clipboardPreview: clipboardPreview,
@@ -196,4 +292,6 @@ enum WorkbenchCommandOutcome: Sendable {
     case openDetail(ModuleIdentifier, payload: Data?)
     case replaceQuery(String)
     case runAction(ActionKind)
+    case resumeActivity(UUID)
+    case openLinked(UUID)
 }

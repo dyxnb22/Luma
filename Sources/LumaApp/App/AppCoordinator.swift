@@ -313,6 +313,9 @@ final class AppCoordinator {
             },
             runWorkbenchCapture: { [weak self] source, target in
                 self?.windowController.runWorkbenchCaptureFromDetail(source: source, target: target)
+            },
+            runWorkspaceRow: { [weak self] action in
+                self?.windowController.runWorkspaceRowActionFromDetail(action)
             }
         )
         launcherEnv.install()

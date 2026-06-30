@@ -34,6 +34,7 @@ final class LauncherEnvironment {
     let config: ConfigurationStore
     let runProjectAction: (ProjectAction, @escaping () -> Void) -> Void
     let runWorkbenchCapture: (WorkbenchCaptureSource, WorkbenchCaptureTarget) -> Void
+    let runWorkspaceRow: (CurrentProjectWorkspaceRowAction) -> Void
     let warmModuleForDetail: (ModuleIdentifier) async -> Void
     let reserveDetailModule: (ModuleIdentifier?) async -> Void
 
@@ -63,7 +64,8 @@ final class LauncherEnvironment {
         translation: any TranslationClient,
         config: ConfigurationStore,
         runProjectAction: @escaping (ProjectAction, @escaping () -> Void) -> Void,
-        runWorkbenchCapture: @escaping (WorkbenchCaptureSource, WorkbenchCaptureTarget) -> Void = { _, _ in }
+        runWorkbenchCapture: @escaping (WorkbenchCaptureSource, WorkbenchCaptureTarget) -> Void = { _, _ in },
+        runWorkspaceRow: @escaping (CurrentProjectWorkspaceRowAction) -> Void = { _ in }
     ) {
         self.openModuleDetail = openModuleDetail
         self.openSettings = openSettings
@@ -87,6 +89,7 @@ final class LauncherEnvironment {
         self.config = config
         self.runProjectAction = runProjectAction
         self.runWorkbenchCapture = runWorkbenchCapture
+        self.runWorkspaceRow = runWorkspaceRow
         self.warmModuleForDetail = warmModuleForDetail
         self.reserveDetailModule = reserveDetailModule
     }
@@ -117,7 +120,8 @@ final class LauncherEnvironment {
             onHideLauncher: onHideLauncher,
             onTranslateContentChanged: onTranslateContentChanged,
             runProjectAction: runProjectAction,
-            runWorkbenchCapture: runWorkbenchCapture
+            runWorkbenchCapture: runWorkbenchCapture,
+            runWorkspaceRow: runWorkspaceRow
         )
     }
 }

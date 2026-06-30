@@ -79,6 +79,10 @@ final class LauncherWindowController {
         rootView?.runWorkbenchCaptureFromDetail(source: source, target: target)
     }
 
+    func runWorkspaceRowActionFromDetail(_ action: CurrentProjectWorkspaceRowAction) {
+        rootView?.runWorkspaceRowActionFromDetail(action)
+    }
+
     func toggle() {
         panel.isVisible ? hide() : show()
     }

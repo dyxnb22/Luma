@@ -1,26 +1,33 @@
 import Foundation
 
-/// Separates matched filesystem path from window-label fallback for activity queries.
+/// Runtime project identity wrapper for workbench context building.
 public struct WorkbenchProjectIdentity: Sendable, Equatable {
-    public let matchedPath: String?
-    public let labelFallback: String
+    public let identity: ProjectIdentity
 
     public init(context: CurrentProjectContext) {
-        matchedPath = context.matchedProjectPath
-        labelFallback = context.projectLabel
+        identity = ProjectIdentity(context: context)
     }
 
-    public init(matchedPath: String?, labelFallback: String) {
-        self.matchedPath = matchedPath
-        self.labelFallback = labelFallback
+    public init(identity: ProjectIdentity) {
+        self.identity = identity
     }
 
-    /// Query key for activity snapshot: matched path when known; otherwise label for unmatched/legacy rows.
-    public var activityQueryKey: String? {
-        if let path = matchedPath?.trimmingCharacters(in: .whitespacesAndNewlines), !path.isEmpty {
-            return path
-        }
-        let label = labelFallback.trimmingCharacters(in: .whitespacesAndNewlines)
-        return label.isEmpty ? nil : label
+    public init(matchedPath: String?, labelFallback: String, sourceBundleID: String? = nil) {
+        identity = ProjectIdentity(
+            stableProjectID: ProjectIdentity.makeStableID(
+                matchedPath: matchedPath,
+                labelFallback: labelFallback,
+                sourceBundleID: sourceBundleID
+            ),
+            matchedPath: matchedPath,
+            labelFallback: labelFallback,
+            displayName: labelFallback,
+            sourceBundleID: sourceBundleID
+        )
     }
+
+    public var matchedPath: String? { identity.matchedPath }
+    public var labelFallback: String { identity.labelFallback }
+    public var stableProjectID: String { identity.stableProjectID }
+    public var activityQueryKey: String? { identity.activityQueryKey }
 }

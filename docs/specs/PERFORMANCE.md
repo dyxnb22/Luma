@@ -35,8 +35,8 @@ Launcher convergence strategy adds a stricter working rule: warm keystroke p95 a
 - `SelectionSnapshotService.readSelectedText` runs on a background Task; only `frontmostApplication` PID capture happens on the MainActor. AX IPC calls do not block the main thread.
 - `ContextualHomeProvider.rankedSectionItems` runs its `HomeContributor` set concurrently; latency is the maximum of parallel contributors, not their sum.
 - `ClipboardModule.handle` participates in global search with an in-memory store search capped at 3 results; it stays within the module's 30 ms query timeout.
-- `WorkbenchActivityStore` reads/writes only `~/Library/Application Support/Luma/workbench-activity.json` (≤ 50 entries). Home and project workspace detail query activities in memory — never scan Notes/Projects/Snippets module directories on the hot path.
-- `CurrentProjectDetailView.activate` loads project context + `WorkbenchActivitySnapshot` in one async pass; `CurrentProjectWorkspaceModelBuilder` renders stable section order. Generation guard cancels stale loads on deactivate.
+- `WorkbenchActivityStore` reads/writes `workbench-activity.json` (v2 envelope, ≤ 50 entries) and `WorkbenchLinkStore` reads/writes `workbench-links.json` (≤ 100 links). `WorkbenchContextBuilder` loads both in parallel; Home/command/detail query in memory only — never scan module directories.
+- `CurrentProjectDetailView.activate` shows loading model synchronously, then loads activity + link snapshots; module warmup happens only on capture execute or open detail.
 - Workbench command preview (`WorkbenchCommandResults`) must not call capture or write activity; execution happens on Return via `LauncherRootController` only (`.workbench` handler never routes through `ActionExecutor`).
 
 ## Warmup

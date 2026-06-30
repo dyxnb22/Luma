@@ -144,19 +144,21 @@ flowchart LR
     WCtx --> Home[HomeContributor]
     WCtx --> Capture[WorkbenchCaptureService]
     WCtx --> Cmd[WorkbenchCommandRouter]
-    Capture --> Resume[LauncherResumeStore]
-    Capture --> Activity[WorkbenchActivityStore]
+    Capture --> Activity[WorkbenchActivityStore v2]
+    Capture --> Links[WorkbenchLinkStore]
+    Activity --> Resolver[WorkbenchEntityResolver]
     Cmd --> Capture
     MH[ModuleHost] --> QD[QueryDispatcher]
 ```
 
-- **WorkbenchContext** — current work-state snapshot: selection, clipboard, project, drafts, enablement, pins, and `WorkbenchActivitySnapshot`.
-- **WorkbenchActivitySnapshot** — unified read model: `globalRecent` (top 8), `currentProjectRecent`, `currentProjectDrafts`. Built from the full activity store keyed by `currentProjectPath`; Home, commands, and project detail share this snapshot.
-- **WorkbenchCapture** — unified capture → draft → resume/activity (no unrelated module warmup).
-- **WorkbenchActivity** — local-first workbench memory (`workbench-activity.json`, schema v1 envelope). Entries carry optional project association, source kind, resume ref, and follow-up action — backward compatible with legacy unversioned files.
-- **WorkbenchActivityQuery** — pure in-memory filters used by `WorkbenchActivitySnapshot.build` and store helpers. Does not scan module data directories.
-- **CurrentProjectWorkspaceModelBuilder** — pure builder for project detail: stable section order (header → quick capture → recent activity → project actions), enabled-module gate, no async append.
-- **WorkbenchCommandRouter** — `cap clip/sel …`, `proj work/recent/note/todo`, `attach clip/sel` before global search. Preview rows on type; execute on Return only.
+- **ProjectIdentity** — `stableProjectID` (path SHA256 or label+bundle), `matchedPath`, `labelFallback`, `displayName`. v1 `projectPath` migrates on load.
+- **WorkbenchContext** — work-state snapshot: selection, clipboard, project, drafts, enablement, `WorkbenchActivitySnapshot`, `WorkbenchLinkSnapshot`.
+- **WorkbenchActivityStore** — `workbench-activity.json` schema **v2**. Entries carry `projectIdentity`, `entityRef`, per-entry `resumePayloadJSON`. v1/legacy auto-migrate on load.
+- **WorkbenchLinkStore** — `workbench-links.json` (≤ 100 links). Project → entity attachments written on capture Return.
+- **WorkbenchEntityResolver** — resolves entries to `WorkbenchEntityRef` without module store access.
+- **WorkbenchActivitySnapshot** — `globalRecent`, `currentProjectRecent`, `currentProjectDrafts` by `stableProjectID`.
+- **CurrentProjectWorkspaceModelBuilder** — detail sections: header → quick capture → linked items → recent activity (actionable) → project actions.
+- **WorkbenchCommandRouter** — `proj work/open/recent/resume/links/capture`, `attach clip/sel`, `cap clip/sel …`. Preview zero side effects; Return executes.
 
 `ModuleHost` lifecycle, global search scoping, and enabled gates are unchanged. See [WORKBENCH_STRATEGY.md](WORKBENCH_STRATEGY.md).
 

@@ -41,9 +41,15 @@ struct WorkbenchContextBuilder {
 
         let clipboardURL = clipboardPreview.flatMap { URLTextParser.firstHTTPURL(in: $0) }
         let projectIdentity = project.map(WorkbenchProjectIdentity.init(context:))
-        let activitySnapshot = await WorkbenchActivityStore.shared.activitySnapshot(
+        async let activitySnapshot = WorkbenchActivityStore.shared.activitySnapshot(
             projectIdentity: projectIdentity
         )
+        async let linkSnapshot = WorkbenchLinkStore.shared.snapshot(
+            for: projectIdentity?.identity,
+            limit: 10
+        )
+        let activity = await activitySnapshot
+        let links = await linkSnapshot
 
         return WorkbenchContext(
             selectionText: selectionText,
@@ -54,7 +60,8 @@ struct WorkbenchContextBuilder {
             pendingDrafts: pendingDrafts,
             enabledModuleIDs: enabledModuleIDs,
             pinnedModuleIDs: pinnedModuleIDs,
-            activitySnapshot: activitySnapshot
+            activitySnapshot: activity,
+            linkSnapshot: WorkbenchLinkSnapshot(currentProjectLinks: links)
         )
     }
 }

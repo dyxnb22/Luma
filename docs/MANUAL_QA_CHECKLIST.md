@@ -256,18 +256,18 @@
 
 ## Workbench Project Workspace (manual)
 
-- [ ] Capture from Home CREATE with active IDE project → `workbench-activity.json` entry includes `projectPath` and `sourceKind: home`.
-- [ ] `cap clip todo` shows preview row only while typing; Return executes once and writes activity.
-- [ ] `proj work` preview → Return opens Current Project detail (not global search).
+- [ ] Capture from Home CREATE with active IDE project → `workbench-activity.json` v2 entry includes `projectIdentity.stableProjectID` and `sourceKind: home`.
+- [ ] `cap clip todo` shows preview row only while typing; Return executes once and writes activity + link (when project context exists).
+- [ ] `proj work` / `proj open` preview → Return opens Current Project detail (not global search).
+- [ ] `proj links` / `proj resume` / `proj capture` preview disabled-filtered rows; Return executes resume/capture/open workspace fallback.
 - [ ] `attach clip` / `attach sel` with Snippets disabled → disabled preview row or status; no snippet draft written.
-- [ ] Home shows **Continue project workspace** and recent project draft when activity exists for current project.
-- [ ] Project activity **not** in global top 8 still appears on Home recent row and `proj recent` (same snapshot semantics).
-- [ ] Recent project draft row (Return) resumes snippet/quicklink/todo without re-capturing.
-- [ ] Current Project detail section order: header → Quick capture → Recent activity → Project actions (no reorder after async load).
-- [ ] Switch project context quickly: detail does not show stale activities from the previous project.
-- [ ] Quick capture buttons in project detail run capture pipeline; only target module warms on open detail.
-- [ ] Disabled Snippets: project attach rows absent from Home; detail quick capture still gated at execute.
-- [ ] Legacy `workbench-activity.json` (no version field) still loads after upgrade.
+- [ ] Home shows **Continue project workspace**, latest draft, **Review linked** row when links exist.
+- [ ] Project activity **not** in global top 8 still appears on Home / `proj recent` / detail (stableProjectID query).
+- [ ] Recent draft row (Return) resumes snippet/quicklink/todo without re-capturing.
+- [ ] Detail section order: header → Quick capture → **Linked items** → Recent activity (buttons) → Project actions.
+- [ ] Detail activate shows loading placeholder immediately; no stale previous-project content.
+- [ ] Disable Snippets/Quicklinks/Todo/Notes → rows disappear consistently from Home, `proj links/recent/capture`, and detail.
+- [ ] Legacy v1 / unversioned `workbench-activity.json` migrates to v2 and resumes still work.
 
 ## Recorded Product Review Additions
 

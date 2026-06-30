@@ -5,6 +5,8 @@ public enum WorkbenchActivityResumePayload: Sendable, Equatable, Codable {
     case snippetDraft(Data)
     case quicklinkDraft(Data)
     case todoCapture(String)
+    /// Reserved for linked note paths; not written by capture yet.
+    case noteReference(path: String, title: String?)
 
     public static func from(result: WorkbenchCaptureResult) -> WorkbenchActivityResumePayload? {
         switch result.target {
@@ -19,6 +21,7 @@ public enum WorkbenchActivityResumePayload: Sendable, Equatable, Codable {
             guard !text.isEmpty else { return nil }
             return .todoCapture(text)
         case .noteDraft:
+            // Future: persist note path from Notes capture result.
             return nil
         }
     }
@@ -39,6 +42,12 @@ public extension WorkbenchActivityEntry {
     }
 
     var isResumableDraft: Bool {
-        resumablePayload != nil
+        guard let payload = resumablePayload else { return false }
+        switch payload {
+        case .snippetDraft, .quicklinkDraft:
+            return true
+        case .todoCapture, .noteReference:
+            return false
+        }
     }
 }

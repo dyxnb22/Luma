@@ -9,12 +9,12 @@ public enum WorkbenchCommandResults {
         switch route {
         case .none:
             return []
-        case .continueProject, .projectWork:
+        case .continueProject, .projectWork, .projectOpen:
             return projectWorkspaceRows(
                 sequence: querySequence,
                 context: context,
-                commandID: route == .projectWork ? .projectWork : .continueProject,
-                titlePrefix: route == .projectWork ? "Open project workspace" : "Continue project"
+                commandID: commandID(for: route),
+                titlePrefix: workspaceTitle(for: route)
             )
         case .projectRecent:
             guard context.isEnabled(.workbenchProjects), context.currentProject != nil else {
@@ -35,6 +35,51 @@ public enum WorkbenchCommandResults {
             return recent.enumerated().map { index, entry in
                 activityRow(sequence: querySequence, entry: entry, index: index, commandID: .projectRecent)
             }
+        case .projectLinks:
+            guard context.isEnabled(.workbenchProjects), context.currentProject != nil else {
+                return [disabledRow(sequence: querySequence, title: "Project linked items")]
+            }
+            let links = context.linkSnapshot.enabledLinks(
+                enabledModuleIDs: context.enabledModuleIDs,
+                limit: 3
+            )
+            if links.isEmpty {
+                return projectWorkspaceRows(
+                    sequence: querySequence,
+                    context: context,
+                    commandID: .projectLinks,
+                    titlePrefix: "Open project workspace"
+                )
+            }
+            return links.enumerated().map { index, link in
+                linkRow(sequence: querySequence, link: link, index: index)
+            }
+        case .projectResume:
+            guard context.isEnabled(.workbenchProjects), context.currentProject != nil else {
+                return [disabledRow(sequence: querySequence, title: "Resume project work")]
+            }
+            let drafts = context.activitySnapshot.enabledCurrentProjectDrafts(
+                enabledModuleIDs: context.enabledModuleIDs,
+                limit: 1
+            )
+            if let draft = drafts.first {
+                return [activityRow(sequence: querySequence, entry: draft, index: 0, commandID: .projectResume)]
+            }
+            return projectWorkspaceRows(
+                sequence: querySequence,
+                context: context,
+                commandID: .projectResume,
+                titlePrefix: "Open project workspace"
+            )
+        case .projectCapture:
+            guard context.isEnabled(.workbenchProjects), context.currentProject != nil else {
+                return [disabledRow(sequence: querySequence, title: "Project capture")]
+            }
+            let captures = projectCaptureRows(sequence: querySequence, context: context)
+            if captures.isEmpty {
+                return [disabledRow(sequence: querySequence, title: "Enable capture modules in Settings")]
+            }
+            return captures
         case .attachProject, .attachClipboard, .attachSelection:
             guard context.isEnabled(.workbenchSnippets), context.currentProject != nil else {
                 return [disabledRow(sequence: querySequence, title: attachTitle(for: route))]
@@ -61,6 +106,77 @@ public enum WorkbenchCommandResults {
                 commandID: definition.id
             )]
         }
+    }
+
+    private static func commandID(for route: WorkbenchCommandRoute) -> WorkbenchCommandID {
+        switch route {
+        case .projectWork: .projectWork
+        case .projectOpen: .projectOpen
+        default: .continueProject
+        }
+    }
+
+    private static func workspaceTitle(for route: WorkbenchCommandRoute) -> String {
+        switch route {
+        case .projectWork, .projectOpen: "Open project workspace"
+        default: "Continue project"
+        }
+    }
+
+    private static func projectCaptureRows(sequence: UInt64, context: WorkbenchContext) -> [ResultItem] {
+        let candidates: [(String, WorkbenchCaptureSource, WorkbenchCaptureTarget, ModuleIdentifier)] = [
+            ("New project snippet", .projectContext, .projectSnippetDraft, .workbenchSnippets),
+            ("New project quicklink", .projectContext, .quicklinkDraft, .workbenchQuicklinks),
+            ("New project todo", .projectContext, .todoDraft, .workbenchTodo),
+            ("New project note", .projectContext, .noteDraft, .workbenchNotes)
+        ]
+        return candidates.enumerated().compactMap { index, candidate in
+            guard context.isEnabled(candidate.3) else { return nil }
+            let payload = (try? ModuleActionCoding.encode(
+                WorkbenchCaptureAction.prepareDraft(source: candidate.1, target: candidate.2)
+            )) ?? Data()
+            return ResultItem(
+                id: ResultID(module: candidate.3, key: "command.capture.\(candidate.2.rawValue)"),
+                title: candidate.0,
+                titleAttributed: AttributedString(candidate.0),
+                subtitle: context.currentProject?.projectLabel ?? "",
+                icon: .symbol("plus.circle"),
+                primaryAction: Action(
+                    id: ActionID(module: candidate.3, key: "command.capture.\(candidate.2.rawValue)"),
+                    title: candidate.0,
+                    kind: .custom(payload: payload, handler: .workbench)
+                ),
+                rankingHints: RankingHints(basePriority: 93 - index),
+                rowKind: .starter
+            )
+        }
+    }
+
+    private static func linkRow(
+        sequence: UInt64,
+        link: WorkbenchProjectLink,
+        index: Int
+    ) -> ResultItem {
+        let ref = link.entityRef
+        let subtitle = ref.subtitle ?? "Linked item"
+        let payload = (try? ModuleActionCoding.encode(
+            WorkbenchEntityAction.openLinked(linkID: link.id)
+        )) ?? Data()
+        let action = Action(
+            id: ActionID(module: ref.moduleID, key: "command.link.\(link.id.uuidString)"),
+            title: ref.title,
+            kind: .custom(payload: payload, handler: .workbench)
+        )
+        return ResultItem(
+            id: ResultID(module: .workbench, key: "command.link.\(link.id.uuidString)"),
+            title: ref.title,
+            titleAttributed: AttributedString(ref.title),
+            subtitle: subtitle,
+            icon: .symbol("link"),
+            primaryAction: action,
+            rankingHints: RankingHints(basePriority: 93 - index),
+            rowKind: .starter
+        )
     }
 
     private static func projectWorkspaceRows(

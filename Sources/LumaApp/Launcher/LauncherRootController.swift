@@ -22,6 +22,7 @@ final class LauncherRootController {
     private let config: ConfigurationStore
     private let sessionStore = LauncherSessionStore()
     private let launcherEnvironment: LauncherEnvironment
+    private let workbenchCommandExecutor = WorkbenchCommandExecutor()
     private let onDismiss: () -> Void
     private let onActionDismiss: () -> Void
     private let onOpenSettings: () -> Void
@@ -93,6 +94,69 @@ final class LauncherRootController {
         }
 
         viewModel.onSnapshot = { [weak self] snapshot in self?.apply(snapshot: snapshot) }
+    }
+
+    private func previewWorkbenchCommand(route: WorkbenchCommandRoute, queryText: String) async {
+        let enabled = await config.enabledModules()
+            ?? Set(ModuleRegistry.allBundles.map { $0.identifier })
+        let pinned = await config.pinnedModuleIDs()
+        let clipboard = await ClipboardPasteboardCache.shared.snapshot()
+        let selection = await SelectionSnapshotService.shared.snapshot()
+        let context = await WorkbenchContextBuilder().build(
+            enabledModuleIDs: enabled,
+            pinnedModuleIDs: pinned,
+            clipboardPreview: clipboard,
+            selectionText: selection
+        )
+        let items = WorkbenchCommandResults.previewRows(
+            route: route,
+            querySequence: 0,
+            context: context
+        )
+        await MainActor.run {
+            contentCoordinator.apply(snapshot: ResultSnapshot(querySequence: 0, items: items))
+            syncRowActionHint()
+        }
+    }
+
+    @discardableResult
+    private func applyWorkbenchCommandOutcome(
+        _ outcome: WorkbenchCommandOutcome,
+        replaceQueryHandler: ((String) -> Void)? = nil
+    ) -> Bool {
+        switch outcome {
+        case .notHandled:
+            return false
+        case .status(let message):
+            showStatus(message)
+            contentCoordinator.beginShowingResults()
+            listView.isHidden = false
+            contentCoordinator.apply(snapshot: ResultSnapshot(querySequence: 0, items: []))
+            return true
+        case .openDetail(let moduleID, let payload):
+            openModuleDetail(for: moduleID, payload: payload)
+            return true
+        case .replaceQuery(let text):
+            if let replaceQueryHandler {
+                replaceQueryHandler(text)
+            } else {
+                searchBar.stringValue = text
+                lastSyncedQuery = ""
+                handleTextChange(text)
+            }
+            return true
+        case .runAction(let kind):
+            let action = Action(
+                id: ActionID(module: .notes, key: "workbench.capture"),
+                title: "Capture",
+                kind: kind
+            )
+            Task {
+                await actionExecutor.run(action, for: ResultID(module: .notes, key: "workbench.capture"))
+                await MainActor.run { self.onActionDismiss() }
+            }
+            return true
+        }
     }
 
     func setModulesReady(_ ready: Bool) {
@@ -293,27 +357,33 @@ final class LauncherRootController {
     }
 
     func openModuleDetail(for moduleID: ModuleIdentifier, payload: Data? = nil) {
-        if moduleID == .snippets, let payload,
-           let action = try? ModuleActionCoding.decode(SnippetsAction.self, from: payload) {
-            switch action {
-            case .prepareDraft(let draft):
-                LauncherSharedState.pendingSnippetDraft = draft
-            case .create(let title):
-                LauncherSharedState.pendingSnippetDraft = SnippetDraft(title: title, content: "")
-            default:
-                break
+        Task { @MainActor in
+            guard await isModuleEnabledForDetail(moduleID) else {
+                showStatus("Module disabled in Settings")
+                return
             }
+            if moduleID == .snippets, let payload,
+               let action = try? ModuleActionCoding.decode(SnippetsAction.self, from: payload) {
+                switch action {
+                case .prepareDraft(let draft):
+                    LauncherSharedState.pendingSnippetDraft = draft
+                case .create(let title):
+                    LauncherSharedState.pendingSnippetDraft = SnippetDraft(title: title, content: "")
+                default:
+                    break
+                }
+                if let message = draftLoadedStatus(for: moduleID, payload: payload) {
+                    launcherEnvironment.showStatus(message)
+                }
+                presentModuleDetail(for: moduleID)
+                return
+            }
+            applyModuleDetailPayload(moduleID: moduleID, payload: payload)
             if let message = draftLoadedStatus(for: moduleID, payload: payload) {
                 launcherEnvironment.showStatus(message)
             }
             presentModuleDetail(for: moduleID)
-            return
         }
-        applyModuleDetailPayload(moduleID: moduleID, payload: payload)
-        if let message = draftLoadedStatus(for: moduleID, payload: payload) {
-            launcherEnvironment.showStatus(message)
-        }
-        presentModuleDetail(for: moduleID)
     }
 
     private func draftLoadedStatus(for moduleID: ModuleIdentifier, payload: Data?) -> String? {
@@ -326,8 +396,17 @@ final class LauncherRootController {
         return LauncherActionFeedback.statusMessage(for: probe)
     }
 
+    private func isModuleEnabledForDetail(_ moduleID: ModuleIdentifier) async -> Bool {
+        guard let enabled = await config.enabledModules() else { return true }
+        return enabled.contains(moduleID)
+    }
+
     private func presentModuleDetail(for moduleID: ModuleIdentifier) {
         Task { @MainActor in
+            guard await isModuleEnabledForDetail(moduleID) else {
+                showStatus("Module disabled in Settings")
+                return
+            }
             await launcherEnvironment.warmModuleForDetail(moduleID)
             guard let detail = launcherEnvironment.makeDetailView(for: moduleID) else {
                 showHome(focusSearch: true, persist: false)
@@ -404,6 +483,7 @@ final class LauncherRootController {
 
     func closeDetail() {
         contentCoordinator.closeDetail()
+        Task { await launcherEnvironment.reserveDetailModule(nil) }
         syncKeyHints()
         syncPerformanceStripVisibility()
     }
@@ -428,13 +508,20 @@ final class LauncherRootController {
         }
         guard modulesReady else { return }
         if contentCoordinator.showingDetail {
-            contentCoordinator.closeDetail()
+            closeDetail()
         }
         listView.isHidden = false
         listView.alphaValue = 1
         contentCoordinator.beginShowingResults()
         syncKeyHints()
         syncPerformanceStripVisibility()
+        let workbenchRoute = viewModel.workbenchRoute(for: text)
+        if workbenchRoute != .none {
+            Task {
+                await self.previewWorkbenchCommand(route: workbenchRoute, queryText: text)
+            }
+            return
+        }
         viewModel.queryChanged(text, issuedAt: .now)
     }
 
@@ -616,6 +703,16 @@ final class LauncherRootController {
             recordHomeCompletionIfNeeded(for: item)
             openTranslateDetail(with: text)
         case .custom(let payload, let handler):
+            if handler == .workbench {
+                if let captureAction = try? ModuleActionCoding.decode(WorkbenchCaptureAction.self, from: payload) {
+                    runWorkbenchCapture(captureAction, for: item)
+                    return
+                }
+                if let commandAction = try? ModuleActionCoding.decode(WorkbenchCommandAction.self, from: payload) {
+                    runWorkbenchCommand(commandAction, for: item)
+                    return
+                }
+            }
             if handler == .notes,
                let notesAction = try? ModuleActionCoding.decode(NotesAction.self, from: payload) {
                 switch notesAction {
@@ -632,6 +729,193 @@ final class LauncherRootController {
             runWithFeedback(action: action, for: item)
         default:
             runWithFeedback(action: action, for: item)
+        }
+    }
+
+    private func runWorkbenchCapture(_ action: WorkbenchCaptureAction, for item: ResultItem) {
+        switch action {
+        case .prepareDraft(let source, let target):
+            runWorkbenchPrepareDraft(source: source, target: target, for: item)
+        case .resumeActivity(let entryID):
+            runWorkbenchResumeActivity(entryID: entryID, for: item)
+        }
+    }
+
+    func runWorkbenchCaptureFromDetail(source: WorkbenchCaptureSource, target: WorkbenchCaptureTarget) {
+        let item = ResultItem(
+            id: ResultID(module: target.moduleID, key: "detail.capture"),
+            title: "Project capture",
+            titleAttributed: AttributedString("Project capture"),
+            subtitle: nil,
+            icon: .symbol("plus.circle"),
+            primaryAction: Action(
+                id: ActionID(module: target.moduleID, key: "detail.capture"),
+                title: "Project capture",
+                kind: .noop
+            ),
+            rankingHints: RankingHints(basePriority: 0),
+            rowKind: .starter
+        )
+        runWorkbenchPrepareDraft(source: source, target: target, for: item)
+    }
+
+    private func runWorkbenchPrepareDraft(
+        source: WorkbenchCaptureSource,
+        target: WorkbenchCaptureTarget,
+        for item: ResultItem
+    ) {
+        Task {
+            let enabled = await config.enabledModules()
+                ?? Set(ModuleRegistry.allBundles.map { $0.identifier })
+            let pinned = await config.pinnedModuleIDs()
+            let clipboard = await ClipboardPasteboardCache.shared.snapshot()
+            let selection = await SelectionSnapshotService.shared.snapshot()
+            let followUp = workbenchFollowUp(for: target)
+            let runner = WorkbenchCaptureRunner()
+            guard let result = await runner.runCapture(
+                source: source,
+                target: target,
+                enabledModuleIDs: enabled,
+                pinnedModuleIDs: pinned,
+                clipboardPreview: clipboard,
+                selectionText: selection,
+                attribution: WorkbenchCaptureAttribution(sourceKind: .home, followUp: followUp)
+            ) else {
+                await MainActor.run {
+                    if !enabled.contains(target.moduleID) {
+                        commandHintBar.showStatus("Module disabled in Settings")
+                    } else {
+                        commandHintBar.showStatus("Nothing to capture")
+                    }
+                }
+                return
+            }
+            await MainActor.run {
+                recordHomeCompletionIfNeeded(for: item)
+                applyWorkbenchCaptureResult(result, for: item)
+                persistResumeState(translateContent: nil)
+            }
+        }
+    }
+
+    private func runWorkbenchResumeActivity(entryID: UUID, for item: ResultItem) {
+        Task {
+            let activities = await WorkbenchActivityStore.shared.allEntries()
+            guard let entry = activities.first(where: { $0.id == entryID }) else {
+                await MainActor.run { commandHintBar.showStatus("Activity no longer available") }
+                return
+            }
+            let enabled = await config.enabledModules()
+                ?? Set(ModuleRegistry.allBundles.map { $0.identifier })
+            guard enabled.contains(entry.moduleID) else {
+                await MainActor.run { commandHintBar.showStatus("Module disabled in Settings") }
+                return
+            }
+            await MainActor.run {
+                recordHomeCompletionIfNeeded(for: item)
+                resumeFromActivityEntry(entry)
+                persistResumeState(translateContent: nil)
+            }
+        }
+    }
+
+    private func resumeFromActivityEntry(_ entry: WorkbenchActivityEntry) {
+        if let payload = entry.resumablePayload {
+            applyResumePayload(payload)
+            return
+        }
+        guard let resumeRef = entry.resumeRef else { return }
+        let resume = LauncherResumeStore.load()
+        switch resumeRef.kind {
+        case .snippetDraft:
+            if let data = resume.snippetDraftJSON,
+               let draft = try? JSONDecoder().decode(SnippetDraft.self, from: data) {
+                LauncherSharedState.pendingSnippetDraft = draft
+            }
+            openModuleDetail(for: .snippets)
+        case .quicklinkDraft:
+            if let data = resume.quicklinkDraftJSON,
+               let draft = try? JSONDecoder().decode(URLQuicklinkDraft.self, from: data) {
+                LauncherSharedState.pendingQuicklinkDraft = draft
+            }
+            openModuleDetail(for: .quicklinks)
+        case .todoCapture:
+            let text = resume.todoCaptureText ?? entry.preview ?? ""
+            searchBar.stringValue = TodoModule.resumeQuery(forCapture: text)
+            lastSyncedQuery = ""
+            handleTextChange(searchBar.stringValue)
+        case .noteAction:
+            commandHintBar.showStatus("Note capture already applied")
+        }
+    }
+
+    private func applyResumePayload(_ payload: WorkbenchActivityResumePayload) {
+        switch payload {
+        case .snippetDraft(let data):
+            if let draft = try? JSONDecoder().decode(SnippetDraft.self, from: data) {
+                LauncherSharedState.pendingSnippetDraft = draft
+            }
+            openModuleDetail(for: .snippets)
+        case .quicklinkDraft(let data):
+            if let draft = try? JSONDecoder().decode(URLQuicklinkDraft.self, from: data) {
+                LauncherSharedState.pendingQuicklinkDraft = draft
+            }
+            openModuleDetail(for: .quicklinks)
+        case .todoCapture(let text):
+            searchBar.stringValue = TodoModule.resumeQuery(forCapture: text)
+            lastSyncedQuery = ""
+            handleTextChange(searchBar.stringValue)
+        }
+    }
+
+    private func applyWorkbenchCaptureResult(_ result: WorkbenchCaptureResult, for item: ResultItem) {
+        switch result.target {
+        case .noteDraft:
+            if let payload = result.actionPayload {
+                let act = Action(
+                    id: item.primaryAction.id,
+                    title: item.primaryAction.title,
+                    kind: .custom(payload: payload, handler: .notes)
+                )
+                runWithFeedback(action: act, for: item)
+            }
+        case .todoDraft:
+            searchBar.stringValue = TodoModule.resumeQuery(forCapture: result.preview)
+            lastSyncedQuery = ""
+            handleTextChange(searchBar.stringValue)
+        case .snippetDraft, .quicklinkDraft, .projectSnippetDraft:
+            openModuleDetail(for: result.moduleID, payload: result.openDetailPayload)
+        }
+    }
+
+    private func workbenchFollowUp(for target: WorkbenchCaptureTarget) -> WorkbenchCaptureFollowUp {
+        switch target {
+        case .noteDraft: .runNotesAction
+        case .todoDraft: .replaceQuery
+        case .snippetDraft, .quicklinkDraft, .projectSnippetDraft: .openDetail
+        }
+    }
+
+    private func runWorkbenchCommand(_ action: WorkbenchCommandAction, for item: ResultItem) {
+        guard case .execute(let commandID) = action else { return }
+        Task {
+            let enabled = await config.enabledModules()
+                ?? Set(ModuleRegistry.allBundles.map { $0.identifier })
+            let pinned = await config.pinnedModuleIDs()
+            let clipboard = await ClipboardPasteboardCache.shared.snapshot()
+            let selection = await SelectionSnapshotService.shared.snapshot()
+            let outcome = await workbenchCommandExecutor.handle(
+                commandID: commandID,
+                enabledModuleIDs: enabled,
+                pinnedModuleIDs: pinned,
+                clipboardPreview: clipboard,
+                selectionText: selection
+            )
+            await MainActor.run {
+                recordHomeCompletionIfNeeded(for: item)
+                applyWorkbenchCommandOutcome(outcome)
+                persistResumeState(translateContent: nil)
+            }
         }
     }
 

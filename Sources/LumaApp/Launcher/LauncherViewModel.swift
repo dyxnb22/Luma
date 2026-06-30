@@ -8,6 +8,7 @@ final class LauncherViewModel {
     private let dispatcher: QueryDispatcher
     private let commandUsage: CommandUsageTracker
     let commandRouter: CommandRouter
+    private let workbenchCommandRouter = WorkbenchCommandRouter()
     private var issuedAtBySequence: [UInt64: ContinuousClock.Instant] = [:]
     private var latencySamples: [Double] = []
     var onSnapshot: (@MainActor (ResultSnapshot) -> Void)?
@@ -20,6 +21,10 @@ final class LauncherViewModel {
         self.dispatcher = dispatcher
         self.commandRouter = commandRouter
         self.commandUsage = commandUsage
+    }
+
+    func workbenchRoute(for text: String) -> WorkbenchCommandRoute {
+        workbenchCommandRouter.route(raw: text)
     }
 
     func queryChanged(_ text: String, issuedAt: ContinuousClock.Instant) {

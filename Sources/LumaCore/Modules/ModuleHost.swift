@@ -1,5 +1,34 @@
 import Foundation
 
+public enum TeardownReason: String, Sendable {
+    case idle
+    case memoryPressure
+    case disabled
+    case manual
+}
+
+public struct ModuleHostDebugSnapshot: Sendable {
+    public let warmModuleIDs: Set<ModuleIdentifier>
+    public let reservedModuleIDs: Set<ModuleIdentifier>
+    public let enabledModuleIDs: Set<ModuleIdentifier>
+    public let globalSearchModuleCount: Int
+    public let lastUsedAt: [ModuleIdentifier: Date]
+
+    public init(
+        warmModuleIDs: Set<ModuleIdentifier>,
+        reservedModuleIDs: Set<ModuleIdentifier>,
+        enabledModuleIDs: Set<ModuleIdentifier>,
+        globalSearchModuleCount: Int,
+        lastUsedAt: [ModuleIdentifier: Date]
+    ) {
+        self.warmModuleIDs = warmModuleIDs
+        self.reservedModuleIDs = reservedModuleIDs
+        self.enabledModuleIDs = enabledModuleIDs
+        self.globalSearchModuleCount = globalSearchModuleCount
+        self.lastUsedAt = lastUsedAt
+    }
+}
+
 public actor ModuleHost {
     private let context: ModuleContext
     private var modules: [ModuleIdentifier: any LumaModule] = [:]
@@ -7,6 +36,10 @@ public actor ModuleHost {
     private var warmupStates: [ModuleIdentifier: WarmupState] = [:]
     private var lastUsedAt: [ModuleIdentifier: ContinuousClock.Instant] = [:]
     private var pinnedIDs: Set<ModuleIdentifier> = []
+    /// When set, only these module IDs participate in global (non-targeted) query dispatch.
+    private var globalSearchModuleIDs: Set<ModuleIdentifier>?
+    private var reservedModuleIDs: Set<ModuleIdentifier> = []
+    private var lastTeardownReason: TeardownReason?
 
     public init(context: ModuleContext) {
         self.context = context
@@ -14,6 +47,15 @@ public actor ModuleHost {
 
     public func configureWarmupPolicy(pinned: Set<ModuleIdentifier>) {
         pinnedIDs = pinned
+    }
+
+    /// Limits global search fan-out to hot-path modules. When nil, all enabled queryable modules participate.
+    public func configureGlobalSearchModuleIDs(_ ids: Set<ModuleIdentifier>?) {
+        globalSearchModuleIDs = ids
+    }
+
+    public func setReservedModuleIDs(_ ids: Set<ModuleIdentifier>) {
+        reservedModuleIDs = ids
     }
 
     public func warmupState(for id: ModuleIdentifier) -> WarmupState {
@@ -38,6 +80,7 @@ public actor ModuleHost {
             if let module = modules[id] {
                 await module.teardown()
                 warmupStates[id] = .tornDown
+                lastTeardownReason = .disabled
             }
         }
 
@@ -50,15 +93,26 @@ public actor ModuleHost {
         }
     }
 
-    public func enabledQueryableModules() -> [any LumaModule] {
+    public func enabledQueryableModules(forGlobalSearch: Bool = false) -> [any LumaModule] {
         modules.values.filter { module in
             let manifest = type(of: module).manifest
-            return enabled.contains(manifest.identifier) && manifest.capabilities.contains(.queryable)
+            guard enabled.contains(manifest.identifier),
+                  manifest.capabilities.contains(.queryable) else { return false }
+            if forGlobalSearch, let globalSearchModuleIDs {
+                return globalSearchModuleIDs.contains(manifest.identifier)
+            }
+            return true
         }
     }
 
     public func module(_ id: ModuleIdentifier) -> (any LumaModule)? {
         modules[id]
+    }
+
+    /// Returns the module only when it is registered and enabled in Settings.
+    public func enabledModule(_ id: ModuleIdentifier) -> (any LumaModule)? {
+        guard enabled.contains(id), let module = modules[id] else { return nil }
+        return module
     }
 
     public func makeQueryContext(deadline: ContinuousClock.Instant) -> QueryContext {
@@ -103,10 +157,16 @@ public actor ModuleHost {
         lastUsedAt[id] = ContinuousClock().now
     }
 
-    public func teardownIdleModules(olderThan: Duration, pinned: Set<ModuleIdentifier>) async {
+    public func teardownIdleModules(
+        olderThan: Duration,
+        pinned: Set<ModuleIdentifier>,
+        reason: TeardownReason = .idle
+    ) async {
+        lastTeardownReason = reason
         let now = ContinuousClock().now
         for id in enabled {
             guard !pinned.contains(id) else { continue }
+            guard !reservedModuleIDs.contains(id) else { continue }
             guard warmupStates[id] == .warm else { continue }
             if let last = lastUsedAt[id], now - last < olderThan { continue }
             if let module = modules[id] {
@@ -114,6 +174,28 @@ public actor ModuleHost {
                 warmupStates[id] = .tornDown
             }
         }
+    }
+
+    public func debugSnapshot(now: ContinuousClock.Instant = ContinuousClock().now) -> ModuleHostDebugSnapshot {
+        let warm = Set(warmupStates.filter { $0.value == .warm }.map(\.key))
+        let globalCount = globalSearchModuleIDs?.count ?? modules.count
+        let usedAt = lastUsedAt.mapValues { instant in
+            let elapsed = now - instant
+            let seconds = Double(elapsed.components.seconds)
+                + Double(elapsed.components.attoseconds) / 1_000_000_000_000_000
+            return Date(timeIntervalSinceNow: -seconds)
+        }
+        return ModuleHostDebugSnapshot(
+            warmModuleIDs: warm,
+            reservedModuleIDs: reservedModuleIDs,
+            enabledModuleIDs: enabled,
+            globalSearchModuleCount: globalCount,
+            lastUsedAt: usedAt
+        )
+    }
+
+    public func lastTeardownReasonSnapshot() -> TeardownReason? {
+        lastTeardownReason
     }
 
     /// Warm only the specified module identifiers (skips those not registered or not enabled).

@@ -198,9 +198,12 @@ struct ModulesSettingsView: View {
     var body: some View {
         SettingsPage("Modules") {
             SettingsCard("Pin to hot path") {
-                Text("Pinned modules warm at startup and stay ready for search.")
+                Text("Pinned modules warm at startup, appear on Home suggestions, and stay ready for search.")
                     .font(.caption).foregroundStyle(.secondary)
                     .padding(.horizontal, 12).padding(.top, 8)
+                Text("Default-off modules must be enabled before pinning takes effect.")
+                    .font(.caption).foregroundStyle(.tertiary)
+                    .padding(.horizontal, 12).padding(.bottom, 4)
                 ForEach(Array(snapshot.modules.enumerated()), id: \.element.id) { index, module in
                     if index > 0 { Divider() }
                     HStack {

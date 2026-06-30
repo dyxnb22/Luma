@@ -58,6 +58,11 @@ public enum ModuleRegistry {
         Set(allBundles.filter { $0.warmupTier == .onDemand }.map { $0.identifier })
     }
 
+    /// Module IDs that participate in global (non-targeted) query fan-out.
+    public static var globalSearchModuleIDs: Set<ModuleIdentifier> {
+        hotPathModuleIDs
+    }
+
     public static func presentation(for id: ModuleIdentifier) -> ModulePresentation? {
         bundle(for: id)?.presentation
     }

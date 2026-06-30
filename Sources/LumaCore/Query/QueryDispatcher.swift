@@ -23,7 +23,8 @@ public actor QueryDispatcher {
         onSnapshot: @Sendable @escaping (ResultSnapshot) async -> Void
     ) async {
         await metrics.mark("query.dispatch.start")
-        let modules = await host.enabledQueryableModules()
+        let modules = await host.enabledQueryableModules(forGlobalSearch: true)
+        await metrics.mark("query.dispatch.fanout.\(modules.count)")
         let usageRecords = await usage.snapshot()
         var merged: [ResultID: ScoredItem] = [:]
 
@@ -62,7 +63,7 @@ public actor QueryDispatcher {
         onSnapshot: @Sendable @escaping (ResultSnapshot) async -> Void
     ) async {
         await metrics.mark("query.dispatch.targeted.start")
-        guard let module = await host.module(moduleID) else {
+        guard let module = await host.enabledModule(moduleID) else {
             await onSnapshot(ResultSnapshot(querySequence: query.sequence, items: []))
             return
         }

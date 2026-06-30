@@ -17,10 +17,25 @@ public struct HomeContribution: Sendable {
 public struct HomeContributionContext: Sendable {
   public let pinnedModuleIDs: Set<ModuleIdentifier>
   public let enabledModuleIDs: Set<ModuleIdentifier>
+  public let workbench: WorkbenchContext?
 
-  public init(pinnedModuleIDs: Set<ModuleIdentifier>, enabledModuleIDs: Set<ModuleIdentifier>) {
+  public init(
+    pinnedModuleIDs: Set<ModuleIdentifier>,
+    enabledModuleIDs: Set<ModuleIdentifier>,
+    workbench: WorkbenchContext? = nil
+  ) {
     self.pinnedModuleIDs = pinnedModuleIDs
     self.enabledModuleIDs = enabledModuleIDs
+    self.workbench = workbench
+  }
+
+  public func isEnabled(_ id: ModuleIdentifier) -> Bool {
+    workbench?.isEnabled(id) ?? enabledModuleIDs.contains(id)
+  }
+
+  /// Module is enabled and pinned for Home hot-path suggestions.
+  public func isHot(_ id: ModuleIdentifier) -> Bool {
+    workbench?.isHot(id) ?? (enabledModuleIDs.contains(id) && pinnedModuleIDs.contains(id))
   }
 }
 

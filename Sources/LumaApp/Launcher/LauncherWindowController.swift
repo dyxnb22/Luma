@@ -75,6 +75,10 @@ final class LauncherWindowController {
         rootView?.openModuleDetail(for: moduleID)
     }
 
+    func runWorkbenchCaptureFromDetail(source: WorkbenchCaptureSource, target: WorkbenchCaptureTarget) {
+        rootView?.runWorkbenchCaptureFromDetail(source: source, target: target)
+    }
+
     func toggle() {
         panel.isVisible ? hide() : show()
     }

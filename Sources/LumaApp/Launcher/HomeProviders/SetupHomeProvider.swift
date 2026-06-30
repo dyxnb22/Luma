@@ -6,13 +6,16 @@ import LumaModules
 /// Lightweight first-run setup rows — not a full onboarding flow.
 struct SetupHomeProvider: LauncherHomeProvider {
     private let config: ConfigurationStore
+    private let enablementGate: HomeEnablementGate
     private let notesRootStore: NotesRootConfigStore
 
     init(
         config: ConfigurationStore,
+        enablementGate: HomeEnablementGate = HomeEnablementGate(),
         notesRootStore: NotesRootConfigStore = NotesRootConfigStore()
     ) {
         self.config = config
+        self.enablementGate = enablementGate
         self.notesRootStore = notesRootStore
     }
 
@@ -20,17 +23,15 @@ struct SetupHomeProvider: LauncherHomeProvider {
         guard await !config.setupHintsDismissed() else { return [] }
 
         let notesConfig = await notesRootStore.load()
-        let enabled = await config.enabledModules()
-        let notesEnabled = enabled?.contains(.notes) ?? true
         var rows: [ResultItem] = []
 
-        if notesEnabled, notesConfig.root == nil {
+        if enablementGate.contains(.notes), notesConfig.root == nil {
             rows.append(notesSetupRow())
         }
         if rows.isEmpty {
             rows.append(modulesSetupRow())
         }
-        return Array(rows.prefix(2))
+        return Array(rows.prefix(HomeSuggestionPolicy.maxSetupRows))
     }
 
     private func notesSetupRow() -> ResultItem {

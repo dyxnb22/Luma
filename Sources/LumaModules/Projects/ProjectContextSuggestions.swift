@@ -24,4 +24,23 @@ public enum ProjectContextSuggestions {
     public static func quicklinkDraft(for context: CurrentProjectContext) -> URLQuicklinkDraft? {
         ProjectQuicklinkDraftSource(context: context).quicklinkDraft()
     }
+
+    public static func todoDraft(for context: CurrentProjectContext, text: String = "") -> String {
+        let slug = projectSlug(for: context)
+        let name = context.projectName ?? context.projectLabel
+        let prefix = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        if prefix.isEmpty {
+            return "\(name) task"
+        }
+        return prefix.hasPrefix("#\(slug)") ? prefix : "#\(slug) \(prefix)"
+    }
+
+    public static func noteCaptureText(for context: CurrentProjectContext, text: String = "") -> String {
+        let name = context.projectName ?? context.projectLabel
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty {
+            return "Project: \(name)"
+        }
+        return "Project: \(name)\n\(trimmed)"
+    }
 }

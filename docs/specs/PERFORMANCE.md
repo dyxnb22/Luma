@@ -35,6 +35,9 @@ Launcher convergence strategy adds a stricter working rule: warm keystroke p95 a
 - `SelectionSnapshotService.readSelectedText` runs on a background Task; only `frontmostApplication` PID capture happens on the MainActor. AX IPC calls do not block the main thread.
 - `ContextualHomeProvider.rankedSectionItems` runs its `HomeContributor` set concurrently; latency is the maximum of parallel contributors, not their sum.
 - `ClipboardModule.handle` participates in global search with an in-memory store search capped at 3 results; it stays within the module's 30 ms query timeout.
+- `WorkbenchActivityStore` reads/writes only `~/Library/Application Support/Luma/workbench-activity.json` (≤ 50 entries). Home and project workspace detail query activities in memory — never scan Notes/Projects/Snippets module directories on the hot path.
+- `CurrentProjectDetailView.activate` loads project context + `WorkbenchActivitySnapshot` in one async pass; `CurrentProjectWorkspaceModelBuilder` renders stable section order. Generation guard cancels stale loads on deactivate.
+- Workbench command preview (`WorkbenchCommandResults`) must not call capture or write activity; execution happens on Return via `LauncherRootController` only (`.workbench` handler never routes through `ActionExecutor`).
 
 ## Warmup
 
@@ -48,7 +51,26 @@ Launcher convergence strategy adds a stricter working rule: warm keystroke p95 a
 
 Modules pinned to the hot path should complete warmup well within 300 ms under normal conditions. On-demand modules, especially filesystem-heavy modules such as Notes, Projects, and Menu Bar Search, must keep `handle` memory-only and perform any disk work in warmup or detail paths.
 
-After the panel hides, `AppCoordinator` schedules idle teardown. Reopening the launcher cancels the scheduled teardown; pinned modules are never torn down by the idle pass.
+Global search dispatch only fans out to `ModuleRegistry.globalSearchModuleIDs` (hot-path tier). Targeted commands and detail opens still call `warmupIfNeeded` for on-demand modules.
+
+After the panel hides, `AppCoordinator` schedules idle teardown:
+
+1. Wait **30 seconds** after hide (cancelled if the panel reopens).
+2. Call `teardownIdleModules(olderThan: 300 seconds)` — non-pinned, non-reserved warm modules only.
+3. Pinned modules and the module open in detail (`reservedModuleIDs`) are never torn down by the idle pass.
+4. Under memory pressure, a **60-second** idle threshold is used instead.
+
+## Memory Budget
+
+| Category | Lifecycle | Teardown |
+| --- | --- | --- |
+| hot (pinned ∩ enabled) | May stay warm after startup | Never idle-teardown |
+| on-demand | Warm on targeted query, detail open, or capture-detail | hide 30s → idle 300s |
+| reserved (detail) | Protected while detail is open | `closeDetail()` clears reserve → eligible for idle teardown |
+| memory pressure | — | idle threshold 60s instead of 300s |
+| disabled | No query, action, capture warmup | `applyEnabledSet` tears down immediately |
+
+Capture and workbench commands must not warm unrelated modules. Only opening module detail triggers `warmupIfNeeded` for the target module.
 
 ## Measurement
 
@@ -64,3 +86,5 @@ Instrument these intervals first:
 - `action.execute`.
 
 Phase 0 includes a debug latency HUD or a minimal log surface for p50/p95 while dogfooding.
+
+`KeystrokeReplayPerformanceTests.appSearchColdPinnedWarmupReplayStaysUnderBudget` pins an explicit default hot-path set via `ConfigurationStore.setPinnedModuleIDs`, runs startup pinned warmup, then a **40-query discard batch** before measuring p95. This keeps CI stable without relaxing the 30 ms warm-replay budget.

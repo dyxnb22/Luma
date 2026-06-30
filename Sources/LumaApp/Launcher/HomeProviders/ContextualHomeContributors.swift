@@ -5,42 +5,45 @@ import LumaServices
 
 struct ProjectHomeContributor: HomeContributor {
     func contribute(context: HomeContributionContext) async -> [HomeContribution] {
-        guard let project = await CurrentProjectService.shared.snapshot() else { return [] }
+        guard let project = context.workbench?.currentProject else { return [] }
 
         var rows: [HomeContribution] = []
-        if context.enabledModuleIDs.contains(.projects), let row = currentProjectRow(context: project) {
+        if context.isEnabled(.projects), let row = currentProjectRow(context: project) {
             rows.append(HomeContribution(item: row, key: "contextual.current", kind: .continueFlow, basePriority: 88))
         }
-        if isHot(.snippets, context: context), let row = projectSnippetRow(context: project) {
+        if context.isHot(.snippets), let row = projectSnippetRow(context: project) {
             rows.append(HomeContribution(item: row, key: "contextual.project-snippet", kind: .create, basePriority: 80))
         }
-        if isHot(.quicklinks, context: context), let row = projectQuicklinkRow(context: project) {
+        if context.isHot(.quicklinks), let row = projectQuicklinkRow(context: project) {
             rows.append(HomeContribution(item: row, key: "contextual.project-quicklink", kind: .create, basePriority: 79))
         }
-        if isHot(.commands, context: context), let row = projectCommandsRow(context: project) {
+        if context.isHot(.todo), let row = projectTodoRow(context: project) {
+            rows.append(HomeContribution(item: row, key: "contextual.project-todo", kind: .create, basePriority: 77))
+        }
+        if context.isHot(.notes), let row = projectNoteRow(context: project) {
+            rows.append(HomeContribution(item: row, key: "contextual.project-note", kind: .create, basePriority: 76))
+        }
+        if context.isHot(.commands), let row = projectCommandsRow(context: project) {
             rows.append(HomeContribution(item: row, key: "contextual.project-commands", kind: .create, basePriority: 78))
         }
         return rows
     }
 
-    private func isHot(_ id: ModuleIdentifier, context: HomeContributionContext) -> Bool {
-        context.enabledModuleIDs.contains(id) && context.pinnedModuleIDs.contains(id)
-    }
-
     private func projectSnippetRow(context: CurrentProjectContext) -> ResultItem? {
         let name = context.projectName ?? context.projectLabel
         let draft = ProjectContextSuggestions.snippetDraft(for: context)
-        let payload = (try? ModuleActionCoding.encode(SnippetsAction.prepareDraft(draft))) ?? Data()
         return ResultItem(
             id: ResultID(module: .snippets, key: "contextual.project-snippet"),
             title: "New snippet for \(name)",
             titleAttributed: AttributedString("New snippet for \(name)"),
             subtitle: draft.trigger,
             icon: .symbol("text.badge.plus"),
-            primaryAction: Action(
-                id: ActionID(module: .snippets, key: "contextual.project-snippet"),
+            primaryAction: WorkbenchHomeCaptureRows.captureAction(
+                key: "contextual.project-snippet",
                 title: CrossModuleActionTitles.newProjectSnippet,
-                kind: .openModuleDetail(.snippets, payload: payload)
+                source: .projectContext,
+                target: .projectSnippetDraft,
+                moduleID: .snippets
             ),
             rankingHints: RankingHints(basePriority: 80),
             rowKind: .starter
@@ -49,17 +52,18 @@ struct ProjectHomeContributor: HomeContributor {
 
     private func projectQuicklinkRow(context: CurrentProjectContext) -> ResultItem? {
         guard let draft = ProjectQuicklinkDraftSource(context: context).quicklinkDraft() else { return nil }
-        let payload = (try? ModuleActionCoding.encode(QuicklinksAction.prepareDraft(draft))) ?? Data()
         return ResultItem(
             id: ResultID(module: .quicklinks, key: "contextual.project-quicklink"),
             title: "Quicklink to \(draft.name)",
             titleAttributed: AttributedString("Quicklink to \(draft.name)"),
             subtitle: draft.trigger,
             icon: .symbol("link.badge.plus"),
-            primaryAction: Action(
-                id: ActionID(module: .quicklinks, key: "contextual.project-quicklink"),
+            primaryAction: WorkbenchHomeCaptureRows.captureAction(
+                key: "contextual.project-quicklink",
                 title: CrossModuleActionTitles.projectFolderQuicklink,
-                kind: .openModuleDetail(.quicklinks, payload: payload)
+                source: .projectContext,
+                target: .quicklinkDraft,
+                moduleID: .quicklinks
             ),
             rankingHints: RankingHints(basePriority: 79),
             rowKind: .starter
@@ -81,6 +85,48 @@ struct ProjectHomeContributor: HomeContributor {
                 kind: .custom(payload: payload, handler: .commands)
             ),
             rankingHints: RankingHints(basePriority: 78),
+            rowKind: .starter
+        )
+    }
+
+    private func projectTodoRow(context: CurrentProjectContext) -> ResultItem? {
+        let name = context.projectName ?? context.projectLabel
+        let capture = ProjectContextSuggestions.todoDraft(for: context)
+        return ResultItem(
+            id: ResultID(module: .todo, key: "contextual.project-todo"),
+            title: "Capture todo for \(name)",
+            titleAttributed: AttributedString("Capture todo for \(name)"),
+            subtitle: capture,
+            icon: .symbol("checklist"),
+            primaryAction: WorkbenchHomeCaptureRows.captureAction(
+                key: "contextual.project-todo",
+                title: CrossModuleActionTitles.openTodo,
+                source: .projectContext,
+                target: .todoDraft,
+                moduleID: .todo
+            ),
+            rankingHints: RankingHints(basePriority: 77),
+            rowKind: .starter
+        )
+    }
+
+    private func projectNoteRow(context: CurrentProjectContext) -> ResultItem? {
+        let name = context.projectName ?? context.projectLabel
+        let text = ProjectContextSuggestions.noteCaptureText(for: context)
+        return ResultItem(
+            id: ResultID(module: .notes, key: "contextual.project-note"),
+            title: "Capture note for \(name)",
+            titleAttributed: AttributedString("Capture note for \(name)"),
+            subtitle: String(text.prefix(48)),
+            icon: .symbol("square.and.pencil"),
+            primaryAction: WorkbenchHomeCaptureRows.captureAction(
+                key: "contextual.project-note",
+                title: CrossModuleActionTitles.appendToNote,
+                source: .projectContext,
+                target: .noteDraft,
+                moduleID: .notes
+            ),
+            rankingHints: RankingHints(basePriority: 76),
             rowKind: .starter
         )
     }
@@ -117,10 +163,164 @@ struct ProjectHomeContributor: HomeContributor {
     }
 }
 
+struct ProjectActivityHomeContributor: HomeContributor {
+    func contribute(context: HomeContributionContext) async -> [HomeContribution] {
+        guard let workbench = context.workbench,
+              let project = workbench.currentProject,
+              context.isEnabled(.projects) else { return [] }
+
+        var rows: [HomeContribution] = []
+
+        if let row = continueWorkspaceRow(context: project) {
+            rows.append(HomeContribution(
+                item: row,
+                key: "contextual.project-workspace",
+                kind: .continueFlow,
+                basePriority: 87
+            ))
+        }
+
+        let drafts = workbench.activitySnapshot.enabledCurrentProjectDrafts(
+            enabledModuleIDs: context.enabledModuleIDs,
+            limit: 1
+        )
+        for draft in drafts {
+            rows.append(HomeContribution(
+                item: recentDraftRow(entry: draft),
+                key: "contextual.project-activity.\(draft.id.uuidString)",
+                kind: .continueFlow,
+                basePriority: 85
+            ))
+        }
+
+        let activities = workbench.activitySnapshot.enabledCurrentProjectRecent(
+            enabledModuleIDs: context.enabledModuleIDs,
+            limit: 1,
+            excludingResumableDrafts: true
+        )
+        if let latest = activities.first {
+            rows.append(HomeContribution(
+                item: recentActivityRow(entry: latest),
+                key: "contextual.project-activity.recent.\(latest.id.uuidString)",
+                kind: .continueFlow,
+                basePriority: 84
+            ))
+        }
+
+        if context.isHot(.snippets), let row = attachClipboardRow(context: project) {
+            rows.append(HomeContribution(
+                item: row,
+                key: "contextual.project-attach-clip",
+                kind: .create,
+                basePriority: 78
+            ))
+        }
+        if context.isHot(.snippets), let row = attachSelectionRow(context: project) {
+            rows.append(HomeContribution(
+                item: row,
+                key: "contextual.project-attach-sel",
+                kind: .create,
+                basePriority: 77
+            ))
+        }
+
+        return rows
+    }
+
+    private func continueWorkspaceRow(context: CurrentProjectContext) -> ResultItem? {
+        let name = context.projectName ?? context.projectLabel
+        let payload = (try? ModuleActionCoding.encode(ProjectAction.openCurrentDetail(context))) ?? Data()
+        return ResultItem(
+            id: ResultID(module: .projects, key: "contextual.project-workspace"),
+            title: "Continue project workspace",
+            titleAttributed: AttributedString("Continue project workspace"),
+            subtitle: name,
+            icon: .symbol("arrow.triangle.branch"),
+            primaryAction: Action(
+                id: ActionID(module: .projects, key: "contextual.project-workspace"),
+                title: "Continue project workspace",
+                kind: .openModuleDetail(.projects, payload: payload)
+            ),
+            rankingHints: RankingHints(basePriority: 87),
+            rowKind: .starter
+        )
+    }
+
+    private func recentDraftRow(entry: WorkbenchActivityEntry) -> ResultItem {
+        ResultItem(
+            id: ResultID(module: entry.moduleID, key: "contextual.project-activity.\(entry.id.uuidString)"),
+            title: entry.title,
+            titleAttributed: AttributedString(entry.title),
+            subtitle: entry.preview ?? entry.detail ?? "Resume draft",
+            icon: .symbol("doc.badge.clock"),
+            primaryAction: WorkbenchHomeCaptureRows.resumeAction(entry: entry),
+            rankingHints: RankingHints(basePriority: 85),
+            rowKind: .starter
+        )
+    }
+
+    private func recentActivityRow(entry: WorkbenchActivityEntry) -> ResultItem {
+        ResultItem(
+            id: ResultID(module: entry.moduleID, key: "contextual.project-activity.recent.\(entry.id.uuidString)"),
+            title: entry.title,
+            titleAttributed: AttributedString(entry.title),
+            subtitle: entry.preview ?? entry.detail ?? entry.sourceKind?.rawValue ?? "",
+            icon: .symbol("clock"),
+            primaryAction: Action(
+                id: ActionID(module: entry.moduleID, key: "contextual.project-activity.recent"),
+                title: entry.title,
+                kind: .noop
+            ),
+            rankingHints: RankingHints(basePriority: 84),
+            rowKind: .starter
+        )
+    }
+
+    private func attachClipboardRow(context: CurrentProjectContext) -> ResultItem? {
+        let name = context.projectName ?? context.projectLabel
+        return ResultItem(
+            id: ResultID(module: .snippets, key: "contextual.project-attach-clip"),
+            title: "Attach clipboard to \(name)",
+            titleAttributed: AttributedString("Attach clipboard to \(name)"),
+            subtitle: "Project snippet draft",
+            icon: .symbol("paperclip"),
+            primaryAction: WorkbenchHomeCaptureRows.captureAction(
+                key: "contextual.project-attach-clip",
+                title: "Attach clipboard to project",
+                source: .clipboardText,
+                target: .projectSnippetDraft,
+                moduleID: .snippets
+            ),
+            rankingHints: RankingHints(basePriority: 78),
+            rowKind: .starter
+        )
+    }
+
+    private func attachSelectionRow(context: CurrentProjectContext) -> ResultItem? {
+        let name = context.projectName ?? context.projectLabel
+        return ResultItem(
+            id: ResultID(module: .snippets, key: "contextual.project-attach-sel"),
+            title: "Attach selection to \(name)",
+            titleAttributed: AttributedString("Attach selection to \(name)"),
+            subtitle: "Project snippet draft",
+            icon: .symbol("selection.pin.in.out"),
+            primaryAction: WorkbenchHomeCaptureRows.captureAction(
+                key: "contextual.project-attach-sel",
+                title: "Attach selection to project",
+                source: .selection,
+                target: .projectSnippetDraft,
+                moduleID: .snippets
+            ),
+            rankingHints: RankingHints(basePriority: 77),
+            rowKind: .starter
+        )
+    }
+}
+
 struct SelectionHomeContributor: HomeContributor {
     func contribute(context: HomeContributionContext) async -> [HomeContribution] {
-        guard context.enabledModuleIDs.contains(.translate) else { return [] }
-        guard let text = await SelectionSnapshotService.shared.snapshot(),
+        guard context.isEnabled(.translate) else { return [] }
+        guard let text = context.workbench?.selectionText,
               !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
               TranslationUserMessages.shouldTranslate(text) else { return [] }
         return [
@@ -154,28 +354,27 @@ struct SelectionHomeContributor: HomeContributor {
 
 struct ClipboardHomeContributor: HomeContributor {
     func contribute(context: HomeContributionContext) async -> [HomeContribution] {
-        guard context.enabledModuleIDs.contains(.clipboard) else { return [] }
-        guard let preview = await ClipboardPasteboardCache.shared.snapshot(),
+        guard context.isEnabled(.clipboard) else { return [] }
+        guard let preview = context.workbench?.clipboardPreview,
               !preview.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return [] }
 
         var rows: [HomeContribution] = []
         if let row = clipboardTransformRow(preview: preview) {
             rows.append(HomeContribution(item: row, key: row.id.key, kind: .transform, basePriority: 84))
         }
-        if isHot(.notes, context: context), let row = saveClipboardToNoteRow(preview: preview) {
+        if context.isHot(.notes), let row = saveClipboardToNoteRow(preview: preview) {
             rows.append(HomeContribution(item: row, key: "contextual.clip-note", kind: .create, basePriority: 83))
         }
-        if isHot(.snippets, context: context), let row = saveClipboardAsSnippetRow(preview: preview) {
-            rows.append(HomeContribution(item: row, key: "contextual.clip-snippet", kind: .create, basePriority: 82))
+        if context.isHot(.todo), let row = saveClipboardAsTodoRow(preview: preview) {
+            rows.append(HomeContribution(item: row, key: "contextual.clip-todo", kind: .create, basePriority: 82))
         }
-        if isHot(.quicklinks, context: context), let row = saveURLAsQuicklinkRow(preview: preview) {
-            rows.append(HomeContribution(item: row, key: "contextual.url-quicklink", kind: .create, basePriority: 81))
+        if context.isHot(.snippets), let row = saveClipboardAsSnippetRow(preview: preview) {
+            rows.append(HomeContribution(item: row, key: "contextual.clip-snippet", kind: .create, basePriority: 81))
+        }
+        if context.isHot(.quicklinks), let row = saveURLAsQuicklinkRow(preview: preview) {
+            rows.append(HomeContribution(item: row, key: "contextual.url-quicklink", kind: .create, basePriority: 80))
         }
         return rows
-    }
-
-    private func isHot(_ id: ModuleIdentifier, context: HomeContributionContext) -> Bool {
-        context.enabledModuleIDs.contains(id) && context.pinnedModuleIDs.contains(id)
     }
 
     private func clipboardTransformRow(preview: String) -> ResultItem? {
@@ -219,57 +418,81 @@ struct ClipboardHomeContributor: HomeContributor {
     private func saveClipboardToNoteRow(preview: String) -> ResultItem? {
         guard ClipboardTextOps.classify(preview) != .url else { return nil }
         let text = preview.trimmingCharacters(in: .whitespacesAndNewlines)
-        let payload = (try? ModuleActionCoding.encode(NotesAction.captureToDaily(text: text))) ?? Data()
         return ResultItem(
             id: ResultID(module: .notes, key: "contextual.clip-note"),
             title: "Append clipboard to daily note",
             titleAttributed: AttributedString("Append clipboard to daily note"),
             subtitle: String(text.prefix(48)),
             icon: .symbol("square.and.pencil"),
-            primaryAction: Action(
-                id: ActionID(module: .notes, key: "contextual.clip-note"),
+            primaryAction: WorkbenchHomeCaptureRows.captureAction(
+                key: "contextual.clip-note",
                 title: CrossModuleActionTitles.appendToNote,
-                kind: .custom(payload: payload, handler: .notes)
+                source: .clipboardText,
+                target: .noteDraft,
+                moduleID: .notes
             ),
             rankingHints: RankingHints(basePriority: 83),
             rowKind: .starter
         )
     }
 
-    private func saveClipboardAsSnippetRow(preview: String) -> ResultItem? {
-        guard preview.count >= 8, ClipboardTextOps.classify(preview) != .url else { return nil }
-        let draft = SnippetDraft.fromClipboard(preview)
-        let payload = (try? ModuleActionCoding.encode(SnippetsAction.prepareDraft(draft))) ?? Data()
+    private func saveClipboardAsTodoRow(preview: String) -> ResultItem? {
+        guard ClipboardTextOps.classify(preview) != .url else { return nil }
+        let text = WorkbenchCaptureDraftBuilder.buildTodoCaptureText(preview)
+        guard !text.isEmpty else { return nil }
         return ResultItem(
-            id: ResultID(module: .snippets, key: "contextual.clip-snippet"),
-            title: "Save clipboard as snippet",
-            titleAttributed: AttributedString("Save clipboard as snippet"),
-            subtitle: String(preview.prefix(48)),
-            icon: .symbol("text.badge.plus"),
-            primaryAction: Action(
-                id: ActionID(module: .snippets, key: "contextual.clip-snippet"),
-                title: CrossModuleActionTitles.createSnippet,
-                kind: .openModuleDetail(.snippets, payload: payload)
+            id: ResultID(module: .todo, key: "contextual.clip-todo"),
+            title: "Save clipboard as todo",
+            titleAttributed: AttributedString("Save clipboard as todo"),
+            subtitle: String(text.prefix(48)),
+            icon: .symbol("checklist"),
+            primaryAction: WorkbenchHomeCaptureRows.captureAction(
+                key: "contextual.clip-todo",
+                title: CrossModuleActionTitles.openTodo,
+                source: .clipboardText,
+                target: .todoDraft,
+                moduleID: .todo
             ),
             rankingHints: RankingHints(basePriority: 82),
             rowKind: .starter
         )
     }
 
+    private func saveClipboardAsSnippetRow(preview: String) -> ResultItem? {
+        guard preview.count >= 8, ClipboardTextOps.classify(preview) != .url else { return nil }
+        return ResultItem(
+            id: ResultID(module: .snippets, key: "contextual.clip-snippet"),
+            title: "Save clipboard as snippet",
+            titleAttributed: AttributedString("Save clipboard as snippet"),
+            subtitle: String(preview.prefix(48)),
+            icon: .symbol("text.badge.plus"),
+            primaryAction: WorkbenchHomeCaptureRows.captureAction(
+                key: "contextual.clip-snippet",
+                title: CrossModuleActionTitles.createSnippet,
+                source: .clipboardText,
+                target: .snippetDraft,
+                moduleID: .snippets
+            ),
+            rankingHints: RankingHints(basePriority: 81),
+            rowKind: .starter
+        )
+    }
+
     private func saveURLAsQuicklinkRow(preview: String) -> ResultItem? {
-        guard let draft = TextQuicklinkDraftSource(text: preview).quicklinkDraft(),
+        guard let draft = WorkbenchCaptureDraftBuilder.buildQuicklinkDraft(text: preview),
               let url = URL(string: draft.urlTemplate) else { return nil }
-        let payload = (try? ModuleActionCoding.encode(QuicklinksAction.prepareDraft(draft))) ?? Data()
         return ResultItem(
             id: ResultID(module: .quicklinks, key: "contextual.url-quicklink"),
             title: "Save URL as Quicklink",
             titleAttributed: AttributedString("Save URL as Quicklink"),
             subtitle: url.host ?? url.absoluteString,
             icon: .symbol("link.badge.plus"),
-            primaryAction: Action(
-                id: ActionID(module: .quicklinks, key: "contextual.url-quicklink"),
+            primaryAction: WorkbenchHomeCaptureRows.captureAction(
+                key: "contextual.url-quicklink",
                 title: CrossModuleActionTitles.addQuicklink,
-                kind: .openModuleDetail(.quicklinks, payload: payload)
+                source: .clipboardURL,
+                target: .quicklinkDraft,
+                moduleID: .quicklinks
             ),
             secondaryActions: [
                 Action(
@@ -285,16 +508,16 @@ struct ClipboardHomeContributor: HomeContributor {
 }
 
 struct ContinueHomeContributor: HomeContributor {
-    let notesModule: NotesModule?
-    let todoModule: TodoModule?
-    let mediaModule: MediaModule?
-    let wordbookModule: WordbookModule?
+    let notes: (any NotesContinueClient)?
+    let todo: (any TodoContinueClient)?
+    let media: (any MediaContinueClient)?
+    let wordbook: (any WordbookContinueClient)?
 
     func contribute(context: HomeContributionContext) async -> [HomeContribution] {
-        async let dailyRow = isHot(.notes, context: context) ? continueDailyNoteRow() : nil
-        async let todoRow = isHot(.todo, context: context) ? topTodoRow() : nil
-        async let recordsRow = isHot(.media, context: context) ? continueRecordsRow() : nil
-        async let wordbookRow = isHot(.wordbook, context: context) ? continueWordbookRow() : nil
+        async let dailyRow = context.isHot(.notes) ? continueDailyNoteRow() : nil
+        async let todoRow = context.isHot(.todo) ? topTodoRow() : nil
+        async let recordsRow = context.isHot(.media) ? continueRecordsRow() : nil
+        async let wordbookRow = context.isHot(.wordbook) ? continueWordbookRow() : nil
 
         let rows = await (dailyRow, todoRow, recordsRow, wordbookRow)
         return [
@@ -305,13 +528,9 @@ struct ContinueHomeContributor: HomeContributor {
         ].compactMap { $0 }
     }
 
-    private func isHot(_ id: ModuleIdentifier, context: HomeContributionContext) -> Bool {
-        context.enabledModuleIDs.contains(id) && context.pinnedModuleIDs.contains(id)
-    }
-
     private func continueDailyNoteRow() async -> ResultItem? {
-        guard let notesModule,
-              let path = await notesModule.dailyNotePath() else { return nil }
+        guard let notes,
+              let path = await notes.dailyNotePath() else { return nil }
         let name = URL(fileURLWithPath: path).deletingPathExtension().lastPathComponent
         let payload = (try? ModuleActionCoding.encode(NotesAction.open(path: path))) ?? Data()
         return ResultItem(
@@ -331,8 +550,8 @@ struct ContinueHomeContributor: HomeContributor {
     }
 
     private func topTodoRow() async -> ResultItem? {
-        guard let todoModule else { return nil }
-        guard let reminder = try? await todoModule.firstTodayDueReminder() else { return nil }
+        guard let todo else { return nil }
+        guard let reminder = try? await todo.firstTodayDueReminder() else { return nil }
         let completePayload = (try? ModuleActionCoding.encode(TodoAction.complete(id: reminder.id))) ?? Data()
         return ResultItem(
             id: ResultID(module: .todo, key: "contextual.todo"),
@@ -358,8 +577,8 @@ struct ContinueHomeContributor: HomeContributor {
     }
 
     private func continueRecordsRow() async -> ResultItem? {
-        guard let mediaModule else { return nil }
-        let count = await mediaModule.inProgressCount()
+        guard let media else { return nil }
+        let count = await media.inProgressCount()
         guard count > 0 else { return nil }
         let subtitle = count == 1 ? "1 in progress" : "\(count) in progress"
         return ResultItem(
@@ -379,8 +598,8 @@ struct ContinueHomeContributor: HomeContributor {
     }
 
     private func continueWordbookRow() async -> ResultItem? {
-        guard let wordbookModule else { return nil }
-        let due = await wordbookModule.storeDueTodayCount()
+        guard let wordbook else { return nil }
+        let due = await wordbook.dueTodayCount()
         guard due > 0 else { return nil }
         let subtitle = due == 1 ? "1 due today" : "\(due) due today"
         let payload = (try? ModuleActionCoding.encode(WordbookAction.review)) ?? Data()

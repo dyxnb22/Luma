@@ -55,6 +55,7 @@ func globalSearchDispatchReturnsSafariApp() async {
     for module in BuiltInModules.makeAll() {
         await host.register(module)
     }
+    await host.configureGlobalSearchModuleIDs(ModuleRegistry.globalSearchModuleIDs)
     await host.warmupAll()
 
     let dispatcher = QueryDispatcher(host: host)

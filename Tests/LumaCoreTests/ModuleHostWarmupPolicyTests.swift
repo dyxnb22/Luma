@@ -121,6 +121,48 @@ private struct WarmupTestDoubles {
     #expect(await host.warmupState(for: CountingLifecycleModule.manifest.identifier) == .warm)
 }
 
+@Test func moduleHostTeardownIdleModulesSkipsReservedModules() async {
+    let host = ModuleHost(context: WarmupTestDoubles.context())
+    let module = CountingLifecycleModule()
+    await host.register(module)
+    await host.applyEnabledSet([CountingLifecycleModule.manifest.identifier])
+    await host.warmupIfNeeded(id: CountingLifecycleModule.manifest.identifier, reason: .query)
+    await host.setReservedModuleIDs([CountingLifecycleModule.manifest.identifier])
+
+    await host.teardownIdleModules(olderThan: .zero, pinned: [])
+
+    #expect(await module.teardownCount == 0)
+    #expect(await host.warmupState(for: CountingLifecycleModule.manifest.identifier) == .warm)
+}
+
+@Test func moduleHostTeardownAfterReserveClear() async {
+    let host = ModuleHost(context: WarmupTestDoubles.context())
+    let module = CountingLifecycleModule()
+    await host.register(module)
+    await host.applyEnabledSet([CountingLifecycleModule.manifest.identifier])
+    await host.warmupIfNeeded(id: CountingLifecycleModule.manifest.identifier, reason: .query)
+    await host.setReservedModuleIDs([CountingLifecycleModule.manifest.identifier])
+    await host.setReservedModuleIDs([])
+
+    await host.teardownIdleModules(olderThan: .zero, pinned: [], reason: .idle)
+
+    #expect(await module.teardownCount == 1)
+    #expect(await host.warmupState(for: CountingLifecycleModule.manifest.identifier) == .tornDown)
+}
+
+@Test func moduleHostDebugSnapshotReportsWarmAndReserved() async {
+    let host = ModuleHost(context: WarmupTestDoubles.context())
+    let module = CountingLifecycleModule()
+    await host.register(module)
+    await host.applyEnabledSet([CountingLifecycleModule.manifest.identifier])
+    await host.warmupIfNeeded(id: CountingLifecycleModule.manifest.identifier, reason: .query)
+    await host.setReservedModuleIDs([CountingLifecycleModule.manifest.identifier])
+
+    let snapshot = await host.debugSnapshot()
+    #expect(snapshot.warmModuleIDs.contains(CountingLifecycleModule.manifest.identifier))
+    #expect(snapshot.reservedModuleIDs.contains(CountingLifecycleModule.manifest.identifier))
+}
+
 @Test func moduleHostTeardownIdleModulesSkipsPinnedModules() async {
     let host = ModuleHost(context: WarmupTestDoubles.context())
     let idle = CountingLifecycleModule()

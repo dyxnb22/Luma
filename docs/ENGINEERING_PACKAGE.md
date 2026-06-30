@@ -20,7 +20,8 @@ Recommended reading order for most engineering work:
 
 1. Product intent: [PRD](PRD.md)
 2. Active UI route: [ADR-023](adr/023-command-first-unified-list.md)
-3. System shape: [Architecture](ARCHITECTURE.md)
+3. Workbench direction: [WORKBENCH_STRATEGY.md](WORKBENCH_STRATEGY.md)
+4. System shape: [Architecture](ARCHITECTURE.md)
 4. Constraints: [Module Contract](specs/MODULE_CONTRACT.md), [Performance](specs/PERFORMANCE.md), [UX Behavior Rules](specs/UX_BEHAVIOR_RULES.md)
 5. Repo navigation: [Project Structure](PROJECT_STRUCTURE.md)
 
@@ -72,16 +73,38 @@ When documents conflict, follow:
 
 Warmup tiers:
 
-- `hotPath` — warms at startup when pinned (default for in-memory modules).
-- `onDemand` — warms on first query or detail open (filesystem-heavy modules: Notes, Projects, MenuItems).
+- `hotPath` — participates in global search fan-out; warms at startup when pinned (default for in-memory modules).
+- `onDemand` — excluded from global search; warms on first targeted query or detail open (filesystem-heavy modules: Notes, Projects, MenuItems).
 
-Users can pin modules in Settings → Modules for always-hot startup behavior.
+Users can pin modules in Settings → Modules for always-hot startup behavior and contextual Home visibility (`enabled ∩ pinned`).
 
 Home and cross-module rules:
 
 - Add contextual Home rows through a focused `HomeContributor`, then compose it in `ContextualHomeProvider`.
+- Use `HomeContinueClients` narrow protocols for continue rows instead of injecting concrete module types into AppCoordinator.
+- Resume and Setup providers respect `HomeEnablementGate` so disabled modules never surface on Home.
 - Keep cross-module draft construction behind narrow helpers/protocols such as `ProjectContextSuggestions` or `QuicklinkDraftSource`.
 - Do not add new App-layer switches for commands, feature cards, or detail metadata; read those from `ModuleRegistry` / `ModuleDetailRegistry`.
+
+## Workbench Core
+
+Location: `Sources/LumaCore/Workbench/`
+
+| Type | Role |
+| --- | --- |
+| `WorkbenchContext` | Assembled user snapshot for Home/Capture/Command |
+| `WorkbenchCaptureService` | Protocol; implementation in `LumaApp/Composition/` |
+| `WorkbenchActivityStore` | Local activity trail for Continue/Resume |
+| `WorkbenchCommandRouter` | `cap clip/sel …` routing before global search |
+
+Wiring rules:
+
+- Build context in `WorkbenchContextBuilder` on launcher activation; pass into `HomeContributionContext.workbench`.
+- Route captures through `DefaultWorkbenchCaptureService`; do not scatter draft builders in UI controllers.
+- Workbench commands check `enabledModuleIDs` before capture; never fan out to global search.
+- Modules may expose capture targets via narrow draft builders (`SnippetDraft+Clipboard`, `ProjectContextSuggestions`).
+
+See [WORKBENCH_STRATEGY.md](WORKBENCH_STRATEGY.md).
 
 Key constraints from [Module Contract](specs/MODULE_CONTRACT.md):
 - `handle` must be memory-only (no disk/network I/O).

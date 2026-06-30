@@ -18,6 +18,8 @@ import Testing
     #expect(LauncherModuleResumeQuery.resumeTitle(for: ModuleIdentifier(rawValue: "luma.notes")) == "Resume Notes search")
     #expect(LauncherModuleResumeQuery.resumeTitle(for: ModuleIdentifier(rawValue: "luma.wordbook")) == "Resume Wordbook")
     #expect(LauncherModuleResumeQuery.resumeTitle(for: ModuleIdentifier(rawValue: "luma.media")) == "Resume Records")
+    #expect(LauncherModuleResumeQuery.resumeTitle(for: ModuleIdentifier(rawValue: "luma.projects")) == "Resume Projects search")
+    #expect(LauncherModuleResumeQuery.resumeTitle(for: ModuleIdentifier(rawValue: "luma.secrets")) == "Resume Secrets search")
 }
 
 @Test func homeAggregatorIncludesSetupSectionFirst() async {

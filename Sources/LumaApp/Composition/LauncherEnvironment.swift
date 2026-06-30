@@ -33,7 +33,9 @@ final class LauncherEnvironment {
     let translation: any TranslationClient
     let config: ConfigurationStore
     let runProjectAction: (ProjectAction, @escaping () -> Void) -> Void
+    let runWorkbenchCapture: (WorkbenchCaptureSource, WorkbenchCaptureTarget) -> Void
     let warmModuleForDetail: (ModuleIdentifier) async -> Void
+    let reserveDetailModule: (ModuleIdentifier?) async -> Void
 
     private let detailRegistry: ModuleDetailRegistry
 
@@ -48,6 +50,7 @@ final class LauncherEnvironment {
         detailReloadRouter: ModuleDetailReloadRouter,
         detailRegistry: ModuleDetailRegistry = .makeDefault(),
         warmModuleForDetail: @escaping (ModuleIdentifier) async -> Void = { _ in },
+        reserveDetailModule: @escaping (ModuleIdentifier?) async -> Void = { _ in },
         clipboardModule: ClipboardModule,
         notesModule: NotesModule,
         snippetsModule: SnippetsModule,
@@ -59,7 +62,8 @@ final class LauncherEnvironment {
         quicklinksModule: QuicklinksModule,
         translation: any TranslationClient,
         config: ConfigurationStore,
-        runProjectAction: @escaping (ProjectAction, @escaping () -> Void) -> Void
+        runProjectAction: @escaping (ProjectAction, @escaping () -> Void) -> Void,
+        runWorkbenchCapture: @escaping (WorkbenchCaptureSource, WorkbenchCaptureTarget) -> Void = { _, _ in }
     ) {
         self.openModuleDetail = openModuleDetail
         self.openSettings = openSettings
@@ -82,7 +86,9 @@ final class LauncherEnvironment {
         self.translation = translation
         self.config = config
         self.runProjectAction = runProjectAction
+        self.runWorkbenchCapture = runWorkbenchCapture
         self.warmModuleForDetail = warmModuleForDetail
+        self.reserveDetailModule = reserveDetailModule
     }
 
     func install() {
@@ -110,7 +116,8 @@ final class LauncherEnvironment {
             onOpenSettings: openSettings,
             onHideLauncher: onHideLauncher,
             onTranslateContentChanged: onTranslateContentChanged,
-            runProjectAction: runProjectAction
+            runProjectAction: runProjectAction,
+            runWorkbenchCapture: runWorkbenchCapture
         )
     }
 }

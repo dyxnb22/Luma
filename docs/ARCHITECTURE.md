@@ -105,7 +105,15 @@ Cross-module creation uses narrow draft builders such as `ProjectContextSuggesti
 
 ## Suggested Section Limits
 
-The `ContextualHomeProvider` enforces a maximum of **2 continue-flow items** and **1 create item** (3 total) per Home render. This keeps the suggestion surface signal-dense rather than exhaustive. `HomeSuggestionMemory` further gates eligibility and adjusts priority based on recency and completion history.
+Home sections are composed by `LauncherHomeAggregator`:
+
+- **SETUP** — `SetupHomeProvider` (max 2 rows until dismissed)
+- **OPEN APPS** — running applications
+- **RECENT** — recent actions
+- **CONTINUE** — resume rows + contextual continue rows (max 4 merged)
+- **CREATE** — contextual create/utility rows (max 1 utility/transform + 1–2 create)
+
+`ContextualHomeProvider` enforces **2 continue-flow items** from contributors, up to **1 utility/transform** create row, and **1–2 create rows** (2 when project create rows are present). `HomeSuggestionPolicy` centralizes these caps. Pinned + enabled modules gate most contextual create/continue rows; translate and clipboard transforms only require enablement.
 
 ## Ranking
 
@@ -113,15 +121,44 @@ The `ContextualHomeProvider` enforces a maximum of **2 continue-flow items** and
 
 ## Warmup Strategy
 
-`ModuleHost` tracks warmup state per module. `ConfigurationStore.pinnedModuleIDs()` controls which enabled modules are kept hot at startup; Settings → Modules lets users pin or unpin modules from the hot path. The default policy is `eagerPinnedOnly`:
+`ModuleHost` tracks warmup state per module. `ConfigurationStore.pinnedModuleIDs()` controls which enabled modules are kept hot at startup; Settings → Modules lets users pin or unpin modules from the hot path. Pinning also gates most contextual Home suggestions. The default policy is `eagerPinnedOnly`:
 
 1. Register modules from `ModuleRegistry.allBundles`.
 2. Apply the enabled-module set.
-3. Warm `pinned ∩ enabled` with a 1-second per-module budget.
-4. Mark the launcher ready.
-5. If `warmupPolicy == eagerAllEnabled`, warm the remaining enabled modules in the background.
+3. Configure global-search participation to `ModuleRegistry.globalSearchModuleIDs` (hot-path tier only).
+4. Warm `pinned ∩ enabled` with a 1-second per-module budget.
+5. Mark the launcher ready.
+6. If `warmupPolicy == eagerAllEnabled`, warm the remaining enabled modules in the background.
 
-Queries and detail opens call `warmupIfNeeded`, so on-demand modules are warmed only when the user targets them. When the launcher hides, `AppCoordinator` schedules `ModuleHost.teardownIdleModules` after a short delay; reopening the panel cancels that task, and pinned modules are not torn down.
+**Global search** fans out only to hot-path modules. On-demand modules (Notes, Projects, Menu Bar Search) warm on targeted queries (`n `, `proj `, etc.) or detail opens via `warmupIfNeeded`.
+
+When the launcher hides, `AppCoordinator` waits **30 seconds**, then calls `ModuleHost.teardownIdleModules` with a **300-second** idle threshold. Reopening the panel cancels that task. Pinned modules and the module currently open in detail (`reservedModuleIDs`) are not torn down. Memory pressure triggers a more aggressive idle teardown (60-second threshold).
+
+## Workbench Core
+
+`Sources/LumaCore/Workbench/` introduces a semantic layer above modules for the command-first personal workbench:
+
+```mermaid
+flowchart LR
+    Builder[WorkbenchContextBuilder] --> WCtx[WorkbenchContext]
+    WCtx --> Home[HomeContributor]
+    WCtx --> Capture[WorkbenchCaptureService]
+    WCtx --> Cmd[WorkbenchCommandRouter]
+    Capture --> Resume[LauncherResumeStore]
+    Capture --> Activity[WorkbenchActivityStore]
+    Cmd --> Capture
+    MH[ModuleHost] --> QD[QueryDispatcher]
+```
+
+- **WorkbenchContext** — current work-state snapshot: selection, clipboard, project, drafts, enablement, pins, and `WorkbenchActivitySnapshot`.
+- **WorkbenchActivitySnapshot** — unified read model: `globalRecent` (top 8), `currentProjectRecent`, `currentProjectDrafts`. Built from the full activity store keyed by `currentProjectPath`; Home, commands, and project detail share this snapshot.
+- **WorkbenchCapture** — unified capture → draft → resume/activity (no unrelated module warmup).
+- **WorkbenchActivity** — local-first workbench memory (`workbench-activity.json`, schema v1 envelope). Entries carry optional project association, source kind, resume ref, and follow-up action — backward compatible with legacy unversioned files.
+- **WorkbenchActivityQuery** — pure in-memory filters used by `WorkbenchActivitySnapshot.build` and store helpers. Does not scan module data directories.
+- **CurrentProjectWorkspaceModelBuilder** — pure builder for project detail: stable section order (header → quick capture → recent activity → project actions), enabled-module gate, no async append.
+- **WorkbenchCommandRouter** — `cap clip/sel …`, `proj work/recent/note/todo`, `attach clip/sel` before global search. Preview rows on type; execute on Return only.
+
+`ModuleHost` lifecycle, global search scoping, and enabled gates are unchanged. See [WORKBENCH_STRATEGY.md](WORKBENCH_STRATEGY.md).
 
 ## Boundary Rules
 

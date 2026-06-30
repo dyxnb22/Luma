@@ -426,10 +426,43 @@ final class ClipboardDetailView: NSObject, ModuleDetailView {
     }
 
     private func saveAsSnippet(_ entry: ClipboardEntry) {
-        let draft = SnippetDraft.fromClipboard(entry.plainTextForCopy)
-        LauncherSharedState.pendingSnippetDraft = draft
-        LauncherEnvironment.current?.openModuleDetail(.snippets)
-        LauncherEnvironment.current?.showStatus(LauncherStatusMessages.draftLoadedInSnippets)
+        Task {
+            let enabled = await LauncherEnvironment.current?.config.enabledModules()
+                ?? Set(ModuleRegistry.allBundles.map { $0.identifier })
+            guard enabled.contains(.snippets) else {
+                await MainActor.run {
+                    LauncherEnvironment.current?.showStatus("Snippets disabled in Settings")
+                }
+                return
+            }
+            let pinned = await LauncherEnvironment.current?.config.pinnedModuleIDs()
+                ?? ModuleWarmupDefaults.defaultPinnedModuleIDs
+            let builder = WorkbenchContextBuilder()
+            let workbench = await builder.build(
+                enabledModuleIDs: enabled,
+                pinnedModuleIDs: pinned,
+                clipboardPreview: entry.plainTextForCopy,
+                selectionText: nil
+            )
+            let captureService = DefaultWorkbenchCaptureService()
+            guard let result = await captureService.capture(
+                source: .clipboardText,
+                target: .snippetDraft,
+                context: workbench
+            ) else { return }
+            await captureService.applyResult(
+                result,
+                context: workbench,
+                attribution: WorkbenchCaptureAttribution(sourceKind: .clipboard, followUp: .openDetail)
+            )
+            await MainActor.run {
+                captureService.stagePendingState(for: result)
+            }
+            await MainActor.run {
+                LauncherEnvironment.current?.openModuleDetail(.snippets)
+                LauncherEnvironment.current?.showStatus(LauncherStatusMessages.draftLoadedInSnippets)
+            }
+        }
     }
 
     private func saveAsNote(_ entry: ClipboardEntry) {

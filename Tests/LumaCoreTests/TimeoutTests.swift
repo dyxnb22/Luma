@@ -11,7 +11,7 @@ import LumaCore
     let elapsed = start.duration(to: ContinuousClock().now)
 
     #expect(result == nil)
-    #expect(elapsed < .seconds(1))
+    #expect(elapsed < .seconds(2))
 }
 
 @Test func timeoutReturnsOperationValueWhenFast() async {

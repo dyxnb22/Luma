@@ -22,6 +22,7 @@ struct ModuleUIContext {
     let onHideLauncher: () -> Void
     let onTranslateContentChanged: (String, String) -> Void
     let runProjectAction: (ProjectAction, @escaping () -> Void) -> Void
+    let runWorkbenchCapture: (WorkbenchCaptureSource, WorkbenchCaptureTarget) -> Void
 }
 
 @MainActor
@@ -75,7 +76,11 @@ final class ModuleDetailRegistry {
                 LauncherSharedState.pendingProjectsManage = false
                 return ProjectsDetailView(module: ctx.projectsModule, onRunProjectAction: ctx.runProjectAction)
             }
-            return CurrentProjectDetailView(onRunProjectAction: ctx.runProjectAction)
+            return CurrentProjectDetailView(
+                config: ctx.config,
+                onRunProjectAction: ctx.runProjectAction,
+                onRunWorkbenchCapture: ctx.runWorkbenchCapture
+            )
         }
         registry.register(.quicklinks) { ctx in
             QuicklinksDetailView(module: ctx.quicklinksModule)

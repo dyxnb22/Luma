@@ -101,20 +101,25 @@ final class AppCoordinator {
     private lazy var wordbookStore = WordbookStore()
     private lazy var wordbookModule = WordbookModule(store: wordbookStore)
     private lazy var snippetsModule = SnippetsModule()
+    private let homeEnablementGate = HomeEnablementGate()
+    private lazy var resumeHomeProvider = ResumeHomeProvider(enablementGate: homeEnablementGate)
     private lazy var contextualHomeProvider = ContextualHomeProvider(
-        notesModule: notesModule,
-        todoModule: todoModule,
-        mediaModule: mediaModule,
-        wordbookModule: wordbookModule
+        notes: HomeContinueClientAdapters.Notes(module: notesModule),
+        todo: HomeContinueClientAdapters.Todo(module: todoModule),
+        media: HomeContinueClientAdapters.Media(module: mediaModule),
+        wordbook: HomeContinueClientAdapters.Wordbook(module: wordbookModule)
     )
-    private lazy var setupHomeProvider = SetupHomeProvider(config: config)
+    private lazy var setupHomeProvider = SetupHomeProvider(config: config, enablementGate: homeEnablementGate)
     private lazy var homeCoordinator = LauncherHomeCoordinator(
         openApps: openAppsProvider,
+        enablementGate: homeEnablementGate,
+        resume: resumeHomeProvider,
         contextual: contextualHomeProvider,
         setup: setupHomeProvider
     )
     private var activationObserver: NSObjectProtocol?
     private var terminationObserver: NSObjectProtocol?
+    private var memoryPressureSource: DispatchSourceMemoryPressure?
     private var idleTeardownTask: Task<Void, Never>?
 
     func start() {
@@ -268,6 +273,14 @@ final class AppCoordinator {
             detailReloadRouter: detailReloadRouter,
             warmModuleForDetail: { [weak self] id in
                 await self?.host.warmupIfNeeded(id: id, reason: .detail)
+                await self?.host.setReservedModuleIDs([id])
+            },
+            reserveDetailModule: { [weak self] id in
+                if let id {
+                    await self?.host.setReservedModuleIDs([id])
+                } else {
+                    await self?.host.setReservedModuleIDs([])
+                }
             },
             clipboardModule: clipboardModule,
             notesModule: notesModule,
@@ -297,6 +310,9 @@ final class AppCoordinator {
                         completion()
                     }
                 }
+            },
+            runWorkbenchCapture: { [weak self] source, target in
+                self?.windowController.runWorkbenchCaptureFromDetail(source: source, target: target)
             }
         )
         launcherEnv.install()
@@ -339,6 +355,7 @@ final class AppCoordinator {
             await homeCoordinator.updatePinnedModuleIDs(pinned)
             await homeCoordinator.updateEnabledModuleIDs(enabled ?? Set(modules.map { type(of: $0).manifest.identifier }))
             await host.configureWarmupPolicy(pinned: pinned)
+            await host.configureGlobalSearchModuleIDs(ModuleRegistry.globalSearchModuleIDs)
             await host.applyEnabledSet(enabled)
 
             let startupWarm = pinned.intersection(enabled ?? Set(modules.map { type(of: $0).manifest.identifier }))
@@ -348,7 +365,27 @@ final class AppCoordinator {
             if policy == .eagerAllEnabled {
                 await host.warmupRemainingEnabled()
             }
+            await MainActor.run {
+                self.installMemoryPressureHandler()
+            }
         }
+    }
+
+    private func installMemoryPressureHandler() {
+        let source = DispatchSource.makeMemoryPressureSource(eventMask: [.warning, .critical], queue: .main)
+        source.setEventHandler { [weak self] in
+            guard let self else { return }
+            Task {
+                let pinned = await self.config.pinnedModuleIDs()
+                await self.host.teardownIdleModules(
+                    olderThan: .seconds(60),
+                    pinned: pinned,
+                    reason: .memoryPressure
+                )
+            }
+        }
+        source.resume()
+        memoryPressureSource = source
     }
 
     private func cancelIdleModuleTeardown() {
@@ -362,7 +399,11 @@ final class AppCoordinator {
             try? await Task.sleep(for: .seconds(30))
             guard !Task.isCancelled, let self else { return }
             let pinned = await self.config.pinnedModuleIDs()
-            await self.host.teardownIdleModules(olderThan: .seconds(300), pinned: pinned)
+            await self.host.teardownIdleModules(
+                olderThan: .seconds(300),
+                pinned: pinned,
+                reason: .idle
+            )
         }
     }
 }

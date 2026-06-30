@@ -54,7 +54,7 @@ public actor ActionExecutor {
             case .revealInFinder(let url):
                 await context.platform.workspace.revealInFinder(url)
             case .custom(_, let handler):
-                guard let module = await host.module(handler) else {
+                guard let module = await host.enabledModule(handler) else {
                     throw ModuleError.unsupportedAction(action.id)
                 }
                 try await module.perform(action, context: context)

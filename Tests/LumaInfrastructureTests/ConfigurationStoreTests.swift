@@ -41,3 +41,18 @@ import LumaCore
     #expect(await store.secretsRelockTimeoutSeconds() == 120)
     #expect(await store.secretsRequireUnlockOnLaunch() == false)
 }
+
+@Test func configurationStorePersistsPinnedModulesAndSetupHints() async {
+    let suite = "luma.tests.\(UUID().uuidString)"
+    let defaults = UserDefaults(suiteName: suite)!
+    defer { UserDefaults().removePersistentDomain(forName: suite) }
+    let store = ConfigurationStore(defaults: defaults)
+    let pinned: Set<ModuleIdentifier> = [
+        ModuleIdentifier(rawValue: "luma.notes"),
+        ModuleIdentifier(rawValue: "luma.todo")
+    ]
+    await store.setPinnedModuleIDs(pinned)
+    #expect(await store.pinnedModuleIDs() == pinned)
+    await store.setSetupHintsDismissed(true)
+    #expect(await store.setupHintsDismissed() == true)
+}

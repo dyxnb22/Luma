@@ -120,6 +120,9 @@ final class LauncherRootView: NSView {
     func saveCurrentSession() { controller.saveCurrentSession() }
     func resetForActionDismiss() { controller.resetForActionDismiss() }
     func openModuleDetail(for moduleID: ModuleIdentifier) { controller.openModuleDetail(for: moduleID) }
+    func runWorkbenchCaptureFromDetail(source: WorkbenchCaptureSource, target: WorkbenchCaptureTarget) {
+        controller.runWorkbenchCaptureFromDetail(source: source, target: target)
+    }
     func handleEscape() { controller.handleEscape() }
     func closeDetail() { controller.closeDetail() }
 

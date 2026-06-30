@@ -254,6 +254,21 @@
 - [ ] Todo tabs show counts when non-zero.
 - [ ] App search "微信" surfaces WeChat first row.
 
+## Workbench Project Workspace (manual)
+
+- [ ] Capture from Home CREATE with active IDE project → `workbench-activity.json` entry includes `projectPath` and `sourceKind: home`.
+- [ ] `cap clip todo` shows preview row only while typing; Return executes once and writes activity.
+- [ ] `proj work` preview → Return opens Current Project detail (not global search).
+- [ ] `attach clip` / `attach sel` with Snippets disabled → disabled preview row or status; no snippet draft written.
+- [ ] Home shows **Continue project workspace** and recent project draft when activity exists for current project.
+- [ ] Project activity **not** in global top 8 still appears on Home recent row and `proj recent` (same snapshot semantics).
+- [ ] Recent project draft row (Return) resumes snippet/quicklink/todo without re-capturing.
+- [ ] Current Project detail section order: header → Quick capture → Recent activity → Project actions (no reorder after async load).
+- [ ] Switch project context quickly: detail does not show stale activities from the previous project.
+- [ ] Quick capture buttons in project detail run capture pipeline; only target module warms on open detail.
+- [ ] Disabled Snippets: project attach rows absent from Home; detail quick capture still gated at execute.
+- [ ] Legacy `workbench-activity.json` (no version field) still loads after upgrade.
+
 ## Recorded Product Review Additions
 
 - First-run flow is understandable without reading docs.

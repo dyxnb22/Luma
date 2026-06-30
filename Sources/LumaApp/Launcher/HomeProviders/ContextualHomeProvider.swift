@@ -2,17 +2,18 @@ import Foundation
 import LumaCore
 import LumaModules
 
-struct ContextualHomeProvider: LauncherHomeProvider, ContextualHomeSectionProvider {
+actor ContextualHomeProvider: LauncherHomeProvider, ContextualHomeSectionProvider {
   private let suggestionMemory: HomeSuggestionMemory
   private let contributors: [any HomeContributor]
   private var pinnedModuleIDs: Set<ModuleIdentifier>
   private var enabledModuleIDs: Set<ModuleIdentifier>
+  private var workbench: WorkbenchContext?
 
   init(
-    notesModule: NotesModule? = nil,
-    todoModule: TodoModule? = nil,
-    mediaModule: MediaModule? = nil,
-    wordbookModule: WordbookModule? = nil,
+    notes: (any NotesContinueClient)? = nil,
+    todo: (any TodoContinueClient)? = nil,
+    media: (any MediaContinueClient)? = nil,
+    wordbook: (any WordbookContinueClient)? = nil,
     pinnedModuleIDs: Set<ModuleIdentifier> = ModuleWarmupDefaults.defaultPinnedModuleIDs,
     enabledModuleIDs: Set<ModuleIdentifier>? = nil,
     suggestionMemory: HomeSuggestionMemory = .shared,
@@ -23,23 +24,28 @@ struct ContextualHomeProvider: LauncherHomeProvider, ContextualHomeSectionProvid
     self.suggestionMemory = suggestionMemory
     self.contributors = contributors ?? [
       ProjectHomeContributor(),
+      ProjectActivityHomeContributor(),
       SelectionHomeContributor(),
       ClipboardHomeContributor(),
       ContinueHomeContributor(
-        notesModule: notesModule,
-        todoModule: todoModule,
-        mediaModule: mediaModule,
-        wordbookModule: wordbookModule
+        notes: notes,
+        todo: todo,
+        media: media,
+        wordbook: wordbook
       )
     ]
   }
 
-  mutating func updatePinnedModuleIDs(_ ids: Set<ModuleIdentifier>) {
+  func updatePinnedModuleIDs(_ ids: Set<ModuleIdentifier>) {
     pinnedModuleIDs = ids
   }
 
-  mutating func updateEnabledModuleIDs(_ ids: Set<ModuleIdentifier>) {
+  func updateEnabledModuleIDs(_ ids: Set<ModuleIdentifier>) {
     enabledModuleIDs = ids
+  }
+
+  func updateWorkbench(_ context: WorkbenchContext?) {
+    workbench = context
   }
 
   func items() async -> [ResultItem] {
@@ -54,12 +60,19 @@ struct ContextualHomeProvider: LauncherHomeProvider, ContextualHomeSectionProvid
   private func rankedSectionItems() async -> (continue: [ResultItem], create: [ResultItem]) {
     let contributionContext = HomeContributionContext(
       pinnedModuleIDs: pinnedModuleIDs,
-      enabledModuleIDs: enabledModuleIDs
+      enabledModuleIDs: enabledModuleIDs,
+      workbench: workbench
     )
     let contributions = await collectContributions(context: contributionContext)
     let memory = suggestionMemory
     if contributions.contains(where: { $0.key == "contextual.current" }) {
       await memory.boostSessionContext(key: "contextual.current")
+    }
+    for contribution in contributions where contribution.key.hasPrefix("contextual.project-") {
+      await memory.boostSessionContext(key: contribution.key)
+    }
+    for contribution in contributions where contribution.key.hasPrefix("contextual.project-activity") {
+      await memory.boostSessionContext(key: contribution.key)
     }
 
     var ranked: [(item: ResultItem, kind: HomeSuggestionKind, priority: Int)] = []
@@ -76,15 +89,22 @@ struct ContextualHomeProvider: LauncherHomeProvider, ContextualHomeSectionProvid
     ranked.sort { $0.priority > $1.priority }
     let continueFlow = ranked
       .filter { $0.kind == .continueFlow }
-      .prefix(2)
+      .prefix(HomeSuggestionPolicy.maxContinueRows)
       .map(\.item)
     let hasProjectCreateRows = contributions.contains { $0.key.hasPrefix("contextual.project-") }
-    let createLimit = hasProjectCreateRows ? 2 : 1
-    let create = ranked
-      .filter { $0.kind != .continueFlow }
+    let createLimit = hasProjectCreateRows
+      ? HomeSuggestionPolicy.maxCreateRowsWithProject
+      : HomeSuggestionPolicy.maxCreateRowsDefault
+    let utilityRows = ranked
+      .filter { $0.kind == .utility || $0.kind == .transform }
+      .prefix(HomeSuggestionPolicy.maxUtilityCreateRows)
+      .map(\.item)
+    let createRows = ranked
+      .filter { $0.kind == .create }
       .prefix(createLimit)
       .map(\.item)
-    return (continue: Array(continueFlow), create: Array(create))
+    let create = utilityRows + createRows
+    return (continue: Array(continueFlow), create: create)
   }
 
   private func collectContributions(context: HomeContributionContext) async -> [HomeContribution] {

@@ -30,8 +30,8 @@ public actor LauncherHomeAggregator {
         let loaded = await (setupItems, apps, recent, resumeItems, contextualSections)
 
         var continueItems = loaded.3 + loaded.4.continue
-        if continueItems.count > 4 {
-            continueItems = Array(continueItems.prefix(4))
+        if continueItems.count > HomeSuggestionPolicy.maxMergedContinueRows {
+            continueItems = Array(continueItems.prefix(HomeSuggestionPolicy.maxMergedContinueRows))
         }
 
         var sections: [LauncherHomeSection] = []

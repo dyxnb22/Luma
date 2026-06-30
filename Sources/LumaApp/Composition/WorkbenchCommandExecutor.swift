@@ -68,8 +68,8 @@ struct WorkbenchCommandExecutor {
             enabledModuleIDs: context.enabledModuleIDs,
             limit: 1
         )
-        if let top = recent.first, top.isResumableDraft {
-            return .resumeActivity(top.id)
+        if let top = recent.first, WorkbenchActivityRowActions.isInteractive(top) {
+            return .openActivityEntry(top.id)
         }
         return continueProject(context: context)
     }
@@ -294,4 +294,5 @@ enum WorkbenchCommandOutcome: Sendable {
     case runAction(ActionKind)
     case resumeActivity(UUID)
     case openLinked(UUID)
+    case openActivityEntry(UUID)
 }

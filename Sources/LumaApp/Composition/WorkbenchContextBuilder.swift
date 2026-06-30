@@ -41,9 +41,12 @@ struct WorkbenchContextBuilder {
 
         let clipboardURL = clipboardPreview.flatMap { URLTextParser.firstHTTPURL(in: $0) }
         let projectIdentity = project.map(WorkbenchProjectIdentity.init(context:))
+        async let allEntries = WorkbenchActivityStore.shared.allEntries()
         async let activitySnapshot = WorkbenchActivityStore.shared.activitySnapshot(
             projectIdentity: projectIdentity
         )
+        let entries = await allEntries
+        await WorkbenchLinkStore.shared.backfillFromActivitiesIfEmpty(entries)
         async let linkSnapshot = WorkbenchLinkStore.shared.snapshot(
             for: projectIdentity?.identity,
             limit: 10

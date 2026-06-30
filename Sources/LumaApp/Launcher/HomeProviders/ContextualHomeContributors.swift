@@ -288,16 +288,16 @@ struct ProjectActivityHomeContributor: HomeContributor {
     }
 
     private func recentActivityRow(entry: WorkbenchActivityEntry) -> ResultItem {
-        ResultItem(
+        let interactive = WorkbenchActivityRowActions.isInteractive(entry)
+        return ResultItem(
             id: ResultID(module: entry.moduleID, key: "contextual.project-activity.recent.\(entry.id.uuidString)"),
             title: entry.title,
             titleAttributed: AttributedString(entry.title),
             subtitle: entry.preview ?? entry.detail ?? entry.sourceKind?.rawValue ?? "",
-            icon: .symbol("clock"),
-            primaryAction: Action(
-                id: ActionID(module: entry.moduleID, key: "contextual.project-activity.recent"),
-                title: entry.title,
-                kind: .noop
+            icon: .symbol(interactive ? "arrow.right.circle" : "clock"),
+            primaryAction: WorkbenchActivityRowActions.primaryAction(
+                for: entry,
+                key: "contextual.project-activity.recent.\(entry.id.uuidString)"
             ),
             rankingHints: RankingHints(basePriority: 84),
             rowKind: .starter

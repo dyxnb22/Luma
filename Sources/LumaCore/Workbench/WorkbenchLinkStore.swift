@@ -8,6 +8,8 @@ public struct WorkbenchProjectLink: Sendable, Hashable, Codable, Identifiable {
     public let activityEntryID: UUID?
     public let linkedAt: Date
     public let sourceKind: WorkbenchActivitySourceKind?
+    /// Label-only project key for legacy unmatched migration matching.
+    public let labelFallback: String?
 
     public init(
         id: UUID = UUID(),
@@ -15,7 +17,8 @@ public struct WorkbenchProjectLink: Sendable, Hashable, Codable, Identifiable {
         entityRef: WorkbenchEntityRef,
         activityEntryID: UUID? = nil,
         linkedAt: Date = Date(),
-        sourceKind: WorkbenchActivitySourceKind? = nil
+        sourceKind: WorkbenchActivitySourceKind? = nil,
+        labelFallback: String? = nil
     ) {
         self.id = id
         self.stableProjectID = stableProjectID
@@ -23,6 +26,7 @@ public struct WorkbenchProjectLink: Sendable, Hashable, Codable, Identifiable {
         self.activityEntryID = activityEntryID
         self.linkedAt = linkedAt
         self.sourceKind = sourceKind
+        self.labelFallback = labelFallback
     }
 }
 
@@ -68,14 +72,39 @@ public actor WorkbenchLinkStore {
 
     public func snapshot(for identity: ProjectIdentity?, limit: Int = 10) -> [WorkbenchProjectLink] {
         guard let identity else { return [] }
-        return links(for: identity.stableProjectID, limit: limit)
+        return links(matching: identity, limit: limit)
+    }
+
+    public func backfillFromActivitiesIfEmpty(_ entries: [WorkbenchActivityEntry]) {
+        guard links.isEmpty else { return }
+        var seen = Set<String>()
+        var collected: [WorkbenchProjectLink] = []
+        for entry in entries {
+            guard let identity = entry.projectIdentity else { continue }
+            guard let entityRef = WorkbenchEntityResolver.resolve(entry) else { continue }
+            let dedupeKey = "\(identity.stableProjectID)|\(entityRef.kind.rawValue)|\(entityRef.entityID)"
+            guard seen.insert(dedupeKey).inserted else { continue }
+            collected.append(WorkbenchProjectLink(
+                stableProjectID: identity.stableProjectID,
+                entityRef: entityRef,
+                activityEntryID: entry.id,
+                linkedAt: entry.recordedAt,
+                sourceKind: entry.sourceKind,
+                labelFallback: identity.matchedPath == nil ? identity.labelFallback : nil
+            ))
+            if collected.count >= maxLinks { break }
+        }
+        guard !collected.isEmpty else { return }
+        links = collected.sorted { $0.linkedAt > $1.linkedAt }
+        persist()
     }
 
     public func recordLink(
         stableProjectID: String,
         entityRef: WorkbenchEntityRef,
         activityEntryID: UUID?,
-        sourceKind: WorkbenchActivitySourceKind?
+        sourceKind: WorkbenchActivitySourceKind?,
+        labelFallback: String? = nil
     ) {
         if let index = links.firstIndex(where: {
             $0.stableProjectID == stableProjectID && $0.entityRef == entityRef
@@ -87,7 +116,8 @@ public actor WorkbenchLinkStore {
                 stableProjectID: stableProjectID,
                 entityRef: entityRef,
                 activityEntryID: activityEntryID,
-                sourceKind: sourceKind
+                sourceKind: sourceKind,
+                labelFallback: labelFallback
             ),
             at: 0
         )
@@ -106,8 +136,29 @@ public actor WorkbenchLinkStore {
             stableProjectID: identity.stableProjectID,
             entityRef: entityRef,
             activityEntryID: entry.id,
-            sourceKind: entry.sourceKind
+            sourceKind: entry.sourceKind,
+            labelFallback: identity.matchedPath == nil ? identity.labelFallback : nil
         )
+    }
+
+    private func links(matching identity: ProjectIdentity, limit: Int) -> [WorkbenchProjectLink] {
+        links
+            .filter { Self.matchesProject($0, identity: identity) }
+            .prefix(max(0, limit))
+            .map { $0 }
+    }
+
+    private static func matchesProject(_ link: WorkbenchProjectLink, identity: ProjectIdentity) -> Bool {
+        if link.stableProjectID == identity.stableProjectID {
+            return true
+        }
+        if identity.matchedPath == nil,
+           let label = link.labelFallback,
+           label == identity.labelFallback,
+           ProjectIdentity.isLegacyLabelStableID(link.stableProjectID) {
+            return true
+        }
+        return false
     }
 
     private static func loadLinks(from fileURL: URL) -> [WorkbenchProjectLink] {

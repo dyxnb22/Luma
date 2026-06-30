@@ -291,9 +291,53 @@ import LumaCore
         Issue.record("Expected workbench custom action")
         return
     }
-    let action = try? ModuleActionCoding.decode(WorkbenchCaptureAction.self, from: payload)
-    guard case .resumeActivity(let id) = action else {
-        Issue.record("Expected resumeActivity action")
+    let action = try? ModuleActionCoding.decode(WorkbenchEntityAction.self, from: payload)
+    guard case .openActivityEntry(let id) = action else {
+        Issue.record("Expected openActivityEntry action")
+        return
+    }
+    #expect(id == entryID)
+}
+
+@Test func projRecentTodoCaptureRowEncodesOpenActivityEntry() {
+    let entryID = UUID()
+    let entry = WorkbenchActivityEntry(
+        id: entryID,
+        kind: .projectLinked,
+        moduleID: .workbenchTodo,
+        title: "Fix tests",
+        project: WorkbenchProjectAssociation(projectPath: "/tmp/luma", projectLabel: "Luma"),
+        preview: "Fix tests",
+        resumePayloadJSON: WorkbenchActivityResumePayload.todoCapture("Fix tests").encoded()
+    )
+    let rows = WorkbenchCommandResults.previewRows(
+        route: .projectRecent,
+        querySequence: 0,
+        context: WorkbenchContext(
+            currentProject: CurrentProjectContext(
+                frontAppName: "Cursor",
+                bundleID: "com.cursor",
+                windowTitle: "Luma",
+                projectLabel: "Luma",
+                filename: nil,
+                matchedProjectPath: "/tmp/luma"
+            ),
+            enabledModuleIDs: [.projects, .todo],
+            pinnedModuleIDs: [.projects],
+            activitySnapshot: WorkbenchActivitySnapshot(
+                currentProjectRecent: [entry]
+            )
+        )
+    )
+    #expect(rows.count == 1)
+    guard case .custom(let payload, let handler) = rows[0].primaryAction.kind,
+          handler == .workbench else {
+        Issue.record("Expected workbench custom action")
+        return
+    }
+    let action = try? ModuleActionCoding.decode(WorkbenchEntityAction.self, from: payload)
+    guard case .openActivityEntry(let id) = action else {
+        Issue.record("Expected openActivityEntry action")
         return
     }
     #expect(id == entryID)

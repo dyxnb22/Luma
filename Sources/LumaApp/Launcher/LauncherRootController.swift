@@ -175,6 +175,9 @@ final class LauncherRootController {
         case .openLinked(let linkID):
             runOpenLinkedEntity(linkID: linkID)
             return true
+        case .openActivityEntry(let entryID):
+            runOpenActivityEntry(entryID: entryID, for: nil)
+            return true
         }
     }
 
@@ -806,11 +809,7 @@ final class LauncherRootController {
             lastSyncedQuery = ""
             handleTextChange(text)
         case .openNotePath(let path):
-            runNotesOpen(path: path, action: Action(
-                id: ActionID(module: .notes, key: "detail.note"),
-                title: "Open note",
-                kind: .noop
-            ), for: ResultItem(
+            openNote(at: path, for: ResultItem(
                 id: ResultID(module: .notes, key: "detail.note"),
                 title: "Open note",
                 titleAttributed: AttributedString("Open note"),
@@ -836,6 +835,30 @@ final class LauncherRootController {
         case .openLinked(let linkID):
             recordHomeCompletionIfNeeded(for: item)
             runOpenLinkedEntity(linkID: linkID)
+        case .openActivityEntry(let entryID):
+            recordHomeCompletionIfNeeded(for: item)
+            runOpenActivityEntry(entryID: entryID, for: item)
+        }
+    }
+
+    func runOpenActivityEntry(entryID: UUID, for item: ResultItem?) {
+        Task {
+            let activities = await WorkbenchActivityStore.shared.allEntries()
+            guard let entry = activities.first(where: { $0.id == entryID }) else {
+                await MainActor.run { commandHintBar.showStatus("Activity no longer available") }
+                return
+            }
+            let enabled = await config.enabledModules()
+                ?? Set(ModuleRegistry.allBundles.map { $0.identifier })
+            guard enabled.contains(entry.moduleID) else {
+                await MainActor.run { commandHintBar.showStatus("Module disabled in Settings") }
+                return
+            }
+            let rowAction = WorkbenchLinkedEntityOpenPlanner.rowAction(for: entry)
+            await MainActor.run {
+                runWorkspaceRowActionFromDetail(rowAction)
+                persistResumeState(translateContent: nil)
+            }
         }
     }
 
@@ -974,9 +997,32 @@ final class LauncherRootController {
             lastSyncedQuery = ""
             handleTextChange(searchBar.stringValue)
         case .noteReference(let path, _):
-            commandHintBar.showStatus("Open note: \(path)")
-            openModuleDetail(for: .notes)
+            openNote(at: path, for: nil)
         }
+    }
+
+    private func openNote(at path: String, for item: ResultItem?) {
+        let payload = (try? ModuleActionCoding.encode(NotesAction.open(path: path))) ?? Data()
+        let resultItem = item ?? ResultItem(
+            id: ResultID(module: .notes, key: "workbench.note.\(path)"),
+            title: "Open note",
+            titleAttributed: AttributedString("Open note"),
+            subtitle: nil,
+            icon: .symbol("note.text"),
+            primaryAction: Action(
+                id: ActionID(module: .notes, key: "workbench.note"),
+                title: "Open note",
+                kind: .custom(payload: payload, handler: .notes)
+            ),
+            rankingHints: RankingHints(basePriority: 0),
+            rowKind: .starter
+        )
+        let action = Action(
+            id: ActionID(module: .notes, key: "workbench.note"),
+            title: "Open note",
+            kind: .custom(payload: payload, handler: .notes)
+        )
+        runNotesOpen(path: path, action: action, for: resultItem)
     }
 
     private func applyWorkbenchCaptureResult(_ result: WorkbenchCaptureResult, for item: ResultItem) {

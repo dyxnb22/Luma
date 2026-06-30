@@ -64,9 +64,12 @@ final class CurrentProjectDetailView: NSObject, ModuleDetailView {
     let projectIdentity = projectContext.map(WorkbenchProjectIdentity.init(context:))
     async let enabledModules = config.enabledModules()
       ?? Set(ModuleRegistry.allBundles.map { $0.identifier })
+    async let allEntries = WorkbenchActivityStore.shared.allEntries()
     async let activitySnapshot = WorkbenchActivityStore.shared.activitySnapshot(
       projectIdentity: projectIdentity
     )
+    let entries = await allEntries
+    await WorkbenchLinkStore.shared.backfillFromActivitiesIfEmpty(entries)
     async let linkSnapshot = WorkbenchLinkStore.shared.snapshot(
       for: projectIdentity?.identity,
       limit: 10

@@ -211,32 +211,25 @@ public enum WorkbenchCommandResults {
         index: Int,
         commandID: WorkbenchCommandID
     ) -> ResultItem {
+        let interactive = WorkbenchActivityRowActions.isInteractive(entry)
         let subtitle: String
-        let action: Action
         if entry.isResumableDraft {
             subtitle = entry.preview ?? entry.detail ?? "Press Return to resume"
-            let payload = (try? ModuleActionCoding.encode(
-                WorkbenchCaptureAction.resumeActivity(entryID: entry.id)
-            )) ?? Data()
-            action = Action(
-                id: ActionID(module: entry.moduleID, key: "command.activity.\(entry.id.uuidString)"),
-                title: entry.title,
-                kind: .custom(payload: payload, handler: .workbench)
-            )
+        } else if interactive {
+            subtitle = entry.preview ?? entry.detail ?? "Press Return to open"
         } else {
             subtitle = entry.preview ?? entry.detail ?? "Recorded activity"
-            action = Action(
-                id: ActionID(module: .workbench, key: "command.activity.\(entry.id.uuidString)"),
-                title: entry.title,
-                kind: .noop
-            )
         }
+        let action = WorkbenchActivityRowActions.primaryAction(
+            for: entry,
+            key: "command.activity.\(entry.id.uuidString)"
+        )
         return ResultItem(
             id: ResultID(module: .workbench, key: "command.activity.\(entry.id.uuidString)"),
             title: entry.title,
             titleAttributed: AttributedString(entry.title),
             subtitle: subtitle,
-            icon: .symbol(entry.isResumableDraft ? "clock.arrow.circlepath" : "clock"),
+            icon: .symbol(entry.isResumableDraft ? "clock.arrow.circlepath" : (interactive ? "arrow.right.circle" : "clock")),
             primaryAction: action,
             rankingHints: RankingHints(basePriority: 94 - index),
             rowKind: .starter

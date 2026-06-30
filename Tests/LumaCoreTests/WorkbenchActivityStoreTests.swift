@@ -291,15 +291,15 @@ import LumaCore
         Issue.record("Expected workbench custom action")
         return
     }
-    let action = try? ModuleActionCoding.decode(WorkbenchEntityAction.self, from: payload)
-    guard case .openActivityEntry(let id) = action else {
-        Issue.record("Expected openActivityEntry action")
+    let action = try? ModuleActionCoding.decode(WorkbenchCaptureAction.self, from: payload)
+    guard case .resumeActivity(let id) = action else {
+        Issue.record("Expected resumeActivity action")
         return
     }
     #expect(id == entryID)
 }
 
-@Test func projRecentTodoCaptureRowEncodesOpenActivityEntry() {
+@Test func projRecentTodoCaptureRowEncodesReplaceQuery() {
     let entryID = UUID()
     let entry = WorkbenchActivityEntry(
         id: entryID,
@@ -330,15 +330,9 @@ import LumaCore
         )
     )
     #expect(rows.count == 1)
-    guard case .custom(let payload, let handler) = rows[0].primaryAction.kind,
-          handler == .workbench else {
-        Issue.record("Expected workbench custom action")
+    guard case .replaceQuery(let query) = rows[0].primaryAction.kind else {
+        Issue.record("Expected replaceQuery action")
         return
     }
-    let action = try? ModuleActionCoding.decode(WorkbenchEntityAction.self, from: payload)
-    guard case .openActivityEntry(let id) = action else {
-        Issue.record("Expected openActivityEntry action")
-        return
-    }
-    #expect(id == entryID)
+    #expect(query == TodoModuleResumeQuery.resumeQuery(forCapture: "Fix tests"))
 }

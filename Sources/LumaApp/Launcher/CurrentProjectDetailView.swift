@@ -69,7 +69,10 @@ final class CurrentProjectDetailView: NSObject, ModuleDetailView {
       projectIdentity: projectIdentity
     )
     let entries = await allEntries
-    await WorkbenchLinkStore.shared.backfillFromActivitiesIfEmpty(entries)
+    await WorkbenchLinkStore.shared.ensureLinksIndexed(
+      for: projectIdentity?.identity,
+      from: entries
+    )
     async let linkSnapshot = WorkbenchLinkStore.shared.snapshot(
       for: projectIdentity?.identity,
       limit: 10

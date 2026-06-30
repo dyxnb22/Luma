@@ -136,7 +136,7 @@ import LumaCore
     #expect(query == TodoModuleResumeQuery.resumeQuery(forCapture: "Fix tests"))
 }
 
-@Test func workspaceModelBuilderNoteReferenceRowUsesOpenNotePath() {
+@Test func workspaceModelBuilderNoteReferenceRowOpensNotesModule() {
     let entry = WorkbenchActivityEntry(
         kind: .projectLinked,
         moduleID: .workbenchNotes,
@@ -161,11 +161,12 @@ import LumaCore
         enabledModuleIDs: [.workbenchProjects, .workbenchNotes]
     )
     #expect(model.recentActivityRows.count == 1)
-    guard case .openNotePath(let notePath) = model.recentActivityRows[0].action else {
-        Issue.record("Expected openNotePath action for note reference row")
+    guard case .openModule(let moduleID) = model.recentActivityRows[0].action else {
+        Issue.record("Expected openModule action for note reference row")
         return
     }
-    #expect(notePath == "/Users/dev/notes/daily.md")
+    #expect(moduleID == .workbenchNotes)
+    #expect(model.recentActivityRows[0].subtitle == "Open Notes")
 }
 
 @Test func workspaceLinkedRowUsesOpenLinkedAction() {

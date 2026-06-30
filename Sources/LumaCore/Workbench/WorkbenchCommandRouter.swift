@@ -18,6 +18,7 @@ public enum WorkbenchCommandID: String, Sendable, Codable, CaseIterable {
     case projectResume
     case projectCapture
     case projectOpen
+    case projectStatus
 }
 
 public struct WorkbenchCommandDefinition: Sendable, Hashable {
@@ -58,6 +59,7 @@ public enum WorkbenchCommandRoute: Sendable, Equatable {
     case projectResume
     case projectCapture
     case projectOpen
+    case projectStatus
 }
 
 /// Routes workbench-specific commands before module/global search dispatch.
@@ -151,6 +153,9 @@ public struct WorkbenchCommandRouter: Sendable {
         }
         if lower == "proj capture" {
             return .projectCapture
+        }
+        if lower == "proj status" {
+            return .projectStatus
         }
         if lower == "attach project" {
             return .attachProject

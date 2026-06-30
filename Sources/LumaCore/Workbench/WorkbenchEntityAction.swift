@@ -4,4 +4,5 @@ import Foundation
 public enum WorkbenchEntityAction: Codable, Sendable, Equatable {
     case openLinked(linkID: UUID)
     case openActivityEntry(entryID: UUID)
+    case showStatus(String)
 }

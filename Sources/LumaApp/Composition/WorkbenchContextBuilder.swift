@@ -46,13 +46,27 @@ struct WorkbenchContextBuilder {
             projectIdentity: projectIdentity
         )
         let entries = await allEntries
-        await WorkbenchLinkStore.shared.backfillFromActivitiesIfEmpty(entries)
+        await WorkbenchLinkStore.shared.ensureLinksIndexed(
+            for: projectIdentity?.identity,
+            from: entries
+        )
         async let linkSnapshot = WorkbenchLinkStore.shared.snapshot(
             for: projectIdentity?.identity,
             limit: 10
         )
+        async let allProjectLinks = WorkbenchLinkStore.shared.snapshot(
+            for: projectIdentity?.identity,
+            limit: 100
+        )
         let activity = await activitySnapshot
         let links = await linkSnapshot
+        let allLinks = await allProjectLinks
+        let indexCounts = WorkbenchProjectIndexCountsBuilder.build(
+            projectIdentity: projectIdentity,
+            entries: entries,
+            projectLinks: allLinks,
+            enabledModuleIDs: enabledModuleIDs
+        )
 
         return WorkbenchContext(
             selectionText: selectionText,
@@ -64,7 +78,8 @@ struct WorkbenchContextBuilder {
             enabledModuleIDs: enabledModuleIDs,
             pinnedModuleIDs: pinnedModuleIDs,
             activitySnapshot: activity,
-            linkSnapshot: WorkbenchLinkSnapshot(currentProjectLinks: links)
+            linkSnapshot: WorkbenchLinkSnapshot(currentProjectLinks: links),
+            projectIndexCounts: indexCounts
         )
     }
 }

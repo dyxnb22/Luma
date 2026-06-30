@@ -266,6 +266,20 @@
 - [ ] Recent draft row (Return) resumes snippet/quicklink/todo without re-capturing.
 - [ ] Detail section order: header → Quick capture → **Linked items** → Recent activity (buttons) → Project actions.
 - [ ] Detail activate shows loading placeholder immediately; no stale previous-project content.
+- [ ] `proj recent` todo capture row (Home / command / detail) Return fills search with `t …` query — not silent noop.
+- [ ] `proj recent` snippet/quicklink row Return opens module detail — same planner result on Home, command preview, and detail.
+- [ ] Recorded (non-openable) activity rows show consistent subtitle; Return shows status hint (not silent noop).
+- [ ] `proj recent` / `proj links` with no data show empty-state subtitle (not generic workspace fallback only).
+- [ ] `proj status` shows stableProjectID + activity/link counts; Return displays full status message.
+- [ ] Legacy activity-only data: empty or partial `workbench-links.json` → **Review linked** / `proj links` appear after first Home or detail load (lazy backfill).
+- [ ] **Old data upgrade matrix:**
+  - [ ] v1 / unversioned `workbench-activity.json` → v2 migrate; resumes work
+  - [ ] v2 activity + empty `workbench-links.json` → links backfill on first read
+  - [ ] v2 activity + partial links (other projects only) → current project links backfill
+  - [ ] `draftPrepared` project todo/note/quicklink activity → appears in link index after backfill
+  - [ ] Same entity re-captured with updated title → single link row (dedupe), latest title/subtitle
+  - [ ] Duplicate links from title/subtitle drift → dedupe leaves one row per entityID
+- [ ] Note activity row opens Notes module — does not promise opening a specific note path.
 - [ ] Disable Snippets/Quicklinks/Todo/Notes → rows disappear consistently from Home, `proj links/recent/capture`, and detail.
 - [ ] Legacy v1 / unversioned `workbench-activity.json` migrates to v2 and resumes still work.
 

@@ -39,6 +39,8 @@ struct WorkbenchCommandExecutor {
             return projectLinks(context: context)
         case .projectCapture:
             return await projectCapture(context: context)
+        case .projectStatus:
+            return projectStatus(context: context)
         case .capture(let definition):
             return await executeCapture(definition: definition, context: context)
         }
@@ -54,29 +56,19 @@ struct WorkbenchCommandExecutor {
 
     private func continueProject(context: WorkbenchContext) -> WorkbenchCommandOutcome {
         guard context.isEnabled(.workbenchProjects), let project = context.currentProject else {
-            return .status("No active project context")
+            return .status(WorkbenchEmptyStateCopy.noProjectContext)
         }
         let payload = (try? ModuleActionCoding.encode(ProjectAction.openCurrentDetail(project))) ?? Data()
         return .openDetail(.projects, payload: payload)
     }
 
     private func projectRecent(context: WorkbenchContext) -> WorkbenchCommandOutcome {
-        guard context.isEnabled(.workbenchProjects), context.currentProject != nil else {
-            return .status("No active project context")
-        }
-        let recent = context.activitySnapshot.enabledCurrentProjectRecent(
-            enabledModuleIDs: context.enabledModuleIDs,
-            limit: 1
-        )
-        if let top = recent.first, WorkbenchActivityRowActions.isInteractive(top) {
-            return .openActivityEntry(top.id)
-        }
-        return continueProject(context: context)
+        WorkbenchCommandOutcomeResolver.projectRecent(context: context)
     }
 
     private func projectResume(context: WorkbenchContext) -> WorkbenchCommandOutcome {
         guard context.isEnabled(.workbenchProjects), context.currentProject != nil else {
-            return .status("No active project context")
+            return .status(WorkbenchEmptyStateCopy.noProjectContext)
         }
         let drafts = context.activitySnapshot.enabledCurrentProjectDrafts(
             enabledModuleIDs: context.enabledModuleIDs,
@@ -89,22 +81,12 @@ struct WorkbenchCommandExecutor {
     }
 
     private func projectLinks(context: WorkbenchContext) -> WorkbenchCommandOutcome {
-        guard context.isEnabled(.workbenchProjects), context.currentProject != nil else {
-            return .status("No active project context")
-        }
-        let links = context.linkSnapshot.enabledLinks(
-            enabledModuleIDs: context.enabledModuleIDs,
-            limit: 1
-        )
-        if let link = links.first {
-            return .openLinked(link.id)
-        }
-        return continueProject(context: context)
+        WorkbenchCommandOutcomeResolver.projectLinks(context: context)
     }
 
     private func projectCapture(context: WorkbenchContext) async -> WorkbenchCommandOutcome {
         guard context.isEnabled(.workbenchProjects), context.currentProject != nil else {
-            return .status("No active project context")
+            return .status(WorkbenchEmptyStateCopy.noProjectContext)
         }
         let targets: [(WorkbenchCaptureTarget, ModuleIdentifier)] = [
             (.projectSnippetDraft, .workbenchSnippets),
@@ -113,9 +95,20 @@ struct WorkbenchCommandExecutor {
             (.noteDraft, .workbenchNotes)
         ]
         guard let first = targets.first(where: { context.isEnabled($0.1) }) else {
-            return .status("Enable capture modules in Settings")
+            return .status(WorkbenchEmptyStateCopy.captureModulesDisabled)
         }
         return await executeProjectCapture(target: first.0, context: context)
+    }
+
+    private func projectStatus(context: WorkbenchContext) -> WorkbenchCommandOutcome {
+        guard context.isEnabled(.workbenchProjects) else {
+            return .status(WorkbenchEmptyStateCopy.moduleDisabled)
+        }
+        let summary = WorkbenchDiagnosticSummary.from(context: context)
+        #if DEBUG
+        print(summary.fullMessage)
+        #endif
+        return .status(summary.fullMessage)
     }
 
     private func attachProject(
@@ -166,7 +159,7 @@ struct WorkbenchCommandExecutor {
         context: WorkbenchContext
     ) async -> WorkbenchCommandOutcome {
         guard context.isEnabled(definition.requiredModule) else {
-            return .status("Module disabled in Settings")
+            return .status(WorkbenchEmptyStateCopy.moduleDisabled)
         }
         guard let source = definition.captureSource,
               let target = definition.captureTarget else {
@@ -269,6 +262,14 @@ struct WorkbenchCommandExecutor {
                 clipboardPreview: clipboardPreview,
                 selectionText: selectionText
             )
+        case .projectStatus:
+            return await handle(
+                route: .projectStatus,
+                enabledModuleIDs: enabledModuleIDs,
+                pinnedModuleIDs: pinnedModuleIDs,
+                clipboardPreview: clipboardPreview,
+                selectionText: selectionText
+            )
         case .captureClipboardNote, .captureClipboardTodo, .captureClipboardQuicklink,
              .captureSelectionNote, .captureSelectionTodo,
              .projectNote, .projectTodo:
@@ -286,13 +287,3 @@ struct WorkbenchCommandExecutor {
     }
 }
 
-enum WorkbenchCommandOutcome: Sendable {
-    case notHandled
-    case status(String)
-    case openDetail(ModuleIdentifier, payload: Data?)
-    case replaceQuery(String)
-    case runAction(ActionKind)
-    case resumeActivity(UUID)
-    case openLinked(UUID)
-    case openActivityEntry(UUID)
-}

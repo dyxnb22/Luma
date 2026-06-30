@@ -162,7 +162,7 @@ public enum CurrentProjectWorkspaceModelBuilder {
 
         let quickCapture = allCaptureCandidates.filter { enabledModuleIDs.contains($0.moduleID) }
         let disabledHint = quickCapture.isEmpty
-            ? "Enable Snippets, Quicklinks, Todo, or Notes in Settings for quick capture."
+            ? WorkbenchEmptyStateCopy.captureModulesDisabled
             : nil
 
         let linkedRows = linkSnapshot.enabledLinks(enabledModuleIDs: enabledModuleIDs, limit: 5)
@@ -215,33 +215,13 @@ public enum CurrentProjectWorkspaceModelBuilder {
     }
 
     static func actionRow(for entry: WorkbenchActivityEntry) -> CurrentProjectWorkspaceActionRow {
-        let subtitle = entry.preview ?? entry.detail ?? ""
-        let action = WorkbenchLinkedEntityOpenPlanner.rowAction(for: entry)
-        let isInteractive: Bool
-        let displaySubtitle: String
-        switch action {
-        case .status:
-            isInteractive = false
-            displaySubtitle = subtitle.isEmpty ? "Recorded activity" : subtitle
-        case .resumeActivity:
-            isInteractive = true
-            displaySubtitle = subtitle.isEmpty ? "Press to resume draft" : subtitle
-        case .replaceQuery, .openNotePath:
-            isInteractive = true
-            displaySubtitle = subtitle
-        case .openModule:
-            isInteractive = true
-            displaySubtitle = subtitle.isEmpty ? "Open in module" : subtitle
-        case .openLinked:
-            isInteractive = true
-            displaySubtitle = subtitle
-        }
+        let row = WorkbenchActivityRowActions.presentation(for: entry)
         return CurrentProjectWorkspaceActionRow(
             title: entry.title,
-            subtitle: displaySubtitle,
-            action: action,
+            subtitle: row.subtitle,
+            action: row.rowAction,
             entryID: entry.id,
-            isInteractive: isInteractive
+            isInteractive: row.isInteractive
         )
     }
 
@@ -259,7 +239,7 @@ public enum CurrentProjectWorkspaceModelBuilder {
     private static func empty(context: CurrentProjectContext?) -> CurrentProjectWorkspaceModel {
         CurrentProjectWorkspaceModel(
             headerTitle: "Project workspace",
-            headerLines: [context == nil ? "No IDE project detected." : "No project context."],
+            headerLines: [context == nil ? WorkbenchEmptyStateCopy.noIDEProject : WorkbenchEmptyStateCopy.noProjectContext],
             quickCaptureActions: [],
             quickCaptureDisabledHint: nil,
             linkedItemRows: [],

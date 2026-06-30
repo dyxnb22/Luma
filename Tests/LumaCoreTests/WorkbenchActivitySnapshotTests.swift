@@ -116,7 +116,8 @@ import LumaCore
         context: context
     )
     #expect(rows.count == 1)
-    #expect(rows[0].title.contains("Open project workspace"))
+    #expect(rows[0].title == "Project recent activity")
+    #expect(rows[0].subtitle == WorkbenchEmptyStateCopy.noRecentActivity)
 }
 
 @Test func projectIdentityPrefersMatchedPathForActivityQuery() {

@@ -19,11 +19,11 @@ public enum WorkbenchLinkedEntityOpenPlanner {
                 return .resumeActivity(entryID: entry.id)
             case .todoCapture(let text):
                 return .replaceQuery(TodoModuleResumeQuery.resumeQuery(forCapture: text))
-            case .noteReference(let path, _):
-                return .openNotePath(path)
+            case .noteReference:
+                return .openModule(moduleID: .workbenchNotes)
             }
         }
-        switch entry.entityKind {
+        switch resolvedEntityKind(for: entry) {
         case .quicklink, .snippet:
             return .openModule(moduleID: entry.moduleID)
         case .todo:
@@ -36,6 +36,10 @@ public enum WorkbenchLinkedEntityOpenPlanner {
             break
         }
         return .status("Recorded activity")
+    }
+
+    private static func resolvedEntityKind(for entry: WorkbenchActivityEntry) -> WorkbenchEntityKind? {
+        entry.entityKind ?? entry.entityRef?.kind
     }
 
     public static func rowAction(for ref: WorkbenchEntityRef) -> CurrentProjectWorkspaceRowAction {

@@ -74,11 +74,31 @@ User saves URLs as project quicklinks, attaches clipboard/selection to a project
 ```
 ProjectIdentity (stableProjectID) → activity query + link index
 WorkbenchActivityStore (v2)         → activity entries + entityRef
-WorkbenchLinkStore                → project → entity links
+WorkbenchLinkStore                → project → entity links (+ lazy backfill)
+WorkbenchLinkedEntityOpenPlanner  → entry/link → row action (single source)
+WorkbenchActivityRowActions       → shared presentation + launcher Action encoding
+WorkbenchWorkspaceRowActionCodec  → row action → Action / WorkbenchCommandOutcome
 WorkbenchEntityResolver           → entry → WorkbenchEntityRef
 WorkbenchContextBuilder           → activitySnapshot + linkSnapshot
 CurrentProjectWorkspaceModelBuilder → detail sections (pure)
 ModuleHost / QueryDispatcher        → unchanged hot path
 ```
+
+### Activity row semantics (Beta)
+
+Home recent, `proj recent` preview rows, and detail recent activity all use **`WorkbenchLinkedEntityOpenPlanner`** via `WorkbenchActivityRowActions.presentation(for:)`. Return encodes the planner result directly (`replaceQuery`, `openModuleDetail`, `resumeActivity`, or `showStatus` for recorded activity). Command preview remains side-effect free.
+
+### Link index backfill
+
+When `workbench-links.json` is empty, or the **current project** has no indexed links, `WorkbenchLinkStore.ensureLinksIndexed` derives links from any project activity where **`WorkbenchLinkIndexing.isLinkEligible`** (`projectIdentity` + resolvable `entityRef`) — matching live `recordLink` after capture. Includes `draftPrepared` project captures (todo/note/quicklink), not only `projectLinked`. Dedupe key: `stableProjectID + entityRef.kind + entityRef.entityID` (title/subtitle changes update in place). ≤ 100 cap. Triggered lazily from `WorkbenchContextBuilder` and detail activate.
+
+### Diagnostics and empty states
+
+- **`proj status`** — read-only snapshot row: `stableProjectID`, activity count, enabled link count; Return shows full status in hint bar.
+- **`WorkbenchEmptyStateCopy`** — shared strings for no project, no links, no recent activity, disabled modules.
+
+### Note capture (Beta scope)
+
+Note capture runs immediately via `NotesAction`; activity records do **not** persist a reopenable note path. Rows with legacy `noteReference` payload open the **Notes module**, not a specific file path.
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) and [specs/PERFORMANCE.md](specs/PERFORMANCE.md).

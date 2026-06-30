@@ -154,11 +154,17 @@ flowchart LR
 - **ProjectIdentity** — `stableProjectID` (path SHA256 or label+bundle), `matchedPath`, `labelFallback`, `displayName`. v1 `projectPath` migrates on load.
 - **WorkbenchContext** — work-state snapshot: selection, clipboard, project, drafts, enablement, `WorkbenchActivitySnapshot`, `WorkbenchLinkSnapshot`.
 - **WorkbenchActivityStore** — `workbench-activity.json` schema **v2**. Entries carry `projectIdentity`, `entityRef`, per-entry `resumePayloadJSON`. v1/legacy auto-migrate on load.
-- **WorkbenchLinkStore** — `workbench-links.json` (≤ 100 links). Project → entity attachments written on capture Return.
+- **WorkbenchLinkStore** — `workbench-links.json` (≤ 100 links). Written on capture Return; lazy **`ensureLinksIndexed`** via **`WorkbenchLinkIndexing.isLinkEligible`** (same rules as `recordLink`). Dedupe: `stableProjectID|kind|entityID`.
+- **WorkbenchLinkIndexing** — shared link eligibility and dedupe key helpers.
+- **WorkbenchDiagnosticSummary** — read-only counts for `proj status`.
+- **WorkbenchEmptyStateCopy** — shared empty/disabled copy for command and detail surfaces.
+- **WorkbenchLinkedEntityOpenPlanner** — maps activity entries and linked entities to `CurrentProjectWorkspaceRowAction` (resume, replaceQuery, openModule, status).
+- **WorkbenchActivityRowActions** — shared row presentation (subtitle, icon, interactivity) for Home, command preview, and detail model.
+- **WorkbenchWorkspaceRowActionCodec** — encodes row actions into launcher `Action` kinds and `WorkbenchCommandOutcome` for bare-command Return.
 - **WorkbenchEntityResolver** — resolves entries to `WorkbenchEntityRef` without module store access.
 - **WorkbenchActivitySnapshot** — `globalRecent`, `currentProjectRecent`, `currentProjectDrafts` by `stableProjectID`.
 - **CurrentProjectWorkspaceModelBuilder** — detail sections: header → quick capture → linked items → recent activity (actionable) → project actions.
-- **WorkbenchCommandRouter** — `proj work/open/recent/resume/links/capture`, `attach clip/sel`, `cap clip/sel …`. Preview zero side effects; Return executes.
+- **WorkbenchCommandRouter** — `proj work/open/recent/resume/links/capture/status`, `attach clip/sel`, `cap clip/sel …`. Preview zero side effects; Return executes.
 
 `ModuleHost` lifecycle, global search scoping, and enabled gates are unchanged. See [WORKBENCH_STRATEGY.md](WORKBENCH_STRATEGY.md).
 

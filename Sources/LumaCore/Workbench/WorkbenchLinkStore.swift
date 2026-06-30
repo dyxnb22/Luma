@@ -35,6 +35,22 @@ private struct WorkbenchLinkEnvelope: Codable, Sendable {
     var links: [WorkbenchProjectLink]
 }
 
+/// Shared rules for deriving project links from activity entries.
+public enum WorkbenchLinkIndexing {
+    public static func isLinkEligible(_ entry: WorkbenchActivityEntry) -> Bool {
+        guard entry.projectIdentity != nil else { return false }
+        return WorkbenchEntityResolver.resolve(entry) != nil
+    }
+
+    public static func dedupeKey(stableProjectID: String, entityRef: WorkbenchEntityRef) -> String {
+        "\(stableProjectID)|\(entityRef.kind.rawValue)|\(entityRef.entityID)"
+    }
+
+    public static func dedupeKey(for link: WorkbenchProjectLink) -> String {
+        dedupeKey(stableProjectID: link.stableProjectID, entityRef: link.entityRef)
+    }
+}
+
 /// Local-first project-to-entity link index.
 public actor WorkbenchLinkStore {
     public static let shared = WorkbenchLinkStore()
@@ -76,14 +92,44 @@ public actor WorkbenchLinkStore {
     }
 
     public func backfillFromActivitiesIfEmpty(_ entries: [WorkbenchActivityEntry]) {
-        guard links.isEmpty else { return }
-        var seen = Set<String>()
+        ensureLinksIndexed(for: nil, from: entries)
+    }
+
+    public func ensureLinksIndexed(
+        for identity: ProjectIdentity?,
+        from entries: [WorkbenchActivityEntry]
+    ) {
+        if links.isEmpty {
+            applyBackfill(collectLinks(from: entries, limit: maxLinks))
+            return
+        }
+        guard let identity else { return }
+        guard snapshot(for: identity, limit: 1).isEmpty else { return }
+        let projectEntries = WorkbenchActivityQuery.recent(
+            for: identity,
+            entries: entries,
+            limit: entries.count
+        )
+        let collected = collectLinks(from: projectEntries, limit: maxLinks)
+        guard !collected.isEmpty else { return }
+        mergeBackfill(collected)
+    }
+
+    private func collectLinks(
+        from entries: [WorkbenchActivityEntry],
+        limit: Int
+    ) -> [WorkbenchProjectLink] {
+        var seen = Set(links.map(WorkbenchLinkIndexing.dedupeKey(for:)))
         var collected: [WorkbenchProjectLink] = []
         for entry in entries {
+            guard WorkbenchLinkIndexing.isLinkEligible(entry) else { continue }
             guard let identity = entry.projectIdentity else { continue }
             guard let entityRef = WorkbenchEntityResolver.resolve(entry) else { continue }
-            let dedupeKey = "\(identity.stableProjectID)|\(entityRef.kind.rawValue)|\(entityRef.entityID)"
-            guard seen.insert(dedupeKey).inserted else { continue }
+            let key = WorkbenchLinkIndexing.dedupeKey(
+                stableProjectID: identity.stableProjectID,
+                entityRef: entityRef
+            )
+            guard seen.insert(key).inserted else { continue }
             collected.append(WorkbenchProjectLink(
                 stableProjectID: identity.stableProjectID,
                 entityRef: entityRef,
@@ -92,10 +138,25 @@ public actor WorkbenchLinkStore {
                 sourceKind: entry.sourceKind,
                 labelFallback: identity.matchedPath == nil ? identity.labelFallback : nil
             ))
-            if collected.count >= maxLinks { break }
+            if collected.count >= limit { break }
         }
+        return collected
+    }
+
+    private func applyBackfill(_ collected: [WorkbenchProjectLink]) {
         guard !collected.isEmpty else { return }
         links = collected.sorted { $0.linkedAt > $1.linkedAt }
+        persist()
+    }
+
+    private func mergeBackfill(_ collected: [WorkbenchProjectLink]) {
+        links.append(contentsOf: collected)
+        links.sort { $0.linkedAt > $1.linkedAt }
+        var seen = Set<String>()
+        links = links.filter { seen.insert(WorkbenchLinkIndexing.dedupeKey(for: $0)).inserted }
+        if links.count > maxLinks {
+            links = Array(links.prefix(maxLinks))
+        }
         persist()
     }
 
@@ -104,10 +165,12 @@ public actor WorkbenchLinkStore {
         entityRef: WorkbenchEntityRef,
         activityEntryID: UUID?,
         sourceKind: WorkbenchActivitySourceKind?,
-        labelFallback: String? = nil
+        labelFallback: String? = nil,
+        linkedAt: Date = Date()
     ) {
+        let key = WorkbenchLinkIndexing.dedupeKey(stableProjectID: stableProjectID, entityRef: entityRef)
         if let index = links.firstIndex(where: {
-            $0.stableProjectID == stableProjectID && $0.entityRef == entityRef
+            WorkbenchLinkIndexing.dedupeKey(for: $0) == key
         }) {
             links.remove(at: index)
         }
@@ -116,6 +179,7 @@ public actor WorkbenchLinkStore {
                 stableProjectID: stableProjectID,
                 entityRef: entityRef,
                 activityEntryID: activityEntryID,
+                linkedAt: linkedAt,
                 sourceKind: sourceKind,
                 labelFallback: labelFallback
             ),
@@ -131,13 +195,15 @@ public actor WorkbenchLinkStore {
         for entry: WorkbenchActivityEntry,
         identity: ProjectIdentity
     ) {
-        guard let entityRef = WorkbenchEntityResolver.resolve(entry) else { return }
+        guard WorkbenchLinkIndexing.isLinkEligible(entry),
+              let entityRef = WorkbenchEntityResolver.resolve(entry) else { return }
         recordLink(
             stableProjectID: identity.stableProjectID,
             entityRef: entityRef,
             activityEntryID: entry.id,
             sourceKind: entry.sourceKind,
-            labelFallback: identity.matchedPath == nil ? identity.labelFallback : nil
+            labelFallback: identity.matchedPath == nil ? identity.labelFallback : nil,
+            linkedAt: entry.recordedAt
         )
     }
 

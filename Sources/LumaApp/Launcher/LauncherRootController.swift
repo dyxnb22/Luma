@@ -838,6 +838,8 @@ final class LauncherRootController {
         case .openActivityEntry(let entryID):
             recordHomeCompletionIfNeeded(for: item)
             runOpenActivityEntry(entryID: entryID, for: item)
+        case .showStatus(let message):
+            commandHintBar.showStatus(message)
         }
     }
 

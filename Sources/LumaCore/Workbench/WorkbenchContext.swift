@@ -25,6 +25,7 @@ public struct WorkbenchContext: Sendable {
     public let pinnedModuleIDs: Set<ModuleIdentifier>
     public let activitySnapshot: WorkbenchActivitySnapshot
     public let linkSnapshot: WorkbenchLinkSnapshot
+    public let projectIndexCounts: WorkbenchProjectIndexCounts?
 
     public init(
         selectionText: String? = nil,
@@ -36,7 +37,8 @@ public struct WorkbenchContext: Sendable {
         enabledModuleIDs: Set<ModuleIdentifier>,
         pinnedModuleIDs: Set<ModuleIdentifier>,
         activitySnapshot: WorkbenchActivitySnapshot = WorkbenchActivitySnapshot(),
-        linkSnapshot: WorkbenchLinkSnapshot = WorkbenchLinkSnapshot()
+        linkSnapshot: WorkbenchLinkSnapshot = WorkbenchLinkSnapshot(),
+        projectIndexCounts: WorkbenchProjectIndexCounts? = nil
     ) {
         self.selectionText = selectionText
         self.clipboardPreview = clipboardPreview
@@ -48,6 +50,7 @@ public struct WorkbenchContext: Sendable {
         self.pinnedModuleIDs = pinnedModuleIDs
         self.activitySnapshot = activitySnapshot
         self.linkSnapshot = linkSnapshot
+        self.projectIndexCounts = projectIndexCounts
     }
 
     /// Global recent activities (top N across all projects).

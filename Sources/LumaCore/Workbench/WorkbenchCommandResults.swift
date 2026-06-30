@@ -25,12 +25,12 @@ public enum WorkbenchCommandResults {
                 limit: 3
             )
             if recent.isEmpty {
-                return projectWorkspaceRows(
+                return [emptyStateCommandRow(
                     sequence: querySequence,
-                    context: context,
-                    commandID: .projectRecent,
-                    titlePrefix: "Open project workspace"
-                )
+                    title: "Project recent activity",
+                    subtitle: WorkbenchEmptyStateCopy.noRecentActivity,
+                    commandID: .projectRecent
+                )]
             }
             return recent.enumerated().map { index, entry in
                 activityRow(sequence: querySequence, entry: entry, index: index, commandID: .projectRecent)
@@ -44,12 +44,12 @@ public enum WorkbenchCommandResults {
                 limit: 3
             )
             if links.isEmpty {
-                return projectWorkspaceRows(
+                return [emptyStateCommandRow(
                     sequence: querySequence,
-                    context: context,
-                    commandID: .projectLinks,
-                    titlePrefix: "Open project workspace"
-                )
+                    title: "Project linked items",
+                    subtitle: WorkbenchEmptyStateCopy.noLinkedItems,
+                    commandID: .projectLinks
+                )]
             }
             return links.enumerated().map { index, link in
                 linkRow(sequence: querySequence, link: link, index: index)
@@ -77,9 +77,19 @@ public enum WorkbenchCommandResults {
             }
             let captures = projectCaptureRows(sequence: querySequence, context: context)
             if captures.isEmpty {
-                return [disabledRow(sequence: querySequence, title: "Enable capture modules in Settings")]
+                return [disabledRow(
+                    sequence: querySequence,
+                    title: "Project capture",
+                    subtitle: WorkbenchEmptyStateCopy.captureModulesDisabled
+                )]
             }
             return captures
+        case .projectStatus:
+            guard context.isEnabled(.workbenchProjects) else {
+                return [disabledRow(sequence: querySequence, title: "Project workbench status")]
+            }
+            let summary = WorkbenchDiagnosticSummary.from(context: context)
+            return [diagnosticStatusRow(sequence: querySequence, summary: summary)]
         case .attachProject, .attachClipboard, .attachSelection:
             guard context.isEnabled(.workbenchSnippets), context.currentProject != nil else {
                 return [disabledRow(sequence: querySequence, title: attachTitle(for: route))]
@@ -118,8 +128,8 @@ public enum WorkbenchCommandResults {
 
     private static func workspaceTitle(for route: WorkbenchCommandRoute) -> String {
         switch route {
-        case .projectWork, .projectOpen: "Open project workspace"
-        default: "Continue project"
+        case .projectWork, .projectOpen: WorkbenchEmptyStateCopy.openProjectWorkspace
+        default: WorkbenchEmptyStateCopy.continueProject
         }
     }
 
@@ -211,15 +221,7 @@ public enum WorkbenchCommandResults {
         index: Int,
         commandID: WorkbenchCommandID
     ) -> ResultItem {
-        let interactive = WorkbenchActivityRowActions.isInteractive(entry)
-        let subtitle: String
-        if entry.isResumableDraft {
-            subtitle = entry.preview ?? entry.detail ?? "Press Return to resume"
-        } else if interactive {
-            subtitle = entry.preview ?? entry.detail ?? "Press Return to open"
-        } else {
-            subtitle = entry.preview ?? entry.detail ?? "Recorded activity"
-        }
+        let row = WorkbenchActivityRowActions.presentation(for: entry)
         let action = WorkbenchActivityRowActions.primaryAction(
             for: entry,
             key: "command.activity.\(entry.id.uuidString)"
@@ -228,11 +230,32 @@ public enum WorkbenchCommandResults {
             id: ResultID(module: .workbench, key: "command.activity.\(entry.id.uuidString)"),
             title: entry.title,
             titleAttributed: AttributedString(entry.title),
-            subtitle: subtitle,
-            icon: .symbol(entry.isResumableDraft ? "clock.arrow.circlepath" : (interactive ? "arrow.right.circle" : "clock")),
+            subtitle: row.subtitle,
+            icon: .symbol(row.iconName),
             primaryAction: action,
             rankingHints: RankingHints(basePriority: 94 - index),
             rowKind: .starter
+        )
+    }
+
+    private static func emptyStateCommandRow(
+        sequence: UInt64,
+        title: String,
+        subtitle: String,
+        commandID: WorkbenchCommandID
+    ) -> ResultItem {
+        commandRow(sequence: sequence, title: title, subtitle: subtitle, commandID: commandID)
+    }
+
+    private static func diagnosticStatusRow(
+        sequence: UInt64,
+        summary: WorkbenchDiagnosticSummary
+    ) -> ResultItem {
+        commandRow(
+            sequence: sequence,
+            title: "Project workbench status",
+            subtitle: summary.subtitle,
+            commandID: .projectStatus
         )
     }
 
@@ -259,12 +282,12 @@ public enum WorkbenchCommandResults {
         )
     }
 
-    private static func disabledRow(sequence: UInt64, title: String) -> ResultItem {
+    private static func disabledRow(sequence: UInt64, title: String, subtitle: String? = nil) -> ResultItem {
         ResultItem(
             id: ResultID(module: .workbench, key: "command.disabled"),
             title: title,
             titleAttributed: AttributedString(title),
-            subtitle: "Module disabled in Settings",
+            subtitle: subtitle ?? WorkbenchEmptyStateCopy.moduleDisabled,
             icon: .symbol("nosign"),
             primaryAction: Action(
                 id: ActionID(module: .workbench, key: "command.disabled"),

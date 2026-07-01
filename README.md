@@ -12,8 +12,8 @@ The project is macOS-only: Swift 6, AppKit for the launcher surface, SwiftUI onl
 - **Empty query:** sectioned home list — Open Apps, Suggested.
 - **Non-empty query:** flat ranked results (max 8 rows) from all enabled modules.
 - **Module detail:** same-panel views entered via trigger keywords or contextual suggestions (not dashboard cards).
-- **Built-in modules:** Apps, Clipboard, Commands, Notes, Todo, Translate, Wordbook, Snippets, Secrets, Media, Window Layouts, Projects, Quicklinks, Menu Bar Search, Kill Process, Browser Tabs.
-- **Default-off modules in Settings:** Commands, Media, Browser Tabs.
+- **Built-in modules:** Apps, Clipboard, Commands, Notes, Todo, Translate, Wordbook, Snippets, Secrets, Media, Window Layouts, Projects, Quicklinks, Menu Bar Search, Kill Process, Browser Tabs, Auto Workflow.
+- **Default-off modules in Settings:** Commands, Media, Browser Tabs, Auto Workflow.
 - **Deferred from default registration** (source retained): Windows (window focus list).
 - Translation uses Apple Translation / Shortcuts fallback — no network API.
 - Clipboard history is local-first with secret filtering, image support, and pin/search.
@@ -87,6 +87,7 @@ The LaunchAgent points at `build/Luma.app/Contents/MacOS/Luma` and restarts Luma
 - [PRD](docs/PRD.md)
 - [Architecture](docs/ARCHITECTURE.md)
 - [ADR-023 Route C](docs/adr/023-command-first-unified-list.md)
+- [ADR-031 Auto Workflow](docs/adr/031-autoworkflow-integration.md)
 - [Engineering Package](docs/ENGINEERING_PACKAGE.md)
 - [Opus Decisions](docs/OPUS_DECISIONS.md)
 - [Roadmap](docs/ROADMAP.md)

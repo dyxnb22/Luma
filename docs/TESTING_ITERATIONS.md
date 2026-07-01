@@ -30,6 +30,7 @@ The current suite covers launcher behavior and module logic including:
 - Menu Bar Search parser and cached query behavior
 - Kill Process result generation and guarded actions
 - Browser Tabs parsing, cache refresh behavior, and automation-path handling
+- Auto Workflow status/list JSON parsing, detached PID parsing, shell argument splitting, and macOS app PATH handling
 - Performance gates including keystroke replay and slow-module budgets
 
 ## Iteration Rule
@@ -44,8 +45,8 @@ For each meaningful product change:
 
 ## Current Status
 
-As of 2026-06-27:
+As of 2026-07-01:
 
-- `qa/SUMMARY.md` records a green final QA round with P0/P1/P2 = 0 open.
-- The project summary notes `swift test` passing with 368 tests at that point.
+- `swift test` passes locally with 533 tests.
+- `qa/SUMMARY.md` records the last full recorded QA round with P0/P1/P2 = 0 open.
 - The canonical scripted smoke entry point is `scripts/qa/run_full_smoke.sh`.

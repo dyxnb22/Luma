@@ -34,6 +34,7 @@ Historical route records remain in ADRs, but current work should follow Route C 
 - Snippets and Secrets: active built-ins from ADR-010; keep secrets explicit, locked, and out of general search.
 - Records: local-only logbook from ADR-011. No metadata fetch or social features in v1.
 - Notes: Markdown file index and Typora launcher from ADR-008. Notes Graph remains out of scope.
+- Auto Workflow: default-off `cc-loop` control surface from ADR-031. Keep it thin, local, and out of the global hot path.
 
 ## Validation Priorities
 

@@ -30,6 +30,7 @@ final class LauncherEnvironment {
     let wordbookStore: WordbookStore
     let projectsModule: ProjectsModule
     let quicklinksModule: QuicklinksModule
+    let autoworkflowModule: AutoworkflowModule
     let translation: any TranslationClient
     let config: ConfigurationStore
     let runProjectAction: (ProjectAction, @escaping () -> Void) -> Void
@@ -61,6 +62,7 @@ final class LauncherEnvironment {
         wordbookStore: WordbookStore,
         projectsModule: ProjectsModule,
         quicklinksModule: QuicklinksModule,
+        autoworkflowModule: AutoworkflowModule = AutoworkflowModule(),
         translation: any TranslationClient,
         config: ConfigurationStore,
         runProjectAction: @escaping (ProjectAction, @escaping () -> Void) -> Void,
@@ -85,6 +87,7 @@ final class LauncherEnvironment {
         self.wordbookStore = wordbookStore
         self.projectsModule = projectsModule
         self.quicklinksModule = quicklinksModule
+        self.autoworkflowModule = autoworkflowModule
         self.translation = translation
         self.config = config
         self.runProjectAction = runProjectAction

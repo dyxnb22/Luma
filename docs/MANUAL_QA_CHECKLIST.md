@@ -189,6 +189,17 @@
 - Test Safari closed, Chrome not running, Arc/Edge/Brave in background, duplicate titles, stale cache after tab switch.
 - Deny Automation permission and verify the failure is user-facing rather than raw script output.
 
+## Auto Workflow
+
+- Enable Auto Workflow in Settings → Modules.
+- Settings → Auto Workflow shows source path and `cc-loop` availability accurately.
+- Cmd+Space → `aw` opens the same-panel Auto Workflow detail view.
+- Empty goal/repo cannot start and shows a user-facing error.
+- Valid goal/repo runs doctor → init → detached start and shows task ID, PID, polling status, and log tail.
+- Stop terminates the runner without killing unrelated processes; stopped/interrupted tasks expose Resume when `cc-loop` reports it.
+- Hide and reopen the launcher; polling is stopped while hidden and resumes from task status when the panel is opened again.
+- Test missing source path, missing `cc-loop`, large log tail, and prefixed status/list output.
+
 ## Notes v0.1
 
 - Root picker writes `notes.json`.

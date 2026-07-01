@@ -12,6 +12,7 @@ public enum BuiltInModules {
         public var media: MediaModule?
         public var projects: ProjectsModule?
         public var quicklinks: QuicklinksModule?
+        public var autoworkflow: AutoworkflowModule?
 
         public init(
             clipboard: ClipboardModule? = nil,
@@ -22,7 +23,8 @@ public enum BuiltInModules {
             secrets: SecretsModule? = nil,
             media: MediaModule? = nil,
             projects: ProjectsModule? = nil,
-            quicklinks: QuicklinksModule? = nil
+            quicklinks: QuicklinksModule? = nil,
+            autoworkflow: AutoworkflowModule? = nil
         ) {
             self.clipboard = clipboard
             self.notes = notes
@@ -33,6 +35,7 @@ public enum BuiltInModules {
             self.media = media
             self.projects = projects
             self.quicklinks = quicklinks
+            self.autoworkflow = autoworkflow
         }
     }
 

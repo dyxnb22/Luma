@@ -52,9 +52,9 @@ The product is already mostly formed. Current work should prioritize:
 
 ## Active Built-In Modules
 
-Registered at launch (`BuiltInModules.makeAll()`): Apps, Clipboard, Commands, Notes, Todo, Translate, Wordbook, Snippets, Secrets, Records (`luma.media`), Window Layouts, Projects, Quicklinks, Menu Bar Search, Kill Process, Browser Tabs.
+Registered at launch (`BuiltInModules.makeAll()`): Apps, Clipboard, Commands, Notes, Todo, Translate, Wordbook, Snippets, Secrets, Records (`luma.media`), Window Layouts, Projects, Quicklinks, Menu Bar Search, Kill Process, Browser Tabs, Auto Workflow.
 
-Default off in Settings: Commands, Records (`luma.media`), Browser Tabs.
+Default off in Settings: Commands, Records (`luma.media`), Browser Tabs, Auto Workflow.
 
 Deferred (no warmup, not in default registry): Windows (window focus list).
 
@@ -73,7 +73,7 @@ Wordbook is an active built-in module (`word` trigger) with same-panel review (A
 
 - Hotkey -> visible interactive panel: p95 <= 50 ms.
 - Keystroke -> first ranked snapshot painted: p95 <= 30 ms.
-- Adding or maintaining a feature starts from its folder in `Features/`.
+- Adding or maintaining a feature starts from its module folder, ADR, or `Features/` note when one exists.
 - Every user-facing feature has a `LumaModule` boundary.
 - The launcher shell stays lightweight: no warmup for deferred modules (Windows).
 - Module `handle` paths stay memory-only; disk scan belongs in warmup (Projects, Apps, Notes).

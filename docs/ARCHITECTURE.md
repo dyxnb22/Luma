@@ -51,6 +51,7 @@ flowchart TD
 | Menu Bar Search | yes | `mb` / `menu` | requires Accessibility |
 | Kill Process | yes | `kill` / `quit` / `k` | |
 | Browser Tabs | no | `tab` / `tabs` | Default off; requires Automation per browser |
+| Auto Workflow | no | `aw` / `auto` / `workflow` | Default off; wraps external `cc-loop` CLI |
 
 `FeatureCatalog.moduleDetailMetadata()` supplies detail-header chrome only under Route C; it is not the home-screen entry model.
 
@@ -130,7 +131,7 @@ Home sections are composed by `LauncherHomeAggregator`:
 5. Mark the launcher ready.
 6. If `warmupPolicy == eagerAllEnabled`, warm the remaining enabled modules in the background.
 
-**Global search** fans out only to hot-path modules. On-demand modules (Notes, Projects, Menu Bar Search) warm on targeted queries (`n `, `proj `, etc.) or detail opens via `warmupIfNeeded`.
+**Global search** fans out only to hot-path modules. On-demand modules (Notes, Projects, Menu Bar Search, Auto Workflow) warm on targeted queries (`n `, `proj `, `aw`, etc.) or detail opens via `warmupIfNeeded`.
 
 When the launcher hides, `AppCoordinator` waits **30 seconds**, then calls `ModuleHost.teardownIdleModules` with a **300-second** idle threshold. Reopening the panel cancels that task. Pinned modules and the module currently open in detail (`reservedModuleIDs`) are not torn down. Memory pressure triggers a more aggressive idle teardown (60-second threshold).
 

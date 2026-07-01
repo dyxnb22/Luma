@@ -98,6 +98,7 @@ final class AppCoordinator {
     private let secretsModule = SecretsModule()
     private let mediaModule = MediaModule()
     private let quicklinksModule = QuicklinksModule()
+    private let autoworkflowModule = AutoworkflowModule()
     private lazy var wordbookStore = WordbookStore()
     private lazy var wordbookModule = WordbookModule(store: wordbookStore)
     private lazy var snippetsModule = SnippetsModule()
@@ -291,6 +292,7 @@ final class AppCoordinator {
             wordbookStore: wordbookStore,
             projectsModule: projectsModule,
             quicklinksModule: quicklinksModule,
+            autoworkflowModule: autoworkflowModule,
             translation: translation,
             config: config,
             runProjectAction: { [weak self] action, completion in
@@ -347,7 +349,8 @@ final class AppCoordinator {
                 secrets: secretsModule,
                 media: mediaModule,
                 projects: projectsModule,
-                quicklinks: quicklinksModule
+                quicklinks: quicklinksModule,
+                autoworkflow: autoworkflowModule
             ))
             for module in modules {
                 await host.register(module)

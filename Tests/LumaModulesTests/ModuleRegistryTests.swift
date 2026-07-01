@@ -3,8 +3,8 @@ import LumaCore
 import LumaModules
 
 @Test func moduleRegistryAggregatesAllBundles() {
-    #expect(ModuleRegistry.allBundles.count == 16)
-    #expect(ModuleRegistry.manifestCatalog().count == 16)
+    #expect(ModuleRegistry.allBundles.count == 17)
+    #expect(ModuleRegistry.manifestCatalog().count == 17)
 }
 
 @Test func moduleRegistryCommandRegistryIncludesTranslate() {
@@ -26,6 +26,6 @@ import LumaModules
 }
 
 @Test func hotPathModulesMatchOnDemandExclusion() {
-    #expect(ModuleRegistry.onDemandModuleIDs == [.notes, .projects, .menuItems])
+    #expect(ModuleRegistry.onDemandModuleIDs == [.notes, .projects, .menuItems, .autoworkflow])
     #expect(ModuleRegistry.hotPathModuleIDs.isDisjoint(with: ModuleRegistry.onDemandModuleIDs))
 }

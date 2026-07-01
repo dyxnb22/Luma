@@ -55,7 +55,7 @@ Codex should act as Luma's implementation agent: inspect first, edit narrowly, v
 - Respect query cancellation and module timeouts.
 - Keep row height, selection, and panel dismissal behavior stable.
 - `LauncherEnvironment.showStatus` is a non-optional `let (String) -> Void`; inject at init, never assign post-construction.
-- Filesystem-heavy modules (Notes, Projects, MenuItems, Media) must **not** be added to `BuiltInModules.fastModuleIDs`; they belong in Phase 2 warmup only.
+- Filesystem-heavy modules (Notes, Projects, MenuItems, Media) and external-CLI modules (Auto Workflow) must **not** be added to `BuiltInModules.fastModuleIDs`; they belong outside the global hot path.
 - AX IPC (accessibility API calls) must run off the MainActor; only PID/frontmostApplication capture is allowed on MainActor.
 - `ContextualHomeProvider.rankedSectionItems` uses `async let` for all candidate fetches; do not add sequential `await` calls there.
 - New `LauncherEnvironment` callbacks must be injected as `let` parameters in `init`, not set as optional `var` after construction.

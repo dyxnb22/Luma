@@ -29,6 +29,7 @@ Historical route records exist in ADRs, but do not plan against them unless the 
 - **Ranking exact-match boost**: `Ranker.score` adds +0.30 for items whose title exactly matches the query. Fuzzy weight reduced from 0.55 → 0.45 to accommodate.
 - **Two-phase warmup**: `AppCoordinator` warms `BuiltInModules.fastModuleIDs` first → calls `setModulesReady(true)` → warms Notes/Projects in background.
 - **Bug fixes**: `SnippetsAction.create` dead path restored; `SelectionSnapshotService` AX IPC moved off MainActor; `LauncherEnvironment.showStatus` promoted from optional var to non-optional let; `BrowserTabsIndex` empty-query dedup; `topTodoRow` stable memory key; `saveAsNote` correct `openAfterCapture: false`.
+- **Auto Workflow (cc-loop) integration**: default-off module with triggers `aw`/`auto`/`workflow`, onDemand warmup tier, same-panel control view for start/stop/resume/status/logs, and a Settings → Auto Workflow section.
 
 ## Route Guardrails
 

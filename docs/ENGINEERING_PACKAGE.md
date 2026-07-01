@@ -40,6 +40,7 @@ When documents conflict, follow:
 - Empty query shows home sections, not a dashboard card grid.
 - Module details open in the same panel.
 - User-facing media functionality is named Records; the technical module identifier remains `luma.media`.
+- Auto Workflow is a default-off, on-demand wrapper around the external `cc-loop` CLI; see ADR-031.
 - The product is already broadly built; current priority is integration and polish over new scope.
 
 ## Implementation Defaults
@@ -62,6 +63,7 @@ When documents conflict, follow:
 - [ADR-006 Launcher Convergence](adr/006-launcher-convergence.md)
 - [ADR-007 Dashboard Widget Single Window](adr/007-dashboard-widget-single-window.md) — superseded by ADR-023
 - [ADR-023 Command-First Unified List (Route C)](adr/023-command-first-unified-list.md) — **active UI route**
+- [ADR-031 Auto Workflow cc-loop Integration](adr/031-autoworkflow-integration.md)
 
 ## How to Add a New Module
 
@@ -74,7 +76,7 @@ When documents conflict, follow:
 Warmup tiers:
 
 - `hotPath` — participates in global search fan-out; warms at startup when pinned (default for in-memory modules).
-- `onDemand` — excluded from global search; warms on first targeted query or detail open (filesystem-heavy modules: Notes, Projects, MenuItems).
+- `onDemand` — excluded from global search; warms on first targeted query or detail open (examples: Notes, Projects, MenuItems, Auto Workflow).
 
 Users can pin modules in Settings → Modules for always-hot startup behavior and contextual Home visibility (`enabled ∩ pinned`).
 

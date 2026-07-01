@@ -49,7 +49,7 @@ Launcher convergence strategy adds a stricter working rule: warm keystroke p95 a
 4. Call `setModulesReady(true)`.
 5. Only when `warmupPolicy == eagerAllEnabled`, warm the remaining enabled modules in the background.
 
-Modules pinned to the hot path should complete warmup well within 300 ms under normal conditions. On-demand modules, especially filesystem-heavy modules such as Notes, Projects, and Menu Bar Search, must keep `handle` memory-only and perform any disk work in warmup or detail paths.
+Modules pinned to the hot path should complete warmup well within 300 ms under normal conditions. On-demand modules, especially filesystem-heavy modules such as Notes, Projects, and Menu Bar Search, plus external-CLI modules such as Auto Workflow, must keep `handle` memory-only and perform any disk or process work in warmup, targeted commands, or detail paths.
 
 Global search dispatch only fans out to `ModuleRegistry.globalSearchModuleIDs` (hot-path tier). Targeted commands and detail opens still call `warmupIfNeeded` for on-demand modules.
 

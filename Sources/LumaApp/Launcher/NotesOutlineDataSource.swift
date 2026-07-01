@@ -217,10 +217,13 @@ final class NotesOutlineDataSource: NSObject, NSOutlineViewDataSource, NSOutline
         if let item = item as? NotesOutlineItem {
             return item.children[index]
         }
-        if let displayRoot, displayRoot.node.path == "__virtual_root__" {
-            return displayRoot.children[index]
+        if let displayRoot {
+            if displayRoot.node.path == "__virtual_root__" {
+                return displayRoot.children[index]
+            }
+            return displayRoot
         }
-        return displayRoot!
+        return NotesOutlineItem(node: NotesNode(path: "", name: "", kind: .folder, children: []))
     }
 
     func outlineView(_ outlineView: NSOutlineView, viewFor tableColumn: NSTableColumn?, item: Any) -> NSView? {

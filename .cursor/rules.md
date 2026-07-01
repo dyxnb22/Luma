@@ -53,7 +53,7 @@ Cursor should be a precise implementation assistant for Luma. Keep edits scoped 
 - Do not filesystem-scan on each keystroke.
 - `LauncherEnvironment.showStatus` is `let (String) -> Void` — inject at init, never post-assign.
 - AX IPC calls must not run on the MainActor; only PID capture (`frontmostApplication`) is allowed on main.
-- `BuiltInModules.fastModuleIDs` is Phase 1 warmup; Notes/Projects/MenuItems/Media stay in Phase 2 (`warmupAll`).
+- `BuiltInModules.fastModuleIDs` is Phase 1 warmup; Notes/Projects/MenuItems/Media/Auto Workflow stay out of the hot path.
 - `ContextualHomeProvider.rankedSectionItems` uses `async let` for all 9 fetches — keep them concurrent.
 - New `LauncherEnvironment` callbacks must be `let` parameters in `init`, not optional `var`.
 

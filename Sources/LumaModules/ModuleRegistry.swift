@@ -18,7 +18,8 @@ public enum ModuleRegistry {
         QuicklinksModuleBundle.self,
         MenuItemsModuleBundle.self,
         KillProcessModuleBundle.self,
-        BrowserTabsModuleBundle.self
+        BrowserTabsModuleBundle.self,
+        AutoworkflowModuleBundle.self
     ]
 
     public static let defaultPinnedModuleIDs: Set<ModuleIdentifier> = ModuleWarmupDefaults.defaultPinnedModuleIDs
@@ -97,6 +98,8 @@ public enum ModuleRegistry {
             return overrides.projects!
         case .quicklinks where overrides.quicklinks != nil:
             return overrides.quicklinks!
+        case .autoworkflow where overrides.autoworkflow != nil:
+            return overrides.autoworkflow!
         default:
             return bundle.makeModule()
         }

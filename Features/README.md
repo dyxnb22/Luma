@@ -6,9 +6,9 @@ This folder is the maintenance index for Luma's feature modules. Each feature ow
 
 **Home sections:** Open Apps, Suggested (no dashboard card grid). Suggested shows at most 2 continue-flow + 1 create item; `HomeSuggestionMemory` gates eligibility by recency and completion cooldown.
 
-**Modules (registered at launch):** Apps, Clipboard, Commands, Notes, Todo, Translate, Wordbook, Snippets, Secrets, Media, Window Layouts, Projects, Quicklinks, Menu Bar Search, Kill Process, Browser Tabs.
+**Modules (registered at launch):** Apps, Clipboard, Commands, Notes, Todo, Translate, Wordbook, Snippets, Secrets, Media, Window Layouts, Projects, Quicklinks, Menu Bar Search, Kill Process, Browser Tabs, Auto Workflow.
 
-**Default off:** Commands, Media, Browser Tabs.
+**Default off:** Commands, Media, Browser Tabs, Auto Workflow.
 
 **Deferred:** Windows (source retained, not in `BuiltInModules.makeAll()`).
 
@@ -34,6 +34,7 @@ See `docs/adr/023-command-first-unified-list.md` and `docs/ARCHITECTURE.md` for 
 | Menu Bar Search | on | [MenuItems](MenuItems/) |
 | Kill Process | on | [KillProcess](KillProcess/) |
 | Browser Tabs | off | [BrowserTabs](BrowserTabs/) |
+| Auto Workflow | off | [Autoworkflow](Autoworkflow/) |
 
 Deferred (source retained, not registered): Windows
 

@@ -100,7 +100,9 @@ import LumaModules
         ("clip",  "luma.clipboard"),
         ("tr",   "luma.translate"),
         ("rec",  "luma.media"),
-        ("sec",  "luma.secrets")
+        ("sec",  "luma.secrets"),
+        ("t", "luma.todo"),
+        ("todo", "luma.todo")
     ]
     for c in cases {
         guard case .targeted(let module, let trigger, let payload) = router.route(raw: c.trigger) else {

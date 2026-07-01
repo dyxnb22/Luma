@@ -50,7 +50,14 @@ public actor QueryDispatcher {
 
             for await (moduleID, result) in group {
                 guard !Task.isCancelled else { break }
-                Self.mergeItems(from: result, moduleID: moduleID, query: query, usageRecords: usageRecords, into: &merged)
+                Self.mergeItems(
+                    from: result,
+                    moduleID: moduleID,
+                    query: query,
+                    usageRecords: usageRecords,
+                    keepModuleRowsWhenAllFilteredOut: false,
+                    into: &merged
+                )
                 await onSnapshot(Self.snapshot(from: merged, sequence: query.sequence))
             }
         }
@@ -86,7 +93,14 @@ public actor QueryDispatcher {
         )
 
         var merged: [ResultID: ScoredItem] = [:]
-        Self.mergeItems(from: result, moduleID: moduleID, query: query, usageRecords: usageRecords, into: &merged)
+        Self.mergeItems(
+            from: result,
+            moduleID: moduleID,
+            query: query,
+            usageRecords: usageRecords,
+            keepModuleRowsWhenAllFilteredOut: true,
+            into: &merged
+        )
         await onSnapshot(Self.snapshot(from: merged, sequence: query.sequence))
         await metrics.mark("query.dispatch.targeted.finish")
     }
@@ -105,6 +119,7 @@ public actor QueryDispatcher {
         moduleID: ModuleIdentifier,
         query: Query,
         usageRecords: [ResultID: UsageRecord],
+        keepModuleRowsWhenAllFilteredOut: Bool,
         into merged: inout [ResultID: ScoredItem]
     ) {
         var scored: [ScoredItem] = []
@@ -124,14 +139,17 @@ public actor QueryDispatcher {
 
         let surviving = scored.filter { $0.score > -.infinity }
         let rowsToMerge: [ScoredItem]
-        if surviving.isEmpty, !result.items.isEmpty {
+        if keepModuleRowsWhenAllFilteredOut, surviving.isEmpty, !result.items.isEmpty {
             // Targeted modules may return command rows (e.g. app top, s new) that do not
-            // fuzzy-match the payload token. Keep module-provided rows instead of dropping all.
-            rowsToMerge = result.items.map { item in
+            // fuzzy-match the payload token. Keep module-provided rows instead of dropping all,
+            // while preserving the module's original order. Global search must not use this
+            // fallback, or non-matching rows would leak back into the hot-path result set.
+            rowsToMerge = result.items.enumerated().map { index, item in
                 var ranked = item
                 ranked.rankingHints.fuzzyScore = 1.0
-                ranked.rankingHints.finalScore = 1.0
-                return ScoredItem(item: ranked, score: 1.0)
+                let score = 1.0 - Double(index) * 0.001
+                ranked.rankingHints.finalScore = score
+                return ScoredItem(item: ranked, score: score)
             }
         } else {
             rowsToMerge = surviving

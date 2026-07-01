@@ -259,6 +259,24 @@ private actor SnapshotCollector {
     #expect(snapshots[0].items[0].subtitle == "512 MB")
 }
 
+@Test func targetedDispatchPreservesAppTopOrderingAcrossMultipleRows() async {
+    let host = ModuleHost(context: TestDoubles.context(processMemory: MultiRowProcessMemoryClient()))
+    await host.register(AppsModule())
+    let dispatcher = QueryDispatcher(host: host)
+
+    let parsed = ParsedCommand(trigger: "app", payload: "top", module: .apps)
+    let query = Query(raw: "app top", sequence: 6, command: parsed)
+    let collector = SnapshotCollector()
+    await dispatcher.dispatchTargeted(query, moduleID: .apps) { snapshot in
+        await collector.append(snapshot)
+    }
+
+    let snapshots = await collector.values
+    #expect(snapshots.count == 1)
+    #expect(snapshots[0].items.map(\.title) == ["Safari", "Finder"])
+    #expect(snapshots[0].items.map { $0.subtitle ?? "" } == ["512 MB", "256 MB"])
+}
+
 @Test func targetedDispatchKeepsSnippetCreateRowForNewCommand() async {
     let host = ModuleHost(context: TestDoubles.context())
     await host.register(SnippetsModule())
@@ -278,6 +296,22 @@ private actor SnapshotCollector {
     #expect(snapshots[0].items[0].subtitle == "Untitled")
 }
 
+@Test func globalDispatchDoesNotApplyTargetedFallbackForNonMatchingRows() async {
+    let host = ModuleHost(context: TestDoubles.context())
+    await host.register(GlobalFallbackProbeModule())
+    await host.configureGlobalSearchModuleIDs([GlobalFallbackProbeModule.manifest.identifier])
+    let dispatcher = QueryDispatcher(host: host)
+
+    let collector = SnapshotCollector()
+    await dispatcher.dispatch(Query(raw: "zzz-unmatched-query", sequence: 7)) { snapshot in
+        await collector.append(snapshot)
+    }
+
+    let snapshots = await collector.values
+    #expect(snapshots.count == 1)
+    #expect(snapshots[0].items.isEmpty)
+}
+
 private struct StubProcessMemoryClient: ProcessMemoryClient {
     func topApplications(limit: Int) async -> [RunningApplicationMemory] {
         _ = limit
@@ -288,6 +322,54 @@ private struct StubProcessMemoryClient: ProcessMemoryClient {
                 residentBytes: 512 * 1_048_576
             )
         ]
+    }
+}
+
+private struct MultiRowProcessMemoryClient: ProcessMemoryClient {
+    func topApplications(limit: Int) async -> [RunningApplicationMemory] {
+        _ = limit
+        return [
+            RunningApplicationMemory(
+                bundleID: "com.apple.Safari",
+                name: "Safari",
+                residentBytes: 512 * 1_048_576
+            ),
+            RunningApplicationMemory(
+                bundleID: "com.apple.finder",
+                name: "Finder",
+                residentBytes: 256 * 1_048_576
+            )
+        ]
+    }
+}
+
+private actor GlobalFallbackProbeModule: LumaModule {
+    static let manifest = ModuleManifest(
+        identifier: ModuleIdentifier(rawValue: "test.global-fallback-probe"),
+        displayName: "Global Fallback Probe",
+        capabilities: [.queryable],
+        defaultEnabled: true,
+        priority: 1,
+        queryTimeout: .milliseconds(10)
+    )
+
+    func handle(_ query: Query, context: QueryContext) async -> ModuleResult {
+        _ = context
+        return ModuleResult(items: [
+            ResultItem(
+                id: ResultID(module: Self.manifest.identifier, key: "probe"),
+                title: "Alpha",
+                titleAttributed: AttributedString("Alpha"),
+                subtitle: "Probe Row",
+                icon: .none,
+                primaryAction: Action(
+                    id: ActionID(module: Self.manifest.identifier, key: "noop"),
+                    title: "Noop",
+                    kind: .noop
+                ),
+                rankingHints: RankingHints(basePriority: 1)
+            )
+        ])
     }
 }
 

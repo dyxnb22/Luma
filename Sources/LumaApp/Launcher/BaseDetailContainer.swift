@@ -94,6 +94,8 @@ final class BaseDetailContainer: NSView {
     private func installChrome() {
         toolbarHost.translatesAutoresizingMaskIntoConstraints = false
         scrollView.hasVerticalScroller = true
+        scrollView.hasHorizontalScroller = true
+        scrollView.autohidesScrollers = true
         scrollView.drawsBackground = false
         scrollView.borderType = .noBorder
         bodyHost.translatesAutoresizingMaskIntoConstraints = false

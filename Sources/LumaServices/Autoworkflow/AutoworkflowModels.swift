@@ -270,8 +270,11 @@ public enum AutoworkflowCLIEnvironment {
         var components = (base ?? "").split(separator: ":").map(String.init)
         let additions = [
             "/opt/homebrew/bin",
+            "/opt/homebrew/anaconda3/bin",
             "/usr/local/bin",
+            "/usr/local/anaconda3/bin",
             "\(homeDirectory)/.local/bin",
+            "\(homeDirectory)/anaconda3/bin",
             "\(homeDirectory)/bin",
             "/usr/bin",
             "/bin",

@@ -191,6 +191,9 @@
 
 ## Auto Workflow
 
+- Detailed pass: `docs/qa/AUTOWORKFLOW_UI_ACCEPTANCE.md`.
+- Preflight: `./scripts/qa/autoworkflow_preflight.sh`.
+- Evidence collection: `./scripts/qa/autoworkflow_collect.sh`.
 - Enable Auto Workflow in Settings → Modules.
 - Settings → Auto Workflow shows source path and `cc-loop` availability accurately.
 - Cmd+Space → `aw` opens the same-panel Auto Workflow detail view.

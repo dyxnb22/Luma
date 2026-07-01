@@ -195,7 +195,10 @@ import Testing
 
         #expect(components.first == "/custom/bin")
         #expect(components.contains("/opt/homebrew/bin"))
+        #expect(components.contains("/opt/homebrew/anaconda3/bin"))
+        #expect(components.contains("/usr/local/anaconda3/bin"))
         #expect(components.contains("/Users/tester/.local/bin"))
+        #expect(components.contains("/Users/tester/anaconda3/bin"))
         #expect(components.filter { $0 == "/usr/bin" }.count == 1)
     }
 

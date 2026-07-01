@@ -1,0 +1,26 @@
+aw_path=
+aw_stateRoot=
+aw_planner=
+aw_reviewer=
+aw_implementer=
+aw_model=
+
+(
+    "luma.apps",
+    "luma.autoworkflow",
+    "luma.browser-tabs",
+    "luma.clipboard",
+    "luma.commands",
+    "luma.kill-process",
+    "luma.media",
+    "luma.menu-items",
+    "luma.notes",
+    "luma.projects",
+    "luma.quicklinks",
+    "luma.secrets",
+    "luma.snippets",
+    "luma.todo",
+    "luma.translate",
+    "luma.window-layouts",
+    "luma.wordbook"
+)

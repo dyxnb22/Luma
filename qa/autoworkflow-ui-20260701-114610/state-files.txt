@@ -1,0 +1,7 @@
+/Users/diaoyuxuan/.cc-loop/tasks/task-F113DD1B-DDD/state.json
+/Users/diaoyuxuan/.cc-loop/tasks/task-F113DD1B-DDD/runner.log
+/Users/diaoyuxuan/.cc-loop/tasks/task-05EC41A0-73A/state.json
+/Users/diaoyuxuan/.cc-loop/tasks/task-05EC41A0-73A/runner.log
+/Users/diaoyuxuan/.cc-loop/tasks/task-5DC4B6C8-EFD/runner.pid
+/Users/diaoyuxuan/.cc-loop/tasks/task-5DC4B6C8-EFD/state.json
+/Users/diaoyuxuan/.cc-loop/tasks/task-5DC4B6C8-EFD/runner.log

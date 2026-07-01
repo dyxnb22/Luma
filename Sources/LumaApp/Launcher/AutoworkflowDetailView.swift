@@ -358,7 +358,16 @@ final class AutoworkflowDetailView: ModuleDetailView {
     }
 
     @objc private func stopTapped() {
-        guard case .running(let taskID, _) = state else { return }
+        let taskID: String?
+        if case .running(let runningTaskID, _) = state {
+            taskID = runningTaskID
+        } else if lastSnapshot?.isRunning == true {
+            taskID = lastSnapshot?.taskID
+        } else {
+            taskID = nil
+        }
+
+        guard let taskID else { return }
 
         Task {
             let result = await service.stopTask(taskID: taskID, config: config)
@@ -506,7 +515,13 @@ final class AutoworkflowDetailView: ModuleDetailView {
                         self.lastSnapshot = snapshot
                         self.updateSnapshotDisplay(snapshot)
                         self.updateLog(taskID: taskID)
-                        if snapshot.status.isTerminal
+                        if snapshot.isRunning || snapshot.status == .running {
+                            self.updateUI(state: .running(
+                                taskID: snapshot.taskID,
+                                pid: snapshot.runnerPID.map(Int32.init) ?? 0
+                            ))
+                            self.updateSnapshotDisplay(snapshot)
+                        } else if snapshot.status.isTerminal
                             || (!snapshot.status.isTerminal && !snapshot.isRunning) {
                             self.stopPolling()
                             if snapshot.status.isTerminal {
@@ -630,11 +645,15 @@ final class AutoworkflowDetailView: ModuleDetailView {
 
     private func updateSnapshotDisplay(_ snapshot: AutoworkflowTaskSnapshot) {
         var parts: [String] = [
+            "Task: \(snapshot.taskID)",
             "Status: \(snapshot.status.displayName)",
             "Iteration: \(snapshot.iteration)",
             "Phase: \(snapshot.attempt.phase.isEmpty ? "—" : snapshot.attempt.phase)",
             "Next: \(snapshot.nextAction)"
         ]
+        if let runnerPID = snapshot.runnerPID {
+            parts.append("PID: \(runnerPID)")
+        }
         if snapshot.attempt.decision.isEmpty == false {
             parts.append("Decision: \(snapshot.attempt.decision)")
         }

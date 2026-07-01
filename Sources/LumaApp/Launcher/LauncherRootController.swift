@@ -220,6 +220,7 @@ final class LauncherRootController {
 
     func showHome(focusSearch: Bool = true, persist: Bool = true) {
         homeRefreshTask?.cancel()
+        viewModel.cancel()
         searchBar.resetQueryText()
         lastSyncedQuery = ""
         commandHintBar.apply(nil)
@@ -574,6 +575,7 @@ final class LauncherRootController {
     }
 
     private func apply(snapshot: ResultSnapshot) {
+        guard !launcherEnvironment.isLauncherQueryEmpty else { return }
         contentCoordinator.apply(snapshot: snapshot)
         syncPerformanceStripVisibility()
         syncRowActionHint()

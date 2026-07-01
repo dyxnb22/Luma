@@ -56,7 +56,7 @@ private struct TestDoubles {
         func secretsRequireUnlockOnLaunch() async -> Bool { false }
     }
 
-    static func context() -> ModuleContext {
+    static func context(processMemory: any ProcessMemoryClient = NoopProcessMemoryClient()) -> ModuleContext {
         ModuleContext(
             logger: Logger(),
             metrics: NoopMetricsClient(),
@@ -65,7 +65,8 @@ private struct TestDoubles {
             accessibility: Accessibility(),
             fileSystem: FileSystem(),
             translation: Translation(),
-            config: Config()
+            config: Config(),
+            processMemory: processMemory
         )
     }
 }
@@ -237,6 +238,57 @@ private actor SnapshotCollector {
     #expect(snapshots[0].items[0].rowKind == .informational)
     #expect(snapshots[0].items[0].title == "Automation denied for Safari")
     #expect(snapshots[0].items[0].subtitle == "Permission required")
+}
+
+@Test func targetedDispatchKeepsAppTopMemoryRowsDespitePayloadMismatch() async {
+    let host = ModuleHost(context: TestDoubles.context(processMemory: StubProcessMemoryClient()))
+    await host.register(AppsModule())
+    let dispatcher = QueryDispatcher(host: host)
+
+    let parsed = ParsedCommand(trigger: "app", payload: "top", module: .apps)
+    let query = Query(raw: "app top", sequence: 4, command: parsed)
+    let collector = SnapshotCollector()
+    await dispatcher.dispatchTargeted(query, moduleID: .apps) { snapshot in
+        await collector.append(snapshot)
+    }
+
+    let snapshots = await collector.values
+    #expect(snapshots.count == 1)
+    #expect(snapshots[0].items.count == 1)
+    #expect(snapshots[0].items[0].title == "Safari")
+    #expect(snapshots[0].items[0].subtitle == "512 MB")
+}
+
+@Test func targetedDispatchKeepsSnippetCreateRowForNewCommand() async {
+    let host = ModuleHost(context: TestDoubles.context())
+    await host.register(SnippetsModule())
+    let dispatcher = QueryDispatcher(host: host)
+
+    let parsed = ParsedCommand(trigger: "s", payload: "new", module: .snippets)
+    let query = Query(raw: "s new", sequence: 5, command: parsed)
+    let collector = SnapshotCollector()
+    await dispatcher.dispatchTargeted(query, moduleID: .snippets) { snapshot in
+        await collector.append(snapshot)
+    }
+
+    let snapshots = await collector.values
+    #expect(snapshots.count == 1)
+    #expect(snapshots[0].items.count == 1)
+    #expect(snapshots[0].items[0].title == "Create Snippet")
+    #expect(snapshots[0].items[0].subtitle == "Untitled")
+}
+
+private struct StubProcessMemoryClient: ProcessMemoryClient {
+    func topApplications(limit: Int) async -> [RunningApplicationMemory] {
+        _ = limit
+        return [
+            RunningApplicationMemory(
+                bundleID: "com.apple.Safari",
+                name: "Safari",
+                residentBytes: 512 * 1_048_576
+            )
+        ]
+    }
 }
 
 @Test func moduleHostApplyEnabledSetWarmupsAddedAndTearsDownRemoved() async {

@@ -220,6 +220,7 @@ final class LauncherRootController {
 
     func showHome(focusSearch: Bool = true, persist: Bool = true) {
         homeRefreshTask?.cancel()
+        viewModel.cancel()
         searchBar.resetQueryText()
         lastSyncedQuery = ""
         commandHintBar.apply(nil)
@@ -574,6 +575,7 @@ final class LauncherRootController {
     }
 
     private func apply(snapshot: ResultSnapshot) {
+        guard !launcherEnvironment.isLauncherQueryEmpty else { return }
         contentCoordinator.apply(snapshot: snapshot)
         syncPerformanceStripVisibility()
         syncRowActionHint()
@@ -1218,8 +1220,15 @@ final class LauncherRootController {
             }
             return true
         }
-        let mode: LauncherContentMode = contentCoordinator.showingDetail ? .detail
-            : (contentCoordinator.showingResults ? .results : .home)
+        let mode: LauncherContentMode
+        if contentCoordinator.showingDetail {
+            mode = .detail
+        } else if contentCoordinator.showingResults
+            || !searchBar.stringValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            mode = .results
+        } else {
+            mode = .home
+        }
         let outcome = LauncherKeyRouter.route(
             command: command.launcherKeyCommand,
             mode: mode,

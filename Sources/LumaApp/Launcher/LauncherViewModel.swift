@@ -154,6 +154,7 @@ final class LauncherViewModel {
         task?.cancel()
         task = nil
         issuedAtBySequence.removeAll()
+        sequence &+= 1
     }
 
     private func p95(of samples: [Double]) -> Double {

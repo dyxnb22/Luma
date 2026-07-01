@@ -100,7 +100,9 @@ import LumaModules
         ("clip",  "luma.clipboard"),
         ("tr",   "luma.translate"),
         ("rec",  "luma.media"),
-        ("sec",  "luma.secrets")
+        ("sec",  "luma.secrets"),
+        ("t", "luma.todo"),
+        ("todo", "luma.todo")
     ]
     for c in cases {
         guard case .targeted(let module, let trigger, let payload) = router.route(raw: c.trigger) else {
@@ -124,7 +126,8 @@ import LumaModules
     #expect(!router.isBareOpenDetailReturn(raw: "notes daily"))
     #expect(!router.isBareOpenDetailReturn(raw: "n new idea"))
     #expect(!router.isBareOpenDetailReturn(raw: "word abandon"))
-    #expect(!router.isBareOpenDetailReturn(raw: "t"))
+    #expect(router.isBareOpenDetailReturn(raw: "t"))
+    #expect(router.isBareOpenDetailReturn(raw: "todo"))
     #expect(!router.isBareOpenDetailReturn(raw: "s"))
 }
 

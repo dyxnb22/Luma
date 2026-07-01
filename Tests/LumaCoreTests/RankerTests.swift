@@ -73,6 +73,25 @@ import Testing
     #expect(Ranker.score(item: item, query: query, usage: nil) > -.infinity)
 }
 
+@Test func rankerDropsAppTopMemoryRowsForTopPayload() {
+    let module = ModuleIdentifier(rawValue: "luma.apps")
+    let item = ResultItem(
+        id: ResultID(module: module, key: "mem.safari"),
+        title: "Safari",
+        titleAttributed: AttributedString("Safari"),
+        subtitle: "512 MB",
+        icon: .none,
+        primaryAction: Action(id: ActionID(module: module, key: "noop"), title: "Noop", kind: .noop),
+        rankingHints: RankingHints()
+    )
+    let query = Query(
+        raw: "app top",
+        sequence: 1,
+        command: ParsedCommand(trigger: "app", payload: "top", module: module)
+    )
+    #expect(Ranker.score(item: item, query: query, usage: nil) == -.infinity)
+}
+
 @Test func rankerMatchesQuicklinkTriggerTokenInMultiWordQuery() {
     let module = ModuleIdentifier(rawValue: "luma.quicklinks")
     let item = ResultItem(

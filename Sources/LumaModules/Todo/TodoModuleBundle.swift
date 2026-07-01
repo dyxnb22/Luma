@@ -34,13 +34,14 @@ public enum TodoModuleBundle: ModuleBundle {
                 examples: ["t buy milk tomorrow"],
                 sectionTitle: "TODO",
                 helpLines: [
-                    "t — list today's due reminders",
+                    "t — open Todo in panel (today's due list)",
                     "t buy milk — create reminder (Inbox when no date)",
                     "t pay rent tomorrow 9:00 — create with due date",
                     "Return on a row — mark complete",
                     "t ? — this help"
                 ],
-                discoverPriority: 50
+                discoverPriority: 50,
+                bareBehavior: .openDetail
             )
         ]
     }

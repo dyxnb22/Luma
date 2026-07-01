@@ -107,13 +107,38 @@ public actor QueryDispatcher {
         usageRecords: [ResultID: UsageRecord],
         into merged: inout [ResultID: ScoredItem]
     ) {
+        var scored: [ScoredItem] = []
+        scored.reserveCapacity(result.items.count)
         for item in result.items {
             let usage = usageRecords[item.id]
             var ranked = item
             let score = Ranker.score(item: item, query: query, usage: usage)
-            ranked.rankingHints.fuzzyScore = FuzzyMatcher.score(query: query.normalized, target: item.title.lowercased())
+            ranked.rankingHints.fuzzyScore = Ranker.fuzzyScore(
+                query: query,
+                target: item.title.lowercased(),
+                secondary: item.subtitle?.lowercased()
+            )
             ranked.rankingHints.finalScore = score
-            merged[item.id] = ScoredItem(item: ranked, score: score)
+            scored.append(ScoredItem(item: ranked, score: score))
+        }
+
+        let surviving = scored.filter { $0.score > -.infinity }
+        let rowsToMerge: [ScoredItem]
+        if surviving.isEmpty, !result.items.isEmpty {
+            // Targeted modules may return command rows (e.g. app top, s new) that do not
+            // fuzzy-match the payload token. Keep module-provided rows instead of dropping all.
+            rowsToMerge = result.items.map { item in
+                var ranked = item
+                ranked.rankingHints.fuzzyScore = 1.0
+                ranked.rankingHints.finalScore = 1.0
+                return ScoredItem(item: ranked, score: 1.0)
+            }
+        } else {
+            rowsToMerge = surviving
+        }
+
+        for row in rowsToMerge {
+            merged[row.item.id] = row
         }
         if result.items.isEmpty, let diagnostic = result.diagnostic {
             let row = ModuleDiagnosticResults.informationalRow(module: moduleID, diagnostic: diagnostic)

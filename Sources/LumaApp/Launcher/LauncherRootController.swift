@@ -1220,8 +1220,15 @@ final class LauncherRootController {
             }
             return true
         }
-        let mode: LauncherContentMode = contentCoordinator.showingDetail ? .detail
-            : (contentCoordinator.showingResults ? .results : .home)
+        let mode: LauncherContentMode
+        if contentCoordinator.showingDetail {
+            mode = .detail
+        } else if contentCoordinator.showingResults
+            || !searchBar.stringValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            mode = .results
+        } else {
+            mode = .home
+        }
         let outcome = LauncherKeyRouter.route(
             command: command.launcherKeyCommand,
             mode: mode,

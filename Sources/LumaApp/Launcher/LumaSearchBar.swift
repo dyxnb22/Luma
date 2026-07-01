@@ -252,7 +252,8 @@ extension LumaSearchBar: NSTextFieldDelegate {
     func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
         if commandSelector == #selector(NSResponder.insertTab(_:))
             || commandSelector == #selector(NSResponder.insertBacktab(_:)) {
-            return onKeyCommand?(.tab) ?? false
+            _ = onKeyCommand?(.tab)
+            return true
         }
         return false
     }

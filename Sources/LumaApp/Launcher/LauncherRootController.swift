@@ -219,7 +219,8 @@ final class LauncherRootController {
     }
 
     func showHome(focusSearch: Bool = true, persist: Bool = true) {
-        searchBar.stringValue = ""
+        homeRefreshTask?.cancel()
+        searchBar.resetQueryText()
         lastSyncedQuery = ""
         commandHintBar.apply(nil)
         launcherEnvironment.isLauncherQueryEmpty = true
@@ -529,12 +530,13 @@ final class LauncherRootController {
             return
         }
         guard modulesReady else { return }
+        homeRefreshTask?.cancel()
         if contentCoordinator.showingDetail {
             closeDetail()
         }
         listView.isHidden = false
         listView.alphaValue = 1
-        contentCoordinator.beginShowingResults()
+        contentCoordinator.beginShowingResults(clearStaleContent: true)
         syncKeyHints()
         syncPerformanceStripVisibility()
         let workbenchRoute = viewModel.workbenchRoute(for: text)

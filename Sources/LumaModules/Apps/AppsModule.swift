@@ -85,7 +85,13 @@ public actor AppsModule: LumaModule {
     private func memoryTopResult(context: QueryContext) async -> ModuleResult {
         let samples = await context.platform.processMemory.topApplications(limit: 8)
         if samples.isEmpty {
-            return ModuleResult(items: [])
+            return ModuleResult(
+                items: [],
+                diagnostic: ModuleDiagnostic(
+                    kind: .degraded,
+                    message: "Could not read memory usage for running apps"
+                )
+            )
         }
         return ModuleResult(items: samples.map(memoryRow))
     }

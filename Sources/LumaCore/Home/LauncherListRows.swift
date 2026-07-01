@@ -32,7 +32,7 @@ public enum LauncherListRows {
         return result
     }
 
-    public static let noMatchingResultsMessage = "No matching results."
+    public static let noMatchingResultsMessage = "No matching results. Press Esc to clear, or try a command prefix (clip, note, t, ?)."
 
     public static func rows(for results: [ResultItem], layout: ResultListLayout = .flat) -> [Row] {
         switch layout {

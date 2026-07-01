@@ -181,20 +181,18 @@ final class LauncherContentCoordinator {
     }
 
     func dismissResultsForEmptyQuery() {
-        guard showingResults else { return }
-        if showingDetail {
-            showingResults = false
-            currentItems = []
-            selectedIndex = 0
-        } else {
-            showingResults = false
+        showingResults = false
+        currentItems = []
+        selectedIndex = 0
+        listView.clear()
+    }
+
+    func beginShowingResults(clearStaleContent: Bool = false) {
+        if clearStaleContent || !showingResults {
+            listView.clear()
             currentItems = []
             selectedIndex = 0
         }
-    }
-
-    func beginShowingResults() {
-        guard !showingResults else { return }
         showingResults = true
     }
 

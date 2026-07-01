@@ -1,0 +1,21 @@
+usage: cc-loop [-h] [--version] [--state-root STATE_ROOT]
+               {init,run,resume,auto,status,list,doctor} ...
+
+Local coding agent orchestrator
+
+positional arguments:
+  {init,run,resume,auto,status,list,doctor}
+    init                Initialize a new cc-loop task
+    run                 Start the task loop from an initialized task
+    resume              Resume an interrupted or stopped task
+    auto                Run the full task loop until completion or failure
+    status              Show current task status
+    list                List tasks under the state root
+    doctor              Run preflight checks without creating a task
+
+options:
+  -h, --help            show this help message and exit
+  --version             show program's version number and exit
+  --state-root STATE_ROOT
+                        Root directory for task state (default:
+                        /Users/diaoyuxuan/.cc-loop)

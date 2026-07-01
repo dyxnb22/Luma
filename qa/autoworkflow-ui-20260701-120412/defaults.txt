@@ -1,0 +1,26 @@
+aw_path=/tmp/luma-aw-qa-source
+aw_stateRoot=/Users/diaoyuxuan/.cc-loop
+aw_planner=claude-code
+aw_reviewer=claude-code
+aw_implementer=cursor
+aw_model=sonnet
+
+(
+    "luma.apps",
+    "luma.autoworkflow",
+    "luma.browser-tabs",
+    "luma.clipboard",
+    "luma.commands",
+    "luma.kill-process",
+    "luma.media",
+    "luma.menu-items",
+    "luma.notes",
+    "luma.projects",
+    "luma.quicklinks",
+    "luma.secrets",
+    "luma.snippets",
+    "luma.todo",
+    "luma.translate",
+    "luma.window-layouts",
+    "luma.wordbook"
+)

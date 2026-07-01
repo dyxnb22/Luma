@@ -71,6 +71,7 @@ final class TranslateDetailView: ModuleDetailView {
         self.onContentChanged = onContentChanged
         let container = NSView()
         container.translatesAutoresizingMaskIntoConstraints = false
+        GeekUIKit.installDetailRootChrome(on: container)
         self.detailView = container
         setup(container: container)
     }

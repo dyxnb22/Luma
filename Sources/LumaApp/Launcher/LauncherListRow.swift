@@ -182,7 +182,7 @@ final class LauncherListRow: NSControl {
 
         trailingLabel.stringValue = isNested ? "" : "· \(moduleLabel)"
         trailingLabel.font = TypographyTokens.monoCaption()
-        trailingLabel.textColor = .tertiaryLabelColor
+        trailingLabel.textColor = .secondaryLabelColor
         trailingLabel.isBezeled = false
         trailingLabel.isEditable = false
         trailingLabel.drawsBackground = false
@@ -229,9 +229,7 @@ final class LauncherListRow: NSControl {
             iconView.widthAnchor.constraint(equalToConstant: iconSize),
             iconView.heightAnchor.constraint(equalToConstant: iconSize),
             titleLabel.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: titleGap),
-            titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -trailingChromeInset),
             subtitleLabel.leadingAnchor.constraint(equalTo: titleLabel.leadingAnchor),
-            subtitleLabel.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -trailingChromeInset),
             trailingLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -10),
             returnHintContainer.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -10),
             returnHint.leadingAnchor.constraint(equalTo: returnHintContainer.leadingAnchor, constant: 8),
@@ -239,6 +237,18 @@ final class LauncherListRow: NSControl {
             returnHint.topAnchor.constraint(equalTo: returnHintContainer.topAnchor, constant: 4),
             returnHint.bottomAnchor.constraint(equalTo: returnHintContainer.bottomAnchor, constant: -4)
         ]
+
+        if isNested {
+            constraints += [
+                titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -trailingChromeInset),
+                subtitleLabel.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -trailingChromeInset)
+            ]
+        } else {
+            constraints += [
+                titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: trailingLabel.leadingAnchor, constant: -8),
+                subtitleLabel.trailingAnchor.constraint(lessThanOrEqualTo: trailingLabel.leadingAnchor, constant: -8)
+            ]
+        }
 
         if hasSubtitle && !isNested {
             constraints.append(trailingLabel.centerYAnchor.constraint(equalTo: titleLabel.centerYAnchor))

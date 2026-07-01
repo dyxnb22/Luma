@@ -197,6 +197,76 @@ enum GeekUIKit {
         view.layer?.backgroundColor = NSColor.controlBackgroundColor.withAlphaComponent(0.18).cgColor
     }
 
+    static func installDetailRootChrome(on view: NSView) {
+        view.wantsLayer = true
+        view.layer?.backgroundColor = NSColor.clear.cgColor
+        view.layer?.masksToBounds = true
+    }
+
+    static func makeDetailSectionCard(header: String, contentViews: [NSView]) -> NSView {
+        let headerLabel = NSTextField(labelWithString: header.uppercased())
+        styleDetailSectionHeaderLabel(headerLabel, title: header.uppercased())
+
+        let stack = NSStackView()
+        stack.orientation = .vertical
+        stack.spacing = 6
+        stack.alignment = .leading
+        stack.setContentHuggingPriority(.defaultHigh, for: .vertical)
+        stack.addArrangedSubview(headerLabel)
+        for contentView in contentViews {
+            stack.addArrangedSubview(contentView)
+            contentView.translatesAutoresizingMaskIntoConstraints = false
+            contentView.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
+        }
+
+        let card = NSView()
+        configureContentSurface(card)
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        card.addSubview(stack)
+        NSLayoutConstraint.activate([
+            stack.topAnchor.constraint(equalTo: card.topAnchor, constant: 10),
+            stack.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 12),
+            stack.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -12),
+            stack.bottomAnchor.constraint(equalTo: card.bottomAnchor, constant: -10)
+        ])
+        return card
+    }
+
+    static func configureDetailTableColumn(
+        _ column: NSTableColumn,
+        minWidth: CGFloat,
+        maxWidth: CGFloat = 2000,
+        resizingMask: NSTableColumn.ResizingOptions = [.autoresizingMask, .userResizingMask]
+    ) {
+        column.minWidth = minWidth
+        column.maxWidth = maxWidth
+        column.resizingMask = resizingMask
+    }
+
+    static func makeDetailTableCell(
+        text: String,
+        font: NSFont = .systemFont(ofSize: 12),
+        color: NSColor = .labelColor,
+        lineBreak: NSLineBreakMode = .byTruncatingTail,
+        toolTip: String? = nil
+    ) -> NSTableCellView {
+        let cell = NSTableCellView()
+        let label = NSTextField(labelWithString: text)
+        label.font = font
+        label.textColor = color
+        label.lineBreakMode = lineBreak
+        label.translatesAutoresizingMaskIntoConstraints = false
+        label.toolTip = toolTip
+        cell.addSubview(label)
+        NSLayoutConstraint.activate([
+            label.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: 4),
+            label.trailingAnchor.constraint(equalTo: cell.trailingAnchor, constant: -4),
+            label.centerYAnchor.constraint(equalTo: cell.centerYAnchor)
+        ])
+        cell.toolTip = toolTip
+        return cell
+    }
+
     static func installSearchSurface(on view: NSView) {
         view.wantsLayer = true
         view.layer?.cornerRadius = LauncherChromeTokens.searchBarCornerRadius
@@ -281,7 +351,10 @@ extension NSView {
 final class GeekGlassPanel: NSView {
     init(accentHex: String?) {
         super.init(frame: .zero)
-        GeekUIKit.configureGlassPanel(self, accentHex: accentHex)
+        GeekUIKit.configureContentSurface(self)
+        if let accentHex {
+            _ = GeekUIKit.installAccentStrip(on: self, color: ColorTokens.color(hex: accentHex))
+        }
     }
 
     @available(*, unavailable)

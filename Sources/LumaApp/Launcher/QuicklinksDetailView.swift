@@ -59,15 +59,29 @@ final class QuicklinksDetailView: NSObject, ModuleDetailView {
         tableView.target = self
         for (id, title, width) in [
             ("trigger", "Trigger", 70.0),
-            ("name", "Name", 150.0),
-            ("url", "Template", 320.0),
-            ("openWith", "Open With", 120.0)
+            ("name", "Name", 140.0),
+            ("openWith", "Open With", 110.0),
+            ("url", "Template", 240.0)
         ] {
             let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier(id))
             column.title = title
             column.width = width
             tableView.addTableColumn(column)
         }
+        GeekUIKit.styleDetailTableColumns(tableView)
+        if let triggerColumn = tableView.tableColumn(withIdentifier: NSUserInterfaceItemIdentifier("trigger")) {
+            GeekUIKit.configureDetailTableColumn(triggerColumn, minWidth: 64, maxWidth: 96, resizingMask: .userResizingMask)
+        }
+        if let nameColumn = tableView.tableColumn(withIdentifier: NSUserInterfaceItemIdentifier("name")) {
+            GeekUIKit.configureDetailTableColumn(nameColumn, minWidth: 100, maxWidth: 220, resizingMask: [.autoresizingMask, .userResizingMask])
+        }
+        if let openWithColumn = tableView.tableColumn(withIdentifier: NSUserInterfaceItemIdentifier("openWith")) {
+            GeekUIKit.configureDetailTableColumn(openWithColumn, minWidth: 90, maxWidth: 160, resizingMask: .userResizingMask)
+        }
+        if let urlColumn = tableView.tableColumn(withIdentifier: NSUserInterfaceItemIdentifier("url")) {
+            GeekUIKit.configureDetailTableColumn(urlColumn, minWidth: 160)
+        }
+        tableView.columnAutoresizingStyle = .lastColumnOnlyAutoresizingStyle
         tableScroll.documentView = tableView
         tableScroll.hasVerticalScroller = true
         tableScroll.drawsBackground = false
@@ -84,8 +98,14 @@ final class QuicklinksDetailView: NSObject, ModuleDetailView {
         editor.rowSpacing = 8
         editor.columnSpacing = 10
         editor.translatesAutoresizingMaskIntoConstraints = false
-        previewLabel.lineBreakMode = .byTruncatingMiddle
+        previewLabel.lineBreakMode = .byWordWrapping
+        previewLabel.maximumNumberOfLines = 3
         previewLabel.textColor = .secondaryLabelColor
+        urlField.lineBreakMode = .byWordWrapping
+        urlField.cell?.wraps = true
+        urlField.cell?.isScrollable = false
+        urlField.maximumNumberOfLines = 3
+        urlField.preferredMaxLayoutWidth = 480
         conflictLabel.lineBreakMode = .byWordWrapping
         conflictLabel.maximumNumberOfLines = 2
         conflictLabel.textColor = .systemOrange
@@ -311,23 +331,28 @@ extension QuicklinksDetailView: NSTableViewDataSource, NSTableViewDelegate {
         guard quicklinks.indices.contains(row), let id = tableColumn?.identifier.rawValue else { return nil }
         let q = quicklinks[row]
         let value: String
+        let toolTip: String?
         switch id {
-        case "trigger": value = q.trigger
-        case "name": value = q.name
-        case "url": value = q.urlTemplate
-        case "openWith": value = q.openWith ?? ""
-        default: value = ""
+        case "trigger":
+            value = q.trigger
+            toolTip = "Trigger: \(q.trigger)"
+        case "name":
+            value = q.name
+            toolTip = q.name
+        case "url":
+            value = q.urlTemplate
+            toolTip = q.urlTemplate
+        case "openWith":
+            value = q.openWith ?? ""
+            toolTip = q.openWith
+        default:
+            value = ""
+            toolTip = nil
         }
-        let cell = NSTableCellView()
-        let label = NSTextField(labelWithString: value)
-        label.lineBreakMode = .byTruncatingMiddle
-        label.translatesAutoresizingMaskIntoConstraints = false
-        cell.addSubview(label)
-        NSLayoutConstraint.activate([
-            label.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: 4),
-            label.trailingAnchor.constraint(equalTo: cell.trailingAnchor, constant: -4),
-            label.centerYAnchor.constraint(equalTo: cell.centerYAnchor)
-        ])
-        return cell
+        return GeekUIKit.makeDetailTableCell(
+            text: value,
+            lineBreak: id == "url" ? .byTruncatingMiddle : .byTruncatingTail,
+            toolTip: toolTip
+        )
     }
 }

@@ -16,6 +16,7 @@ final class BaseDetailContainer: NSView {
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         translatesAutoresizingMaskIntoConstraints = false
+        GeekUIKit.installDetailRootChrome(on: self)
         installChrome()
     }
 

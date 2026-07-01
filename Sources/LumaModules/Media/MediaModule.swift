@@ -177,7 +177,7 @@ public actor MediaModule: LumaModule {
     private func emptyQueryResult() async -> ModuleResult {
         let recent = MediaIndex.recent(cachedItems, limit: 8)
         guard !recent.isEmpty else {
-            return ModuleResult(items: [])
+            return ModuleResult(items: [manageLogResult()])
         }
         return ModuleResult(items: recent.map { itemResult($0) })
     }

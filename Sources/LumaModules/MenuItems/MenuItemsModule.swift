@@ -45,7 +45,41 @@ public actor MenuItemsModule: LumaModule {
         }
         let records = await service.recordsForTarget(deadline: context.deadline)
         let matches = MenuItemsIndex.search(records, query: payload, limit: 8)
+        if matches.isEmpty {
+            let diagnostic = await menuSearchDiagnostic(records: records, query: payload, context: context)
+            return ModuleResult(items: [], diagnostic: diagnostic)
+        }
         return ModuleResult(items: matches.map { row(for: $0.record) })
+    }
+
+    private func menuSearchDiagnostic(
+        records: [MenuItemRecord],
+        query: String,
+        context: QueryContext
+    ) async -> ModuleDiagnostic? {
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty, records.isEmpty {
+            return ModuleDiagnostic(
+                kind: .degraded,
+                message: "No cached menu items for the frontmost app yet"
+            )
+        }
+        if records.isEmpty {
+            if await context.platform.accessibility.isTrusted() == false {
+                return ModuleDiagnostic(
+                    kind: .permissionRequired,
+                    message: "Grant Accessibility access to read the frontmost app menu"
+                )
+            }
+            return ModuleDiagnostic(
+                kind: .degraded,
+                message: "Menu cache is empty — activate a target app and try again"
+            )
+        }
+        return ModuleDiagnostic(
+            kind: .degraded,
+            message: "No menu items match \"\(trimmed)\""
+        )
     }
 
     public func perform(_ action: Action, context: ActionContext) async throws {

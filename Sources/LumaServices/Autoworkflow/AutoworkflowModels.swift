@@ -225,6 +225,18 @@ public struct AutoworkflowTaskItem: Sendable, Codable {
         self.goal = goal
         self.iteration = iteration
     }
+
+    public func withStatus(_ status: String) -> AutoworkflowTaskItem {
+        AutoworkflowTaskItem(
+            taskID: taskID,
+            status: status,
+            targetRepo: targetRepo,
+            phase: phase,
+            updatedAt: updatedAt,
+            goal: goal,
+            iteration: iteration
+        )
+    }
 }
 
 // MARK: - Configuration

@@ -55,7 +55,7 @@ public actor WordbookModule: LumaModule {
         let searchText = payload
 
         if searchText.compare("review", options: .caseInsensitive) == .orderedSame {
-            return ModuleResult(items: [])
+            return ModuleResult(items: [reviewStartRow(dueCount: await storeDueTodayCount())])
         }
 
         if searchText.isEmpty {
@@ -98,6 +98,32 @@ public actor WordbookModule: LumaModule {
         cachedDue = due
         cachedDueAt = now
         return due
+    }
+
+    private func reviewStartRow(dueCount: Int) -> ResultItem {
+        let subtitle: String
+        if dueCount == 0 {
+            subtitle = "No words due — open Wordbook to browse or import"
+        } else if dueCount == 1 {
+            subtitle = "1 word due today"
+        } else {
+            subtitle = "\(dueCount) words due today"
+        }
+        let payload = (try? ModuleActionCoding.encode(WordbookAction.review)) ?? Data()
+        return ResultItem(
+            id: ResultID(module: Self.manifest.identifier, key: "review"),
+            title: "Start Review",
+            titleAttributed: AttributedString("Start Review"),
+            subtitle: subtitle,
+            icon: .symbol("text.book.closed"),
+            primaryAction: Action(
+                id: ActionID(module: Self.manifest.identifier, key: "review"),
+                title: "Start Review",
+                kind: .openModuleDetail(.wordbook, payload: payload)
+            ),
+            rankingHints: RankingHints(basePriority: Self.manifest.priority + 3),
+            rowKind: .starter
+        )
     }
 
     private func wordResult(_ word: WordEntry) -> ResultItem {

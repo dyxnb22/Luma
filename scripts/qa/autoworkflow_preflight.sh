@@ -57,6 +57,14 @@ ensure_qa_source() {
 Temporary source directory for the manual Auto Workflow UI acceptance pass.
 EOF
   fi
+  if ! git -C "$QA_SOURCE" rev-parse --is-inside-work-tree &>/dev/null; then
+    git -C "$QA_SOURCE" init -b main
+    git -C "$QA_SOURCE" add README.md
+    git -C "$QA_SOURCE" -c user.name='Luma QA' -c user.email='luma-qa@example.invalid' \
+      commit -m 'Initialize Luma Auto Workflow QA source'
+  elif ! git -C "$QA_SOURCE" rev-parse --verify main &>/dev/null; then
+    git -C "$QA_SOURCE" branch -m main
+  fi
 }
 
 module_enabled() {

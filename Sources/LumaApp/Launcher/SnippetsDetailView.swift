@@ -75,10 +75,11 @@ final class SnippetsDetailView: NSObject, ModuleDetailView {
         tableView.translatesAutoresizingMaskIntoConstraints = false
 
         for (id, title, width) in [
-            ("title", "Title", 160.0),
-            ("trigger", "Trigger", 100.0),
-            ("tags", "Tags", 100.0),
-            ("lastUsed", "Last Used", 100.0)
+            ("title", "Title", 140.0),
+            ("trigger", "Trigger", 88.0),
+            ("tags", "Tags", 88.0),
+            ("lastUsed", "Last Used", 88.0),
+            ("preview", "Preview", 180.0)
         ] {
             let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier(id))
             column.title = title
@@ -86,6 +87,13 @@ final class SnippetsDetailView: NSObject, ModuleDetailView {
             tableView.addTableColumn(column)
         }
         GeekUIKit.styleDetailTableColumns(tableView)
+        if let previewColumn = tableView.tableColumn(withIdentifier: NSUserInterfaceItemIdentifier("preview")) {
+            GeekUIKit.configureDetailTableColumn(previewColumn, minWidth: 120)
+        }
+        if let lastUsedColumn = tableView.tableColumn(withIdentifier: NSUserInterfaceItemIdentifier("lastUsed")) {
+            GeekUIKit.configureDetailTableColumn(lastUsedColumn, minWidth: 72, maxWidth: 110, resizingMask: .userResizingMask)
+        }
+        tableView.columnAutoresizingStyle = .lastColumnOnlyAutoresizingStyle
 
         tableScroll.documentView = tableView
         tableScroll.hasVerticalScroller = true
@@ -297,30 +305,45 @@ extension SnippetsDetailView: NSTableViewDataSource, NSTableViewDelegate {
     func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
         guard snippets.indices.contains(row), let id = tableColumn?.identifier.rawValue else { return nil }
         let snippet = snippets[row]
-        let cell = NSTextField(labelWithString: "")
-        cell.font = .systemFont(ofSize: 12)
-        cell.lineBreakMode = .byTruncatingTail
+        let toolTip = SnippetDisplay.rowToolTip(snippet)
         switch id {
         case "title":
-            cell.stringValue = snippet.title
-            cell.font = .systemFont(ofSize: 13, weight: .medium)
+            let title = SnippetDisplay.disambiguatedTitle(snippet, among: snippets)
+            return GeekUIKit.makeDetailTableCell(
+                text: title,
+                font: .systemFont(ofSize: 13, weight: .medium),
+                toolTip: toolTip
+            )
         case "trigger":
-            cell.stringValue = snippet.displayTrigger
-            cell.textColor = .secondaryLabelColor
-            cell.font = .monospacedSystemFont(ofSize: 12, weight: .regular)
+            return GeekUIKit.makeDetailTableCell(
+                text: snippet.displayTrigger,
+                font: .monospacedSystemFont(ofSize: 12, weight: .regular),
+                color: .secondaryLabelColor,
+                toolTip: toolTip
+            )
+        case "preview":
+            return GeekUIKit.makeDetailTableCell(
+                text: SnippetDisplay.contentPreview(snippet),
+                color: .secondaryLabelColor,
+                lineBreak: .byTruncatingMiddle,
+                toolTip: toolTip
+            )
         case "tags":
-            cell.stringValue = snippet.tags.joined(separator: ", ")
-            cell.textColor = .secondaryLabelColor
+            return GeekUIKit.makeDetailTableCell(
+                text: snippet.tags.joined(separator: ", "),
+                color: .secondaryLabelColor,
+                toolTip: toolTip
+            )
         case "lastUsed":
+            let value: String
             if snippet.usageCount == 0 {
-                cell.stringValue = "—"
+                value = "—"
             } else {
-                cell.stringValue = RelativeDateTimeFormatter().localizedString(for: snippet.lastUsedAt, relativeTo: Date())
+                value = RelativeDateTimeFormatter().localizedString(for: snippet.lastUsedAt, relativeTo: Date())
             }
-            cell.textColor = .secondaryLabelColor
+            return GeekUIKit.makeDetailTableCell(text: value, color: .secondaryLabelColor, toolTip: toolTip)
         default:
-            break
+            return nil
         }
-        return cell
     }
 }

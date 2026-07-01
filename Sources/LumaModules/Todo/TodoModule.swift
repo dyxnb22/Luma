@@ -101,10 +101,13 @@ public actor TodoModule: LumaModule {
             // List today's due (cached to avoid EventKit IPC on every keystroke)
             do {
                 let due = try await cachedTodayDue()
+                var items = [openDetailRow(dueCount: due.count)]
                 if due.isEmpty {
-                    return ModuleResult(items: [emptyTodayRow()])
+                    items.append(emptyTodayRow())
+                } else {
+                    items.append(contentsOf: due.map(dueRow(_:)))
                 }
-                return ModuleResult(items: due.map(dueRow(_:)))
+                return ModuleResult(items: items)
             } catch RemindersServiceError.accessDenied {
                 return ModuleResult(items: [permissionRow(authorization: .denied)])
             } catch {
@@ -345,6 +348,31 @@ public actor TodoModule: LumaModule {
                 kind: .custom(payload: payload, handler: Self.manifest.identifier)
             ),
             rankingHints: RankingHints(basePriority: Self.manifest.priority)
+        )
+    }
+
+    private func openDetailRow(dueCount: Int) -> ResultItem {
+        let subtitle: String
+        if dueCount == 0 {
+            subtitle = "Today, Upcoming, Inbox, and Completed"
+        } else if dueCount == 1 {
+            subtitle = "1 due today · open full list"
+        } else {
+            subtitle = "\(dueCount) due today · open full list"
+        }
+        return ResultItem(
+            id: ResultID(module: Self.manifest.identifier, key: "open-detail"),
+            title: "Open Todo",
+            titleAttributed: AttributedString("Open Todo"),
+            subtitle: subtitle,
+            icon: .symbol("checklist"),
+            primaryAction: Action(
+                id: ActionID(module: Self.manifest.identifier, key: "open-detail"),
+                title: "Open Todo",
+                kind: .openModuleDetail(.todo, payload: nil)
+            ),
+            rankingHints: RankingHints(basePriority: Self.manifest.priority + 2),
+            rowKind: .starter
         )
     }
 

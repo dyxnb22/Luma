@@ -88,6 +88,7 @@ struct SettingsSwiftUIView: View {
             detailContent
         }
         .frame(minWidth: 680, minHeight: 480)
+        .background(SettingsKeyboardSupport())
     }
 
     @ViewBuilder
@@ -164,18 +165,35 @@ struct GeneralSettingsView: View {
                     Text("Luma \(v)").foregroundStyle(.secondary).font(.system(size: 13))
                 }
                 Divider()
-                SettingsRow("Data location", icon: "folder") {
-                    let path = (try? FileManager.default
-                        .url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: false)
-                        .appendingPathComponent("Luma").path) ?? "~/Library/Application Support/Luma"
-                    Text(path)
-                        .font(.system(size: 11, design: .monospaced))
-                        .foregroundStyle(.secondary)
-                        .textSelection(.enabled)
-                        .lineLimit(2)
-                }
+                dataLocationRow()
             }
         }
+    }
+
+    @ViewBuilder
+    private func dataLocationRow() -> some View {
+        let path = (try? FileManager.default
+            .url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: false)
+            .appendingPathComponent("Luma").path) ?? "~/Library/Application Support/Luma"
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 12) {
+                Image(systemName: "folder")
+                    .foregroundStyle(.secondary)
+                    .frame(width: 18)
+                Text("Data location")
+                    .font(.system(size: 13))
+                Spacer()
+            }
+            Text(path)
+                .font(.system(size: 11, design: .monospaced))
+                .foregroundStyle(.secondary)
+                .textSelection(.enabled)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.leading, 30)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 9)
     }
 }
 
@@ -223,8 +241,19 @@ struct ModulesSettingsView: View {
                                 }
                             }
                         )) {
-                            Label(module.name, systemImage: moduleIcon(module.id))
-                                .font(.system(size: 13))
+                            HStack(spacing: 8) {
+                                Label(module.name, systemImage: moduleIcon(module.id))
+                                    .font(.system(size: 13))
+                                if ModuleRegistry.bundle(for: module.id)?.manifest.defaultEnabled == false {
+                                    Text("Default off")
+                                        .font(.caption2.weight(.semibold))
+                                        .foregroundStyle(.orange)
+                                        .padding(.horizontal, 6)
+                                        .padding(.vertical, 2)
+                                        .background(Color.orange.opacity(0.12))
+                                        .clipShape(Capsule())
+                                }
+                            }
                         }
                         .disabled(!enabledModules.contains(module.id))
                     }
@@ -259,8 +288,19 @@ struct ModulesSettingsView: View {
                                 }
                             }
                         )) {
-                            Label(module.name, systemImage: moduleIcon(module.id))
-                                .font(.system(size: 13))
+                            HStack(spacing: 8) {
+                                Label(module.name, systemImage: moduleIcon(module.id))
+                                    .font(.system(size: 13))
+                                if ModuleRegistry.bundle(for: module.id)?.manifest.defaultEnabled == false {
+                                    Text("Default off")
+                                        .font(.caption2.weight(.semibold))
+                                        .foregroundStyle(.orange)
+                                        .padding(.horizontal, 6)
+                                        .padding(.vertical, 2)
+                                        .background(Color.orange.opacity(0.12))
+                                        .clipShape(Capsule())
+                                }
+                            }
                         }
                         if ModuleRegistry.bundle(for: module.id)?.manifest.defaultEnabled == false,
                            let note = ModuleRegistry.defaultOffNote(for: module.id) {
@@ -603,23 +643,37 @@ struct AccessibilitySettingsView: View {
                     }
                 }
                 Divider()
-                HStack {
-                    Text("Required for window focus and snippet auto-paste features.")
-                        .font(.caption).foregroundStyle(.secondary)
-                    Spacer()
-                    Button("Grant Access…") {
-                        AXService.requestPermission()
-                        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
-                            NSWorkspace.shared.open(url)
+                if trusted {
+                    HStack {
+                        Text("Accessibility is enabled for Luma.")
+                            .font(.caption).foregroundStyle(.secondary)
+                        Spacer()
+                        Button("Open System Settings…") {
+                            if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
+                                NSWorkspace.shared.open(url)
+                            }
                         }
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
-                            trusted = AXService.isProcessTrusted()
-                        }
+                        .buttonStyle(.bordered)
                     }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(trusted)
+                    .padding(.horizontal, 12).padding(.vertical, 6)
+                } else {
+                    HStack {
+                        Text("Required for window focus and snippet auto-paste features.")
+                            .font(.caption).foregroundStyle(.secondary)
+                        Spacer()
+                        Button("Grant Access…") {
+                            AXService.requestPermission()
+                            if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
+                                NSWorkspace.shared.open(url)
+                            }
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+                                trusted = AXService.isProcessTrusted()
+                            }
+                        }
+                        .buttonStyle(.borderedProminent)
+                    }
+                    .padding(.horizontal, 12).padding(.vertical, 6)
                 }
-                .padding(.horizontal, 12).padding(.vertical, 6)
             }
         }
     }
@@ -695,6 +749,7 @@ struct SettingsPage<Content: View>: View {
             .frame(maxWidth: .infinity, alignment: .topLeading)
         }
         .background(Color(NSColor.windowBackgroundColor))
+        .focusable()
     }
 }
 
@@ -800,14 +855,15 @@ struct AutoworkflowSettingsView: View {
                             .font(.system(size: 13))
                     }
                 }
-                .onAppear { checkAvailability() }
             }
+            .onAppear { checkAvailability() }
 
             SettingsCard("Paths") {
                 VStack(alignment: .leading, spacing: 6) {
                     SettingsRow("Source path", icon: "folder") {
                         TextField("/Users/diaoyuxuan/autoworkflow", text: $autoworkflowPath)
                             .textFieldStyle(.roundedBorder).frame(width: 280)
+                            .onChange(of: autoworkflowPath) { checkAvailability() }
                     }
                     Text("Directory where autoworkflow is cloned (cc-loop source)")
                         .font(.caption).foregroundStyle(.tertiary).padding(.leading, 30)
@@ -908,6 +964,7 @@ struct AutoworkflowSettingsView: View {
             await store.save(config)
             await LauncherEnvironment.current?.autoworkflowModule.updateConfig(config)
         }
+        checkAvailability()
         saved = true
         Task {
             try? await Task.sleep(for: .seconds(2))
@@ -939,4 +996,139 @@ private struct ActivitySettingsRepresentable: NSViewRepresentable {
     let usage: PersistentUsageTracker
     func makeNSView(context: Context) -> ActivitySettingsView { ActivitySettingsView(usage: usage) }
     func updateNSView(_ nsView: ActivitySettingsView, context: Context) { nsView.refresh() }
+}
+
+// MARK: - Keyboard support
+
+private struct SettingsKeyboardSupport: NSViewRepresentable {
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    func makeNSView(context: Context) -> SettingsKeyHandlerView {
+        let view = SettingsKeyHandlerView()
+        view.onWindowChanged = { [weak view] in
+            guard let view else { return }
+            context.coordinator.syncMonitor(for: view.window)
+        }
+        return view
+    }
+
+    func updateNSView(_ nsView: SettingsKeyHandlerView, context: Context) {
+        nsView.onWindowChanged = { [weak nsView] in
+            guard let nsView else { return }
+            context.coordinator.syncMonitor(for: nsView.window)
+        }
+        context.coordinator.syncMonitor(for: nsView.window)
+    }
+
+    static func dismantleNSView(_ nsView: SettingsKeyHandlerView, coordinator: Coordinator) {
+        coordinator.tearDown()
+    }
+
+    @MainActor
+    final class Coordinator {
+        private var monitor: Any?
+
+        func syncMonitor(for window: NSWindow?) {
+            tearDown()
+            guard let window else { return }
+            monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+                guard event.window === window else { return event }
+                return SettingsKeyboardActions.handle(event, in: window)
+            }
+        }
+
+        func tearDown() {
+            if let monitor {
+                NSEvent.removeMonitor(monitor)
+                self.monitor = nil
+            }
+        }
+    }
+}
+
+@MainActor
+private enum SettingsKeyboardActions {
+    static func handle(_ event: NSEvent, in window: NSWindow) -> NSEvent? {
+        if event.modifierFlags.contains(.command),
+           event.charactersIgnoringModifiers?.lowercased() == "w" {
+            window.close()
+            return nil
+        }
+        if event.keyCode == 121, shouldHandlePageScroll(for: window) {
+            scrollPage(.down, in: window)
+            return nil
+        }
+        if event.keyCode == 116, shouldHandlePageScroll(for: window) {
+            scrollPage(.up, in: window)
+            return nil
+        }
+        return event
+    }
+
+    private enum PageDirection { case up, down }
+
+    private static func shouldHandlePageScroll(for window: NSWindow) -> Bool {
+        guard let responder = window.firstResponder else { return true }
+        if responder is NSTextView { return false }
+        if let field = responder as? NSTextField, field.isEditable {
+            let wraps = field.cell?.wraps == true
+            if wraps || field.maximumNumberOfLines != 1 {
+                return false
+            }
+        }
+        return true
+    }
+
+    private static func scrollPage(_ direction: PageDirection, in window: NSWindow) {
+        guard let scrollView = primaryScrollView(in: window.contentView) else { return }
+        let clipView = scrollView.contentView
+        var origin = clipView.bounds.origin
+        let page = clipView.bounds.height * 0.85
+        switch direction {
+        case .down:
+            origin.y += page
+        case .up:
+            origin.y = max(0, origin.y - page)
+        }
+        clipView.animator().setBoundsOrigin(origin)
+        scrollView.reflectScrolledClipView(clipView)
+    }
+
+    private static func primaryScrollView(in root: NSView?) -> NSScrollView? {
+        guard let root else { return nil }
+        var candidates: [NSScrollView] = []
+        collectScrollViews(in: root, into: &candidates)
+        return candidates
+            .filter { scrollView in
+                guard let document = scrollView.documentView else { return false }
+                return document.bounds.height > scrollView.contentView.bounds.height + 1
+            }
+            .max(by: { $0.contentView.bounds.height < $1.contentView.bounds.height })
+    }
+
+    private static func collectScrollViews(in view: NSView, into result: inout [NSScrollView]) {
+        if let scrollView = view as? NSScrollView {
+            result.append(scrollView)
+        }
+        for subview in view.subviews {
+            collectScrollViews(in: subview, into: &result)
+        }
+    }
+}
+
+@MainActor
+private final class SettingsKeyHandlerView: NSView {
+    var onWindowChanged: (() -> Void)?
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        onWindowChanged?()
+    }
+
+    override func viewWillMove(toWindow newWindow: NSWindow?) {
+        if newWindow == nil {
+            onWindowChanged?()
+        }
+        super.viewWillMove(toWindow: newWindow)
+    }
 }

@@ -145,6 +145,41 @@ import Testing
         #expect(pid == 4242)
     }
 
+    @Test func detachAutoArgumentsUsedByStartAndResume() {
+        let args = AutoworkflowJSONCodec.detachAutoArguments(stateRoot: "/tmp/state", taskID: "task-abc")
+
+        #expect(args == ["--state-root", "/tmp/state", "auto", "--detach", "--task-id", "task-abc"])
+    }
+
+    @Test func readTaskStatusFromStateFile() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("luma-aw-test-\(UUID().uuidString)", isDirectory: true)
+        let taskID = "task-test"
+        let taskDir = root.appendingPathComponent("tasks/\(taskID)", isDirectory: true)
+        try FileManager.default.createDirectory(at: taskDir, withIntermediateDirectories: true)
+        let stateJSON = """
+        {"task_id":"\(taskID)","status":"stopped","iteration":1}
+        """
+        try stateJSON.write(to: taskDir.appendingPathComponent("state.json"), atomically: true, encoding: .utf8)
+
+        let status = AutoworkflowJSONCodec.readTaskStatusFromStateFile(
+            stateRoot: root.path,
+            taskID: taskID
+        )
+
+        #expect(status == "stopped")
+        try? FileManager.default.removeItem(at: root)
+    }
+
+    @Test func taskItemWithStatus() {
+        let item = AutoworkflowTaskItem(taskID: "task-1", status: "running", goal: "Test")
+        let updated = item.withStatus("stopped")
+
+        #expect(updated.status == "stopped")
+        #expect(updated.taskID == "task-1")
+        #expect(updated.goal == "Test")
+    }
+
     // MARK: - Test 6: Extract JSON payload after prefixed logs
 
     @Test func extractPayloadSkipsPrefixedLogBrackets() throws {

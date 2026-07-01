@@ -68,11 +68,7 @@ public actor AutoworkflowService: AutoworkflowServiceProtocol {
     // MARK: - Start (auto --detach)
 
     public func startTask(taskID: String, config: AutoworkflowConfig) async -> Result<Int32, AutoworkflowError> {
-        let args: [String] = [
-            "--state-root", config.stateRoot,
-            "auto", "--detach",
-            "--task-id", taskID
-        ]
+        let args = AutoworkflowJSONCodec.detachAutoArguments(stateRoot: config.stateRoot, taskID: taskID)
         return await run(ccLoopPath, arguments: args)
             .flatMap { output in
                 guard let pid = AutoworkflowJSONCodec.parseDetachedPID(from: output) else {
@@ -86,7 +82,7 @@ public actor AutoworkflowService: AutoworkflowServiceProtocol {
 
     public func stopTask(taskID: String, config: AutoworkflowConfig) async -> Result<Void, AutoworkflowError> {
         // Read runner.pid
-        let pidPath = "\(config.stateRoot)/tasks/\(taskID)/runner.pid"
+        let pidPath = runnerPIDPath(taskID: taskID, config: config)
         guard let pidString = try? String(contentsOfFile: pidPath, encoding: .utf8),
               let pid = Int32(pidString.trimmingCharacters(in: .whitespacesAndNewlines)) else {
             return .failure(.noTaskFound)
@@ -134,18 +130,7 @@ public actor AutoworkflowService: AutoworkflowServiceProtocol {
     // MARK: - Resume
 
     public func resumeTask(taskID: String, config: AutoworkflowConfig) async -> Result<Int32, AutoworkflowError> {
-        let args: [String] = [
-            "--state-root", config.stateRoot,
-            "resume",
-            "--task-id", taskID
-        ]
-        return await run(ccLoopPath, arguments: args)
-            .flatMap { output in
-                guard let pid = AutoworkflowJSONCodec.parseDetachedPID(from: output) else {
-                    return .failure(.invalidJSON(output: output))
-                }
-                return .success(pid)
-            }
+        await startTask(taskID: taskID, config: config)
     }
 
     // MARK: - Status
@@ -172,6 +157,9 @@ public actor AutoworkflowService: AutoworkflowServiceProtocol {
                 }
                 do {
                     let snapshot = try AutoworkflowJSONCodec.decodeStatus(from: data)
+                    if !snapshot.isRunning {
+                        cleanupStaleRunnerPID(taskID: taskID, config: config)
+                    }
                     return .success(snapshot)
                 } catch {
                     return .failure(.invalidJSON(output: "Decode error: \(error.localizedDescription)"))
@@ -202,7 +190,8 @@ public actor AutoworkflowService: AutoworkflowServiceProtocol {
                 }
                 do {
                     let items = try AutoworkflowJSONCodec.decodeTaskList(from: data)
-                    return .success(items)
+                    let reconciled = reconcileListItems(items, config: config)
+                    return .success(reconciled)
                 } catch {
                     return .failure(.invalidJSON(output: "Decode error: \(error.localizedDescription)"))
                 }
@@ -258,6 +247,54 @@ public actor AutoworkflowService: AutoworkflowServiceProtocol {
         ]
         return await run(ccLoopPath, arguments: args)
             .map { _ in true }
+    }
+
+    // MARK: - Runner PID hygiene
+
+    @discardableResult
+    private func cleanupStaleRunnerPID(taskID: String, config: AutoworkflowConfig) -> Bool {
+        let pidPath = runnerPIDPath(taskID: taskID, config: config)
+        guard FileManager.default.fileExists(atPath: pidPath) else { return false }
+        guard let pidString = try? String(contentsOfFile: pidPath, encoding: .utf8),
+              let pid = Int32(pidString.trimmingCharacters(in: .whitespacesAndNewlines)) else {
+            try? FileManager.default.removeItem(atPath: pidPath)
+            return true
+        }
+        if Darwin.kill(pid, 0) != 0 {
+            try? FileManager.default.removeItem(atPath: pidPath)
+            return true
+        }
+        return false
+    }
+
+    private func runnerPIDPath(taskID: String, config: AutoworkflowConfig) -> String {
+        "\(config.stateRoot)/tasks/\(taskID)/runner.pid"
+    }
+
+    private func isRunnerProcessAlive(taskID: String, config: AutoworkflowConfig) -> Bool {
+        let pidPath = runnerPIDPath(taskID: taskID, config: config)
+        guard let pidString = try? String(contentsOfFile: pidPath, encoding: .utf8),
+              let pid = Int32(pidString.trimmingCharacters(in: .whitespacesAndNewlines)) else {
+            return false
+        }
+        return Darwin.kill(pid, 0) == 0
+    }
+
+    private func reconcileListItems(
+        _ items: [AutoworkflowTaskItem],
+        config: AutoworkflowConfig
+    ) -> [AutoworkflowTaskItem] {
+        items.map { item in
+            cleanupStaleRunnerPID(taskID: item.taskID, config: config)
+            guard item.status == "running", !isRunnerProcessAlive(taskID: item.taskID, config: config) else {
+                return item
+            }
+            let resolved = AutoworkflowJSONCodec.readTaskStatusFromStateFile(
+                stateRoot: config.stateRoot,
+                taskID: item.taskID
+            ) ?? "stopped"
+            return item.withStatus(resolved)
+        }
     }
 
     // MARK: - Process execution

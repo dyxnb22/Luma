@@ -19,6 +19,20 @@ public enum AutoworkflowJSONCodec {
         return Int32(output[pidMatch].dropFirst(4))
     }
 
+    public static func detachAutoArguments(stateRoot: String, taskID: String) -> [String] {
+        ["--state-root", stateRoot, "auto", "--detach", "--task-id", taskID]
+    }
+
+    public static func readTaskStatusFromStateFile(stateRoot: String, taskID: String) -> String? {
+        let path = "\(stateRoot)/tasks/\(taskID)/state.json"
+        guard let data = try? Data(contentsOf: URL(fileURLWithPath: path)),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let status = json["status"] as? String else {
+            return nil
+        }
+        return status
+    }
+
     public static func extractPayload(from output: String) -> String? {
         let trimmed = output.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }

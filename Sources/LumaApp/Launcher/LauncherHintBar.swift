@@ -18,14 +18,14 @@ final class LauncherHintBar: NSView {
         wantsLayer = true
 
         leftLabel.font = TypographyTokens.monoCaption()
-        leftLabel.textColor = .tertiaryLabelColor
+        leftLabel.textColor = .secondaryLabelColor
         leftLabel.isBezeled = false
         leftLabel.isEditable = false
         leftLabel.drawsBackground = false
         leftLabel.translatesAutoresizingMaskIntoConstraints = false
 
         statusLabel.font = TypographyTokens.caption2()
-        statusLabel.textColor = .tertiaryLabelColor
+        statusLabel.textColor = .secondaryLabelColor
         statusLabel.alignment = .right
         statusLabel.isBezeled = false
         statusLabel.isEditable = false
@@ -67,7 +67,14 @@ final class LauncherHintBar: NSView {
         var parts = ["↩ Open"]
         if let secondary = selectedItem?.secondaryActions.first {
             parts.append("⇥ More")
-            parts.append("⌘↩ \(shortActionLabel(secondary.title))")
+            switch secondary.confirmation {
+            case .requireSecondModifier:
+                parts.append("⌘↩ \(shortActionLabel(secondary.title)) · confirm")
+            case .requireReturn:
+                parts.append("⌘↩ \(shortActionLabel(secondary.title)) · confirm")
+            case .none:
+                parts.append("⌘↩ \(shortActionLabel(secondary.title))")
+            }
         } else {
             parts.append("⇥ More")
         }

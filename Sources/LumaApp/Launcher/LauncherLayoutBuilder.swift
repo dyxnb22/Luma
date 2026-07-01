@@ -27,6 +27,8 @@ enum LauncherLayoutBuilder {
         hintBar.translatesAutoresizingMaskIntoConstraints = false
         actionPanel.translatesAutoresizingMaskIntoConstraints = false
         contentContainer.translatesAutoresizingMaskIntoConstraints = false
+        contentContainer.wantsLayer = true
+        contentContainer.layer?.masksToBounds = true
 
         contentContainer.addSubview(listView)
         root.addSubview(performanceStrip)
@@ -98,6 +100,8 @@ enum LauncherLayoutBuilder {
         detailContainer.translatesAutoresizingMaskIntoConstraints = false
         detailContainer.alphaValue = 0
         detailContainer.isHidden = true
+        detailContainer.wantsLayer = true
+        detailContainer.layer?.masksToBounds = true
         detailTopBar.translatesAutoresizingMaskIntoConstraints = false
         detailTopBar.wantsLayer = true
 

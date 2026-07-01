@@ -28,6 +28,7 @@ final class AutoworkflowDetailView: ModuleDetailView {
     }
     private var state: UIState = .checking
     private var pollTask: Task<Void, Never>?
+    private var logFetchTask: Task<Void, Never>?
     private var lastSnapshot: AutoworkflowTaskSnapshot?
     private var tasks: [AutoworkflowTaskItem] = []
     private var selectedTaskID: String?
@@ -51,12 +52,12 @@ final class AutoworkflowDetailView: ModuleDetailView {
     private let taskListStack = NSStackView()
     private let taskListScroll = NSScrollView()
     private let contentStack = NSStackView()
+    private var containerFrameObserver: NSObjectProtocol?
 
     // MARK: - Font & sizing
     private static let titleFont = NSFont.systemFont(ofSize: 13, weight: .semibold)
     private static let bodyFont = NSFont.systemFont(ofSize: 12)
     private static let monoFont = NSFont.monospacedSystemFont(ofSize: 11, weight: .regular)
-    private static let sectionFont = NSFont.systemFont(ofSize: 11, weight: .semibold)
 
     init(module: AutoworkflowModule,
          service: any AutoworkflowServiceProtocol,
@@ -69,11 +70,15 @@ final class AutoworkflowDetailView: ModuleDetailView {
 
         let container = NSView()
         container.translatesAutoresizingMaskIntoConstraints = false
+        GeekUIKit.installDetailRootChrome(on: container)
         self.detailView = container
         setupUI(container: container)
     }
 
     func activate() {
+        installContainerFrameObserverIfNeeded()
+        updateDetailLabelWidth()
+        updateLogTextContainerWidth()
         Task {
             config = await module.getConfig()
             await checkHealthAndLoad()
@@ -82,6 +87,9 @@ final class AutoworkflowDetailView: ModuleDetailView {
 
     func deactivate() {
         stopPolling()
+        logFetchTask?.cancel()
+        logFetchTask = nil
+        removeContainerFrameObserver()
     }
 
     func prepareForLauncherHide() async {
@@ -94,7 +102,10 @@ final class AutoworkflowDetailView: ModuleDetailView {
               responder === goalField || responder === repoField else { return false }
         let goal = goalField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
         let repo = repoField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !goal.isEmpty, !repo.isEmpty else { return false }
+        if let validationError = startFieldValidationError(goal: goal, repo: repo) {
+            updateUI(state: .error(message: validationError))
+            return true
+        }
         startTapped()
         return true
     }
@@ -109,18 +120,69 @@ final class AutoworkflowDetailView: ModuleDetailView {
         setupLogViewer()
 
         contentStack.orientation = .vertical
+        contentStack.alignment = .leading
         contentStack.spacing = 12
         contentStack.distribution = .fill
         contentStack.translatesAutoresizingMaskIntoConstraints = false
-        contentStack.edgeInsets = NSEdgeInsets(top: 16, left: 20, bottom: 16, right: 20)
+        contentStack.edgeInsets = NSEdgeInsets(
+            top: LauncherChromeTokens.detailMargin,
+            left: LauncherChromeTokens.detailMargin,
+            bottom: LauncherChromeTokens.detailMargin,
+            right: LauncherChromeTokens.detailMargin
+        )
 
         container.addSubview(contentStack)
         NSLayoutConstraint.activate([
             contentStack.topAnchor.constraint(equalTo: container.topAnchor),
             contentStack.leadingAnchor.constraint(equalTo: container.leadingAnchor),
             contentStack.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            contentStack.widthAnchor.constraint(equalTo: container.widthAnchor),
             contentStack.bottomAnchor.constraint(lessThanOrEqualTo: container.bottomAnchor)
         ])
+
+        installContainerFrameObserverIfNeeded()
+    }
+
+    private func installContainerFrameObserverIfNeeded() {
+        guard containerFrameObserver == nil else { return }
+        detailView.postsFrameChangedNotifications = true
+        containerFrameObserver = NotificationCenter.default.addObserver(
+            forName: NSView.frameDidChangeNotification,
+            object: detailView,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in
+                self?.updateDetailLabelWidth()
+                self?.updateLogTextContainerWidth()
+            }
+        }
+    }
+
+    private func removeContainerFrameObserver() {
+        if let containerFrameObserver {
+            NotificationCenter.default.removeObserver(containerFrameObserver)
+            self.containerFrameObserver = nil
+        }
+    }
+
+    private func updateDetailLabelWidth() {
+        let width = contentStack.bounds.width - contentStack.edgeInsets.left - contentStack.edgeInsets.right
+        if width > 0 {
+            detailLabel.preferredMaxLayoutWidth = width
+        }
+    }
+
+    private func updateLogTextContainerWidth() {
+        guard let textContainer = logTextView.textContainer else { return }
+        let width = logScrollView.contentSize.width
+        guard width > 0 else { return }
+        textContainer.containerSize = NSSize(width: width, height: .greatestFiniteMagnitude)
+    }
+
+    private func addSectionCard(_ views: [NSView], header: String) {
+        let card = GeekUIKit.makeDetailSectionCard(header: header, contentViews: views)
+        contentStack.addArrangedSubview(card)
+        card.widthAnchor.constraint(equalTo: contentStack.widthAnchor).isActive = true
     }
 
     private func setupStatusHeader() {
@@ -149,8 +211,7 @@ final class AutoworkflowDetailView: ModuleDetailView {
         openSettingsButton.action = #selector(openSettingsTapped)
         openSettingsButton.isHidden = true
 
-        let headerGroup = sectionCard([headerStack, detailLabel, openSettingsButton], header: "STATUS")
-        contentStack.addArrangedSubview(headerGroup)
+        addSectionCard([headerStack, detailLabel, openSettingsButton], header: "STATUS")
     }
 
     private func setupConfigForm() {
@@ -172,8 +233,7 @@ final class AutoworkflowDetailView: ModuleDetailView {
         let taskFields = labeledField("Task ID", taskIDField)
         let testFields = labeledField("Tests", testCommandField)
 
-        let formGroup = sectionCard([fields, repoFields, taskFields, testFields], header: "NEW WORKFLOW")
-        contentStack.addArrangedSubview(formGroup)
+        addSectionCard([fields, repoFields, taskFields, testFields], header: "NEW WORKFLOW")
     }
 
     private func setupControls() {
@@ -206,73 +266,43 @@ final class AutoworkflowDetailView: ModuleDetailView {
         let btnStack = NSStackView(views: [startButton, stopButton, resumeButton, refreshButton])
         btnStack.spacing = 8
 
-        let ctrlGroup = sectionCard([btnStack], header: "CONTROLS")
-        contentStack.addArrangedSubview(ctrlGroup)
+        addSectionCard([btnStack], header: "CONTROLS")
     }
 
     private func setupLogViewer() {
         logTextView.isEditable = false
         logTextView.isSelectable = true
+        logTextView.isHorizontallyResizable = false
+        logTextView.isVerticallyResizable = true
         logTextView.font = Self.monoFont
         logTextView.textColor = .textColor
         logTextView.backgroundColor = .textBackgroundColor
         logTextView.string = "Log output will appear here..."
+        logTextView.textContainer?.widthTracksTextView = true
 
         logScrollView.documentView = logTextView
         logScrollView.hasVerticalScroller = true
         logScrollView.translatesAutoresizingMaskIntoConstraints = false
         logScrollView.heightAnchor.constraint(greaterThanOrEqualToConstant: 120).isActive = true
 
-        let logGroup = sectionCard([logScrollView], header: "LOG")
-        contentStack.addArrangedSubview(logGroup)
+        addSectionCard([logScrollView], header: "LOG")
     }
 
     private func setupTaskList() {
         taskListStack.orientation = .vertical
         taskListStack.spacing = 4
-        taskListStack.distribution = .fillEqually
+        taskListStack.distribution = .fill
 
         taskListScroll.documentView = taskListStack
         taskListScroll.hasVerticalScroller = true
         taskListScroll.translatesAutoresizingMaskIntoConstraints = false
-        taskListScroll.heightAnchor.constraint(lessThanOrEqualToConstant: 150).isActive = true
+        taskListScroll.heightAnchor.constraint(greaterThanOrEqualToConstant: 120).isActive = true
+        taskListScroll.heightAnchor.constraint(lessThanOrEqualToConstant: 200).isActive = true
 
-        let tasksGroup = sectionCard([taskListScroll], header: "TASKS")
-        contentStack.addArrangedSubview(tasksGroup)
+        addSectionCard([taskListScroll], header: "TASKS")
     }
 
     // MARK: - Helpers
-
-    private func sectionCard(_ views: [NSView], header: String) -> NSView {
-        let headerLabel = NSTextField(labelWithString: header.uppercased())
-        headerLabel.font = Self.sectionFont
-        headerLabel.textColor = .secondaryLabelColor
-
-        let stack = NSStackView()
-        stack.orientation = .vertical
-        stack.spacing = 6
-        stack.setContentHuggingPriority(.defaultHigh, for: .vertical)
-
-        stack.addArrangedSubview(headerLabel)
-        for v in views { stack.addArrangedSubview(v) }
-
-        let card = NSView()
-        card.wantsLayer = true
-        card.layer?.backgroundColor = NSColor.controlBackgroundColor.cgColor
-        card.layer?.cornerRadius = 8
-        card.layer?.borderWidth = 0.5
-        card.layer?.borderColor = NSColor.separatorColor.cgColor
-
-        stack.translatesAutoresizingMaskIntoConstraints = false
-        card.addSubview(stack)
-        NSLayoutConstraint.activate([
-            stack.topAnchor.constraint(equalTo: card.topAnchor, constant: 10),
-            stack.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 12),
-            stack.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -12),
-            stack.bottomAnchor.constraint(equalTo: card.bottomAnchor, constant: -10)
-        ])
-        return card
-    }
 
     private func labeledField(_ label: String, _ field: NSControl) -> NSView {
         let lbl = NSTextField(labelWithString: label)
@@ -280,10 +310,23 @@ final class AutoworkflowDetailView: ModuleDetailView {
         lbl.textColor = .secondaryLabelColor
         lbl.widthAnchor.constraint(equalToConstant: 70).isActive = true
 
+        field.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        field.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+
         let stack = NSStackView(views: [lbl, field])
         stack.spacing = 8
         stack.alignment = .centerY
+        stack.translatesAutoresizingMaskIntoConstraints = false
         return stack
+    }
+
+    private func startFieldValidationError(goal: String, repo: String) -> String? {
+        let goalEmpty = goal.isEmpty
+        let repoEmpty = repo.isEmpty
+        if goalEmpty && repoEmpty { return "Goal and Repo are required" }
+        if goalEmpty { return "Goal is required" }
+        if repoEmpty { return "Repo path is required" }
+        return nil
     }
 
     // MARK: - Actions
@@ -292,14 +335,19 @@ final class AutoworkflowDetailView: ModuleDetailView {
         let goal = goalField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
         let repo = repoField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
 
-        guard !goal.isEmpty, !repo.isEmpty else {
-            updateUI(state: .error(message: "Goal and Repo are required"))
+        if let validationError = startFieldValidationError(goal: goal, repo: repo) {
+            updateUI(state: .error(message: validationError))
             return
         }
         if isStarting { return }
         isStarting = true
         startButton.isEnabled = false
         startButton.title = "Starting..."
+        setStatus(color: .systemGray, text: "Starting...")
+        detailLabel.stringValue = "Running preflight checks..."
+        openSettingsButton.isHidden = true
+        stopButton.isHidden = true
+        resumeButton.isHidden = true
 
         let taskID = taskIDField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
         let testCmd = testCommandField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -334,6 +382,12 @@ final class AutoworkflowDetailView: ModuleDetailView {
                 return
             }
 
+            await MainActor.run {
+                upsertTaskInList(taskID: resolvedID, goal: goal, repo: repo, status: "initialized")
+                selectedTaskID = resolvedID
+                updateTaskList()
+            }
+
             // Step 3: Start
             let startResult = await service.startTask(taskID: resolvedID, config: config)
             guard case .success(let pid) = startResult else {
@@ -348,11 +402,20 @@ final class AutoworkflowDetailView: ModuleDetailView {
 
             await MainActor.run {
                 selectedTaskID = resolvedID
+                upsertTaskInList(taskID: resolvedID, goal: goal, repo: repo, status: "running")
                 updateTaskList()
                 updateUI(state: .running(taskID: resolvedID, pid: pid))
                 finishStarting()
                 startPolling(taskID: resolvedID)
                 updateLog(taskID: resolvedID)
+            }
+
+            let listResult = await service.listTasks(config: config)
+            await MainActor.run {
+                if case .success(let loaded) = listResult {
+                    mergeTaskList(with: loaded, selectedTaskID: resolvedID)
+                    updateTaskList()
+                }
             }
         }
     }
@@ -371,7 +434,17 @@ final class AutoworkflowDetailView: ModuleDetailView {
 
         Task {
             let result = await service.stopTask(taskID: taskID, config: config)
+            let statusResult = await service.taskStatus(taskID: taskID, config: config)
+            let listResult = await service.listTasks(config: config)
             await MainActor.run {
+                if case .success(let loaded) = listResult {
+                    tasks = loaded
+                }
+                if case .success(let snapshot) = statusResult {
+                    lastSnapshot = snapshot
+                    syncTaskListStatus(from: snapshot)
+                }
+                updateTaskList()
                 switch result {
                 case .success:
                     updateUI(state: .stopped())
@@ -430,8 +503,11 @@ final class AutoworkflowDetailView: ModuleDetailView {
 
     private func displaySelectedTask(_ snapshot: AutoworkflowTaskSnapshot) {
         lastSnapshot = snapshot
+        if syncTaskListStatus(from: snapshot) {
+            updateTaskList()
+        }
 
-        if snapshot.isRunning || snapshot.status == .running {
+        if snapshot.isRunning {
             updateUI(state: .running(
                 taskID: snapshot.taskID,
                 pid: snapshot.runnerPID.map(Int32.init) ?? 0
@@ -449,6 +525,8 @@ final class AutoworkflowDetailView: ModuleDetailView {
                 updateUI(state: .stopped(detail: snapshot.status.displayName))
             case .stopped:
                 updateUI(state: .stopped())
+            case .running:
+                updateUI(state: .stopped(detail: stoppedDetail(from: snapshot)))
             default:
                 setStatus(color: .systemGray, text: snapshot.status.displayName)
                 startButton.isEnabled = true
@@ -513,9 +591,12 @@ final class AutoworkflowDetailView: ModuleDetailView {
                 await MainActor.run {
                     if case .success(let snapshot) = result {
                         self.lastSnapshot = snapshot
+                        if self.syncTaskListStatus(from: snapshot) {
+                            self.updateTaskList()
+                        }
                         self.updateSnapshotDisplay(snapshot)
                         self.updateLog(taskID: taskID)
-                        if snapshot.isRunning || snapshot.status == .running {
+                        if snapshot.isRunning {
                             self.updateUI(state: .running(
                                 taskID: snapshot.taskID,
                                 pid: snapshot.runnerPID.map(Int32.init) ?? 0
@@ -542,7 +623,7 @@ final class AutoworkflowDetailView: ModuleDetailView {
                                 case .waitingManualReview:
                                     self.updateUI(state: .stopped(detail: "Review needed"))
                                 default:
-                                    self.updateUI(state: .stopped(detail: snapshot.status.displayName))
+                                    self.updateUI(state: .stopped(detail: self.stoppedDetail(from: snapshot)))
                                 }
                             }
                         }
@@ -564,13 +645,19 @@ final class AutoworkflowDetailView: ModuleDetailView {
     }
 
     private func updateLog(taskID: String) {
-        Task {
+        logFetchTask?.cancel()
+        logFetchTask = Task { [weak self] in
+            guard let self else { return }
             let logResult = await service.readLog(taskID: taskID, config: config, maxLines: 200)
+            guard !Task.isCancelled else { return }
             await MainActor.run {
+                guard !Task.isCancelled else { return }
                 if case .success(let log) = logResult {
-                    logTextView.string = log.isEmpty ? "(no output yet)" : log
-                    // Scroll to bottom
-                    logTextView.scrollToEndOfDocument(nil)
+                    let display = log.isEmpty ? "(no output yet)" : log
+                    guard display != self.logTextView.string else { return }
+                    self.logTextView.string = display
+                    self.updateLogTextContainerWidth()
+                    self.logTextView.scrollToEndOfDocument(nil)
                 }
             }
         }
@@ -644,9 +731,12 @@ final class AutoworkflowDetailView: ModuleDetailView {
     }
 
     private func updateSnapshotDisplay(_ snapshot: AutoworkflowTaskSnapshot) {
+        let statusDisplay = snapshot.status == .running && !snapshot.isRunning
+            ? "Stopped"
+            : snapshot.status.displayName
         var parts: [String] = [
             "Task: \(snapshot.taskID)",
-            "Status: \(snapshot.status.displayName)",
+            "Status: \(statusDisplay)",
             "Iteration: \(snapshot.iteration)",
             "Phase: \(snapshot.attempt.phase.isEmpty ? "—" : snapshot.attempt.phase)",
             "Next: \(snapshot.nextAction)"
@@ -673,6 +763,13 @@ final class AutoworkflowDetailView: ModuleDetailView {
         return "Workflow failed"
     }
 
+    private func stoppedDetail(from snapshot: AutoworkflowTaskSnapshot) -> String {
+        if snapshot.nextAction == "resume" {
+            return "Runner stopped · Resume available"
+        }
+        return snapshot.status.displayName
+    }
+
     private func errorDetailLabel(message: String) -> String {
         guard let snapshot = lastSnapshot else { return message }
         return "Task: \(snapshot.taskID) · Iteration: \(snapshot.iteration) · \(message)"
@@ -688,12 +785,14 @@ final class AutoworkflowDetailView: ModuleDetailView {
             return
         }
         for task in tasks.prefix(10) {
-            let icon = statusIcon(task.status)
+            let displayStatus = displayStatus(for: task)
+            let icon = statusIcon(displayStatus)
             let button = NSButton()
-            button.title = "\(icon) [\(task.status)] \(task.goal.prefix(40)) — \(task.taskID)"
+            button.title = "\(icon) [\(displayStatus)] \(task.goal.prefix(40)) — \(task.taskID)"
             button.bezelStyle = .inline
             button.isBordered = false
             button.alignment = .left
+            button.lineBreakMode = .byTruncatingTail
             button.font = NSFont.systemFont(ofSize: 11)
             button.target = self
             button.action = #selector(taskRowTapped(_:))
@@ -706,6 +805,54 @@ final class AutoworkflowDetailView: ModuleDetailView {
             }
             taskListStack.addArrangedSubview(button)
         }
+    }
+
+    private func displayStatus(for task: AutoworkflowTaskItem) -> String {
+        if let snapshot = lastSnapshot, snapshot.taskID == task.taskID {
+            if snapshot.isRunning { return "running" }
+            return snapshot.status.rawValue
+        }
+        return task.status
+    }
+
+    private func syncTaskListStatus(from snapshot: AutoworkflowTaskSnapshot) -> Bool {
+        let displayStatus = snapshot.isRunning ? "running" : snapshot.status.rawValue
+        return syncTaskListStatus(taskID: snapshot.taskID, status: displayStatus)
+    }
+
+    private func syncTaskListStatus(taskID: String, status: String) -> Bool {
+        guard let index = tasks.firstIndex(where: { $0.taskID == taskID }) else { return false }
+        let current = tasks[index]
+        guard current.status != status else { return false }
+        tasks[index] = current.withStatus(status)
+        return true
+    }
+
+    private func upsertTaskInList(taskID: String, goal: String, repo: String, status: String) {
+        if let index = tasks.firstIndex(where: { $0.taskID == taskID }) {
+            tasks[index] = tasks[index].withStatus(status)
+            return
+        }
+        let item = AutoworkflowTaskItem(
+            taskID: taskID,
+            status: status,
+            targetRepo: repo,
+            phase: status,
+            updatedAt: "",
+            goal: goal,
+            iteration: 0
+        )
+        tasks.insert(item, at: 0)
+    }
+
+    private func mergeTaskList(with loaded: [AutoworkflowTaskItem], selectedTaskID: String) {
+        var merged = loaded
+        if let local = tasks.first(where: { $0.taskID == selectedTaskID }),
+           !merged.contains(where: { $0.taskID == selectedTaskID }) {
+            merged.insert(local, at: 0)
+        }
+        tasks = merged
+        self.selectedTaskID = selectedTaskID
     }
 
     private func statusIcon(_ status: String) -> String {

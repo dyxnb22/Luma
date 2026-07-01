@@ -72,6 +72,14 @@ public enum ModuleRegistry {
         bundle(for: id)?.defaultOffNote
     }
 
+    public static func displayName(for id: ModuleIdentifier) -> String {
+        bundle(for: id)?.manifest.displayName
+            ?? id.rawValue
+                .replacingOccurrences(of: "luma.", with: "")
+                .replacingOccurrences(of: "-", with: " ")
+                .capitalized
+    }
+
     public static func makeAll(overrides: BuiltInModules.Overrides = .init()) -> [any LumaModule] {
         allBundles.map { bundle in
             moduleInstance(for: bundle, overrides: overrides)

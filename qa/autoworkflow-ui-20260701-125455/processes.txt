@@ -1,0 +1,5 @@
+ 2774 35368 S    Cursor Helper (Plugin): extension-host (user) Luma [10-23]                      
+17940 35368 S    Cursor Helper (Plugin): extension-host (retrieval) Luma [10-30]                      
+17941 35368 S    Cursor Helper (Plugin): extension-host (agent-exec) Luma [10-31]                      
+50768     1 S    /Users/diaoyuxuan/Luma/build/Luma.app/Contents/MacOS/Luma
+69546 42717 Ss   bash ./scripts/qa/autoworkflow_collect.sh

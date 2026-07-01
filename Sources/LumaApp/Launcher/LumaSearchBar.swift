@@ -176,6 +176,15 @@ final class LumaSearchBar: NSView {
         window?.makeFirstResponder(textField)
     }
 
+    /// Clears the query and keeps the field editor in sync when Esc/home resets search.
+    func resetQueryText() {
+        if let editor = textField.currentEditor() as? NSTextView {
+            editor.string = ""
+        }
+        textField.stringValue = ""
+        updateClearButtonVisibility()
+    }
+
     @objc private func submit() {
         onReturn?()
     }
@@ -239,6 +248,14 @@ extension LumaSearchBar: NSTextFieldDelegate {
         commitEditingIfNeeded()
         onTextChange?(queryText)
     }
+
+    func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
+        if commandSelector == #selector(NSResponder.insertTab(_:))
+            || commandSelector == #selector(NSResponder.insertBacktab(_:)) {
+            return onKeyCommand?(.tab) ?? false
+        }
+        return false
+    }
 }
 
 @MainActor
@@ -268,6 +285,9 @@ private final class LumaSearchTextField: NSTextField {
         get { super.stringValue }
         set {
             let before = super.stringValue
+            if let editor = currentEditor() as? NSTextView {
+                editor.string = newValue
+            }
             super.stringValue = newValue
             guard newValue != before else { return }
             notifyTextDidChange()

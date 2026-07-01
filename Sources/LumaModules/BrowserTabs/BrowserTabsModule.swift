@@ -37,7 +37,32 @@ public actor BrowserTabsModule: LumaModule {
         if let diagnostic = await service.lastDiagnostic() {
             return ModuleResult(items: [], diagnostic: diagnostic)
         }
-        return ModuleResult(items: [])
+        let trimmed = payload.trimmingCharacters(in: .whitespacesAndNewlines)
+        if tabs.isEmpty {
+            return ModuleResult(
+                items: [],
+                diagnostic: ModuleDiagnostic(
+                    kind: .degraded,
+                    message: "No browser tabs cached — open Safari or Chrome, then search again"
+                )
+            )
+        }
+        if trimmed.isEmpty {
+            return ModuleResult(
+                items: [],
+                diagnostic: ModuleDiagnostic(
+                    kind: .degraded,
+                    message: "No tabs available to list"
+                )
+            )
+        }
+        return ModuleResult(
+            items: [],
+            diagnostic: ModuleDiagnostic(
+                kind: .degraded,
+                message: "No tabs match \"\(trimmed)\""
+            )
+        )
     }
 
     public func perform(_ action: Action, context: ActionContext) async throws {

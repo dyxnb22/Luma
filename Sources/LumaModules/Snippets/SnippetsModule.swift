@@ -33,9 +33,12 @@ public actor SnippetsModule: LumaModule {
         }
 
         let lower = payload.lowercased()
+        if lower == "new" {
+            return ModuleResult(items: [createRow(title: "Untitled")])
+        }
         if lower.hasPrefix("new ") {
             let title = String(payload.dropFirst(4)).trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !title.isEmpty else { return ModuleResult(items: []) }
+            guard !title.isEmpty else { return ModuleResult(items: [createRow(title: "Untitled")]) }
             return ModuleResult(items: [createRow(title: title)])
         }
 
@@ -49,7 +52,8 @@ public actor SnippetsModule: LumaModule {
             return ModuleResult(items: [])
         }
 
-        return ModuleResult(items: matches.map { snippetResult($0.snippet) })
+        let snippets = matches.map(\.snippet)
+        return ModuleResult(items: snippets.map { snippetResult($0, among: snippets) })
     }
 
     public func perform(_ action: Action, context: ActionContext) async throws {
@@ -220,23 +224,19 @@ public actor SnippetsModule: LumaModule {
         )
     }
 
-    private func snippetResult(_ snippet: Snippet) -> ResultItem {
+    private func snippetResult(_ snippet: Snippet, among snippets: [Snippet]) -> ResultItem {
         let id = ResultID(module: Self.manifest.identifier, key: snippet.id.uuidString)
-        let preview = snippet.content.replacingOccurrences(of: "\n", with: " ")
-        let subtitle: String
-        if preview.count <= 80 {
-            subtitle = preview
-        } else {
-            subtitle = String(preview.prefix(80)) + "…"
-        }
+        let displayTitle = SnippetDisplay.disambiguatedTitle(snippet, among: snippets)
+        let preview = SnippetDisplay.contentPreview(snippet, maxLength: 80)
         let tagSuffix = snippet.tags.isEmpty ? "" : " · " + snippet.tags.joined(separator: ", ")
+        let subtitle = preview + tagSuffix
         let copyPayload = (try? ModuleActionCoding.encode(SnippetsAction.copy(id: snippet.id))) ?? Data()
         let pastePayload = (try? ModuleActionCoding.encode(SnippetsAction.paste(id: snippet.id))) ?? Data()
         return ResultItem(
             id: id,
-            title: snippet.title,
-            titleAttributed: AttributedString(snippet.title),
-            subtitle: subtitle + tagSuffix,
+            title: displayTitle,
+            titleAttributed: AttributedString(displayTitle),
+            subtitle: subtitle,
             icon: .symbol("text.cursor"),
             primaryAction: Action(
                 id: ActionID(module: Self.manifest.identifier, key: "copy.\(snippet.id.uuidString)"),

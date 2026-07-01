@@ -15,6 +15,7 @@ and evidence; the actual pass must still be done through the Luma UI.
 - Run `./scripts/qa/autoworkflow_preflight.sh`.
 - If Auto Workflow is disabled, either enable it in Settings during the pass or run `./scripts/qa/autoworkflow_preflight.sh --enable-module`.
 - Use the QA source path printed by the script, normally `/tmp/luma-aw-qa-source`, unless you intentionally want to test `~/autoworkflow`.
+- The preflight script initializes the QA source as a git repository on the `main` branch; no manual `git init` is required.
 - Confirm the preflight finds `cc-loop` on the Luma GUI PATH, not only the shell PATH.
 
 ## Main UI Pass

@@ -27,7 +27,7 @@ import LumaServices
     #expect(WordbookModule.extractPayload(raw: "word review") == "review")
 }
 
-@Test func wordbookModuleReviewCommandDefersToLauncher() async throws {
+@Test func wordbookModuleReviewCommandReturnsStartRow() async throws {
     let (store, url) = try WordbookTestFixtures.makeStore()
     defer { try? FileManager.default.removeItem(at: url) }
 
@@ -39,7 +39,13 @@ import LumaServices
         Query(raw: "word review", sequence: 1, command: parsed),
         context: QueryContext(deadline: ContinuousClock().now.advanced(by: .milliseconds(40)))
     )
-    #expect(result.items.isEmpty)
+    #expect(result.items.count == 1)
+    #expect(result.items.first?.title == "Start Review")
+    if case .openModuleDetail(let module, _) = result.items.first?.primaryAction.kind {
+        #expect(module.rawValue == "luma.wordbook")
+    } else {
+        Issue.record("Expected openModuleDetail")
+    }
 }
 
 @Test func wordbookBareCommandReturnsNoStarterRow() async throws {
@@ -53,6 +59,27 @@ import LumaServices
         context: QueryContext(deadline: ContinuousClock().now.advanced(by: .milliseconds(40)))
     )
     #expect(!result.items.contains { $0.id.key == "review" })
+}
+
+@Test func snippetsNewBareCommandReturnsCreateRow() async {
+    let module = SnippetsModule()
+    await module.warmup(ModuleContext(
+        logger: LumaLogger(category: "test"),
+        metrics: LumaMetrics(),
+        database: ApplicationSupportPaths(),
+        pasteboard: PasteboardService(),
+        accessibility: AXService(),
+        fileSystem: FSEventsService(),
+        translation: TranslationService(config: ConfigurationStore()),
+        config: ConfigurationStore()
+    ))
+    let parsed = ParsedCommand(trigger: "s", payload: "new", module: .snippets)
+    let result = await module.handle(
+        Query(raw: "s new", sequence: 1, command: parsed),
+        context: QueryContext(deadline: ContinuousClock().now.advanced(by: .milliseconds(20)))
+    )
+    #expect(result.items.count == 1)
+    #expect(result.items.first?.subtitle == "Untitled")
 }
 
 @Test func snippetsNewCommandReturnsCreateRow() async {
@@ -185,6 +212,76 @@ private actor RecordingHostClient: HostClient {
     func openSettings() async { openedSettings = true }
     func reloadModules() async { reloadedModules = true }
     func quitHost() async { quitRequested = true }
+}
+
+@Test func todoBareCommandIncludesOpenDetailRow() async {
+    let module = TodoModule()
+    let context = ModuleContext(
+        logger: LumaLogger(category: "test"),
+        metrics: LumaMetrics(),
+        database: ApplicationSupportPaths(),
+        pasteboard: PasteboardService(),
+        accessibility: AXService(),
+        fileSystem: FSEventsService(),
+        translation: TranslationService(config: ConfigurationStore()),
+        config: ConfigurationStore(),
+        reminders: AuthorizedEmptyRemindersClient()
+    )
+    await module.warmup(context)
+    let parsed = ParsedCommand(trigger: "todo", payload: "", module: .todo)
+    let result = await module.handle(
+        Query(raw: "todo", sequence: 1, command: parsed),
+        context: QueryContext(deadline: ContinuousClock().now.advanced(by: .milliseconds(60)))
+    )
+    #expect(result.items.contains { $0.id.key == "open-detail" })
+    if case .openModuleDetail(let moduleID, _) = result.items.first(where: { $0.id.key == "open-detail" })?.primaryAction.kind {
+        #expect(moduleID.rawValue == "luma.todo")
+    } else {
+        Issue.record("Expected openModuleDetail for Open Todo row")
+    }
+}
+
+@Test func mediaBareCommandOpensRecordsWhenLibraryEmpty() async throws {
+    let url = FileManager.default.temporaryDirectory.appendingPathComponent("media-bare-\(UUID().uuidString).json")
+    defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+    let module = MediaModule(store: MediaStore(persistenceURL: url))
+    await module.warmup(ModuleContext(
+        logger: LumaLogger(category: "test"),
+        metrics: LumaMetrics(),
+        database: ApplicationSupportPaths(),
+        pasteboard: PasteboardService(),
+        accessibility: AXService(),
+        fileSystem: FSEventsService(),
+        translation: TranslationService(config: ConfigurationStore()),
+        config: ConfigurationStore()
+    ))
+    let parsed = ParsedCommand(trigger: "m", payload: "", module: .media)
+    let result = await module.handle(
+        Query(raw: "m", sequence: 1, command: parsed),
+        context: QueryContext(deadline: ContinuousClock().now.advanced(by: .milliseconds(30)))
+    )
+    #expect(result.items.count == 1)
+    #expect(result.items.first?.title == "Records")
+}
+
+private struct AuthorizedEmptyRemindersClient: RemindersClient {
+    func authorization() async -> RemindersAuthorization { .authorized }
+    func requestAccess() async -> RemindersAuthorization { .authorized }
+    func todayDue(now: Date, limit: Int) async throws -> [ReminderSnapshot] { [] }
+    func noDueDate(limit: Int) async throws -> [ReminderSnapshot] { [] }
+    func futureDue(now: Date, limit: Int) async throws -> [ReminderSnapshot] { [] }
+    func completedRecently(now: Date, limit: Int) async throws -> [ReminderSnapshot] { [] }
+    func create(title: String, dueDate: Date?, notes: String?) async throws -> ReminderSnapshot {
+        ReminderSnapshot(id: "1", title: title, dueDate: dueDate, isCompleted: false, calendarTitle: "Inbox")
+    }
+    func complete(id: String) async throws {}
+    func uncomplete(id: String) async throws {}
+    func update(id: String, title: String, dueDate: Date?, clearDueDate: Bool) async throws -> ReminderSnapshot {
+        ReminderSnapshot(id: id, title: title, dueDate: dueDate, isCompleted: false, calendarTitle: "Inbox")
+    }
+    func storeChanges() async -> AsyncStream<Void> {
+        AsyncStream { $0.finish() }
+    }
 }
 
 @Test func commandsModuleMatchesBuiltInKeys() async {

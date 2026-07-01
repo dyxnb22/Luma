@@ -24,7 +24,7 @@ public protocol AutoworkflowServiceProtocol: Sendable {
     /// Stop a running task by killing its runner process.
     func stopTask(taskID: String, config: AutoworkflowConfig) async -> Result<Void, AutoworkflowError>
 
-    /// Resume a stopped or interrupted task. Returns the PID.
+    /// Resume a stopped or interrupted task via detached auto. Returns the runner PID.
     func resumeTask(taskID: String, config: AutoworkflowConfig) async -> Result<Int32, AutoworkflowError>
 
     /// Get task status snapshot.

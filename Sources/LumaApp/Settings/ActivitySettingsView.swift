@@ -1,5 +1,6 @@
 import AppKit
 import LumaCore
+import LumaModules
 
 @MainActor
 final class ActivitySparklineView: NSView {
@@ -37,7 +38,7 @@ final class ActivitySettingsView: NSView {
     private let usage: PersistentUsageTracker
     private let sparkline7 = ActivitySparklineView()
     private let sparkline30 = ActivitySparklineView()
-    private let moduleSummaryLabel = NSTextField(wrappingLabelWithString: "")
+    private let moduleSummaryStack = NSStackView()
 
     init(usage: PersistentUsageTracker) {
         self.usage = usage
@@ -57,13 +58,41 @@ final class ActivitySettingsView: NSView {
             let buckets30 = await usage.activityBuckets(lastDays: 30)
             let since30 = Calendar.current.date(byAdding: .day, value: -30, to: Date()) ?? Date()
             let byModule = await usage.countsByModule(since: since30)
-            let summary = byModule.sorted { $0.value > $1.value }.prefix(8).map { "\($0.key.rawValue): \($0.value)" }.joined(separator: " · ")
+            let rows = byModule
+                .sorted { $0.value > $1.value }
+                .prefix(12)
+                .map { (ModuleRegistry.displayName(for: $0.key), $0.value) }
             await MainActor.run {
                 sparkline7.apply(buckets: buckets7)
                 sparkline30.apply(buckets: buckets30)
-                moduleSummaryLabel.stringValue = summary.isEmpty ? "No usage recorded yet." : summary
+                renderModuleSummary(rows)
             }
         }
+    }
+
+    private func renderModuleSummary(_ rows: [(name: String, count: Int)]) {
+        moduleSummaryStack.arrangedSubviews.forEach { view in
+            moduleSummaryStack.removeArrangedSubview(view)
+            view.removeFromSuperview()
+        }
+        guard !rows.isEmpty else {
+            let label = moduleCountLabel("No usage recorded yet.")
+            moduleSummaryStack.addArrangedSubview(label)
+            return
+        }
+        for row in rows {
+            let label = moduleCountLabel("\(row.name): \(row.count)")
+            moduleSummaryStack.addArrangedSubview(label)
+        }
+    }
+
+    private func moduleCountLabel(_ text: String) -> NSTextField {
+        let label = NSTextField(labelWithString: text)
+        label.font = TypographyTokens.body
+        label.textColor = .labelColor
+        label.lineBreakMode = .byWordWrapping
+        label.preferredMaxLayoutWidth = 480
+        return label
     }
 
     private func setup() {
@@ -77,26 +106,28 @@ final class ActivitySettingsView: NSView {
         stack.addArrangedSubview(section("Last 7 days"))
         sparkline7.translatesAutoresizingMaskIntoConstraints = false
         sparkline7.heightAnchor.constraint(equalToConstant: 48).isActive = true
-        sparkline7.widthAnchor.constraint(equalToConstant: 420).isActive = true
         stack.addArrangedSubview(sparkline7)
 
         stack.addArrangedSubview(section("Last 30 days"))
         sparkline30.translatesAutoresizingMaskIntoConstraints = false
         sparkline30.heightAnchor.constraint(equalToConstant: 48).isActive = true
-        sparkline30.widthAnchor.constraint(equalToConstant: 420).isActive = true
         stack.addArrangedSubview(sparkline30)
 
         stack.addArrangedSubview(section("By module (30 d)"))
-        moduleSummaryLabel.font = TypographyTokens.caption()
-        moduleSummaryLabel.textColor = .secondaryLabelColor
-        stack.addArrangedSubview(moduleSummaryLabel)
+        moduleSummaryStack.orientation = .vertical
+        moduleSummaryStack.alignment = .leading
+        moduleSummaryStack.spacing = 4
+        stack.addArrangedSubview(moduleSummaryStack)
 
         addSubview(stack)
         NSLayoutConstraint.activate([
             stack.topAnchor.constraint(equalTo: topAnchor, constant: 12),
             stack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
-            stack.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -12),
-            stack.bottomAnchor.constraint(lessThanOrEqualTo: bottomAnchor, constant: -12)
+            stack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
+            stack.bottomAnchor.constraint(lessThanOrEqualTo: bottomAnchor, constant: -12),
+            sparkline7.widthAnchor.constraint(equalTo: stack.widthAnchor),
+            sparkline30.widthAnchor.constraint(equalTo: stack.widthAnchor),
+            moduleSummaryStack.widthAnchor.constraint(equalTo: stack.widthAnchor)
         ])
     }
 

@@ -39,6 +39,7 @@ final class NotesDetailView: NSObject, ModuleDetailView {
         self.module = module
         let container = NSView()
         container.translatesAutoresizingMaskIntoConstraints = false
+        GeekUIKit.installDetailRootChrome(on: container)
         self.detailView = container
         super.init()
         setup(container: container)
@@ -50,6 +51,7 @@ final class NotesDetailView: NSObject, ModuleDetailView {
             guard let self else { return }
             await module.reloadFromConfig()
             await refreshTree()
+            await MainActor.run { self.resizeOutlineColumn() }
         }
     }
 
@@ -177,6 +179,7 @@ final class NotesDetailView: NSObject, ModuleDetailView {
         outlineView.indentationPerLevel = 8
         outlineView.rowSizeStyle = .custom
         outlineView.allowsEmptySelection = true
+        outlineView.backgroundColor = .clear
         outlineView.delegate = dataSource
         outlineView.dataSource = dataSource
         outlineView.doubleAction = #selector(outlineDoubleClicked)
@@ -186,11 +189,18 @@ final class NotesDetailView: NSObject, ModuleDetailView {
 
         let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("tree"))
         column.title = ""
-        column.minWidth = 240
-        column.width = 640
-        column.resizingMask = .autoresizingMask
+        column.minWidth = 120
+        column.width = 320
+        column.resizingMask = [.autoresizingMask, .userResizingMask]
         outlineView.addTableColumn(column)
         outlineView.outlineTableColumn = column
+        scrollView.contentView.postsBoundsChangedNotifications = true
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(resizeOutlineColumn),
+            name: NSView.frameDidChangeNotification,
+            object: scrollView
+        )
 
         scrollView.documentView = outlineView
         scrollView.hasVerticalScroller = true
@@ -293,6 +303,15 @@ final class NotesDetailView: NSObject, ModuleDetailView {
             mindMapScroll.trailingAnchor.constraint(equalTo: container.trailingAnchor),
             mindMapScroll.bottomAnchor.constraint(equalTo: container.bottomAnchor)
         ])
+    }
+
+    @objc private func resizeOutlineColumn() {
+        guard let column = outlineView.tableColumns.first else { return }
+        let width = max(120, scrollView.contentSize.width - 8)
+        if abs(column.width - width) > 1 {
+            column.width = width
+            outlineView.noteHeightOfRows(withIndexesChanged: IndexSet(integersIn: 0..<outlineView.numberOfRows))
+        }
     }
 
     @objc private func viewModeChanged() {

@@ -36,8 +36,10 @@ public struct ProcessMemoryService: ProcessMemoryClient, Sendable {
     private static func rank(processes: [ProcessInfo], limit: Int) -> [RunningApplicationMemory] {
         var samples: [RunningApplicationMemory] = []
         samples.reserveCapacity(processes.count)
+        let psFallback = residentBytesByPIDViaPS()
         for process in processes {
-            guard let bytes = residentBytes(pid: process.pid) else { continue }
+            let bytes = residentBytes(pid: process.pid) ?? psFallback[process.pid]
+            guard let bytes else { continue }
             samples.append(RunningApplicationMemory(
                 bundleID: process.bundleID,
                 name: process.name,
@@ -48,6 +50,31 @@ public struct ProcessMemoryService: ProcessMemoryClient, Sendable {
             .sorted { $0.residentBytes > $1.residentBytes }
             .prefix(limit)
             .map { $0 }
+    }
+
+    /// Fallback when `proc_pidinfo` is unavailable (e.g. hardened runtime without task access).
+    private static func residentBytesByPIDViaPS() -> [pid_t: UInt64] {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/ps")
+        process.arguments = ["-axo", "pid=,rss="]
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        process.standardError = Pipe()
+        guard (try? process.run()) != nil else { return [:] }
+        process.waitUntilExit()
+        guard process.terminationStatus == 0 else { return [:] }
+        guard let output = String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) else {
+            return [:]
+        }
+        var map: [pid_t: UInt64] = [:]
+        for line in output.split(whereSeparator: \.isNewline) {
+            let parts = line.split(whereSeparator: \.isWhitespace).map(String.init)
+            guard parts.count >= 2,
+                  let pid = pid_t(parts[0]),
+                  let rssKB = UInt64(parts[1]) else { continue }
+            map[pid] = rssKB * 1024
+        }
+        return map
     }
 
     private static func residentBytes(pid: pid_t) -> UInt64? {

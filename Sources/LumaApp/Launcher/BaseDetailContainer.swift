@@ -58,7 +58,7 @@ final class BaseDetailContainer: NSView {
                 view.leadingAnchor.constraint(equalTo: scrollView.contentView.leadingAnchor),
                 view.trailingAnchor.constraint(equalTo: scrollView.contentView.trailingAnchor),
                 view.topAnchor.constraint(equalTo: scrollView.contentView.topAnchor),
-                view.widthAnchor.constraint(equalTo: scrollView.widthAnchor, constant: -Self.margin * 2)
+                view.widthAnchor.constraint(equalTo: scrollView.contentView.widthAnchor)
             ])
         } else {
             view.translatesAutoresizingMaskIntoConstraints = false

@@ -126,7 +126,8 @@ import LumaModules
     #expect(!router.isBareOpenDetailReturn(raw: "notes daily"))
     #expect(!router.isBareOpenDetailReturn(raw: "n new idea"))
     #expect(!router.isBareOpenDetailReturn(raw: "word abandon"))
-    #expect(!router.isBareOpenDetailReturn(raw: "t"))
+    #expect(router.isBareOpenDetailReturn(raw: "t"))
+    #expect(router.isBareOpenDetailReturn(raw: "todo"))
     #expect(!router.isBareOpenDetailReturn(raw: "s"))
 }
 

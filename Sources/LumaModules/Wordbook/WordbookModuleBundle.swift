@@ -37,7 +37,7 @@ public enum WordbookModuleBundle: ModuleBundle {
                     "word — open Wordbook in panel",
                     "word review — start review session",
                     "word abandon — search term/meaning",
-                    "word ? — this help"
+                    "help word or word ? — commands"
                 ],
                 discoverPriority: 100,
                 bareBehavior: .openDetail

@@ -1,0 +1,418 @@
+{
+  "settings.language.system": {
+    "en": "System Language",
+    "zh-Hans": "跟随系统"
+  },
+  "settings.language.title": {
+    "en": "Language",
+    "zh-Hans": "语言"
+  },
+  "search.empty.typeToSearch": {
+    "en": "Type to search apps, commands, and modules",
+    "zh-Hans": "输入以搜索应用、命令和模块"
+  },
+  "search.empty.help": {
+    "en": "Type help <command> for help (e.g. help clip). clip ? also works.",
+    "zh-Hans": "输入 help <命令> 查看帮助（如 help clip）。也可使用 clip ?"
+  },
+  "search.empty.pressEscClear": {
+    "en": "Press Esc to clear.",
+    "zh-Hans": "按 Esc 清除。"
+  },
+  "search.empty.noItemsInSection": {
+    "en": "No items in %@. Add data or try a more specific query.",
+    "zh-Hans": "%@ 中暂无内容。请添加数据或缩小查询范围。"
+  },
+  "search.empty.noMatchesInSection": {
+    "en": "No matches in %@ for “%@”. Check spelling or module settings.",
+    "zh-Hans": "在 %@ 中未找到 “%@”。请检查拼写或模块设置。"
+  },
+  "search.empty.unknownDidYouMean": {
+    "en": "Unknown command “%@”. Did you mean %@?",
+    "zh-Hans": "未知命令 “%@”。是否指 %@？"
+  },
+  "search.empty.unknownHelp": {
+    "en": "Unknown command “%@”. Try help %@ or type ? for all commands.",
+    "zh-Hans": "未知命令 “%@”。试试 help %@ 或输入 ? 查看全部命令。"
+  },
+  "search.empty.globalMinChars": {
+    "en": "Type at least 2 characters for global search, or use a command prefix (clip, note, t).",
+    "zh-Hans": "全局搜索至少输入 2 个字符，或使用命令前缀（clip、note、t）。"
+  },
+  "search.empty.globalNoMatches": {
+    "en": "No matches for “%@”. Enable modules in Settings or try a command prefix.",
+    "zh-Hans": "未找到 “%@”。请在设置中启用模块或尝试命令前缀。"
+  },
+  "search.empty.suggestion": {
+    "en": "Select a suggestion or press Return",
+    "zh-Hans": "选择建议项或按 Return"
+  },
+  "search.placeholder.cheatSheet": {
+    "en": "Search apps, paste, translate, todo, aw…",
+    "zh-Hans": "搜索应用、剪贴板、翻译、待办、aw…"
+  },
+  "home.section.setup": {
+    "en": "GET STARTED",
+    "zh-Hans": "开始使用"
+  },
+  "home.section.openApps": {
+    "en": "OPEN APPS",
+    "zh-Hans": "打开应用"
+  },
+  "home.section.recent": {
+    "en": "RECENT",
+    "zh-Hans": "最近"
+  },
+  "home.section.continue": {
+    "en": "CONTINUE",
+    "zh-Hans": "继续"
+  },
+  "home.section.create": {
+    "en": "CREATE",
+    "zh-Hans": "创建"
+  },
+  "action.appendToNote": {
+    "en": "Append to Note",
+    "zh-Hans": "追加到笔记"
+  },
+  "action.createSnippet": {
+    "en": "Create Snippet",
+    "zh-Hans": "创建片段"
+  },
+  "action.addQuicklink": {
+    "en": "Add Quicklink",
+    "zh-Hans": "添加快捷链接"
+  },
+  "action.copyURL": {
+    "en": "Copy URL",
+    "zh-Hans": "复制链接"
+  },
+  "action.openDailyNote": {
+    "en": "Open Daily Note",
+    "zh-Hans": "打开每日笔记"
+  },
+  "action.openTodo": {
+    "en": "Open Todo",
+    "zh-Hans": "打开待办"
+  },
+  "action.markComplete": {
+    "en": "Mark Complete",
+    "zh-Hans": "标记完成"
+  },
+  "action.openNotesForProject": {
+    "en": "Open Notes",
+    "zh-Hans": "打开笔记"
+  },
+  "action.copyAsPlainText": {
+    "en": "Copy as Plain Text",
+    "zh-Hans": "复制为纯文本"
+  },
+  "action.formatJSON": {
+    "en": "Format JSON",
+    "zh-Hans": "格式化 JSON"
+  },
+  "action.decodeBase64": {
+    "en": "Decode Base64",
+    "zh-Hans": "解码 Base64"
+  },
+  "action.trimWhitespace": {
+    "en": "Trim Whitespace",
+    "zh-Hans": "去除空白"
+  },
+  "action.collapseLines": {
+    "en": "Collapse Lines",
+    "zh-Hans": "合并行"
+  },
+  "action.quoteLines": {
+    "en": "Quote Lines",
+    "zh-Hans": "引用行"
+  },
+  "action.unquoteLines": {
+    "en": "Unquote Lines",
+    "zh-Hans": "取消引用"
+  },
+  "action.copyAsOneLine": {
+    "en": "Copy as One Line",
+    "zh-Hans": "复制为单行"
+  },
+  "action.newProjectSnippet": {
+    "en": "New Project Snippet",
+    "zh-Hans": "新建项目片段"
+  },
+  "action.projectFolderQuicklink": {
+    "en": "Quicklink to Project",
+    "zh-Hans": "项目快捷链接"
+  },
+  "action.editScriptCommands": {
+    "en": "Edit Script Commands",
+    "zh-Hans": "编辑脚本命令"
+  },
+  "action.setupNotes": {
+    "en": "Set Up Notes",
+    "zh-Hans": "设置笔记"
+  },
+  "action.reviewModules": {
+    "en": "Review Modules",
+    "zh-Hans": "检查模块"
+  },
+  "action.continueWordbook": {
+    "en": "Continue Wordbook",
+    "zh-Hans": "继续单词本"
+  },
+  "status.savedToDailyNote": {
+    "en": "Saved to daily note",
+    "zh-Hans": "已保存到每日笔记"
+  },
+  "status.draftQuicklinks": {
+    "en": "Draft loaded in Quicklinks",
+    "zh-Hans": "草稿已加载到快捷链接"
+  },
+  "status.draftSnippets": {
+    "en": "Draft loaded in Snippets",
+    "zh-Hans": "草稿已加载到片段"
+  },
+  "status.snippetCreated": {
+    "en": "Snippet created",
+    "zh-Hans": "片段已创建"
+  },
+  "status.quicklinkSaved": {
+    "en": "Quicklink saved",
+    "zh-Hans": "快捷链接已保存"
+  },
+  "status.copiedToClipboard": {
+    "en": "Copied to clipboard",
+    "zh-Hans": "已复制到剪贴板"
+  },
+  "status.snippetExpanded": {
+    "en": "Snippet expanded",
+    "zh-Hans": "片段已展开"
+  },
+  "status.notesRootNotConfigured": {
+    "en": "Set a Notes root first",
+    "zh-Hans": "请先设置笔记根目录"
+  },
+  "status.quicklinkTriggerTaken": {
+    "en": "Trigger already in use — pick another",
+    "zh-Hans": "触发词已被占用"
+  },
+  "status.quicklinkURLDuplicate": {
+    "en": "This URL is already saved",
+    "zh-Hans": "此链接已存在"
+  },
+  "status.quicklinkMissingProtocol": {
+    "en": "URL needs http:// or https://",
+    "zh-Hans": "链接需要 http:// 或 https://"
+  },
+  "status.snippetTriggerTaken": {
+    "en": "Trigger already in use — pick another",
+    "zh-Hans": "触发词已被占用"
+  },
+  "status.snippetDuplicateContent": {
+    "en": "Similar snippet already exists",
+    "zh-Hans": "已有相似片段"
+  },
+  "status.snippetSaveFailed": {
+    "en": "Couldn't create snippet",
+    "zh-Hans": "无法创建片段"
+  },
+  "status.quicklinkSaveFailed": {
+    "en": "Couldn't save quicklink",
+    "zh-Hans": "无法保存快捷链接"
+  },
+  "status.noteSaveFailed": {
+    "en": "Couldn't save to daily note",
+    "zh-Hans": "无法保存到每日笔记"
+  },
+  "status.operationFailed": {
+    "en": "Action failed",
+    "zh-Hans": "操作失败"
+  },
+  "status.nothingToCapture": {
+    "en": "Nothing to capture",
+    "zh-Hans": "没有可捕获的内容"
+  },
+  "status.modulesLoading": {
+    "en": "Modules loading…",
+    "zh-Hans": "模块加载中…"
+  },
+  "status.noAlternateActions": {
+    "en": "No alternate actions for this item",
+    "zh-Hans": "此条目没有备用操作"
+  },
+  "status.noActionPanelActions": {
+    "en": "No extra actions — press Return to open",
+    "zh-Hans": "无额外操作 — 按 Return 打开"
+  },
+  "status.noResultsYet": {
+    "en": "No results yet",
+    "zh-Hans": "暂无结果"
+  },
+  "status.clipboardEntryUpdated": {
+    "en": "Clipboard entry updated",
+    "zh-Hans": "剪贴板条目已更新"
+  },
+  "status.replaceSelectionDone": {
+    "en": "Replaced selection in front app",
+    "zh-Hans": "已替换前台应用中的选中文本"
+  },
+  "status.replaceSelectionFailed": {
+    "en": "Couldn't replace selection — grant Accessibility",
+    "zh-Hans": "无法替换选中文本 — 请授予辅助功能权限"
+  },
+  "status.replaceSelectionEmpty": {
+    "en": "No translation to replace with",
+    "zh-Hans": "没有可替换的译文"
+  },
+  "setup.accessibility.title": {
+    "en": "Grant Accessibility permission",
+    "zh-Hans": "授予辅助功能权限"
+  },
+  "setup.accessibility.subtitle": {
+    "en": "Open Settings → Accessibility, then enable Luma",
+    "zh-Hans": "打开设置 → 辅助功能，然后启用 Luma"
+  },
+  "setup.notes.title": {
+    "en": "Set up Notes folder",
+    "zh-Hans": "设置笔记文件夹"
+  },
+  "setup.notes.subtitle": {
+    "en": "Choose where your markdown library lives",
+    "zh-Hans": "选择 Markdown 笔记库位置"
+  },
+  "setup.modules.title": {
+    "en": "Review modules & pins",
+    "zh-Hans": "检查模块与固定项"
+  },
+  "setup.modules.subtitle": {
+    "en": "Enable default-off modules (Records, Browser Tabs, Auto Workflow)",
+    "zh-Hans": "启用默认关闭的模块（记录、浏览器标签、自动工作流）"
+  },
+  "setup.openSettings": {
+    "en": "Open Settings",
+    "zh-Hans": "打开设置"
+  },
+  "onboarding.title": {
+    "en": "Welcome to Luma",
+    "zh-Hans": "欢迎使用 Luma"
+  },
+  "onboarding.step.welcome.title": {
+    "en": "Keyboard-first launcher",
+    "zh-Hans": "键盘优先的启动器"
+  },
+  "onboarding.step.welcome.body": {
+    "en": "Press ⌘Space to open Luma from anywhere. Type a command or search globally.",
+    "zh-Hans": "随时按 ⌘Space 打开 Luma。输入命令或全局搜索。"
+  },
+  "onboarding.step.hotkey.title": {
+    "en": "Hotkey",
+    "zh-Hans": "快捷键"
+  },
+  "onboarding.step.hotkey.body": {
+    "en": "Default hotkey is ⌘Space. If Spotlight conflicts, disable its shortcut in Keyboard Settings.",
+    "zh-Hans": "默认快捷键为 ⌘Space。若与 Spotlight 冲突，请在键盘设置中关闭 Spotlight 快捷键。"
+  },
+  "onboarding.step.accessibility.title": {
+    "en": "Accessibility",
+    "zh-Hans": "辅助功能"
+  },
+  "onboarding.step.accessibility.body": {
+    "en": "Grant Accessibility for window focus, snippet paste, and Translate replace-selection.",
+    "zh-Hans": "授予辅助功能权限以支持窗口聚焦、片段粘贴和翻译替换选中文本。"
+  },
+  "onboarding.step.modules.title": {
+    "en": "Modules",
+    "zh-Hans": "模块"
+  },
+  "onboarding.step.modules.body": {
+    "en": "Enable Records, Browser Tabs, Auto Workflow, and Commands in Settings → Modules.",
+    "zh-Hans": "在 设置 → 模块 中启用记录、浏览器标签、自动工作流和命令模块。"
+  },
+  "onboarding.step.help.title": {
+    "en": "Discover commands",
+    "zh-Hans": "发现命令"
+  },
+  "onboarding.step.help.body": {
+    "en": "Type help clip, help tr, or clip ? for module help. Home shows setup suggestions.",
+    "zh-Hans": "输入 help clip、help tr 或 clip ? 查看模块帮助。主页会显示设置建议。"
+  },
+  "onboarding.step.done.title": {
+    "en": "You're ready",
+    "zh-Hans": "准备就绪"
+  },
+  "onboarding.step.done.body": {
+    "en": "Open the launcher and try clip, tr hello, or todo.",
+    "zh-Hans": "打开启动器，试试 clip、tr hello 或 todo。"
+  },
+  "onboarding.button.next": {
+    "en": "Next",
+    "zh-Hans": "下一步"
+  },
+  "onboarding.button.back": {
+    "en": "Back",
+    "zh-Hans": "上一步"
+  },
+  "onboarding.button.skip": {
+    "en": "Skip setup",
+    "zh-Hans": "跳过设置"
+  },
+  "onboarding.button.finish": {
+    "en": "Finish",
+    "zh-Hans": "完成"
+  },
+  "onboarding.button.grantAccess": {
+    "en": "Grant Access…",
+    "zh-Hans": "授予权限…"
+  },
+  "onboarding.homeRow.title": {
+    "en": "Finish Luma setup",
+    "zh-Hans": "完成 Luma 设置"
+  },
+  "onboarding.homeRow.subtitle": {
+    "en": "Walk through permissions, modules, and commands",
+    "zh-Hans": "引导完成权限、模块和命令设置"
+  },
+  "translate.replaceSelection": {
+    "en": "Replace Selection",
+    "zh-Hans": "替换选中文本"
+  },
+  "translate.copyResult": {
+    "en": "Copy Result",
+    "zh-Hans": "复制结果"
+  },
+  "translate.pasteFromClipboard": {
+    "en": "Paste from Clipboard",
+    "zh-Hans": "从剪贴板粘贴"
+  },
+  "translate.detail.placeholder": {
+    "en": "In %@ — Esc to go back",
+    "zh-Hans": "在 %@ 中 — Esc 返回"
+  },
+  "hint.select": {
+    "en": "↑↓ Select",
+    "zh-Hans": "↑↓ 选择"
+  },
+  "hint.open": {
+    "en": "↩ Open",
+    "zh-Hans": "↩ 打开"
+  },
+  "hint.more": {
+    "en": "⇥ More",
+    "zh-Hans": "⇥ 更多"
+  },
+  "hint.escClose": {
+    "en": "Esc Close",
+    "zh-Hans": "Esc 关闭"
+  },
+  "hint.escClear": {
+    "en": "Esc Clear",
+    "zh-Hans": "Esc 清除"
+  },
+  "hint.detail.back": {
+    "en": "Esc Back    ⌘W Close detail",
+    "zh-Hans": "Esc 返回    ⌘W 关闭详情"
+  },
+  "commandHint.helpSuffix": {
+    "en": " · Help: help %@",
+    "zh-Hans": " · 帮助: help %@"
+  }
+}

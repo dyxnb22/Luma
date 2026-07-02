@@ -39,7 +39,7 @@ public enum SnippetsModuleBundle: ModuleBundle {
                     "s git — fuzzy search title/tags/content",
                     "Return — copy snippet",
                     "Variables: {{uuid}} {{timestamp}} {{selection}} {{project}} {{file}} {{caret}}",
-                    "s ? — this help"
+                    "help snip or s ? — commands"
                 ],
                 discoverPriority: 70
             )

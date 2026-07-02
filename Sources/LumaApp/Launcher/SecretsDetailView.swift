@@ -308,7 +308,7 @@ extension SecretsDetailView: NSTableViewDataSource, NSTableViewDelegate {
 }
 
 @MainActor
-private final class SecretEditorSheet: NSWindow {
+private final class SecretEditorSheet: LumaWindow {
     private let onSave: (String, String, String?) -> Void
     private let labelField = NSTextField()
     private let accountField = NSTextField()

@@ -29,7 +29,7 @@ public enum MediaModuleBundle: ModuleBundle {
                     "rec log — full Records view",
                     "rec 三体 book done 9 #sci-fi — quick capture DSL",
                     "rec 三体 — search or partial capture",
-                    "rec ? — this help"
+                    "help rec or rec ? — commands"
                 ],
                 discoverPriority: 80,
                 bareBehavior: .openDetail

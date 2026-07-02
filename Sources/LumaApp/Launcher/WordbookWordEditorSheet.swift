@@ -2,7 +2,7 @@ import AppKit
 import LumaModules
 
 @MainActor
-final class WordbookWordEditorSheet: NSWindow {
+final class WordbookWordEditorSheet: LumaWindow {
     private let onSave: (WordEntry, Bool) -> Void
     private let onResetStage: (() -> Void)?
     private let termField = NSTextField()

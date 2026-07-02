@@ -37,7 +37,7 @@ public enum SecretsModuleBundle: ModuleBundle {
                     "sec unlock — unlock vault",
                     "sec aws — search by label",
                     "Return — copy secret (auto-clear pasteboard)",
-                    "sec ? — this help"
+                    "help secret or sec ? — commands"
                 ],
                 discoverPriority: 90,
                 bareBehavior: .openDetail

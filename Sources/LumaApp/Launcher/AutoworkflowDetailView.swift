@@ -266,7 +266,27 @@ final class AutoworkflowDetailView: ModuleDetailView {
         let btnStack = NSStackView(views: [startButton, stopButton, resumeButton, refreshButton])
         btnStack.spacing = 8
 
-        addSectionCard([btnStack], header: "CONTROLS")
+        let controlsWrapper = NSView()
+        controlsWrapper.translatesAutoresizingMaskIntoConstraints = false
+        let topAnchor = NSView()
+        topAnchor.translatesAutoresizingMaskIntoConstraints = false
+        controlsWrapper.addSubview(topAnchor)
+        GeekUIKit.constrainDetailFooterActions(
+            btnStack,
+            in: controlsWrapper,
+            below: topAnchor,
+            topSpacing: 0,
+            bottomMargin: 0,
+            horizontalMargin: 0
+        )
+        NSLayoutConstraint.activate([
+            topAnchor.topAnchor.constraint(equalTo: controlsWrapper.topAnchor),
+            topAnchor.leadingAnchor.constraint(equalTo: controlsWrapper.leadingAnchor),
+            topAnchor.trailingAnchor.constraint(equalTo: controlsWrapper.trailingAnchor),
+            topAnchor.heightAnchor.constraint(equalToConstant: 0)
+        ])
+
+        addSectionCard([controlsWrapper], header: "CONTROLS")
     }
 
     private func setupLogViewer() {
@@ -340,6 +360,15 @@ final class AutoworkflowDetailView: ModuleDetailView {
             return
         }
         if isStarting { return }
+
+        let taskID = taskIDField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        let optimisticTaskID = taskID.isEmpty ? "pending-\(UUID().uuidString.prefix(8))" : taskID
+
+        if case .error = state {
+            detailLabel.stringValue = ""
+        }
+        state = .idle
+
         isStarting = true
         startButton.isEnabled = false
         startButton.title = "Starting..."
@@ -349,7 +378,10 @@ final class AutoworkflowDetailView: ModuleDetailView {
         stopButton.isHidden = true
         resumeButton.isHidden = true
 
-        let taskID = taskIDField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        upsertTaskInList(taskID: optimisticTaskID, goal: goal, repo: repo, status: "starting")
+        selectedTaskID = optimisticTaskID
+        updateTaskList()
+
         let testCmd = testCommandField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
         let testArgs: [String]? = testCmd.isEmpty ? nil : autoworkflowShellSplitArguments(testCmd)
 
@@ -383,6 +415,9 @@ final class AutoworkflowDetailView: ModuleDetailView {
             }
 
             await MainActor.run {
+                if resolvedID != optimisticTaskID {
+                    tasks.removeAll { $0.taskID == optimisticTaskID }
+                }
                 upsertTaskInList(taskID: resolvedID, goal: goal, repo: repo, status: "initialized")
                 selectedTaskID = resolvedID
                 updateTaskList()
@@ -847,8 +882,7 @@ final class AutoworkflowDetailView: ModuleDetailView {
 
     private func mergeTaskList(with loaded: [AutoworkflowTaskItem], selectedTaskID: String) {
         var merged = loaded
-        if let local = tasks.first(where: { $0.taskID == selectedTaskID }),
-           !merged.contains(where: { $0.taskID == selectedTaskID }) {
+        for local in tasks where !merged.contains(where: { $0.taskID == local.taskID }) {
             merged.insert(local, at: 0)
         }
         tasks = merged

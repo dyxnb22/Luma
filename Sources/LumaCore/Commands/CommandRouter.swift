@@ -62,6 +62,10 @@ public struct CommandRouter: Sendable {
     public func isBareOpenDetailReturn(raw: String) -> Bool {
         let route = route(raw: raw)
         guard case .targeted(let module, _, let payload) = route else { return false }
+        if module.rawValue == "luma.snippets" {
+            let lower = payload.lowercased()
+            return lower == "new" || lower.hasPrefix("new ")
+        }
         guard let command = registry.command(forModule: module),
               command.bareBehavior == .openDetail else { return false }
         if payload.isEmpty { return true }

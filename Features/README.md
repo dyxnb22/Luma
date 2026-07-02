@@ -48,8 +48,20 @@ Treat `BuiltInModules.swift`, `FeatureCatalog.swift`, and `docs/ARCHITECTURE.md`
 
 - Every feature is represented as an independent `LumaModule` or service-backed module.
 - Every default-enabled feature must preserve the launcher hot path.
-- Empty-query UI shows a sectioned home list (Open Apps / Suggested).
+- Empty-query UI shows a sectioned home list (Open Apps / Suggested) with setup rows for permissions and modules.
 - Sensitive features must keep secrets out of generic search results unless explicitly unlocked.
+
+## Keyboard & Help (2026-07-02)
+
+- **Search field** stays focused on open; ↑↓ moves selection; Return runs the row.
+- **List area** accepts focus when clicked (padding/scrollbar); same keys work from the list.
+- **Detail mode** clears the search query visually; Esc restores the suspended query.
+- **Module help:** `help <trigger>` (IME-friendly) or `<trigger> ?` — see each module README.
+- **Edit shortcuts:** Command+A/C/V/X/Z and undo/redo work in text fields via `LumaStandardEditShortcuts`.
+- **Global search** needs ≥2 characters unless a command prefix is used.
+- **i18n:** English + 简体中文 (`L10n` / `L10nStrings.json`); Settings → General → Language.
+- **Onboarding:** First-launch wizard in-panel (`OnboardingWizardDetailView`); resume from home setup row.
+- **Translate replace selection:** Detail footer button; requires Accessibility; hides launcher before paste.
 
 ## Raycast-Inspired Defaults
 

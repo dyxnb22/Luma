@@ -25,7 +25,7 @@ struct SettingsSnapshot {
 
 @MainActor
 final class SettingsWindowController {
-    private var window: NSWindow?
+    private var window: LumaWindow?
     private let config: ConfigurationStore
     private let usage: PersistentUsageTracker
     private let onModulesChanged: @MainActor (Set<ModuleIdentifier>) -> Void
@@ -52,20 +52,20 @@ final class SettingsWindowController {
         self.onLatencyHUDChanged = onLatencyHUDChanged
     }
 
-    func show() {
+    func show(section: SettingsSection = .general) {
         Task { @MainActor in
             let snapshot = await makeSnapshot()
             if let window {
                 if let hosting = window.contentViewController as? NSHostingController<SettingsSwiftUIView> {
-                    hosting.rootView = makeSwiftUIView(snapshot: snapshot)
+                    hosting.rootView = makeSwiftUIView(snapshot: snapshot, initialSection: section)
                 }
                 present(window)
                 return
             }
 
-            let hosting = NSHostingController(rootView: makeSwiftUIView(snapshot: snapshot))
+            let hosting = NSHostingController(rootView: makeSwiftUIView(snapshot: snapshot, initialSection: section))
             hosting.sizingOptions = [.preferredContentSize, .intrinsicContentSize]
-            let window = NSWindow(
+            let window = LumaWindow(
                 contentRect: NSRect(x: 0, y: 0, width: 720, height: 520),
                 styleMask: [.titled, .closable, .miniaturizable, .resizable],
                 backing: .buffered,
@@ -81,13 +81,13 @@ final class SettingsWindowController {
         }
     }
 
-    private func present(_ window: NSWindow) {
+    private func present(_ window: LumaWindow) {
         NSApp.activate(ignoringOtherApps: true)
         window.makeKeyAndOrderFront(nil)
         window.orderFrontRegardless()
     }
 
-    private func makeSwiftUIView(snapshot: SettingsSnapshot) -> SettingsSwiftUIView {
+    private func makeSwiftUIView(snapshot: SettingsSnapshot, initialSection: SettingsSection = .general) -> SettingsSwiftUIView {
         SettingsSwiftUIView(
             snapshot: snapshot,
             config: config,
@@ -96,7 +96,8 @@ final class SettingsWindowController {
             onPinnedChanged: onPinnedChanged,
             onClipboardSettingsChanged: onClipboardSettingsChanged,
             onSecretsSettingsChanged: onSecretsSettingsChanged,
-            onLatencyHUDChanged: onLatencyHUDChanged
+            onLatencyHUDChanged: onLatencyHUDChanged,
+            initialSection: initialSection
         )
     }
 

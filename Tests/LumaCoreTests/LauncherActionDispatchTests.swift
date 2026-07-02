@@ -129,6 +129,9 @@ import LumaModules
     #expect(router.isBareOpenDetailReturn(raw: "t"))
     #expect(router.isBareOpenDetailReturn(raw: "todo"))
     #expect(!router.isBareOpenDetailReturn(raw: "s"))
+    #expect(router.isBareOpenDetailReturn(raw: "s new"))
+    #expect(router.isBareOpenDetailReturn(raw: "s new Address"))
+    #expect(!router.isBareOpenDetailReturn(raw: "s git"))
 }
 
 @Test func wordReviewRouteIsTargetedWithReviewPayload() {

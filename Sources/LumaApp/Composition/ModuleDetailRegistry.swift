@@ -20,7 +20,9 @@ struct ModuleUIContext {
     let translation: any TranslationClient
     let config: ConfigurationStore
     let onOpenSettings: () -> Void
+    let onOpenTranslationSettings: () -> Void
     let onHideLauncher: () -> Void
+    let accessibility: any AccessibilityClient
     let onTranslateContentChanged: (String, String) -> Void
     let runProjectAction: (ProjectAction, @escaping () -> Void) -> Void
     let runWorkbenchCapture: (WorkbenchCaptureSource, WorkbenchCaptureTarget) -> Void
@@ -44,9 +46,16 @@ final class ModuleDetailRegistry {
     static func makeDefault() -> ModuleDetailRegistry {
         let registry = ModuleDetailRegistry()
         registry.register(.translate) { ctx in
-            TranslateDetailView(translation: ctx.translation, config: ctx.config) { source, output in
-                ctx.onTranslateContentChanged(source, output)
-            }
+            TranslateDetailView(
+                translation: ctx.translation,
+                config: ctx.config,
+                accessibility: ctx.accessibility,
+                onContentChanged: { source, output in
+                    ctx.onTranslateContentChanged(source, output)
+                },
+                onOpenTranslationSettings: ctx.onOpenTranslationSettings,
+                onHideLauncher: ctx.onHideLauncher
+            )
         }
         registry.register(.clipboard) { ctx in
             ClipboardDetailView(

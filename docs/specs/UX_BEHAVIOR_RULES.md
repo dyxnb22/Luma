@@ -6,9 +6,16 @@
 - Default hotkey is Command+Space.
 - The launcher panel is not a dashboard.
 - Module detail surfaces open inside the launcher panel (Route C).
-- Escape dismisses, or steps back through detail → results → home.
+- Escape dismisses, or steps back through detail → results (restores query) → home → close panel.
+- Tab opens the action panel for secondary actions; Tab or Shift+Tab closes it when open.
+- Standard edit shortcuts work in text fields and detail views: Command+A/C/V/X/Z, Command+Shift+Z / Command+Y.
+- Global search requires at least 2 characters unless a command prefix is used.
+- Module help: `help <trigger>` (IME-friendly) or `<trigger> ?` (e.g. `help clip`, `clip ?`).
+- In module detail, the search field shows a read-only placeholder (`In <Module> — Esc to go back`) instead of the prior query.
+- Clicking the list area focuses the list; typing forwards to the search field (including IME `insertText`).
+- First launch shows an in-panel onboarding wizard (skipped when `LUMA_QA=1`).
+- UI language: Settings → General → Language (English / 简体中文 / System).
 - Return runs the selected row's primary action.
-- Tab opens the action panel for secondary actions; Tab again closes it.
 - Command+Return runs the first secondary action when present.
 - Arrow up/down moves selection.
 - Command+number selects or runs the visible nth result (unified across home and results).

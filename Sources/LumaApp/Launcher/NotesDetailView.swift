@@ -129,6 +129,8 @@ final class NotesDetailView: NSObject, ModuleDetailView {
     private func setup(container: NSView) {
         topStrip.translatesAutoresizingMaskIntoConstraints = false
         filterStrip.translatesAutoresizingMaskIntoConstraints = false
+        GeekUIKit.installDetailRootChrome(on: topStrip)
+        GeekUIKit.installDetailRootChrome(on: filterStrip)
 
         rootPathLabel.font = TypographyTokens.caption2()
         rootPathLabel.textColor = .secondaryLabelColor
@@ -204,14 +206,16 @@ final class NotesDetailView: NSObject, ModuleDetailView {
 
         scrollView.documentView = outlineView
         scrollView.hasVerticalScroller = true
-        scrollView.hasHorizontalScroller = true
+        scrollView.hasHorizontalScroller = false
+        scrollView.autohidesScrollers = true
         scrollView.drawsBackground = false
         scrollView.borderType = .noBorder
         scrollView.translatesAutoresizingMaskIntoConstraints = false
 
         mindMapScroll.documentView = mindMapView
         mindMapScroll.hasVerticalScroller = true
-        mindMapScroll.hasHorizontalScroller = true
+        mindMapScroll.hasHorizontalScroller = false
+        mindMapScroll.autohidesScrollers = true
         mindMapScroll.drawsBackground = false
         mindMapScroll.borderType = .noBorder
         mindMapScroll.isHidden = true
@@ -237,6 +241,7 @@ final class NotesDetailView: NSObject, ModuleDetailView {
             self.chipBar.selectChip(nil)
             Task { await self.applyPanelView(panel) }
         }
+        GeekUIKit.installDetailRootChrome(on: chipBar)
 
         container.addSubview(topStrip)
         topStrip.addSubview(rootPathLabel)

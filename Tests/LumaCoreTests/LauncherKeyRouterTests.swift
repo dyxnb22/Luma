@@ -2,6 +2,26 @@ import Foundation
 import Testing
 import LumaCore
 
+@Test func keyRouterDismissesActionPanelOnBacktabWhenVisible() {
+    let outcome = LauncherKeyRouter.route(
+        command: .backtab,
+        mode: .results,
+        itemCount: 3,
+        actionPanelVisible: true
+    )
+    #expect(outcome == .dismissActionPanel)
+}
+
+@Test func keyRouterBacktabDoesNotOpenActionPanelWhenHidden() {
+    let outcome = LauncherKeyRouter.route(
+        command: .backtab,
+        mode: .results,
+        itemCount: 3,
+        actionPanelVisible: false
+    )
+    #expect(outcome == .passthrough)
+}
+
 @Test func keyRouterOpensActionPanelOnTab() {
     let outcome = LauncherKeyRouter.route(
         command: .tab,

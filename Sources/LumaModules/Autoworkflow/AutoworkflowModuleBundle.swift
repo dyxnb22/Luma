@@ -28,7 +28,7 @@ public enum AutoworkflowModuleBundle: ModuleBundle {
                     "aw — open auto workflow panel",
                     "aw status — check workflow status",
                     "aw start — start a new workflow",
-                    "aw ? — this help"
+                    "help aw or aw ? — commands"
                 ],
                 discoverPriority: 90,
                 bareBehavior: .openDetail

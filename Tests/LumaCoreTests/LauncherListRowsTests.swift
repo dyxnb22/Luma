@@ -95,6 +95,9 @@ import LumaCore
 }
 
 @Test func listRowsMapHomeSectionsWithGlobalShortcutIndex() {
+    let previous = LumaLocale.choice
+    defer { LumaLocale.choice = previous }
+    LumaLocale.choice = .en
     let appsID = ModuleIdentifier(rawValue: "luma.apps")
     let todoID = ModuleIdentifier(rawValue: "luma.todo")
     let snapshot = LauncherHomeSnapshot(sections: [

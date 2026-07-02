@@ -7,6 +7,7 @@ import LumaServices
 @MainActor
 final class PermissionBannerController {
     let bannerView = NSView()
+    var onOpenSettings: (() -> Void)?
     private let config: ConfigurationStore
     private let label = NSTextField(labelWithString: "")
     private var heightConstraint: NSLayoutConstraint?
@@ -33,7 +34,13 @@ final class PermissionBannerController {
         actionButton.font = .systemFont(ofSize: 12, weight: .medium)
         actionButton.translatesAutoresizingMaskIntoConstraints = false
 
+        let settingsButton = NSButton(title: "Settings", target: self, action: #selector(openSettings))
+        settingsButton.bezelStyle = .rounded
+        settingsButton.font = .systemFont(ofSize: 12, weight: .medium)
+        settingsButton.translatesAutoresizingMaskIntoConstraints = false
+
         bannerView.addSubview(label)
+        bannerView.addSubview(settingsButton)
         bannerView.addSubview(actionButton)
         parent.addSubview(bannerView)
 
@@ -46,9 +53,13 @@ final class PermissionBannerController {
 
             label.leadingAnchor.constraint(equalTo: bannerView.leadingAnchor, constant: 12),
             label.centerYAnchor.constraint(equalTo: bannerView.centerYAnchor),
+            label.trailingAnchor.constraint(lessThanOrEqualTo: settingsButton.leadingAnchor, constant: -8),
 
             actionButton.trailingAnchor.constraint(equalTo: bannerView.trailingAnchor, constant: -8),
-            actionButton.centerYAnchor.constraint(equalTo: bannerView.centerYAnchor)
+            actionButton.centerYAnchor.constraint(equalTo: bannerView.centerYAnchor),
+
+            settingsButton.trailingAnchor.constraint(equalTo: actionButton.leadingAnchor, constant: -6),
+            settingsButton.centerYAnchor.constraint(equalTo: bannerView.centerYAnchor)
         ])
         refresh()
     }
@@ -103,6 +114,10 @@ final class PermissionBannerController {
             NSWorkspace.shared.open(url)
         }
         refresh()
+    }
+
+    @objc private func openSettings() {
+        onOpenSettings?()
     }
 
     private func resolvedEnabledModules() async -> Set<ModuleIdentifier> {

@@ -31,6 +31,7 @@ public struct NoopAccessibilityClient: AccessibilityClient {
     }
 
     public func insert(text: String) async { _ = text }
+    public func replaceSelectedText(with text: String) async -> Bool { _ = text; return false }
     public func applyWindowLayout(_ preset: String) async { _ = preset }
 }
 

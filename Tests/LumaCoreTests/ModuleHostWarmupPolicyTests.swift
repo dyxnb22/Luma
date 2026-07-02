@@ -72,6 +72,7 @@ private struct WarmupTestDoubles {
         func requestPermission() async {}
         func focus(windowID: UInt32, pid: Int32, title: String, axTitle: String?, bounds: WindowBounds?) async {}
         func insert(text: String) async {}
+    func replaceSelectedText(with text: String) async -> Bool { _ = text; return false }
         func applyWindowLayout(_ preset: String) async {}
     }
 

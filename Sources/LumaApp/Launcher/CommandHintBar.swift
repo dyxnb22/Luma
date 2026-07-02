@@ -29,7 +29,7 @@ final class CommandHintBar: NSView {
 
         returnLine.isHidden = true
         statusLine.isHidden = true
-        statusLine.textColor = .secondaryLabelColor
+        statusLine.textColor = Self.hintTextColor
 
         heightConstraint = heightAnchor.constraint(equalToConstant: 0)
         heightConstraint.isActive = true
@@ -47,7 +47,7 @@ final class CommandHintBar: NSView {
         fatalError("init(coder:) has not been implemented")
     }
 
-    func apply(_ hint: CommandHint?) {
+    func apply(_ hint: CommandHint?, helpTrigger: String? = nil) {
         statusDismissTask?.cancel()
         statusLine.isHidden = true
         guard let hint else {
@@ -63,7 +63,11 @@ final class CommandHintBar: NSView {
         isHidden = false
         heightConstraint.constant = LauncherChromeTokens.commandHintHeight
         formatLine.stringValue = "Format: \(hint.usageFormat)"
-        descriptionLine.stringValue = "About: \(hint.description)"
+        if let helpTrigger, !helpTrigger.isEmpty, helpTrigger != "help", helpTrigger != "?" {
+            descriptionLine.stringValue = "About: \(hint.description)\(L10n.tr("commandHint.helpSuffix", helpTrigger))"
+        } else {
+            descriptionLine.stringValue = "About: \(hint.description)"
+        }
         if let example = hint.example {
             exampleLine.stringValue = "Example: \(example)"
             exampleLine.isHidden = false
@@ -107,12 +111,20 @@ final class CommandHintBar: NSView {
     private static func makeLine(mono: Bool) -> NSTextField {
         let label = NSTextField(labelWithString: "")
         label.font = mono ? TypographyTokens.monoCaption() : TypographyTokens.caption2()
-        label.textColor = mono ? .tertiaryLabelColor : .secondaryLabelColor
+        label.textColor = mono ? Self.monoHintTextColor : Self.hintTextColor
         label.isBezeled = false
         label.isEditable = false
         label.drawsBackground = false
         label.lineBreakMode = .byTruncatingTail
         label.translatesAutoresizingMaskIntoConstraints = false
         return label
+    }
+
+    private static var hintTextColor: NSColor {
+        .labelColor.withAlphaComponent(0.72)
+    }
+
+    private static var monoHintTextColor: NSColor {
+        .labelColor.withAlphaComponent(0.64)
     }
 }

@@ -40,7 +40,7 @@ public enum NotesModuleBundle: ModuleBundle {
                     "n daily — open or create today's daily note",
                     "n cap <text> — append bullet to today's daily note",
                     "n review week — weekly review with modified notes",
-                    "n ? — this help"
+                    "help note or n ? — commands"
                 ],
                 discoverPriority: 60,
                 bareBehavior: .openDetail

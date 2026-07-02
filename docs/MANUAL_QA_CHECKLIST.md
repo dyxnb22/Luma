@@ -76,8 +76,10 @@
 ### Search Results
 
 - Typing switches from home sections to search results within ~80 ms.
-- Clearing text restores the home list.
-- Up/Down moves selection without rebuilding rows.
+- Single-character global search does not fan out to modules; hint bar explains the 2-character minimum.
+- Clearing text restores the home list immediately (no stale results after Esc).
+- Up/Down moves selection without rebuilding rows (from the search field).
+- Tab opens the action panel; Shift+Tab closes it when open.
 - Selected row shows accent background and Return hint capsule.
 - Return runs the selected item and hides the panel.
 - Selection sticks to the previously selected item if it remains in the new result set.
@@ -85,10 +87,13 @@
 ### Module Detail
 
 - Running a detail entry swaps the main content area to a `BaseDetailContainer` detail view (16 pt margins).
-- Search bar remains visible.
+- Search bar remains visible but read-only with an `In <Module> — Esc to go back` placeholder (prior query is restored when leaving detail).
 - Top bar shows Back, module title, and close.
-- Esc in detail returns to the home list (does not close the panel).
-- Esc again on the home list closes the panel.
+- Esc in detail returns to the prior search results when a query was suspended; otherwise home.
+- Esc on results clears query and shows home.
+- Esc on home closes the panel.
+- Detail toolbars with multiple buttons scroll horizontally instead of clipping (Records, Auto Workflow, Translate, etc.).
+- Standard edit shortcuts (Command+A/C/V/X/Z, undo/redo) work in detail text fields via `LumaStandardEditShortcuts`.
 
 ### Latency HUD
 
@@ -116,7 +121,16 @@
 
 ### Module Help
 
-- `?` / `help` on module triggers: `t ?`, `s ?`, `m ?`, `secret ?`, `clip ?`, `tr ?`, `app ?`, and global `?` for commands.
+- `help <trigger>` (preferred under Chinese IME): `help clip`, `help tr`, `help snip`, etc.
+- `?` / `<trigger> ?` still works: `clip ?`, `s ?`, `tr ?`, `app ?`, and global `?` for commands.
+
+### Bare commands (open detail)
+
+- `todo` — opens Todo detail.
+- `word review` — opens Wordbook review flow.
+- `s new` / `s new <title>` — opens Snippets detail with draft.
+- `app top` — lists apps by memory.
+- `rec` / `m` — opens Records detail when module enabled.
 
 ### Hotkey Status
 

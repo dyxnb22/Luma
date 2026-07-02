@@ -23,7 +23,7 @@ public enum WindowLayoutsModuleBundle: ModuleBundle {
                 helpLines: [
                     "win left / right / max / center — move focused window",
                     "wl and layout are aliases",
-                    "win ? — this help"
+                    "help win or win ? — commands"
                 ],
                 discoverPriority: 20
             )

@@ -63,7 +63,7 @@ Reference: ADR-021 Clipboard v1 frozen scope.
 - Window tiling/layout engine as a v1 core feature.
 - Dashboard-first launcher panel.
 - Shortcut automation replacement.
-- Complex onboarding tutorials.
+- Complex onboarding tutorials beyond the built-in first-run wizard.
 - Heavy architecture frameworks unless a concrete local pain justifies them.
 
 ## Notes Module

@@ -1,6 +1,7 @@
 import AppKit
 import LumaCore
 import LumaModules
+import LumaModules
 
 @MainActor
 final class LumaSearchBar: NSView {
@@ -8,10 +9,13 @@ final class LumaSearchBar: NSView {
         case up
         case down
         case tab
+        case backtab
         case actionPanel
         case commandReturn
         case commandNumber(Int)
     }
+
+    private var detailSuspendedQuery: String?
 
     private let surfaceView = NSView()
     private let iconView = NSImageView()
@@ -172,6 +176,11 @@ final class LumaSearchBar: NSView {
         textField.placeholderString = text
     }
 
+    func appendText(_ text: String) {
+        guard detailSuspendedQuery == nil, textField.isEditable else { return }
+        stringValue = stringValue + text
+    }
+
     func focus() {
         window?.makeFirstResponder(textField)
     }
@@ -183,6 +192,30 @@ final class LumaSearchBar: NSView {
         }
         textField.stringValue = ""
         updateClearButtonVisibility()
+    }
+
+    /// Clears the visible query while module detail is open; restores on `endDetailMode()`.
+    func beginDetailMode(moduleTitle: String) {
+        if detailSuspendedQuery == nil {
+            detailSuspendedQuery = stringValue
+        }
+        resetQueryText()
+        textField.isEditable = false
+        setPlaceholder(L10n.tr("translate.detail.placeholder", moduleTitle))
+    }
+
+    func endDetailMode() -> String? {
+        textField.isEditable = true
+        let suspended = detailSuspendedQuery
+        detailSuspendedQuery = nil
+        setPlaceholder(ModuleSearchHints.default)
+        return suspended
+    }
+
+    func cancelDetailMode() {
+        detailSuspendedQuery = nil
+        textField.isEditable = true
+        setPlaceholder(ModuleSearchHints.default)
     }
 
     @objc private func submit() {
@@ -207,8 +240,10 @@ final class LumaSearchBar: NSView {
         }
         let label = NSTextField(wrappingLabelWithString: """
         ⌘1…9 — jump to row
-        ↑ ↓ — move selection
+        ↑ ↓ — move selection (from search)
         Tab / ⌘K — action panel
+        Shift+Tab — close action panel
+        help clip — module help (IME-friendly)
         Return — run selected item
         Esc — back / close panel
         """)
@@ -250,8 +285,11 @@ extension LumaSearchBar: NSTextFieldDelegate {
     }
 
     func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
-        if commandSelector == #selector(NSResponder.insertTab(_:))
-            || commandSelector == #selector(NSResponder.insertBacktab(_:)) {
+        if commandSelector == #selector(NSResponder.insertBacktab(_:)) {
+            _ = onKeyCommand?(.backtab)
+            return true
+        }
+        if commandSelector == #selector(NSResponder.insertTab(_:)) {
             _ = onKeyCommand?(.tab)
             return true
         }
@@ -310,12 +348,23 @@ private final class LumaSearchTextField: NSTextField {
         super.insertText(insertString)
     }
 
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        if let window, LumaStandardEditShortcuts.performKeyEquivalent(event, in: window) {
+            return true
+        }
+        return super.performKeyEquivalent(with: event)
+    }
+
     override func keyDown(with event: NSEvent) {
         if onInterceptKeyDown?(event) == true { return }
+        if LumaStandardEditShortcuts.handleKeyDown(event, in: window) { return }
         if stringValue.isEmpty, onDetailKey?(event) == true { return }
         if event.keyCode == 125, onKeyCommand?(.down) == true { return }
         if event.keyCode == 126, onKeyCommand?(.up) == true { return }
-        if event.keyCode == 48, onKeyCommand?(.tab) == true { return }
+        if event.keyCode == 48 {
+            _ = onKeyCommand?(.tab)
+            return
+        }
         if event.modifierFlags.contains(.command),
            event.charactersIgnoringModifiers?.lowercased() == "k",
            onKeyCommand?(.actionPanel) == true { return }
@@ -337,11 +386,11 @@ private final class LumaSearchTextField: NSTextField {
     }
 
     override func insertTab(_ sender: Any?) {
-        if onKeyCommand?(.tab) == true { return }
+        _ = onKeyCommand?(.tab)
     }
 
     override func insertBacktab(_ sender: Any?) {
-        if onKeyCommand?(.tab) == true { return }
+        _ = onKeyCommand?(.backtab)
     }
 }
 

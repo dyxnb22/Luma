@@ -41,6 +41,7 @@ final class ClipboardDetailView: NSObject, ModuleDetailView {
     func activate() {
         refresh()
         DispatchQueue.main.async { [weak self] in
+            self?.resizeTableColumn()
             self?.tableView.window?.makeFirstResponder(self?.tableView)
         }
     }
@@ -80,7 +81,7 @@ final class ClipboardDetailView: NSObject, ModuleDetailView {
         }
         tableView.target = self
         tableView.doubleAction = #selector(doubleClickRow)
-        tableView.columnAutoresizingStyle = .uniformColumnAutoresizingStyle
+        tableView.columnAutoresizingStyle = .lastColumnOnlyAutoresizingStyle
 
         let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("main"))
         column.resizingMask = .autoresizingMask
@@ -88,9 +89,17 @@ final class ClipboardDetailView: NSObject, ModuleDetailView {
 
         tableScroll.documentView = tableView
         tableScroll.hasVerticalScroller = true
+        tableScroll.hasHorizontalScroller = false
         tableScroll.drawsBackground = false
         tableScroll.borderType = .noBorder
         tableScroll.translatesAutoresizingMaskIntoConstraints = false
+        tableScroll.contentView.postsBoundsChangedNotifications = true
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(resizeTableColumn),
+            name: NSView.frameDidChangeNotification,
+            object: tableScroll
+        )
 
         emptyStateLabel.font = TypographyTokens.body
         emptyStateLabel.textColor = .secondaryLabelColor
@@ -220,6 +229,15 @@ final class ClipboardDetailView: NSObject, ModuleDetailView {
 
     @objc private func searchChanged() {
         refresh()
+    }
+
+    @objc private func resizeTableColumn() {
+        guard let column = tableView.tableColumns.first else { return }
+        let width = max(200, tableScroll.contentSize.width)
+        if abs(column.width - width) > 1 {
+            column.width = width
+            tableView.noteHeightOfRows(withIndexesChanged: IndexSet(integersIn: 0..<tableView.numberOfRows))
+        }
     }
 
     @objc private func filterChanged() {
@@ -623,10 +641,13 @@ private final class ClipboardRowCell: NSTableCellView {
             thumbnailView.isHidden = true
             iconView.isHidden = false
             previewLabel.isHidden = false
+            let preview = previewText(for: entry.displayText)
             iconView.image = NSImage(systemSymbolName: entry.symbolName, accessibilityDescription: nil)
-            previewLabel.stringValue = previewText(for: entry.displayText)
+            previewLabel.stringValue = preview
+            previewLabel.toolTip = entry.displayText
         }
         metaLabel.stringValue = entry.metadataLine
+        metaLabel.toolTip = entry.metadataLine
         pinButton.image = NSImage(systemSymbolName: entry.isPinned ? "pin.fill" : "pin", accessibilityDescription: "Pin")
         pinButton.contentTintColor = entry.isPinned ? .systemOrange : .secondaryLabelColor
 
@@ -667,6 +688,7 @@ private final class ClipboardRowCell: NSTableCellView {
 
         metaLabel.font = TypographyTokens.caption2()
         metaLabel.textColor = .secondaryLabelColor
+        metaLabel.lineBreakMode = .byTruncatingTail
         metaLabel.translatesAutoresizingMaskIntoConstraints = false
 
         for button in [copyButton, snippetButton, noteButton, pinButton, deleteButton] {

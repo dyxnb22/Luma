@@ -50,6 +50,13 @@ final class LauncherPanel: NSPanel {
         setContentSize(NSSize(width: width, height: height))
     }
 
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        if LumaStandardEditShortcuts.performKeyEquivalent(event, in: self) {
+            return true
+        }
+        return super.performKeyEquivalent(with: event)
+    }
+
     override func keyDown(with event: NSEvent) {
         if event.keyCode == 53 {
             onEscape?()

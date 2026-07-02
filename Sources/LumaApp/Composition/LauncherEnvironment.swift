@@ -14,6 +14,7 @@ final class LauncherEnvironment {
 
     let openModuleDetail: (ModuleIdentifier) -> Void
     let openSettings: () -> Void
+    let openTranslationSettings: () -> Void
     let reloadModules: () -> Void
     let onBackFromDetail: () -> Void
     let onTranslateContentChanged: (String, String) -> Void
@@ -33,6 +34,7 @@ final class LauncherEnvironment {
     let autoworkflowModule: AutoworkflowModule
     let translation: any TranslationClient
     let config: ConfigurationStore
+    let accessibility: any AccessibilityClient
     let runProjectAction: (ProjectAction, @escaping () -> Void) -> Void
     let runWorkbenchCapture: (WorkbenchCaptureSource, WorkbenchCaptureTarget) -> Void
     let runWorkspaceRow: (CurrentProjectWorkspaceRowAction) -> Void
@@ -44,6 +46,7 @@ final class LauncherEnvironment {
     init(
         openModuleDetail: @escaping (ModuleIdentifier) -> Void,
         openSettings: @escaping () -> Void,
+        openTranslationSettings: (() -> Void)? = nil,
         reloadModules: @escaping () -> Void,
         onBackFromDetail: @escaping () -> Void,
         onTranslateContentChanged: @escaping (String, String) -> Void,
@@ -65,12 +68,14 @@ final class LauncherEnvironment {
         autoworkflowModule: AutoworkflowModule = AutoworkflowModule(),
         translation: any TranslationClient,
         config: ConfigurationStore,
+        accessibility: any AccessibilityClient,
         runProjectAction: @escaping (ProjectAction, @escaping () -> Void) -> Void,
         runWorkbenchCapture: @escaping (WorkbenchCaptureSource, WorkbenchCaptureTarget) -> Void = { _, _ in },
         runWorkspaceRow: @escaping (CurrentProjectWorkspaceRowAction) -> Void = { _ in }
     ) {
         self.openModuleDetail = openModuleDetail
         self.openSettings = openSettings
+        self.openTranslationSettings = openTranslationSettings ?? openSettings
         self.reloadModules = reloadModules
         self.onBackFromDetail = onBackFromDetail
         self.onTranslateContentChanged = onTranslateContentChanged
@@ -90,6 +95,7 @@ final class LauncherEnvironment {
         self.autoworkflowModule = autoworkflowModule
         self.translation = translation
         self.config = config
+        self.accessibility = accessibility
         self.runProjectAction = runProjectAction
         self.runWorkbenchCapture = runWorkbenchCapture
         self.runWorkspaceRow = runWorkspaceRow
@@ -120,7 +126,9 @@ final class LauncherEnvironment {
             translation: translation,
             config: config,
             onOpenSettings: openSettings,
+            onOpenTranslationSettings: openTranslationSettings,
             onHideLauncher: onHideLauncher,
+            accessibility: accessibility,
             onTranslateContentChanged: onTranslateContentChanged,
             runProjectAction: runProjectAction,
             runWorkbenchCapture: runWorkbenchCapture,

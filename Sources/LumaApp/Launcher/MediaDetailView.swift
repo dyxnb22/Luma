@@ -193,26 +193,16 @@ final class MediaDetailView: NSObject, ModuleDetailView {
         searchField.translatesAutoresizingMaskIntoConstraints = false
 
         let addButton = GeekUIKit.makeToolbarButton("New", target: self, action: #selector(addItem))
-        addButton.translatesAutoresizingMaskIntoConstraints = false
-
         let exportButton = GeekUIKit.makeToolbarButton("Export CSV", target: self, action: #selector(exportCSV))
-        exportButton.translatesAutoresizingMaskIntoConstraints = false
+        let buttonStack = NSStackView(views: [addButton, exportButton])
 
         toolbar.addSubview(searchField)
-        toolbar.addSubview(addButton)
-        toolbar.addSubview(exportButton)
+        GeekUIKit.constrainDetailToolbarTrailingActions(buttonStack, in: toolbar, after: searchField)
 
         NSLayoutConstraint.activate([
             searchField.leadingAnchor.constraint(equalTo: toolbar.leadingAnchor),
             searchField.centerYAnchor.constraint(equalTo: toolbar.centerYAnchor),
-            searchField.widthAnchor.constraint(greaterThanOrEqualToConstant: 160),
-
-            addButton.leadingAnchor.constraint(greaterThanOrEqualTo: searchField.trailingAnchor, constant: 12),
-            addButton.centerYAnchor.constraint(equalTo: toolbar.centerYAnchor),
-
-            exportButton.leadingAnchor.constraint(equalTo: addButton.trailingAnchor, constant: 8),
-            exportButton.trailingAnchor.constraint(equalTo: toolbar.trailingAnchor),
-            exportButton.centerYAnchor.constraint(equalTo: toolbar.centerYAnchor)
+            searchField.widthAnchor.constraint(greaterThanOrEqualToConstant: 120)
         ])
         return toolbar
     }
@@ -355,7 +345,7 @@ extension MediaDetailView: NSTableViewDataSource, NSTableViewDelegate {
 }
 
 @MainActor
-private final class MediaItemEditorSheet: NSWindow {
+private final class MediaItemEditorSheet: LumaWindow {
     private let onSave: (MediaEditorDraft) -> Void
     private let onDelete: ((UUID) -> Void)?
     private let titleField = NSTextField()

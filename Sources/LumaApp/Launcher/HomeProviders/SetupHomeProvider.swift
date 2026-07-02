@@ -2,6 +2,7 @@ import Foundation
 import LumaCore
 import LumaInfrastructure
 import LumaModules
+import LumaServices
 
 /// Lightweight first-run setup rows — not a full onboarding flow.
 struct SetupHomeProvider: LauncherHomeProvider {
@@ -22,9 +23,16 @@ struct SetupHomeProvider: LauncherHomeProvider {
     func items() async -> [ResultItem] {
         guard await !config.setupHintsDismissed() else { return [] }
 
-        let notesConfig = await notesRootStore.load()
         var rows: [ResultItem] = []
+        if !(await config.onboardingCompleted()) {
+            rows.append(onboardingRow())
+        }
 
+        let notesConfig = await notesRootStore.load()
+
+        if await needsAccessibilitySetup() {
+            rows.append(accessibilitySetupRow())
+        }
         if enablementGate.contains(.notes), notesConfig.root == nil {
             rows.append(notesSetupRow())
         }
@@ -34,12 +42,29 @@ struct SetupHomeProvider: LauncherHomeProvider {
         return Array(rows.prefix(HomeSuggestionPolicy.maxSetupRows))
     }
 
+    private func onboardingRow() -> ResultItem {
+        ResultItem(
+            id: ResultID(module: .commands, key: "setup.onboarding"),
+            title: L10n.tr("onboarding.homeRow.title"),
+            titleAttributed: AttributedString(L10n.tr("onboarding.homeRow.title")),
+            subtitle: L10n.tr("onboarding.homeRow.subtitle"),
+            icon: .symbol("sparkles"),
+            primaryAction: Action(
+                id: ActionID(module: .commands, key: "setup.onboarding"),
+                title: L10n.tr("onboarding.button.next"),
+                kind: .noop
+            ),
+            rankingHints: RankingHints(basePriority: 102),
+            rowKind: .starter
+        )
+    }
+
     private func notesSetupRow() -> ResultItem {
         ResultItem(
             id: ResultID(module: .notes, key: "setup.notes-root"),
-            title: "Set up Notes folder",
-            titleAttributed: AttributedString("Set up Notes folder"),
-            subtitle: "Choose where your markdown library lives",
+            title: L10n.tr("setup.notes.title"),
+            titleAttributed: AttributedString(L10n.tr("setup.notes.title")),
+            subtitle: L10n.tr("setup.notes.subtitle"),
             icon: .symbol("folder.badge.gearshape"),
             primaryAction: Action(
                 id: ActionID(module: .notes, key: "setup.notes-root"),
@@ -55,9 +80,9 @@ struct SetupHomeProvider: LauncherHomeProvider {
         let payload = Data("open-settings".utf8)
         return ResultItem(
             id: ResultID(module: .commands, key: "setup.modules"),
-            title: "Review modules & pins",
-            titleAttributed: AttributedString("Review modules & pins"),
-            subtitle: "Enable what you use and pin hot-path modules",
+            title: L10n.tr("setup.modules.title"),
+            titleAttributed: AttributedString(L10n.tr("setup.modules.title")),
+            subtitle: L10n.tr("setup.modules.subtitle"),
             icon: .symbol("slider.horizontal.3"),
             primaryAction: Action(
                 id: ActionID(module: .commands, key: "setup.modules"),
@@ -65,6 +90,35 @@ struct SetupHomeProvider: LauncherHomeProvider {
                 kind: .custom(payload: payload, handler: .commands)
             ),
             rankingHints: RankingHints(basePriority: 99),
+            rowKind: .starter
+        )
+    }
+
+    private func needsAccessibilitySetup() async -> Bool {
+        guard !AXService.isProcessTrusted() else { return false }
+        let defaultEnabled = Set(
+            BuiltInModules.makeAll()
+                .filter { type(of: $0).manifest.defaultEnabled }
+                .map { type(of: $0).manifest.identifier }
+        )
+        let enabled = await config.enabledModules() ?? defaultEnabled
+        return BuiltInModules.enabledModulesRequireAccessibility(enabled)
+    }
+
+    private func accessibilitySetupRow() -> ResultItem {
+        let payload = Data("open-settings".utf8)
+        return ResultItem(
+            id: ResultID(module: .commands, key: "setup.accessibility"),
+            title: L10n.tr("setup.accessibility.title"),
+            titleAttributed: AttributedString(L10n.tr("setup.accessibility.title")),
+            subtitle: L10n.tr("setup.accessibility.subtitle"),
+            icon: .symbol("hand.raised"),
+            primaryAction: Action(
+                id: ActionID(module: .commands, key: "setup.accessibility"),
+                title: L10n.tr("setup.openSettings"),
+                kind: .custom(payload: payload, handler: .commands)
+            ),
+            rankingHints: RankingHints(basePriority: 101),
             rowKind: .starter
         )
     }

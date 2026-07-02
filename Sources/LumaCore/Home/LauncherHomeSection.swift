@@ -9,11 +9,11 @@ public enum LauncherHomeSectionKind: String, Sendable, Hashable, CaseIterable {
 
     public var title: String {
         switch self {
-        case .setup: "GET STARTED"
-        case .openApps: "OPEN APPS"
-        case .recentActions: "RECENT"
-        case .continueFlow: "CONTINUE"
-        case .create: "CREATE"
+        case .setup: L10n.tr("home.section.setup")
+        case .openApps: L10n.tr("home.section.openApps")
+        case .recentActions: L10n.tr("home.section.recent")
+        case .continueFlow: L10n.tr("home.section.continue")
+        case .create: L10n.tr("home.section.create")
         }
     }
 }

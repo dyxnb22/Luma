@@ -246,6 +246,10 @@ final class AppCoordinator {
                 self?.windowController.hideImmediatelyForAction()
                 self?.settingsWindowController?.show()
             },
+            openTranslationSettings: { [weak self] in
+                self?.windowController.hideImmediatelyForAction()
+                self?.settingsWindowController?.show(section: .translation)
+            },
             reloadModules: { [weak self] in
                 guard let self else { return }
                 Task {
@@ -295,6 +299,7 @@ final class AppCoordinator {
             autoworkflowModule: autoworkflowModule,
             translation: translation,
             config: config,
+            accessibility: accessibility,
             runProjectAction: { [weak self] action, completion in
                 guard let self else { return }
                 if action.hidesLauncher {

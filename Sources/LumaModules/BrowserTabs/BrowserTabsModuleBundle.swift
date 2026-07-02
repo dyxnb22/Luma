@@ -28,7 +28,7 @@ public enum BrowserTabsModuleBundle: ModuleBundle {
                     "tab github — search title and URL",
                     "Requires Automation permission per browser",
                     "Disabled by default; enable in Settings → Modules",
-                    "tab ? — this help"
+                    "help tab or tab ? — commands"
                 ],
                 discoverPriority: 55
             )

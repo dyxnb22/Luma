@@ -368,7 +368,7 @@ public actor TodoModule: LumaModule {
             icon: .symbol("checklist"),
             primaryAction: Action(
                 id: ActionID(module: Self.manifest.identifier, key: "open-detail"),
-                title: "Open Todo",
+                title: "Open detail",
                 kind: .openModuleDetail(.todo, payload: nil)
             ),
             rankingHints: RankingHints(basePriority: Self.manifest.priority + 2),

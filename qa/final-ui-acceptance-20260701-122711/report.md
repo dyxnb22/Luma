@@ -1,5 +1,26 @@
 # Luma Final UI Acceptance Report
 
+## Remediation (2026-07-02)
+
+The following P1/P2 findings from the 2026-07-01 pass were addressed in code and docs:
+
+| Area | Fix |
+|---|---|
+| Tab / action panel | Tab no longer selects search text; opens secondary actions. Shift+Tab closes the panel. |
+| Empty query stale results | Esc and empty sync clear results and restore Home immediately. |
+| Bare commands | `todo`, `word review`, `s new`, `app top`, module bare-open-detail rows work. |
+| Detail layout cropping | Horizontal scroll toolbars/footers; table truncation and tooltips across Clipboard, Notes, Quicklinks, Translate, Records, Auto Workflow. |
+| Detail + search confusion | Search field read-only in detail with module placeholder; Esc restores suspended query. |
+| Single-char global search | No module fan-out below 2 characters; hint explains minimum. |
+| IME help | `help <trigger>` promoted in hints, empty states, and module help lines. |
+| Permissions / setup | Home setup rows for Accessibility and modules; permission banner Settings button. |
+| Autoworkflow tasks | Optimistic task row on start; stale error cleared. |
+| Kill Process | Confirmation before quit/force kill. |
+| Settings | Apply feedback, path wrapping (General/Wordbook), default-off badges, Activity labels. |
+| Edit shortcuts | Command+A/C/V/X/Z and undo/redo globally via `LumaStandardEditShortcuts`. |
+
+Re-run `./scripts/build_app.sh` and `./scripts/verify_manual_qa.sh` after pulling these changes. Screenshots in this folder remain the **pre-remediation** baseline.
+
 ## Verdict
 - Conditional Pass
 - Luma is basically usable for the owner's daily launcher workflows, but it is not ready for broader trial or release because multiple visible modules fail documented commands and several detail views show severe layout/cropping problems.

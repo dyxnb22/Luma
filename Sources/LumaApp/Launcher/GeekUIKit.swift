@@ -255,16 +255,88 @@ enum GeekUIKit {
         label.font = font
         label.textColor = color
         label.lineBreakMode = lineBreak
+        label.maximumNumberOfLines = 1
         label.translatesAutoresizingMaskIntoConstraints = false
-        label.toolTip = toolTip
+        label.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        label.toolTip = toolTip ?? (text.isEmpty ? nil : text)
         cell.addSubview(label)
         NSLayoutConstraint.activate([
             label.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: 4),
             label.trailingAnchor.constraint(equalTo: cell.trailingAnchor, constant: -4),
             label.centerYAnchor.constraint(equalTo: cell.centerYAnchor)
         ])
-        cell.toolTip = toolTip
+        cell.toolTip = label.toolTip
         return cell
+    }
+
+    /// Pins a horizontal action row in `container`, scrolling when buttons overflow.
+    @discardableResult
+    static func constrainDetailFooterActions(
+        _ stack: NSStackView,
+        in container: NSView,
+        below topView: NSView,
+        topSpacing: CGFloat = LauncherChromeTokens.detailSectionGap,
+        bottomMargin: CGFloat = LauncherChromeTokens.detailMargin,
+        horizontalMargin: CGFloat = LauncherChromeTokens.detailMargin
+    ) -> NSScrollView {
+        stack.orientation = .horizontal
+        stack.spacing = 8
+        stack.alignment = .centerY
+        stack.translatesAutoresizingMaskIntoConstraints = false
+
+        let scroll = NSScrollView()
+        scroll.hasVerticalScroller = false
+        scroll.hasHorizontalScroller = true
+        scroll.autohidesScrollers = true
+        scroll.drawsBackground = false
+        scroll.borderType = .noBorder
+        scroll.translatesAutoresizingMaskIntoConstraints = false
+        scroll.documentView = stack
+
+        container.addSubview(scroll)
+        NSLayoutConstraint.activate([
+            scroll.topAnchor.constraint(equalTo: topView.bottomAnchor, constant: topSpacing),
+            scroll.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: horizontalMargin),
+            scroll.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -horizontalMargin),
+            scroll.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -bottomMargin),
+            stack.heightAnchor.constraint(equalTo: scroll.contentView.heightAnchor)
+        ])
+        return scroll
+    }
+
+    /// Pins trailing toolbar buttons so they scroll instead of clipping on narrow panels.
+    @discardableResult
+    static func constrainDetailToolbarTrailingActions(
+        _ stack: NSStackView,
+        in toolbar: NSView,
+        after leadingView: NSView,
+        spacing: CGFloat = 12,
+        trailingMargin: CGFloat = 0
+    ) -> NSScrollView {
+        stack.orientation = .horizontal
+        stack.spacing = 8
+        stack.alignment = .centerY
+        stack.translatesAutoresizingMaskIntoConstraints = false
+
+        let scroll = NSScrollView()
+        scroll.hasVerticalScroller = false
+        scroll.hasHorizontalScroller = true
+        scroll.autohidesScrollers = true
+        scroll.drawsBackground = false
+        scroll.borderType = .noBorder
+        scroll.translatesAutoresizingMaskIntoConstraints = false
+        scroll.documentView = stack
+
+        toolbar.addSubview(scroll)
+        NSLayoutConstraint.activate([
+            scroll.leadingAnchor.constraint(equalTo: leadingView.trailingAnchor, constant: spacing),
+            scroll.trailingAnchor.constraint(equalTo: toolbar.trailingAnchor, constant: -trailingMargin),
+            scroll.centerYAnchor.constraint(equalTo: toolbar.centerYAnchor),
+            scroll.heightAnchor.constraint(equalToConstant: LauncherChromeTokens.detailToolbarHeight - 4),
+            stack.heightAnchor.constraint(equalTo: scroll.contentView.heightAnchor)
+        ])
+        leadingView.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        return scroll
     }
 
     static func installSearchSurface(on view: NSView) {

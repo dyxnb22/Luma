@@ -24,7 +24,7 @@ public enum ProjectsModuleBundle: ModuleBundle {
                     "p — recent projects",
                     "p luma — open in preferred IDE",
                     "proj manage — pin, aliases, roots",
-                    "p ? — this help"
+                    "help proj or p ? — commands"
                 ],
                 discoverPriority: 10
             )

@@ -61,6 +61,10 @@ final class ProjectsDetailView: NSObject, ModuleDetailView {
         tableScroll.hasVerticalScroller = true
         tableScroll.translatesAutoresizingMaskIntoConstraints = false
         chrome.setContent(tableScroll, embedInScroll: false)
+
+        let footer = NSTextField(labelWithString: "Double-click to open · proj manage for roots and pins")
+        GeekUIKit.configureStatusLabel(footer)
+        chrome.setFooter(footer, height: LauncherChromeTokens.detailFooterHeight)
     }
 
     private func refresh() {
@@ -105,7 +109,7 @@ extension ProjectsDetailView: NSTableViewDataSource, NSTableViewDelegate {
         case "name":
             return textCell(record.name)
         case "path":
-            return textCell(shortPath(record.path))
+            return textCell(shortPath(record.path), toolTip: record.path)
         case "pinned":
             let button = NSButton(checkboxWithTitle: "", target: self, action: #selector(togglePin(_:)))
             button.state = record.pinned ? .on : .off
@@ -126,11 +130,12 @@ extension ProjectsDetailView: NSTableViewDataSource, NSTableViewDelegate {
         }
     }
 
-    private func textCell(_ value: String) -> NSTableCellView {
+    private func textCell(_ value: String, toolTip: String? = nil) -> NSTableCellView {
         let cell = NSTableCellView()
         let label = NSTextField(labelWithString: value)
         label.lineBreakMode = .byTruncatingMiddle
         label.translatesAutoresizingMaskIntoConstraints = false
+        label.toolTip = toolTip ?? value
         cell.addSubview(label)
         NSLayoutConstraint.activate([
             label.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: 4),

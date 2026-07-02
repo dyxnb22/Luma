@@ -23,7 +23,7 @@ public enum AppsModuleBundle: ModuleBundle {
                 helpLines: [
                     "Type app name — launch or focus",
                     "app top — memory usage leaders (quit from row)",
-                    "app ? — this help"
+                    "help app or app ? — commands"
                 ],
                 discoverPriority: 110,
                 isDiscoverable: true,

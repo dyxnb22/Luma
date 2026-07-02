@@ -8,7 +8,8 @@ public enum SnippetDisplay {
             $0.title.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == normalized
         }.count
         guard duplicates > 1 else { return snippet.title }
-        return "\(snippet.title) · \(snippet.displayTrigger)"
+        let preview = contentPreview(snippet, maxLength: 20)
+        return "\(snippet.title) · \(snippet.displayTrigger) — \(preview)"
     }
 
     public static func contentPreview(_ snippet: Snippet, maxLength: Int = 56) -> String {

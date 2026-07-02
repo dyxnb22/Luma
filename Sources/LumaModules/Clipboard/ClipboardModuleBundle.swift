@@ -36,7 +36,7 @@ public enum ClipboardModuleBundle: ModuleBundle {
                 helpLines: [
                     "clip — open Clipboard in panel",
                     "clip https — filter links",
-                    "clip ? — this help"
+                    "help clip or clip ? — commands"
                 ],
                 discoverPriority: 40,
                 bareBehavior: .openDetail

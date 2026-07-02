@@ -79,11 +79,12 @@ final class QuicklinksDetailView: NSObject, ModuleDetailView {
             GeekUIKit.configureDetailTableColumn(openWithColumn, minWidth: 90, maxWidth: 160, resizingMask: .userResizingMask)
         }
         if let urlColumn = tableView.tableColumn(withIdentifier: NSUserInterfaceItemIdentifier("url")) {
-            GeekUIKit.configureDetailTableColumn(urlColumn, minWidth: 160)
+            GeekUIKit.configureDetailTableColumn(urlColumn, minWidth: 160, resizingMask: [.autoresizingMask, .userResizingMask])
         }
         tableView.columnAutoresizingStyle = .lastColumnOnlyAutoresizingStyle
         tableScroll.documentView = tableView
         tableScroll.hasVerticalScroller = true
+        tableScroll.hasHorizontalScroller = false
         tableScroll.drawsBackground = false
         tableScroll.borderType = .noBorder
 

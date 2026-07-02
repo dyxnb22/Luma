@@ -18,14 +18,14 @@ final class LauncherHintBar: NSView {
         wantsLayer = true
 
         leftLabel.font = TypographyTokens.monoCaption()
-        leftLabel.textColor = .secondaryLabelColor
+        leftLabel.textColor = Self.hintTextColor
         leftLabel.isBezeled = false
         leftLabel.isEditable = false
         leftLabel.drawsBackground = false
         leftLabel.translatesAutoresizingMaskIntoConstraints = false
 
         statusLabel.font = TypographyTokens.caption2()
-        statusLabel.textColor = .secondaryLabelColor
+        statusLabel.textColor = Self.hintTextColor
         statusLabel.alignment = .right
         statusLabel.isBezeled = false
         statusLabel.isEditable = false
@@ -58,15 +58,15 @@ final class LauncherHintBar: NSView {
         case .home, .results:
             leftLabel.stringValue = keyHints(for: context, selectedItem: selectedItem)
         case .detail:
-            leftLabel.stringValue = "Esc Back    ⌘W Close detail"
+            leftLabel.stringValue = L10n.tr("hint.detail.back")
         }
     }
 
     private func keyHints(for context: LauncherHintContext, selectedItem: ResultItem?) -> String {
-        let escLabel = context == .home ? "Close" : "Clear"
-        var parts = ["↩ Open"]
+        let escLabel = context == .home ? L10n.tr("hint.escClose") : L10n.tr("hint.escClear")
+        var parts = [L10n.tr("hint.select"), L10n.tr("hint.open")]
         if let secondary = selectedItem?.secondaryActions.first {
-            parts.append("⇥ More")
+            parts.append(L10n.tr("hint.more"))
             switch secondary.confirmation {
             case .requireSecondModifier:
                 parts.append("⌘↩ \(shortActionLabel(secondary.title)) · confirm")
@@ -76,9 +76,9 @@ final class LauncherHintBar: NSView {
                 parts.append("⌘↩ \(shortActionLabel(secondary.title))")
             }
         } else {
-            parts.append("⇥ More")
+            parts.append(L10n.tr("hint.more"))
         }
-        parts.append("Esc \(escLabel)")
+        parts.append(escLabel)
         return parts.joined(separator: "    ")
     }
 
@@ -91,5 +91,9 @@ final class LauncherHintBar: NSView {
     func setModulesReady(_ ready: Bool) {
         statusLabel.stringValue = ready ? "" : "Loading…"
         statusLabel.isHidden = ready
+    }
+
+    private static var hintTextColor: NSColor {
+        .labelColor.withAlphaComponent(0.72)
     }
 }

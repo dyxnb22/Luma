@@ -63,8 +63,32 @@ struct SettingsSwiftUIView: View {
     let onClipboardSettingsChanged: @MainActor (SettingsSnapshot) -> Void
     let onSecretsSettingsChanged: @MainActor (Int, Int) -> Void
     let onLatencyHUDChanged: @MainActor (Bool) -> Void
+    private let initialSection: SettingsSection
 
-    @State private var selected: SettingsSection? = .general
+    @State private var selected: SettingsSection?
+
+    init(
+        snapshot: SettingsSnapshot,
+        config: ConfigurationStore,
+        usage: PersistentUsageTracker,
+        onModulesChanged: @escaping @MainActor (Set<ModuleIdentifier>) -> Void,
+        onPinnedChanged: @escaping @MainActor (Set<ModuleIdentifier>) -> Void,
+        onClipboardSettingsChanged: @escaping @MainActor (SettingsSnapshot) -> Void,
+        onSecretsSettingsChanged: @escaping @MainActor (Int, Int) -> Void,
+        onLatencyHUDChanged: @escaping @MainActor (Bool) -> Void,
+        initialSection: SettingsSection = .general
+    ) {
+        self.snapshot = snapshot
+        self.config = config
+        self.usage = usage
+        self.onModulesChanged = onModulesChanged
+        self.onPinnedChanged = onPinnedChanged
+        self.onClipboardSettingsChanged = onClipboardSettingsChanged
+        self.onSecretsSettingsChanged = onSecretsSettingsChanged
+        self.onLatencyHUDChanged = onLatencyHUDChanged
+        self.initialSection = initialSection
+        _selected = State(initialValue: initialSection)
+    }
 
     var body: some View {
         NavigationSplitView(columnVisibility: .constant(.all)) {
@@ -138,8 +162,24 @@ struct SettingsSwiftUIView: View {
 // MARK: - Section pages
 
 struct GeneralSettingsView: View {
+    @State private var language = LumaLocale.choice
+
     var body: some View {
         SettingsPage("General") {
+            SettingsCard(L10n.tr("settings.language.title")) {
+                Picker(L10n.tr("settings.language.title"), selection: $language) {
+                    ForEach(LumaLocale.Choice.allCases, id: \.self) { choice in
+                        Text(choice.displayName).tag(choice)
+                    }
+                }
+                .pickerStyle(.menu)
+                .onChange(of: language) { _, newValue in
+                    LumaLocale.choice = newValue
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 9)
+            }
+
             SettingsCard("Hotkey") {
                 SettingsRow("Launcher", icon: "keyboard") {
                     Text("⌘ Space")
@@ -148,8 +188,12 @@ struct GeneralSettingsView: View {
                 }
                 Divider()
                 HStack {
-                    Text("Disable Spotlight's shortcut if Luma can't register ⌘Space.")
-                        .font(.caption).foregroundStyle(.tertiary)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Disable Spotlight's ⌘Space shortcut if Luma can't register the launcher hotkey.")
+                            .font(.caption).foregroundStyle(.tertiary)
+                        Text("Menu bar shows a warning when registration fails.")
+                            .font(.caption2).foregroundStyle(.quaternary)
+                    }
                     Spacer()
                     Button("Open Keyboard Settings…") {
                         NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.keyboard")!)
@@ -336,7 +380,7 @@ struct ClipboardSettingsView: View {
     @State private var historyEnabled: Bool
     @State private var ignoredBundleIDs: String
     @State private var pasteBehavior: ClipboardPasteBehavior
-    @State private var saved = false
+    @State private var savedMessage: String?
 
     init(snapshot: SettingsSnapshot, config: ConfigurationStore,
          onClipboardSettingsChanged: @escaping @MainActor (SettingsSnapshot) -> Void) {
@@ -395,9 +439,9 @@ struct ClipboardSettingsView: View {
             }
 
             HStack {
-                if saved {
+                if let savedMessage {
                     Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
-                    Text("Saved").foregroundStyle(.secondary).font(.subheadline)
+                    Text(savedMessage).foregroundStyle(.secondary).font(.subheadline)
                 }
                 Spacer()
                 Button("Apply") { apply() }
@@ -434,9 +478,9 @@ struct ClipboardSettingsView: View {
             updated.clipboardHistoryEnabled = historyEnabled
             updated.clipboardIgnoredBundleIDs = ignored
             updated.clipboardPasteBehavior = pasteBehavior.rawValue
-            await MainActor.run { onClipboardSettingsChanged(updated); saved = true }
+            await MainActor.run { onClipboardSettingsChanged(updated); savedMessage = "Saved" }
             try? await Task.sleep(for: .seconds(2))
-            await MainActor.run { saved = false }
+            await MainActor.run { savedMessage = nil }
         }
     }
 }
@@ -513,13 +557,25 @@ struct WordbookSettingsView: View {
             }
 
             SettingsCard("Data") {
-                SettingsRow("Database path", icon: "internaldrive") {
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(spacing: 12) {
+                        Image(systemName: "internaldrive")
+                            .foregroundStyle(.secondary)
+                            .frame(width: 18)
+                        Text("Database path")
+                            .font(.system(size: 13))
+                        Spacer()
+                    }
                     Text(dbPath.isEmpty ? "Loading…" : dbPath)
                         .font(.system(size: 11, design: .monospaced))
                         .foregroundStyle(.secondary)
                         .textSelection(.enabled)
-                        .lineLimit(2)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.leading, 30)
                 }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 9)
                 .onAppear {
                     if let store = LauncherEnvironment.current?.wordbookStore {
                         Task { let url = await store.databaseURL(); dbPath = url.path }
@@ -561,7 +617,7 @@ struct SecretsSettingsView: View {
     @State private var autoClear: String
     @State private var relock: String
     @State private var requireUnlock: Bool
-    @State private var saved = false
+    @State private var savedMessage: String?
 
     init(snapshot: SettingsSnapshot, config: ConfigurationStore,
          onSecretsSettingsChanged: @escaping @MainActor (Int, Int) -> Void) {
@@ -601,9 +657,9 @@ struct SecretsSettingsView: View {
             }
 
             HStack {
-                if saved {
+                if let savedMessage {
                     Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
-                    Text("Saved").foregroundStyle(.secondary).font(.subheadline)
+                    Text(savedMessage).foregroundStyle(.secondary).font(.subheadline)
                 }
                 Spacer()
                 Button("Apply") { applySecrets() }
@@ -622,9 +678,9 @@ struct SecretsSettingsView: View {
         Task {
             await config.setSecretsAutoClearSeconds(a)
             await config.setSecretsRelockTimeoutSeconds(r)
-            await MainActor.run { onSecretsSettingsChanged(a, r); saved = true }
+            await MainActor.run { onSecretsSettingsChanged(a, r); savedMessage = "Saved" }
             try? await Task.sleep(for: .seconds(2))
-            await MainActor.run { saved = false }
+            await MainActor.run { savedMessage = nil }
         }
     }
 }
@@ -676,6 +732,14 @@ struct AccessibilitySettingsView: View {
                 }
             }
         }
+        .onAppear { refreshTrustedStatus() }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            refreshTrustedStatus()
+        }
+    }
+
+    private func refreshTrustedStatus() {
+        trusted = AXService.isProcessTrusted()
     }
 }
 
@@ -1049,6 +1113,9 @@ private struct SettingsKeyboardSupport: NSViewRepresentable {
 @MainActor
 private enum SettingsKeyboardActions {
     static func handle(_ event: NSEvent, in window: NSWindow) -> NSEvent? {
+        if LumaStandardEditShortcuts.handleKeyDown(event, in: window) {
+            return nil
+        }
         if event.modifierFlags.contains(.command),
            event.charactersIgnoringModifiers?.lowercased() == "w" {
             window.close()
@@ -1080,30 +1147,28 @@ private enum SettingsKeyboardActions {
     }
 
     private static func scrollPage(_ direction: PageDirection, in window: NSWindow) {
-        guard let scrollView = primaryScrollView(in: window.contentView) else { return }
-        let clipView = scrollView.contentView
-        var origin = clipView.bounds.origin
-        let page = clipView.bounds.height * 0.85
+        guard let scrollView = targetScrollView(in: window) else { return }
         switch direction {
         case .down:
-            origin.y += page
+            scrollView.pageDown(nil)
         case .up:
-            origin.y = max(0, origin.y - page)
+            scrollView.pageUp(nil)
         }
-        clipView.animator().setBoundsOrigin(origin)
-        scrollView.reflectScrolledClipView(clipView)
     }
 
-    private static func primaryScrollView(in root: NSView?) -> NSScrollView? {
-        guard let root else { return nil }
+    private static func targetScrollView(in window: NSWindow) -> NSScrollView? {
+        if let scrollView = (window.firstResponder as? NSView)?.enclosingScrollView {
+            return scrollView
+        }
+        guard let root = window.contentView else { return nil }
         var candidates: [NSScrollView] = []
         collectScrollViews(in: root, into: &candidates)
-        return candidates
-            .filter { scrollView in
-                guard let document = scrollView.documentView else { return false }
-                return document.bounds.height > scrollView.contentView.bounds.height + 1
-            }
-            .max(by: { $0.contentView.bounds.height < $1.contentView.bounds.height })
+        let scrollable = candidates.filter { scrollView in
+            guard let document = scrollView.documentView else { return false }
+            return document.frame.height > scrollView.contentView.bounds.height + 1
+        }
+        return scrollable.max(by: { $0.contentView.bounds.height < $1.contentView.bounds.height })
+            ?? candidates.max(by: { $0.contentView.bounds.height < $1.contentView.bounds.height })
     }
 
     private static func collectScrollViews(in view: NSView, into result: inout [NSScrollView]) {

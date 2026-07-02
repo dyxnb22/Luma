@@ -13,6 +13,8 @@ protocol ModuleDetailView: AnyObject {
 
 extension ModuleDetailView {
     var usesSharedTopBar: Bool { true }
-    func handleKeyDown(_ event: NSEvent) -> Bool { false }
+    func handleKeyDown(_ event: NSEvent) -> Bool {
+        LumaStandardEditShortcuts.handleKeyDown(event, in: detailView.window)
+    }
     func prepareForLauncherHide() async {}
 }

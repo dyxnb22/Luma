@@ -4,6 +4,7 @@ import PackageDescription
 
 let package = Package(
     name: "Luma",
+    defaultLocalization: "en",
     platforms: [.macOS(.v14)],
     products: [
         .executable(name: "Luma", targets: ["LumaApp"]),
@@ -20,7 +21,8 @@ let package = Package(
         ),
         .target(
             name: "LumaCore",
-            dependencies: []
+            dependencies: [],
+            resources: [.process("Resources")]
         ),
         .target(
             name: "LumaModules",

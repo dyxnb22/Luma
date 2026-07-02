@@ -4,6 +4,7 @@ public enum LauncherKeyCommand: Sendable, Equatable {
     case up
     case down
     case tab
+    case backtab
     case actionPanel
     case commandReturn
     case commandNumber(Int)
@@ -34,8 +35,13 @@ public enum LauncherKeyRouter {
         itemCount: Int,
         actionPanelVisible: Bool
     ) -> Outcome {
-        if actionPanelVisible, case .tab = command {
-            return .dismissActionPanel
+        if actionPanelVisible {
+            switch command {
+            case .tab, .backtab:
+                return .dismissActionPanel
+            default:
+                break
+            }
         }
 
         switch command {
@@ -45,6 +51,8 @@ public enum LauncherKeyRouter {
         case .up:
             guard itemCount > 0 else { return .handled }
             return .moveSelection(delta: -1)
+        case .backtab:
+            return .passthrough
         case .tab, .actionPanel:
             guard mode != .detail, itemCount > 0 else { return .handled }
             return .openActionPanel

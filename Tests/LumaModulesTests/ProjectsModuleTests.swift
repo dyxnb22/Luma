@@ -91,6 +91,9 @@ import Testing
 }
 
 @Test func projectsModuleSearchReturnsProject() async throws {
+    let previous = LumaLocale.choice
+    defer { LumaLocale.choice = previous }
+    LumaLocale.choice = .en
     let tempDir = FileManager.default.temporaryDirectory
         .appendingPathComponent("luma-projects-search-\(UUID().uuidString)", isDirectory: true)
     defer { try? FileManager.default.removeItem(at: tempDir) }

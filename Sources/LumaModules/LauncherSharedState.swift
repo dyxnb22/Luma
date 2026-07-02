@@ -10,4 +10,5 @@ public enum LauncherSharedState {
     public static var pendingProjectsManage = false
     public static var pendingSnippetDraft: SnippetDraft?
     public static var pendingQuicklinkDraft: URLQuicklinkDraft?
+    public static var pendingOnboardingWizard = false
 }

@@ -13,6 +13,16 @@ final class LauncherListView: NSView {
     var onRun: ((ResultItem) -> Void)?
     var onRightClick: ((ResultItem) -> Void)?
     var onSelectionChanged: ((Int) -> Void)?
+    var onKeyCommand: ((LumaSearchBar.KeyCommand) -> Bool)?
+    var onActivate: (() -> Void)?
+    var onEscape: (() -> Void)?
+    var onTypeToSearch: ((String) -> Void)?
+
+    override var acceptsFirstResponder: Bool { !currentItems.isEmpty }
+
+    func focusList() {
+        window?.makeFirstResponder(self)
+    }
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -81,6 +91,76 @@ final class LauncherListView: NSView {
         updateRowHighlight(oldFlatIndex: oldIndex, newFlatIndex: clamped)
         scrollToSelected()
         onSelectionChanged?(clamped)
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        focusList()
+        super.mouseDown(with: event)
+    }
+
+    override func keyDown(with event: NSEvent) {
+        if shouldForwardTyping(event), let text = event.characters, !text.isEmpty {
+            onTypeToSearch?(text)
+            return
+        }
+        if let command = mappedKeyCommand(event), onKeyCommand?(command) == true { return }
+        if event.keyCode == 36 {
+            onActivate?()
+            return
+        }
+        super.keyDown(with: event)
+    }
+
+    override func insertText(_ insertString: Any) {
+        let text: String
+        if let string = insertString as? String {
+            text = string
+        } else if let attributed = insertString as? NSAttributedString {
+            text = attributed.string
+        } else {
+            super.insertText(insertString)
+            return
+        }
+        guard !text.isEmpty else { return }
+        onTypeToSearch?(text)
+    }
+
+    private func shouldForwardTyping(_ event: NSEvent) -> Bool {
+        guard !event.modifierFlags.contains(.command),
+              !event.modifierFlags.contains(.control),
+              !event.modifierFlags.contains(.option) else { return false }
+        guard let chars = event.characters, chars.count == 1 else { return false }
+        let scalar = chars.unicodeScalars.first!
+        return CharacterSet.alphanumerics.contains(scalar)
+            || CharacterSet.punctuationCharacters.contains(scalar)
+            || CharacterSet.symbols.contains(scalar)
+            || CharacterSet.whitespaces.contains(scalar)
+    }
+
+    override func cancelOperation(_ sender: Any?) {
+        onEscape?()
+    }
+
+    private func mappedKeyCommand(_ event: NSEvent) -> LumaSearchBar.KeyCommand? {
+        switch event.keyCode {
+        case 125: return .down
+        case 126: return .up
+        case 48:
+            return event.modifierFlags.contains(.shift) ? .backtab : .tab
+        default:
+            break
+        }
+        if event.modifierFlags.contains(.command),
+           event.charactersIgnoringModifiers?.lowercased() == "k" {
+            return .actionPanel
+        }
+        if event.modifierFlags.contains(.command),
+           let chars = event.charactersIgnoringModifiers,
+           let number = Int(chars),
+           (1...9).contains(number) {
+            return .commandNumber(number)
+        }
+        return nil
     }
 
     private func apply(rows newRows: [LauncherListRows.Row], preserveSelection: Bool) {

@@ -25,7 +25,7 @@ public enum KillProcessModuleBundle: ModuleBundle {
                     "kill preview — search running apps",
                     "Return — standard quit",
                     "Tab — force kill or relaunch actions",
-                    "kill ? — this help"
+                    "help kill or kill ? — commands"
                 ],
                 discoverPriority: 45
             )

@@ -42,10 +42,59 @@ public actor AXService: AccessibilityClient {
     }
 
     public func insert(text: String) async {
+        await preparePasteboard(text)
+        guard Self.isProcessTrusted() else { return }
+        try? await Task.sleep(for: .milliseconds(80))
+        await Self.postCommandV()
+    }
+
+    public func replaceSelectedText(with text: String) async -> Bool {
+        guard Self.isProcessTrusted() else { return false }
+        await preparePasteboard(text)
+        if await setFocusedSelectedText(text) {
+            return true
+        }
+        try? await Task.sleep(for: .milliseconds(80))
+        await Self.postCommandV()
+        return true
+    }
+
+    private func preparePasteboard(_ text: String) async {
         await MainActor.run {
             NSPasteboard.general.clearContents()
             NSPasteboard.general.setString(text, forType: .string)
         }
+    }
+
+    private func setFocusedSelectedText(_ text: String) async -> Bool {
+        await MainActor.run {
+            guard let app = NSWorkspace.shared.frontmostApplication else { return false }
+            let appElement = AXUIElementCreateApplication(app.processIdentifier)
+            var focusedRef: CFTypeRef?
+            guard AXUIElementCopyAttributeValue(
+                appElement,
+                kAXFocusedUIElementAttribute as CFString,
+                &focusedRef
+            ) == .success,
+                let focusedRef else { return false }
+            let element = focusedRef as! AXUIElement
+            return AXUIElementSetAttributeValue(
+                element,
+                kAXSelectedTextAttribute as CFString,
+                text as CFString
+            ) == .success
+        }
+    }
+
+    @MainActor
+    private static func postCommandV() {
+        let source = CGEventSource(stateID: .combinedSessionState)
+        let keyDown = CGEvent(keyboardEventSource: source, virtualKey: 9, keyDown: true)!
+        keyDown.flags = .maskCommand
+        let keyUp = CGEvent(keyboardEventSource: source, virtualKey: 9, keyDown: false)!
+        keyUp.flags = .maskCommand
+        keyDown.post(tap: .cghidEventTap)
+        keyUp.post(tap: .cghidEventTap)
     }
 
     public func applyWindowLayout(_ preset: String) async {

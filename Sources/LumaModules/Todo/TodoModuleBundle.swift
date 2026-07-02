@@ -38,7 +38,7 @@ public enum TodoModuleBundle: ModuleBundle {
                     "t buy milk — create reminder (Inbox when no date)",
                     "t pay rent tomorrow 9:00 — create with due date",
                     "Return on a row — mark complete",
-                    "t ? — this help"
+                    "help todo or t ? — commands"
                 ],
                 discoverPriority: 50,
                 bareBehavior: .openDetail

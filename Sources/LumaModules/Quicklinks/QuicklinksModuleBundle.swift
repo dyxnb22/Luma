@@ -38,7 +38,7 @@ public enum QuicklinksModuleBundle: ModuleBundle {
                     "g <query> — Google",
                     "swift <query> — Apple Developer",
                     "ql — manage Quicklinks",
-                    "ql ? — this help"
+                    "help ql or ql ? — commands"
                 ],
                 discoverPriority: 25,
                 bareBehavior: .openDetail

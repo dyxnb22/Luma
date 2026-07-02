@@ -3,8 +3,8 @@ import LumaCore
 
 /// Contextual search placeholder strings keyed by the command registry.
 public enum ModuleSearchHints {
-    public static let `default` = CommandRegistry.defaultPlaceholder
-    public static let cheatSheet = "Search apps, paste, translate, todo, aw…"
+    public static var `default`: String { CommandRegistry.defaultPlaceholder }
+    public static var cheatSheet: String { L10n.tr("search.placeholder.cheatSheet") }
 
     private static let registry = BuiltInCommandRegistry.make()
 

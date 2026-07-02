@@ -2,7 +2,7 @@ import AppKit
 import LumaModules
 
 @MainActor
-final class SnippetEditorSheet: NSWindow {
+final class SnippetEditorSheet: LumaWindow {
   private let editingID: UUID?
   private let onSave: (String, String, String, [String]) -> Void
   private let titleField = NSTextField()

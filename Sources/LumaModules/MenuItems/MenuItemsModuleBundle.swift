@@ -25,7 +25,7 @@ public enum MenuItemsModuleBundle: ModuleBundle {
                     "mb fold — fuzzy search menu paths",
                     "menu <query> — same command",
                     "Requires Accessibility permission",
-                    "mb ? — this help"
+                    "help mb or mb ? — commands"
                 ],
                 discoverPriority: 35
             )

@@ -34,17 +34,17 @@ public actor BrowserTabsModule: LumaModule {
         if !matches.isEmpty {
             return ModuleResult(items: matches.map(row))
         }
-        if let diagnostic = await service.lastDiagnostic() {
-            return ModuleResult(items: [], diagnostic: diagnostic)
-        }
         let trimmed = payload.trimmingCharacters(in: .whitespacesAndNewlines)
         if tabs.isEmpty {
+            if let diagnostic = await service.lastDiagnostic() {
+                return ModuleResult(items: [], diagnostic: diagnostic)
+            }
+            let message = trimmed.isEmpty
+                ? "No browser tabs — open Safari or Chrome, or grant automation in System Settings → Privacy → Automation"
+                : "No tabs match \"\(trimmed)\""
             return ModuleResult(
                 items: [],
-                diagnostic: ModuleDiagnostic(
-                    kind: .degraded,
-                    message: "No browser tabs cached — open Safari or Chrome, then search again"
-                )
+                diagnostic: ModuleDiagnostic(kind: .degraded, message: message)
             )
         }
         if trimmed.isEmpty {

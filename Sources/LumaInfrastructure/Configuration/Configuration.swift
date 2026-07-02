@@ -22,6 +22,7 @@ public actor ConfigurationStore: ConfigurationClient {
     private let pinnedModuleIDsKey = "pinnedModuleIDs"
     private let warmupPolicyKey = "warmupPolicy"
     private let setupHintsDismissedKey = "setupHintsDismissed"
+    private let onboardingCompletedKey = "onboardingCompleted"
 
     public init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
@@ -197,5 +198,13 @@ public actor ConfigurationStore: ConfigurationClient {
 
     public func setSetupHintsDismissed(_ value: Bool) {
         defaults.set(value, forKey: setupHintsDismissedKey)
+    }
+
+    public func onboardingCompleted() -> Bool {
+        defaults.bool(forKey: onboardingCompletedKey)
+    }
+
+    public func setOnboardingCompleted(_ value: Bool) {
+        defaults.set(value, forKey: onboardingCompletedKey)
     }
 }

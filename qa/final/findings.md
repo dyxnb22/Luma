@@ -26,11 +26,33 @@ Date: 2026-06-27
 
 ## Final status
 
-- P0/P1/P2: **0 open**
+- P0/P1/P2: **0 open** (2026-06-27 round)
 - `scripts/test_unit.sh`: deterministic unit gate (skips `tag:integration` unless `LUMA_INTEGRATION_TESTS=1`)
 - `swift test`: run after F-F-06–F-F-10
 - Full smoke (`qa/final/run_smoke.sh`): **pass** (screenshots reviewed)
 - Keystroke replay perf test: p95 < 30 ms (unit test)
+
+## UI polish round (2026-07-02)
+
+Follow-up to `qa/final-ui-acceptance-20260701-122711/report.md`. Code + docs aligned; see report **Remediation** section.
+
+| Area | Status |
+|------|--------|
+| Tab / action panel / Shift+Tab | Fixed |
+| Empty query stale results | Fixed |
+| Bare commands (`todo`, `word review`, `s new`, `app top`) | Fixed |
+| Detail layout cropping | Fixed (scroll toolbars, truncation) |
+| Detail search vs module focus | Fixed (read-only placeholder, Esc restores query) |
+| Single-char global search | Fixed (no fan-out, hint) |
+| `help <trigger>` discoverability | Fixed (hints, empty states, module help lines) |
+| Permissions / setup home rows | Fixed |
+| List keyboard focus | Fixed (list accepts focus; ↑↓ from search or list; typing forwards to search) |
+| Edit shortcuts app-wide | Fixed (`LumaStandardEditShortcuts`) |
+| i18n (en + zh-Hans) | Fixed (`L10n`, `L10nStrings.json`, Settings → Language) |
+| Translate replace selection | Fixed (`AXService.replaceSelectedText`, detail button) |
+| Onboarding wizard | Fixed (`OnboardingWizardDetailView`, first-launch auto-present) |
+
+Re-verify with `./scripts/build_app.sh` and manual pass on Retina display.
 
 ## Known P3
 

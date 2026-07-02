@@ -71,7 +71,14 @@ public actor QueryDispatcher {
     ) async {
         await metrics.mark("query.dispatch.targeted.start")
         guard let module = await host.enabledModule(moduleID) else {
-            await onSnapshot(ResultSnapshot(querySequence: query.sequence, items: []))
+            let row = ModuleDiagnosticResults.informationalRow(
+                module: moduleID,
+                diagnostic: ModuleDiagnostic(
+                    kind: .degraded,
+                    message: "Module disabled in Settings — enable it to use this command"
+                )
+            )
+            await onSnapshot(ResultSnapshot(querySequence: query.sequence, items: [row]))
             return
         }
         let manifest = type(of: module).manifest

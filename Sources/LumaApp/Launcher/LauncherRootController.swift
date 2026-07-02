@@ -67,6 +67,7 @@ final class LauncherRootController {
         self.permissionController = PermissionBannerController(config: config)
 
         wireCallbacks()
+        permissionController.onOpenSettings = { [weak self] in self?.onOpenSettings() }
     }
 
     private func wireCallbacks() {
@@ -75,6 +76,11 @@ final class LauncherRootController {
         contentCoordinator.onRun = { [weak self] item in self?.handleRun(item) }
         contentCoordinator.onRightClick = { [weak self] item in self?.openActionPanel(for: item) }
         contentCoordinator.onSelectionChanged = { [weak self] in self?.syncRowActionHint() }
+
+        listView.onKeyCommand = { [weak self] command in self?.handleKeyCommand(command) ?? false }
+        listView.onActivate = { [weak self] in self?.activateReturn() }
+        listView.onEscape = { [weak self] in self?.handleEscape() }
+        listView.onTypeToSearch = { [weak self] text in self?.forwardTypingToSearch(text) }
 
         actionPanel.onRun = { [weak self] action, item in self?.runAction(action, for: item) }
         actionPanel.onClose = { [weak self] in self?.focusSearchField() }
@@ -89,6 +95,9 @@ final class LauncherRootController {
         searchBar.onOpenSettings = onOpenSettings
         searchBar.onDetailKey = { [weak self] event in
             guard let self, self.contentCoordinator.showingDetail else { return false }
+            if LumaStandardEditShortcuts.handleKeyDown(event, in: self.searchBar.window) {
+                return true
+            }
             guard self.searchBar.stringValue.isEmpty else { return false }
             return self.contentCoordinator.currentDetailObject?.handleKeyDown(event) ?? false
         }
@@ -186,9 +195,40 @@ final class LauncherRootController {
         hintBar.setModulesReady(ready)
         if ready, searchBar.stringValue.isEmpty {
             refreshHome()
+            presentOnboardingIfNeeded()
         } else if ready {
             handleTextChange(searchBar.queryText)
         }
+    }
+
+    private func presentOnboardingIfNeeded() {
+        guard ProcessInfo.processInfo.environment["LUMA_QA"] != "1" else { return }
+        Task {
+            guard await !config.onboardingCompleted() else { return }
+            await MainActor.run {
+                guard !contentCoordinator.showingDetail else { return }
+                presentOnboardingWizard()
+            }
+        }
+    }
+
+    private func presentOnboardingWizard() {
+        let wizard = OnboardingWizardDetailView(
+            onOpenSettings: onOpenSettings,
+            onComplete: { [weak self] in
+                Task {
+                    await self?.config.setOnboardingCompleted(true)
+                    await self?.config.setSetupHintsDismissed(true)
+                    await MainActor.run {
+                        self?.closeDetail()
+                        self?.showHome(focusSearch: true, persist: true)
+                    }
+                }
+            }
+        )
+        enterDetailContext(moduleTitle: wizard.moduleTitle)
+        contentCoordinator.present(wizard, moduleID: .commands)
+        syncKeyHints()
     }
 
     func startQuerySync() {
@@ -213,7 +253,6 @@ final class LauncherRootController {
         if text.isEmpty {
             let committed = searchBar.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
             if !committed.isEmpty { return }
-            if !lastSyncedQuery.isEmpty, searchBar.isActivelyEditing { return }
         }
         handleTextChange(text)
     }
@@ -221,12 +260,15 @@ final class LauncherRootController {
     func showHome(focusSearch: Bool = true, persist: Bool = true) {
         homeRefreshTask?.cancel()
         viewModel.cancel()
+        searchBar.cancelDetailMode()
         searchBar.resetQueryText()
+        searchBar.setPlaceholder(ModuleSearchHints.cheatSheet)
         lastSyncedQuery = ""
         commandHintBar.apply(nil)
         launcherEnvironment.isLauncherQueryEmpty = true
         contentCoordinator.tearDownDetailIfNeeded()
         contentCoordinator.resetResults()
+        listView.clear()
         listView.isHidden = false
         listView.alphaValue = 1
         syncKeyHints()
@@ -247,7 +289,8 @@ final class LauncherRootController {
             guard !Task.isCancelled else { return }
             await MainActor.run {
                 guard self.searchBar.stringValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-                      !self.contentCoordinator.showingResults else { return }
+                      !self.contentCoordinator.showingResults,
+                      self.launcherEnvironment.isLauncherQueryEmpty else { return }
                 self.contentCoordinator.showHome(snapshot)
                 self.syncRowActionHint()
                 let suggestedKeys = snapshot.sections
@@ -288,6 +331,14 @@ final class LauncherRootController {
             return
         }
         searchBar.focus()
+    }
+
+    private func forwardTypingToSearch(_ text: String) {
+        guard !contentCoordinator.showingDetail, !actionPanel.isVisible else { return }
+        searchBar.focus()
+        searchBar.appendText(text)
+        lastSyncedQuery = ""
+        handleTextChange(searchBar.stringValue)
     }
 
     func restoreLastSessionIfNeeded() {
@@ -436,7 +487,7 @@ final class LauncherRootController {
                 showHome(focusSearch: true, persist: false)
                 return
             }
-            enterDetailContext()
+            enterDetailContext(moduleTitle: detail.moduleTitle)
             contentCoordinator.present(detail, moduleID: moduleID)
             if moduleID == .translate,
                let translate = contentCoordinator.currentDetailObject as? TranslateDetailView {
@@ -493,8 +544,17 @@ final class LauncherRootController {
             return
         }
         if contentCoordinator.showingDetail {
+            let restored = searchBar.endDetailMode()
             closeDetail()
-            showHome(focusSearch: true, persist: true)
+            if let restored,
+               !restored.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                searchBar.stringValue = restored
+                lastSyncedQuery = ""
+                handleTextChange(restored)
+            } else {
+                showHome(focusSearch: true, persist: true)
+            }
+            focusSearchField()
             return
         }
         let trimmed = searchBar.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -520,10 +580,11 @@ final class LauncherRootController {
         guard text != lastSyncedQuery else { return }
         lastSyncedQuery = text
         launcherEnvironment.isLauncherQueryEmpty = text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        searchBar.setPlaceholder(ModuleSearchHints.placeholder(for: text))
-        commandHintBar.apply(viewModel.commandRouter.registry.hint(for: text))
-        sessionStore.saveSearchQuery(text)
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        searchBar.setPlaceholder(ModuleSearchHints.placeholder(for: text))
+        let helpTrigger = trimmed.split(separator: " ", maxSplits: 1).first.map(String.init)
+        commandHintBar.apply(viewModel.commandRouter.registry.hint(for: text), helpTrigger: helpTrigger)
+        sessionStore.saveSearchQuery(text)
         if trimmed.isEmpty {
             contentCoordinator.dismissResultsForEmptyQuery()
             viewModel.cancel()
@@ -545,6 +606,21 @@ final class LauncherRootController {
             Task {
                 await self.previewWorkbenchCommand(route: workbenchRoute, queryText: text)
             }
+            return
+        }
+        let route = viewModel.commandRouter.route(raw: text)
+        if case .globalSearch = route, trimmed.count < 2 {
+            listView.clear()
+            contentCoordinator.beginShowingResults(clearStaleContent: true)
+            syncKeyHints()
+            syncPerformanceStripVisibility()
+            let message = SearchEmptyState.message(
+                for: route,
+                query: text,
+                registry: viewModel.commandRouter.registry
+            )
+            commandHintBar.showStatus(message)
+            viewModel.cancel()
             return
         }
         viewModel.queryChanged(text, issuedAt: .now)
@@ -577,6 +653,7 @@ final class LauncherRootController {
     private func apply(snapshot: ResultSnapshot) {
         guard !launcherEnvironment.isLauncherQueryEmpty else { return }
         contentCoordinator.apply(snapshot: snapshot)
+        preferBareOpenDetailRowSelection()
         syncPerformanceStripVisibility()
         syncRowActionHint()
         if let paintMs = LatencyTracker.shared.markFirstPaint() {
@@ -588,7 +665,8 @@ final class LauncherRootController {
         performanceStrip.setContentVisible(!contentCoordinator.showingDetail)
     }
 
-    private func enterDetailContext() {
+    private func enterDetailContext(moduleTitle: String) {
+        searchBar.beginDetailMode(moduleTitle: moduleTitle)
         hintBar.setContext(.detail)
         performanceStrip.setContentVisible(false)
     }
@@ -653,6 +731,20 @@ final class LauncherRootController {
         guard case .targeted(let module, _, let payload) = route else { return false }
 
         viewModel.recordExecutedCommand(for: raw)
+        if module == .snippets {
+            let lower = payload.lowercased()
+            if lower == "new" {
+                LauncherSharedState.pendingSnippetDraft = SnippetDraft(title: "Untitled", content: "")
+            } else if lower.hasPrefix("new ") {
+                let title = String(payload.dropFirst(4)).trimmingCharacters(in: .whitespacesAndNewlines)
+                LauncherSharedState.pendingSnippetDraft = SnippetDraft(
+                    title: title.isEmpty ? "Untitled" : title,
+                    content: ""
+                )
+            }
+            openModuleDetail(for: module)
+            return true
+        }
         var detailPayload: Data?
         if module == .wordbook,
            payload.compare("review", options: .caseInsensitive) == .orderedSame {
@@ -695,6 +787,11 @@ final class LauncherRootController {
     }
 
     private func handleRun(_ item: ResultItem) {
+        guard prepareConfirmedAction(item.primaryAction, for: item) else { return }
+        executeRun(for: item)
+    }
+
+    private func executeRun(for item: ResultItem) {
         switch LauncherKeyRouter.resolveRun(item: item) {
         case .expandOpenApps:
             expandOpenApps()
@@ -712,11 +809,15 @@ final class LauncherRootController {
     }
 
     private func dispatchAction(_ action: Action, for item: ResultItem) {
-        if item.id.key.hasPrefix("setup.") {
+        if item.id.key.hasPrefix("setup."), item.id.key != "setup.onboarding" {
             Task { await config.setSetupHintsDismissed(true) }
         }
         switch action.kind {
         case .noop:
+            if item.id.key == "setup.onboarding" {
+                presentOnboardingWizard()
+                return
+            }
             focusSearchField()
         case .replaceQuery(let query):
             searchBar.stringValue = query
@@ -1162,11 +1263,43 @@ final class LauncherRootController {
     }
 
     private func runAction(_ action: Action, for item: ResultItem) {
+        guard prepareConfirmedAction(action, for: item) else { return }
         if action.id == item.primaryAction.id {
-            handleRun(item)
+            executeRun(for: item)
             return
         }
         dispatchAction(action, for: item)
+    }
+
+    private func prepareConfirmedAction(_ action: Action, for item: ResultItem) -> Bool {
+        if action.confirmation == .requireSecondModifier, !actionPanel.isVisible {
+            openActionPanel(for: item)
+            commandHintBar.showStatus("Confirm \(action.title) in the action panel")
+            return false
+        }
+        if action.confirmation != .none, !confirmDestructiveAction(action, for: item) {
+            return false
+        }
+        return true
+    }
+
+    private func confirmDestructiveAction(_ action: Action, for item: ResultItem) -> Bool {
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = action.title
+        alert.informativeText = "Confirm \(action.title.lowercased()) for \"\(item.title)\"? This cannot be undone."
+        alert.addButton(withTitle: action.title)
+        alert.addButton(withTitle: "Cancel")
+        return alert.runModal() == .alertFirstButtonReturn
+    }
+
+    private func preferBareOpenDetailRowSelection() {
+        guard viewModel.commandRouter.isBareOpenDetailReturn(raw: searchBar.stringValue) else { return }
+        guard case .targeted(let module, _, _) = viewModel.commandRouter.route(raw: searchBar.stringValue) else { return }
+        guard let index = contentCoordinator.currentItems.firstIndex(where: {
+            $0.id.module == module && $0.id.key == "open-detail"
+        }) else { return }
+        contentCoordinator.updateSelection(to: index)
     }
 
     private func openTranslateDetail(with text: String) {
@@ -1177,7 +1310,7 @@ final class LauncherRootController {
             contentCoordinator.pendingTranslateText = nil
             return
         }
-        enterDetailContext()
+        enterDetailContext(moduleTitle: "Translate")
         guard let detail = launcherEnvironment.makeDetailView(for: .translate) else { return }
         contentCoordinator.present(detail, moduleID: .translate, prefillTranslateText: text)
     }
@@ -1193,6 +1326,13 @@ final class LauncherRootController {
     }
 
     private func handleKeyCommand(_ command: LumaSearchBar.KeyCommand) -> Bool {
+        if case .backtab = command {
+            if actionPanel.isVisible {
+                actionPanel.dismiss()
+                return true
+            }
+            return false
+        }
         if case .commandReturn = command {
             guard !actionPanel.isVisible, !contentCoordinator.showingDetail,
                   let item = contentCoordinator.currentItems[safe: contentCoordinator.selectedIndex] else { return false }
@@ -1266,6 +1406,7 @@ private extension LumaSearchBar.KeyCommand {
         case .up: .up
         case .down: .down
         case .tab: .tab
+        case .backtab: .backtab
         case .actionPanel: .actionPanel
         case .commandReturn: .commandReturn
         case .commandNumber(let n): .commandNumber(n)

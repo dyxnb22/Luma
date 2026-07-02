@@ -36,7 +36,8 @@ public enum TranslateModuleBundle: ModuleBundle {
                 helpLines: [
                     "tr <text> — translate to target language",
                     "translate <text> — same command",
-                    "Open detail for language settings"
+                    "help tr or tr ? — commands",
+                    "Detail view: language chips, setup link to Translation Settings"
                 ],
                 discoverPriority: 30,
                 bareBehavior: .openDetail

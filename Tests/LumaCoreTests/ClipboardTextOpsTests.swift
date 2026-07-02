@@ -3,6 +3,9 @@ import Testing
 import LumaCore
 
 @Test func crossModuleActionTitlesAreStable() {
+  let previous = LumaLocale.choice
+  defer { LumaLocale.choice = previous }
+  LumaLocale.choice = .en
   #expect(CrossModuleActionTitles.appendToNote == "Append to Note")
   #expect(CrossModuleActionTitles.createSnippet == "Create Snippet")
   #expect(CrossModuleActionTitles.addQuicklink == "Add Quicklink")

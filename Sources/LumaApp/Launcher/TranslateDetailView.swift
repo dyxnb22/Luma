@@ -15,6 +15,7 @@ final class TranslateDetailView: ModuleDetailView {
     let detailView: NSView
 
     private let translation: any TranslationClient
+    private let accessibility: any AccessibilityClient
     private let config: ConfigurationStore
     private var onContentChanged: ((String, String) -> Void)?
 
@@ -24,6 +25,9 @@ final class TranslateDetailView: ModuleDetailView {
     private let statusLabel = NSTextField(labelWithString: "")
     private let errorBanner = NSView()
     private let errorBannerLabel = NSTextField(wrappingLabelWithString: "")
+    private let errorBannerActions = NSStackView()
+    private let errorSetupButton = NSButton()
+    private let errorSettingsButton = NSButton()
     private let inputTextView = TranslateInputTextView()
     private let outputTextView = TranslateOutputTextView()
     private let inputPanel = GeekGlassPanel(accentHex: "#5AC8FA")
@@ -35,6 +39,8 @@ final class TranslateDetailView: ModuleDetailView {
     private let pasteButton = NSButton()
     private let copySourceButton = NSButton()
     private let appendToNoteButton = NSButton()
+    private let replaceSelectionButton = NSButton()
+    private let actionButtonsStack = NSStackView()
 
     private var sourceLanguageCode: String? = nil
     private var pendingTask: Task<Void, Never>?
@@ -42,6 +48,8 @@ final class TranslateDetailView: ModuleDetailView {
     private var languageChipButtons: [NSButton] = []
     private var translationStartedAt: CFAbsoluteTime?
     private var lastLatencyMS: Int?
+    private let onOpenTranslationSettings: (() -> Void)?
+    private let onHideLauncher: (() -> Void)?
 
     private static let panelTextInset = NSSize(width: 12, height: 12)
     private static let panelFont = NSFont.systemFont(ofSize: 14)
@@ -64,11 +72,17 @@ final class TranslateDetailView: ModuleDetailView {
     init(
         translation: any TranslationClient,
         config: ConfigurationStore,
-        onContentChanged: ((String, String) -> Void)? = nil
+        accessibility: any AccessibilityClient,
+        onContentChanged: ((String, String) -> Void)? = nil,
+        onOpenTranslationSettings: (() -> Void)? = nil,
+        onHideLauncher: (() -> Void)? = nil
     ) {
         self.translation = translation
         self.config = config
+        self.accessibility = accessibility
         self.onContentChanged = onContentChanged
+        self.onOpenTranslationSettings = onOpenTranslationSettings
+        self.onHideLauncher = onHideLauncher
         let container = NSView()
         container.translatesAutoresizingMaskIntoConstraints = false
         GeekUIKit.installDetailRootChrome(on: container)
@@ -103,7 +117,8 @@ final class TranslateDetailView: ModuleDetailView {
         outputTextView.string = outputText
         inputTextView.refreshPlaceholder()
         copyResultButton.isEnabled = !outputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        appendToNoteButton.isEnabled = !outputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        replaceSelectionButton.isEnabled = copyResultButton.isEnabled
+        appendToNoteButton.isEnabled = copyResultButton.isEnabled
         updateTranslateButtonState()
         setState(outputText.isEmpty ? .idle : .success)
         notifyContentChanged()
@@ -138,6 +153,7 @@ final class TranslateDetailView: ModuleDetailView {
 
         inputTextView.placeholderString = "Type or paste text…"
         inputTextView.font = Self.panelFont
+        inputTextView.isSelectable = true
         inputTextView.textContainerInset = Self.panelTextInset
         inputTextView.textContainer?.lineFragmentPadding = 0
 
@@ -168,17 +184,38 @@ final class TranslateDetailView: ModuleDetailView {
         errorBannerLabel.isBezeled = false
         errorBannerLabel.drawsBackground = false
         errorBannerLabel.translatesAutoresizingMaskIntoConstraints = false
+
+        errorSetupButton.title = "Set up translation…"
+        errorSetupButton.bezelStyle = .rounded
+        errorSetupButton.font = TypographyTokens.caption(weight: .medium)
+        errorSetupButton.target = self
+        errorSetupButton.action = #selector(setupTranslationTapped)
+        errorSetupButton.toolTip = "Opens Shortcuts. Or run scripts/qa/install_luma_translate_shortcut.sh from the Luma repo."
+        errorSetupButton.isHidden = true
+        errorSetupButton.translatesAutoresizingMaskIntoConstraints = false
+
+        errorSettingsButton.title = "Translation Settings"
+        errorSettingsButton.bezelStyle = .rounded
+        errorSettingsButton.font = TypographyTokens.caption(weight: .medium)
+        errorSettingsButton.target = self
+        errorSettingsButton.action = #selector(openTranslationSettingsTapped)
+        errorSettingsButton.isHidden = true
+        errorSettingsButton.translatesAutoresizingMaskIntoConstraints = false
+
+        errorBannerActions.orientation = .horizontal
+        errorBannerActions.spacing = 8
+        errorBannerActions.alignment = .centerY
+        errorBannerActions.translatesAutoresizingMaskIntoConstraints = false
+        errorBannerActions.addArrangedSubview(errorSetupButton)
+        errorBannerActions.addArrangedSubview(errorSettingsButton)
+
         errorBanner.addSubview(errorBannerLabel)
+        errorBanner.addSubview(errorBannerActions)
 
         container.addSubview(toolbar)
         container.addSubview(errorBanner)
         container.addSubview(panelsStack)
         container.addSubview(statusLabel)
-        container.addSubview(copyResultButton)
-        container.addSubview(clearButton)
-        container.addSubview(pasteButton)
-        container.addSubview(copySourceButton)
-        container.addSubview(appendToNoteButton)
 
         NSLayoutConstraint.activate([
             toolbar.topAnchor.constraint(equalTo: container.topAnchor, constant: LauncherChromeTokens.detailSectionGap),
@@ -193,7 +230,10 @@ final class TranslateDetailView: ModuleDetailView {
             errorBannerLabel.topAnchor.constraint(equalTo: errorBanner.topAnchor, constant: 8),
             errorBannerLabel.leadingAnchor.constraint(equalTo: errorBanner.leadingAnchor, constant: 10),
             errorBannerLabel.trailingAnchor.constraint(equalTo: errorBanner.trailingAnchor, constant: -10),
-            errorBannerLabel.bottomAnchor.constraint(equalTo: errorBanner.bottomAnchor, constant: -8),
+
+            errorBannerActions.topAnchor.constraint(equalTo: errorBannerLabel.bottomAnchor, constant: 6),
+            errorBannerActions.leadingAnchor.constraint(equalTo: errorBanner.leadingAnchor, constant: 10),
+            errorBannerActions.bottomAnchor.constraint(equalTo: errorBanner.bottomAnchor, constant: -8),
 
             panelsStack.topAnchor.constraint(equalTo: errorBanner.bottomAnchor, constant: LauncherChromeTokens.detailSectionGap),
             panelsStack.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: LauncherChromeTokens.detailMargin),
@@ -202,24 +242,10 @@ final class TranslateDetailView: ModuleDetailView {
 
             statusLabel.topAnchor.constraint(equalTo: panelsStack.bottomAnchor, constant: LauncherChromeTokens.detailSectionGap),
             statusLabel.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: LauncherChromeTokens.detailMargin),
-            statusLabel.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -LauncherChromeTokens.detailMargin),
-
-            copyResultButton.topAnchor.constraint(equalTo: statusLabel.bottomAnchor, constant: LauncherChromeTokens.detailSectionGap),
-            copyResultButton.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: LauncherChromeTokens.detailMargin),
-            copyResultButton.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -LauncherChromeTokens.detailMargin),
-
-            clearButton.centerYAnchor.constraint(equalTo: copyResultButton.centerYAnchor),
-            clearButton.leadingAnchor.constraint(equalTo: copyResultButton.trailingAnchor, constant: 8),
-
-            pasteButton.centerYAnchor.constraint(equalTo: copyResultButton.centerYAnchor),
-            pasteButton.leadingAnchor.constraint(equalTo: clearButton.trailingAnchor, constant: 8),
-
-            copySourceButton.centerYAnchor.constraint(equalTo: copyResultButton.centerYAnchor),
-            copySourceButton.leadingAnchor.constraint(equalTo: pasteButton.trailingAnchor, constant: 8),
-
-            appendToNoteButton.centerYAnchor.constraint(equalTo: copyResultButton.centerYAnchor),
-            appendToNoteButton.leadingAnchor.constraint(equalTo: copySourceButton.trailingAnchor, constant: 8)
+            statusLabel.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -LauncherChromeTokens.detailMargin)
         ])
+
+        GeekUIKit.constrainDetailFooterActions(actionButtonsStack, in: container, below: statusLabel)
 
         inputTextView.onCommandReturn = { [weak self] in self?.performTranslation() }
         outputTextView.onCommandC = { [weak self] in self?.copyResult() }
@@ -318,6 +344,7 @@ final class TranslateDetailView: ModuleDetailView {
         configurePanel(inputPanel, textView: inputTextView)
         configurePanel(outputPanel, textView: outputTextView)
         outputTextView.isEditable = false
+        outputTextView.isSelectable = true
     }
 
     private func configurePanel(_ panel: NSView, textView: NSTextView) {
@@ -384,6 +411,20 @@ final class TranslateDetailView: ModuleDetailView {
         appendToNoteButton.action = #selector(appendToDailyNote)
         appendToNoteButton.isEnabled = false
         appendToNoteButton.translatesAutoresizingMaskIntoConstraints = false
+
+        replaceSelectionButton.title = L10n.tr("translate.replaceSelection")
+        GeekUIKit.styleSecondaryButton(replaceSelectionButton)
+        replaceSelectionButton.target = self
+        replaceSelectionButton.action = #selector(replaceSelectionTapped)
+        replaceSelectionButton.isEnabled = false
+        replaceSelectionButton.translatesAutoresizingMaskIntoConstraints = false
+
+        actionButtonsStack.addArrangedSubview(copyResultButton)
+        actionButtonsStack.addArrangedSubview(replaceSelectionButton)
+        actionButtonsStack.addArrangedSubview(clearButton)
+        actionButtonsStack.addArrangedSubview(pasteButton)
+        actionButtonsStack.addArrangedSubview(copySourceButton)
+        actionButtonsStack.addArrangedSubview(appendToNoteButton)
     }
 
     @objc private func translateTapped() {
@@ -448,12 +489,38 @@ final class TranslateDetailView: ModuleDetailView {
         NSPasteboard.general.setString(text, forType: .string)
     }
 
+    @objc private func replaceSelectionTapped() {
+        let text = outputTextView.string.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else {
+            LauncherEnvironment.current?.showStatus(LauncherStatusMessages.replaceSelectionEmpty)
+            return
+        }
+        onHideLauncher?()
+        let ax = accessibility
+        Task {
+            let trusted = await ax.isTrusted()
+            guard trusted else {
+                await MainActor.run {
+                    LauncherEnvironment.current?.showStatus(LauncherStatusMessages.replaceSelectionFailed)
+                }
+                return
+            }
+            let ok = await ax.replaceSelectedText(with: text)
+            await MainActor.run {
+                LauncherEnvironment.current?.showStatus(
+                    ok ? LauncherStatusMessages.replaceSelectionDone : LauncherStatusMessages.replaceSelectionFailed
+                )
+            }
+        }
+    }
+
     @objc private func clearAll() {
         inputTextView.string = ""
         outputTextView.string = ""
         inputTextView.refreshPlaceholder()
         updateTranslateButtonState()
         copyResultButton.isEnabled = false
+        replaceSelectionButton.isEnabled = false
         appendToNoteButton.isEnabled = false
         sourceLanguageCode = nil
         sourceLabel.stringValue = "auto"
@@ -501,6 +568,7 @@ final class TranslateDetailView: ModuleDetailView {
         let text = inputTextView.string.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else {
             copyResultButton.isEnabled = false
+            replaceSelectionButton.isEnabled = false
             appendToNoteButton.isEnabled = false
             setState(.idle)
             return
@@ -509,6 +577,7 @@ final class TranslateDetailView: ModuleDetailView {
         translationStartedAt = CFAbsoluteTimeGetCurrent()
         hideErrorBanner()
         copyResultButton.isEnabled = false
+        replaceSelectionButton.isEnabled = false
         translateButton.isEnabled = false
         let svc = translation
         pendingTask?.cancel()
@@ -525,6 +594,7 @@ final class TranslateDetailView: ModuleDetailView {
                     self.hideErrorBanner()
                     self.setState(.success)
                     self.copyResultButton.isEnabled = true
+                    self.replaceSelectionButton.isEnabled = true
                     self.appendToNoteButton.isEnabled = true
                     self.updateTranslateButtonState()
                     self.notifyContentChanged()
@@ -534,9 +604,10 @@ final class TranslateDetailView: ModuleDetailView {
             } catch {
                 await MainActor.run {
                     guard let self, !Task.isCancelled else { return }
-                    self.showErrorBanner(Self.userFacingError(error))
+                    self.showErrorBanner(Self.userFacingError(error), offerSetup: Self.shouldOfferSetupActions(error))
                     self.setState(.error(Self.userFacingError(error)))
                     self.copyResultButton.isEnabled = false
+                    self.replaceSelectionButton.isEnabled = false
                     self.appendToNoteButton.isEnabled = false
                     self.updateTranslateButtonState()
                     self.notifyContentChanged()
@@ -651,14 +722,43 @@ final class TranslateDetailView: ModuleDetailView {
         TranslationUserMessages.message(for: error)
     }
 
-    private func showErrorBanner(_ message: String) {
+    static func shouldOfferSetupActions(_ error: Error) -> Bool {
+        if let err = error as? SystemTranslationError {
+            switch err {
+            case .shortcutUnavailable, .shortcutTimedOut, .frameworkUnavailable, .emptyOutput:
+                return true
+            case .languagePackRequired:
+                return false
+            }
+        }
+        return true
+    }
+
+    private func showErrorBanner(_ message: String, offerSetup: Bool = false) {
         errorBannerLabel.stringValue = message
+        let showActions = offerSetup && onOpenTranslationSettings != nil
+        errorSetupButton.isHidden = !showActions
+        errorSettingsButton.isHidden = !showActions
+        errorBannerActions.isHidden = !showActions
         errorBanner.isHidden = false
     }
 
     private func hideErrorBanner() {
         errorBannerLabel.stringValue = ""
+        errorSetupButton.isHidden = true
+        errorSettingsButton.isHidden = true
+        errorBannerActions.isHidden = true
         errorBanner.isHidden = true
+    }
+
+    @objc private func setupTranslationTapped() {
+        if let url = URL(string: "shortcuts://") {
+            NSWorkspace.shared.open(url)
+        }
+    }
+
+    @objc private func openTranslationSettingsTapped() {
+        onOpenTranslationSettings?()
     }
 }
 

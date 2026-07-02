@@ -56,3 +56,13 @@ import LumaCore
     await store.setSetupHintsDismissed(true)
     #expect(await store.setupHintsDismissed() == true)
 }
+
+@Test func configurationStorePersistsOnboardingCompleted() async {
+    let suite = "luma.tests.\(UUID().uuidString)"
+    let defaults = UserDefaults(suiteName: suite)!
+    defer { UserDefaults().removePersistentDomain(forName: suite) }
+    let store = ConfigurationStore(defaults: defaults)
+    #expect(await store.onboardingCompleted() == false)
+    await store.setOnboardingCompleted(true)
+    #expect(await store.onboardingCompleted() == true)
+}

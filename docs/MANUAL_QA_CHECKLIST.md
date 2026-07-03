@@ -85,7 +85,8 @@ Panel and search field must stay **horizontally aligned** with panel edges — n
 
 - Empty query shows **Open Apps** in the **left column** (~360 pt); right pane shows read-only command guide.
 - Guide: default catalog of discoverable commands; updates when an app/window row is selected.
-- Typing any query collapses to **single-column** search results (right guide hidden).
+- Open Notes / Clipboard / any module detail → **right column**; **left Open Apps remain visible** and clickable.
+- Typing any query collapses to **single-column** search results (right pane hidden).
 - **No** setup, recent, continue, or create sections on empty query.
 - **No** auto-present onboarding wizard on first launch — home list appears immediately.
 - **No** `+N more` row — all running apps are listed.

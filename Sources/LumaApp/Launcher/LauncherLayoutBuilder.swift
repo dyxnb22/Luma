@@ -85,7 +85,6 @@ enum LauncherLayoutBuilder {
             detailContainer: detailContainer,
             detailTopBar: detailTopBar,
             detailTitleLabel: detailTitleLabel,
-            contentContainer: contentContainer,
             closeDetailTarget: closeDetailTarget,
             closeDetailAction: closeDetailAction
         )
@@ -95,7 +94,6 @@ enum LauncherLayoutBuilder {
         detailContainer: LauncherOverlayHostView,
         detailTopBar: NSView,
         detailTitleLabel: NSTextField,
-        contentContainer: NSView,
         closeDetailTarget: AnyObject,
         closeDetailAction: Selector
     ) {
@@ -134,14 +132,8 @@ enum LauncherLayoutBuilder {
         detailTopBar.addSubview(closeButton)
         detailTopBar.addSubview(separator)
         detailContainer.addSubview(detailTopBar)
-        contentContainer.addSubview(detailContainer)
 
         NSLayoutConstraint.activate([
-            detailContainer.topAnchor.constraint(equalTo: contentContainer.topAnchor),
-            detailContainer.leadingAnchor.constraint(equalTo: contentContainer.leadingAnchor),
-            detailContainer.trailingAnchor.constraint(equalTo: contentContainer.trailingAnchor),
-            detailContainer.bottomAnchor.constraint(equalTo: contentContainer.bottomAnchor),
-
             detailTopBar.topAnchor.constraint(equalTo: detailContainer.topAnchor),
             detailTopBar.leadingAnchor.constraint(equalTo: detailContainer.leadingAnchor),
             detailTopBar.trailingAnchor.constraint(equalTo: detailContainer.trailingAnchor),

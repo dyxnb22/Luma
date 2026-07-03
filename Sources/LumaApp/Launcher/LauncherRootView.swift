@@ -14,13 +14,14 @@ final class LauncherRootView: NSView {
     private let hintBar = LauncherHintBar()
     private let actionPanel = LauncherActionPanel()
     private let contentContainer = NSView()
-    private lazy var homeSplitLayout = LauncherHomeSplitLayout.install(
-        in: contentContainer,
-        listView: listView
-    )
     private let detailContainer = LauncherOverlayHostView()
     private let detailTopBar = NSView()
     private let detailTitleLabel = NSTextField(labelWithString: "")
+    private lazy var homeSplitLayout = LauncherHomeSplitLayout.install(
+        in: contentContainer,
+        listView: listView,
+        detailContainer: detailContainer
+    )
     private let latencyHUD = LatencyHUDOverlayView()
     private var latencyHUDEnabled = false
 
@@ -102,6 +103,7 @@ final class LauncherRootView: NSView {
                 LauncherInPanelLayout.stabilizePanel(from: self.searchBar)
             }
         )
+        _ = homeSplitLayout
         installLatencyHUD()
         controller.permissionController.install(in: self)
         controller.showHome(persist: false)

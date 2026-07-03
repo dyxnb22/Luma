@@ -32,8 +32,14 @@ On **empty-query home only**, the launcher uses a **two-column layout**:
 ### When split is inactive
 
 - Any non-empty search query → single-column results (Route C unchanged).
-- Module detail → full-width detail overlay (unchanged).
 - `CommandHintBar` under search still handles prefix hints while typing.
+
+### Module detail in split mode
+
+- **All module details** open in the **right column** (`ModuleDetailPresentation.rightColumn`).
+- **Left column** keeps the **Open Apps** list visible and interactive (switch/focus apps without closing detail).
+- Opening detail refreshes the left column from `OpenAppsHomeProvider` even when detail was entered from a prior search.
+- Detail container width is ~540 pt; module views scroll inside fixed panel width per `LAUNCHER_PANEL_CONSTRAINTS`.
 
 ### Open Apps chrome
 

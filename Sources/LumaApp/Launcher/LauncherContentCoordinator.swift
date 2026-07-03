@@ -1,6 +1,13 @@
 import AppKit
 import LumaCore
 
+enum ModuleDetailPresentation: Equatable {
+  /// Detail covers the full content area; list fades out (search-results context).
+  case fullOverlay
+  /// Detail in the right column; Open Apps stay visible on the left.
+  case rightColumn
+}
+
 /// Home / search-results / module-detail transitions for the launcher main area.
 @MainActor
 final class LauncherContentCoordinator {
@@ -81,6 +88,7 @@ final class LauncherContentCoordinator {
     func present(
         _ detail: any ModuleDetailView,
         moduleID: ModuleIdentifier,
+        presentation: ModuleDetailPresentation = .fullOverlay,
         prefillTranslateText: String? = nil
     ) {
         currentDetailObject?.deactivate()
@@ -101,28 +109,37 @@ final class LauncherContentCoordinator {
             contentView.bottomAnchor.constraint(equalTo: detailContainer.bottomAnchor)
         ])
         detailTitleLabel.stringValue = detail.moduleTitle
-
-        listView.passesHitTests = false
-        detailContainer.isHidden = false
-        detailContainer.alphaValue = 0
-        detailContainer.passesHitTests = true
         showingDetail = true
+        detailContainer.isHidden = false
+        detailContainer.passesHitTests = true
 
-        NSAnimationContext.runAnimationGroup { ctx in
-            ctx.duration = MotionTokens.panelShowDuration
-            ctx.timingFunction = CAMediaTimingFunction(name: .easeOut)
-            listView.animator().alphaValue = 0
-            detailContainer.animator().alphaValue = 1
-        } completionHandler: { [weak self] in
-            Task { @MainActor [weak self] in
-                guard let self, self.showingDetail else { return }
-                self.listView.isHidden = true
-                self.listView.passesHitTests = false
-                LauncherInPanelLayout.stabilizePanel(from: self.detailContainer)
+        switch presentation {
+        case .rightColumn:
+            detailContainer.alphaValue = 1
+            listView.isHidden = false
+            listView.alphaValue = 1
+            listView.passesHitTests = true
+            detail.activate()
+            LauncherInPanelLayout.stabilizePanel(from: detailContainer)
+        case .fullOverlay:
+            listView.passesHitTests = false
+            detailContainer.alphaValue = 0
+            NSAnimationContext.runAnimationGroup { ctx in
+                ctx.duration = MotionTokens.panelShowDuration
+                ctx.timingFunction = CAMediaTimingFunction(name: .easeOut)
+                listView.animator().alphaValue = 0
+                detailContainer.animator().alphaValue = 1
+            } completionHandler: { [weak self] in
+                Task { @MainActor [weak self] in
+                    guard let self, self.showingDetail else { return }
+                    self.listView.isHidden = true
+                    self.listView.passesHitTests = false
+                    LauncherInPanelLayout.stabilizePanel(from: self.detailContainer)
+                }
             }
+            detail.activate()
+            LauncherInPanelLayout.stabilizePanel(from: detailContainer)
         }
-
-        detail.activate()
 
         if moduleID == .translate, let text = prefillTranslateText ?? pendingTranslateText {
             pendingTranslateText = nil
@@ -131,10 +148,9 @@ final class LauncherContentCoordinator {
             }
         }
         onSessionChanged?()
-        LauncherInPanelLayout.stabilizePanel(from: detailContainer)
     }
 
-    func closeDetail() {
+    func closeDetail(presentation: ModuleDetailPresentation = .fullOverlay) {
         guard showingDetail else { return }
         showingDetail = false
         currentDetailObject?.deactivate()
@@ -143,27 +159,39 @@ final class LauncherContentCoordinator {
         currentDetailModuleID = nil
         detailTopBar.isHidden = false
 
-        detailContainer.passesHitTests = false
-        listView.isHidden = false
-        listView.alphaValue = 0
-        listView.passesHitTests = true
+        switch presentation {
+        case .rightColumn:
+            detailContainer.passesHitTests = false
+            detailContainer.isHidden = true
+            detailContainer.alphaValue = 0
+            listView.isHidden = false
+            listView.alphaValue = 1
+            listView.passesHitTests = true
+            onHomeSessionSaved?()
+            LauncherInPanelLayout.stabilizePanel(from: listView)
+        case .fullOverlay:
+            detailContainer.passesHitTests = false
+            listView.isHidden = false
+            listView.alphaValue = 0
+            listView.passesHitTests = true
 
-        NSAnimationContext.runAnimationGroup { ctx in
-            ctx.duration = MotionTokens.panelShowDuration
-            ctx.timingFunction = CAMediaTimingFunction(name: .easeOut)
-            detailContainer.animator().alphaValue = 0
-            listView.animator().alphaValue = 1
-        } completionHandler: { [weak self] in
-            Task { @MainActor [weak self] in
-                guard let self, !self.showingDetail else { return }
-                self.detailContainer.isHidden = true
-                self.detailContainer.passesHitTests = false
-                self.listView.passesHitTests = true
-                LauncherInPanelLayout.stabilizePanel(from: self.listView)
+            NSAnimationContext.runAnimationGroup { ctx in
+                ctx.duration = MotionTokens.panelShowDuration
+                ctx.timingFunction = CAMediaTimingFunction(name: .easeOut)
+                detailContainer.animator().alphaValue = 0
+                listView.animator().alphaValue = 1
+            } completionHandler: { [weak self] in
+                Task { @MainActor [weak self] in
+                    guard let self, !self.showingDetail else { return }
+                    self.detailContainer.isHidden = true
+                    self.detailContainer.passesHitTests = false
+                    self.listView.passesHitTests = true
+                    LauncherInPanelLayout.stabilizePanel(from: self.listView)
+                }
             }
+            onHomeSessionSaved?()
+            LauncherInPanelLayout.stabilizePanel(from: detailContainer)
         }
-        onHomeSessionSaved?()
-        LauncherInPanelLayout.stabilizePanel(from: detailContainer)
     }
 
     func renderResults(_ items: [ResultItem], layout: ResultListLayout = .flat) {

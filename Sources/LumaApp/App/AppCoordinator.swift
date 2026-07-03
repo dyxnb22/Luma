@@ -102,10 +102,8 @@ final class AppCoordinator {
     private lazy var wordbookStore = WordbookStore()
     private lazy var wordbookModule = WordbookModule(store: wordbookStore)
     private lazy var snippetsModule = SnippetsModule()
-    private let homeEnablementGate = HomeEnablementGate()
     private lazy var homeCoordinator = LauncherHomeCoordinator(
-        openApps: openAppsProvider,
-        enablementGate: homeEnablementGate
+        openApps: openAppsProvider
     )
     private var activationObserver: NSObjectProtocol?
     private var terminationObserver: NSObjectProtocol?
@@ -133,7 +131,6 @@ final class AppCoordinator {
                 guard let self else { return }
                 Task {
                     await self.host.applyEnabledSet(enabled)
-                    await self.homeCoordinator.updateEnabledModuleIDs(enabled)
                 }
             },
             onPinnedChanged: { [weak self] pinned in
@@ -351,7 +348,6 @@ final class AppCoordinator {
             let enabled = await config.enabledModules()
             let pinned = await config.pinnedModuleIDs()
             let policy = await config.warmupPolicy()
-            await homeCoordinator.updateEnabledModuleIDs(enabled ?? Set(modules.map { type(of: $0).manifest.identifier }))
             await host.configureWarmupPolicy(pinned: pinned)
             await host.configureGlobalSearchModuleIDs(ModuleRegistry.globalSearchModuleIDs)
             await host.applyEnabledSet(enabled)

@@ -21,10 +21,7 @@ private struct StubHomeProvider: LauncherHomeProvider {
         )
     ])
 
-    let aggregator = LauncherHomeAggregator(
-        openApps: openApps,
-        setup: nil
-    )
+    let aggregator = LauncherHomeAggregator(openApps: openApps)
     let snapshot = await aggregator.snapshot()
     #expect(snapshot.sections.count == 1)
     #expect(snapshot.sections[0].kind == .openApps)

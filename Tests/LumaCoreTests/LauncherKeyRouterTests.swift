@@ -62,11 +62,6 @@ import LumaCore
     #expect(outcome == .jumpToFlatIndex(1))
 }
 
-@Test func resolveRunTreatsOpenAppsMoreRowAsRunItem() {
-    let item = OpenAppsResultBuilder.moreRow(hiddenCount: 4)
-    #expect(LauncherKeyRouter.resolveRun(item: item) == .runItem(item))
-}
-
 @Test func resolveRunUsesOpenModuleDetailAction() {
     let todo = ModuleIdentifier(rawValue: "luma.todo")
     let item = ResultItem(

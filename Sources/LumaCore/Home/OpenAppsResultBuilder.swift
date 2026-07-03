@@ -129,23 +129,6 @@ public enum OpenAppsResultBuilder {
         )
     }
 
-    public static func moreRow(hiddenCount: Int) -> ResultItem {
-        let appsModule = ModuleIdentifier(rawValue: "luma.apps")
-        return ResultItem(
-            id: ResultID(module: appsModule, key: "openApps.more"),
-            title: "+\(hiddenCount) more",
-            titleAttributed: AttributedString("+\(hiddenCount) more"),
-            subtitle: nil,
-            icon: .symbol("ellipsis.circle"),
-            primaryAction: Action(
-                id: ActionID(module: appsModule, key: "openApps.expand"),
-                title: "Show all",
-                kind: .noop
-            ),
-            rankingHints: RankingHints(basePriority: 0)
-        )
-    }
-
     private static func windowIdentityKey(windowID: UInt32, axTitle: String) -> String {
         if windowID != 0 { return String(windowID) }
         let slug = axTitle

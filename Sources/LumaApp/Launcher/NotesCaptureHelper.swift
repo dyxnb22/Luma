@@ -9,7 +9,6 @@ enum NotesCaptureHelper {
         let outcome = await env.notesModule.captureTextToDailyNote(text)
         switch outcome {
         case .appended(let url):
-            await HomeSuggestionMemory.shared.recordDailyNoteOpened()
             env.showStatus(LauncherStatusMessages.savedToDailyNote)
             if openAfterCapture {
                 env.onHideLauncher()

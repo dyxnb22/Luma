@@ -7,20 +7,11 @@ import LumaServices
 actor LauncherHomeCoordinator {
     private let aggregator: LauncherHomeAggregator
     private let openApps: OpenAppsHomeProvider
-    private let enablementGate: HomeEnablementGate
     private var collapsedAppBundleIDs = Set<String>()
 
-    init(
-        openApps: OpenAppsHomeProvider,
-        enablementGate: HomeEnablementGate
-    ) {
+    init(openApps: OpenAppsHomeProvider) {
         self.openApps = openApps
-        self.enablementGate = enablementGate
         self.aggregator = LauncherHomeAggregator(openApps: openApps)
-    }
-
-    func updateEnabledModuleIDs(_ ids: Set<ModuleIdentifier>) async {
-        enablementGate.update(ids)
     }
 
     func resetExpansion() {

@@ -54,10 +54,9 @@ actor OpenAppsHomeProvider: LauncherHomeProvider {
         let rankedIDs = await appActivationTracker.rankedBundleIDs(from: bundleIDs)
         let byID = Dictionary(uniqueKeysWithValues: snapshots.map { ($0.bundleID, $0) })
         let ordered = rankedIDs.compactMap { byID[$0] }
-        let visible = ordered
 
         var items: [ResultItem] = []
-        for app in visible {
+        for app in ordered {
             if app.windows.count > 1 {
                 let isExpanded = !collapsedBundleIDs.contains(app.bundleID)
                 items.append(Self.expandableAppRow(for: app, isExpanded: isExpanded))

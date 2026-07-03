@@ -265,7 +265,6 @@ final class LauncherRootController {
                       self.launcherEnvironment.isLauncherQueryEmpty else { return }
                 self.contentCoordinator.showHome(snapshot)
                 self.syncRowActionHint()
-                Task { await HomeSuggestionMemory.shared.recordShown(keys: []) }
                 _ = HomeLatencyTracker.markHomeRendered()
             }
         }
@@ -827,9 +826,9 @@ final class LauncherRootController {
         switch LauncherKeyRouter.resolveRun(item: item) {
         case .toggleOpenAppWindows(let bundleID):
             toggleOpenAppWindows(bundleID: bundleID)
-        case .runItem(let item):
+        case .runItem(let resolved):
             viewModel.recordExecutedCommand(for: searchBar.stringValue)
-            dispatchAction(item.primaryAction, for: item)
+            dispatchAction(resolved.primaryAction, for: resolved)
         default:
             viewModel.recordExecutedCommand(for: searchBar.stringValue)
             dispatchAction(item.primaryAction, for: item)
@@ -845,10 +844,8 @@ final class LauncherRootController {
             handleTextChange(query)
             focusSearchField()
         case .openModuleDetail(let moduleID, let payload):
-            recordHomeCompletionIfNeeded(for: item)
             openModuleDetail(for: moduleID, payload: payload)
         case .translateText(let text):
-            recordHomeCompletionIfNeeded(for: item)
             openTranslateDetail(with: text)
         case .custom(let payload, let handler):
             if handler == .workbench {
@@ -959,10 +956,8 @@ final class LauncherRootController {
     private func runWorkbenchEntity(_ action: WorkbenchEntityAction, for item: ResultItem) {
         switch action {
         case .openLinked(let linkID):
-            recordHomeCompletionIfNeeded(for: item)
             runOpenLinkedEntity(linkID: linkID)
         case .openActivityEntry(let entryID):
-            recordHomeCompletionIfNeeded(for: item)
             runOpenActivityEntry(entryID: entryID, for: item)
         case .showStatus(let message):
             commandHintBar.showStatus(message)
@@ -1050,7 +1045,6 @@ final class LauncherRootController {
                 return
             }
             await MainActor.run {
-                recordHomeCompletionIfNeeded(for: item)
                 applyWorkbenchCaptureResult(result, for: item)
                 persistResumeState(translateContent: nil)
             }
@@ -1071,7 +1065,6 @@ final class LauncherRootController {
                 return
             }
             await MainActor.run {
-                recordHomeCompletionIfNeeded(for: item)
                 resumeFromActivityEntry(entry)
                 persistResumeState(translateContent: nil)
             }
@@ -1197,7 +1190,6 @@ final class LauncherRootController {
                 selectionText: selection
             )
             await MainActor.run {
-                recordHomeCompletionIfNeeded(for: item)
                 applyWorkbenchCommandOutcome(outcome)
                 persistResumeState(translateContent: nil)
             }
@@ -1214,18 +1206,13 @@ final class LauncherRootController {
             let outcome = await NotesCaptureHelper.appendToDailyNote(trimmed, openAfterCapture: false)
             guard case .appended = outcome else { return }
             saveModuleRoundTripResume(module: .notes)
-            await recordHomeCompletion(for: item)
             try? await Task.sleep(for: .milliseconds(900))
             await MainActor.run { self.onActionDismiss() }
         }
     }
 
-    private func runNotesOpen(path: String, action: Action, for item: ResultItem) {
+    private func runNotesOpen(path _: String, action: Action, for item: ResultItem) {
         Task {
-            if let daily = await launcherEnvironment.notesModule.dailyNotePath(), daily == path {
-                await HomeSuggestionMemory.shared.recordDailyNoteOpened()
-            }
-            await recordHomeCompletion(for: item)
             await MainActor.run { self.onActionDismiss() }
             await actionExecutor.run(action, for: item)
         }
@@ -1236,7 +1223,6 @@ final class LauncherRootController {
             commandHintBar.showStatus(feedback.message)
             Task {
                 await actionExecutor.run(action, for: item)
-                await recordHomeCompletion(for: item)
                 await recordRecentAction(action: action, item: item)
                 if feedback.delayDismiss {
                     try? await Task.sleep(for: .milliseconds(900))
@@ -1247,20 +1233,8 @@ final class LauncherRootController {
             onActionDismiss()
             Task {
                 await actionExecutor.run(action, for: item)
-                await recordHomeCompletion(for: item)
                 await recordRecentAction(action: action, item: item)
             }
-        }
-    }
-
-    private func recordHomeCompletionIfNeeded(for item: ResultItem) {
-        guard item.rowKind == .starter else { return }
-        Task { await recordHomeCompletion(for: item) }
-    }
-
-    private func recordHomeCompletion(for item: ResultItem) async {
-        if item.id.key.hasPrefix("contextual.") {
-            await HomeSuggestionMemory.shared.recordCompleted(key: item.id.key)
         }
     }
 

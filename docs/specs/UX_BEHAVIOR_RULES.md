@@ -100,7 +100,8 @@ Notes detail IA and create flows: [NOTES_DETAIL_CONSTRAINTS.md](NOTES_DETAIL_CON
 ## Home — Open Apps + Command Guide (Frozen 2026-07-03)
 
 - **One list section:** running applications ordered by activation recency (left column on empty home).
-- **Right pane (empty home only):** read-only command guide — not a second navigable list (ADR-032).
+- **Right pane:** command guide (empty home) **or** module detail — not a second navigable list (ADR-032).
+- **Module detail** keeps **Open Apps** visible in the left column.
 - **No** setup, recent, continue, or create sections on empty query.
 - **No** `+N more` collapse row — all running apps are listed.
 - Idle list rows use a **transparent** background; only hover/selection add fill.

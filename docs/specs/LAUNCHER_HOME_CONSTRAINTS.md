@@ -24,9 +24,10 @@ That is the **only** section `LauncherHomeAggregator` may append on empty query.
 | Column | Width | Content |
 | --- | --- | --- |
 | Left | **360 pt** (`homeLeftColumnWidth`) | Open Apps list |
-| Right | Flexible | Read-only command guide (`LauncherHomeGuidePane`) |
+| Right | Flexible | Command guide **or** module detail (split mode) |
 
-- Active only when query is **empty**, not in detail, not showing search results.
+- Active when query is **empty** and launcher is on home or in **module detail** (right column).
+- Guide pane when no detail; module detail replaces guide on the right without hiding Open Apps.
 - Guide shows discoverable commands (no selection) or contextual actions for the selected left-row item.
 - **Not** a second navigable list — no command rows with Return on the right.
 - Typing any query collapses to single-column results (Route C).
@@ -125,7 +126,7 @@ In-panel layout rules (search bar, list, detail) live in **[LAUNCHER_PANEL_CONST
 | Onboarding | — | No auto-present; wizard view removed |
 | Tokens | `LauncherChromeTokens.swift` | Panel + list visual values above |
 | Rows | `LauncherListRow.swift` | Idle = clear background; selection on `backgroundView` child only |
-| Home split | `LauncherHomeSplitLayout.swift`, `LauncherHomeGuidePane.swift` | Empty home only; guide is read-only |
+| Home split | `LauncherHomeSplitLayout.swift`, `LauncherHomeGuidePane.swift` | Guide read-only; detail in right column |
 | Panel layout | `LAUNCHER_PANEL_CONSTRAINTS.md` | No full-width `wantsLayer`; stabilize after list transitions |
 
 ### PR checklist for home changes

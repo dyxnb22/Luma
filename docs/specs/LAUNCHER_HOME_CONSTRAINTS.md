@@ -35,7 +35,7 @@ That is the **only** section `LauncherHomeAggregator` may append on empty query.
 ### Open Apps rules
 
 - Show **all** running apps — **no** `+N more` collapse row (`openApps.more`).
-- `LauncherHomeCoordinator.snapshot()` always configures `appLimit: nil`.
+- `LauncherHomeCoordinator.snapshot()` always configures open apps with no row limit (all running apps).
 - Do not list Luma itself.
 - Multi-window apps may still expand/collapse per-app window rows (unchanged).
 - Section header label comes from i18n key `home.section.openApps` (e.g. 打开应用 / Open Apps).
@@ -121,7 +121,7 @@ In-panel layout rules (search bar, list, detail) live in **[LAUNCHER_PANEL_CONST
 | --- | --- | --- |
 | Home composition | `LauncherHomeAggregator.swift` | Only `.openApps` on empty query |
 | App wiring | `AppCoordinator.swift` | No `SetupHomeProvider` on coordinator |
-| Coordinator | `LauncherHomeCoordinator.swift` | `appLimit: nil`; no `showAllApps` collapse |
+| Coordinator | `LauncherHomeCoordinator.swift` | `configure(collapsedBundleIDs:)`; no app limit / `+N more` |
 | Open apps | `OpenAppsHomeProvider.swift` | No `moreRow` append |
 | Onboarding | — | No auto-present; wizard view removed |
 | Tokens | `LauncherChromeTokens.swift` | Panel + list visual values above |

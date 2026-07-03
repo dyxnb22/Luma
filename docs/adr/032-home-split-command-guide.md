@@ -39,7 +39,7 @@ When the **visible search query is empty**, the launcher uses a **two-column lay
 ### Module detail (split mode)
 
 - **All module details** open in the **right column** only (`ModuleDetailPresentation.rightColumn`).
-- **Left column** keeps **Open Apps** visible and interactive (mouse: select app / Return to activate without closing detail).
+- **Left column** keeps **Open Apps** visible and interactive (mouse: select app; Return activates app and dismisses panel per leave-launcher rules).
 - Opening detail always refreshes the left column from `OpenAppsHomeProvider`, including when entered from a prior search.
 - Module detail views scroll inside the right column width; they must not widen the panel.
 

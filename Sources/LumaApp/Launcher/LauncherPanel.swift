@@ -63,6 +63,14 @@ final class LauncherPanel: NSPanel {
         setFrame(frame, display: true)
     }
 
+    /// Re-locks to the current presentation screen when home split needs the full default width (ADR-032).
+    func ensureFitsHomeSplitLayout(on visibleFrame: NSRect) {
+        let desired = LauncherPanelGeometry.contentSize(for: visibleFrame)
+        let locked = lockedFrameSize ?? .zero
+        guard locked.width < desired.width - 0.5 || locked.height < desired.height - 0.5 else { return }
+        position(on: visibleFrame)
+    }
+
     /// Keeps in-panel Auto Layout in sync after frame or content changes.
     func stabilizeContentLayout() {
         guard let contentView else { return }

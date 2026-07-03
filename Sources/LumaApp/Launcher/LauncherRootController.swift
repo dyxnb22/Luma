@@ -265,6 +265,7 @@ final class LauncherRootController {
                 guard !self.contentCoordinator.showingResults,
                       self.launcherEnvironment.isLauncherQueryEmpty else { return }
                 self.contentCoordinator.showHome(snapshot)
+                self.syncSplitLayout()
                 self.syncRowActionHint()
                 _ = HomeLatencyTracker.markHomeRendered()
             }
@@ -622,9 +623,12 @@ final class LauncherRootController {
             searchBar.cancelDetailMode()
             contentCoordinator.dismissResultsForEmptyQuery()
             viewModel.cancel()
+            syncSplitLayout()
+            syncKeyHints()
             refreshHome()
             return
         }
+        syncSplitLayout()
         guard modulesReady else { return }
         homeRefreshTask?.cancel()
         if contentCoordinator.showingDetail {
@@ -830,8 +834,18 @@ final class LauncherRootController {
         return !contentCoordinator.showingResults
     }
 
+    private func listHoldsKeyboardFocus() -> Bool {
+        guard let responder = listView.window?.firstResponder else { return false }
+        if responder === listView { return true }
+        guard let view = responder as? NSView else { return false }
+        return view.isDescendant(of: listView)
+    }
+
     private func syncSplitLayout() {
         let columnSplit = usesColumnSplitLayout()
+        if columnSplit {
+            LauncherInPanelLayout.ensureHomeSplitPanelSize(from: searchBar)
+        }
         homeSplitLayout.setColumnSplitActive(columnSplit)
 
         if columnSplit, contentCoordinator.showingDetail {
@@ -1382,7 +1396,7 @@ final class LauncherRootController {
             return true
         }
         let mode: LauncherContentMode
-        if contentCoordinator.showingDetail {
+        if contentCoordinator.showingDetail, !listHoldsKeyboardFocus() {
             mode = .detail
         } else if contentCoordinator.showingResults
             || !searchBar.stringValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {

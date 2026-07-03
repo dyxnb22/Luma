@@ -13,6 +13,7 @@ final class LauncherHomeGuidePane: NSView {
         translatesAutoresizingMaskIntoConstraints = false
         clipsToBounds = true
         isHidden = true
+        GeekUIKit.configureContentSurface(self)
 
         titleLabel.font = TypographyTokens.callout
         titleLabel.textColor = .labelColor

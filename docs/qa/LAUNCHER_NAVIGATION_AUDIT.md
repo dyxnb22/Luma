@@ -12,9 +12,9 @@
 | --- | ---: | ---: |
 | P0 | 3 | 0 |
 | P1 | 12 | 0 |
-| P2 | 12 | 1 |
+| P2 | 14 | 1 |
 
-**Remaining open:** L4 (spec drift — doc-only, already aligned).
+**Remaining open:** L4 (spec drift — doc-only), SPLIT-TEST (no automated split-layout tests).
 
 ---
 
@@ -67,6 +67,9 @@
 | ID | Notes |
 | --- | --- |
 | L4 | Spec aligned (prior doc pass) — no code change |
+| SPLIT-KB | **Fixed 2026-07-03:** ↑↓ / ⌘1–9 route to left Open Apps when list holds focus during split detail. |
+| SPLIT-TEST | No unit tests for `LauncherHomeSplitLayout` constraint toggling or `syncSplitLayout` state machine. |
+| SPLIT-LAYOUT | **Fixed 2026-07-03:** list trailing constraint + `ensureHomeSplitPanelSize` + geometry prefers 940×760. |
 
 ---
 
@@ -78,3 +81,4 @@
 | 2026-07-03 | NAV-02 — detail chrome exit |
 | 2026-07-03 | Implementation pass — P0/P1/P2 items above |
 | 2026-07-03 | ADR-032 — split home; module detail in right column; Open Apps stay left |
+| 2026-07-03 | SPLIT-LAYOUT — list trailing constraint conflict; guide pane chrome |

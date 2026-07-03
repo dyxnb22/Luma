@@ -26,6 +26,15 @@ import LumaCore
 }
 
 @MainActor
+@Test func panelGeometryUsesDefaultWidthWhenAvailableEqualsDefault() {
+    // visible width 988 → available 940 → must use full default, not ratio-clamp to 720
+    let visible = CGRect(x: 0, y: 0, width: 988, height: 900)
+    let size = LauncherPanelGeometry.contentSize(for: visible)
+    #expect(size.width == LauncherChromeTokens.defaultPanelWidth)
+    #expect(size.height == LauncherChromeTokens.defaultPanelHeight)
+}
+
+@MainActor
 @Test func panelGeometryClampsOnSmallDisplay() {
     let visible = CGRect(x: 0, y: 0, width: 700, height: 500)
     let size = LauncherPanelGeometry.contentSize(for: visible)

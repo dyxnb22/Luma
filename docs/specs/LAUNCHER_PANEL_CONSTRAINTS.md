@@ -200,7 +200,7 @@ When adding or changing a module detail view in `Sources/LumaApp/Launcher/`:
 | Presentation screen | `LumaPresentationScreen.swift` | Shared screen selection |
 | Settings placement | `SettingsWindowController.swift` | `centerOnPresentationScreen` on every present |
 | Root chrome | `LauncherPanelChrome.swift` | Glass + border on child overlay |
-| Layout builder | `LauncherLayoutBuilder.swift` | No `wantsLayer` on full-width containers |
+| Layout builder | `LauncherLayoutBuilder.swift` | No `wantsLayer` on full-width containers; **no** `listView.trailing` — split layout owns horizontal sizing |
 | In-panel stabilize | `LauncherInPanelLayout.swift` | Single entry for post-layout stabilize |
 | Content coordinator | `LauncherContentCoordinator.swift` | Right-column detail; `stabilizePanel` on present/close |
 | Home split | `LauncherHomeSplitLayout.swift` | Column split + right pane guide/detail |

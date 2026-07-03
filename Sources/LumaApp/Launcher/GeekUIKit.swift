@@ -228,6 +228,28 @@ enum GeekUIKit {
         view.clipsToBounds = true
     }
 
+    /// Pinned chrome for the 360 pt Open Apps column (ADR-032). Layer lives on child only.
+    static func installHomeListColumnSurface(on view: NSView) {
+        let surfaceID = "homeListColumnSurface"
+        guard view.subviews.first(where: { $0.identifier?.rawValue == surfaceID }) == nil else { return }
+        view.clipsToBounds = true
+
+        let surface = NSView()
+        surface.identifier = NSUserInterfaceItemIdentifier(surfaceID)
+        surface.translatesAutoresizingMaskIntoConstraints = false
+        surface.wantsLayer = true
+        surface.layer?.cornerRadius = LauncherChromeTokens.homeListSurfaceCornerRadius
+        surface.layer?.cornerCurve = .continuous
+        surface.layer?.backgroundColor = NSColor.controlBackgroundColor.withAlphaComponent(0.12).cgColor
+        view.addSubview(surface, positioned: .below, relativeTo: nil)
+        NSLayoutConstraint.activate([
+            surface.topAnchor.constraint(equalTo: view.topAnchor),
+            surface.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            surface.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            surface.bottomAnchor.constraint(equalTo: view.bottomAnchor)
+        ])
+    }
+
     static func installPerformanceStripSurface(on view: NSView) {
         let surfaceID = "performanceStripSurface"
         guard view.subviews.first(where: { $0.identifier?.rawValue == surfaceID }) == nil else { return }

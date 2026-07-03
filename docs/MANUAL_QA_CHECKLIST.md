@@ -110,14 +110,14 @@ Panel and search field must stay **horizontally aligned** with panel edges — n
 ### Module Detail
 
 - On **empty visible query**, detail opens in the **right column** (~540 pt); **left Open Apps stay visible** and clickable (ADR-032).
-- On **non-empty query**, detail uses the full content area below search (single-column results layout).
+- `presentModuleDetail` always refreshes home first — there is no full-width detail overlay path while visible query is empty.
 - Detail view uses `BaseDetailContainer` (16 pt margins); must scroll within right-column width — never widen the panel.
 - Search bar remains visible but read-only with an `In <Module> — Esc to go back` placeholder (prior query is restored when leaving detail).
 - Top bar shows Back, module title, and close.
 - Esc in detail returns to the prior search results when a query was suspended; otherwise home.
 - Detail **back** and **close** chrome match Esc (restore suspended query or home; search field becomes editable and clickable again).
 - After detail → home: click search field and type — must accept input (regression: Notes back button).
-- **Known open issues:** see [LAUNCHER_NAVIGATION_AUDIT.md](qa/LAUNCHER_NAVIGATION_AUDIT.md) (detail fade click-blocking, ⌘1–9 in detail, ⌘W hint, module shortcuts).
+- **Known open issues:** see [LAUNCHER_NAVIGATION_AUDIT.md](qa/LAUNCHER_NAVIGATION_AUDIT.md) (split layout keyboard on left column, module shortcuts in detail subviews).
 - Esc on results clears query and shows home.
 - Esc on home closes the panel.
 - Detail toolbars with multiple buttons scroll horizontally instead of clipping (Records, Auto Workflow, Translate, etc.).

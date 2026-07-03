@@ -9,47 +9,27 @@ public enum LauncherPanelGeometry {
     public static let verticalScreenInset: CGFloat = 96
 
     /// Content size that fits within a screen's visible frame, honoring `LauncherChromeTokens` clamps.
+    /// Prefers `defaultPanelWidth` × `defaultPanelHeight` whenever the presentation screen can fit them.
     public static func contentSize(for visibleFrame: CGRect) -> CGSize {
         let availableWidth = visibleFrame.width - horizontalScreenInset
         let availableHeight = visibleFrame.height - verticalScreenInset
 
-        let targetWidth = min(
-            availableWidth,
-            min(
-                LauncherChromeTokens.maxPanelWidth,
-                max(LauncherChromeTokens.minPanelWidth, LauncherChromeTokens.defaultPanelWidth)
-            )
-        )
-        let targetHeight = min(
-            availableHeight,
-            min(
-                LauncherChromeTokens.maxPanelHeight,
-                max(LauncherChromeTokens.minPanelHeight, LauncherChromeTokens.defaultPanelHeight)
-            )
-        )
-
         let width: CGFloat
-        if availableWidth < LauncherChromeTokens.minPanelWidth {
-            width = max(320, availableWidth)
-        } else if targetWidth < LauncherChromeTokens.defaultPanelWidth {
-            width = max(
-                LauncherChromeTokens.minPanelWidth,
-                min(targetWidth, visibleFrame.width * LauncherChromeTokens.panelWidthScreenRatio)
-            )
+        if availableWidth >= LauncherChromeTokens.defaultPanelWidth {
+            width = LauncherChromeTokens.defaultPanelWidth
+        } else if availableWidth >= LauncherChromeTokens.minPanelWidth {
+            width = min(availableWidth, LauncherChromeTokens.maxPanelWidth)
         } else {
-            width = targetWidth
+            width = max(320, availableWidth)
         }
 
         let height: CGFloat
-        if availableHeight < LauncherChromeTokens.minPanelHeight {
-            height = max(400, availableHeight)
-        } else if targetHeight < LauncherChromeTokens.defaultPanelHeight {
-            height = max(
-                LauncherChromeTokens.minPanelHeight,
-                min(targetHeight, visibleFrame.height * LauncherChromeTokens.panelHeightScreenRatio)
-            )
+        if availableHeight >= LauncherChromeTokens.defaultPanelHeight {
+            height = LauncherChromeTokens.defaultPanelHeight
+        } else if availableHeight >= LauncherChromeTokens.minPanelHeight {
+            height = min(availableHeight, LauncherChromeTokens.maxPanelHeight)
         } else {
-            height = targetHeight
+            height = max(400, availableHeight)
         }
 
         return CGSize(width: width, height: height)

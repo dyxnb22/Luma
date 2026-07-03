@@ -18,6 +18,7 @@ final class LauncherHomeSplitLayout {
     private let listFullWidthTrailing: NSLayoutConstraint
     private let listSplitWidth: NSLayoutConstraint
     private let detailRightColumnConstraints: [NSLayoutConstraint]
+    private weak var contentContainer: NSView?
     private var columnSplitActive = false
     private var rightPane: LauncherSplitRightPane = .hidden
 
@@ -77,15 +78,18 @@ final class LauncherHomeSplitLayout {
             guidePane.bottomAnchor.constraint(equalTo: contentContainer.bottomAnchor, constant: -8)
         ])
 
-        return LauncherHomeSplitLayout(
+        let layout = LauncherHomeSplitLayout(
             listView: listView,
             detailContainer: detailContainer,
             guidePane: guidePane,
             divider: divider,
             listFullWidthTrailing: listFullWidthTrailing,
             listSplitWidth: listSplitWidth,
-            detailRightColumnConstraints: detailRightColumnConstraints
+            detailRightColumnConstraints: detailRightColumnConstraints,
+            contentContainer: contentContainer
         )
+        layout.activateDefaultListWidthConstraints()
+        return layout
     }
 
     private init(
@@ -95,7 +99,8 @@ final class LauncherHomeSplitLayout {
         divider: NSBox,
         listFullWidthTrailing: NSLayoutConstraint,
         listSplitWidth: NSLayoutConstraint,
-        detailRightColumnConstraints: [NSLayoutConstraint]
+        detailRightColumnConstraints: [NSLayoutConstraint],
+        contentContainer: NSView
     ) {
         self.listView = listView
         self.detailContainer = detailContainer
@@ -104,6 +109,13 @@ final class LauncherHomeSplitLayout {
         self.listFullWidthTrailing = listFullWidthTrailing
         self.listSplitWidth = listSplitWidth
         self.detailRightColumnConstraints = detailRightColumnConstraints
+        self.contentContainer = contentContainer
+    }
+
+    /// Single-column results layout — list spans the content container.
+    func activateDefaultListWidthConstraints() {
+        listSplitWidth.isActive = false
+        listFullWidthTrailing.isActive = true
     }
 
     func setColumnSplitActive(_ active: Bool) {
@@ -113,6 +125,14 @@ final class LauncherHomeSplitLayout {
         listSplitWidth.isActive = active
         listFullWidthTrailing.isActive = !active
         listView.setCompactHomeColumn(active)
+        if active {
+            GeekUIKit.installHomeListColumnSurface(on: listView)
+        }
+        if active, let contentContainer {
+            contentContainer.addSubview(divider, positioned: .above, relativeTo: listView)
+            contentContainer.addSubview(guidePane, positioned: .above, relativeTo: listView)
+            contentContainer.addSubview(detailContainer, positioned: .above, relativeTo: listView)
+        }
         applyRightPaneLayout()
     }
 

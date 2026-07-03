@@ -8,4 +8,11 @@ enum LauncherInPanelLayout {
         guard let panel = view?.window as? LauncherPanel else { return }
         panel.enforceLockedGeometry()
     }
+
+    /// Expands the panel to `defaultPanelWidth` when entering home split if a prior lock was smaller (ADR-032).
+    static func ensureHomeSplitPanelSize(from view: NSView?) {
+        guard let panel = view?.window as? LauncherPanel,
+              let screen = LumaPresentationScreen.current() else { return }
+        panel.ensureFitsHomeSplitLayout(on: screen.visibleFrame)
+    }
 }

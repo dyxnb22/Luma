@@ -21,7 +21,7 @@ Use this when adding or shipping changes to a built-in module. Goal: consistent 
 
 - [ ] Custom actions use `ModuleActionCoding` payloads; `perform` respects 2s soft budget
 - [ ] Detail shortcuts work when subviews hold focus (see `LAUNCHER_NAVIGATION_AUDIT.md` MOD-KB)
-- [ ] Detail layout follows `LAUNCHER_PANEL_CONSTRAINTS.md` (no full-width `wantsLayer`)
+- [ ] Detail layout follows `LAUNCHER_PANEL_CONSTRAINTS.md` (no full-width `wantsLayer`; scroll inside right column when opened from empty home — ADR-032)
 - [ ] Notes detail changes follow `NOTES_DETAIL_CONSTRAINTS.md` when applicable
 - [ ] User-facing strings use `L10n.tr` with entries in `L10nStrings.json`
 

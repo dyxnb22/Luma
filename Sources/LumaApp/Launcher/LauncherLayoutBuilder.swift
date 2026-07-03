@@ -69,7 +69,6 @@ enum LauncherLayoutBuilder {
 
             listView.topAnchor.constraint(equalTo: contentContainer.topAnchor, constant: 8),
             listView.leadingAnchor.constraint(equalTo: contentContainer.leadingAnchor, constant: 8),
-            listView.trailingAnchor.constraint(equalTo: contentContainer.trailingAnchor, constant: -8),
             listView.bottomAnchor.constraint(equalTo: contentContainer.bottomAnchor, constant: -8),
 
             hintBar.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: margin),

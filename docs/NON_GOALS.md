@@ -25,6 +25,7 @@ Authoritative spec: `docs/specs/LAUNCHER_HOME_CONSTRAINTS.md`.
 - Auto-present first-run onboarding wizard on launch.
 - Gray card background on every idle list row (reads as disabled UI).
 - Dashboard card grid or permanent module sidebar on home.
+- Full-panel module detail overlay when visible query is empty (detail belongs in right column — ADR-032).
 
 ## Launcher Panel (Frozen — do not change without ADR)
 

@@ -48,10 +48,10 @@ Notes detail IA and create flows: [NOTES_DETAIL_CONSTRAINTS.md](NOTES_DETAIL_CON
 | Context | ↑↓ | ⌘1–9 | ⌘↩ | Tab / ⌘K | Esc |
 | --- | --- | --- | --- | --- | --- |
 | Home / results (search or list focused) | Move selection | Jump + run row | First secondary action (search focused) | Open action panel | Back / clear / close |
-| Detail | **Must not** route ↑↓ / ⌘1–9 to hidden list (audit K6); left Open Apps remain visible in split — click left list to switch apps | Module shortcuts via `dispatchDetailKeyDown` | N/A in detail | Swallowed | `exitDetailFromChrome` |
+| Detail | **Must not** route ↑↓ / ⌘1–9 to the list while detail subviews hold focus (audit K6); left Open Apps stay visible in split — use mouse to select apps or click list then ↑↓ | Module shortcuts via `dispatchDetailKeyDown` | N/A in detail | Swallowed | `exitDetailFromChrome` |
 | Action panel open | Move panel selection when panel has key focus | Activate panel row | — | Dismiss panel | Dismiss panel |
 
-**Known gaps:** ⌘W “close detail” in hint bar is **not implemented** on `LauncherPanel`; module-level shortcuts in `handleKeyDown` are often unreachable when detail subviews hold focus — see [LAUNCHER_NAVIGATION_AUDIT.md](../qa/LAUNCHER_NAVIGATION_AUDIT.md).
+**Known gaps:** module-level shortcuts in `handleKeyDown` may be unreachable when detail subviews hold focus — see [LAUNCHER_NAVIGATION_AUDIT.md](../qa/LAUNCHER_NAVIGATION_AUDIT.md). ⌘W close detail is implemented on `LauncherPanel` (audit K1).
 
 - **No auto-present onboarding wizard on first launch.** Home opens directly to Open Apps.
 - UI language: Settings → General → Language (English / 简体中文 / System).
@@ -62,7 +62,7 @@ Notes detail IA and create flows: [NOTES_DETAIL_CONSTRAINTS.md](NOTES_DETAIL_CON
 - Panel dismisses immediately after immediate (leave-launcher) actions.
 - In-panel actions (open detail, replace query, translate) keep the panel visible.
 - Results update progressively as modules return.
-- Empty query shows the **Open Apps** home section only (see frozen constraints).
+- Empty query shows **Open Apps** in the left column plus command guide or module detail on the right (ADR-032; see frozen constraints).
 - If the raw query exactly matches a snippet trigger word (case-insensitive) in global search mode, Return expands and pastes the snippet inline — the panel dismisses without opening Snippets detail.
 
 ## Panel

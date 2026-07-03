@@ -13,11 +13,8 @@ private struct AppRuntimeSnapshot: Sendable {
 }
 
 actor OpenAppsHomeProvider: LauncherHomeProvider {
-    static let defaultAppLimit = 8
-
     private let appActivationTracker: AppActivationTracker
     private var cachedSnapshots: [AppRuntimeSnapshot] = []
-    private var appLimit: Int? = defaultAppLimit
     private var collapsedBundleIDs = Set<String>()
     private var refreshTask: Task<Void, Never>?
     private var isActive = false
@@ -38,8 +35,7 @@ actor OpenAppsHomeProvider: LauncherHomeProvider {
         }
     }
 
-    func configure(appLimit: Int?, collapsedBundleIDs: Set<String>) {
-        self.appLimit = appLimit
+    func configure(collapsedBundleIDs: Set<String>) {
         self.collapsedBundleIDs = collapsedBundleIDs
     }
 
@@ -58,9 +54,7 @@ actor OpenAppsHomeProvider: LauncherHomeProvider {
         let rankedIDs = await appActivationTracker.rankedBundleIDs(from: bundleIDs)
         let byID = Dictionary(uniqueKeysWithValues: snapshots.map { ($0.bundleID, $0) })
         let ordered = rankedIDs.compactMap { byID[$0] }
-
-        let limit = appLimit ?? ordered.count
-        let visible = Array(ordered.prefix(limit))
+        let visible = ordered
 
         var items: [ResultItem] = []
         for app in visible {

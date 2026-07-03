@@ -24,7 +24,6 @@ public enum LauncherKeyRouter {
         case moveSelection(delta: Int)
         case jumpToFlatIndex(Int)
         case runItem(ResultItem)
-        case expandOpenApps
         case toggleOpenAppWindows(String)
         case passthrough
     }
@@ -69,9 +68,6 @@ public enum LauncherKeyRouter {
     }
 
     public static func resolveRun(item: ResultItem) -> Outcome {
-        if item.id.key == "openApps.more" || item.primaryAction.id.key == "openApps.expand" {
-            return .expandOpenApps
-        }
         if item.id.key.hasPrefix(OpenAppsResultBuilder.toggleWindowsKeyPrefix) {
             let bundleID = String(item.id.key.dropFirst(OpenAppsResultBuilder.toggleWindowsKeyPrefix.count))
             return .toggleOpenAppWindows(bundleID)

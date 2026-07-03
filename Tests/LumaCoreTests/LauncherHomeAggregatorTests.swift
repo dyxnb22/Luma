@@ -8,17 +8,6 @@ private struct StubHomeProvider: LauncherHomeProvider {
     func items() async -> [ResultItem] { rows }
 }
 
-private struct StubContextualProvider: ContextualHomeSectionProvider {
-    let continueRows: [ResultItem]
-    let createRows: [ResultItem]
-
-    func items() async -> [ResultItem] { continueRows + createRows }
-
-    func sectionedItems() async -> (continue: [ResultItem], create: [ResultItem]) {
-        (continue: continueRows, create: createRows)
-    }
-}
-
 @Test func homeAggregatorMergesProvidersAndFiltersEmptySections() async {
     let appsID = ModuleIdentifier(rawValue: "luma.apps")
     let openApps = StubHomeProvider(rows: [

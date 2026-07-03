@@ -62,9 +62,9 @@ import LumaCore
     #expect(outcome == .jumpToFlatIndex(1))
 }
 
-@Test func resolveRunDetectsOpenAppsMoreRow() {
+@Test func resolveRunTreatsOpenAppsMoreRowAsRunItem() {
     let item = OpenAppsResultBuilder.moreRow(hiddenCount: 4)
-    #expect(LauncherKeyRouter.resolveRun(item: item) == .expandOpenApps)
+    #expect(LauncherKeyRouter.resolveRun(item: item) == .runItem(item))
 }
 
 @Test func resolveRunUsesOpenModuleDetailAction() {

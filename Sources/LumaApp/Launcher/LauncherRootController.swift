@@ -279,13 +279,6 @@ final class LauncherRootController {
         }
     }
 
-    func expandOpenApps() {
-        Task {
-            await homeCoordinator.expandAllApps()
-            await MainActor.run { self.refreshHome() }
-        }
-    }
-
     func toggleOpenAppWindows(bundleID: String) {
         Task {
             await homeCoordinator.toggleAppWindows(bundleID: bundleID)
@@ -832,12 +825,8 @@ final class LauncherRootController {
 
     private func executeRun(for item: ResultItem) {
         switch LauncherKeyRouter.resolveRun(item: item) {
-        case .expandOpenApps:
-            expandOpenApps()
-            return
         case .toggleOpenAppWindows(let bundleID):
             toggleOpenAppWindows(bundleID: bundleID)
-            return
         case .runItem(let item):
             viewModel.recordExecutedCommand(for: searchBar.stringValue)
             dispatchAction(item.primaryAction, for: item)
@@ -848,9 +837,6 @@ final class LauncherRootController {
     }
 
     private func dispatchAction(_ action: Action, for item: ResultItem) {
-        if item.id.key.hasPrefix("setup.") {
-            Task { await config.setSetupHintsDismissed(true) }
-        }
         switch action.kind {
         case .noop:
             focusSearchField()
@@ -1276,9 +1262,6 @@ final class LauncherRootController {
         if item.id.key.hasPrefix("contextual.") {
             await HomeSuggestionMemory.shared.recordCompleted(key: item.id.key)
         }
-        if item.id.key.hasPrefix("setup.") {
-            await config.setSetupHintsDismissed(true)
-        }
     }
 
     private func saveModuleRoundTripResume(module: ModuleIdentifier, query: String? = nil) {
@@ -1429,9 +1412,6 @@ final class LauncherRootController {
             if let item = contentCoordinator.currentItems[safe: index] { handleRun(item) }
             return true
         case .runItem(let item): run(item: item); return true
-        case .expandOpenApps:
-            expandOpenApps()
-            return true
         case .toggleOpenAppWindows:
             return true
         case .dismissActionPanel:

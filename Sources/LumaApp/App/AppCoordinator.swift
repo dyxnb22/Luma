@@ -103,16 +103,9 @@ final class AppCoordinator {
     private lazy var wordbookModule = WordbookModule(store: wordbookStore)
     private lazy var snippetsModule = SnippetsModule()
     private let homeEnablementGate = HomeEnablementGate()
-    private lazy var contextualHomeProvider = ContextualHomeProvider(
-        notes: HomeContinueClientAdapters.Notes(module: notesModule),
-        todo: HomeContinueClientAdapters.Todo(module: todoModule),
-        media: HomeContinueClientAdapters.Media(module: mediaModule),
-        wordbook: HomeContinueClientAdapters.Wordbook(module: wordbookModule)
-    )
     private lazy var homeCoordinator = LauncherHomeCoordinator(
         openApps: openAppsProvider,
-        enablementGate: homeEnablementGate,
-        contextual: contextualHomeProvider
+        enablementGate: homeEnablementGate
     )
     private var activationObserver: NSObjectProtocol?
     private var terminationObserver: NSObjectProtocol?
@@ -148,7 +141,6 @@ final class AppCoordinator {
                 Task {
                     await self.host.configureWarmupPolicy(pinned: pinned)
                     await self.host.warmupIfNeeded(ids: pinned, reason: .startup)
-                    await self.homeCoordinator.updatePinnedModuleIDs(pinned)
                 }
             },
             onClipboardSettingsChanged: { [weak self] snapshot in
@@ -359,7 +351,6 @@ final class AppCoordinator {
             let enabled = await config.enabledModules()
             let pinned = await config.pinnedModuleIDs()
             let policy = await config.warmupPolicy()
-            await homeCoordinator.updatePinnedModuleIDs(pinned)
             await homeCoordinator.updateEnabledModuleIDs(enabled ?? Set(modules.map { type(of: $0).manifest.identifier }))
             await host.configureWarmupPolicy(pinned: pinned)
             await host.configureGlobalSearchModuleIDs(ModuleRegistry.globalSearchModuleIDs)

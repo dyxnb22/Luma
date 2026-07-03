@@ -34,9 +34,9 @@ public actor AutoworkflowModule: LumaModule {
             return ModuleResult(items: ModuleHelp.results(for: Self.manifest.identifier))
         }
 
-        // Bare trigger — show starter row to open detail
+        // Bare trigger — show open-detail row
         if normalized.isEmpty {
-            return ModuleResult(items: [starterRow()])
+            return ModuleResult(items: [openDetailRow()])
         }
 
         // Sub-commands: status, start, stop
@@ -59,9 +59,9 @@ public actor AutoworkflowModule: LumaModule {
 
     // MARK: - Private
 
-    private func starterRow() -> ResultItem {
+    private func openDetailRow() -> ResultItem {
         ResultItem(
-            id: ResultID(module: Self.manifest.identifier, key: "starter"),
+            id: ResultID(module: Self.manifest.identifier, key: "open-detail"),
             title: "Auto Workflow",
             titleAttributed: AttributedString("Auto Workflow"),
             subtitle: "Manage AI coding automation",
@@ -72,7 +72,6 @@ public actor AutoworkflowModule: LumaModule {
                 kind: .openModuleDetail(Self.manifest.identifier, payload: nil)
             ),
             rankingHints: RankingHints(basePriority: Self.manifest.priority),
-            rowKind: .starter
         )
     }
 
@@ -84,7 +83,7 @@ public actor AutoworkflowModule: LumaModule {
             return await statusResult()
         case "start", "new", "init":
             return ModuleResult(items: [
-                starterRow(),
+                openDetailRow(),
                 ResultItem(
                     id: ResultID(module: Self.manifest.identifier, key: "hint-start"),
                     title: "Open Auto Workflow to configure and start",
@@ -103,7 +102,7 @@ public actor AutoworkflowModule: LumaModule {
         case "list":
             return await listResult()
         default:
-            return ModuleResult(items: [starterRow()])
+            return ModuleResult(items: [openDetailRow()])
         }
     }
 
@@ -112,7 +111,7 @@ public actor AutoworkflowModule: LumaModule {
         let listResult = await service.listTasks(config: config)
         switch listResult {
         case .success(let tasks) where !tasks.isEmpty:
-            var items: [ResultItem] = [starterRow()]
+            var items: [ResultItem] = [openDetailRow()]
             for task in tasks.prefix(3) {
                 items.append(ResultItem(
                     id: ResultID(module: Self.manifest.identifier, key: "task.\(task.taskID)"),
@@ -132,7 +131,7 @@ public actor AutoworkflowModule: LumaModule {
             return ModuleResult(items: items)
         case .success:
             return ModuleResult(items: [
-                starterRow(),
+                openDetailRow(),
                 ResultItem(
                     id: ResultID(module: Self.manifest.identifier, key: "empty"),
                     title: "No workflows yet",
@@ -150,7 +149,7 @@ public actor AutoworkflowModule: LumaModule {
             ])
         case .failure(let err):
             return ModuleResult(items: [
-                starterRow(),
+                openDetailRow(),
                 ResultItem(
                     id: ResultID(module: Self.manifest.identifier, key: "status-error"),
                     title: "Error checking status",
@@ -173,7 +172,7 @@ public actor AutoworkflowModule: LumaModule {
         let result = await service.listTasks(config: config)
         switch result {
         case .success(let tasks):
-            var items: [ResultItem] = [starterRow()]
+            var items: [ResultItem] = [openDetailRow()]
             for task in tasks.prefix(5) {
                 items.append(ResultItem(
                     id: ResultID(module: Self.manifest.identifier, key: "task.\(task.taskID)"),
@@ -193,7 +192,7 @@ public actor AutoworkflowModule: LumaModule {
             return ModuleResult(items: items)
         case .failure(let err):
             return ModuleResult(items: [
-                starterRow(),
+                openDetailRow(),
                 ResultItem(
                     id: ResultID(module: Self.manifest.identifier, key: "list-error"),
                     title: "Error listing tasks",

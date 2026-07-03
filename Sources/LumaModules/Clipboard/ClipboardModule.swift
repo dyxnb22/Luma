@@ -126,7 +126,6 @@ public actor ClipboardModule: LumaModule {
                 kind: .openModuleDetail(Self.manifest.identifier, payload: nil)
             ),
             rankingHints: RankingHints(basePriority: Self.manifest.priority + 1),
-            rowKind: .starter
         )
     }
 

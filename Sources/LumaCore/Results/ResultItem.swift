@@ -25,8 +25,6 @@ public enum ResultListNest: Sendable, Hashable, Codable {
 public enum ResultRowKind: Sendable, Hashable, Codable {
     /// Return runs a side effect or opens detail.
     case actionable
-    /// Starter row that advances into module detail or a sub-flow.
-    case starter
     /// Status or help text; Return does not dismiss the launcher.
     case informational
 }

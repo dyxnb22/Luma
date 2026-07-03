@@ -181,7 +181,6 @@ final class LauncherRootController {
                     kind: .noop
                 ),
                 rankingHints: RankingHints(basePriority: 0),
-                rowKind: .starter
             ))
             return true
         case .openLinked(let linkID):
@@ -901,7 +900,6 @@ final class LauncherRootController {
                 kind: .noop
             ),
             rankingHints: RankingHints(basePriority: 0),
-            rowKind: .starter
         )
         runWorkbenchPrepareDraft(source: source, target: target, for: item)
     }
@@ -921,7 +919,6 @@ final class LauncherRootController {
                     kind: .noop
                 ),
                 rankingHints: RankingHints(basePriority: 0),
-                rowKind: .starter
             ))
         case .openModule(let moduleID):
             openModuleDetail(for: moduleID)
@@ -942,7 +939,6 @@ final class LauncherRootController {
                     kind: .noop
                 ),
                 rankingHints: RankingHints(basePriority: 0),
-                rowKind: .starter
             ))
         case .openLinked(let linkID):
             runOpenLinkedEntity(linkID: linkID)
@@ -1134,7 +1130,6 @@ final class LauncherRootController {
                 kind: .custom(payload: payload, handler: .notes)
             ),
             rankingHints: RankingHints(basePriority: 0),
-            rowKind: .starter
         )
         let action = Action(
             id: ActionID(module: .notes, key: "workbench.note"),

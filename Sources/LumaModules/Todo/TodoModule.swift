@@ -372,7 +372,6 @@ public actor TodoModule: LumaModule {
                 kind: .openModuleDetail(.todo, payload: nil)
             ),
             rankingHints: RankingHints(basePriority: Self.manifest.priority + 2),
-            rowKind: .starter
         )
     }
 

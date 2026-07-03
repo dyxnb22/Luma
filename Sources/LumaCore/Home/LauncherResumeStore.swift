@@ -1,6 +1,6 @@
 import Foundation
 
-/// Persisted in-progress workflows surfaced on Home as resume rows.
+/// Persisted in-progress launcher and workbench workflows.
 public struct LauncherResumeState: Codable, Sendable, Equatable {
   public var moduleRaw: String?
   public var query: String

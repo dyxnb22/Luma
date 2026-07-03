@@ -196,7 +196,6 @@ public actor MediaModule: LumaModule {
                 kind: .openModuleDetail(Self.manifest.identifier, payload: payload)
             ),
             rankingHints: RankingHints(basePriority: Self.manifest.priority + 1),
-            rowKind: .starter
         )
     }
 

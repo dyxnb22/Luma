@@ -157,7 +157,6 @@ public enum WorkbenchCommandResults {
                     kind: .custom(payload: payload, handler: .workbench)
                 ),
                 rankingHints: RankingHints(basePriority: 93 - index),
-                rowKind: .starter
             )
         }
     }
@@ -185,7 +184,6 @@ public enum WorkbenchCommandResults {
             icon: .symbol("link"),
             primaryAction: action,
             rankingHints: RankingHints(basePriority: 93 - index),
-            rowKind: .starter
         )
     }
 
@@ -234,7 +232,6 @@ public enum WorkbenchCommandResults {
             icon: .symbol(row.iconName),
             primaryAction: action,
             rankingHints: RankingHints(basePriority: 94 - index),
-            rowKind: .starter
         )
     }
 
@@ -278,7 +275,6 @@ public enum WorkbenchCommandResults {
                 kind: .custom(payload: payload, handler: .workbench)
             ),
             rankingHints: RankingHints(basePriority: 96),
-            rowKind: .starter
         )
     }
 
@@ -295,7 +291,6 @@ public enum WorkbenchCommandResults {
                 kind: .noop
             ),
             rankingHints: RankingHints(basePriority: 0),
-            rowKind: .starter
         )
     }
 

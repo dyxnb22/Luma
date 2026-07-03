@@ -122,7 +122,6 @@ public actor WordbookModule: LumaModule {
                 kind: .openModuleDetail(.wordbook, payload: payload)
             ),
             rankingHints: RankingHints(basePriority: Self.manifest.priority + 3),
-            rowKind: .starter
         )
     }
 

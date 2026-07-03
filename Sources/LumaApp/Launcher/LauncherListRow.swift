@@ -155,8 +155,6 @@ final class LauncherListRow: NSControl {
 
     private func configureReturnHint() {
         switch item.rowKind {
-        case .starter:
-            returnHint.stringValue = "→"
         case .informational:
             returnHint.stringValue = ""
         case .actionable:

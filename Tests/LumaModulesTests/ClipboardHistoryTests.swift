@@ -290,7 +290,7 @@ import Testing
     if case .openModuleDetail(let moduleID, _) = results.items.first?.primaryAction.kind {
         #expect(moduleID == .clipboard)
     } else {
-        Issue.record("Expected openModuleDetail starter row")
+        Issue.record("Expected openModuleDetail row")
     }
 }
 

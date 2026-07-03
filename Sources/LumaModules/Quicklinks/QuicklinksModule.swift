@@ -150,7 +150,6 @@ public actor QuicklinksModule: LumaModule {
                 kind: .openModuleDetail(Self.manifest.identifier, payload: nil)
             ),
             rankingHints: RankingHints(basePriority: Self.manifest.priority),
-            rowKind: .starter
         )
     }
 

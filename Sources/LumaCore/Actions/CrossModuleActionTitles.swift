@@ -21,5 +21,4 @@ public enum CrossModuleActionTitles {
     public static var newProjectSnippet: String { L10n.tr("action.newProjectSnippet") }
     public static var projectFolderQuicklink: String { L10n.tr("action.projectFolderQuicklink") }
     public static var editScriptCommands: String { L10n.tr("action.editScriptCommands") }
-    public static var continueWordbook: String { L10n.tr("action.continueWordbook") }
 }

@@ -51,25 +51,9 @@
     "en": "Search apps, paste, translate, todo, aw…",
     "zh-Hans": "搜索应用、剪贴板、翻译、待办、aw…"
   },
-  "home.section.setup": {
-    "en": "GET STARTED",
-    "zh-Hans": "开始使用"
-  },
   "home.section.openApps": {
     "en": "OPEN APPS",
     "zh-Hans": "打开应用"
-  },
-  "home.section.recent": {
-    "en": "RECENT",
-    "zh-Hans": "最近"
-  },
-  "home.section.continue": {
-    "en": "CONTINUE",
-    "zh-Hans": "继续"
-  },
-  "home.section.create": {
-    "en": "CREATE",
-    "zh-Hans": "创建"
   },
   "action.appendToNote": {
     "en": "Append to Note",
@@ -146,18 +130,6 @@
   "action.editScriptCommands": {
     "en": "Edit Script Commands",
     "zh-Hans": "编辑脚本命令"
-  },
-  "action.setupNotes": {
-    "en": "Set Up Notes",
-    "zh-Hans": "设置笔记"
-  },
-  "action.reviewModules": {
-    "en": "Review Modules",
-    "zh-Hans": "检查模块"
-  },
-  "action.continueWordbook": {
-    "en": "Continue Wordbook",
-    "zh-Hans": "继续单词本"
   },
   "status.savedToDailyNote": {
     "en": "Saved to daily note",
@@ -262,114 +234,6 @@
   "status.replaceSelectionEmpty": {
     "en": "No translation to replace with",
     "zh-Hans": "没有可替换的译文"
-  },
-  "setup.accessibility.title": {
-    "en": "Grant Accessibility permission",
-    "zh-Hans": "授予辅助功能权限"
-  },
-  "setup.accessibility.subtitle": {
-    "en": "Open Settings → Accessibility, then enable Luma",
-    "zh-Hans": "打开设置 → 辅助功能，然后启用 Luma"
-  },
-  "setup.notes.title": {
-    "en": "Set up Notes folder",
-    "zh-Hans": "设置笔记文件夹"
-  },
-  "setup.notes.subtitle": {
-    "en": "Choose where your markdown library lives",
-    "zh-Hans": "选择 Markdown 笔记库位置"
-  },
-  "setup.modules.title": {
-    "en": "Review modules & pins",
-    "zh-Hans": "检查模块与固定项"
-  },
-  "setup.modules.subtitle": {
-    "en": "Enable default-off modules (Records, Browser Tabs, Auto Workflow)",
-    "zh-Hans": "启用默认关闭的模块（记录、浏览器标签、自动工作流）"
-  },
-  "setup.openSettings": {
-    "en": "Open Settings",
-    "zh-Hans": "打开设置"
-  },
-  "onboarding.title": {
-    "en": "Welcome to Luma",
-    "zh-Hans": "欢迎使用 Luma"
-  },
-  "onboarding.step.welcome.title": {
-    "en": "Keyboard-first launcher",
-    "zh-Hans": "键盘优先的启动器"
-  },
-  "onboarding.step.welcome.body": {
-    "en": "Press ⌘Space to open Luma from anywhere. Type a command or search globally.",
-    "zh-Hans": "随时按 ⌘Space 打开 Luma。输入命令或全局搜索。"
-  },
-  "onboarding.step.hotkey.title": {
-    "en": "Hotkey",
-    "zh-Hans": "快捷键"
-  },
-  "onboarding.step.hotkey.body": {
-    "en": "Default hotkey is ⌘Space. If Spotlight conflicts, disable its shortcut in Keyboard Settings.",
-    "zh-Hans": "默认快捷键为 ⌘Space。若与 Spotlight 冲突，请在键盘设置中关闭 Spotlight 快捷键。"
-  },
-  "onboarding.step.accessibility.title": {
-    "en": "Accessibility",
-    "zh-Hans": "辅助功能"
-  },
-  "onboarding.step.accessibility.body": {
-    "en": "Grant Accessibility for window focus, snippet paste, and Translate replace-selection.",
-    "zh-Hans": "授予辅助功能权限以支持窗口聚焦、片段粘贴和翻译替换选中文本。"
-  },
-  "onboarding.step.modules.title": {
-    "en": "Modules",
-    "zh-Hans": "模块"
-  },
-  "onboarding.step.modules.body": {
-    "en": "Enable Records, Browser Tabs, Auto Workflow, and Commands in Settings → Modules.",
-    "zh-Hans": "在 设置 → 模块 中启用记录、浏览器标签、自动工作流和命令模块。"
-  },
-  "onboarding.step.help.title": {
-    "en": "Discover commands",
-    "zh-Hans": "发现命令"
-  },
-  "onboarding.step.help.body": {
-    "en": "Type help clip, help tr, or clip ? for module help. Home shows setup suggestions.",
-    "zh-Hans": "输入 help clip、help tr 或 clip ? 查看模块帮助。主页会显示设置建议。"
-  },
-  "onboarding.step.done.title": {
-    "en": "You're ready",
-    "zh-Hans": "准备就绪"
-  },
-  "onboarding.step.done.body": {
-    "en": "Open the launcher and try clip, tr hello, or todo.",
-    "zh-Hans": "打开启动器，试试 clip、tr hello 或 todo。"
-  },
-  "onboarding.button.next": {
-    "en": "Next",
-    "zh-Hans": "下一步"
-  },
-  "onboarding.button.back": {
-    "en": "Back",
-    "zh-Hans": "上一步"
-  },
-  "onboarding.button.skip": {
-    "en": "Skip setup",
-    "zh-Hans": "跳过设置"
-  },
-  "onboarding.button.finish": {
-    "en": "Finish",
-    "zh-Hans": "完成"
-  },
-  "onboarding.button.grantAccess": {
-    "en": "Grant Access…",
-    "zh-Hans": "授予权限…"
-  },
-  "onboarding.homeRow.title": {
-    "en": "Finish Luma setup",
-    "zh-Hans": "完成 Luma 设置"
-  },
-  "onboarding.homeRow.subtitle": {
-    "en": "Walk through permissions, modules, and commands",
-    "zh-Hans": "引导完成权限、模块和命令设置"
   },
   "translate.replaceSelection": {
     "en": "Replace Selection",

@@ -24,7 +24,10 @@ enum GeekUIKit {
     }
 
     static func installSidebarAccent(on row: NSView) -> CALayer {
-        row.wantsLayer = true
+        // Caller must pass a dedicated chrome child (e.g. list row `backgroundView`), not a full-width host.
+        if row.layer == nil {
+            row.wantsLayer = true
+        }
         let strip = CALayer()
         strip.name = "geekSidebarAccent"
         strip.backgroundColor = NSColor.controlAccentColor.cgColor
@@ -187,20 +190,63 @@ enum GeekUIKit {
         box.fillColor = NSColor.separatorColor.withAlphaComponent(0.45)
     }
 
+    private static let contentSurfaceChromeID = "geekContentSurface"
+
+    static func contentSurfaceChrome(in view: NSView) -> NSView? {
+        view.subviews.first { $0.identifier?.rawValue == contentSurfaceChromeID }
+    }
+
     static func configureContentSurface(_ view: NSView) {
-        view.wantsLayer = true
-        view.layer?.cornerRadius = LauncherChromeTokens.detailSurfaceCornerRadius
-        view.layer?.cornerCurve = .continuous
-        view.layer?.borderWidth = 0.5
-        view.layer?.borderColor = NSColor.separatorColor
+        guard contentSurfaceChrome(in: view) == nil else { return }
+        view.clipsToBounds = true
+
+        let chrome = NSView()
+        chrome.identifier = NSUserInterfaceItemIdentifier(contentSurfaceChromeID)
+        chrome.translatesAutoresizingMaskIntoConstraints = false
+        chrome.wantsLayer = true
+        chrome.layer?.cornerRadius = LauncherChromeTokens.detailSurfaceCornerRadius
+        chrome.layer?.cornerCurve = .continuous
+        chrome.layer?.borderWidth = 0.5
+        chrome.layer?.borderColor = NSColor.separatorColor
             .withAlphaComponent(LauncherChromeTokens.detailSurfaceBorderAlpha).cgColor
-        view.layer?.backgroundColor = NSColor.controlBackgroundColor.withAlphaComponent(0.18).cgColor
+        chrome.layer?.backgroundColor = NSColor.controlBackgroundColor.withAlphaComponent(0.18).cgColor
+        view.addSubview(chrome, positioned: .below, relativeTo: nil)
+        NSLayoutConstraint.activate([
+            chrome.topAnchor.constraint(equalTo: view.topAnchor),
+            chrome.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            chrome.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            chrome.bottomAnchor.constraint(equalTo: view.bottomAnchor)
+        ])
     }
 
     static func installDetailRootChrome(on view: NSView) {
-        view.wantsLayer = true
-        view.layer?.backgroundColor = NSColor.clear.cgColor
-        view.layer?.masksToBounds = true
+        // Full-width detail hosts must not use wantsLayer — same anchorPoint drift as the launcher root.
+        view.clipsToBounds = true
+    }
+
+    static func installHomeListSurface(on view: NSView) {
+        view.clipsToBounds = true
+    }
+
+    static func installPerformanceStripSurface(on view: NSView) {
+        let surfaceID = "performanceStripSurface"
+        guard view.subviews.first(where: { $0.identifier?.rawValue == surfaceID }) == nil else { return }
+        view.clipsToBounds = true
+
+        let surface = NSView()
+        surface.identifier = NSUserInterfaceItemIdentifier(surfaceID)
+        surface.translatesAutoresizingMaskIntoConstraints = false
+        surface.wantsLayer = true
+        surface.layer?.cornerRadius = LauncherChromeTokens.performanceMetricCornerRadius
+        surface.layer?.cornerCurve = .continuous
+        surface.layer?.backgroundColor = ColorTokens.performanceStripSurfaceFill.cgColor
+        view.addSubview(surface, positioned: .below, relativeTo: nil)
+        NSLayoutConstraint.activate([
+            surface.topAnchor.constraint(equalTo: view.topAnchor),
+            surface.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            surface.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            surface.bottomAnchor.constraint(equalTo: view.bottomAnchor)
+        ])
     }
 
     static func makeDetailSectionCard(header: String, contentViews: [NSView]) -> NSView {
@@ -339,20 +385,31 @@ enum GeekUIKit {
         return scroll
     }
 
-    static func installSearchSurface(on view: NSView) {
-        view.wantsLayer = true
-        view.layer?.cornerRadius = LauncherChromeTokens.searchBarCornerRadius
-        view.layer?.cornerCurve = .continuous
-        view.layer?.borderWidth = 0.5
-        view.layer?.borderColor = ColorTokens.searchSurfaceBorder.cgColor
-        view.layer?.backgroundColor = ColorTokens.searchSurfaceFill.cgColor
-    }
+    private static let searchSurfaceChromeID = "geekSearchSurface"
 
-    static func installPerformanceStripSurface(on view: NSView) {
-        view.wantsLayer = true
-        view.layer?.cornerRadius = LauncherChromeTokens.performanceMetricCornerRadius
-        view.layer?.cornerCurve = .continuous
-        view.layer?.backgroundColor = ColorTokens.performanceStripSurfaceFill.cgColor
+    static func installSearchSurface(on view: NSView) {
+        guard view.subviews.first(where: { $0.identifier?.rawValue == searchSurfaceChromeID }) == nil else { return }
+
+        let chrome = NSView()
+        chrome.identifier = NSUserInterfaceItemIdentifier(searchSurfaceChromeID)
+        chrome.translatesAutoresizingMaskIntoConstraints = false
+        chrome.wantsLayer = true
+        chrome.layer?.cornerRadius = LauncherChromeTokens.searchBarCornerRadius
+        chrome.layer?.cornerCurve = .continuous
+        chrome.layer?.borderWidth = 0.75
+        chrome.layer?.borderColor = ColorTokens.searchSurfaceBorder.cgColor
+        chrome.layer?.backgroundColor = ColorTokens.searchSurfaceFill.cgColor
+        chrome.layer?.shadowColor = NSColor.black.cgColor
+        chrome.layer?.shadowOpacity = ColorTokens.searchSurfaceShadowOpacity
+        chrome.layer?.shadowRadius = 10
+        chrome.layer?.shadowOffset = CGSize(width: 0, height: -2)
+        view.addSubview(chrome, positioned: .below, relativeTo: nil)
+        NSLayoutConstraint.activate([
+            chrome.topAnchor.constraint(equalTo: view.topAnchor),
+            chrome.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            chrome.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            chrome.bottomAnchor.constraint(equalTo: view.bottomAnchor)
+        ])
     }
 
     static func configureDetailTable(_ tableView: NSTableView, rowHeight: CGFloat = LauncherChromeTokens.detailTableRowHeight) {
@@ -423,9 +480,10 @@ extension NSView {
 final class GeekGlassPanel: NSView {
     init(accentHex: String?) {
         super.init(frame: .zero)
+        translatesAutoresizingMaskIntoConstraints = false
         GeekUIKit.configureContentSurface(self)
-        if let accentHex {
-            _ = GeekUIKit.installAccentStrip(on: self, color: ColorTokens.color(hex: accentHex))
+        if let accentHex, let chrome = GeekUIKit.contentSurfaceChrome(in: self) {
+            _ = GeekUIKit.installAccentStrip(on: chrome, color: ColorTokens.color(hex: accentHex))
         }
     }
 
@@ -436,6 +494,6 @@ final class GeekGlassPanel: NSView {
 
     override func layout() {
         super.layout()
-        geekLayoutAccentLayers()
+        GeekUIKit.contentSurfaceChrome(in: self)?.geekLayoutAccentLayers()
     }
 }

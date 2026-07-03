@@ -3,23 +3,37 @@ import LumaCore
 
 @MainActor
 final class LauncherActionPanel: NSView {
+    private let chromeView = NSView()
     private let stack = NSStackView()
     private var actionRows: [NSView] = []
     private var actions: [Action] = []
     private var item: ResultItem?
     private var selectedIndex = 0
+    private weak var layoutRoot: NSView?
+    private weak var fallbackBottomAnchor: NSView?
+    private var bottomConstraint: NSLayoutConstraint?
+    private let positioningGap: CGFloat = 8
     var onRun: ((Action, ResultItem) -> Void)?
     var onClose: (() -> Void)?
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         translatesAutoresizingMaskIntoConstraints = false
-        wantsLayer = true
-        layer?.cornerRadius = 12
-        layer?.cornerCurve = .continuous
-        layer?.backgroundColor = NSColor.windowBackgroundColor.withAlphaComponent(0.95).cgColor
-        layer?.borderWidth = 1
-        layer?.borderColor = NSColor.separatorColor.withAlphaComponent(0.35).cgColor
+
+        chromeView.translatesAutoresizingMaskIntoConstraints = false
+        chromeView.wantsLayer = true
+        chromeView.layer?.cornerRadius = 12
+        chromeView.layer?.cornerCurve = .continuous
+        chromeView.layer?.backgroundColor = NSColor.windowBackgroundColor.withAlphaComponent(0.95).cgColor
+        chromeView.layer?.borderWidth = 1
+        chromeView.layer?.borderColor = NSColor.separatorColor.withAlphaComponent(0.35).cgColor
+        addSubview(chromeView)
+        NSLayoutConstraint.activate([
+            chromeView.topAnchor.constraint(equalTo: topAnchor),
+            chromeView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            chromeView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            chromeView.bottomAnchor.constraint(equalTo: bottomAnchor)
+        ])
 
         stack.orientation = .vertical
         stack.spacing = 2
@@ -45,11 +59,25 @@ final class LauncherActionPanel: NSView {
     var isVisible: Bool { !isHidden && alphaValue > 0.5 }
     var actionCount: Int { actions.count }
 
+    func configureLayout(in root: NSView, fallbackBottomAnchor hintBar: NSView) {
+        layoutRoot = root
+        fallbackBottomAnchor = hintBar
+        bottomConstraint?.isActive = false
+        let hintTop = hintBar.convert(hintBar.bounds, to: root).maxY
+        let initialBottomY = hintTop + positioningGap
+        bottomConstraint = bottomAnchor.constraint(
+            equalTo: root.bottomAnchor,
+            constant: -(root.bounds.height - initialBottomY)
+        )
+        bottomConstraint?.isActive = true
+    }
+
     func present(item: ResultItem, relativeTo anchor: NSView) {
         self.item = item
         actions = [item.primaryAction] + item.secondaryActions
         selectedIndex = 0
         rebuildRows(title: item.title)
+        reposition(relativeTo: anchor)
         isHidden = false
         NSAnimationContext.runAnimationGroup { ctx in
             ctx.duration = 0.12
@@ -101,6 +129,17 @@ final class LauncherActionPanel: NSView {
         }
     }
 
+    private func reposition(relativeTo anchor: NSView) {
+        guard let root = layoutRoot, let fallback = fallbackBottomAnchor else { return }
+        root.layoutSubtreeIfNeeded()
+        let anchorView = anchor.window != nil ? anchor : fallback
+        let anchorTop = anchorView.convert(anchorView.bounds, to: root).maxY
+        let hintTop = fallback.convert(fallback.bounds, to: root).maxY
+        let targetBottomY = max(anchorTop + positioningGap, hintTop + positioningGap)
+        bottomConstraint?.constant = -(root.bounds.height - targetBottomY)
+        root.layoutSubtreeIfNeeded()
+    }
+
     private func rebuildRows(title: String) {
         stack.arrangedSubviews.forEach { view in
             stack.removeArrangedSubview(view)
@@ -150,11 +189,7 @@ final class LauncherActionPanel: NSView {
 
     private func updateHighlights() {
         for (index, row) in actionRows.enumerated() {
-            row.layer?.backgroundColor = index == selectedIndex
-                ? NSColor.controlAccentColor.withAlphaComponent(0.08).cgColor
-                : NSColor.clear.cgColor
-            row.wantsLayer = true
-            row.layer?.cornerRadius = 6
+            (row as? ActionRowHost)?.setHighlighted(index == selectedIndex)
         }
     }
 }
@@ -162,11 +197,31 @@ final class LauncherActionPanel: NSView {
 @MainActor
 private final class ActionRowHost: NSView {
     let rowIndex: Int
+    private let highlightView = NSView()
+
     init(index: Int) {
         self.rowIndex = index
         super.init(frame: .zero)
         translatesAutoresizingMaskIntoConstraints = false
         heightAnchor.constraint(equalToConstant: 28).isActive = true
+
+        highlightView.translatesAutoresizingMaskIntoConstraints = false
+        highlightView.wantsLayer = true
+        highlightView.layer?.cornerRadius = 6
+        highlightView.layer?.backgroundColor = NSColor.clear.cgColor
+        addSubview(highlightView)
+        NSLayoutConstraint.activate([
+            highlightView.topAnchor.constraint(equalTo: topAnchor),
+            highlightView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            highlightView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            highlightView.bottomAnchor.constraint(equalTo: bottomAnchor)
+        ])
+    }
+
+    func setHighlighted(_ highlighted: Bool) {
+        highlightView.layer?.backgroundColor = highlighted
+            ? NSColor.controlAccentColor.withAlphaComponent(0.08).cgColor
+            : NSColor.clear.cgColor
     }
 
     @available(*, unavailable)

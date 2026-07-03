@@ -387,6 +387,10 @@
     "en": "In %@ — Esc to go back",
     "zh-Hans": "在 %@ 中 — Esc 返回"
   },
+  "launcher.detail.placeholder": {
+    "en": "In %@ — Esc to go back",
+    "zh-Hans": "在 %@ 中 — Esc 返回"
+  },
   "hint.select": {
     "en": "↑↓ Select",
     "zh-Hans": "↑↓ 选择"

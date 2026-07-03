@@ -73,8 +73,8 @@ final class SettingsWindowController {
             )
             window.title = "Luma Settings"
             window.minSize = NSSize(width: 680, height: 480)
-            window.center()
             window.contentViewController = hosting
+            centerOnPresentationScreen(window)
             window.isReleasedWhenClosed = false
             self.window = window
             present(window)
@@ -82,9 +82,20 @@ final class SettingsWindowController {
     }
 
     private func present(_ window: LumaWindow) {
+        centerOnPresentationScreen(window)
         NSApp.activate(ignoringOtherApps: true)
         window.makeKeyAndOrderFront(nil)
         window.orderFrontRegardless()
+    }
+
+    private func centerOnPresentationScreen(_ window: NSWindow) {
+        guard let screen = LumaPresentationScreen.current() else {
+            window.center()
+            return
+        }
+        let visible = screen.visibleFrame
+        let origin = LauncherPanelGeometry.centeredOrigin(for: window.frame.size, in: visible)
+        window.setFrameOrigin(origin)
     }
 
     private func makeSwiftUIView(snapshot: SettingsSnapshot, initialSection: SettingsSection = .general) -> SettingsSwiftUIView {

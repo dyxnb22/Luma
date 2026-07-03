@@ -84,6 +84,12 @@ import LumaCore
     #expect(LauncherKeyRouter.resolveRun(item: item) == .runItem(item))
 }
 
+@Test func keyRouterIgnoresArrowsInDetailMode() {
+    #expect(LauncherKeyRouter.route(command: .down, mode: .detail, itemCount: 5, actionPanelVisible: false) == .handled)
+    #expect(LauncherKeyRouter.route(command: .up, mode: .detail, itemCount: 5, actionPanelVisible: false) == .handled)
+    #expect(LauncherKeyRouter.route(command: .commandNumber(1), mode: .detail, itemCount: 5, actionPanelVisible: false) == .handled)
+}
+
 @Test func keyRouterCommandReturnIsDefined() {
     let command = LauncherKeyCommand.commandReturn
     #expect(command == .commandReturn)

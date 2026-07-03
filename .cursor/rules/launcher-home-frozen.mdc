@@ -1,0 +1,36 @@
+---
+description: Frozen launcher home — Open Apps only; no suggestion/onboarding rows
+globs: Sources/LumaApp/Launcher/**,Sources/LumaCore/Home/**,docs/specs/**
+alwaysApply: true
+---
+
+# Launcher home (frozen)
+
+Read **`docs/specs/LAUNCHER_HOME_CONSTRAINTS.md`** before changing home UI, panel size, or list chrome.  
+Panel positioning: **`docs/specs/LAUNCHER_PANEL_CONSTRAINTS.md`**.  
+Navigation / detail exit / shortcuts: **`docs/specs/UX_BEHAVIOR_RULES.md`**, open issues in **`docs/qa/LAUNCHER_NAVIGATION_AUDIT.md`**.
+
+## Empty-query home shows ONLY
+
+- **Open Apps** section — all running apps, no `+N more` row.
+
+## Do NOT restore without a new ADR
+
+- Setup / 开始使用 rows or `SetupHomeProvider` on home
+- Recent / 最近, Continue / 继续, Create / 创建 sections
+- Auto-present onboarding wizard
+- Gray background on every idle list row
+
+## Panel
+
+- Default **720 × 680 pt**, upper-third (`panelVerticalBias` 0.68).
+- Tokens: `LauncherChromeTokens.swift`.
+- Positioning + in-panel layout: **`docs/specs/LAUNCHER_PANEL_CONSTRAINTS.md`** — no `anchorPoint` on root; no full-width `wantsLayer`; use `LauncherPanel.position(on:)` and child-chrome helpers.
+
+## Where features go instead
+
+- Search, module prefixes (`clip`, `t`, `word`, …), bare commands, module detail, `proj` workbench commands.
+
+## PR requirements
+
+If adding home sections: update `LAUNCHER_HOME_CONSTRAINTS.md`, `UX_BEHAVIOR_RULES.md`, `MANUAL_QA_CHECKLIST.md`, and `LauncherHomeAggregatorTests`.

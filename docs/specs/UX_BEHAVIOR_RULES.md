@@ -1,5 +1,9 @@
 # UX Behavior Rules
 
+Authoritative home-screen freeze: [LAUNCHER_HOME_CONSTRAINTS.md](LAUNCHER_HOME_CONSTRAINTS.md).  
+Panel positioning and in-panel layout: [LAUNCHER_PANEL_CONSTRAINTS.md](LAUNCHER_PANEL_CONSTRAINTS.md).  
+**Open interaction gaps (temporary):** [LAUNCHER_NAVIGATION_AUDIT.md](../qa/LAUNCHER_NAVIGATION_AUDIT.md).
+
 ## Launcher
 
 - Hotkey toggles the launcher.
@@ -12,8 +16,43 @@
 - Global search requires at least 2 characters unless a command prefix is used.
 - Module help: `help <trigger>` (IME-friendly) or `<trigger> ?` (e.g. `help clip`, `clip ?`).
 - In module detail, the search field shows a read-only placeholder (`In <Module> — Esc to go back`) instead of the prior query.
+- **Every** detail exit path (Esc, detail back/close chrome, empty-query home, panel hide) must restore search-field editability — `beginDetailMode` sets `isEditable = false`; callers must pair with `endDetailMode`, `cancelDetailMode`, or `reEnableSearchFieldIfNeeded()` (regression: back from Notes left the home search box unclickable).
 - Clicking the list area focuses the list; typing forwards to the search field (including IME `insertText`).
-- First launch shows an in-panel onboarding wizard (skipped when `LUMA_QA=1`).
+
+### Navigation state machine (frozen intent)
+
+| Layer | State | Visible UI |
+| --- | --- | --- |
+| Home | Empty query, `!showingResults` | Open Apps list |
+| Results | Non-empty query or `showingResults` | Flat search results (≤8 rows painted) |
+| Detail | `showingDetail` | `detailContainer` over list area; search bar read-only |
+
+**Enter detail:** `enterDetailContext` → `beginDetailMode` → `contentCoordinator.present`.  
+**Leave detail (canonical):** `exitDetailFromChrome` — used by Esc, detail **back**, and detail **close** (same behavior).  
+**Partial teardown:** `closeDetail` only removes detail UI; must not be the sole user-facing exit (use `exitDetailFromChrome` for chrome).  
+**Panel hide:** does not reset detail state; session save uses `searchBar.stringValue` (empty while in detail mode).
+
+### Detail exit matrix
+
+| Path | Restores suspended query? | Restores `isEditable`? | Navigates to |
+| --- | --- | --- | --- |
+| Esc (in detail) | Yes (`endDetailMode`) | Yes | Results or home |
+| Detail back / close | Yes | Yes | Results or home |
+| `showHome` | No (`cancelDetailMode`) | Yes | Home |
+| `closeDetail` alone | No | Yes (`reEnableSearchFieldIfNeeded`) | Stays on prior list |
+| Panel hide | No (memory lost) | N/A | Panel hidden |
+
+### Keyboard shortcuts (intended contract)
+
+| Context | ↑↓ | ⌘1–9 | ⌘↩ | Tab / ⌘K | Esc |
+| --- | --- | --- | --- | --- | --- |
+| Home / results (search or list focused) | Move selection | Jump + run row | First secondary action (search focused) | Open action panel | Back / clear / close |
+| Detail | **Must not** move hidden list (see audit K6) | **Must not** run stale rows | N/A in detail | Swallowed | `exitDetailFromChrome` |
+| Action panel open | Move panel selection when panel has key focus | Activate panel row | — | Dismiss panel | Dismiss panel |
+
+**Known gaps:** ⌘W “close detail” in hint bar is **not implemented** on `LauncherPanel`; module-level shortcuts in `handleKeyDown` are often unreachable when detail subviews hold focus — see [LAUNCHER_NAVIGATION_AUDIT.md](../qa/LAUNCHER_NAVIGATION_AUDIT.md).
+
+- **No auto-present onboarding wizard on first launch.** Home opens directly to Open Apps.
 - UI language: Settings → General → Language (English / 简体中文 / System).
 - Return runs the selected row's primary action.
 - Command+Return runs the first secondary action when present.
@@ -22,34 +61,50 @@
 - Panel dismisses immediately after immediate (leave-launcher) actions.
 - In-panel actions (open detail, replace query, translate) keep the panel visible.
 - Results update progressively as modules return.
-- Empty query shows the home screen: Open Apps and Suggested sections.
+- Empty query shows the **Open Apps** home section only (see frozen constraints).
 - If the raw query exactly matches a snippet trigger word (case-insensitive) in global search mode, Return expands and pastes the snippet inline — the panel dismisses without opening Snippets detail.
 
 ## Panel
 
 - AppKit `NSPanel`, borderless, floating, pre-instantiated.
 - Shows across Spaces and fullscreen apps.
-- Positioned in the upper third of the active screen.
-- No scale animation; optional <= 60 ms fade/translate.
+- Default size **720 × 680 pt**; positioned in the **upper third** of the presentation screen (`panelVerticalBias` 0.68).
+- Presentation screen: cursor display → key window display → main (`LumaPresentationScreen.current()`).
+- Placement uses **one atomic** `setFrame` via `LauncherPanel.position(on:)`; panel `minSize`/`maxSize` locked after position.
+- Responsive clamp: width 640–760 pt, height 600–760 pt when the display is smaller.
+- **No** `anchorPoint` or scale transforms on the root content view (causes horizontal clip).
+- Show/hide: alpha fade only (`MotionTokens`); no scale animation.
 - The query field receives focus on every show.
+- Module detail and search results must not widen the panel — scroll or truncate inside fixed width.
+
+### In-panel layout (frozen)
+
+- Full-width hosts (`LauncherRootView`, `contentContainer`, `detailContainer`, list row body, `BaseDetailContainer` root) must **not** use `wantsLayer`. Default layer `anchorPoint (0.5, 0.5)` causes horizontal drift when command hints, sectioned results, or detail toolbars relayout — right edge clips (regression: typing `clip`, `note`).
+- Glass, borders, selection, and search chrome go on **pinned child views** (`GeekUIKit` helpers — see [LAUNCHER_PANEL_CONSTRAINTS.md](LAUNCHER_PANEL_CONSTRAINTS.md)).
+- After search, results, home, or detail transitions, the host calls `LauncherInPanelLayout.stabilizePanel(from:)` → `LauncherPanel.enforceLockedGeometry()` (re-centers and clamps width to `lockedFrameSize`) plus `stabilizeContentLayout()`.
+- Custom module details (Translate, Notes, Auto Workflow) pin horizontal stacks to the detail container width; crowded toolbars scroll horizontally.
+- During detail ↔ list cross-fade, fading overlays must not block clicks (`ignoresMouseEvents` or `isHidden` until transition completes — see audit L1).
+- Bounded widgets (icons, keycaps, table row surfaces, thumbnails) may keep `wantsLayer` on the widget itself.
 
 ## Results
 
 - Stable row height.
-- 8-10 visible rows.
+- 8-10 visible rows in search mode.
 - Keep at most 50 ranked results per snapshot.
 - Preserve selection by `ResultID` across updates.
 - No visible tutorial copy in the launcher.
 - Row kinds: actionable (Return ↩), starter (→), informational (no Return hint).
 - Items whose title exactly matches the query receive a ranking boost (+0.30 additive) so precise matches reliably surface first.
 
-## Home — Suggested Section
+## Home — Open Apps Only (Frozen 2026-07-03)
 
-- Maximum 2 continue-flow suggestions and 1 create suggestion (3 total) per Home render.
-- `HomeSuggestionMemory` gates items by recency and completion cooldown before they appear.
-- Suggestions include: current project context, daily note, top due reminder, clipboard transforms, clipboard-to-note, clipboard-to-snippet, URL-to-quicklink, in-progress Records.
+- **One section:** running applications ordered by activation recency.
+- **No** setup, recent, continue, or create sections on empty query.
+- **No** `+N more` collapse row — all running apps are listed.
+- Idle list rows use a **transparent** background; only hover/selection add fill.
+- Workbench resume, clipboard transforms, and create suggestions are reached via **search** and **command prefixes**, not home rows.
 
 ## Settings
 
 - SwiftUI is acceptable.
-- Include hotkey, modules, permissions, clipboard retention, and debug metrics toggles.
+- Include hotkey, modules, permissions, clipboard retention, language, and debug metrics toggles.

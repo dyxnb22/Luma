@@ -15,10 +15,13 @@ final class LauncherHintBar: NSView {
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         translatesAutoresizingMaskIntoConstraints = false
-        wantsLayer = true
+        clipsToBounds = true
 
         leftLabel.font = TypographyTokens.monoCaption()
         leftLabel.textColor = Self.hintTextColor
+        leftLabel.lineBreakMode = .byTruncatingTail
+        leftLabel.maximumNumberOfLines = 1
+        leftLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         leftLabel.isBezeled = false
         leftLabel.isEditable = false
         leftLabel.drawsBackground = false
@@ -26,6 +29,9 @@ final class LauncherHintBar: NSView {
 
         statusLabel.font = TypographyTokens.caption2()
         statusLabel.textColor = Self.hintTextColor
+        statusLabel.lineBreakMode = .byTruncatingTail
+        statusLabel.maximumNumberOfLines = 1
+        statusLabel.setContentHuggingPriority(.required, for: .horizontal)
         statusLabel.alignment = .right
         statusLabel.isBezeled = false
         statusLabel.isEditable = false
@@ -46,6 +52,12 @@ final class LauncherHintBar: NSView {
 
         setContext(.home)
         setModulesReady(true)
+    }
+
+    override func layout() {
+        super.layout()
+        let maxWidth = max(0, bounds.width - statusLabel.intrinsicContentSize.width - 24)
+        leftLabel.preferredMaxLayoutWidth = maxWidth
     }
 
     @available(*, unavailable)

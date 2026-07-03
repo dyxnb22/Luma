@@ -6,20 +6,23 @@ import Foundation
 public enum LauncherChromeTokens {
     // Panel
     public static let panelCornerRadius: CGFloat = 22
-    public static let panelBorderWidth: CGFloat = 0.5
-    public static let panelBorderAlpha: CGFloat = 0.22
-    public static let panelSheenTopAlpha: CGFloat = 0.18
-    public static let panelSheenMidAlpha: CGFloat = 0.05
+    public static let panelBorderWidth: CGFloat = 0.75
+    public static let panelBorderAlpha: CGFloat = 0.34
+    public static let panelSheenTopAlpha: CGFloat = 0.28
+    public static let panelSheenMidAlpha: CGFloat = 0.10
+    public static let panelDepthBottomAlpha: CGFloat = 0.06
 
-    public static let defaultPanelWidth: CGFloat = 900
-    public static let defaultPanelHeight: CGFloat = 600
-    public static let minPanelWidth: CGFloat = 840
-    public static let maxPanelWidth: CGFloat = 940
-    public static let minPanelHeight: CGFloat = 580
-    public static let maxPanelHeight: CGFloat = 700
-    public static let panelWidthScreenRatio: CGFloat = 0.58
-    public static let panelHeightScreenRatio: CGFloat = 0.66
-    public static let panelVerticalBias: CGFloat = 0.58
+    public static let defaultPanelWidth: CGFloat = 720
+    public static let defaultPanelHeight: CGFloat = 680
+    public static let minPanelWidth: CGFloat = 640
+    public static let maxPanelWidth: CGFloat = 760
+    public static let minPanelHeight: CGFloat = 600
+    public static let maxPanelHeight: CGFloat = 760
+    /// Fallback when the screen is smaller than `defaultPanel*`.
+    public static let panelWidthScreenRatio: CGFloat = 0.44
+    public static let panelHeightScreenRatio: CGFloat = 0.58
+    /// Vertical placement bias (0 = bottom of screen, 1 = top). Spotlight sits in the upper third.
+    public static let panelVerticalBias: CGFloat = 0.68
 
     // Layout
     public static let contentMargin: CGFloat = 20
@@ -43,15 +46,17 @@ public enum LauncherChromeTokens {
     public static let performanceWarningMemoryRatio: Double = 0.85
 
     // List
-    public static let listRowSpacing: CGFloat = 3
+    public static let listRowSpacing: CGFloat = 5
     public static let listRowCornerRadius: CGFloat = 10
     public static let listRowHeight: CGFloat = 46
     public static let listRowHeightNested: CGFloat = 40
     public static let listRowIconSize: CGFloat = 34
     public static let listRowIconSizeNested: CGFloat = 22
-    public static let listRowSelectionAlpha: CGFloat = 0.11
-    public static let listRowHoverAlpha: CGFloat = 0.05
-    public static let sectionHeaderHeight: CGFloat = 26
+    public static let listRowSelectionAlpha: CGFloat = 0.16
+    public static let listRowHoverAlpha: CGFloat = 0.06
+    public static let listRowSelectedShadowRadius: CGFloat = 6
+    public static let homeListSurfaceCornerRadius: CGFloat = 14
+    public static let sectionHeaderHeight: CGFloat = 28
 
     // Detail
     public static let detailMargin: CGFloat = 20

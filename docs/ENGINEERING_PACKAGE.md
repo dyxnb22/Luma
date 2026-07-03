@@ -12,9 +12,12 @@ If you are new to the repo or preparing to make changes, read these documents fi
 6. [Module Contract](specs/MODULE_CONTRACT.md) — module responsibilities and interfaces.
 7. [Performance](specs/PERFORMANCE.md) — latency budgets and performance constraints.
 8. [UX Behavior Rules](specs/UX_BEHAVIOR_RULES.md) — current launcher interaction rules.
-9. [Manual QA Checklist](MANUAL_QA_CHECKLIST.md) — current product-review and regression checks.
-10. [Recorded QA Brief](RECORDED_QA_BRIEF.md) — recorded walkthrough scope and findings format.
-11. [Integration P0](INTEGRATION_P0.md) — current short list for wiring together existing functionality.
+9. **[Launcher Home Constraints](specs/LAUNCHER_HOME_CONSTRAINTS.md)** — frozen empty-query home; **required before any home UI change**.
+10. **[Launcher Panel Constraints](specs/LAUNCHER_PANEL_CONSTRAINTS.md)** — panel geometry, positioning, in-panel layout; **required before panel/chrome changes**.
+11. **[Launcher Navigation Audit](qa/LAUNCHER_NAVIGATION_AUDIT.md)** — temporary open-issue register (navigation, shortcuts, session); align specs when closing items.
+12. [Manual QA Checklist](MANUAL_QA_CHECKLIST.md) — current product-review and regression checks.
+13. [Recorded QA Brief](RECORDED_QA_BRIEF.md) — recorded walkthrough scope and findings format.
+14. [Integration P0](INTEGRATION_P0.md) — current short list for wiring together existing functionality.
 
 Recommended reading order for most engineering work:
 
@@ -22,22 +25,24 @@ Recommended reading order for most engineering work:
 2. Active UI route: [ADR-023](adr/023-command-first-unified-list.md)
 3. Workbench direction: [WORKBENCH_STRATEGY.md](WORKBENCH_STRATEGY.md)
 4. System shape: [Architecture](ARCHITECTURE.md)
-4. Constraints: [Module Contract](specs/MODULE_CONTRACT.md), [Performance](specs/PERFORMANCE.md), [UX Behavior Rules](specs/UX_BEHAVIOR_RULES.md)
+4. Constraints: [Launcher Home Constraints](specs/LAUNCHER_HOME_CONSTRAINTS.md), [Launcher Panel Constraints](specs/LAUNCHER_PANEL_CONSTRAINTS.md), [Module Contract](specs/MODULE_CONTRACT.md), [Performance](specs/PERFORMANCE.md), [UX Behavior Rules](specs/UX_BEHAVIOR_RULES.md)
 5. Repo navigation: [Project Structure](PROJECT_STRUCTURE.md)
 
 ## Priority Order
 
 When documents conflict, follow:
 
-1. [ADR-023](adr/023-command-first-unified-list.md)
-2. [PRD](PRD.md)
-3. [Architecture](ARCHITECTURE.md)
-4. The current code
+1. [Launcher Home Constraints](specs/LAUNCHER_HOME_CONSTRAINTS.md) — for empty-query home
+2. [Launcher Panel Constraints](specs/LAUNCHER_PANEL_CONSTRAINTS.md) — for panel geometry, positioning, and in-panel layout
+3. [ADR-023](adr/023-command-first-unified-list.md)
+4. [PRD](PRD.md)
+5. [Architecture](ARCHITECTURE.md)
+6. The current code
 
 ## Current Direction Summary
 
 - Active launcher route is Route C: command-first unified list.
-- Empty query shows home sections, not a dashboard card grid.
+- Empty query shows **Open Apps only** on home (frozen).
 - Module details open in the same panel.
 - User-facing media functionality is named Records; the technical module identifier remains `luma.media`.
 - Auto Workflow is a default-off, on-demand wrapper around the external `cc-loop` CLI; see ADR-031.
@@ -70,7 +75,7 @@ When documents conflict, follow:
 1. **Create the module actor** in `Sources/LumaModules/<Name>/`. Implement `LumaModule`: `manifest`, `warmup`, `handle`, `perform`, `teardown`.
 2. **Create `<Name>ModuleBundle.swift`** in the same folder with `manifest`, `warmupTier`, `commands`, optional `detailMetadata` / `presentation` / `defaultOffNote`, and `makeModule()`.
 3. **Register the bundle** — add `NameModuleBundle.self` to `ModuleRegistry.allBundles` in `Sources/LumaModules/ModuleRegistry.swift`.
-4. **Add detail view** (if needed) in `Sources/LumaApp/Launcher/<Name>DetailView.swift` and register the factory in `ModuleDetailRegistry.makeDefault()`.
+4. **Add detail view** (if needed) in `Sources/LumaApp/Launcher/<Name>DetailView.swift` and register the factory in `ModuleDetailRegistry.makeDefault()`. Follow [Launcher Panel Constraints](specs/LAUNCHER_PANEL_CONSTRAINTS.md) — prefer `BaseDetailContainer`, no `wantsLayer` on full-width roots, pin custom layouts to container width. Module shortcuts must work when detail subviews hold focus (see [Navigation Audit](qa/LAUNCHER_NAVIGATION_AUDIT.md) MOD-KB).
 5. **Write tests** in `Tests/LumaModulesTests/` and run `swift test`.
 
 Warmup tiers:
@@ -78,13 +83,13 @@ Warmup tiers:
 - `hotPath` — participates in global search fan-out; warms at startup when pinned (default for in-memory modules).
 - `onDemand` — excluded from global search; warms on first targeted query or detail open (examples: Notes, Projects, MenuItems, Auto Workflow).
 
-Users can pin modules in Settings → Modules for always-hot startup behavior and contextual Home visibility (`enabled ∩ pinned`).
+Users can pin modules in Settings → Modules for always-hot startup behavior and workbench gating (`enabled ∩ pinned`). Pinning does **not** add home rows.
 
 Home and cross-module rules:
 
-- Add contextual Home rows through a focused `HomeContributor`, then compose it in `ContextualHomeProvider`.
+- **Do not** wire `HomeContributor` / `ResumeHomeProvider` / `SetupHomeProvider` into `LauncherHomeAggregator` without a new ADR — see [Launcher Home Constraints](specs/LAUNCHER_HOME_CONSTRAINTS.md).
+- Add workbench/context behavior through `HomeContributor` + `ContextualHomeProvider` for **command and detail** surfaces only.
 - Use `HomeContinueClients` narrow protocols for continue rows instead of injecting concrete module types into AppCoordinator.
-- Resume and Setup providers respect `HomeEnablementGate` so disabled modules never surface on Home.
 - Keep cross-module draft construction behind narrow helpers/protocols such as `ProjectContextSuggestions` or `QuicklinkDraftSource`.
 - Do not add new App-layer switches for commands, feature cards, or detail metadata; read those from `ModuleRegistry` / `ModuleDetailRegistry`.
 

@@ -4,12 +4,12 @@ import Foundation
 public enum L10n {
     private static let table: [String: [String: String]] = L10nTableLoader.load()
 
-    public static func tr(_ key: String.LocalizationValue) -> String {
-        tr(String(describing: key))
+    public static func tr(_ key: StaticString) -> String {
+        tr("\(key)")
     }
 
-    public static func tr(_ key: String.LocalizationValue, _ args: CVarArg...) -> String {
-        tr(String(describing: key), args)
+    public static func tr(_ key: StaticString, _ args: CVarArg...) -> String {
+        tr("\(key)", args)
     }
 
     public static func tr(_ key: String) -> String {

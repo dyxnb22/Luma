@@ -4,7 +4,7 @@ This folder is the maintenance index for Luma's feature modules. Each feature ow
 
 ## Active v1 Launcher Set (Route C — ADR-023)
 
-**Home sections:** Open Apps, Suggested (no dashboard card grid). Suggested shows at most 2 continue-flow + 1 create item; `HomeSuggestionMemory` gates eligibility by recency and completion cooldown.
+**Home (frozen 2026-07-03):** Open Apps only. No dashboard card grid, no setup/recent/continue/create sections, no `+N more`, no auto-onboarding.
 
 **Modules (registered at launch):** Apps, Clipboard, Commands, Notes, Todo, Translate, Wordbook, Snippets, Secrets, Media, Window Layouts, Projects, Quicklinks, Menu Bar Search, Kill Process, Browser Tabs, Auto Workflow.
 
@@ -12,7 +12,7 @@ This folder is the maintenance index for Luma's feature modules. Each feature ow
 
 **Deferred:** Windows (source retained, not in `BuiltInModules.makeAll()`).
 
-See `docs/adr/023-command-first-unified-list.md` and `docs/ARCHITECTURE.md` for the current product surface.
+See `docs/adr/023-command-first-unified-list.md`, `docs/specs/LAUNCHER_HOME_CONSTRAINTS.md`, and `docs/ARCHITECTURE.md` for the current product surface.
 
 ## Feature Index
 
@@ -48,7 +48,7 @@ Treat `BuiltInModules.swift`, `FeatureCatalog.swift`, and `docs/ARCHITECTURE.md`
 
 - Every feature is represented as an independent `LumaModule` or service-backed module.
 - Every default-enabled feature must preserve the launcher hot path.
-- Empty-query UI shows a sectioned home list (Open Apps / Suggested) with setup rows for permissions and modules.
+- Empty-query home shows **Open Apps only** — no setup, suggestion, or onboarding rows (`LAUNCHER_HOME_CONSTRAINTS.md`).
 - Sensitive features must keep secrets out of generic search results unless explicitly unlocked.
 
 ## Keyboard & Help (2026-07-02)
@@ -60,7 +60,6 @@ Treat `BuiltInModules.swift`, `FeatureCatalog.swift`, and `docs/ARCHITECTURE.md`
 - **Edit shortcuts:** Command+A/C/V/X/Z and undo/redo work in text fields via `LumaStandardEditShortcuts`.
 - **Global search** needs ≥2 characters unless a command prefix is used.
 - **i18n:** English + 简体中文 (`L10n` / `L10nStrings.json`); Settings → General → Language.
-- **Onboarding:** First-launch wizard in-panel (`OnboardingWizardDetailView`); resume from home setup row.
 - **Translate replace selection:** Detail footer button; requires Accessibility; hides launcher before paste.
 
 ## Raycast-Inspired Defaults

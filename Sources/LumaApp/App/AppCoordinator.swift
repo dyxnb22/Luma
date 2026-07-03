@@ -103,20 +103,16 @@ final class AppCoordinator {
     private lazy var wordbookModule = WordbookModule(store: wordbookStore)
     private lazy var snippetsModule = SnippetsModule()
     private let homeEnablementGate = HomeEnablementGate()
-    private lazy var resumeHomeProvider = ResumeHomeProvider(enablementGate: homeEnablementGate)
     private lazy var contextualHomeProvider = ContextualHomeProvider(
         notes: HomeContinueClientAdapters.Notes(module: notesModule),
         todo: HomeContinueClientAdapters.Todo(module: todoModule),
         media: HomeContinueClientAdapters.Media(module: mediaModule),
         wordbook: HomeContinueClientAdapters.Wordbook(module: wordbookModule)
     )
-    private lazy var setupHomeProvider = SetupHomeProvider(config: config, enablementGate: homeEnablementGate)
     private lazy var homeCoordinator = LauncherHomeCoordinator(
         openApps: openAppsProvider,
         enablementGate: homeEnablementGate,
-        resume: resumeHomeProvider,
-        contextual: contextualHomeProvider,
-        setup: setupHomeProvider
+        contextual: contextualHomeProvider
     )
     private var activationObserver: NSObjectProtocol?
     private var terminationObserver: NSObjectProtocol?

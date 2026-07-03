@@ -4,14 +4,16 @@
 
 Luma is a single native macOS app with a pre-instantiated AppKit launcher panel, a timeout-protected query dispatcher, in-process actor modules, shared services, and local-first persistence in Application Support, UserDefaults, and Keychain.
 
+**Launcher constraints (frozen):** empty-query home is Open Apps only (`docs/specs/LAUNCHER_HOME_CONSTRAINTS.md`). Panel geometry, presentation-screen placement, and in-panel layout (no full-width `wantsLayer`) are in `docs/specs/LAUNCHER_PANEL_CONSTRAINTS.md`.
+
 ```mermaid
 flowchart TD
     Hotkey["HotkeyController"] --> Coordinator["AppCoordinator"]
     Coordinator --> Panel["LauncherWindowController + NSPanel"]
     Panel --> VM["LauncherViewModel"]
     Panel --> Home["LauncherHomeCoordinator"]
-    Home --> Providers["OpenApps / Recent / Resume / Setup providers"]
-    Home --> Contributors["Contextual HomeContributor set"]
+    Home --> Providers["OpenAppsHomeProvider (home only)"]
+    Home --> Contributors["Contextual HomeContributor set (workbench context, off-home)"]
     VM --> Dispatcher["QueryDispatcher actor"]
     Dispatcher --> Modules["Enabled LumaModule actors"]
     Modules --> Services["ModuleContext services"]
@@ -87,34 +89,33 @@ Module bundle registration is the single built-in module manifest surface. Each 
 
 ## Home List Flow (Route C)
 
-1. Empty query: `LauncherHomeCoordinator` aggregates Open Apps and Suggested sections.
+1. Empty query: `LauncherHomeCoordinator` aggregates **Open Apps only** (frozen — see `docs/specs/LAUNCHER_HOME_CONSTRAINTS.md`).
 2. Non-empty query: `QueryDispatcher` results render as a flat list (max 8 rows).
 3. Tab / ⌘K opens `LauncherActionPanel` for primary and secondary actions.
-4. Module detail entry: trigger keyword → result row → Return (or contextual suggestion).
+4. Module detail entry: trigger keyword → result row → Return (or workbench / bare command).
 5. Some command-style modules, including Wordbook, first surface a starter row whose primary action opens in-panel detail.
 6. `FeatureCatalog.moduleDetailMetadata()` supplies detail header chrome only.
 7. **Snippet trigger expansion**: if the raw query exactly matches a snippet's `trigger` field (case-insensitive) and the `CommandRouter` classifies it as a global search, Return expands and pastes the snippet inline without opening detail.
 
-Contextual suggestions are composed from `HomeContributor` implementations:
+### Workbench & contextual providers (off-home)
 
-- `ProjectHomeContributor` surfaces current project continue rows plus project Snippet / Quicklink / Commands create actions.
-- `ClipboardHomeContributor` surfaces clipboard transforms, note capture, snippet draft, and URL-to-Quicklink draft rows.
-- `SelectionHomeContributor` surfaces selected-text translation.
-- `ContinueHomeContributor` surfaces module continue rows such as daily note, Todo, Records, and Wordbook.
+`HomeContributor` implementations (`ProjectHomeContributor`, `ClipboardHomeContributor`, `SelectionHomeContributor`, `ContinueHomeContributor`) and `ResumeHomeProvider` still feed **workbench context** (`ContextualHomeProvider` → `WorkbenchContextBuilder`) for project workspace detail and command surfaces. They **must not** be wired back into `LauncherHomeAggregator` without a new ADR.
 
 Cross-module creation uses narrow draft builders such as `ProjectContextSuggestions`, `SnippetDraft.fromClipboard`, and `QuicklinkDraftSource` instead of App-layer ad hoc model construction.
 
-## Suggested Section Limits
+## Home Sections (Frozen 2026-07-03)
 
-Home sections are composed by `LauncherHomeAggregator`:
+`LauncherHomeAggregator` appends **only**:
 
-- **SETUP** — `SetupHomeProvider` (max 2 rows until dismissed)
-- **OPEN APPS** — running applications
-- **RECENT** — recent actions
-- **CONTINUE** — resume rows + contextual continue rows (max 4 merged)
-- **CREATE** — contextual create/utility rows (max 1 utility/transform + 1–2 create)
+- **OPEN APPS** — running applications (all visible; no `+N more`).
 
-`ContextualHomeProvider` enforces **2 continue-flow items** from contributors, up to **1 utility/transform** create row, and **1–2 create rows** (2 when project create rows are present). `HomeSuggestionPolicy` centralizes these caps. Pinned + enabled modules gate most contextual create/continue rows; translate and clipboard transforms only require enablement.
+Removed from empty-query home (do not restore without ADR):
+
+- SETUP, RECENT, CONTINUE, CREATE suggestion sections.
+- Auto-present onboarding wizard.
+- `SetupHomeProvider` wiring in `AppCoordinator`.
+
+Historical caps (`HomeSuggestionPolicy`, `HomeSuggestionMemory`) still apply to **tests and future ADRs** but not to the current home render path.
 
 ## Ranking
 
@@ -122,7 +123,7 @@ Home sections are composed by `LauncherHomeAggregator`:
 
 ## Warmup Strategy
 
-`ModuleHost` tracks warmup state per module. `ConfigurationStore.pinnedModuleIDs()` controls which enabled modules are kept hot at startup; Settings → Modules lets users pin or unpin modules from the hot path. Pinning also gates most contextual Home suggestions. The default policy is `eagerPinnedOnly`:
+`ModuleHost` tracks warmup state per module. `ConfigurationStore.pinnedModuleIDs()` controls which enabled modules are kept hot at startup; Settings → Modules lets users pin or unpin modules from the hot path. Pinning also gates workbench contextual surfaces (`enabled ∩ pinned`). It does **not** add rows to empty-query home (frozen). The default policy is `eagerPinnedOnly`:
 
 1. Register modules from `ModuleRegistry.allBundles`.
 2. Apply the enabled-module set.
@@ -160,7 +161,7 @@ flowchart LR
 - **WorkbenchDiagnosticSummary** — read-only counts for `proj status`.
 - **WorkbenchEmptyStateCopy** — shared empty/disabled copy for command and detail surfaces.
 - **WorkbenchLinkedEntityOpenPlanner** — maps activity entries and linked entities to `CurrentProjectWorkspaceRowAction` (resume, replaceQuery, openModule, status).
-- **WorkbenchActivityRowActions** — shared row presentation (subtitle, icon, interactivity) for Home, command preview, and detail model.
+- **WorkbenchActivityRowActions** — shared row presentation (subtitle, icon, interactivity) for command preview and detail model (not empty-query home).
 - **WorkbenchWorkspaceRowActionCodec** — encodes row actions into launcher `Action` kinds and `WorkbenchCommandOutcome` for bare-command Return.
 - **WorkbenchEntityResolver** — resolves entries to `WorkbenchEntityRef` without module store access.
 - **WorkbenchActivitySnapshot** — `globalRecent`, `currentProjectRecent`, `currentProjectDrafts` by `stableProjectID`.

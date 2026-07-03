@@ -5,8 +5,9 @@ These decisions answer the previous open questions and are now in force for Luma
 ## Product
 
 - Name: Luma.
-- Scope: strictly personal. Do not add public-distribution scaffolding, onboarding flows, telemetry consent, localization, or updater infrastructure.
-- Active strategic direction: **Route C**, Command-First Unified List, per ADR-023. Command+Space → single-column home/search list → primary action; module details stay in-panel; no dashboard card grid on home.
+- Scope: strictly personal. Do not add public-distribution scaffolding, telemetry consent, or updater infrastructure.
+- **i18n shipped:** English + 简体中文 via `L10n`; do not expand locales without an explicit plan.
+- Active strategic direction: **Route C**, Command-First Unified List, per ADR-023. Command+Space → Open Apps home / search results → primary action; module details stay in-panel; no dashboard or home suggestion sections.
 - Route B (ADR-007) and Route A pure launcher convergence are historical reference only unless revived by a future superseding ADR.
 - Current stage: finish and connect what already exists before adding more modules.
 - Active built-in modules include Apps, Clipboard, Commands, Notes, Todo, Translate, Wordbook, Snippets, Secrets, Records (`luma.media`), Window Layouts, Projects, Quicklinks, Menu Bar Search, and Kill Process. Browser Tabs and Auto Workflow are registered but default-off. Deferred: Windows.
@@ -33,17 +34,18 @@ These decisions answer the previous open questions and are now in force for Luma
 
 ## UX
 
-- Empty query shows the Route C home list: Open Apps and Suggested (contextual cross-module actions such as clipboard → note/snippet, URL → quicklink draft).
-- Home Suggested uses light memory: suppress repeats within ~2 minutes and deprioritize “continue daily note” for ~5 minutes after opening one.
-- Top due todo on home opens Todo on Return; Mark Complete is secondary (Tab).
+- Empty query shows **Open Apps only** on home (frozen 2026-07-03; `docs/specs/LAUNCHER_HOME_CONSTRAINTS.md`).
+- Launcher panel: **720 × 680 pt**, upper-third placement, presentation-screen aware; no full-width `wantsLayer` on in-panel hosts (`docs/specs/LAUNCHER_PANEL_CONSTRAINTS.md`).
+- Workbench continue/create flows use **search**, **bare commands**, and **project/detail** surfaces — not home rows.
 - Cross-module save actions show short status hints (e.g. “Saved to daily note”, “Draft loaded in Quicklinks”).
 - Use same-panel module detail surfaces for modules that need richer management.
 - Panel hides before action completion, in the same runloop turn as Return.
 - `secondaryActions` model ships in v1.
 - Tab activates `secondaryActions.first` when present.
 - Full secondary-action chooser UI is deferred to v1.1.
-- Visual density: keep result rows compact and stable; do not reintroduce dashboard cards on the launcher home.
+- Visual density: keep result rows compact and stable; idle home rows stay **transparent**; do not reintroduce dashboard cards or home suggestion sections.
 - Prioritize consistency across module detail views, permission prompts, empty states, and return/Esc behavior.
+- Navigation / shortcut open issues tracked in `docs/qa/LAUNCHER_NAVIGATION_AUDIT.md` (temporary; fold into specs when fixed).
 
 ## Testing and Release
 

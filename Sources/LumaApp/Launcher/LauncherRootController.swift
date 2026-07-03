@@ -78,6 +78,9 @@ final class LauncherRootController {
         contentCoordinator.onSelectionChanged = { [weak self] in self?.syncRowActionHint() }
 
         listView.onKeyCommand = { [weak self] command in self?.handleKeyCommand(command) ?? false }
+        listView.onInterceptKeyDown = { [weak self] event in
+            self?.actionPanel.handleKeyDown(event) ?? false
+        }
         listView.onActivate = { [weak self] in self?.activateReturn() }
         listView.onEscape = { [weak self] in self?.handleEscape() }
         listView.onTypeToSearch = { [weak self] text in self?.forwardTypingToSearch(text) }
@@ -195,40 +198,9 @@ final class LauncherRootController {
         hintBar.setModulesReady(ready)
         if ready, searchBar.stringValue.isEmpty {
             refreshHome()
-            presentOnboardingIfNeeded()
         } else if ready {
             handleTextChange(searchBar.queryText)
         }
-    }
-
-    private func presentOnboardingIfNeeded() {
-        guard ProcessInfo.processInfo.environment["LUMA_QA"] != "1" else { return }
-        Task {
-            guard await !config.onboardingCompleted() else { return }
-            await MainActor.run {
-                guard !contentCoordinator.showingDetail else { return }
-                presentOnboardingWizard()
-            }
-        }
-    }
-
-    private func presentOnboardingWizard() {
-        let wizard = OnboardingWizardDetailView(
-            onOpenSettings: onOpenSettings,
-            onComplete: { [weak self] in
-                Task {
-                    await self?.config.setOnboardingCompleted(true)
-                    await self?.config.setSetupHintsDismissed(true)
-                    await MainActor.run {
-                        self?.closeDetail()
-                        self?.showHome(focusSearch: true, persist: true)
-                    }
-                }
-            }
-        )
-        enterDetailContext(moduleTitle: wizard.moduleTitle)
-        contentCoordinator.present(wizard, moduleID: .commands)
-        syncKeyHints()
     }
 
     func startQuerySync() {
@@ -293,11 +265,7 @@ final class LauncherRootController {
                       self.launcherEnvironment.isLauncherQueryEmpty else { return }
                 self.contentCoordinator.showHome(snapshot)
                 self.syncRowActionHint()
-                let suggestedKeys = snapshot.sections
-                    .filter { $0.kind == .create || $0.kind == .continueFlow }
-                    .flatMap(\.items)
-                    .map(\.id.key)
-                Task { await HomeSuggestionMemory.shared.recordShown(keys: suggestedKeys) }
+                Task { await HomeSuggestionMemory.shared.recordShown(keys: []) }
                 _ = HomeLatencyTracker.markHomeRendered()
             }
         }
@@ -330,6 +298,20 @@ final class LauncherRootController {
             contentCoordinator.currentDetailObject?.activate()
             return
         }
+        searchBar.reEnableSearchFieldIfNeeded()
+        searchBar.focus()
+    }
+
+    func focusSearchFieldAfterShow() {
+        if contentCoordinator.showingDetail {
+            contentCoordinator.currentDetailObject?.activate()
+            return
+        }
+        if !searchBar.stringValue.isEmpty {
+            searchBar.focus()
+            return
+        }
+        searchBar.reEnableSearchFieldIfNeeded()
         searchBar.focus()
     }
 
@@ -343,7 +325,11 @@ final class LauncherRootController {
 
     func restoreLastSessionIfNeeded() {
         guard ProcessInfo.processInfo.environment["LUMA_QA"] != "1" else { return }
-        guard !contentCoordinator.showingDetail, searchBar.stringValue.isEmpty else { return }
+        if contentCoordinator.showingDetail {
+            focusSearchField()
+            return
+        }
+        guard searchBar.stringValue.isEmpty else { return }
         Task {
             let persisted = await sessionStore.loadPersistedSession()
             await MainActor.run {
@@ -353,22 +339,40 @@ final class LauncherRootController {
                     translateSource: persisted.translateSource,
                     translateOutput: persisted.translateOutput
                 )
+                self.focusSearchField()
             }
         }
     }
+
+    func dispatchDetailKeyDown(_ event: NSEvent) -> Bool {
+        guard contentCoordinator.showingDetail else { return false }
+        if LumaStandardEditShortcuts.handleKeyDown(event, in: searchBar.window) {
+            return true
+        }
+        return contentCoordinator.currentDetailObject?.handleKeyDown(event) ?? false
+    }
+
+    @discardableResult
+    func dispatchDetailCloseFromKeyboard() -> Bool {
+        guard contentCoordinator.showingDetail else { return false }
+        exitDetailFromChrome()
+        return true
+    }
+
+    var isShowingDetail: Bool { contentCoordinator.showingDetail }
 
     func saveCurrentSession() {
         let translateContent = (contentCoordinator.currentDetailObject as? TranslateDetailView)?.currentContent()
         sessionStore.saveCurrentSession(
             moduleID: contentCoordinator.currentDetailModuleID,
-            query: searchBar.stringValue,
+            query: searchBar.persistedQuery,
             translateContent: translateContent.map { ($0.source, $0.output) }
         )
         persistResumeState(translateContent: translateContent)
     }
 
     private func persistResumeState(translateContent: (source: String, output: String)?) {
-        var query = searchBar.stringValue
+        var query = searchBar.persistedQuery
         if let moduleID = contentCoordinator.currentDetailModuleID,
            LauncherModuleResumeQuery.roundTripModules.contains(moduleID) {
             query = LauncherModuleResumeQuery.normalizedQuery(for: moduleID, raw: query)
@@ -497,6 +501,7 @@ final class LauncherRootController {
                 }
             }
             syncRowActionHint()
+            stabilizePanelContentLayout()
         }
     }
 
@@ -544,17 +549,21 @@ final class LauncherRootController {
             return
         }
         if contentCoordinator.showingDetail {
-            let restored = searchBar.endDetailMode()
-            closeDetail()
-            if let restored,
-               !restored.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                searchBar.stringValue = restored
-                lastSyncedQuery = ""
-                handleTextChange(restored)
-            } else {
-                showHome(focusSearch: true, persist: true)
+            if let escapeEvent = NSEvent.keyEvent(
+                with: .keyDown,
+                location: .zero,
+                modifierFlags: [],
+                timestamp: 0,
+                windowNumber: Int(searchBar.window?.windowNumber ?? 0),
+                context: nil,
+                characters: "",
+                charactersIgnoringModifiers: "",
+                isARepeat: false,
+                keyCode: 53
+            ), dispatchDetailKeyDown(escapeEvent) {
+                return
             }
-            focusSearchField()
+            exitDetailFromChrome()
             return
         }
         let trimmed = searchBar.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -565,11 +574,33 @@ final class LauncherRootController {
         onDismiss()
     }
 
+    func exitDetailFromChrome() {
+        guard contentCoordinator.showingDetail else {
+            searchBar.reEnableSearchFieldIfNeeded()
+            focusSearchField()
+            return
+        }
+        let restored = searchBar.endDetailMode()
+        closeDetail()
+        if let restored,
+           !restored.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            searchBar.stringValue = restored
+            lastSyncedQuery = ""
+            handleTextChange(restored)
+        } else {
+            showHome(focusSearch: true, persist: true)
+        }
+        focusSearchField()
+    }
+
     func closeDetail() {
-        contentCoordinator.closeDetail()
-        Task { await launcherEnvironment.reserveDetailModule(nil) }
-        syncKeyHints()
-        syncPerformanceStripVisibility()
+        if contentCoordinator.showingDetail {
+            contentCoordinator.closeDetail()
+            Task { await launcherEnvironment.reserveDetailModule(nil) }
+            syncKeyHints()
+            syncPerformanceStripVisibility()
+        }
+        searchBar.clearStuckDetailModeState()
     }
 
     func showStatus(_ message: String) {
@@ -583,9 +614,14 @@ final class LauncherRootController {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         searchBar.setPlaceholder(ModuleSearchHints.placeholder(for: text))
         let helpTrigger = trimmed.split(separator: " ", maxSplits: 1).first.map(String.init)
-        commandHintBar.apply(viewModel.commandRouter.registry.hint(for: text), helpTrigger: helpTrigger)
+        let workbenchRoute = viewModel.workbenchRoute(for: text)
+        let hint = workbenchRoute != .none
+            ? viewModel.workbenchCommandHint(for: workbenchRoute, raw: text)
+            : viewModel.commandRouter.registry.hint(for: text)
+        commandHintBar.apply(hint, helpTrigger: helpTrigger)
         sessionStore.saveSearchQuery(text)
         if trimmed.isEmpty {
+            searchBar.cancelDetailMode()
             contentCoordinator.dismissResultsForEmptyQuery()
             viewModel.cancel()
             refreshHome()
@@ -594,6 +630,7 @@ final class LauncherRootController {
         guard modulesReady else { return }
         homeRefreshTask?.cancel()
         if contentCoordinator.showingDetail {
+            searchBar.cancelDetailMode()
             closeDetail()
         }
         listView.isHidden = false
@@ -601,7 +638,6 @@ final class LauncherRootController {
         contentCoordinator.beginShowingResults(clearStaleContent: true)
         syncKeyHints()
         syncPerformanceStripVisibility()
-        let workbenchRoute = viewModel.workbenchRoute(for: text)
         if workbenchRoute != .none {
             Task {
                 await self.previewWorkbenchCommand(route: workbenchRoute, queryText: text)
@@ -624,6 +660,11 @@ final class LauncherRootController {
             return
         }
         viewModel.queryChanged(text, issuedAt: .now)
+        stabilizePanelContentLayout()
+    }
+
+    private func stabilizePanelContentLayout() {
+        LauncherInPanelLayout.stabilizePanel(from: searchBar)
     }
 
     private func applyRestore(moduleRaw: String?, query: String, translateSource: String, translateOutput: String) {
@@ -635,12 +676,8 @@ final class LauncherRootController {
             translateSource: translateSource,
             translateOutput: translateOutput
         ) {
-        case .openModule(let moduleID, let source, let output):
+        case .openModule(let moduleID, _, _):
             openModuleDetail(for: moduleID)
-            if moduleID == .translate,
-               let translate = contentCoordinator.currentDetailObject as? TranslateDetailView {
-                translate.restore(sourceText: source, outputText: output)
-            }
         case .restoreQuery(let query):
             showHome(focusSearch: false, persist: false)
             searchBar.stringValue = query
@@ -659,10 +696,12 @@ final class LauncherRootController {
         if let paintMs = LatencyTracker.shared.markFirstPaint() {
             LatencyTelemetry.report(p95Milliseconds: paintMs)
         }
+        stabilizePanelContentLayout()
     }
 
     private func syncPerformanceStripVisibility() {
         performanceStrip.setContentVisible(!contentCoordinator.showingDetail)
+        stabilizePanelContentLayout()
     }
 
     private func enterDetailContext(moduleTitle: String) {
@@ -809,15 +848,11 @@ final class LauncherRootController {
     }
 
     private func dispatchAction(_ action: Action, for item: ResultItem) {
-        if item.id.key.hasPrefix("setup."), item.id.key != "setup.onboarding" {
+        if item.id.key.hasPrefix("setup.") {
             Task { await config.setSetupHintsDismissed(true) }
         }
         switch action.kind {
         case .noop:
-            if item.id.key == "setup.onboarding" {
-                presentOnboardingWizard()
-                return
-            }
             focusSearchField()
         case .replaceQuery(let query):
             searchBar.stringValue = query
@@ -1310,9 +1345,7 @@ final class LauncherRootController {
             contentCoordinator.pendingTranslateText = nil
             return
         }
-        enterDetailContext(moduleTitle: "Translate")
-        guard let detail = launcherEnvironment.makeDetailView(for: .translate) else { return }
-        contentCoordinator.present(detail, moduleID: .translate, prefillTranslateText: text)
+        openModuleDetail(for: .translate)
     }
 
     private func openActionPanel(for item: ResultItem? = nil) {
@@ -1322,7 +1355,8 @@ final class LauncherRootController {
             commandHintBar.showStatus(LauncherStatusMessages.noActionPanelActions)
             return
         }
-        actionPanel.present(item: target, relativeTo: hintBar)
+        let anchor = listView.selectedRowAnchorView() ?? hintBar
+        actionPanel.present(item: target, relativeTo: anchor)
     }
 
     private func handleKeyCommand(_ command: LumaSearchBar.KeyCommand) -> Bool {
@@ -1346,6 +1380,14 @@ final class LauncherRootController {
         if actionPanel.isVisible {
             if case .commandNumber(let number) = command {
                 actionPanel.activateIndex(number - 1)
+                return true
+            }
+            if case .up = command {
+                actionPanel.moveSelection(delta: -1)
+                return true
+            }
+            if case .down = command {
+                actionPanel.moveSelection(delta: 1)
                 return true
             }
             let outcome = LauncherKeyRouter.route(

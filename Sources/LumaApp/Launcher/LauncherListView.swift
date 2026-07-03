@@ -14,11 +14,20 @@ final class LauncherListView: NSView {
     var onRightClick: ((ResultItem) -> Void)?
     var onSelectionChanged: ((Int) -> Void)?
     var onKeyCommand: ((LumaSearchBar.KeyCommand) -> Bool)?
+    var onInterceptKeyDown: ((NSEvent) -> Bool)?
     var onActivate: (() -> Void)?
     var onEscape: (() -> Void)?
     var onTypeToSearch: ((String) -> Void)?
 
+    /// When false, mouse events pass through (used during detail cross-fade).
+    var passesHitTests = true
+
     override var acceptsFirstResponder: Bool { !currentItems.isEmpty }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        guard passesHitTests, alphaValue > 0.01, !isHidden else { return nil }
+        return super.hitTest(point)
+    }
 
     func focusList() {
         window?.makeFirstResponder(self)
@@ -27,6 +36,10 @@ final class LauncherListView: NSView {
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         translatesAutoresizingMaskIntoConstraints = false
+        clipsToBounds = true
+        setContentHuggingPriority(.defaultLow, for: .horizontal)
+        setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+
         stack.orientation = .vertical
         stack.spacing = LauncherChromeTokens.listRowSpacing
         stack.alignment = .leading
@@ -37,6 +50,7 @@ final class LauncherListView: NSView {
         scrollView.autohidesScrollers = true
         scrollView.drawsBackground = false
         scrollView.borderType = .noBorder
+        scrollView.clipsToBounds = true
         scrollView.translatesAutoresizingMaskIntoConstraints = false
         scrollView.documentView = stack
 
@@ -99,6 +113,7 @@ final class LauncherListView: NSView {
     }
 
     override func keyDown(with event: NSEvent) {
+        if onInterceptKeyDown?(event) == true { return }
         if shouldForwardTyping(event), let text = event.characters, !text.isEmpty {
             onTypeToSearch?(text)
             return
@@ -149,6 +164,10 @@ final class LauncherListView: NSView {
             return event.modifierFlags.contains(.shift) ? .backtab : .tab
         default:
             break
+        }
+        if event.modifierFlags.contains(.command),
+           event.keyCode == 36 {
+            return .commandReturn
         }
         if event.modifierFlags.contains(.command),
            event.charactersIgnoringModifiers?.lowercased() == "k" {
@@ -233,6 +252,14 @@ final class LauncherListView: NSView {
                 listRow.setSelected(true)
             }
         }
+    }
+
+    func selectedRowAnchorView() -> NSView? {
+        guard let rowIndex = rows.firstIndex(where: {
+            if case .item(_, let idx) = $0.kind { return idx == selectedFlatIndex }
+            return false
+        }), rowViews.indices.contains(rowIndex) else { return nil }
+        return rowViews[rowIndex]
     }
 
     private func scrollToSelected() {

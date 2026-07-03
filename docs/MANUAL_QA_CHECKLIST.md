@@ -26,12 +26,32 @@
 
 ## Panel
 
-- Appears on active display.
-- Appears over fullscreen apps.
-- Appears on all Spaces as expected.
+- Appears on **presentation** display (cursor → key window → main), not always `NSScreen.main`.
+- Horizontally centered; upper-third vertical placement (~`panelVerticalBias` 0.68).
+- Default proportion ~**720 × 680 pt** on large displays (not the historical 900 × 600 wide shell).
+- Frosted popover material, top highlight gradient, ~22 pt corner radius, subtle border.
+- Panel does not bleed background on light desktops.
 - Query field is focused immediately.
 - Escape dismisses.
 - Focus loss behavior matches Settings.
+
+### In-panel layout (layer drift regression)
+
+Panel and search field must stay **horizontally aligned** with panel edges — no right-edge clip or content shift when layout changes.
+
+- Type each prefix below; command hint appears without horizontal drift:
+  - `help`, `?`, `clip`, `note`, `tr`, `word`, `rec`, `t`, `aw`, `secret`, `ql`, `proj`, `mb`, `kill`, `tab`
+- `help` alone shows global command list — panel width unchanged; rows truncate, no edge-to-edge stretch.
+- Clear query → home restores without drift.
+- Open detail from prefix or result → no right-edge clip; Esc back to results → still centered.
+- During detail open/close fade, list area must remain clickable after animation completes (audit L1).
+- Tab action panel on a result → overlay does not shift the panel.
+- Open Translate / Notes / Clipboard / Auto Workflow / Todo detail → toolbars scroll if crowded; panel width unchanged.
+
+### Multi-monitor
+
+- Move cursor to secondary display, open launcher → panel on that display, centered.
+- Open Settings (menu or Cmd+,) with cursor on secondary display → window centered on that display.
 
 ## Performance
 
@@ -59,16 +79,16 @@
 
 ### Panel Glass
 
-- Liquid glass background visible.
-- Top highlight gradient visible.
-- 1 pt inner border visible.
-- 20 pt continuous corner radius.
-- Panel does not bleed background on light desktops.
+- Same checks as **Panel** and **In-panel layout** sections above (geometry, centering, prefix drift, multi-monitor).
 
-### Home List
+### Home List (Frozen — Open Apps Only)
 
-- Open Apps section appears with 11 pt uppercase header.
+- Empty query shows **one section**: Open Apps (localized header, e.g. 打开应用).
+- **No** setup / 开始使用, recent / 最近, continue / 继续, or create / 创建 sections.
+- **No** auto-present onboarding wizard on first launch — home list appears immediately.
+- **No** `+N more` row — all running apps are listed.
 - Open Apps rows render in the main unified list, not a permanent sidebar.
+- Idle rows are **not** gray-filled; only hover/selection add background.
 - Order changes after switching apps externally.
 - Open Apps does not list Luma itself.
 - Return or click on an app row activates that app.
@@ -90,6 +110,9 @@
 - Search bar remains visible but read-only with an `In <Module> — Esc to go back` placeholder (prior query is restored when leaving detail).
 - Top bar shows Back, module title, and close.
 - Esc in detail returns to the prior search results when a query was suspended; otherwise home.
+- Detail **back** and **close** chrome match Esc (restore suspended query or home; search field becomes editable and clickable again).
+- After detail → home: click search field and type — must accept input (regression: Notes back button).
+- **Known open issues:** see [LAUNCHER_NAVIGATION_AUDIT.md](qa/LAUNCHER_NAVIGATION_AUDIT.md) (detail fade click-blocking, ⌘1–9 in detail, ⌘W hint, module shortcuts).
 - Esc on results clears query and shows home.
 - Esc on home closes the panel.
 - Detail toolbars with multiple buttons scroll horizontally instead of clipping (Records, Auto Workflow, Translate, etc.).
@@ -284,22 +307,22 @@
 
 ## Workbench Project Workspace (manual)
 
-- [ ] Capture from Home CREATE with active IDE project → `workbench-activity.json` v2 entry includes `projectIdentity.stableProjectID` and `sourceKind: home`.
+- [ ] Capture via `cap` / project context (not empty-query home CREATE row) → `workbench-activity.json` v2 entry includes `projectIdentity.stableProjectID`.
 - [ ] `cap clip todo` shows preview row only while typing; Return executes once and writes activity + link (when project context exists).
 - [ ] `proj work` / `proj open` preview → Return opens Current Project detail (not global search).
 - [ ] `proj links` / `proj resume` / `proj capture` preview disabled-filtered rows; Return executes resume/capture/open workspace fallback.
 - [ ] `attach clip` / `attach sel` with Snippets disabled → disabled preview row or status; no snippet draft written.
-- [ ] Home shows **Continue project workspace**, latest draft, **Review linked** row when links exist.
-- [ ] Project activity **not** in global top 8 still appears on Home / `proj recent` / detail (stableProjectID query).
+- [ ] **Workbench continue / linked items** surface via `proj` commands and Current Project detail — **not** on empty-query home (frozen).
+- [ ] Project activity **not** in global top 8 still appears on `proj recent` / detail (stableProjectID query).
 - [ ] Recent draft row (Return) resumes snippet/quicklink/todo without re-capturing.
 - [ ] Detail section order: header → Quick capture → **Linked items** → Recent activity (buttons) → Project actions.
 - [ ] Detail activate shows loading placeholder immediately; no stale previous-project content.
-- [ ] `proj recent` todo capture row (Home / command / detail) Return fills search with `t …` query — not silent noop.
-- [ ] `proj recent` snippet/quicklink row Return opens module detail — same planner result on Home, command preview, and detail.
+- [ ] `proj recent` todo capture row (command / detail) Return fills search with `t …` query — not silent noop.
+- [ ] `proj recent` snippet/quicklink row Return opens module detail — same planner result on command preview and detail.
 - [ ] Recorded (non-openable) activity rows show consistent subtitle; Return shows status hint (not silent noop).
 - [ ] `proj recent` / `proj links` with no data show empty-state subtitle (not generic workspace fallback only).
 - [ ] `proj status` shows stableProjectID + activity/link counts; Return displays full status message.
-- [ ] Legacy activity-only data: empty or partial `workbench-links.json` → **Review linked** / `proj links` appear after first Home or detail load (lazy backfill).
+- [ ] Legacy activity-only data: empty or partial `workbench-links.json` → `proj links` works after detail load (lazy backfill).
 - [ ] **Old data upgrade matrix:**
   - [ ] v1 / unversioned `workbench-activity.json` → v2 migrate; resumes work
   - [ ] v2 activity + empty `workbench-links.json` → links backfill on first read
@@ -308,7 +331,7 @@
   - [ ] Same entity re-captured with updated title → single link row (dedupe), latest title/subtitle
   - [ ] Duplicate links from title/subtitle drift → dedupe leaves one row per entityID
 - [ ] Note activity row opens Notes module — does not promise opening a specific note path.
-- [ ] Disable Snippets/Quicklinks/Todo/Notes → rows disappear consistently from Home, `proj links/recent/capture`, and detail.
+- [ ] Disable Snippets/Quicklinks/Todo/Notes → rows disappear consistently from `proj links/recent/capture` and detail.
 - [ ] Legacy v1 / unversioned `workbench-activity.json` migrates to v2 and resumes still work.
 
 ## Recorded Product Review Additions

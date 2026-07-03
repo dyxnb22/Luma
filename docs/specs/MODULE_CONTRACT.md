@@ -66,6 +66,17 @@ Launcher-handled UI intents (not executed by `ActionExecutor`):
 
 Modules declare intent via `Action.kind` and `ResultItem.rowKind`; the launcher interprets them.
 
+## Detail view UI (App layer)
+
+Module detail views live in `Sources/LumaApp/Launcher/` and are **not** part of the module actor contract (modules must not touch AppKit).
+
+When adding or changing a detail surface:
+
+- Prefer `BaseDetailContainer` + `GeekUIKit.installDetailRootChrome` (`clipsToBounds` only).
+- Do not set `wantsLayer` on full-width detail roots — see [Launcher Panel Constraints](LAUNCHER_PANEL_CONSTRAINTS.md).
+- Custom roots must pin horizontal layout to the container width; toolbars scroll, panel width does not grow.
+- In-panel actions keep the panel visible; immediate actions dismiss it (see Interaction types above).
+
 ## Wordbook v0.2 interfaces
 
 - `WordFamiliarity`: `.known` (stage+1), `.unknown` (reset), `.mastered` (permanent, no longer due), `.fuzzy` (legacy → schedules as `.known`).

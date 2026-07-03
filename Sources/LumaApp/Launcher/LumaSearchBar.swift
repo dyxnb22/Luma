@@ -17,6 +17,16 @@ final class LumaSearchBar: NSView {
 
     private var detailSuspendedQuery: String?
 
+    /// True while module detail has disabled the query field (suspended query may still be held).
+    var isDetailModeActive: Bool {
+        detailSuspendedQuery != nil || !textField.isEditable
+    }
+
+    /// Query to persist while detail mode suspends the visible field.
+    var persistedQuery: String {
+        detailSuspendedQuery ?? stringValue
+    }
+
     private let surfaceView = NSView()
     private let iconView = NSImageView()
     private let textField = LumaSearchTextField()
@@ -201,21 +211,36 @@ final class LumaSearchBar: NSView {
         }
         resetQueryText()
         textField.isEditable = false
-        setPlaceholder(L10n.tr("translate.detail.placeholder", moduleTitle))
+        if let window, window.firstResponder === textField || window.firstResponder === textField.currentEditor() {
+            window.makeFirstResponder(nil)
+        }
+        setPlaceholder(L10n.tr("launcher.detail.placeholder", moduleTitle))
     }
 
     func endDetailMode() -> String? {
         textField.isEditable = true
         let suspended = detailSuspendedQuery
         detailSuspendedQuery = nil
-        setPlaceholder(ModuleSearchHints.default)
+        setPlaceholder(ModuleSearchHints.cheatSheet)
         return suspended
     }
 
     func cancelDetailMode() {
         detailSuspendedQuery = nil
         textField.isEditable = true
-        setPlaceholder(ModuleSearchHints.default)
+        setPlaceholder(ModuleSearchHints.cheatSheet)
+    }
+
+    /// Re-enables clicking and typing when detail was torn down without `endDetailMode()` / `cancelDetailMode()`.
+    func reEnableSearchFieldIfNeeded() {
+        guard !textField.isEditable else { return }
+        textField.isEditable = true
+    }
+
+    func clearStuckDetailModeState() {
+        detailSuspendedQuery = nil
+        textField.isEditable = true
+        setPlaceholder(ModuleSearchHints.cheatSheet)
     }
 
     @objc private func submit() {
@@ -240,12 +265,15 @@ final class LumaSearchBar: NSView {
         }
         let label = NSTextField(wrappingLabelWithString: """
         ⌘1…9 — jump to row
-        ↑ ↓ — move selection (from search)
+        ↑ ↓ — move selection
         Tab / ⌘K — action panel
         Shift+Tab — close action panel
+        ⌘↩ — first secondary action
         help clip — module help (IME-friendly)
         Return — run selected item
         Esc — back / close panel
+        In detail: Esc back · ⌘W close detail
+        Click list and type — forwards to search
         """)
         label.font = .systemFont(ofSize: 12)
         label.textColor = .labelColor
@@ -358,6 +386,19 @@ private final class LumaSearchTextField: NSTextField {
     override func keyDown(with event: NSEvent) {
         if onInterceptKeyDown?(event) == true { return }
         if LumaStandardEditShortcuts.handleKeyDown(event, in: window) { return }
+        if !isEditable {
+            if onDetailKey?(event) == true { return }
+            if event.keyCode == 53 {
+                onEscape?()
+                return
+            }
+            if event.keyCode == 125 || event.keyCode == 126 { return }
+            if event.modifierFlags.contains(.command),
+               let chars = event.charactersIgnoringModifiers,
+               let number = Int(chars),
+               (1...9).contains(number) { return }
+            return
+        }
         if stringValue.isEmpty, onDetailKey?(event) == true { return }
         if event.keyCode == 125, onKeyCommand?(.down) == true { return }
         if event.keyCode == 126, onKeyCommand?(.up) == true { return }

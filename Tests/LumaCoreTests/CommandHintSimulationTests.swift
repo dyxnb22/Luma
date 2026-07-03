@@ -20,6 +20,15 @@ private struct InputSimulation {
     }
 }
 
+@Test func globalHelpRouteProducesCommandEntryRows() {
+    let registry = BuiltInCommandRegistry.make()
+    let router = CommandRouter(registry: registry)
+    #expect(router.route(raw: "help") == .help(module: nil))
+    let items = CommandEntryResults.globalHelp(registry: registry)
+    #expect(!items.isEmpty)
+    #expect(items.allSatisfy { $0.id.module == .commandEntry })
+}
+
 @Test func simulateLauncherInputBoxFlows() {
     let registry = BuiltInCommandRegistry.make()
     let router = CommandRouter(registry: registry)

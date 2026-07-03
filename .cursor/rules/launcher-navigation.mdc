@@ -1,0 +1,40 @@
+---
+description: Launcher navigation, detail exit, and keyboard routing constraints
+globs: Sources/LumaApp/Launcher/LauncherRootController.swift,Sources/LumaApp/Launcher/LauncherRootView.swift,Sources/LumaApp/Launcher/LauncherContentCoordinator.swift,Sources/LumaApp/Launcher/LauncherWindowController.swift,Sources/LumaApp/Launcher/LumaSearchBar.swift,Sources/LumaApp/Launcher/LauncherListView.swift,Sources/LumaApp/Launcher/LauncherActionPanel.swift,Sources/LumaCore/Home/LauncherKeyRouter.swift,Sources/LumaApp/Launcher/*DetailView.swift,Sources/LumaApp/App/AppCoordinator.swift
+alwaysApply: true
+---
+
+# Launcher navigation (frozen intent)
+
+Read **`docs/specs/UX_BEHAVIOR_RULES.md`** (navigation + keyboard sections) and **`docs/qa/LAUNCHER_NAVIGATION_AUDIT.md`** (open issues) before changing detail enter/exit, Esc, or keyboard routing.
+
+## Detail exit — always
+
+- User-facing detail exit (Esc, back, close chrome) → **`exitDetailFromChrome()`** — not `closeDetail()` alone.
+- `beginDetailMode` / `endDetailMode` / `cancelDetailMode` must stay paired; every exit restores `isEditable`.
+- `closeDetail()` is UI teardown only; callers that need query restore must use `exitDetailFromChrome`.
+
+## Detail mode search field
+
+- `beginDetailMode`: suspend query, clear visible field, `isEditable = false`.
+- Do not persist `detailSuspendedQuery` via `stringValue` during detail — session save uses empty field today (audit S1).
+
+## Keyboard — do NOT
+
+- Route ↑↓ or ⌘1–9 to hidden list rows while `showingDetail` (audit K6).
+- Advertise ⌘W close detail without implementing it on `LauncherPanel` (audit K1).
+- Rely on `ModuleDetailView.handleKeyDown` via search field only when `activate()` focuses subviews (audit MOD-KB).
+
+## Keyboard — always
+
+- Block Tab / ⌘K action panel open in detail mode (`LauncherKeyRouter`).
+- Forward module shortcuts from focused detail subviews or a central panel key dispatcher.
+- Action panel arrow keys must work regardless of whether search or list holds focus (audit K7).
+
+## Panel hide
+
+- `hide()` does not tear down detail; document behavior if changing session restore.
+
+## PR requirements
+
+When fixing navigation/shortcut issues: update `UX_BEHAVIOR_RULES.md`, mark items resolved in `LAUNCHER_NAVIGATION_AUDIT.md`, and extend `MANUAL_QA_CHECKLIST.md` Module Detail section.

@@ -19,8 +19,9 @@ enum ColorTokens {
     static let cardShortcutAlpha: CGFloat = 0.65
     static let returnHintCapsuleAlpha: CGFloat = 0.24
     static let listRowSelectionAlpha: CGFloat = LauncherChromeTokens.listRowSelectionAlpha
-    static let searchSurfaceAlpha: CGFloat = 0.42
-    static let searchSurfaceBorderAlpha: CGFloat = 0.35
+    static let searchSurfaceAlpha: CGFloat = 0.58
+    static let searchSurfaceBorderAlpha: CGFloat = 0.48
+    static let searchSurfaceShadowOpacity: Float = 0.14
 
     static var panelBorderColor: NSColor {
         separatorBlend(alpha: LauncherChromeTokens.panelBorderAlpha)

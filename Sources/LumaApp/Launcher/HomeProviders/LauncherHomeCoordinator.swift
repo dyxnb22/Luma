@@ -11,14 +11,11 @@ actor LauncherHomeCoordinator {
     private var contextual: ContextualHomeProvider
     private let workbenchContextBuilder = WorkbenchContextBuilder()
     private var pinnedModuleIDs = ModuleWarmupDefaults.defaultPinnedModuleIDs
-    private var showAllApps = false
     private var collapsedAppBundleIDs = Set<String>()
 
     init(
         openApps: OpenAppsHomeProvider,
         enablementGate: HomeEnablementGate,
-        recentActions: RecentActionsHomeProvider = RecentActionsHomeProvider(),
-        resume: ResumeHomeProvider,
         contextual: ContextualHomeProvider,
         setup: SetupHomeProvider? = nil
     ) {
@@ -27,9 +24,6 @@ actor LauncherHomeCoordinator {
         self.contextual = contextual
         self.aggregator = LauncherHomeAggregator(
             openApps: openApps,
-            recentActions: recentActions,
-            resume: resume,
-            contextual: contextual,
             setup: setup
         )
     }
@@ -44,12 +38,9 @@ actor LauncherHomeCoordinator {
         await contextual.updateEnabledModuleIDs(ids)
     }
 
-    func expandAllApps() {
-        showAllApps = true
-    }
+    func expandAllApps() {}
 
     func resetExpansion() {
-        showAllApps = false
         collapsedAppBundleIDs.removeAll()
     }
 
@@ -87,7 +78,7 @@ actor LauncherHomeCoordinator {
     func snapshot() async -> LauncherHomeSnapshot {
         await refreshWorkbenchContext()
         await openApps.configure(
-            appLimit: showAllApps ? nil : OpenAppsHomeProvider.defaultAppLimit,
+            appLimit: nil,
             collapsedBundleIDs: collapsedAppBundleIDs
         )
         return await aggregator.snapshot()

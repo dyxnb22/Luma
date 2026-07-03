@@ -24,10 +24,14 @@ Route C — **Command-First Unified List**:
 4. **Module = result provider**: Modules surface via `ResultItem` rows, not `FeatureCard` tiles.
 5. **Open Apps as section #1**: Open apps appear in the home list, not a permanent sidebar.
 6. **Action Panel is opt-in**: Tab / ⌘K opens an action chooser; rows show primary action on Return.
-7. **Minimal home abstraction**: Two home providers only — Open Apps, Suggested.
-8. **Performance budget**: Each home provider ≤ 4 ms on main thread; full home snapshot ≤ 16 ms.
+7. **Minimal home abstraction**: **Open Apps only** on empty query. Suggested/continue/create rows are **not** rendered on home (frozen 2026-07-03; see `docs/specs/LAUNCHER_HOME_CONSTRAINTS.md`).
+8. **Performance budget**: Open Apps home provider ≤ 4 ms on main thread; full home snapshot ≤ 16 ms.
 
-Panel geometry: default **900 × 600 pt**, responsive **840–940 × 580–700 pt** (58% screen width × 66% height, capped). Larger than historical Route B's 860 × 540 widget shell.
+Panel geometry (2026-07-03): default **720 × 680 pt**, responsive **640–760 × 600–760 pt**, upper-third bias (`panelVerticalBias` 0.68). Supersedes the earlier 900 × 600 wide-shell note below.
+
+Historical panel note (pre-2026-07): ~~900 × 600 pt, 58% screen width × 66% height~~.
+
+In-panel layout (2026-07-03): full-width hosts must not use `wantsLayer` (default layer `anchorPoint` causes horizontal drift when hints/results/detail relayout). See `docs/specs/LAUNCHER_PANEL_CONSTRAINTS.md`.
 
 ## Consequences
 
@@ -39,12 +43,15 @@ Positive:
 
 Negative:
 
-- No visible multi-module grid; users rely on triggers and suggestions.
-- Home may show the full ranked Open Apps section without a collapsed "+N more" step.
+- No visible multi-module grid; users rely on triggers and search.
+- No home suggestion rows; workbench continue/create flows use commands and detail instead.
+- Full Open Apps list (no `+N more` collapse).
 - ADR-007 dashboard strategy docs become historical reference.
 
 ## Implementation Notes
 
 - `LauncherListView` replaces `FeatureFlowView` + sidebar + dual scroll views.
-- `LauncherHomeAggregator` composes two providers on empty query only.
+- `LauncherHomeAggregator` composes **Open Apps only** on empty query (frozen).
 - `FeatureCatalog.moduleDetailMetadata()` may remain for detail header chrome until fully inlined.
+- Authoritative freeze: `docs/specs/LAUNCHER_HOME_CONSTRAINTS.md`.
+- In-panel layout freeze: `docs/specs/LAUNCHER_PANEL_CONSTRAINTS.md`.

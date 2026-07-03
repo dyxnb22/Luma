@@ -14,7 +14,7 @@ final class LauncherRootView: NSView {
     private let hintBar = LauncherHintBar()
     private let actionPanel = LauncherActionPanel()
     private let contentContainer = NSView()
-    private let detailContainer = NSView()
+    private let detailContainer = LauncherOverlayHostView()
     private let detailTopBar = NSView()
     private let detailTitleLabel = NSTextField(labelWithString: "")
     private let latencyHUD = LatencyHUDOverlayView()
@@ -76,6 +76,8 @@ final class LauncherRootView: NSView {
         super.init(frame: .zero)
 
         LauncherPanelChrome.install(on: self, glassBackground: glassBackground)
+        setContentHuggingPriority(.defaultLow, for: .horizontal)
+        setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         LauncherLayoutBuilder.install(
             on: self,
             performanceStrip: performanceStrip,
@@ -89,7 +91,11 @@ final class LauncherRootView: NSView {
             detailTopBar: detailTopBar,
             detailTitleLabel: detailTitleLabel,
             closeDetailTarget: self,
-            closeDetailAction: #selector(closeDetailAction)
+            closeDetailAction: #selector(closeDetailAction),
+            onPanelSpacingChanged: { [weak self] in
+                guard let self else { return }
+                LauncherInPanelLayout.stabilizePanel(from: self.searchBar)
+            }
         )
         installLatencyHUD()
         controller.permissionController.install(in: self)
@@ -100,6 +106,11 @@ final class LauncherRootView: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
+    }
+
+    override func layout() {
+        super.layout()
+        LauncherPanelChrome.layoutChromeLayers(on: self)
     }
 
     func setLatencyHUDEnabled(_ enabled: Bool) {
@@ -116,6 +127,10 @@ final class LauncherRootView: NSView {
     func refreshOpenApps() { controller.refreshOpenApps() }
     func resetOpenAppsExpansion() { controller.resetOpenAppsExpansion() }
     func focusSearchField() { controller.focusSearchField() }
+    func focusSearchFieldAfterShow() { controller.focusSearchFieldAfterShow() }
+    func dispatchDetailKeyDown(_ event: NSEvent) -> Bool { controller.dispatchDetailKeyDown(event) }
+    func dispatchDetailCloseFromKeyboard() -> Bool { controller.dispatchDetailCloseFromKeyboard() }
+    var isShowingDetail: Bool { controller.isShowingDetail }
     func restoreLastSessionIfNeeded() { controller.restoreLastSessionIfNeeded() }
     func saveCurrentSession() { controller.saveCurrentSession() }
     func resetForActionDismiss() { controller.resetForActionDismiss() }
@@ -128,10 +143,11 @@ final class LauncherRootView: NSView {
     }
     func handleEscape() { controller.handleEscape() }
     func closeDetail() { controller.closeDetail() }
+    func exitDetailFromChrome() { controller.exitDetailFromChrome() }
 
     func showStatus(_ message: String) { controller.showStatus(message) }
 
-    @objc private func closeDetailAction() { controller.closeDetail() }
+    @objc private func closeDetailAction() { controller.exitDetailFromChrome() }
     func prepareDetailForHide() async { await contentCoordinator.currentDetailObject?.prepareForLauncherHide() }
     func refreshPermissionStatus() { controller.permissionController.refresh() }
     func startPermissionPollingIfNeeded() { controller.permissionController.startPollingIfNeeded() }

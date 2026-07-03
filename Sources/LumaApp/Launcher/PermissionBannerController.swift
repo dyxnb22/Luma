@@ -18,11 +18,15 @@ final class PermissionBannerController {
     }
 
     func install(in parent: NSView) {
-        bannerView.wantsLayer = true
-        bannerView.layer?.backgroundColor = NSColor.systemYellow.withAlphaComponent(0.12).cgColor
-        bannerView.layer?.cornerRadius = 8
-        bannerView.layer?.cornerCurve = .continuous
+        let chromeView = NSView()
+        chromeView.wantsLayer = true
+        chromeView.layer?.backgroundColor = NSColor.systemYellow.withAlphaComponent(0.12).cgColor
+        chromeView.layer?.cornerRadius = 8
+        chromeView.layer?.cornerCurve = .continuous
+        chromeView.translatesAutoresizingMaskIntoConstraints = false
+
         bannerView.translatesAutoresizingMaskIntoConstraints = false
+        bannerView.addSubview(chromeView)
 
         label.stringValue = "Accessibility permission needed for window focus features."
         label.font = .systemFont(ofSize: 12, weight: .medium)
@@ -46,6 +50,11 @@ final class PermissionBannerController {
 
         heightConstraint = bannerView.heightAnchor.constraint(equalToConstant: 0)
         NSLayoutConstraint.activate([
+            chromeView.topAnchor.constraint(equalTo: bannerView.topAnchor),
+            chromeView.leadingAnchor.constraint(equalTo: bannerView.leadingAnchor),
+            chromeView.trailingAnchor.constraint(equalTo: bannerView.trailingAnchor),
+            chromeView.bottomAnchor.constraint(equalTo: bannerView.bottomAnchor),
+
             bannerView.leadingAnchor.constraint(equalTo: parent.leadingAnchor, constant: 20),
             bannerView.trailingAnchor.constraint(equalTo: parent.trailingAnchor, constant: -20),
             bannerView.bottomAnchor.constraint(equalTo: parent.bottomAnchor, constant: -8),

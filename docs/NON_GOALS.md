@@ -15,6 +15,26 @@
 - Floating Wordbook desktop-pet mode in v0.1. (Wordbook entry is through the launcher and `word` trigger; see ADR-009.)
 - ChatGPT-paste or CSV import UI for Wordbook in v0.1. (CSV import/export shipped; see ADR-020.)
 
+## Launcher Home (Frozen — do not restore without ADR)
+
+Authoritative spec: `docs/specs/LAUNCHER_HOME_CONSTRAINTS.md`.
+
+- Setup / Get Started section or setup rows on empty-query home.
+- Recent, Continue, or Create suggestion sections on home.
+- `+N more` collapsed Open Apps row.
+- Auto-present first-run onboarding wizard on launch.
+- Gray card background on every idle list row (reads as disabled UI).
+- Dashboard card grid or permanent module sidebar on home.
+
+## Launcher Panel (Frozen — do not change without ADR)
+
+Authoritative spec: `docs/specs/LAUNCHER_PANEL_CONSTRAINTS.md`.
+
+- Reverting to **900 × 600** wide-dashboard panel proportions.
+- `wantsLayer` or scale transforms on full-width in-panel hosts (root, list container, detail root).
+- Resizing the panel from detail content width.
+- `window.center()` for transient windows on multi-monitor setups.
+
 ## Wordbook Module
 
 - Multi-book / multi-deck / multi-language switching.
@@ -62,8 +82,9 @@ Reference: ADR-021 Clipboard v1 frozen scope.
 - Media tracker as a home-screen card or dashboard surface.
 - Window tiling/layout engine as a v1 core feature.
 - Dashboard-first launcher panel.
+- Home suggestion / continue / create rows on empty query (use search and commands).
 - Shortcut automation replacement.
-- Complex onboarding tutorials beyond the built-in first-run wizard.
+- Auto-present onboarding wizard on first launch.
 - Heavy architecture frameworks unless a concrete local pain justifies them.
 
 ## Notes Module

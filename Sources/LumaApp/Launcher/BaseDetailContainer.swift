@@ -101,12 +101,13 @@ final class BaseDetailContainer: NSView {
         bodyHost.translatesAutoresizingMaskIntoConstraints = false
         footerHost.translatesAutoresizingMaskIntoConstraints = false
         footerHost.isHidden = true
+        toolbarHost.isHidden = true
 
         addSubview(toolbarHost)
         addSubview(bodyHost)
         addSubview(footerHost)
 
-        toolbarHeight = toolbarHost.heightAnchor.constraint(equalToConstant: LauncherChromeTokens.detailToolbarHeight)
+        toolbarHeight = toolbarHost.heightAnchor.constraint(equalToConstant: 0)
         footerHeight = footerHost.heightAnchor.constraint(equalToConstant: 0)
 
         NSLayoutConstraint.activate([

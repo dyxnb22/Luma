@@ -115,10 +115,12 @@ final class TodoDetailView: NSObject, ModuleDetailView {
         statusLabel.translatesAutoresizingMaskIntoConstraints = false
 
         topBar.addSubview(inputField)
-        topBar.addSubview(addButton)
-        topBar.addSubview(refreshButton)
-        topBar.addSubview(openRemindersButton)
         topBar.addSubview(tabControl)
+
+        let trailingStack = NSStackView(views: [addButton, refreshButton, openRemindersButton])
+        trailingStack.orientation = .horizontal
+        trailingStack.spacing = 6
+        trailingStack.translatesAutoresizingMaskIntoConstraints = false
 
         stackView.orientation = .vertical
         stackView.alignment = .leading
@@ -139,27 +141,19 @@ final class TodoDetailView: NSObject, ModuleDetailView {
         NSLayoutConstraint.activate([
             inputField.leadingAnchor.constraint(equalTo: topBar.leadingAnchor),
             inputField.topAnchor.constraint(equalTo: topBar.topAnchor, constant: 2),
-            inputField.trailingAnchor.constraint(equalTo: addButton.leadingAnchor, constant: -8),
-
-            addButton.trailingAnchor.constraint(equalTo: refreshButton.leadingAnchor, constant: -6),
-            addButton.centerYAnchor.constraint(equalTo: inputField.centerYAnchor),
-            addButton.widthAnchor.constraint(equalToConstant: 64),
-
-            refreshButton.trailingAnchor.constraint(equalTo: openRemindersButton.leadingAnchor, constant: -4),
-            refreshButton.centerYAnchor.constraint(equalTo: inputField.centerYAnchor),
-            refreshButton.widthAnchor.constraint(equalToConstant: 26),
-            refreshButton.heightAnchor.constraint(equalToConstant: 26),
-
-            openRemindersButton.trailingAnchor.constraint(equalTo: topBar.trailingAnchor),
-            openRemindersButton.centerYAnchor.constraint(equalTo: inputField.centerYAnchor),
-            openRemindersButton.widthAnchor.constraint(equalToConstant: 26),
-            openRemindersButton.heightAnchor.constraint(equalToConstant: 26),
 
             tabControl.leadingAnchor.constraint(equalTo: topBar.leadingAnchor),
             tabControl.bottomAnchor.constraint(equalTo: topBar.bottomAnchor, constant: -2),
 
             stackView.widthAnchor.constraint(equalTo: scrollView.contentView.widthAnchor, constant: -16)
         ])
+        inputField.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        GeekUIKit.constrainDetailToolbarTrailingActions(
+            trailingStack,
+            in: topBar,
+            after: inputField,
+            spacing: 8
+        )
     }
 
     private func listKind(for tab: Tab) -> TodoListKind {

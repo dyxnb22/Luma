@@ -6,7 +6,7 @@ Luma is a personal macOS launcher for one keyboard-heavy developer. It opens via
 
 ## Strategic Update
 
-The active product strategy is **Route C** (ADR-023): a command-first unified list launcher. Command+Space opens a single-column list with sectioned home rows (Open Apps, Suggested) and flat search results. Module detail views remain in the same panel; dashboard feature cards are no longer home-screen entry points.
+The active product strategy is **Route C** (ADR-023): a command-first unified list launcher. Command+Space opens a single-column list with an **Open Apps-only** home (empty query) and flat search results. Module detail views remain in the same panel; dashboard feature cards and home suggestion sections are not used.
 
 Authoritative planning docs:
 
@@ -23,7 +23,7 @@ Historical route docs:
 ## Product Goals
 
 - Native AppKit launcher with p95 hotkey-to-interactive <= 50 ms.
-- Empty-query home list with Open Apps and contextual suggestions.
+- Empty-query home list with **Open Apps only** (calm app switcher).
 - Modular query/action implementation behind a simple launcher UX.
 - Local-first data for clipboard, usage, configuration, and app cache.
 - A small core feature set that remains fast under repeated daily use.
@@ -47,8 +47,14 @@ The product is already mostly formed. Current work should prioritize:
 5. Command-first module triggers (`clip`, `note`, `t`, `tr`, etc.).
 6. **Window Layout** — prefix-triggered presets (`layout` / `win` / `wl`) to move the focused window (left/right/top/bottom/maximize/center).
 7. **Project Switcher** — prefix-triggered project open (`proj` / `p` / `project`) with config at `~/Library/Application Support/Luma/projects.json`.
-8. Spotlight/Raycast-like UI with native macOS visual calm.
+8. Spotlight/Raycast-like UI: **720 × 680 pt** panel, upper-third placement, transparent idle list rows.
 9. `Features/` folder containing per-module introductions and maintenance notes.
+
+**Frozen home constraints:** `docs/specs/LAUNCHER_HOME_CONSTRAINTS.md` — do not re-add setup, recent, continue, create, `+N more`, or auto-onboarding on home without a new ADR.
+
+**Frozen panel constraints:** `docs/specs/LAUNCHER_PANEL_CONSTRAINTS.md` — fixed 720×680 geometry, presentation-screen placement, no full-width `wantsLayer` (prevents horizontal clip on module-prefix search).
+
+**Open navigation/shortcut gaps (temporary):** `docs/qa/LAUNCHER_NAVIGATION_AUDIT.md` — detail exit, keyboard routing, session restore; align `docs/specs/UX_BEHAVIOR_RULES.md` when closed.
 
 ## Active Built-In Modules
 

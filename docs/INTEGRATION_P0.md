@@ -19,7 +19,7 @@ Status legend: ✅ done · 🔄 in progress · ☐ not started
 - ✅ Notes and Secrets detail empty states with next actions
 - ✅ Media and Projects detail views show actionable empty states
 - ✅ Empty search results clarify query vs missing data via `SearchEmptyState` hints
-- ✅ First-run state points to setup rather than exposing implementation details (`SetupHomeProvider`)
+- ✅ First-run opens **Open Apps home directly** — no setup rows or auto-onboarding wizard (`LAUNCHER_HOME_CONSTRAINTS.md`)
 
 ## 3. Cross-Module Flows
 
@@ -27,7 +27,7 @@ Status legend: ✅ done · 🔄 in progress · ☐ not started
 - ✅ Clipboard / selection → Note (append to daily note action)
 - ✅ Clipboard entry → inline expansion via snippet trigger
 - ✅ URL / selection → Quicklink draft
-- ✅ Current project context surfaced in Commands / Snippets / Quicklinks suggestions
+- ✅ Current project context surfaces in **project workspace detail** and `proj` commands (not empty-query home)
 - ✅ Records / Wordbook / Notes actions round-trip cleanly back into launcher search
 
 ## 4. Detail Return Chain

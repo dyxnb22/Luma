@@ -198,32 +198,24 @@ final class ClipboardDetailView: NSObject, ModuleDetailView {
         settingsButton.translatesAutoresizingMaskIntoConstraints = false
 
         toolbar.addSubview(searchField)
-        toolbar.addSubview(filterControl)
-        toolbar.addSubview(transformPopup)
-        toolbar.addSubview(clearUnpinnedButton)
-        toolbar.addSubview(clearRecentButton)
-        toolbar.addSubview(settingsButton)
+        let trailingStack = NSStackView(views: [
+            filterControl, transformPopup, clearUnpinnedButton, clearRecentButton, settingsButton
+        ])
+        trailingStack.orientation = .horizontal
+        trailingStack.spacing = 8
+        trailingStack.translatesAutoresizingMaskIntoConstraints = false
 
         NSLayoutConstraint.activate([
             searchField.leadingAnchor.constraint(equalTo: toolbar.leadingAnchor),
             searchField.centerYAnchor.constraint(equalTo: toolbar.centerYAnchor),
-            searchField.widthAnchor.constraint(equalToConstant: 180),
-
-            filterControl.leadingAnchor.constraint(equalTo: searchField.trailingAnchor, constant: 10),
-            filterControl.centerYAnchor.constraint(equalTo: toolbar.centerYAnchor),
-
-            transformPopup.leadingAnchor.constraint(equalTo: filterControl.trailingAnchor, constant: 10),
-            transformPopup.centerYAnchor.constraint(equalTo: toolbar.centerYAnchor),
-
-            clearUnpinnedButton.leadingAnchor.constraint(equalTo: transformPopup.trailingAnchor, constant: 10),
-            clearUnpinnedButton.centerYAnchor.constraint(equalTo: toolbar.centerYAnchor),
-
-            clearRecentButton.leadingAnchor.constraint(equalTo: clearUnpinnedButton.trailingAnchor, constant: 8),
-            clearRecentButton.centerYAnchor.constraint(equalTo: toolbar.centerYAnchor),
-
-            settingsButton.trailingAnchor.constraint(equalTo: toolbar.trailingAnchor),
-            settingsButton.centerYAnchor.constraint(equalTo: toolbar.centerYAnchor)
+            searchField.widthAnchor.constraint(equalToConstant: 180)
         ])
+        GeekUIKit.constrainDetailToolbarTrailingActions(
+            trailingStack,
+            in: toolbar,
+            after: searchField,
+            spacing: 10
+        )
         return toolbar
     }
 

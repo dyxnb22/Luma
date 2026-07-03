@@ -180,4 +180,49 @@ public struct WorkbenchCommandRouter: Sendable {
     public func definition(for id: WorkbenchCommandID) -> WorkbenchCommandDefinition? {
         definitions.first { $0.id == id }
     }
+
+    public func commandHint(for route: WorkbenchCommandRoute, raw: String) -> CommandHint? {
+        switch route {
+        case .none:
+            return nil
+        case .capture(let definition):
+            return CommandHint(
+                usageFormat: definition.triggers.first ?? raw.trimmingCharacters(in: .whitespacesAndNewlines),
+                description: definition.title,
+                example: definition.triggers.dropFirst().first
+            )
+        case .continueProject:
+            return CommandHint(
+                usageFormat: "proj continue",
+                description: WorkbenchEmptyStateCopy.continueProject,
+                example: "continue project"
+            )
+        case .projectWork:
+            return CommandHint(
+                usageFormat: "proj work",
+                description: WorkbenchEmptyStateCopy.openProjectWorkspace
+            )
+        case .projectOpen:
+            return CommandHint(
+                usageFormat: "proj open",
+                description: WorkbenchEmptyStateCopy.openProjectWorkspace
+            )
+        case .projectRecent:
+            return CommandHint(usageFormat: "proj recent", description: "Project recent activity")
+        case .projectLinks:
+            return CommandHint(usageFormat: "proj links", description: "Project linked items")
+        case .projectResume:
+            return CommandHint(usageFormat: "proj resume", description: "Resume project work")
+        case .projectCapture:
+            return CommandHint(usageFormat: "proj capture", description: "Project capture")
+        case .projectStatus:
+            return CommandHint(usageFormat: "proj status", description: "Project workbench status")
+        case .attachProject:
+            return CommandHint(usageFormat: "attach project", description: "Attach draft to project")
+        case .attachClipboard:
+            return CommandHint(usageFormat: "attach clip", description: "Attach clipboard to project")
+        case .attachSelection:
+            return CommandHint(usageFormat: "attach sel", description: "Attach selection to project")
+        }
+    }
 }

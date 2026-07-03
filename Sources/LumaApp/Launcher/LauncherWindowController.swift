@@ -7,6 +7,7 @@ import LumaServices
 @MainActor
 final class LauncherWindowController {
     private let panel = LauncherPanel()
+    private let panelContentHost = NSView()
     private var rootView: LauncherRootView?
     private var onWillShow: (() -> Void)?
     private var onDidHide: (() -> Void)?
@@ -45,9 +46,25 @@ final class LauncherWindowController {
             onActionDismiss: { [weak self] in self?.hideImmediatelyForAction() },
             onOpenSettings: onOpenSettings
         )
-        panel.contentView = rootView
-        rootView.layer?.anchorPoint = CGPoint(x: 0.5, y: 0.5)
+        panelContentHost.translatesAutoresizingMaskIntoConstraints = true
+        panelContentHost.autoresizingMask = [.width, .height]
+        panel.contentView = panelContentHost
+
+        rootView.translatesAutoresizingMaskIntoConstraints = false
+        panelContentHost.addSubview(rootView)
+        NSLayoutConstraint.activate([
+            rootView.leadingAnchor.constraint(equalTo: panelContentHost.leadingAnchor),
+            rootView.trailingAnchor.constraint(equalTo: panelContentHost.trailingAnchor),
+            rootView.topAnchor.constraint(equalTo: panelContentHost.topAnchor),
+            rootView.bottomAnchor.constraint(equalTo: panelContentHost.bottomAnchor)
+        ])
         self.rootView = rootView
+        panel.onDetailKeyDown = { [weak rootView] event in
+            rootView?.dispatchDetailKeyDown(event) ?? false
+        }
+        panel.onCloseDetail = { [weak rootView] in
+            rootView?.dispatchDetailCloseFromKeyboard() ?? false
+        }
         AppleTranslationHost.shared.attach(to: rootView)
     }
 
@@ -64,7 +81,11 @@ final class LauncherWindowController {
     }
 
     func closeDetailIfShowing() {
-        rootView?.closeDetail()
+        rootView?.exitDetailFromChrome()
+    }
+
+    func exitDetailFromChromeIfShowing() {
+        rootView?.exitDetailFromChrome()
     }
 
     func showStatus(_ message: String) {
@@ -98,7 +119,6 @@ final class LauncherWindowController {
             await MenuBarTreeService.shared.scheduleRefreshForFrontmost()
         }
         panel.alphaValue = 0
-        panel.contentView?.layer?.transform = CATransform3DMakeScale(0.96, 0.96, 1)
         NSApp.activate(ignoringOtherApps: true)
         panel.orderFrontRegardless()
         panel.makeKey()
@@ -107,7 +127,7 @@ final class LauncherWindowController {
         rootView?.startPerformanceSampling()
         rootView?.setHomeProvidersActive(true)
         rootView?.restoreLastSessionIfNeeded()
-        ensureSearchFieldFocused()
+        rootView?.focusSearchFieldAfterShow()
         rootView?.refreshOpenApps()
         let duration = MotionTokens.panelShowDuration
         let qaMode = ProcessInfo.processInfo.environment["LUMA_QA"] == "1"
@@ -115,7 +135,6 @@ final class LauncherWindowController {
             context.duration = duration
             context.timingFunction = CAMediaTimingFunction(name: .easeOut)
             panel.animator().alphaValue = 1
-            panel.contentView?.layer?.transform = CATransform3DIdentity
         } completionHandler: { [weak self] in
             Task { @MainActor [weak self] in
                 guard let self else { return }
@@ -190,12 +209,7 @@ final class LauncherWindowController {
     }
 
     private func positionPanel() {
-        let screen = NSScreen.main ?? NSScreen.screens.first
-        guard let visible = screen?.visibleFrame else { return }
-        panel.resizeForScreen(visible)
-        let frame = panel.frame
-        let x = visible.midX - frame.width / 2
-        let y = visible.minY + (visible.height - frame.height) * LauncherChromeTokens.panelVerticalBias
-        panel.setFrameOrigin(NSPoint(x: x, y: y))
+        guard let screen = LumaPresentationScreen.current() else { return }
+        panel.position(on: screen.visibleFrame)
     }
 }

@@ -5,7 +5,7 @@ import LumaCore
 @MainActor
 final class LauncherContentCoordinator {
     private let listView: LauncherListView
-    private let detailContainer: NSView
+    private let detailContainer: LauncherOverlayHostView
     private let detailTopBar: NSView
     private let detailTitleLabel: NSTextField
     private let contentContainer: NSView
@@ -26,7 +26,7 @@ final class LauncherContentCoordinator {
 
     init(
         listView: LauncherListView,
-        detailContainer: NSView,
+        detailContainer: LauncherOverlayHostView,
         detailTopBar: NSView,
         detailTitleLabel: NSTextField,
         contentContainer: NSView
@@ -36,6 +36,8 @@ final class LauncherContentCoordinator {
         self.detailTopBar = detailTopBar
         self.detailTitleLabel = detailTitleLabel
         self.contentContainer = contentContainer
+        detailContainer.passesHitTests = false
+        detailContainer.isHidden = true
         listView.onRun = { [weak self] item in self?.onRun?(item) }
         listView.onRightClick = { [weak self] item in self?.onRightClick?(item) }
         listView.onSelectionChanged = { [weak self] index in
@@ -55,6 +57,9 @@ final class LauncherContentCoordinator {
         currentDetailModuleID = nil
         detailContainer.isHidden = true
         detailContainer.alphaValue = 0
+        detailContainer.passesHitTests = false
+        listView.passesHitTests = true
+        onHomeSessionSaved?()
     }
 
     func resetResults() {
@@ -70,6 +75,7 @@ final class LauncherContentCoordinator {
         selectedIndex = 0
         listView.renderHome(snapshot)
         syncSelectionFromList()
+        LauncherInPanelLayout.stabilizePanel(from: listView)
     }
 
     func present(
@@ -96,8 +102,10 @@ final class LauncherContentCoordinator {
         ])
         detailTitleLabel.stringValue = detail.moduleTitle
 
+        listView.passesHitTests = false
         detailContainer.isHidden = false
         detailContainer.alphaValue = 0
+        detailContainer.passesHitTests = true
         showingDetail = true
 
         NSAnimationContext.runAnimationGroup { ctx in
@@ -109,6 +117,8 @@ final class LauncherContentCoordinator {
             Task { @MainActor [weak self] in
                 guard let self, self.showingDetail else { return }
                 self.listView.isHidden = true
+                self.listView.passesHitTests = false
+                LauncherInPanelLayout.stabilizePanel(from: self.detailContainer)
             }
         }
 
@@ -121,6 +131,7 @@ final class LauncherContentCoordinator {
             }
         }
         onSessionChanged?()
+        LauncherInPanelLayout.stabilizePanel(from: detailContainer)
     }
 
     func closeDetail() {
@@ -132,8 +143,10 @@ final class LauncherContentCoordinator {
         currentDetailModuleID = nil
         detailTopBar.isHidden = false
 
+        detailContainer.passesHitTests = false
         listView.isHidden = false
         listView.alphaValue = 0
+        listView.passesHitTests = true
 
         NSAnimationContext.runAnimationGroup { ctx in
             ctx.duration = MotionTokens.panelShowDuration
@@ -144,9 +157,13 @@ final class LauncherContentCoordinator {
             Task { @MainActor [weak self] in
                 guard let self, !self.showingDetail else { return }
                 self.detailContainer.isHidden = true
+                self.detailContainer.passesHitTests = false
+                self.listView.passesHitTests = true
+                LauncherInPanelLayout.stabilizePanel(from: self.listView)
             }
         }
         onHomeSessionSaved?()
+        LauncherInPanelLayout.stabilizePanel(from: detailContainer)
     }
 
     func renderResults(_ items: [ResultItem], layout: ResultListLayout = .flat) {
@@ -158,11 +175,13 @@ final class LauncherContentCoordinator {
             currentItems = []
             selectedIndex = 0
             listView.renderResults([], layout: layout)
+            LauncherInPanelLayout.stabilizePanel(from: listView)
             return
         }
         showingResults = true
         listView.renderResults(newItems, layout: layout, preserveSelectionID: previouslySelectedID)
         syncSelectionFromList()
+        LauncherInPanelLayout.stabilizePanel(from: listView)
     }
 
     func apply(snapshot: ResultSnapshot) {

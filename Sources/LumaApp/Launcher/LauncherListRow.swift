@@ -25,6 +25,7 @@ final class LauncherListRow: NSControl {
     private let trailingLabel = NSTextField(labelWithString: "")
     private let returnHintContainer = NSView()
     private let returnHint = NSTextField(labelWithString: "↩")
+    private let backgroundView = NSView()
     private var selectionAccentLayer: CALayer?
     private var isSelected = false
     private var isHovered = false
@@ -44,10 +45,20 @@ final class LauncherListRow: NSControl {
         self.onRightClick = onRightClick
         self.onHover = onHover
         super.init(frame: .zero)
-        wantsLayer = true
-        layer?.masksToBounds = true
-        layer?.cornerRadius = LauncherChromeTokens.listRowCornerRadius
-        layer?.cornerCurve = .continuous
+        clipsToBounds = true
+
+        backgroundView.translatesAutoresizingMaskIntoConstraints = false
+        backgroundView.wantsLayer = true
+        backgroundView.layer?.cornerRadius = LauncherChromeTokens.listRowCornerRadius
+        backgroundView.layer?.cornerCurve = .continuous
+        backgroundView.layer?.masksToBounds = true
+        addSubview(backgroundView)
+        NSLayoutConstraint.activate([
+            backgroundView.topAnchor.constraint(equalTo: topAnchor),
+            backgroundView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            backgroundView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            backgroundView.bottomAnchor.constraint(equalTo: bottomAnchor)
+        ])
         setup()
         configureReturnHint()
         setSelected(isSelected)
@@ -111,18 +122,31 @@ final class LauncherListRow: NSControl {
     }
 
     private func refreshRowAppearance() {
+        guard let layer = backgroundView.layer else { return }
         if isSelected {
-            layer?.backgroundColor = ColorTokens.listRowSelectionFill.cgColor
+            backgroundView.layer?.masksToBounds = false
+            layer.backgroundColor = ColorTokens.listRowSelectionFill.cgColor
+            layer.borderWidth = 0
+            layer.shadowColor = NSColor.controlAccentColor.withAlphaComponent(0.22).cgColor
+            layer.shadowOpacity = 0.28
+            layer.shadowRadius = LauncherChromeTokens.listRowSelectedShadowRadius
+            layer.shadowOffset = CGSize(width: 0, height: -1)
         } else if isHovered {
-            layer?.backgroundColor = ColorTokens.listRowHoverFill.cgColor
+            backgroundView.layer?.masksToBounds = true
+            layer.backgroundColor = ColorTokens.listRowHoverFill.cgColor
+            layer.borderWidth = 0
+            layer.shadowOpacity = 0
         } else {
-            layer?.backgroundColor = NSColor.clear.cgColor
+            backgroundView.layer?.masksToBounds = true
+            layer.backgroundColor = NSColor.clear.cgColor
+            layer.borderWidth = 0
+            layer.shadowOpacity = 0
         }
     }
 
     override func layout() {
         super.layout()
-        geekLayoutAccentLayers()
+        backgroundView.geekLayoutAccentLayers()
     }
 
     @objc private func run() {
@@ -169,6 +193,8 @@ final class LauncherListRow: NSControl {
         titleLabel.textColor = isNested ? .secondaryLabelColor : .labelColor
         titleLabel.lineBreakMode = .byTruncatingTail
         titleLabel.maximumNumberOfLines = 1
+        titleLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        titleLabel.setContentHuggingPriority(.defaultLow, for: .horizontal)
         titleLabel.translatesAutoresizingMaskIntoConstraints = false
 
         let hasSubtitle = !(item.subtitle ?? "").isEmpty
@@ -177,12 +203,18 @@ final class LauncherListRow: NSControl {
         subtitleLabel.textColor = isNested ? .tertiaryLabelColor : .secondaryLabelColor
         subtitleLabel.lineBreakMode = .byTruncatingTail
         subtitleLabel.maximumNumberOfLines = item.displayDensity == .expanded ? 2 : 1
+        subtitleLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        subtitleLabel.setContentHuggingPriority(.defaultLow, for: .horizontal)
         subtitleLabel.isHidden = !hasSubtitle
         subtitleLabel.translatesAutoresizingMaskIntoConstraints = false
 
         trailingLabel.stringValue = isNested ? "" : "· \(moduleLabel)"
         trailingLabel.font = TypographyTokens.monoCaption()
         trailingLabel.textColor = .secondaryLabelColor
+        trailingLabel.lineBreakMode = .byTruncatingTail
+        trailingLabel.maximumNumberOfLines = 1
+        trailingLabel.setContentHuggingPriority(.defaultHigh, for: .horizontal)
+        trailingLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         trailingLabel.isBezeled = false
         trailingLabel.isEditable = false
         trailingLabel.drawsBackground = false
@@ -203,7 +235,7 @@ final class LauncherListRow: NSControl {
         returnHintContainer.isHidden = true
         returnHintContainer.translatesAutoresizingMaskIntoConstraints = false
 
-        selectionAccentLayer = GeekUIKit.installSidebarAccent(on: self)
+        selectionAccentLayer = GeekUIKit.installSidebarAccent(on: backgroundView)
 
         returnHintContainer.addSubview(returnHint)
         if item.listNest != .none {
@@ -332,18 +364,28 @@ private final class ListTreeGuideView: NSView {
 
 @MainActor
 final class LauncherSectionHeaderView: NSView {
+    private let divider = NSView()
     private let titleLabel = NSTextField(labelWithString: "")
     private let shortcutLabel = NSTextField(labelWithString: "")
 
     init(title: String, shortcutIndex: Int?) {
         super.init(frame: .zero)
         translatesAutoresizingMaskIntoConstraints = false
+
+        divider.wantsLayer = true
+        divider.layer?.backgroundColor = NSColor.separatorColor.withAlphaComponent(0.55).cgColor
+        divider.translatesAutoresizingMaskIntoConstraints = false
+
         titleLabel.stringValue = title
         titleLabel.font = TypographyTokens.caption2(weight: .semibold)
         titleLabel.textColor = .secondaryLabelColor
         titleLabel.isBezeled = false
         titleLabel.isEditable = false
         titleLabel.drawsBackground = false
+        titleLabel.lineBreakMode = .byTruncatingTail
+        titleLabel.maximumNumberOfLines = 1
+        titleLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        titleLabel.setContentHuggingPriority(.defaultLow, for: .horizontal)
         titleLabel.translatesAutoresizingMaskIntoConstraints = false
 
         if let shortcutIndex {
@@ -354,15 +396,24 @@ final class LauncherSectionHeaderView: NSView {
         shortcutLabel.isBezeled = false
         shortcutLabel.isEditable = false
         shortcutLabel.drawsBackground = false
+        shortcutLabel.setContentHuggingPriority(.defaultHigh, for: .horizontal)
+        shortcutLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         shortcutLabel.translatesAutoresizingMaskIntoConstraints = false
 
+        addSubview(divider)
         addSubview(titleLabel)
         addSubview(shortcutLabel)
         heightAnchor.constraint(equalToConstant: LauncherChromeTokens.sectionHeaderHeight).isActive = true
 
         NSLayoutConstraint.activate([
+            divider.topAnchor.constraint(equalTo: topAnchor),
+            divider.leadingAnchor.constraint(equalTo: leadingAnchor),
+            divider.trailingAnchor.constraint(equalTo: trailingAnchor),
+            divider.heightAnchor.constraint(equalToConstant: 0.5),
+
             titleLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 6),
             titleLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
+            titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: shortcutLabel.leadingAnchor, constant: -8),
             shortcutLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -6),
             shortcutLabel.centerYAnchor.constraint(equalTo: centerYAnchor)
         ])

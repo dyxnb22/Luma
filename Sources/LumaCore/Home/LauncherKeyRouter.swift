@@ -46,9 +46,11 @@ public enum LauncherKeyRouter {
 
         switch command {
         case .down:
+            guard mode != .detail else { return .handled }
             guard itemCount > 0 else { return .handled }
             return .moveSelection(delta: 1)
         case .up:
+            guard mode != .detail else { return .handled }
             guard itemCount > 0 else { return .handled }
             return .moveSelection(delta: -1)
         case .backtab:
@@ -59,6 +61,7 @@ public enum LauncherKeyRouter {
         case .commandReturn:
             return .handled
         case .commandNumber(let number):
+            guard mode != .detail else { return .handled }
             let index = number - 1
             guard itemCount > index, index >= 0 else { return .handled }
             return .jumpToFlatIndex(index)

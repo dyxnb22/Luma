@@ -143,15 +143,18 @@ final class SecretsDetailView: NSObject, ModuleDetailView {
         buttonStack.translatesAutoresizingMaskIntoConstraints = false
 
         toolbar.addSubview(searchField)
-        toolbar.addSubview(buttonStack)
 
         NSLayoutConstraint.activate([
             searchField.leadingAnchor.constraint(equalTo: toolbar.leadingAnchor),
             searchField.centerYAnchor.constraint(equalTo: toolbar.centerYAnchor),
-            searchField.widthAnchor.constraint(equalToConstant: 200),
-            buttonStack.trailingAnchor.constraint(equalTo: toolbar.trailingAnchor),
-            buttonStack.centerYAnchor.constraint(equalTo: toolbar.centerYAnchor)
+            searchField.widthAnchor.constraint(equalToConstant: 200)
         ])
+        GeekUIKit.constrainDetailToolbarTrailingActions(
+            buttonStack,
+            in: toolbar,
+            after: searchField,
+            spacing: 12
+        )
         return toolbar
     }
 

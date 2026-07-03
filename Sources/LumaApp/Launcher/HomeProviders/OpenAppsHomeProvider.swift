@@ -61,7 +61,6 @@ actor OpenAppsHomeProvider: LauncherHomeProvider {
 
         let limit = appLimit ?? ordered.count
         let visible = Array(ordered.prefix(limit))
-        let hiddenCount = max(0, ordered.count - visible.count)
 
         var items: [ResultItem] = []
         for app in visible {
@@ -76,9 +75,6 @@ actor OpenAppsHomeProvider: LauncherHomeProvider {
             } else {
                 items.append(Self.appRow(for: app))
             }
-        }
-        if hiddenCount > 0 {
-            items.append(OpenAppsResultBuilder.moreRow(hiddenCount: hiddenCount))
         }
         return items
     }

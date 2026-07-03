@@ -29,7 +29,8 @@ Run every currently shipped user-facing module and launcher flow at least once, 
 2. Then run a freeform recorded walkthrough:
    - launch
    - first-run or permission states
-   - home list behavior
+   - home list behavior (Open Apps only)
+   - panel centering and module-prefix layout (`clip`, `note`, `tr`, … — no horizontal drift)
    - search and action panel
    - each module's primary path
    - at least one edge case per risky module
@@ -68,6 +69,8 @@ For each finding, capture:
 ## Notes For Cursor
 
 - Prefer current Route C docs over historical Route A/Route B material.
+- Authoritative freezes: `docs/specs/LAUNCHER_HOME_CONSTRAINTS.md` (Open Apps home), `docs/specs/LAUNCHER_PANEL_CONSTRAINTS.md` (720×680 geometry, in-panel layout), `docs/specs/UX_BEHAVIOR_RULES.md` (navigation + shortcuts intent).
+- Open launcher interaction gaps: `docs/qa/LAUNCHER_NAVIGATION_AUDIT.md` (temporary working doc — check before changing navigation, detail exit, or keyboard routing).
 - Do not treat dashboard-card docs as current acceptance criteria.
 - If behavior and documentation disagree, trust the current code plus `docs/ARCHITECTURE.md` and note the doc mismatch as a finding.
 - Use scripted smoke to reduce setup drift; use freeform exploration to judge product quality.

@@ -28,14 +28,6 @@ import Testing
         func items() async -> [ResultItem] { rows }
     }
 
-    struct StubContextualProvider: ContextualHomeSectionProvider {
-        func items() async -> [ResultItem] { [] }
-
-        func sectionedItems() async -> (continue: [ResultItem], create: [ResultItem]) {
-            (continue: [], create: [])
-        }
-    }
-
     let setupID = ModuleIdentifier(rawValue: "luma.notes")
     let setupRow = ResultItem(
         id: ResultID(module: setupID, key: "setup.notes-root"),
@@ -48,9 +40,6 @@ import Testing
 
     let aggregator = LauncherHomeAggregator(
         openApps: StubHomeProvider(rows: []),
-        recentActions: StubHomeProvider(rows: []),
-        resume: StubHomeProvider(rows: []),
-        contextual: StubContextualProvider(),
         setup: StubHomeProvider(rows: [setupRow])
     )
     let snapshot = await aggregator.snapshot()

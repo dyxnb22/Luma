@@ -15,6 +15,9 @@ final class CommandHintBar: NSView {
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         translatesAutoresizingMaskIntoConstraints = false
+        clipsToBounds = true
+        setContentHuggingPriority(.defaultLow, for: .horizontal)
+        setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
         stack.orientation = .vertical
         stack.alignment = .leading
@@ -37,9 +40,17 @@ final class CommandHintBar: NSView {
         NSLayoutConstraint.activate([
             stack.topAnchor.constraint(equalTo: topAnchor),
             stack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 4),
-            stack.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -4),
+            stack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -4),
             stack.bottomAnchor.constraint(equalTo: bottomAnchor)
         ])
+        for label in [formatLine, descriptionLine, exampleLine, returnLine, statusLine] {
+            label.widthAnchor.constraint(lessThanOrEqualTo: stack.widthAnchor).isActive = true
+        }
+    }
+
+    override func layout() {
+        super.layout()
+        updateLabelWidths()
     }
 
     @available(*, unavailable)
@@ -61,7 +72,7 @@ final class CommandHintBar: NSView {
         }
 
         isHidden = false
-        heightConstraint.constant = LauncherChromeTokens.commandHintHeight
+        updateLabelWidths()
         formatLine.stringValue = "Format: \(hint.usageFormat)"
         if let helpTrigger, !helpTrigger.isEmpty, helpTrigger != "help", helpTrigger != "?" {
             descriptionLine.stringValue = "About: \(hint.description)\(L10n.tr("commandHint.helpSuffix", helpTrigger))"
@@ -75,6 +86,20 @@ final class CommandHintBar: NSView {
             exampleLine.stringValue = ""
             exampleLine.isHidden = true
         }
+        refreshHeight()
+    }
+
+    private func updateLabelWidths() {
+        let maxWidth = bounds.width > 0 ? max(0, bounds.width - 8) : 640
+        for label in [formatLine, descriptionLine, exampleLine, returnLine, statusLine] {
+            label.preferredMaxLayoutWidth = maxWidth
+        }
+    }
+
+    private func refreshHeight() {
+        layoutSubtreeIfNeeded()
+        let contentHeight = stack.fittingSize.height
+        heightConstraint.constant = max(44, min(76, contentHeight + 6))
     }
 
     func setReturnAction(_ text: String?) {
@@ -92,7 +117,8 @@ final class CommandHintBar: NSView {
         statusLine.stringValue = message
         statusLine.isHidden = false
         isHidden = false
-        heightConstraint.constant = LauncherChromeTokens.commandHintHeight
+        updateLabelWidths()
+        refreshHeight()
         statusDismissTask = Task {
             try? await Task.sleep(for: .seconds(duration))
             guard !Task.isCancelled else { return }
@@ -116,6 +142,9 @@ final class CommandHintBar: NSView {
         label.isEditable = false
         label.drawsBackground = false
         label.lineBreakMode = .byTruncatingTail
+        label.maximumNumberOfLines = 2
+        label.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        label.setContentHuggingPriority(.defaultLow, for: .horizontal)
         label.translatesAutoresizingMaskIntoConstraints = false
         return label
     }

@@ -27,6 +27,10 @@ final class LauncherViewModel {
         workbenchCommandRouter.route(raw: text)
     }
 
+    func workbenchCommandHint(for route: WorkbenchCommandRoute, raw: String) -> CommandHint? {
+        workbenchCommandRouter.commandHint(for: route, raw: raw)
+    }
+
     func queryChanged(_ text: String, issuedAt: ContinuousClock.Instant) {
         task?.cancel()
         sequence &+= 1

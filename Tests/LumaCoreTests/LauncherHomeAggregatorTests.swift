@@ -34,9 +34,7 @@ private struct StubContextualProvider: ContextualHomeSectionProvider {
 
     let aggregator = LauncherHomeAggregator(
         openApps: openApps,
-        recentActions: StubHomeProvider(rows: []),
-        resume: StubHomeProvider(rows: []),
-        contextual: StubContextualProvider(continueRows: [], createRows: [])
+        setup: nil
     )
     let snapshot = await aggregator.snapshot()
     #expect(snapshot.sections.count == 1)

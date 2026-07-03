@@ -7,7 +7,7 @@ Luma is **not** a Notion, Things, or Alfred clone. It is a **macOS-native, comma
 **Core value:** Luma helps you **resume the work around a project**, not just reopen an app or search a module. Workbench entities (projects, drafts, links) are first-class objects with stable identity — not just an activity event stream.
 
 - **Fast capture** — turn selection, clipboard, or app context into drafts and work items (≤ 5 seconds)
-- **Fast continue** — resume recent projects, drafts, linked items, and in-progress modules from Home (≤ 1 second to actionable row)
+- **Fast continue** — resume projects, drafts, and modules via **`proj` / module triggers / detail** (not empty-query home rows)
 - **Fast convert** — clipboard → snippet, URL → quicklink, text → todo/note
 - **Fast execute** — command triggers for targeted actions without global search fan-out
 - **Project workspace** — stable `ProjectIdentity`, activity trail, entity links, workspace detail
@@ -19,15 +19,15 @@ Route C (Command-First Unified List) remains the active UI model. Workbench Core
 
 ### 1. Coding project workspace
 
-User works in a matched IDE project. Home shows **Continue project workspace**, latest draft, linked snippets/quicklinks, and attach rows. `proj work` / `proj open` opens workspace detail with quick capture, linked items, and actionable recent activity. Activity is keyed by `stableProjectID` (path hash) — same label, different paths never mix.
+User works in a matched IDE project. **`proj work` / `proj open`** opens workspace detail with quick capture, linked items, and actionable recent activity. Activity is keyed by `stableProjectID` (path hash) — same label, different paths never mix.
 
 ### 2. Daily capture inbox
 
-User copies text or URLs throughout the day. `cap clip todo`, `proj capture`, or Home CREATE rows preview without side effects; Return executes once. Captures write activity + project links when a project context exists. Disabled modules never appear in Home, commands, or detail.
+User copies text or URLs throughout the day. `cap clip todo`, `proj capture`, or module search preview without side effects; Return executes once. Captures write activity + project links when a project context exists. Disabled modules never appear in command/detail surfaces gated by enablement.
 
 ### 3. Research / link / snippet collection
 
-User saves URLs as project quicklinks, attaches clipboard/selection to a project snippet, and reviews linked items via Home **Review linked** row or `proj links`. Linked items come from `workbench-links.json`, not global recent top 8.
+User saves URLs as project quicklinks, attaches clipboard/selection to a project snippet, and reviews linked items via **`proj links`** or project workspace detail. Linked items come from `workbench-links.json`, not global recent top 8.
 
 ## User Workflow Closure
 
@@ -35,20 +35,20 @@ User saves URLs as project quicklinks, attaches clipboard/selection to a project
 
 | Stage | Surfaces |
 | --- | --- |
-| Capture | Home CREATE, `proj capture`, detail Quick capture, `cap clip/sel …` |
+| Capture | `proj capture`, detail Quick capture, `cap clip/sel …`, module search |
 | Attach/Organize | `attach clip/sel`, project capture → `WorkbenchLinkStore` |
-| Continue | Home draft row, `proj resume`, `proj recent`, detail activity buttons |
-| Review | Home linked row, `proj links`, detail Linked items section |
+| Continue | `proj resume`, `proj recent`, detail activity buttons, module triggers (`word`, `t`, …) |
+| Review | `proj links`, project workspace detail Linked items section |
 
 ## MVP Completion Criteria
 
 | Criterion | Target |
 | --- | --- |
-| Capture to draft | ≤ 2 steps (command/Home → detail or inline) |
-| Continue last work | ≤ 1 step (Home CONTINUE → Return) |
+| Capture to draft | ≤ 2 steps (`cap` / `proj capture` / command → detail or inline) |
+| Continue last work | ≤ 1 step (`proj resume` / module trigger → Return) |
 | Project context accuracy | `stableProjectID` path-first; legacy label fallback |
-| Disabled module leakage | 0 rows in Home / command / detail / resume |
-| Hot-path performance | No unrelated module warmup; activity + links JSON only on Home |
+| Disabled module leakage | 0 rows in command / detail / resume surfaces |
+| Hot-path performance | No unrelated module warmup; activity + links JSON on demand (detail / `proj`) |
 
 ## Non-Goals (Current Phase)
 

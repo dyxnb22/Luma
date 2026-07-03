@@ -233,8 +233,8 @@
     },
     "home.guide.intro": {
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Type a prefix in the search field, or select an app on the left." } },
-        "zh-Hans": { "stringUnit": { "state": "translated", "value": "在搜索框输入命令前缀，或在左侧选择应用。" } }
+        "en": { "stringUnit": { "state": "translated", "value": "Type a prefix in the search field to open a module or run a command." } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "在搜索框输入命令前缀，打开模块或执行命令。" } }
       }
     },
     "home.guide.return": {

@@ -60,8 +60,8 @@
     "zh-Hans": "命令"
   },
   "home.guide.intro": {
-    "en": "Type a prefix in the search field, or select an app on the left.",
-    "zh-Hans": "在搜索框输入命令前缀，或在左侧选择应用。"
+    "en": "Type a prefix in the search field to open a module or run a command.",
+    "zh-Hans": "在搜索框输入命令前缀，打开模块或执行命令。"
   },
   "home.guide.return": {
     "en": "Return:",

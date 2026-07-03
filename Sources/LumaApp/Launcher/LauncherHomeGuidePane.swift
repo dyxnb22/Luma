@@ -38,14 +38,14 @@ final class LauncherHomeGuidePane: NSView {
         addSubview(scrollView)
 
         NSLayoutConstraint.activate([
-            titleLabel.topAnchor.constraint(equalTo: topAnchor, constant: 4),
-            titleLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 4),
-            titleLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -4),
+            titleLabel.topAnchor.constraint(equalTo: topAnchor, constant: 12),
+            titleLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
+            titleLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
 
             scrollView.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 8),
-            scrollView.leadingAnchor.constraint(equalTo: leadingAnchor),
-            scrollView.trailingAnchor.constraint(equalTo: trailingAnchor),
-            scrollView.bottomAnchor.constraint(equalTo: bottomAnchor),
+            scrollView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 8),
+            scrollView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
+            scrollView.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -8),
 
             stack.topAnchor.constraint(equalTo: scrollView.contentView.topAnchor),
             stack.leadingAnchor.constraint(equalTo: scrollView.contentView.leadingAnchor),
@@ -59,26 +59,13 @@ final class LauncherHomeGuidePane: NSView {
         fatalError("init(coder:) has not been implemented")
     }
 
+    /// Always shows the module command catalog — never mirrors the left Open Apps selection title.
     func applyCatalog(_ commands: [CommandDefinition]) {
         titleLabel.stringValue = L10n.tr("home.guide.title")
         rebuild {
             appendBody(L10n.tr("home.guide.intro"))
             for command in commands {
                 appendCommandBlock(command)
-            }
-            appendFooter()
-        }
-    }
-
-    func applySelection(_ item: ResultItem) {
-        titleLabel.stringValue = item.title
-        rebuild {
-            if let subtitle = item.subtitle, !subtitle.isEmpty {
-                appendBody(subtitle)
-            }
-            appendMonoLine("\(L10n.tr("home.guide.return")) \(item.returnHint)")
-            for action in item.secondaryActions.prefix(3) {
-                appendMonoLine("\(L10n.tr("home.guide.more")) \(action.title)")
             }
             appendFooter()
         }
@@ -95,10 +82,10 @@ final class LauncherHomeGuidePane: NSView {
     }
 
     private func appendCommandBlock(_ command: CommandDefinition) {
-        let trigger = command.primaryTrigger
-        appendHeading(trigger)
+        let triggers = command.allTriggers.joined(separator: " · ")
+        appendHeading(triggers)
         appendBody(command.resolvedDescription)
-        if let line = command.helpLines.first {
+        for line in command.helpLines.prefix(3) {
             appendMonoLine(line)
         }
     }

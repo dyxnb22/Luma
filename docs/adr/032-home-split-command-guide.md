@@ -27,8 +27,9 @@ When the **visible search query is empty**, the launcher uses a **two-column lay
 
 ### Guide pane behavior
 
-- **No selection:** top discoverable commands from `CommandRegistry` (max 8) with description + first help line.
-- **Row selected:** contextual copy — Return action, secondary actions, item subtitle when present.
+- **Always** shows the module command catalog (`CommandRegistry.discoverableCommands`) — title stays **命令 / Commands**.
+- **Never** mirrors the left Open Apps row title (e.g. app name) as the guide header.
+- Each module block: triggers (`n · note · notes`), description, and up to 3 help lines (e.g. Notes create/search).
 - **Not a second list:** no clickable command rows; keyboard focus stays in search + left list.
 
 ### When split is inactive

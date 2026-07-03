@@ -852,14 +852,9 @@ final class LauncherRootController {
             homeSplitLayout.setRightPane(.detail)
         } else if columnSplit {
             homeSplitLayout.setRightPane(.guide)
-            if let item = contentCoordinator.currentItems[safe: contentCoordinator.selectedIndex] {
-                homeSplitLayout.guidePane.applySelection(item)
-            } else {
-                let commands = Array(
-                    viewModel.commandRouter.registry.discoverableCommands.prefix(8)
-                )
-                homeSplitLayout.guidePane.applyCatalog(commands)
-            }
+            let commands = viewModel.commandRouter.registry.discoverableCommands
+                .filter { $0.module.rawValue != "luma.apps" }
+            homeSplitLayout.guidePane.applyCatalog(commands)
         } else {
             homeSplitLayout.setRightPane(.hidden)
         }

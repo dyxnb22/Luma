@@ -28,7 +28,7 @@ That is the **only** section `LauncherHomeAggregator` may append on empty query.
 
 - Active when query is **empty** and launcher is on home or in **module detail** (right column).
 - Guide pane when no detail; module detail replaces guide on the right without hiding Open Apps.
-- Guide shows discoverable commands (no selection) or contextual actions for the selected left-row item.
+- Guide shows discoverable module commands (catalog) — **not** the selected Open Apps row title.
 - **Not** a second navigable list — no command rows with Return on the right.
 - Typing any query collapses to single-column results (Route C).
 

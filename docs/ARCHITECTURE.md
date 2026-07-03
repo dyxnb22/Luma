@@ -84,7 +84,7 @@ Module bundle registration is the single built-in module manifest surface. Each 
 5. Module results are merged, ranked, truncated, and emitted progressively.
 6. UI applies row-level diffs and preserves selection by `ResultID`.
 7. Return triggers `ActionExecutor`, panel dismisses immediately, and usage is recorded asynchronously.
-8. Esc: close action panel → detail → home → clear search → close panel.
+8. Esc stack (canonical): action panel → detail subview or `exitDetailFromChrome()` → home → dismiss panel — see `LauncherEscapePlanner` in `LumaCore`.
 
 ## Home List Flow (Route C)
 

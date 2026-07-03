@@ -21,6 +21,7 @@ final class LauncherRootController {
     private let actionExecutor: ActionExecutor
     private let config: ConfigurationStore
     private let sessionStore = LauncherSessionStore()
+    private let panelSignalsLoader: LauncherPanelSignalsLoader
     private let launcherEnvironment: LauncherEnvironment
     private let workbenchCommandExecutor = WorkbenchCommandExecutor()
     private let onDismiss: () -> Void
@@ -64,6 +65,7 @@ final class LauncherRootController {
         self.onDismiss = onDismiss
         self.onActionDismiss = onActionDismiss
         self.onOpenSettings = onOpenSettings
+        self.panelSignalsLoader = LauncherPanelSignalsLoader(config: config)
         self.permissionController = PermissionBannerController(config: config)
 
         wireCallbacks()
@@ -109,17 +111,7 @@ final class LauncherRootController {
     }
 
     private func previewWorkbenchCommand(route: WorkbenchCommandRoute, queryText: String) async {
-        let enabled = await config.enabledModules()
-            ?? Set(ModuleRegistry.allBundles.map { $0.identifier })
-        let pinned = await config.pinnedModuleIDs()
-        let clipboard = await ClipboardPasteboardCache.shared.snapshot()
-        let selection = await SelectionSnapshotService.shared.snapshot()
-        let context = await WorkbenchContextBuilder().build(
-            enabledModuleIDs: enabled,
-            pinnedModuleIDs: pinned,
-            clipboardPreview: clipboard,
-            selectionText: selection
-        )
+        let context = await panelSignalsLoader.loadWorkbenchContext()
         let items = WorkbenchCommandResults.previewRows(
             route: route,
             querySequence: 0,
@@ -533,11 +525,16 @@ final class LauncherRootController {
     }
 
     func handleEscape() {
-        if actionPanel.isVisible {
+        let trimmed = searchBar.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        switch LauncherEscapePlanner.nextStep(
+            actionPanelVisible: actionPanel.isVisible,
+            showingDetail: contentCoordinator.showingDetail,
+            showingResults: contentCoordinator.showingResults,
+            queryTrimmedIsEmpty: trimmed.isEmpty
+        ) {
+        case .dismissActionPanel:
             actionPanel.dismiss()
-            return
-        }
-        if contentCoordinator.showingDetail {
+        case .detailEscapeOrExit:
             if let escapeEvent = NSEvent.keyEvent(
                 with: .keyDown,
                 location: .zero,
@@ -553,14 +550,11 @@ final class LauncherRootController {
                 return
             }
             exitDetailFromChrome()
-            return
-        }
-        let trimmed = searchBar.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
-        if contentCoordinator.showingResults || !trimmed.isEmpty {
+        case .showHome:
             showHome(focusSearch: true, persist: true)
-            return
+        case .dismissPanel:
+            onDismiss()
         }
-        onDismiss()
     }
 
     func exitDetailFromChrome() {
@@ -1013,24 +1007,20 @@ final class LauncherRootController {
         for item: ResultItem
     ) {
         Task {
-            let enabled = await config.enabledModules()
-                ?? Set(ModuleRegistry.allBundles.map { $0.identifier })
-            let pinned = await config.pinnedModuleIDs()
-            let clipboard = await ClipboardPasteboardCache.shared.snapshot()
-            let selection = await SelectionSnapshotService.shared.snapshot()
+            let signals = await panelSignalsLoader.load()
             let followUp = workbenchFollowUp(for: target)
             let runner = WorkbenchCaptureRunner()
             guard let result = await runner.runCapture(
                 source: source,
                 target: target,
-                enabledModuleIDs: enabled,
-                pinnedModuleIDs: pinned,
-                clipboardPreview: clipboard,
-                selectionText: selection,
+                enabledModuleIDs: signals.enabledModuleIDs,
+                pinnedModuleIDs: signals.pinnedModuleIDs,
+                clipboardPreview: signals.clipboardPreview,
+                selectionText: signals.selectionText,
                 attribution: WorkbenchCaptureAttribution(sourceKind: .home, followUp: followUp)
             ) else {
                 await MainActor.run {
-                    if !enabled.contains(target.moduleID) {
+                    if !signals.enabledModuleIDs.contains(target.moduleID) {
                         commandHintBar.showStatus("Module disabled in Settings")
                     } else {
                         commandHintBar.showStatus("Nothing to capture")
@@ -1170,17 +1160,13 @@ final class LauncherRootController {
     private func runWorkbenchCommand(_ action: WorkbenchCommandAction, for item: ResultItem) {
         guard case .execute(let commandID) = action else { return }
         Task {
-            let enabled = await config.enabledModules()
-                ?? Set(ModuleRegistry.allBundles.map { $0.identifier })
-            let pinned = await config.pinnedModuleIDs()
-            let clipboard = await ClipboardPasteboardCache.shared.snapshot()
-            let selection = await SelectionSnapshotService.shared.snapshot()
+            let signals = await panelSignalsLoader.load()
             let outcome = await workbenchCommandExecutor.handle(
                 commandID: commandID,
-                enabledModuleIDs: enabled,
-                pinnedModuleIDs: pinned,
-                clipboardPreview: clipboard,
-                selectionText: selection
+                enabledModuleIDs: signals.enabledModuleIDs,
+                pinnedModuleIDs: signals.pinnedModuleIDs,
+                clipboardPreview: signals.clipboardPreview,
+                selectionText: signals.selectionText
             )
             await MainActor.run {
                 applyWorkbenchCommandOutcome(outcome)

@@ -36,6 +36,7 @@ final class AppCoordinator {
     private let scriptRunner = ScriptRunnerService()
     private lazy var currentProjectClient = CurrentProjectClientAdapter(service: CurrentProjectService.shared)
     private let selectionClient = SelectionSnapshotClientAdapter()
+    /// Dedicated instance for `CurrentProjectService` path matching before `ModuleHost` registers the module.
     private let projectsModule = ProjectsModule()
 
     init() {

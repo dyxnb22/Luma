@@ -1,7 +1,8 @@
 import Foundation
 import LumaCore
 
-/// Cross-module mutable launcher state consumed by detail views in LumaApp.
+/// Ephemeral detail-open payloads staged between launcher action dispatch and detail `activate()`.
+/// Lives in `LumaModules` so capture helpers can set drafts without importing `LumaApp`.
 @MainActor
 public enum LauncherSharedState {
     public static var pendingMediaEditorDraft: MediaEditorDraft?

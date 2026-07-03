@@ -15,9 +15,10 @@ If you are new to the repo or preparing to make changes, read these documents fi
 9. **[Launcher Home Constraints](specs/LAUNCHER_HOME_CONSTRAINTS.md)** — frozen empty-query home; **required before any home UI change**.
 10. **[Launcher Panel Constraints](specs/LAUNCHER_PANEL_CONSTRAINTS.md)** — panel geometry, positioning, in-panel layout; **required before panel/chrome changes**.
 11. **[Launcher Navigation Audit](qa/LAUNCHER_NAVIGATION_AUDIT.md)** — temporary open-issue register (navigation, shortcuts, session); align specs when closing items.
-12. [Manual QA Checklist](MANUAL_QA_CHECKLIST.md) — current product-review and regression checks.
-13. [Recorded QA Brief](RECORDED_QA_BRIEF.md) — recorded walkthrough scope and findings format.
-14. [Integration P0](INTEGRATION_P0.md) — current short list for wiring together existing functionality.
+12. [Module Maturity Checklist](specs/MODULE_MATURITY.md) — shipping checklist for built-in modules.
+13. [Manual QA Checklist](MANUAL_QA_CHECKLIST.md) — current product-review and regression checks.
+14. [Recorded QA Brief](RECORDED_QA_BRIEF.md) — recorded walkthrough scope and findings format.
+15. [Integration P0](INTEGRATION_P0.md) — current short list for wiring together existing functionality.
 
 Recommended reading order for most engineering work:
 
@@ -55,8 +56,22 @@ When documents conflict, follow:
 - AppKit primary launcher UI.
 - SwiftUI only for Settings/About.
 - In-process modules only for v1.
-- JSON persistence first; migrate to SQLite only after explicit data-size thresholds.
+- JSON persistence first; migrate to SQLite only after explicit data-size thresholds (below).
 - `os_signpost`-style metrics from Phase 0.
+
+## JSON → SQLite migration triggers
+
+Do **not** migrate stores proactively. Open an ADR when **any** of the following is sustained in production or dogfood:
+
+| Signal | Threshold | Likely first candidate |
+| --- | --- | --- |
+| Single Application Support JSON file | **> 5 MB** on disk | Clipboard history |
+| Clipboard retained entries | **> 2,000** (above current 500 default cap) | Clipboard history |
+| Workbench activity entries | **> 200** (today capped at 50) | `workbench-activity.json` |
+| Notes index warmup | **> 3 s** p95 on typical vault | Notes tree index |
+| Launcher open with pinned Notes + Projects | **> 100 MB** resident after warmup | Shared index layer |
+
+Until then: keep per-module JSON namespaces, schema versions, and in-memory indexes loaded in `warmup` only.
 
 ## ADR Index
 
@@ -77,6 +92,7 @@ When documents conflict, follow:
 3. **Register the bundle** — add `NameModuleBundle.self` to `ModuleRegistry.allBundles` in `Sources/LumaModules/ModuleRegistry.swift`.
 4. **Add detail view** (if needed) in `Sources/LumaApp/Launcher/<Name>DetailView.swift` and register the factory in `ModuleDetailRegistry.makeDefault()`. Follow [Launcher Panel Constraints](specs/LAUNCHER_PANEL_CONSTRAINTS.md) — prefer `BaseDetailContainer`, no `wantsLayer` on full-width roots, pin custom layouts to container width. Module shortcuts must work when detail subviews hold focus (see [Navigation Audit](qa/LAUNCHER_NAVIGATION_AUDIT.md) MOD-KB).
 5. **Write tests** in `Tests/LumaModulesTests/` and run `swift test`.
+6. **Verify maturity** against [Module Maturity Checklist](specs/MODULE_MATURITY.md).
 
 Warmup tiers:
 

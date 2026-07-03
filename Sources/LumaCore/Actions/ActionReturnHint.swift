@@ -37,9 +37,7 @@ public extension ResultItem {
         switch rowKind {
         case .informational:
             return "Information only"
-        case .starter:
-            return primaryAction.returnHint
-        case .actionable:
+        case .starter, .actionable:
             return primaryAction.returnHint
         }
     }

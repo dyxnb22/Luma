@@ -270,9 +270,7 @@ final class LauncherRootController {
         }
     }
 
-    func refreshOpenApps() { refreshHome() }
-
-    func resetOpenAppsExpansion() {
+    func resetHomeExpansion() {
         Task {
             await homeCoordinator.resetExpansion()
         }

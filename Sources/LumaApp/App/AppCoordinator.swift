@@ -120,7 +120,7 @@ final class AppCoordinator {
                 guard let self else { return }
                 Task {
                     await self.host.warmupAll()
-                    self.windowController.refreshOpenApps()
+                    self.windowController.refreshHome()
                 }
             }
         )
@@ -174,7 +174,7 @@ final class AppCoordinator {
             Task { @MainActor in
                 await self.appActivationTracker.record(bundleID: bundleID)
                 self.windowController.hideIfShowingForExternalActivation(bundleID: bundleID)
-                self.windowController.refreshOpenApps()
+                self.windowController.refreshHome()
             }
         }
         terminationObserver = NotificationCenter.default.addObserver(
@@ -240,7 +240,7 @@ final class AppCoordinator {
                 Task {
                     await self.host.warmupAll()
                     await MainActor.run {
-                        self.windowController.refreshOpenApps()
+                        self.windowController.refreshHome()
                     }
                 }
             },

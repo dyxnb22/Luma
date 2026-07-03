@@ -124,8 +124,8 @@ final class LauncherRootView: NSView {
     func setHomeProvidersActive(_ active: Bool) {
         Task { [homeCoordinator] in await homeCoordinator.setActive(active) }
     }
-    func refreshOpenApps() { controller.refreshOpenApps() }
-    func resetOpenAppsExpansion() { controller.resetOpenAppsExpansion() }
+    func refreshHome() { controller.refreshHome() }
+    func resetHomeExpansion() { controller.resetHomeExpansion() }
     func focusSearchField() { controller.focusSearchField() }
     func focusSearchFieldAfterShow() { controller.focusSearchFieldAfterShow() }
     func dispatchDetailKeyDown(_ event: NSEvent) -> Bool { controller.dispatchDetailKeyDown(event) }

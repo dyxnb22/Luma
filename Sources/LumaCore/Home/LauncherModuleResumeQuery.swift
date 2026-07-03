@@ -24,15 +24,4 @@ public enum LauncherModuleResumeQuery {
         default: return raw
         }
     }
-
-    public static func resumeTitle(for module: ModuleIdentifier) -> String {
-        switch module {
-        case notesID: return "Resume Notes search"
-        case wordbookID: return "Resume Wordbook"
-        case mediaID: return "Resume Records"
-        case projectsID: return "Resume Projects search"
-        case secretsID: return "Resume Secrets search"
-        default: return "Resume last search"
-        }
-    }
 }

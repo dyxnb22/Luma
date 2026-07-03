@@ -68,8 +68,8 @@ final class LauncherWindowController {
         AppleTranslationHost.shared.attach(to: rootView)
     }
 
-    func refreshOpenApps() {
-        rootView?.refreshOpenApps()
+    func refreshHome() {
+        rootView?.refreshHome()
     }
 
     func setLatencyHUDEnabled(_ enabled: Bool) {
@@ -128,7 +128,7 @@ final class LauncherWindowController {
         rootView?.setHomeProvidersActive(true)
         rootView?.restoreLastSessionIfNeeded()
         rootView?.focusSearchFieldAfterShow()
-        rootView?.refreshOpenApps()
+        rootView?.refreshHome()
         let duration = MotionTokens.panelShowDuration
         let qaMode = ProcessInfo.processInfo.environment["LUMA_QA"] == "1"
         NSAnimationContext.runAnimationGroup { context in
@@ -162,7 +162,7 @@ final class LauncherWindowController {
     private func finishHide() {
         clearMenuTarget()
         rootView?.saveCurrentSession()
-        rootView?.resetOpenAppsExpansion()
+        rootView?.resetHomeExpansion()
         rootView?.stopPermissionPolling()
         rootView?.stopPerformanceSampling()
         rootView?.setHomeProvidersActive(false)
@@ -186,7 +186,7 @@ final class LauncherWindowController {
             await self.rootView?.prepareDetailForHide()
             self.clearMenuTarget()
             self.rootView?.resetForActionDismiss()
-            self.rootView?.resetOpenAppsExpansion()
+            self.rootView?.resetHomeExpansion()
             self.rootView?.stopPermissionPolling()
             self.rootView?.stopPerformanceSampling()
             self.rootView?.setHomeProvidersActive(false)

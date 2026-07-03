@@ -44,7 +44,7 @@ import Testing
     #expect(index.search("notes").first?.record.name == "Notes")
 }
 
-@Test func projectIndexHomeRecordsPreferPinnedAndRecent() {
+@Test func projectIndexRecordsPreferPinnedAndRecent() {
     let records = [
         ProjectRecord(name: "Alpha", path: "/a", pinned: false),
         ProjectRecord(name: "Beta", path: "/b", pinned: true),

@@ -121,7 +121,7 @@ final class LauncherRootView: NSView {
 
     func setModulesReady(_ ready: Bool) { controller.setModulesReady(ready) }
     func showHome(focusSearch: Bool = true, persist: Bool = true) { controller.showHome(focusSearch: focusSearch, persist: persist) }
-    func setHomeProvidersActive(_ active: Bool) {
+    func setPanelSignalsActive(_ active: Bool) {
         Task { [homeCoordinator] in await homeCoordinator.setActive(active) }
     }
     func refreshHome() { controller.refreshHome() }

@@ -55,7 +55,7 @@ import Testing
     #expect(Ranker.score(item: item, query: query, usage: nil) > -.infinity)
 }
 
-@Test func rankerKeepsModuleHomeRowsForEmptyCommandPayload() {
+@Test func rankerKeepsModuleRowsForEmptyCommandPayload() {
     let module = ModuleIdentifier(rawValue: "luma.projects")
     let item = ResultItem(
         id: ResultID(module: module, key: "luma"),

@@ -125,7 +125,7 @@ final class LauncherWindowController {
         rootView?.refreshPermissionStatus()
         rootView?.startPermissionPollingIfNeeded()
         rootView?.startPerformanceSampling()
-        rootView?.setHomeProvidersActive(true)
+        rootView?.setPanelSignalsActive(true)
         rootView?.restoreLastSessionIfNeeded()
         rootView?.focusSearchFieldAfterShow()
         rootView?.refreshHome()
@@ -165,7 +165,7 @@ final class LauncherWindowController {
         rootView?.resetHomeExpansion()
         rootView?.stopPermissionPolling()
         rootView?.stopPerformanceSampling()
-        rootView?.setHomeProvidersActive(false)
+        rootView?.setPanelSignalsActive(false)
         let duration = MotionTokens.panelHideDuration
         NSAnimationContext.runAnimationGroup { context in
             context.duration = duration
@@ -189,7 +189,7 @@ final class LauncherWindowController {
             self.rootView?.resetHomeExpansion()
             self.rootView?.stopPermissionPolling()
             self.rootView?.stopPerformanceSampling()
-            self.rootView?.setHomeProvidersActive(false)
+            self.rootView?.setPanelSignalsActive(false)
             self.panel.orderOut(nil)
             self.panel.alphaValue = 1
             self.onDidHide?()

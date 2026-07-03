@@ -14,6 +14,7 @@ final class LauncherRootController {
     let contentCoordinator: LauncherContentCoordinator
     let permissionController: PermissionBannerController
 
+    private let homeSplitLayout: LauncherHomeSplitLayout
     private let performanceStrip: LauncherPerformanceStripView
 
     private let viewModel: LauncherViewModel
@@ -44,6 +45,7 @@ final class LauncherRootController {
         listView: LauncherListView,
         hintBar: LauncherHintBar,
         actionPanel: LauncherActionPanel,
+        homeSplitLayout: LauncherHomeSplitLayout,
         performanceStrip: LauncherPerformanceStripView,
         launcherEnvironment: LauncherEnvironment,
         onDismiss: @escaping () -> Void,
@@ -60,6 +62,7 @@ final class LauncherRootController {
         self.listView = listView
         self.hintBar = hintBar
         self.actionPanel = actionPanel
+        self.homeSplitLayout = homeSplitLayout
         self.performanceStrip = performanceStrip
         self.launcherEnvironment = launcherEnvironment
         self.onDismiss = onDismiss
@@ -235,6 +238,7 @@ final class LauncherRootController {
         listView.isHidden = false
         listView.alphaValue = 1
         syncKeyHints()
+        syncHomeGuidePane()
         syncPerformanceStripVisibility()
         refreshHome()
         permissionController.refresh()
@@ -778,6 +782,7 @@ final class LauncherRootController {
 
     private func syncRowActionHint() {
         syncKeyHints()
+        syncHomeGuidePane()
         guard contentCoordinator.showingResults || !contentCoordinator.showingDetail else {
             commandHintBar.setReturnAction(nil)
             return
@@ -801,6 +806,25 @@ final class LauncherRootController {
         let context: LauncherHintContext = contentCoordinator.showingResults ? .results : .home
         let item = contentCoordinator.currentItems[safe: contentCoordinator.selectedIndex]
         hintBar.setContext(context, selectedItem: item)
+    }
+
+    private func syncHomeGuidePane() {
+        let trimmed = searchBar.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        let isHomeSplit = trimmed.isEmpty
+            && !contentCoordinator.showingDetail
+            && !contentCoordinator.showingResults
+        homeSplitLayout.setActive(isHomeSplit)
+        guard isHomeSplit else { return }
+
+        if let item = contentCoordinator.currentItems[safe: contentCoordinator.selectedIndex] {
+            homeSplitLayout.guidePane.applySelection(item)
+        } else {
+            let commands = Array(
+                viewModel.commandRouter.registry.discoverableCommands.prefix(8)
+            )
+            homeSplitLayout.guidePane.applyCatalog(commands)
+        }
+        stabilizePanelContentLayout()
     }
 
     private func activateSelectedItem() {

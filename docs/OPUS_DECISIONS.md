@@ -35,7 +35,7 @@ These decisions answer the previous open questions and are now in force for Luma
 ## UX
 
 - Empty query shows **Open Apps only** on home (frozen 2026-07-03; `docs/specs/LAUNCHER_HOME_CONSTRAINTS.md`).
-- Launcher panel: **720 × 680 pt**, upper-third placement, presentation-screen aware; no full-width `wantsLayer` on in-panel hosts (`docs/specs/LAUNCHER_PANEL_CONSTRAINTS.md`).
+- Launcher panel: **940 × 760 pt**, upper-third placement, presentation-screen aware; empty home split layout (ADR-032).
 - Workbench continue/create flows use **search**, **bare commands**, and **project/detail** surfaces — not home rows.
 - Cross-module save actions show short status hints (e.g. “Saved to daily note”, “Draft loaded in Quicklinks”).
 - Use same-panel module detail surfaces for modules that need richer management.

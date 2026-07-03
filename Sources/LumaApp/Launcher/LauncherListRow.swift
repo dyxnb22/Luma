@@ -29,12 +29,14 @@ final class LauncherListRow: NSControl {
     private var selectionAccentLayer: CALayer?
     private var isSelected = false
     private var isHovered = false
+    private var hidesTrailingModuleLabel = false
     private var trackingArea: NSTrackingArea?
 
     init(
         item: ResultItem,
         moduleLabel: String,
         isSelected: Bool,
+        hidesTrailingModuleLabel: Bool = false,
         onRun: @escaping (ResultItem) -> Void,
         onRightClick: ((ResultItem) -> Void)? = nil,
         onHover: (() -> Void)? = nil
@@ -44,6 +46,7 @@ final class LauncherListRow: NSControl {
         self.onRun = onRun
         self.onRightClick = onRightClick
         self.onHover = onHover
+        self.hidesTrailingModuleLabel = hidesTrailingModuleLabel
         super.init(frame: .zero)
         clipsToBounds = true
 
@@ -88,11 +91,16 @@ final class LauncherListRow: NSControl {
         onRightClick?(item)
     }
 
+    func setHidesTrailingModuleLabel(_ hidden: Bool) {
+        hidesTrailingModuleLabel = hidden
+        trailingLabel.isHidden = hidden || isSelected || item.listNest != .none
+    }
+
     func setSelected(_ selected: Bool) {
         isSelected = selected
         let showsHint = selected && item.rowKind != .informational
         returnHintContainer.isHidden = !showsHint
-        trailingLabel.isHidden = selected
+        trailingLabel.isHidden = hidesTrailingModuleLabel || item.listNest != .none || selected
         selectionAccentLayer?.isHidden = !selected
         refreshRowAppearance()
     }
@@ -207,6 +215,7 @@ final class LauncherListRow: NSControl {
         subtitleLabel.translatesAutoresizingMaskIntoConstraints = false
 
         trailingLabel.stringValue = isNested ? "" : "· \(moduleLabel)"
+        trailingLabel.isHidden = hidesTrailingModuleLabel || isNested || isSelected
         trailingLabel.font = TypographyTokens.monoCaption()
         trailingLabel.textColor = .secondaryLabelColor
         trailingLabel.lineBreakMode = .byTruncatingTail

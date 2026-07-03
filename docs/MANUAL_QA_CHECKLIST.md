@@ -28,7 +28,7 @@
 
 - Appears on **presentation** display (cursor → key window → main), not always `NSScreen.main`.
 - Horizontally centered; upper-third vertical placement (~`panelVerticalBias` 0.68).
-- Default proportion ~**720 × 680 pt** on large displays (not the historical 900 × 600 wide shell).
+- Default proportion ~**940 × 760 pt** on large displays (ADR-032 home split).
 - Frosted popover material, top highlight gradient, ~22 pt corner radius, subtle border.
 - Panel does not bleed background on light desktops.
 - Query field is focused immediately.
@@ -81,13 +81,15 @@ Panel and search field must stay **horizontally aligned** with panel edges — n
 
 - Same checks as **Panel** and **In-panel layout** sections above (geometry, centering, prefix drift, multi-monitor).
 
-### Home List (Frozen — Open Apps Only)
+### Home List (Frozen — Open Apps + Command Guide)
 
-- Empty query shows **one section**: Open Apps (localized header, e.g. 打开应用).
-- **No** setup / 开始使用, recent / 最近, continue / 继续, or create / 创建 sections.
+- Empty query shows **Open Apps** in the **left column** (~360 pt); right pane shows read-only command guide.
+- Guide: default catalog of discoverable commands; updates when an app/window row is selected.
+- Typing any query collapses to **single-column** search results (right guide hidden).
+- **No** setup, recent, continue, or create sections on empty query.
 - **No** auto-present onboarding wizard on first launch — home list appears immediately.
 - **No** `+N more` row — all running apps are listed.
-- Open Apps rows render in the main unified list, not a permanent sidebar.
+- Open Apps rows render in the left home column, not a permanent sidebar outside the panel.
 - Idle rows are **not** gray-filled; only hover/selection add background.
 - Order changes after switching apps externally.
 - Open Apps does not list Luma itself.

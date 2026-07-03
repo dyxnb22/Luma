@@ -19,7 +19,7 @@ ADR-006 (Route A) converged on a pure launcher but excluded same-panel module de
 Route C — **Command-First Unified List**:
 
 1. **Command-first**: First-screen elements must be reachable in one keyboard step.
-2. **One list, one column**: A single vertical list with sections (home) or a flat list (search results).
+2. **One list on search**: A single vertical list for search results; empty home uses a fixed-width Open Apps column + read-only command guide (ADR-032).
 3. **No dashboard**: Feature cards are not home-screen entry points. Module detail views may retain card-style headers.
 4. **Module = result provider**: Modules surface via `ResultItem` rows, not `FeatureCard` tiles.
 5. **Open Apps as section #1**: Open apps appear in the home list, not a permanent sidebar.
@@ -27,7 +27,7 @@ Route C — **Command-First Unified List**:
 7. **Minimal home abstraction**: **Open Apps only** on empty query. Suggested/continue/create rows are **not** rendered on home (frozen 2026-07-03; see `docs/specs/LAUNCHER_HOME_CONSTRAINTS.md`).
 8. **Performance budget**: Open Apps home provider ≤ 4 ms on main thread; full home snapshot ≤ 16 ms.
 
-Panel geometry (2026-07-03): default **720 × 680 pt**, responsive **640–760 × 600–760 pt**, upper-third bias (`panelVerticalBias` 0.68). Supersedes the earlier 900 × 600 wide-shell note below.
+Panel geometry (2026-07-03): default **940 × 760 pt**, responsive **720–980 × 640–820 pt**, upper-third bias (`panelVerticalBias` 0.68). Empty-query home: **360 pt** Open Apps column + command guide (ADR-032). Supersedes the earlier 720×680 and 900×600 notes below.
 
 Historical panel note (pre-2026-07): ~~900 × 600 pt, 58% screen width × 66% height~~.
 

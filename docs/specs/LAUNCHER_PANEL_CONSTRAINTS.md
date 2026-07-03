@@ -16,9 +16,10 @@ Authoritative math: `Sources/LumaCore/Design/LauncherPanelGeometry.swift`
 
 | Token / API | Value | Notes |
 | --- | ---: | --- |
-| `defaultPanelWidth` × `defaultPanelHeight` | **720 × 680** pt | Default on displays that fit |
-| `minPanelWidth` / `maxPanelWidth` | 640 / 760 | Responsive clamp |
-| `minPanelHeight` / `maxPanelHeight` | 600 / 760 | Responsive clamp |
+| `defaultPanelWidth` × `defaultPanelHeight` | **940 × 760** pt | Default on displays that fit (ADR-032) |
+| `homeLeftColumnWidth` | **360** pt | Open Apps column on empty-query home |
+| `minPanelWidth` / `maxPanelWidth` | 720 / 980 | Responsive clamp |
+| `minPanelHeight` / `maxPanelHeight` | 640 / 820 | Responsive clamp |
 | `panelVerticalBias` | **0.68** | Upper third of visible frame |
 | `LauncherPanelGeometry.panelFrame(fitting:)` | — | Single source for size + origin |
 | `LauncherPanel.position(on:)` | — | Atomic `setFrame`; locks `minSize`/`maxSize` |
@@ -187,7 +188,7 @@ When adding or changing a module detail view in `Sources/LumaApp/Launcher/`:
 | Root controller | `LauncherRootController.swift` | `stabilizePanel` on search transitions |
 | Shared styling | `GeekUIKit.swift` | Child-chrome helpers above |
 | Detail chrome | `BaseDetailContainer.swift` | `installDetailRootChrome` |
-| Tokens | `LauncherChromeTokens.swift` | Default 720×680, bias 0.68 |
+| Tokens | `LauncherChromeTokens.swift` | Default 940×760, home left 360pt, bias 0.68 |
 | Tests | `LauncherPanelGeometryTests.swift` | Geometry math regression |
 
 ---

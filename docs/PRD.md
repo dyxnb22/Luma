@@ -47,12 +47,12 @@ The product is already mostly formed. Current work should prioritize:
 5. Command-first module triggers (`clip`, `note`, `t`, `tr`, etc.).
 6. **Window Layout** — prefix-triggered presets (`layout` / `win` / `wl`) to move the focused window (left/right/top/bottom/maximize/center).
 7. **Project Switcher** — prefix-triggered project open (`proj` / `p` / `project`) with config at `~/Library/Application Support/Luma/projects.json`.
-8. Spotlight/Raycast-like UI: **720 × 680 pt** panel, upper-third placement, transparent idle list rows.
+8. Spotlight/Raycast-like UI: **940 × 760 pt** panel, upper-third placement, empty home uses Open Apps (left) + command guide (right).
 9. `Features/` folder containing per-module introductions and maintenance notes.
 
 **Frozen home constraints:** `docs/specs/LAUNCHER_HOME_CONSTRAINTS.md` — do not re-add setup, recent, continue, create, `+N more`, or auto-onboarding on home without a new ADR.
 
-**Frozen panel constraints:** `docs/specs/LAUNCHER_PANEL_CONSTRAINTS.md` — fixed 720×680 geometry, presentation-screen placement, no full-width `wantsLayer` (prevents horizontal clip on module-prefix search).
+**Frozen panel constraints:** `docs/specs/LAUNCHER_PANEL_CONSTRAINTS.md` — 940×760 geometry, presentation-screen placement, no full-width `wantsLayer`.
 
 **Frozen Notes detail constraints:** `docs/specs/NOTES_DETAIL_CONSTRAINTS.md` — chip/panel IA, create flows, Tree/Map toggle, in-detail shortcuts.
 

@@ -19,6 +19,18 @@ Do **not** reintroduce home clutter “for discoverability” without an explici
 
 That is the **only** section `LauncherHomeAggregator` may append on empty query.
 
+### Empty-query layout (ADR-032)
+
+| Column | Width | Content |
+| --- | --- | --- |
+| Left | **360 pt** (`homeLeftColumnWidth`) | Open Apps list |
+| Right | Flexible | Read-only command guide (`LauncherHomeGuidePane`) |
+
+- Active only when query is **empty**, not in detail, not showing search results.
+- Guide shows discoverable commands (no selection) or contextual actions for the selected left-row item.
+- **Not** a second navigable list — no command rows with Return on the right.
+- Typing any query collapses to single-column results (Route C).
+
 ### Open Apps rules
 
 - Show **all** running apps — **no** `+N more` collapse row (`openApps.more`).
@@ -66,10 +78,11 @@ Authoritative math: `Sources/LumaCore/Design/LauncherPanelGeometry.swift`
 
 | Token | Value | Notes |
 | --- | ---: | --- |
-| `defaultPanelWidth` | **720** pt | Spotlight/Raycast-like width |
-| `defaultPanelHeight` | **680** pt | Taller than pre-2026-07 wide shell |
-| `minPanelWidth` / `maxPanelWidth` | 640 / 760 | |
-| `minPanelHeight` / `maxPanelHeight` | 600 / 760 | |
+| `defaultPanelWidth` | **940** pt | Home split + command guide (ADR-032) |
+| `defaultPanelHeight` | **760** pt | Slightly taller home list |
+| `homeLeftColumnWidth` | **360** pt | Open Apps column on empty home |
+| `minPanelWidth` / `maxPanelWidth` | 720 / 980 | |
+| `minPanelHeight` / `maxPanelHeight` | 640 / 820 | |
 | `panelVerticalBias` | **0.68** | Upper third of screen |
 
 Do **not** revert to the historical **900 × 600** “wide dashboard” proportion without ADR.
@@ -112,6 +125,7 @@ In-panel layout rules (search bar, list, detail) live in **[LAUNCHER_PANEL_CONST
 | Onboarding | — | No auto-present; wizard view removed |
 | Tokens | `LauncherChromeTokens.swift` | Panel + list visual values above |
 | Rows | `LauncherListRow.swift` | Idle = clear background; selection on `backgroundView` child only |
+| Home split | `LauncherHomeSplitLayout.swift`, `LauncherHomeGuidePane.swift` | Empty home only; guide is read-only |
 | Panel layout | `LAUNCHER_PANEL_CONSTRAINTS.md` | No full-width `wantsLayer`; stabilize after list transitions |
 
 ### PR checklist for home changes
@@ -136,10 +150,13 @@ Any PR that touches home aggregation, open-apps limits, setup/onboarding, home l
 | First-run permissions | Settings → Permissions | Home setup section |
 | Onboarding | Settings copy or one-time alert (if ever) | Auto wizard on launch |
 | More running apps | Show all in Open Apps | `+N more` row |
+| Module command discoverability | Right-pane guide on empty home | Home suggestion / create rows |
 
 ---
 
 ## Related Docs
+
+- [ADR-032](../adr/032-home-split-command-guide.md) — home split + command guide
 
 - [Launcher Panel Constraints](LAUNCHER_PANEL_CONSTRAINTS.md) — geometry, positioning, in-panel layout
 - [UX Behavior Rules](UX_BEHAVIOR_RULES.md) — interaction contract

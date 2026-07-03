@@ -8,7 +8,7 @@ The project is macOS-only: Swift 6, AppKit for the launcher surface, SwiftUI onl
 
 **Route C** (Command-First Unified List, ADR-023) is the active product surface:
 
-- Command+Space opens a pre-instantiated AppKit panel (default **720×680** pt, upper-third placement; see `docs/specs/LAUNCHER_PANEL_CONSTRAINTS.md`).
+- Command+Space opens a pre-instantiated AppKit panel (default **940×760** pt, upper-third placement; see `docs/specs/LAUNCHER_PANEL_CONSTRAINTS.md`).
 - **Empty query:** Open Apps only (frozen home — no setup/recent/continue/create sections).
 - **Non-empty query:** flat ranked results (max 8 rows) from all enabled modules.
 - **Module detail:** same-panel views entered via trigger keywords or contextual suggestions (not dashboard cards).

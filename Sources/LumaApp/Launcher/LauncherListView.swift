@@ -22,6 +22,17 @@ final class LauncherListView: NSView {
     /// When false, mouse events pass through (used during detail cross-fade).
     var passesHitTests = true
 
+    private(set) var compactHomeColumn = false {
+        didSet {
+            guard oldValue != compactHomeColumn else { return }
+            refreshCompactRowChrome()
+        }
+    }
+
+    func setCompactHomeColumn(_ compact: Bool) {
+        compactHomeColumn = compact
+    }
+
     override var acceptsFirstResponder: Bool { !currentItems.isEmpty }
 
     override func hitTest(_ point: NSPoint) -> NSView? {
@@ -222,6 +233,7 @@ final class LauncherListView: NSView {
                 item: item,
                 moduleLabel: LauncherModuleLabel.shortName(for: item.id.module),
                 isSelected: flatIndex == selectedFlatIndex,
+                hidesTrailingModuleLabel: compactHomeColumn && item.id.module.rawValue == "luma.apps" && item.listNest == .none,
                 onRun: { [weak self] item in self?.onRun?(item) },
                 onRightClick: { [weak self] item in self?.onRightClick?(item) },
                 onHover: { [weak self] in self?.updateSelection(to: flatIndex) }
@@ -229,6 +241,15 @@ final class LauncherListView: NSView {
             return listRow
         case .placeholder(let text):
             return LauncherPlaceholderRow(text: text)
+        }
+    }
+
+    private func refreshCompactRowChrome() {
+        for (rowIndex, row) in rows.enumerated() {
+            guard case .item(let item, _) = row.kind,
+                  let listRow = rowViews[rowIndex] as? LauncherListRow else { continue }
+            let hide = compactHomeColumn && item.id.module.rawValue == "luma.apps" && item.listNest == .none
+            listRow.setHidesTrailingModuleLabel(hide)
         }
     }
 

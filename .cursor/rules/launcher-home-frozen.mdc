@@ -10,9 +10,10 @@ Read **`docs/specs/LAUNCHER_HOME_CONSTRAINTS.md`** before changing home UI, pane
 Panel positioning: **`docs/specs/LAUNCHER_PANEL_CONSTRAINTS.md`**.  
 Navigation / detail exit / shortcuts: **`docs/specs/UX_BEHAVIOR_RULES.md`**, open issues in **`docs/qa/LAUNCHER_NAVIGATION_AUDIT.md`**.
 
-## Empty-query home shows ONLY
+## Empty-query home shows
 
-- **Open Apps** section — all running apps, no `+N more` row.
+- **Open Apps** section in the **left column** (360 pt) — all running apps, no `+N more` row.
+- **Command guide** in the **right pane** — read-only discoverability (ADR-032); not a second list.
 
 ## Do NOT restore without a new ADR
 
@@ -23,7 +24,7 @@ Navigation / detail exit / shortcuts: **`docs/specs/UX_BEHAVIOR_RULES.md`**, ope
 
 ## Panel
 
-- Default **720 × 680 pt**, upper-third (`panelVerticalBias` 0.68).
+- Default **940 × 760 pt**, left column **360 pt** on empty home, upper-third (`panelVerticalBias` 0.68).
 - Tokens: `LauncherChromeTokens.swift`.
 - Positioning + in-panel layout: **`docs/specs/LAUNCHER_PANEL_CONSTRAINTS.md`** — no `anchorPoint` on root; no full-width `wantsLayer`; use `LauncherPanel.position(on:)` and child-chrome helpers.
 

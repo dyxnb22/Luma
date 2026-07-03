@@ -69,7 +69,7 @@ Notes detail IA and create flows: [NOTES_DETAIL_CONSTRAINTS.md](NOTES_DETAIL_CON
 
 - AppKit `NSPanel`, borderless, floating, pre-instantiated.
 - Shows across Spaces and fullscreen apps.
-- Default size **720 × 680 pt**; positioned in the **upper third** of the presentation screen (`panelVerticalBias` 0.68).
+- Default size **940 × 760 pt**; positioned in the **upper third** of the presentation screen (`panelVerticalBias` 0.68).
 - Presentation screen: cursor display → key window display → main (`LumaPresentationScreen.current()`).
 - Placement uses **one atomic** `setFrame` via `LauncherPanel.position(on:)`; panel `minSize`/`maxSize` locked after position.
 - Responsive clamp: width 640–760 pt, height 600–760 pt when the display is smaller.
@@ -97,12 +97,14 @@ Notes detail IA and create flows: [NOTES_DETAIL_CONSTRAINTS.md](NOTES_DETAIL_CON
 - Row kinds: actionable (Return ↩), informational (no Return hint).
 - Items whose title exactly matches the query receive a ranking boost (+0.30 additive) so precise matches reliably surface first.
 
-## Home — Open Apps Only (Frozen 2026-07-03)
+## Home — Open Apps + Command Guide (Frozen 2026-07-03)
 
-- **One section:** running applications ordered by activation recency.
+- **One list section:** running applications ordered by activation recency (left column on empty home).
+- **Right pane (empty home only):** read-only command guide — not a second navigable list (ADR-032).
 - **No** setup, recent, continue, or create sections on empty query.
 - **No** `+N more` collapse row — all running apps are listed.
 - Idle list rows use a **transparent** background; only hover/selection add fill.
+- Any typed query returns to **single-column** search results.
 - Workbench resume, clipboard transforms, and create suggestions are reached via **search** and **command prefixes**, not home rows.
 
 ## Notes detail (Frozen)

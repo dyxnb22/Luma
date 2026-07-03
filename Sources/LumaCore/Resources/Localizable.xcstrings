@@ -225,6 +225,36 @@
         }
       }
     },
+    "home.guide.title": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Commands" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "命令" } }
+      }
+    },
+    "home.guide.intro": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Type a prefix in the search field, or select an app on the left." } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "在搜索框输入命令前缀，或在左侧选择应用。" } }
+      }
+    },
+    "home.guide.return": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Return:" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "回车：" } }
+      }
+    },
+    "home.guide.more": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "More:" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "更多：" } }
+      }
+    },
+    "home.guide.footer": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "help <trigger> or <trigger> ? for full module help." } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "输入 help <触发词> 或 <触发词> ? 查看完整帮助。" } }
+      }
+    },
     "action.appendToNote": {
       "localizations": {
         "en": {

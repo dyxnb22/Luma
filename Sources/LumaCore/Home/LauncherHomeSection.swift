@@ -1,6 +1,6 @@
 import Foundation
 
-public enum LauncherHomeSectionKind: String, Sendable, Hashable, CaseIterable {
+public enum LauncherHomeSectionKind: String, Sendable, Hashable {
     case openApps
 
     public var title: String {

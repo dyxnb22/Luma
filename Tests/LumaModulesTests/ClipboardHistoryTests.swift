@@ -400,7 +400,7 @@ private struct NoopAccessibilityClient: AccessibilityClient {
     #expect(ClipboardFilter.shouldSkip(types: ["public.password"]))
 }
 
-@Test func clipboardHomePreviewSkipsConcealedPasteboard() {
+@Test func clipboardPreviewSkipsConcealedPasteboard() {
     let snapshot = ClipboardSnapshot(
         changeCount: 1,
         types: ["org.nspasteboard.ConcealedType", "public.utf8-plain-text"],
@@ -411,8 +411,8 @@ private struct NoopAccessibilityClient: AccessibilityClient {
         sourceAppName: "1Password",
         sourceBundleID: "com.agilebits.onepassword7"
     )
-    #expect(ClipboardFilter.isSafeForHomePreview(snapshot) == false)
-    #expect(ClipboardFilter.homePreviewText(from: snapshot) == nil)
+    #expect(ClipboardFilter.isSafeForClipboardPreview(snapshot) == false)
+    #expect(ClipboardFilter.clipboardPreviewText(from: snapshot) == nil)
 }
 
 @Test func clipboardListDoesNotPersistPrunedEntries() async throws {

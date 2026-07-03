@@ -53,7 +53,7 @@ These features **remain product scope** but surface elsewhere:
 - **Settings** — permissions, modules, language, retention.
 - **Workbench** — activity/links stores, project workspace detail, command router (see `WORKBENCH_STRATEGY.md`).
 
-`ContextualHomeProvider`, `ResumeHomeProvider`, and `HomeContributor` types may stay in the codebase for workbench context building, but **`LauncherHomeAggregator` must not render their rows on home**.
+Workbench context (`WorkbenchContextBuilder`) feeds **command and detail** surfaces only — **`LauncherHomeAggregator` must not render activity or suggestion rows on home**.
 
 ---
 

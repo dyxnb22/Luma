@@ -162,20 +162,6 @@ import Testing
     #expect(MediaModule.manifest.displayName == "Records")
 }
 
-@Test func mediaModuleInProgressCount() async throws {
-    let url = FileManager.default.temporaryDirectory.appendingPathComponent("media-progress-\(UUID().uuidString).json")
-    defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
-
-    let store = MediaStore(persistenceURL: url)
-    _ = try await store.add(from: MediaEditorDraft(title: "Frieren", category: .anime, status: .inProgress))
-    _ = try await store.add(from: MediaEditorDraft(title: "Dune", category: .book, status: .done, rating: 9))
-    _ = try await store.add(from: MediaEditorDraft(title: "Elden Ring", category: .game, status: .inProgress))
-
-    let module = MediaModule(store: store)
-    await module.warmup(testMediaModuleContext())
-    #expect(await module.inProgressCount() == 2)
-}
-
 private func testMediaModuleContext() -> ModuleContext {
     ModuleContext(
         logger: LumaLogger(),

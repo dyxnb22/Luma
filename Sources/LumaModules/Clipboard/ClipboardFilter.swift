@@ -105,7 +105,7 @@ public enum ClipboardFilter {
         !text.isEmpty && text.data(using: .utf8, allowLossyConversion: false)?.count ?? 0 <= maxBytes
     }
 
-    public static func isSafeForHomePreview(_ snapshot: ClipboardSnapshot) -> Bool {
+    public static func isSafeForClipboardPreview(_ snapshot: ClipboardSnapshot) -> Bool {
         if shouldSkip(types: snapshot.types) {
             return false
         }
@@ -121,8 +121,8 @@ public enum ClipboardFilter {
         return snapshot.imageData != nil || !snapshot.fileURLs.isEmpty
     }
 
-    public static func homePreviewText(from snapshot: ClipboardSnapshot) -> String? {
-        guard isSafeForHomePreview(snapshot) else { return nil }
+    public static func clipboardPreviewText(from snapshot: ClipboardSnapshot) -> String? {
+        guard isSafeForClipboardPreview(snapshot) else { return nil }
         if let text = snapshot.text, !text.isEmpty {
             return String(text.prefix(48))
         }

@@ -21,7 +21,7 @@ Codex should act as Luma's implementation agent: inspect first, edit narrowly, v
 ## Route Guardrails
 
 - Command+Space opens one command-first panel.
-- Empty query shows Open Apps and Suggested (max 2 continue-flow + 1 create suggestion).
+- Empty query shows **Open Apps only** (frozen 2026-07-03; see `docs/specs/LAUNCHER_HOME_CONSTRAINTS.md`).
 - Non-empty query shows flat ranked results; exact title match gets +0.30 ranking boost.
 - Typing a snippet trigger word in global search + Return expands and pastes inline (no detail view).
 - Global queries of 3+ chars also search clipboard history (≤ 3 results).
@@ -57,7 +57,7 @@ Codex should act as Luma's implementation agent: inspect first, edit narrowly, v
 - `LauncherEnvironment.showStatus` is a non-optional `let (String) -> Void`; inject at init, never assign post-construction.
 - Filesystem-heavy modules (Notes, Projects, MenuItems, Media) and external-CLI modules (Auto Workflow) must **not** be added to `BuiltInModules.fastModuleIDs`; they belong outside the global hot path.
 - AX IPC (accessibility API calls) must run off the MainActor; only PID/frontmostApplication capture is allowed on MainActor.
-- `ContextualHomeProvider.rankedSectionItems` uses `async let` for all candidate fetches; do not add sequential `await` calls there.
+- `WorkbenchContextBuilder` loads activity and link stores in parallel; do not add unnecessary sequential `await` calls there.
 - New `LauncherEnvironment` callbacks must be injected as `let` parameters in `init`, not set as optional `var` after construction.
 
 ## Verification

@@ -31,7 +31,7 @@ actor ClipboardPasteboardCache {
     private func refreshLoop() async {
         while !Task.isCancelled {
             let snapshot = await snapshotService.readSnapshot()
-            cachedValue = ClipboardFilter.homePreviewText(from: snapshot)
+            cachedValue = ClipboardFilter.clipboardPreviewText(from: snapshot)
             try? await Task.sleep(for: .seconds(refreshInterval))
         }
     }

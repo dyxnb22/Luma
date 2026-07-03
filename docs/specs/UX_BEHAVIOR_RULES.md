@@ -93,7 +93,7 @@ Panel positioning and in-panel layout: [LAUNCHER_PANEL_CONSTRAINTS.md](LAUNCHER_
 - Keep at most 50 ranked results per snapshot.
 - Preserve selection by `ResultID` across updates.
 - No visible tutorial copy in the launcher.
-- Row kinds: actionable (Return ↩), starter (→), informational (no Return hint).
+- Row kinds: actionable (Return ↩), informational (no Return hint).
 - Items whose title exactly matches the query receive a ranking boost (+0.30 additive) so precise matches reliably surface first.
 
 ## Home — Open Apps Only (Frozen 2026-07-03)

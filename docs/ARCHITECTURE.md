@@ -12,8 +12,7 @@ flowchart TD
     Coordinator --> Panel["LauncherWindowController + NSPanel"]
     Panel --> VM["LauncherViewModel"]
     Panel --> Home["LauncherHomeCoordinator"]
-    Home --> Providers["OpenAppsHomeProvider (home only)"]
-    Home --> Contributors["Contextual HomeContributor set (workbench context, off-home)"]
+    Home --> Providers["OpenAppsHomeProvider"]
     VM --> Dispatcher["QueryDispatcher actor"]
     Dispatcher --> Modules["Enabled LumaModule actors"]
     Modules --> Services["ModuleContext services"]
@@ -93,15 +92,13 @@ Module bundle registration is the single built-in module manifest surface. Each 
 2. Non-empty query: `QueryDispatcher` results render as a flat list (max 8 rows).
 3. Tab / ⌘K opens `LauncherActionPanel` for primary and secondary actions.
 4. Module detail entry: trigger keyword → result row → Return (or workbench / bare command).
-5. Some command-style modules, including Wordbook, first surface a starter row whose primary action opens in-panel detail.
+5. Some command-style modules, including Wordbook, surface an open-detail row whose primary action opens in-panel detail.
 6. `FeatureCatalog.moduleDetailMetadata()` supplies detail header chrome only.
 7. **Snippet trigger expansion**: if the raw query exactly matches a snippet's `trigger` field (case-insensitive) and the `CommandRouter` classifies it as a global search, Return expands and pastes the snippet inline without opening detail.
 
-### Workbench & contextual providers (off-home)
+### Workbench context (off-home)
 
-`HomeContributor` implementations (`ProjectHomeContributor`, `ClipboardHomeContributor`, `SelectionHomeContributor`, `ContinueHomeContributor`) and `ResumeHomeProvider` still feed **workbench context** (`ContextualHomeProvider` → `WorkbenchContextBuilder`) for project workspace detail and command surfaces. They **must not** be wired back into `LauncherHomeAggregator` without a new ADR.
-
-Cross-module creation uses narrow draft builders such as `ProjectContextSuggestions`, `SnippetDraft.fromClipboard`, and `QuicklinkDraftSource` instead of App-layer ad hoc model construction.
+`WorkbenchContextBuilder` assembles selection, clipboard preview, current project, activity, and link snapshots for **workbench command and detail** surfaces. It does **not** feed `LauncherHomeAggregator`. Cross-module creation uses narrow draft builders such as `ProjectContextSuggestions`, `SnippetDraft.fromClipboard`, and `QuicklinkDraftSource` instead of App-layer ad hoc model construction.
 
 ## Home Sections (Frozen 2026-07-03)
 
@@ -115,7 +112,7 @@ Removed from empty-query home (do not restore without ADR):
 - Auto-present onboarding wizard.
 - `SetupHomeProvider` wiring in `AppCoordinator`.
 
-Historical caps (`HomeSuggestionPolicy`, `HomeSuggestionMemory`) still apply to **tests and future ADRs** but not to the current home render path.
+Removed types (`HomeSuggestionPolicy`, `HomeSuggestionMemory`, `ContextualHomeProvider`, `HomeContributor`, `ResumeHomeProvider`) are not part of the current home or workbench context path.
 
 ## Ranking
 
@@ -143,7 +140,6 @@ When the launcher hides, `AppCoordinator` waits **30 seconds**, then calls `Modu
 ```mermaid
 flowchart LR
     Builder[WorkbenchContextBuilder] --> WCtx[WorkbenchContext]
-    WCtx --> Home[HomeContributor]
     WCtx --> Capture[WorkbenchCaptureService]
     WCtx --> Cmd[WorkbenchCommandRouter]
     Capture --> Activity[WorkbenchActivityStore v2]
@@ -154,7 +150,7 @@ flowchart LR
 ```
 
 - **ProjectIdentity** — `stableProjectID` (path SHA256 or label+bundle), `matchedPath`, `labelFallback`, `displayName`. v1 `projectPath` migrates on load.
-- **WorkbenchContext** — work-state snapshot: selection, clipboard, project, drafts, enablement, `WorkbenchActivitySnapshot`, `WorkbenchLinkSnapshot`.
+- **WorkbenchContext** — work-state snapshot: selection, clipboard, project, enablement, `WorkbenchActivitySnapshot`, `WorkbenchLinkSnapshot`.
 - **WorkbenchActivityStore** — `workbench-activity.json` schema **v2**. Entries carry `projectIdentity`, `entityRef`, per-entry `resumePayloadJSON`. v1/legacy auto-migrate on load.
 - **WorkbenchLinkStore** — `workbench-links.json` (≤ 100 links). Written on capture Return; lazy **`ensureLinksIndexed`** via **`WorkbenchLinkIndexing.isLinkEligible`** (same rules as `recordLink`). Dedupe: `stableProjectID|kind|entityID`.
 - **WorkbenchLinkIndexing** — shared link eligibility and dedupe key helpers.

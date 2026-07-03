@@ -39,10 +39,6 @@ actor OpenAppsHomeProvider: LauncherHomeProvider {
         self.collapsedBundleIDs = collapsedBundleIDs
     }
 
-    func invalidateCache() {
-        Task { [weak self] in await self?.refreshOnce() }
-    }
-
     func items() async -> [ResultItem] {
         if cachedSnapshots.isEmpty {
             await refreshOnce()

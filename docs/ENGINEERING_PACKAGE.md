@@ -87,9 +87,8 @@ Users can pin modules in Settings → Modules for always-hot startup behavior an
 
 Home and cross-module rules:
 
-- **Do not** wire `HomeContributor` / `ResumeHomeProvider` / `SetupHomeProvider` into `LauncherHomeAggregator` without a new ADR — see [Launcher Home Constraints](specs/LAUNCHER_HOME_CONSTRAINTS.md).
-- Add workbench/context behavior through `HomeContributor` + `ContextualHomeProvider` for **command and detail** surfaces only.
-- Use `HomeContinueClients` narrow protocols for continue rows instead of injecting concrete module types into AppCoordinator.
+- **Do not** restore setup/recent/continue/create home sections or wire removed home providers into `LauncherHomeAggregator` without a new ADR — see [Launcher Home Constraints](specs/LAUNCHER_HOME_CONSTRAINTS.md).
+- Add workbench behavior through `WorkbenchContextBuilder`, capture services, and command routers for **command and detail** surfaces only.
 - Keep cross-module draft construction behind narrow helpers/protocols such as `ProjectContextSuggestions` or `QuicklinkDraftSource`.
 - Do not add new App-layer switches for commands, feature cards, or detail metadata; read those from `ModuleRegistry` / `ModuleDetailRegistry`.
 
@@ -99,14 +98,14 @@ Location: `Sources/LumaCore/Workbench/`
 
 | Type | Role |
 | --- | --- |
-| `WorkbenchContext` | Assembled user snapshot for Home/Capture/Command |
+| `WorkbenchContext` | Assembled user snapshot for capture/command/detail |
 | `WorkbenchCaptureService` | Protocol; implementation in `LumaApp/Composition/` |
 | `WorkbenchActivityStore` | Local activity trail for Continue/Resume |
 | `WorkbenchCommandRouter` | `cap clip/sel …` routing before global search |
 
 Wiring rules:
 
-- Build context in `WorkbenchContextBuilder` on launcher activation; pass into `HomeContributionContext.workbench`.
+- Build context in `WorkbenchContextBuilder` on launcher activation; pass into workbench capture and command surfaces.
 - Route captures through `DefaultWorkbenchCaptureService`; do not scatter draft builders in UI controllers.
 - Workbench commands check `enabledModuleIDs` before capture; never fan out to global search.
 - Modules may expose capture targets via narrow draft builders (`SnippetDraft+Clipboard`, `ProjectContextSuggestions`).

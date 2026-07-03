@@ -39,7 +39,7 @@ import LumaCore
     )
     let action = WorkbenchActivityRowActions.primaryAction(
         for: entry,
-        key: "home.recent"
+        key: "workbench.recent"
     )
     guard case .replaceQuery = action.kind else {
         Issue.record("Expected replaceQuery for todo capture row")
@@ -61,7 +61,7 @@ import LumaCore
     )
     let action = WorkbenchActivityRowActions.primaryAction(
         for: entry,
-        key: "home.recent"
+        key: "workbench.recent"
     )
     guard case .openModuleDetail = action.kind else {
         Issue.record("Expected openModuleDetail for linked snippet row")
@@ -80,7 +80,7 @@ import LumaCore
     #expect(!presentation.isInteractive)
     #expect(presentation.subtitle == "Viewed project")
 
-    let action = WorkbenchActivityRowActions.primaryAction(for: entry, key: "home.recent")
+    let action = WorkbenchActivityRowActions.primaryAction(for: entry, key: "workbench.recent")
     guard case .custom(let payload, let handler) = action.kind,
           handler == .workbench else {
         Issue.record("Expected workbench showStatus action")

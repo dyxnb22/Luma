@@ -21,7 +21,7 @@ Cursor should be a precise implementation assistant for Luma. Keep edits scoped 
 ## Route Guardrail
 
 - Single command-first panel
-- Empty query: Open Apps + Suggested (max 2 continue-flow + 1 create)
+- Empty query: **Open Apps only** (frozen — see `docs/specs/LAUNCHER_HOME_CONSTRAINTS.md`)
 - Non-empty query: flat results; exact title match gets +0.30 ranking boost
 - Snippet trigger word in global search + Return → inline expansion, no detail
 - Global queries ≥ 3 chars surface up to 3 clipboard entries alongside other results
@@ -54,7 +54,7 @@ Cursor should be a precise implementation assistant for Luma. Keep edits scoped 
 - `LauncherEnvironment.showStatus` is `let (String) -> Void` — inject at init, never post-assign.
 - AX IPC calls must not run on the MainActor; only PID capture (`frontmostApplication`) is allowed on main.
 - `BuiltInModules.fastModuleIDs` is Phase 1 warmup; Notes/Projects/MenuItems/Media/Auto Workflow stay out of the hot path.
-- `ContextualHomeProvider.rankedSectionItems` uses `async let` for all 9 fetches — keep them concurrent.
+- `WorkbenchContextBuilder` loads activity and link stores in parallel; keep those fetches concurrent.
 - New `LauncherEnvironment` callbacks must be `let` parameters in `init`, not optional `var`.
 
 ## Verification

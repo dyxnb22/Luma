@@ -93,13 +93,6 @@ public actor MediaModule: LumaModule {
         await store.all()
     }
 
-    public func inProgressCount() async -> Int {
-        if cachedItems.isEmpty {
-            cachedItems = await store.all()
-        }
-        return cachedItems.filter { $0.status == .inProgress }.count
-    }
-
     public func add(from draft: MediaEditorDraft) async throws -> MediaItem {
         let item = try await store.add(from: draft)
         await refreshCache()

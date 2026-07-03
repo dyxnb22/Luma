@@ -65,7 +65,7 @@ import LumaCore
 @Test func resolveRunUsesOpenModuleDetailAction() {
     let todo = ModuleIdentifier(rawValue: "luma.todo")
     let item = ResultItem(
-        id: ResultID(module: todo, key: "contextual.today"),
+        id: ResultID(module: todo, key: "item.today"),
         title: "Todos",
         titleAttributed: "Todos",
         icon: .none,

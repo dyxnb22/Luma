@@ -33,9 +33,9 @@ Launcher convergence strategy adds a stricter working rule: warm keystroke p95 a
 - `n doctor` is the on-demand health surface for frontmatter, duplicate names, and broken wiki links; it may read note bodies but is not on the keystroke hot path.
 - Notes warmup duration is reported in `n doctor` stats and tracked in `NotesModule.lastWarmupMilliseconds()`.
 - `SelectionSnapshotService.readSelectedText` runs on a background Task; only `frontmostApplication` PID capture happens on the MainActor. AX IPC calls do not block the main thread.
-- `ContextualHomeProvider.rankedSectionItems` runs its `HomeContributor` set concurrently; latency is the maximum of parallel contributors, not their sum.
+- `WorkbenchContextBuilder` loads activity and link stores in parallel; command/detail query in memory only — never scan module directories.
 - `ClipboardModule.handle` participates in global search with an in-memory store search capped at 3 results; it stays within the module's 30 ms query timeout.
-- `WorkbenchActivityStore` reads/writes `workbench-activity.json` (v2 envelope, ≤ 50 entries) and `WorkbenchLinkStore` reads/writes `workbench-links.json` (≤ 100 links). `WorkbenchContextBuilder` loads both in parallel; Home/command/detail query in memory only — never scan module directories.
+- `WorkbenchActivityStore` reads/writes `workbench-activity.json` (v2 envelope, ≤ 50 entries) and `WorkbenchLinkStore` reads/writes `workbench-links.json` (≤ 100 links).
 - `CurrentProjectDetailView.activate` shows loading model synchronously, then loads activity + link snapshots; module warmup happens only on capture execute or open detail.
 - Workbench command preview (`WorkbenchCommandResults`) must not call capture or write activity; execution happens on Return via `LauncherRootController` only (`.workbench` handler never routes through `ActionExecutor`).
 

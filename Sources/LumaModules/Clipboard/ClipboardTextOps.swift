@@ -82,14 +82,3 @@ public enum ClipboardTextOps {
     return output
   }
 }
-
-/// Backward-compatible alias used by home suggestions.
-public enum ClipboardTransform {
-  public static func detectJSON(_ text: String) -> String? {
-    ClipboardTextOps.detectJSON(text)
-  }
-
-  public static func decodeBase64(_ text: String) -> String? {
-    ClipboardTextOps.decodeBase64(text)
-  }
-}

@@ -265,7 +265,7 @@ struct ModulesSettingsView: View {
     var body: some View {
         SettingsPage("Modules") {
             SettingsCard("Pin to hot path") {
-                Text("Pinned modules warm at startup, appear on Home suggestions, and stay ready for search.")
+                Text("Pinned modules warm at startup and stay ready for search.")
                     .font(.caption).foregroundStyle(.secondary)
                     .padding(.horizontal, 12).padding(.top, 8)
                 Text("Default-off modules must be enabled before pinning takes effect.")

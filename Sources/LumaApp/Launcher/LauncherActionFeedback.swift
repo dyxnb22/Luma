@@ -34,9 +34,4 @@ enum LauncherActionFeedback {
   static func shouldDelayDismiss(for action: Action) -> Bool {
     feedback(for: action)?.delayDismiss ?? false
   }
-
-  /// Memory key for home suggestion completion tracking.
-  static func homeMemoryKey(for item: ResultItem) -> String {
-    item.id.key
-  }
 }

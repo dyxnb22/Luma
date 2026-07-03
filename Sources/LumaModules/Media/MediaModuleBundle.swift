@@ -4,7 +4,7 @@ public enum MediaModuleBundle: ModuleBundle {
     public static var manifest: ModuleManifest { MediaModule.manifest }
     public static var warmupTier: WarmupTier { .hotPath }
     public static var defaultOffNote: String? {
-        "Personal media logbook. Enable when you want rec/log capture in search and home suggestions."
+        "Personal media logbook. Enable when you want rec/log capture in search."
     }
 
     public static var presentation: ModulePresentation? {

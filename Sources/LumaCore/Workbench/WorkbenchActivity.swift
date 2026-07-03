@@ -126,7 +126,7 @@ private struct WorkbenchActivityEnvelope: Codable, Sendable {
     var entries: [WorkbenchActivityEntry]
 }
 
-/// Local-first activity trail for Continue/Home/Resume.
+/// Local-first activity trail for workbench resume and project flows.
 public actor WorkbenchActivityStore {
     public static let shared = WorkbenchActivityStore()
     public static let schemaVersion = 2

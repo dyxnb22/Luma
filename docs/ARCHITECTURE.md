@@ -4,7 +4,7 @@
 
 Luma is a single native macOS app with a pre-instantiated AppKit launcher panel, a timeout-protected query dispatcher, in-process actor modules, shared services, and local-first persistence in Application Support, UserDefaults, and Keychain.
 
-**Launcher constraints (frozen):** empty-query home is Open Apps only (`docs/specs/LAUNCHER_HOME_CONSTRAINTS.md`). Panel geometry, presentation-screen placement, and in-panel layout (no full-width `wantsLayer`) are in `docs/specs/LAUNCHER_PANEL_CONSTRAINTS.md`.
+**Launcher constraints (frozen):** empty-query home is Open Apps + right-pane guide or detail (`docs/specs/LAUNCHER_HOME_CONSTRAINTS.md`, ADR-032). Panel geometry 940×760, presentation-screen placement, and in-panel layout are in `docs/specs/LAUNCHER_PANEL_CONSTRAINTS.md`.
 
 ```mermaid
 flowchart TD
@@ -88,7 +88,7 @@ Module bundle registration is the single built-in module manifest surface. Each 
 
 ## Home List Flow (Route C)
 
-1. Empty query: `LauncherHomeCoordinator` aggregates **Open Apps only** (frozen — see `docs/specs/LAUNCHER_HOME_CONSTRAINTS.md`).
+1. Empty query: `LauncherHomeCoordinator` aggregates **Open Apps** in the left column; right pane shows command guide or module detail (ADR-032 — see `docs/specs/LAUNCHER_HOME_CONSTRAINTS.md`).
 2. Non-empty query: `QueryDispatcher` results render as a flat list (max 8 rows).
 3. Tab / ⌘K opens `LauncherActionPanel` for primary and secondary actions.
 4. Module detail entry: trigger keyword → result row → Return (or workbench / bare command).

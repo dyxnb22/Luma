@@ -1,19 +1,21 @@
 ---
-description: Frozen launcher home — Open Apps only; no suggestion/onboarding rows
+description: Frozen launcher home — Open Apps left column; guide/detail right; no suggestion rows
 globs: Sources/LumaApp/Launcher/**,Sources/LumaCore/Home/**,docs/specs/**
 alwaysApply: true
 ---
 
 # Launcher home (frozen)
 
-Read **`docs/specs/LAUNCHER_HOME_CONSTRAINTS.md`** before changing home UI, panel size, or list chrome.  
+Read **`docs/specs/LAUNCHER_HOME_CONSTRAINTS.md`** and **`docs/adr/032-home-split-command-guide.md`** before changing home UI, panel size, or list chrome.  
 Panel positioning: **`docs/specs/LAUNCHER_PANEL_CONSTRAINTS.md`**.  
-Navigation / detail exit / shortcuts: **`docs/specs/UX_BEHAVIOR_RULES.md`**, open issues in **`docs/qa/LAUNCHER_NAVIGATION_AUDIT.md`**.
+Navigation / detail exit / shortcuts: **`docs/specs/UX_BEHAVIOR_RULES.md`** + **`docs/qa/LAUNCHER_NAVIGATION_AUDIT.md`**.
 
-## Empty-query home shows
+## Empty-query layout (visible query empty)
 
-- **Open Apps** section in the **left column** (360 pt) — all running apps, no `+N more` row.
-- **Command guide** in the **right pane** — read-only discoverability (ADR-032); not a second list.
+- **Left column (360 pt):** Open Apps — all running apps, no `+N more` row.
+- **Right column:** command guide (home) **or** module detail — not a second navigable list.
+- Module detail must **not** hide or cover the left Open Apps column.
+- Typing any query → single-column search results (split off).
 
 ## Do NOT restore without a new ADR
 
@@ -21,17 +23,18 @@ Navigation / detail exit / shortcuts: **`docs/specs/UX_BEHAVIOR_RULES.md`**, ope
 - Recent / 最近, Continue / 继续, Create / 创建 sections
 - Auto-present onboarding wizard
 - Gray background on every idle list row
+- Full-panel detail overlay when visible query is empty
 
 ## Panel
 
-- Default **940 × 760 pt**, left column **360 pt** on empty home, upper-third (`panelVerticalBias` 0.68).
+- Default **940 × 760 pt**, left column **360 pt**, upper-third (`panelVerticalBias` 0.68).
 - Tokens: `LauncherChromeTokens.swift`.
-- Positioning + in-panel layout: **`docs/specs/LAUNCHER_PANEL_CONSTRAINTS.md`** — no `anchorPoint` on root; no full-width `wantsLayer`; use `LauncherPanel.position(on:)` and child-chrome helpers.
+- Positioning + in-panel layout: **`docs/specs/LAUNCHER_PANEL_CONSTRAINTS.md`**.
 
 ## Where features go instead
 
-- Search, module prefixes (`clip`, `t`, `word`, …), bare commands, module detail, `proj` workbench commands.
+- Search, module prefixes (`clip`, `t`, `word`, …), bare commands, module detail (right column), `proj` workbench commands.
 
 ## PR requirements
 
-If adding home sections: update `LAUNCHER_HOME_CONSTRAINTS.md`, `UX_BEHAVIOR_RULES.md`, `MANUAL_QA_CHECKLIST.md`, and `LauncherHomeAggregatorTests`.
+If adding home sections or changing split layout: update `LAUNCHER_HOME_CONSTRAINTS.md`, `UX_BEHAVIOR_RULES.md`, `LAUNCHER_PANEL_CONSTRAINTS.md`, `MANUAL_QA_CHECKLIST.md`, and ADR-032 if behavior changes.

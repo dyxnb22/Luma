@@ -109,7 +109,9 @@ Panel and search field must stay **horizontally aligned** with panel edges — n
 
 ### Module Detail
 
-- Running a detail entry swaps the main content area to a `BaseDetailContainer` detail view (16 pt margins).
+- On **empty visible query**, detail opens in the **right column** (~540 pt); **left Open Apps stay visible** and clickable (ADR-032).
+- On **non-empty query**, detail uses the full content area below search (single-column results layout).
+- Detail view uses `BaseDetailContainer` (16 pt margins); must scroll within right-column width — never widen the panel.
 - Search bar remains visible but read-only with an `In <Module> — Esc to go back` placeholder (prior query is restored when leaving detail).
 - Top bar shows Back, module title, and close.
 - Esc in detail returns to the prior search results when a query was suspended; otherwise home.

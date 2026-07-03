@@ -21,7 +21,7 @@ Codex should act as Luma's implementation agent: inspect first, edit narrowly, v
 ## Route Guardrails
 
 - Command+Space opens one command-first panel.
-- Empty query shows **Open Apps only** (frozen 2026-07-03; see `docs/specs/LAUNCHER_HOME_CONSTRAINTS.md`).
+- Empty query shows **Open Apps** left + guide/detail right (frozen; ADR-032 — `docs/specs/LAUNCHER_HOME_CONSTRAINTS.md`).
 - Non-empty query shows flat ranked results; exact title match gets +0.30 ranking boost.
 - Typing a snippet trigger word in global search + Return expands and pastes inline (no detail view).
 - Global queries of 3+ chars also search clipboard history (≤ 3 results).

@@ -12,7 +12,7 @@ If you are new to the repo or preparing to make changes, read these documents fi
 6. [Module Contract](specs/MODULE_CONTRACT.md) — module responsibilities and interfaces.
 7. [Performance](specs/PERFORMANCE.md) — latency budgets and performance constraints.
 8. [UX Behavior Rules](specs/UX_BEHAVIOR_RULES.md) — current launcher interaction rules.
-9. **[Launcher Home Constraints](specs/LAUNCHER_HOME_CONSTRAINTS.md)** — frozen empty-query home; **required before any home UI change**.
+9. **[Launcher Home Constraints](specs/LAUNCHER_HOME_CONSTRAINTS.md)** — frozen empty-query split home; **required before any home UI change**.
 10. **[Launcher Panel Constraints](specs/LAUNCHER_PANEL_CONSTRAINTS.md)** — panel geometry, positioning, in-panel layout; **required before panel/chrome changes**.
 11. **[Launcher Navigation Audit](qa/LAUNCHER_NAVIGATION_AUDIT.md)** — temporary open-issue register (navigation, shortcuts, session); align specs when closing items.
 12. [Module Maturity Checklist](specs/MODULE_MATURITY.md) — shipping checklist for built-in modules.
@@ -23,7 +23,7 @@ If you are new to the repo or preparing to make changes, read these documents fi
 Recommended reading order for most engineering work:
 
 1. Product intent: [PRD](PRD.md)
-2. Active UI route: [ADR-023](adr/023-command-first-unified-list.md)
+2. Active UI route: [ADR-023](adr/023-command-first-unified-list.md), [ADR-032](adr/032-home-split-command-guide.md)
 3. Workbench direction: [WORKBENCH_STRATEGY.md](WORKBENCH_STRATEGY.md)
 4. System shape: [Architecture](ARCHITECTURE.md)
 4. Constraints: [Launcher Home Constraints](specs/LAUNCHER_HOME_CONSTRAINTS.md), [Launcher Panel Constraints](specs/LAUNCHER_PANEL_CONSTRAINTS.md), [Module Contract](specs/MODULE_CONTRACT.md), [Performance](specs/PERFORMANCE.md), [UX Behavior Rules](specs/UX_BEHAVIOR_RULES.md)
@@ -43,7 +43,7 @@ When documents conflict, follow:
 ## Current Direction Summary
 
 - Active launcher route is Route C: command-first unified list.
-- Empty query shows **Open Apps only** on home (frozen).
+- Empty query shows **Open Apps** in the left column with guide/detail on the right (frozen; ADR-032).
 - Module details open in the same panel.
 - User-facing media functionality is named Records; the technical module identifier remains `luma.media`.
 - Auto Workflow is a default-off, on-demand wrapper around the external `cc-loop` CLI; see ADR-031.

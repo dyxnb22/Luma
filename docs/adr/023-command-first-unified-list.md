@@ -24,7 +24,7 @@ Route C — **Command-First Unified List**:
 4. **Module = result provider**: Modules surface via `ResultItem` rows, not `FeatureCard` tiles.
 5. **Open Apps as section #1**: Open apps appear in the home list, not a permanent sidebar.
 6. **Action Panel is opt-in**: Tab / ⌘K opens an action chooser; rows show primary action on Return.
-7. **Minimal home abstraction**: **Open Apps only** on empty query. Suggested/continue/create rows are **not** rendered on home (frozen 2026-07-03; see `docs/specs/LAUNCHER_HOME_CONSTRAINTS.md`).
+7. **Minimal home abstraction**: **Open Apps** left column on empty visible query; right pane = guide or detail (ADR-032). No suggestion rows on home.
 8. **Performance budget**: Open Apps home provider ≤ 4 ms on main thread; full home snapshot ≤ 16 ms.
 
 Panel geometry (2026-07-03): default **940 × 760 pt**, responsive **720–980 × 640–820 pt**, upper-third bias (`panelVerticalBias` 0.68). Empty-query home: **360 pt** Open Apps column + command guide (ADR-032). Supersedes the earlier 720×680 and 900×600 notes below.

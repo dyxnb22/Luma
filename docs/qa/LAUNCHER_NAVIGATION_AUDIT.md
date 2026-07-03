@@ -77,4 +77,4 @@
 | 2026-07-03 | Initial audit |
 | 2026-07-03 | NAV-02 — detail chrome exit |
 | 2026-07-03 | Implementation pass — P0/P1/P2 items above |
-| 2026-07-03 | L7 action panel row anchor; C1 workbench command hint sync |
+| 2026-07-03 | ADR-032 — split home; module detail in right column; Open Apps stay left |

@@ -7,7 +7,7 @@ enum LauncherSplitRightPane: Equatable {
     case hidden
 }
 
-/// Toggles empty-query home between full-width list and Open Apps + right pane (guide or module detail).
+/// Toggles column split: Open Apps (left) + guide or module detail (right). ADR-032.
 @MainActor
 final class LauncherHomeSplitLayout {
     let guidePane: LauncherHomeGuidePane
@@ -17,7 +17,6 @@ final class LauncherHomeSplitLayout {
     private let divider: NSBox
     private let listFullWidthTrailing: NSLayoutConstraint
     private let listSplitWidth: NSLayoutConstraint
-    private let detailFullBleedConstraints: [NSLayoutConstraint]
     private let detailRightColumnConstraints: [NSLayoutConstraint]
     private var columnSplitActive = false
     private var rightPane: LauncherSplitRightPane = .hidden
@@ -48,14 +47,6 @@ final class LauncherHomeSplitLayout {
             equalTo: contentContainer.trailingAnchor,
             constant: -8
         )
-
-        let detailFullBleedConstraints = [
-            detailContainer.topAnchor.constraint(equalTo: contentContainer.topAnchor),
-            detailContainer.leadingAnchor.constraint(equalTo: contentContainer.leadingAnchor),
-            detailContainer.trailingAnchor.constraint(equalTo: contentContainer.trailingAnchor),
-            detailContainer.bottomAnchor.constraint(equalTo: contentContainer.bottomAnchor)
-        ]
-        detailFullBleedConstraints.forEach { $0.isActive = false }
 
         let detailRightColumnConstraints = [
             detailContainer.topAnchor.constraint(equalTo: contentContainer.topAnchor, constant: 8),
@@ -93,7 +84,6 @@ final class LauncherHomeSplitLayout {
             divider: divider,
             listFullWidthTrailing: listFullWidthTrailing,
             listSplitWidth: listSplitWidth,
-            detailFullBleedConstraints: detailFullBleedConstraints,
             detailRightColumnConstraints: detailRightColumnConstraints
         )
     }
@@ -105,7 +95,6 @@ final class LauncherHomeSplitLayout {
         divider: NSBox,
         listFullWidthTrailing: NSLayoutConstraint,
         listSplitWidth: NSLayoutConstraint,
-        detailFullBleedConstraints: [NSLayoutConstraint],
         detailRightColumnConstraints: [NSLayoutConstraint]
     ) {
         self.listView = listView
@@ -114,7 +103,6 @@ final class LauncherHomeSplitLayout {
         self.divider = divider
         self.listFullWidthTrailing = listFullWidthTrailing
         self.listSplitWidth = listSplitWidth
-        self.detailFullBleedConstraints = detailFullBleedConstraints
         self.detailRightColumnConstraints = detailRightColumnConstraints
     }
 
@@ -140,11 +128,7 @@ final class LauncherHomeSplitLayout {
         guidePane.isHidden = !(columnSplitActive && rightPane == .guide)
         let showsDetail = rightPane == .detail
         detailContainer.isHidden = !showsDetail
-
         let useRightColumnDetail = columnSplitActive && showsDetail
-        let useFullBleedDetail = !columnSplitActive && showsDetail
-
         detailRightColumnConstraints.forEach { $0.isActive = useRightColumnDetail }
-        detailFullBleedConstraints.forEach { $0.isActive = useFullBleedDetail }
     }
 }

@@ -23,7 +23,7 @@ Historical route docs:
 ## Product Goals
 
 - Native AppKit launcher with p95 hotkey-to-interactive <= 50 ms.
-- Empty-query home list with **Open Apps only** (calm app switcher).
+- Empty-query home: **Open Apps** in the left column + command guide or module detail on the right (ADR-032; calm app switcher with discoverability).
 - Modular query/action implementation behind a simple launcher UX.
 - Local-first data for clipboard, usage, configuration, and app cache.
 - A small core feature set that remains fast under repeated daily use.
@@ -50,7 +50,7 @@ The product is already mostly formed. Current work should prioritize:
 8. Spotlight/Raycast-like UI: **940 × 760 pt** panel, upper-third placement, empty home uses Open Apps (left) + command guide (right).
 9. `Features/` folder containing per-module introductions and maintenance notes.
 
-**Frozen home constraints:** `docs/specs/LAUNCHER_HOME_CONSTRAINTS.md` — do not re-add setup, recent, continue, create, `+N more`, or auto-onboarding on home without a new ADR.
+**Frozen home constraints:** `docs/specs/LAUNCHER_HOME_CONSTRAINTS.md` + ADR-032 — Open Apps left column; no setup/recent/continue/create rows without ADR.
 
 **Frozen panel constraints:** `docs/specs/LAUNCHER_PANEL_CONSTRAINTS.md` — 940×760 geometry, presentation-screen placement, no full-width `wantsLayer`.
 

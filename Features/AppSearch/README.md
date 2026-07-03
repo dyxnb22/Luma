@@ -7,7 +7,7 @@ Provide fast app launching inside the Route C unified list. App results should f
 ## Active Behavior (Route C)
 
 - Command+Space opens the launcher panel.
-- Empty query shows the home list with **Open Apps only** (see `docs/specs/LAUNCHER_HOME_CONSTRAINTS.md`).
+- Empty query shows the home split: **Open Apps** left + guide or detail right (see `docs/specs/LAUNCHER_HOME_CONSTRAINTS.md`, ADR-032).
 - Non-empty query searches the app index alongside other enabled modules.
 - Typing filters indexed apps from `/Applications`, `/System/Applications`, and `~/Applications`.
 - Clicking or pressing Return on an app result launches or activates it with `NSWorkspace`.

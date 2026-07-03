@@ -21,7 +21,7 @@ Cursor should be a precise implementation assistant for Luma. Keep edits scoped 
 ## Route Guardrail
 
 - Single command-first panel
-- Empty query: **Open Apps only** (frozen — see `docs/specs/LAUNCHER_HOME_CONSTRAINTS.md`)
+- Empty query: **Open Apps** left column + guide/detail right (frozen — see `docs/specs/LAUNCHER_HOME_CONSTRAINTS.md`, ADR-032)
 - Non-empty query: flat results; exact title match gets +0.30 ranking boost
 - Snippet trigger word in global search + Return → inline expansion, no detail
 - Global queries ≥ 3 chars surface up to 3 clipboard entries alongside other results

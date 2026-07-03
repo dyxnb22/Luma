@@ -4,7 +4,7 @@ This folder is the maintenance index for Luma's feature modules. Each feature ow
 
 ## Active v1 Launcher Set (Route C — ADR-023)
 
-**Home (frozen 2026-07-03):** Open Apps only. No dashboard card grid, no setup/recent/continue/create sections, no `+N more`, no auto-onboarding.
+**Home (frozen 2026-07-03):** Open Apps in the left column; right pane = command guide or module detail (ADR-032). No dashboard card grid, no setup/recent/continue/create sections, no `+N more`, no auto-onboarding.
 
 **Modules (registered at launch):** Apps, Clipboard, Commands, Notes, Todo, Translate, Wordbook, Snippets, Secrets, Media, Window Layouts, Projects, Quicklinks, Menu Bar Search, Kill Process, Browser Tabs, Auto Workflow.
 
@@ -48,7 +48,7 @@ Treat `BuiltInModules.swift`, `FeatureCatalog.swift`, and `docs/ARCHITECTURE.md`
 
 - Every feature is represented as an independent `LumaModule` or service-backed module.
 - Every default-enabled feature must preserve the launcher hot path.
-- Empty-query home shows **Open Apps only** — no setup, suggestion, or onboarding rows (`LAUNCHER_HOME_CONSTRAINTS.md`).
+- Empty-query home: **Open Apps** left column + guide/detail right (`LAUNCHER_HOME_CONSTRAINTS.md`, ADR-032).
 - Sensitive features must keep secrets out of generic search results unless explicitly unlocked.
 
 ## Keyboard & Help (2026-07-02)

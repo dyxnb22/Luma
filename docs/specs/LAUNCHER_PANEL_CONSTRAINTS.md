@@ -159,6 +159,24 @@ Call after:
 
 ---
 
+## Home split layout (ADR-032)
+
+When the visible search query is **empty**:
+
+| Region | Width | Content |
+| --- | --- | --- |
+| Left column | `homeLeftColumnWidth` (360 pt) | Open Apps list |
+| Right column | Remainder (~540 pt on default panel) | Command guide or module detail |
+
+- Active search (non-empty query) → **single-column** results; split off.
+- Module detail **never** uses full-panel overlay when visible query is empty.
+- `detailContainer` constraints: `LauncherHomeSplitLayout` right-column anchors only.
+- All module detail views must pin to `detailContainer` width and scroll — same rules as full-width detail, narrower canvas.
+
+Implementation: `LauncherHomeSplitLayout.swift`, `LauncherHomeGuidePane.swift`, `LauncherRootController.syncSplitLayout()`.
+
+---
+
 ## New Module Detail Checklist
 
 When adding or changing a module detail view in `Sources/LumaApp/Launcher/`:
@@ -184,8 +202,9 @@ When adding or changing a module detail view in `Sources/LumaApp/Launcher/`:
 | Root chrome | `LauncherPanelChrome.swift` | Glass + border on child overlay |
 | Layout builder | `LauncherLayoutBuilder.swift` | No `wantsLayer` on full-width containers |
 | In-panel stabilize | `LauncherInPanelLayout.swift` | Single entry for post-layout stabilize |
-| Content coordinator | `LauncherContentCoordinator.swift` | `stabilizePanel` on results / detail |
-| Root controller | `LauncherRootController.swift` | `stabilizePanel` on search transitions |
+| Content coordinator | `LauncherContentCoordinator.swift` | Right-column detail; `stabilizePanel` on present/close |
+| Home split | `LauncherHomeSplitLayout.swift` | Column split + right pane guide/detail |
+| Root controller | `LauncherRootController.swift` | `syncSplitLayout` on home/detail/search transitions |
 | Shared styling | `GeekUIKit.swift` | Child-chrome helpers above |
 | Detail chrome | `BaseDetailContainer.swift` | `installDetailRootChrome` |
 | Tokens | `LauncherChromeTokens.swift` | Default 940×760, home left 360pt, bias 0.68 |

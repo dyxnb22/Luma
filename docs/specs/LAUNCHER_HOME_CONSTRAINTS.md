@@ -62,7 +62,7 @@ These features **remain product scope** but surface elsewhere:
 
 - **Search results** — global query, module prefixes (`clip`, `t`, `word`, …).
 - **Bare commands** — `todo`, `word review`, `app top`, module bare-open-detail, workbench `proj` / `cap` / `attach`.
-- **Module detail** — same-panel `BaseDetailContainer` views.
+- **Module detail** — same-panel `BaseDetailContainer` in the **right column** when visible query is empty (ADR-032).
 - **Settings** — permissions, modules, language, retention.
 - **Workbench** — activity/links stores, project workspace detail, command router (see `WORKBENCH_STRATEGY.md`).
 

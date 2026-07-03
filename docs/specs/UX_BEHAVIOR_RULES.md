@@ -10,7 +10,7 @@ Notes detail IA and create flows: [NOTES_DETAIL_CONSTRAINTS.md](NOTES_DETAIL_CON
 - Hotkey toggles the launcher.
 - Default hotkey is Command+Space.
 - The launcher panel is not a dashboard.
-- Module detail surfaces open inside the launcher panel (Route C).
+- Module detail surfaces open in the **right column** when the visible query is empty; Open Apps stay on the left (ADR-032).
 - Escape dismisses, or steps back through detail → results (restores query) → home → close panel.
 - Tab opens the action panel for secondary actions; Tab or Shift+Tab closes it when open.
 - Standard edit shortcuts work in text fields and detail views: Command+A/C/V/X/Z, Command+Shift+Z / Command+Y.
@@ -24,9 +24,9 @@ Notes detail IA and create flows: [NOTES_DETAIL_CONSTRAINTS.md](NOTES_DETAIL_CON
 
 | Layer | State | Visible UI |
 | --- | --- | --- |
-| Home | Empty query, `!showingResults` | Open Apps list |
-| Results | Non-empty query or `showingResults` | Flat search results (≤8 rows painted) |
-| Detail | `showingDetail` | `detailContainer` over list area; search bar read-only |
+| Home | Empty query, `!showingResults`, `!showingDetail` | Left: Open Apps · Right: command guide |
+| Results | Non-empty query, `showingResults` | Single-column search results (≤8 rows) |
+| Detail | `showingDetail`, empty visible query | Left: Open Apps · Right: module detail (ADR-032) |
 
 **Enter detail:** `enterDetailContext` → `beginDetailMode` → `contentCoordinator.present`.  
 **Leave detail (canonical):** `exitDetailFromChrome` — used by Esc, detail **back**, and detail **close** (same behavior).  
@@ -48,7 +48,7 @@ Notes detail IA and create flows: [NOTES_DETAIL_CONSTRAINTS.md](NOTES_DETAIL_CON
 | Context | ↑↓ | ⌘1–9 | ⌘↩ | Tab / ⌘K | Esc |
 | --- | --- | --- | --- | --- | --- |
 | Home / results (search or list focused) | Move selection | Jump + run row | First secondary action (search focused) | Open action panel | Back / clear / close |
-| Detail | **Must not** move hidden list (see audit K6) | **Must not** run stale rows | N/A in detail | Swallowed | `exitDetailFromChrome` |
+| Detail | **Must not** route ↑↓ / ⌘1–9 to hidden list (audit K6); left Open Apps remain visible in split — click left list to switch apps | Module shortcuts via `dispatchDetailKeyDown` | N/A in detail | Swallowed | `exitDetailFromChrome` |
 | Action panel open | Move panel selection when panel has key focus | Activate panel row | — | Dismiss panel | Dismiss panel |
 
 **Known gaps:** ⌘W “close detail” in hint bar is **not implemented** on `LauncherPanel`; module-level shortcuts in `handleKeyDown` are often unreachable when detail subviews hold focus — see [LAUNCHER_NAVIGATION_AUDIT.md](../qa/LAUNCHER_NAVIGATION_AUDIT.md).
@@ -72,7 +72,7 @@ Notes detail IA and create flows: [NOTES_DETAIL_CONSTRAINTS.md](NOTES_DETAIL_CON
 - Default size **940 × 760 pt**; positioned in the **upper third** of the presentation screen (`panelVerticalBias` 0.68).
 - Presentation screen: cursor display → key window display → main (`LumaPresentationScreen.current()`).
 - Placement uses **one atomic** `setFrame` via `LauncherPanel.position(on:)`; panel `minSize`/`maxSize` locked after position.
-- Responsive clamp: width 640–760 pt, height 600–760 pt when the display is smaller.
+- Responsive clamp: width **720–980** pt, height **640–820** pt when the display is smaller.
 - **No** `anchorPoint` or scale transforms on the root content view (causes horizontal clip).
 - Show/hide: alpha fade only (`MotionTokens`); no scale animation.
 - The query field receives focus on every show.
@@ -84,7 +84,7 @@ Notes detail IA and create flows: [NOTES_DETAIL_CONSTRAINTS.md](NOTES_DETAIL_CON
 - Glass, borders, selection, and search chrome go on **pinned child views** (`GeekUIKit` helpers — see [LAUNCHER_PANEL_CONSTRAINTS.md](LAUNCHER_PANEL_CONSTRAINTS.md)).
 - After search, results, home, or detail transitions, the host calls `LauncherInPanelLayout.stabilizePanel(from:)` → `LauncherPanel.enforceLockedGeometry()` (re-centers and clamps width to `lockedFrameSize`) plus `stabilizeContentLayout()`.
 - Custom module details (Translate, Notes, Auto Workflow) pin horizontal stacks to the detail container width; crowded toolbars scroll horizontally.
-- During detail ↔ list cross-fade, fading overlays must not block clicks (`ignoresMouseEvents` or `isHidden` until transition completes — see audit L1).
+- During detail ↔ list transitions, fading overlays must not block clicks (`ignoresMouseEvents` or `isHidden` until transition completes — see audit L1). Split-mode detail does not fade out the left Open Apps column.
 - Bounded widgets (icons, keycaps, table row surfaces, thumbnails) may keep `wantsLayer` on the widget itself.
 
 ## Results

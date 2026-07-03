@@ -37,6 +37,7 @@ Navigation / shortcuts: **`docs/specs/UX_BEHAVIOR_RULES.md`** + **`docs/qa/LAUNC
 ## In-panel layout — always
 
 - Fixed panel width; detail views scroll or truncate — never widen the panel.
+- Empty-query home: module detail in **right column** only (`LauncherHomeSplitLayout`); left Open Apps stay visible.
 - Put chrome on **pinned child views** (`GeekUIKit.installSearchSurface`, `configureContentSurface`, `installHomeListSurface`, list row `backgroundView`, `LauncherActionPanel.chromeView`).
 - Custom details: pin stacks to `container.leading`/`trailing` or `container.widthAnchor`; crowded toolbars use `constrainDetailToolbarTrailingActions`.
 - Disable mouse hits on fading `detailContainer` / `listView` during cross-fade (audit L1).

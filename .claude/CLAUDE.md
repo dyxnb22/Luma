@@ -25,7 +25,7 @@ Historical route records exist in ADRs, but do not plan against them unless the 
 
 - **Snippet trigger expansion**: typing a snippet's trigger word in global search and pressing Return expands and pastes inline — no detail navigation required. `LauncherRootController.activateReturn` intercepts before normal result dispatch.
 - **Clipboard global search**: any 3+ character global query also searches clipboard history (≤ 3 results). `clip`/`cb` prefix still works as before.
-- **Home freeze (2026-07-03):** empty-query home is Open Apps only — no setup/recent/continue/create sections (`docs/specs/LAUNCHER_HOME_CONSTRAINTS.md`).
+- **Home freeze (2026-07-03):** empty-query home = Open Apps left + guide/detail right (ADR-032) — no setup/recent/continue/create sections (`docs/specs/LAUNCHER_HOME_CONSTRAINTS.md`).
 - **Ranking exact-match boost**: `Ranker.score` adds +0.30 for items whose title exactly matches the query. Fuzzy weight reduced from 0.55 → 0.45 to accommodate.
 - **Two-phase warmup**: `AppCoordinator` warms `BuiltInModules.fastModuleIDs` first → calls `setModulesReady(true)` → warms Notes/Projects in background.
 - **Bug fixes**: `SnippetsAction.create` dead path restored; `SelectionSnapshotService` AX IPC moved off MainActor; `LauncherEnvironment.showStatus` promoted from optional var to non-optional let; `BrowserTabsIndex` empty-query dedup; `topTodoRow` stable memory key; `saveAsNote` correct `openAfterCapture: false`.
@@ -34,7 +34,7 @@ Historical route records exist in ADRs, but do not plan against them unless the 
 ## Route Guardrails
 
 - Command+Space opens a single command-first panel.
-- Empty query shows **Open Apps only** (frozen 2026-07-03; see `docs/specs/LAUNCHER_HOME_CONSTRAINTS.md`).
+- Empty query shows **Open Apps** left + guide/detail right (frozen; ADR-032 — `docs/specs/LAUNCHER_HOME_CONSTRAINTS.md`).
 - Non-empty query shows flat ranked results; exact title match gets a +0.30 ranking boost.
 - Typing a snippet trigger word and pressing Return expands the snippet inline without opening detail.
 - Global search queries of 3+ characters surface up to 3 clipboard history matches alongside other results.

@@ -33,7 +33,6 @@ final class LauncherRootController {
     private var homeRefreshTask: Task<Void, Never>?
     private var querySyncTimer: Timer?
     private var lastSyncedQuery = ""
-    private var lastDetailPresentation: ModuleDetailPresentation = .fullOverlay
 
     init(
         viewModel: LauncherViewModel,
@@ -258,8 +257,7 @@ final class LauncherRootController {
             await MainActor.run {
                 let trimmed = self.searchBar.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
                 guard trimmed.isEmpty else { return }
-                if self.contentCoordinator.showingDetail,
-                   self.lastDetailPresentation == .rightColumn {
+                if self.contentCoordinator.showingDetail {
                     self.contentCoordinator.showHome(snapshot)
                     self.syncRowActionHint()
                     return
@@ -488,7 +486,6 @@ final class LauncherRootController {
             let snapshot = await homeCoordinator.snapshot()
             contentCoordinator.showHome(snapshot)
             enterDetailContext(moduleTitle: detail.moduleTitle)
-            lastDetailPresentation = presentation
             contentCoordinator.present(detail, moduleID: moduleID, presentation: presentation)
             if moduleID == .translate,
                let translate = contentCoordinator.currentDetailObject as? TranslateDetailView {
@@ -595,9 +592,7 @@ final class LauncherRootController {
 
     func closeDetail() {
         if contentCoordinator.showingDetail {
-            let presentation = lastDetailPresentation
-            contentCoordinator.closeDetail(presentation: presentation)
-            lastDetailPresentation = .fullOverlay
+            contentCoordinator.closeDetail(presentation: .rightColumn)
             Task { await launcherEnvironment.reserveDetailModule(nil) }
             syncSplitLayout()
             syncKeyHints()
@@ -851,8 +846,6 @@ final class LauncherRootController {
                 )
                 homeSplitLayout.guidePane.applyCatalog(commands)
             }
-        } else if contentCoordinator.showingDetail {
-            homeSplitLayout.setRightPane(.detail)
         } else {
             homeSplitLayout.setRightPane(.hidden)
         }

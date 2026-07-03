@@ -17,7 +17,7 @@ Authoritative math: `Sources/LumaCore/Design/LauncherPanelGeometry.swift`
 | Token / API | Value | Notes |
 | --- | ---: | --- |
 | `defaultPanelWidth` × `defaultPanelHeight` | **940 × 760** pt | Default on displays that fit (ADR-032) |
-| `homeLeftColumnWidth` | **360** pt | Open Apps column on empty-query home |
+| `homeLeftColumnWidth` | **280** pt | Open Apps column on empty-query home |
 | `minPanelWidth` / `maxPanelWidth` | 720 / 980 | Responsive clamp |
 | `minPanelHeight` / `maxPanelHeight` | 640 / 820 | Responsive clamp |
 | `panelVerticalBias` | **0.68** | Upper third of visible frame |
@@ -165,8 +165,8 @@ When the visible search query is **empty**:
 
 | Region | Width | Content |
 | --- | --- | --- |
-| Left column | `homeLeftColumnWidth` (360 pt) | Open Apps list |
-| Right column | Remainder (~540 pt on default panel) | Command guide or module detail |
+| Left column | `homeLeftColumnWidth` (280 pt) | Open Apps list |
+| Right column | Remainder (~620 pt on default panel) | Command guide or module detail |
 
 - Active search (non-empty query) → **single-column** results; split off.
 - Module detail **never** uses full-panel overlay when visible query is empty.

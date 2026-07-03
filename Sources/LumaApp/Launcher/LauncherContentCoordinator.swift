@@ -76,11 +76,13 @@ final class LauncherContentCoordinator {
         listView.clear()
     }
 
-    func showHome(_ snapshot: LauncherHomeSnapshot) {
+    func showHome(_ snapshot: LauncherHomeSnapshot, preserveSelection: Bool = false) {
         showingResults = false
         currentItems = snapshot.flatItems
-        selectedIndex = 0
-        listView.renderHome(snapshot)
+        if !preserveSelection {
+            selectedIndex = 0
+        }
+        listView.renderHome(snapshot, preserveSelection: preserveSelection)
         syncSelectionFromList()
         LauncherInPanelLayout.stabilizePanel(from: listView)
     }

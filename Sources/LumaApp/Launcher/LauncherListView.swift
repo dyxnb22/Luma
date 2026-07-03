@@ -87,9 +87,9 @@ final class LauncherListView: NSView {
         LauncherListRows.selectableItems(from: rows)
     }
 
-    func renderHome(_ snapshot: LauncherHomeSnapshot) {
+    func renderHome(_ snapshot: LauncherHomeSnapshot, preserveSelection: Bool = false) {
         currentLayout = .flat
-        apply(rows: LauncherListRows.rows(for: snapshot), preserveSelection: false)
+        apply(rows: LauncherListRows.rows(for: snapshot), preserveSelection: preserveSelection)
     }
 
     func renderResults(_ items: [ResultItem], layout: ResultListLayout = .flat, preserveSelectionID: ResultID? = nil) {
@@ -111,9 +111,8 @@ final class LauncherListView: NSView {
     func updateSelection(to flatIndex: Int) {
         guard !currentItems.isEmpty else { return }
         let clamped = min(max(0, flatIndex), currentItems.count - 1)
-        let oldIndex = selectedFlatIndex
         selectedFlatIndex = clamped
-        updateRowHighlight(oldFlatIndex: oldIndex, newFlatIndex: clamped)
+        updateRowHighlight(newFlatIndex: clamped)
         scrollToSelected()
         onSelectionChanged?(clamped)
     }
@@ -195,6 +194,17 @@ final class LauncherListView: NSView {
 
     private func apply(rows newRows: [LauncherListRows.Row], preserveSelection: Bool) {
         let previousID = preserveSelection ? currentItems[safe: selectedFlatIndex]?.id : nil
+        let selectable = LauncherListRows.selectableItems(from: newRows)
+        let nextSelectedFlatIndex: Int
+        if let previousID, let restored = selectable.firstIndex(where: { $0.id == previousID }) {
+            nextSelectedFlatIndex = restored
+        } else {
+            nextSelectedFlatIndex = 0
+        }
+        let clampedSelected = selectable.isEmpty
+            ? 0
+            : min(max(0, nextSelectedFlatIndex), selectable.count - 1)
+
         rows = newRows
         stack.arrangedSubviews.forEach { view in
             stack.removeArrangedSubview(view)
@@ -203,7 +213,7 @@ final class LauncherListView: NSView {
         rowViews.removeAll()
 
         for (index, row) in newRows.enumerated() {
-            let view = makeView(for: row)
+            let view = makeView(for: row, selectedFlatIndex: clampedSelected)
             rowViews.append(view)
             stack.addArrangedSubview(view)
             view.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
@@ -214,17 +224,13 @@ final class LauncherListView: NSView {
             }
         }
 
-        if let previousID, let restored = currentItems.firstIndex(where: { $0.id == previousID }) {
-            selectedFlatIndex = restored
-        } else {
-            selectedFlatIndex = 0
-        }
-        updateRowHighlight(oldFlatIndex: nil, newFlatIndex: selectedFlatIndex)
+        selectedFlatIndex = clampedSelected
+        updateRowHighlight(newFlatIndex: clampedSelected)
         scrollView.contentView.scroll(to: NSPoint(x: 0, y: 0))
         GeekUIKit.syncVerticalListDocumentFrame(in: scrollView)
     }
 
-    private func makeView(for row: LauncherListRows.Row) -> NSView {
+    private func makeView(for row: LauncherListRows.Row, selectedFlatIndex: Int) -> NSView {
         switch row.kind {
         case .sectionHeader(let title, let shortcutIndex):
             return LauncherSectionHeaderView(title: title, shortcutIndex: shortcutIndex)
@@ -233,6 +239,7 @@ final class LauncherListView: NSView {
                 item: item,
                 moduleLabel: LauncherModuleLabel.shortName(for: item.id.module),
                 isSelected: flatIndex == selectedFlatIndex,
+                compactColumn: compactHomeColumn,
                 hidesTrailingModuleLabel: compactHomeColumn && item.id.module.rawValue == "luma.apps" && item.listNest == .none,
                 onRun: { [weak self] item in self?.onRun?(item) },
                 onRightClick: { [weak self] item in self?.onRightClick?(item) },
@@ -249,6 +256,7 @@ final class LauncherListView: NSView {
             guard case .item(let item, _) = row.kind,
                   let listRow = rowViews[rowIndex] as? LauncherListRow else { continue }
             let hide = compactHomeColumn && item.id.module.rawValue == "luma.apps" && item.listNest == .none
+            listRow.setCompactColumn(compactHomeColumn)
             listRow.setHidesTrailingModuleLabel(hide)
         }
     }
@@ -263,16 +271,11 @@ final class LauncherListView: NSView {
         return item.id.module.rawValue == "luma.apps" && item.listNest == .none
     }
 
-    private func updateRowHighlight(oldFlatIndex: Int?, newFlatIndex: Int) {
+    private func updateRowHighlight(newFlatIndex: Int) {
         for (rowIndex, row) in rows.enumerated() {
             guard case .item(_, let flatIndex) = row.kind,
                   let listRow = rowViews[rowIndex] as? LauncherListRow else { continue }
-            if let oldFlatIndex, flatIndex == oldFlatIndex {
-                listRow.setSelected(false)
-            }
-            if flatIndex == newFlatIndex {
-                listRow.setSelected(true)
-            }
+            listRow.setSelected(flatIndex == newFlatIndex)
         }
     }
 

@@ -12,7 +12,7 @@ Navigation / detail exit / shortcuts: **`docs/specs/UX_BEHAVIOR_RULES.md`** + **
 
 ## Empty-query layout (visible query empty)
 
-- **Left column (360 pt):** Open Apps — all running apps, no `+N more` row.
+- **Left column (280 pt):** Open Apps — all running apps, no `+N more` row.
 - **Right column:** command guide (home) **or** module detail — not a second navigable list.
 - Module detail must **not** hide or cover the left Open Apps column.
 - Typing any query → single-column search results (split off).
@@ -27,7 +27,7 @@ Navigation / detail exit / shortcuts: **`docs/specs/UX_BEHAVIOR_RULES.md`** + **
 
 ## Panel
 
-- Default **940 × 760 pt**, left column **360 pt**, upper-third (`panelVerticalBias` 0.68).
+- Default **940 × 760 pt**, left column **280 pt**, upper-third (`panelVerticalBias` 0.68).
 - Tokens: `LauncherChromeTokens.swift`.
 - Positioning + in-panel layout: **`docs/specs/LAUNCHER_PANEL_CONSTRAINTS.md`**.
 

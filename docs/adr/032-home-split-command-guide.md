@@ -20,8 +20,8 @@ When the **visible search query is empty**, the launcher uses a **two-column lay
 
 | Column | Width | Content |
 | --- | --- | --- |
-| Left | **360 pt** fixed (`homeLeftColumnWidth`) | Open Apps list (unchanged data — still the only home section) |
-| Right | Remaining (~540 pt) | Command guide **or** module detail |
+| Left | **280 pt** fixed (`homeLeftColumnWidth`) | Open Apps list (unchanged data — still the only home section) |
+| Right | Remaining (~620 pt) | Command guide **or** module detail |
 
 **Panel default size** increases to **940 × 760 pt** (was 720 × 680). Responsive clamps: width 720–980, height 640–820.
 

@@ -83,7 +83,7 @@ Panel and search field must stay **horizontally aligned** with panel edges — n
 
 ### Home List (Frozen — Open Apps + Command Guide)
 
-- Empty query shows **Open Apps** in the **left column** (~360 pt); right pane shows **module command catalog** (all discoverable prefixes).
+- Empty query shows **Open Apps** in the **left column** (~280 pt); right pane shows **module command catalog** (all discoverable prefixes).
 - Guide title stays **命令 / Commands** — does not mirror the selected Open Apps row (e.g. app name).
 - Open Notes / Clipboard / any module detail → **right column**; **left Open Apps remain visible** and clickable.
 - Typing any query collapses to **single-column** search results (right pane hidden).

@@ -19,8 +19,8 @@ public enum LauncherChromeTokens {
     public static let minPanelHeight: CGFloat = 640
     public static let maxPanelHeight: CGFloat = 820
 
-    /// Fixed width for Open Apps column on empty-query home (right pane shows command guide).
-    public static let homeLeftColumnWidth: CGFloat = 360
+    /// Fixed width for Open Apps column on empty-query home (right pane shows command guide / detail).
+    public static let homeLeftColumnWidth: CGFloat = 280
     public static let homeSplitDividerWidth: CGFloat = 1
     public static let homeSplitColumnGap: CGFloat = 12
     /// Fallback when the screen is smaller than `defaultPanel*`.

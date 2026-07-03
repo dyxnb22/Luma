@@ -258,7 +258,7 @@ final class LauncherRootController {
                 let trimmed = self.searchBar.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
                 guard trimmed.isEmpty else { return }
                 if self.contentCoordinator.showingDetail {
-                    self.contentCoordinator.showHome(snapshot)
+                    self.contentCoordinator.showHome(snapshot, preserveSelection: true)
                     self.syncRowActionHint()
                     return
                 }

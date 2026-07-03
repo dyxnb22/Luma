@@ -30,12 +30,14 @@ final class LauncherListRow: NSControl {
     private var isSelected = false
     private var isHovered = false
     private var hidesTrailingModuleLabel = false
+    private var compactColumn = false
     private var trackingArea: NSTrackingArea?
 
     init(
         item: ResultItem,
         moduleLabel: String,
         isSelected: Bool,
+        compactColumn: Bool = false,
         hidesTrailingModuleLabel: Bool = false,
         onRun: @escaping (ResultItem) -> Void,
         onRightClick: ((ResultItem) -> Void)? = nil,
@@ -47,6 +49,7 @@ final class LauncherListRow: NSControl {
         self.onRightClick = onRightClick
         self.onHover = onHover
         self.hidesTrailingModuleLabel = hidesTrailingModuleLabel
+        self.compactColumn = compactColumn
         super.init(frame: .zero)
         clipsToBounds = true
 
@@ -96,9 +99,14 @@ final class LauncherListRow: NSControl {
         trailingLabel.isHidden = hidden || isSelected || item.listNest != .none
     }
 
+    func setCompactColumn(_ compact: Bool) {
+        compactColumn = compact
+        setSelected(isSelected)
+    }
+
     func setSelected(_ selected: Bool) {
         isSelected = selected
-        let showsHint = selected && item.rowKind != .informational
+        let showsHint = selected && item.rowKind != .informational && !compactColumn
         returnHintContainer.isHidden = !showsHint
         trailingLabel.isHidden = hidesTrailingModuleLabel || item.listNest != .none || selected
         selectionAccentLayer?.isHidden = !selected
@@ -127,6 +135,18 @@ final class LauncherListRow: NSControl {
     override func mouseExited(with event: NSEvent) {
         isHovered = false
         refreshRowAppearance()
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        applyLabelColors()
+    }
+
+    private func applyLabelColors() {
+        let isNested = item.listNest != .none
+        titleLabel.textColor = isNested ? .secondaryLabelColor : .labelColor
+        subtitleLabel.textColor = isNested ? .tertiaryLabelColor : .secondaryLabelColor
+        iconView.contentTintColor = isNested ? .secondaryLabelColor : nil
     }
 
     private func refreshRowAppearance() {
@@ -191,12 +211,10 @@ final class LauncherListRow: NSControl {
         iconView.layer?.cornerRadius = isNested ? 4 : 8
         iconView.layer?.cornerCurve = .continuous
         iconView.layer?.masksToBounds = true
-        iconView.contentTintColor = isNested ? .secondaryLabelColor : nil
         iconView.translatesAutoresizingMaskIntoConstraints = false
 
         titleLabel.stringValue = item.title
-        titleLabel.font = .systemFont(ofSize: isNested ? 13 : 15, weight: isNested ? .regular : .semibold)
-        titleLabel.textColor = isNested ? .secondaryLabelColor : .labelColor
+        titleLabel.font = .systemFont(ofSize: isNested ? 13 : (compactColumn ? 14 : 15), weight: isNested ? .regular : .semibold)
         titleLabel.lineBreakMode = .byTruncatingTail
         titleLabel.maximumNumberOfLines = 1
         titleLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
@@ -206,7 +224,6 @@ final class LauncherListRow: NSControl {
         let hasSubtitle = !(item.subtitle ?? "").isEmpty
         subtitleLabel.stringValue = item.subtitle ?? ""
         subtitleLabel.font = .systemFont(ofSize: isNested ? 11 : 12)
-        subtitleLabel.textColor = isNested ? .tertiaryLabelColor : .secondaryLabelColor
         subtitleLabel.lineBreakMode = .byTruncatingTail
         subtitleLabel.maximumNumberOfLines = item.displayDensity == .expanded ? 2 : 1
         subtitleLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
@@ -226,6 +243,8 @@ final class LauncherListRow: NSControl {
         trailingLabel.isEditable = false
         trailingLabel.drawsBackground = false
         trailingLabel.translatesAutoresizingMaskIntoConstraints = false
+
+        applyLabelColors()
 
         returnHint.font = TypographyTokens.monoCaption(weight: .semibold)
         returnHint.textColor = .labelColor
@@ -260,7 +279,7 @@ final class LauncherListRow: NSControl {
         let leadingInset: CGFloat = isNested ? 22 : 4
         let treeGuideWidth: CGFloat = 18
         let titleGap: CGFloat = isNested ? 8 : 10
-        let trailingChromeInset: CGFloat = isNested ? 10 : 48
+        let trailingChromeInset: CGFloat = compactColumn ? 10 : (isNested ? 10 : 48)
 
         var constraints: [NSLayoutConstraint] = [
             iconView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: leadingInset),

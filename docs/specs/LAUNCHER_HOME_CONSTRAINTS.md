@@ -23,8 +23,8 @@ That is the **only** section `LauncherHomeAggregator` may append on empty query.
 
 | Column | Width | Content |
 | --- | --- | --- |
-| Left | **360 pt** (`homeLeftColumnWidth`) | Open Apps list |
-| Right | Flexible | Command guide **or** module detail (split mode) |
+| Left | **280 pt** (`homeLeftColumnWidth`) | Open Apps list |
+| Right | Flexible (~620 pt) | Command guide **or** module detail (split mode) |
 
 - Active when query is **empty** and launcher is on home or in **module detail** (right column).
 - Guide pane when no detail; module detail replaces guide on the right without hiding Open Apps.
@@ -81,7 +81,7 @@ Authoritative math: `Sources/LumaCore/Design/LauncherPanelGeometry.swift`
 | --- | ---: | --- |
 | `defaultPanelWidth` | **940** pt | Home split + command guide (ADR-032) |
 | `defaultPanelHeight` | **760** pt | Slightly taller home list |
-| `homeLeftColumnWidth` | **360** pt | Open Apps column on empty home |
+| `homeLeftColumnWidth` | **280** pt | Open Apps column on empty home |
 | `minPanelWidth` / `maxPanelWidth` | 720 / 980 | |
 | `minPanelHeight` / `maxPanelHeight` | 640 / 820 | |
 | `panelVerticalBias` | **0.68** | Upper third of screen |

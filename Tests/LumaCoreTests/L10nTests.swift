@@ -7,14 +7,14 @@ import LumaModules
     let previous = LumaLocale.choice
     defer { LumaLocale.choice = previous }
     LumaLocale.choice = .en
-    #expect(LauncherHomeSectionKind.setup.title == "GET STARTED")
+    #expect(LauncherHomeSectionKind.openApps.title == "OPEN APPS")
 }
 
 @Test func l10nChineseHomeSection() {
     let previous = LumaLocale.choice
     defer { LumaLocale.choice = previous }
     LumaLocale.choice = .zhHans
-    #expect(LauncherHomeSectionKind.setup.title == "开始使用")
+    #expect(LauncherHomeSectionKind.openApps.title == "打开应用")
 }
 
 @Test func searchEmptyStateLocalized() {

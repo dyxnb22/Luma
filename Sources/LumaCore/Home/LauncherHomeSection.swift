@@ -1,19 +1,11 @@
 import Foundation
 
 public enum LauncherHomeSectionKind: String, Sendable, Hashable, CaseIterable {
-    case setup
     case openApps
-    case recentActions
-    case continueFlow
-    case create
 
     public var title: String {
         switch self {
-        case .setup: L10n.tr("home.section.setup")
         case .openApps: L10n.tr("home.section.openApps")
-        case .recentActions: L10n.tr("home.section.recent")
-        case .continueFlow: L10n.tr("home.section.continue")
-        case .create: L10n.tr("home.section.create")
         }
     }
 }

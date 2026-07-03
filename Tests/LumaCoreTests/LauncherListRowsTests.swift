@@ -109,9 +109,7 @@ import LumaCore
                 icon: .none,
                 primaryAction: Action(id: ActionID(module: appsID, key: "a"), title: "Open", kind: .noop),
                 rankingHints: RankingHints()
-            )
-        ]),
-        LauncherHomeSection(kind: .create, items: [
+            ),
             ResultItem(
                 id: ResultID(module: todoID, key: "b"),
                 title: "B",
@@ -123,20 +121,14 @@ import LumaCore
         ])
     ])
     let rows = LauncherListRows.rows(for: snapshot)
-    #expect(rows.count == 4)
+    #expect(rows.count == 3)
     if case .sectionHeader(let title, let shortcut) = rows[0].kind {
         #expect(title == "OPEN APPS")
         #expect(shortcut == 1)
     } else {
         Issue.record("Expected section header")
     }
-    if case .sectionHeader(let createTitle, let createShortcut) = rows[2].kind {
-        #expect(createTitle == "CREATE")
-        #expect(createShortcut == 2)
-    } else {
-        Issue.record("Expected CREATE section header")
-    }
-    if case .item(_, let index) = rows[3].kind {
+    if case .item(_, let index) = rows[2].kind {
         #expect(index == 1)
     } else {
         Issue.record("Expected second item at flat index 1")

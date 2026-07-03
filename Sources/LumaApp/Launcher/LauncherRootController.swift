@@ -1223,7 +1223,6 @@ final class LauncherRootController {
             commandHintBar.showStatus(feedback.message)
             Task {
                 await actionExecutor.run(action, for: item)
-                await recordRecentAction(action: action, item: item)
                 if feedback.delayDismiss {
                     try? await Task.sleep(for: .milliseconds(900))
                     await MainActor.run { self.onActionDismiss() }
@@ -1233,7 +1232,6 @@ final class LauncherRootController {
             onActionDismiss()
             Task {
                 await actionExecutor.run(action, for: item)
-                await recordRecentAction(action: action, item: item)
             }
         }
     }
@@ -1244,10 +1242,6 @@ final class LauncherRootController {
             raw: query ?? searchBar.stringValue
         )
         LauncherResumeStore.save(LauncherResumeState(moduleRaw: module.rawValue, query: resolved))
-    }
-
-    private func recordRecentAction(action: Action, item: ResultItem) async {
-        await RecentActionMemory.shared.record(action: action, item: item)
     }
 
     private func run(item: ResultItem) {

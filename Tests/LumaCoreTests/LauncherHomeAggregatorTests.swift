@@ -48,8 +48,7 @@ private struct StubHomeProvider: LauncherHomeProvider {
         rankingHints: RankingHints()
     )
     let snapshot = LauncherHomeSnapshot(sections: [
-        LauncherHomeSection(kind: .openApps, items: [itemA]),
-        LauncherHomeSection(kind: .create, items: [itemB])
+        LauncherHomeSection(kind: .openApps, items: [itemA, itemB])
     ])
     #expect(snapshot.flatItems.map(\.title) == ["A", "B"])
 }

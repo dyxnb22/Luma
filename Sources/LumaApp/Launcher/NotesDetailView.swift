@@ -20,6 +20,8 @@ final class NotesDetailView: NSObject, ModuleDetailView {
     private let rootPathLabel = NSTextField(labelWithString: "")
     private let expandAllButton = NSButton()
     private let collapseAllButton = NSButton()
+    private let newNoteButton = NSButton()
+    private let newFolderButton = NSButton()
     private let viewModeControl = NSSegmentedControl()
     private let gearButton = NSButton()
     private let emptyStateButton = NSButton()
@@ -71,11 +73,21 @@ final class NotesDetailView: NSObject, ModuleDetailView {
     func handleKeyDown(_ event: NSEvent) -> Bool {
         if event.modifierFlags.contains(.command),
            let chars = event.charactersIgnoringModifiers,
-           let digit = Int(chars), (1...4).contains(digit) {
-            let chip = NotesDetailChip(rawValue: digit - 1)
-            chipBar.selectChip(chip)
-            activeChip = chip
-            Task { await applyChipView(chip) }
+           let digit = Int(chars), (1...3).contains(digit),
+           let chip = NotesDetailChip(rawValue: digit - 1) {
+            handleChipSelection(chip)
+            return true
+        }
+        if event.modifierFlags.contains(.command),
+           let chars = event.charactersIgnoringModifiers?.lowercased(),
+           chars == "n",
+           !topStrip.isHidden {
+            let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+            if flags.contains(.shift) {
+                createFolderFromToolbar()
+            } else {
+                createNoteFromToolbar()
+            }
             return true
         }
         if event.modifierFlags.contains(.command),
@@ -147,6 +159,16 @@ final class NotesDetailView: NSObject, ModuleDetailView {
         collapseAllButton.target = self
         collapseAllButton.action = #selector(collapseAll)
 
+        GeekUIKit.styleIconToolbarButton(newNoteButton, symbol: "square.and.pencil", tooltip: "New Note (⌘N)")
+        newNoteButton.translatesAutoresizingMaskIntoConstraints = false
+        newNoteButton.target = self
+        newNoteButton.action = #selector(createNoteFromToolbar)
+
+        GeekUIKit.styleIconToolbarButton(newFolderButton, symbol: "folder.badge.plus", tooltip: "New Folder (⌘⇧N)")
+        newFolderButton.translatesAutoresizingMaskIntoConstraints = false
+        newFolderButton.target = self
+        newFolderButton.action = #selector(createFolderFromToolbar)
+
         viewModeControl.segmentCount = 2
         viewModeControl.setLabel("Tree", forSegment: 0)
         viewModeControl.setLabel("Map", forSegment: 1)
@@ -187,7 +209,7 @@ final class NotesDetailView: NSObject, ModuleDetailView {
         outlineView.doubleAction = #selector(outlineDoubleClicked)
         outlineView.target = self
         outlineView.menu = buildContextMenu()
-        outlineView.translatesAutoresizingMaskIntoConstraints = false
+        outlineView.autoresizingMask = [.width]
 
         let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("tree"))
         column.title = ""
@@ -196,31 +218,22 @@ final class NotesDetailView: NSObject, ModuleDetailView {
         column.resizingMask = [.autoresizingMask, .userResizingMask]
         outlineView.addTableColumn(column)
         outlineView.outlineTableColumn = column
-        scrollView.contentView.postsBoundsChangedNotifications = true
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(resizeOutlineColumn),
-            name: NSView.frameDidChangeNotification,
-            object: scrollView
+        GeekUIKit.wireVerticalListScroll(
+            scrollView,
+            documentView: outlineView,
+            observer: self,
+            onClipViewResize: #selector(resizeOutlineColumn)
         )
-
-        scrollView.documentView = outlineView
-        scrollView.hasVerticalScroller = true
-        scrollView.hasHorizontalScroller = false
-        scrollView.autohidesScrollers = true
-        scrollView.drawsBackground = false
-        scrollView.borderType = .noBorder
         scrollView.translatesAutoresizingMaskIntoConstraints = false
 
         mindMapScroll.documentView = mindMapView
-        mindMapScroll.hasVerticalScroller = true
-        mindMapScroll.hasHorizontalScroller = false
-        mindMapScroll.autohidesScrollers = true
-        mindMapScroll.drawsBackground = false
-        mindMapScroll.borderType = .noBorder
+        GeekUIKit.configureVerticalListScroll(mindMapScroll)
         mindMapScroll.isHidden = true
         mindMapScroll.translatesAutoresizingMaskIntoConstraints = false
         mindMapView.onActivate = { [weak self] node in self?.openNote(node) }
+        mindMapView.onLayoutChanged = { [weak self] in
+            self?.syncMindMapDocumentFrame()
+        }
 
         dataSource.onActivate = { [weak self] node in
             self?.openNote(node)
@@ -228,11 +241,12 @@ final class NotesDetailView: NSObject, ModuleDetailView {
         dataSource.onExpansionChanged = { [weak self] node, expanded in
             self?.persistExpansion(path: node.path, expanded: expanded)
         }
+        dataSource.onVisibleRowsChanged = { [weak self] in
+            self?.syncOutlineDocumentFrame()
+        }
 
         chipBar.onChipChanged = { [weak self] chip in
-            guard let self else { return }
-            self.activeChip = chip
-            Task { await self.applyChipView(chip) }
+            self?.handleChipSelection(chip)
         }
         chipBar.onPanelChanged = { [weak self] panel in
             guard let self else { return }
@@ -245,6 +259,8 @@ final class NotesDetailView: NSObject, ModuleDetailView {
 
         container.addSubview(topStrip)
         topStrip.addSubview(rootPathLabel)
+        topStrip.addSubview(newNoteButton)
+        topStrip.addSubview(newFolderButton)
         topStrip.addSubview(viewModeControl)
         topStrip.addSubview(expandAllButton)
         topStrip.addSubview(collapseAllButton)
@@ -265,7 +281,17 @@ final class NotesDetailView: NSObject, ModuleDetailView {
 
             rootPathLabel.leadingAnchor.constraint(equalTo: topStrip.leadingAnchor, constant: LauncherChromeTokens.detailTableRowPaddingH),
             rootPathLabel.centerYAnchor.constraint(equalTo: topStrip.centerYAnchor),
-            rootPathLabel.trailingAnchor.constraint(lessThanOrEqualTo: expandAllButton.leadingAnchor, constant: -8),
+            rootPathLabel.trailingAnchor.constraint(lessThanOrEqualTo: newNoteButton.leadingAnchor, constant: -8),
+
+            newNoteButton.trailingAnchor.constraint(equalTo: newFolderButton.leadingAnchor, constant: -4),
+            newNoteButton.centerYAnchor.constraint(equalTo: topStrip.centerYAnchor),
+            newNoteButton.widthAnchor.constraint(equalToConstant: 24),
+            newNoteButton.heightAnchor.constraint(equalToConstant: 24),
+
+            newFolderButton.trailingAnchor.constraint(equalTo: expandAllButton.leadingAnchor, constant: -6),
+            newFolderButton.centerYAnchor.constraint(equalTo: topStrip.centerYAnchor),
+            newFolderButton.widthAnchor.constraint(equalToConstant: 24),
+            newFolderButton.heightAnchor.constraint(equalToConstant: 24),
 
             expandAllButton.trailingAnchor.constraint(equalTo: collapseAllButton.leadingAnchor, constant: -4),
             expandAllButton.centerYAnchor.constraint(equalTo: topStrip.centerYAnchor),
@@ -317,6 +343,17 @@ final class NotesDetailView: NSObject, ModuleDetailView {
             column.width = width
             outlineView.noteHeightOfRows(withIndexesChanged: IndexSet(integersIn: 0..<outlineView.numberOfRows))
         }
+        syncOutlineDocumentFrame()
+    }
+
+    private func syncOutlineDocumentFrame() {
+        guard scrollView.documentView === outlineView, !scrollView.isHidden else { return }
+        GeekUIKit.syncVerticalListDocumentFrame(in: scrollView)
+    }
+
+    private func syncMindMapDocumentFrame() {
+        guard mindMapScroll.documentView === mindMapView, !mindMapScroll.isHidden else { return }
+        GeekUIKit.syncVerticalListDocumentFrame(in: mindMapScroll)
     }
 
     @objc private func viewModeChanged() {
@@ -327,11 +364,14 @@ final class NotesDetailView: NSObject, ModuleDetailView {
         filterStrip.isHidden = !outline
         expandAllButton.isHidden = !outline
         collapseAllButton.isHidden = !outline
+        newNoteButton.isHidden = !outline
+        newFolderButton.isHidden = !outline
         if outline {
             scrollView.window?.makeFirstResponder(outlineView)
         } else {
             mindMapView.reload(root: dataSource.mindMapRootNode())
             mindMapScroll.contentView.scroll(to: .zero)
+            syncMindMapDocumentFrame()
             mindMapScroll.window?.makeFirstResponder(mindMapView)
         }
     }
@@ -355,7 +395,7 @@ final class NotesDetailView: NSObject, ModuleDetailView {
             emptyStateButton.isHidden = true
 
             let inboxCount = await module.inboxCount()
-            chipBar.setInboxCount(inboxCount)
+            chipBar.setPanelInboxCount(inboxCount)
             let dailyMissing = await module.dailyNotePath() == nil
             chipBar.setTodayHint(missing: dailyMissing)
             await reloadTypeLabels()
@@ -379,16 +419,20 @@ final class NotesDetailView: NSObject, ModuleDetailView {
 
         if viewMode == .mindMap {
             mindMapView.reload(root: dataSource.mindMapRootNode())
+            syncMindMapDocumentFrame()
         }
         detailView.window?.makeFirstResponder(viewMode == .outline ? outlineView : mindMapView)
+        syncOutlineDocumentFrame()
     }
 
     private func reloadOutlineData(restoreExpansion: (() -> Void)? = nil) {
         dataSource.suppressExpansionCallbacks = true
         outlineView.reloadData()
         restoreExpansion?()
+        syncOutlineDocumentFrame()
         DispatchQueue.main.async { [weak self] in
             self?.dataSource.suppressExpansionCallbacks = false
+            self?.syncOutlineDocumentFrame()
         }
     }
 
@@ -447,9 +491,48 @@ final class NotesDetailView: NSObject, ModuleDetailView {
         dataSource.setTypeLabels(labels)
     }
 
-    private func applyChipView(_ chip: NotesDetailChip?) async {
+    private func handleChipSelection(_ chip: NotesDetailChip?) {
+        if chip == .today {
+            chipBar.selectChip(nil)
+            activeChip = nil
+            Task { await openOrCreateTodayDaily() }
+            return
+        }
+        if let chip {
+            chipBar.selectChip(chip)
+            activeChip = chip
+            Task { await applyChipView(chip) }
+            return
+        }
+        chipBar.selectChip(nil)
+        activeChip = nil
+        Task { await applyChipView(nil) }
+    }
+
+    private func openOrCreateTodayDaily() async {
         let config = await module.loadConfig()
         guard let root = config.root else { return }
+        if actions == nil {
+            actions = NotesActions(index: await module.treeIndex())
+        }
+        guard let actions else { return }
+        do {
+            let url = try await actions.openOrCreateDailyNote(
+                root: root,
+                dailyFolderName: config.dailyFolderName
+            )
+            await module.recordOpenedNote(path: url.path)
+            await workspace.openURL(url)
+            chipBar.setTodayHint(missing: false)
+            await refreshTree()
+        } catch {
+            showError(error.localizedDescription)
+        }
+    }
+
+    private func applyChipView(_ chip: NotesDetailChip?) async {
+        let config = await module.loadConfig()
+        guard config.root != nil else { return }
         activePanel = .outline
         chipBar.selectPanel(.outline)
 
@@ -460,16 +543,7 @@ final class NotesDetailView: NSObject, ModuleDetailView {
 
         switch chip {
         case .today:
-            if let path = await module.dailyNotePath() {
-                let url = URL(fileURLWithPath: path)
-                let node = NotesNode(path: path, name: url.deletingPathExtension().lastPathComponent, kind: .note, children: [])
-                dataSource.showFlatList(title: "Today", nodes: [node])
-            } else {
-                dataSource.showFlatList(title: "Today", nodes: [])
-            }
-        case .inbox:
-            let nodes = await actions?.notesInFolder(named: config.inboxFolderName, root: root) ?? []
-            dataSource.showFlatList(title: "Inbox", nodes: nodes)
+            break
         case .recent:
             let paths = await module.recentNotePaths()
             let nodes = paths.compactMap { path -> NotesNode? in
@@ -498,16 +572,7 @@ final class NotesDetailView: NSObject, ModuleDetailView {
 
         switch panel {
         case .outline:
-            var recentNodes: [NotesNode] = []
-            if LauncherEnvironment.current?.isLauncherQueryEmpty == true {
-                let paths = await module.recentNotePaths()
-                recentNodes = paths.compactMap { path in
-                    guard FileManager.default.fileExists(atPath: path) else { return nil }
-                    let url = URL(fileURLWithPath: path)
-                    return NotesNode(path: path, name: url.deletingPathExtension().lastPathComponent, kind: .note, children: [])
-                }
-            }
-            dataSource.showTree(root: snapshot, recentNodes: recentNodes)
+            dataSource.showTree(root: snapshot, recentNodes: [])
             reloadOutlineData { [self] in
                 restoreExpandedFolders(from: config.expandedFolders)
             }
@@ -548,10 +613,12 @@ final class NotesDetailView: NSObject, ModuleDetailView {
 
     @objc private func expandAll() {
         dataSource.expandAll(in: outlineView)
+        syncOutlineDocumentFrame()
     }
 
     @objc private func collapseAll() {
         dataSource.collapseAll(in: outlineView)
+        syncOutlineDocumentFrame()
     }
 
     @objc private func pickRoot() {
@@ -708,20 +775,39 @@ final class NotesDetailView: NSObject, ModuleDetailView {
         alert.beginSheetModal(for: window)
     }
 
+    @objc private func createNoteFromToolbar() {
+        let preferred = selectedItem()
+        contextItem = nil
+        beginCreateNote(preferred: preferred)
+    }
+
     @objc private func createNote() {
+        beginCreateNote(preferred: nil)
+    }
+
+    private func beginCreateNote(preferred: NotesOutlineItem?) {
         Task { [weak self] in
-            guard let self, let folder = await parentFolderURL() else { return }
+            guard let self, let folder = await self.defaultCreateFolderURL(preferred: preferred) else { return }
+            let templates = await self.availableTemplates()
             await MainActor.run {
-                self.showNamePrompt(title: "New Note", defaultName: "") { name in
-                    Task { await self.performCreateNote(name: name, in: folder) }
-                }
+                self.presentCreateNotePrompt(in: folder, templates: templates)
             }
         }
     }
 
+    @objc private func createFolderFromToolbar() {
+        let preferred = selectedItem()
+        contextItem = nil
+        beginCreateFolder(preferred: preferred)
+    }
+
     @objc private func createFolder() {
+        beginCreateFolder(preferred: nil)
+    }
+
+    private func beginCreateFolder(preferred: NotesOutlineItem?) {
         Task { [weak self] in
-            guard let self, let folder = await parentFolderURL() else { return }
+            guard let self, let folder = await self.defaultCreateFolderURL(preferred: preferred) else { return }
             await MainActor.run {
                 self.showNamePrompt(title: "New Folder", defaultName: "") { name in
                     Task { await self.performCreateFolder(name: name, in: folder) }
@@ -730,12 +816,158 @@ final class NotesDetailView: NSObject, ModuleDetailView {
         }
     }
 
+    private func availableTemplates() async -> [NotesTemplateInfo] {
+        let config = await module.loadConfig()
+        guard let root = config.root else { return [] }
+        return NotesTemplateStore.scanTemplates(root: root, folderName: config.templatesFolderName)
+    }
+
+    private func defaultCreateFolderURL(preferred: NotesOutlineItem? = nil) async -> URL? {
+        let config = await module.loadConfig()
+        guard let root = config.root else { return nil }
+        if actions == nil {
+            actions = NotesActions(index: await module.treeIndex())
+        }
+        guard let actions else { return root }
+        let item = preferred ?? selectedActionItem()
+        return await resolvedCreateFolderURL(config: config, root: root, actions: actions, item: item)
+    }
+
+    private func resolvedCreateFolderURL(
+        config: NotesRootConfig,
+        root: URL,
+        actions: NotesActions,
+        item: NotesOutlineItem?
+    ) async -> URL {
+        if let item, !isVirtualOutlinePath(item.node.path) {
+            if item.node.kind == .folder {
+                return URL(fileURLWithPath: item.node.path)
+            }
+            let parent = URL(fileURLWithPath: item.node.path).deletingLastPathComponent()
+            if !isVirtualOutlinePath(parent.path) {
+                return parent
+            }
+        }
+        if let inbox = try? await actions.ensureFolder(named: config.inboxFolderName, under: root) {
+            return inbox
+        }
+        return root
+    }
+
+    private func folderLabel(for folder: URL) async -> String {
+        let config = await module.loadConfig()
+        guard let root = config.root else { return folder.lastPathComponent }
+        let rootPath = root.standardizedFileURL.path
+        let folderPath = folder.standardizedFileURL.path
+        if folderPath == rootPath { return "Notes root" }
+        if folderPath.hasPrefix(rootPath + "/") {
+            return String(folderPath.dropFirst(rootPath.count + 1))
+        }
+        return folder.lastPathComponent
+    }
+
+    private func presentCreateNotePrompt(in folder: URL, templates: [NotesTemplateInfo]) {
+        guard let window = detailView.window else { return }
+        let alert = NSAlert()
+        alert.messageText = "New Note"
+        Task { [weak self] in
+            let label = await self?.folderLabel(for: folder) ?? folder.lastPathComponent
+            await MainActor.run {
+                self?.showCreateNoteAlert(alert, in: window, folder: folder, folderLabel: label, templates: templates)
+            }
+        }
+    }
+
+    private func showCreateNoteAlert(
+        _ alert: NSAlert,
+        in window: NSWindow,
+        folder: URL,
+        folderLabel: String,
+        templates: [NotesTemplateInfo]
+    ) {
+        alert.informativeText = "In \(folderLabel)"
+
+        let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 240, height: 24))
+        field.placeholderString = "Note title"
+        field.font = TypographyTokens.body
+
+        var accessory: NSView = field
+        var templatePopup: NSPopUpButton?
+        if !templates.isEmpty {
+            let stack = NSStackView()
+            stack.orientation = .vertical
+            stack.spacing = 8
+            stack.translatesAutoresizingMaskIntoConstraints = false
+            stack.addArrangedSubview(field)
+
+            let popup = NSPopUpButton(frame: .zero, pullsDown: false)
+            popup.addItem(withTitle: "Empty note")
+            for template in templates {
+                popup.addItem(withTitle: template.name)
+            }
+            popup.selectItem(at: 0)
+            templatePopup = popup
+            stack.addArrangedSubview(popup)
+            accessory = stack
+        }
+
+        alert.accessoryView = accessory
+        alert.addButton(withTitle: "Create")
+        alert.addButton(withTitle: "Cancel")
+        alert.beginSheetModal(for: window) { [weak self] response in
+            guard response == .alertFirstButtonReturn, let self else { return }
+            let name = field.stringValue
+            let template = templatePopup.flatMap { popup in
+                let index = popup.indexOfSelectedItem
+                guard index > 0, templates.indices.contains(index - 1) else { return nil as NotesTemplateInfo? }
+                return templates[index - 1]
+            }
+            Task {
+                if let template {
+                    await self.performCreateNoteFromTemplate(name: name, template: template, in: folder)
+                } else {
+                    await self.performCreateNote(name: name, in: folder)
+                }
+            }
+        }
+    }
+
+    private func ensureActions() async -> NotesActions? {
+        if actions == nil {
+            actions = NotesActions(index: await module.treeIndex())
+        }
+        return actions
+    }
+
     private func performCreateNote(name: String, in folder: URL) async {
-        guard let actions else { return }
+        guard let actions = await ensureActions() else { return }
         do {
             let url = try await actions.createNote(name: name, inFolder: folder)
             await refreshTree()
             selectPath(url.path, expandParent: true)
+            openNote(NotesNode(path: url.path, name: url.deletingPathExtension().lastPathComponent, kind: .note, children: []))
+        } catch NotesActionError.alreadyExists {
+            showError("A note with that name already exists.")
+        } catch NotesActionError.emptyName {
+            showError("Name cannot be empty.")
+        } catch NotesActionError.nameContainsSlash {
+            showError("Name cannot contain '/'.")
+        } catch {
+            showError(error.localizedDescription)
+        }
+    }
+
+    private func performCreateNoteFromTemplate(
+        name: String,
+        template: NotesTemplateInfo,
+        in folder: URL
+    ) async {
+        guard let actions = await ensureActions() else { return }
+        do {
+            let url = try await actions.createNoteFromTemplate(template: template, title: name, inFolder: folder)
+            await refreshTree()
+            selectPath(url.path, expandParent: true)
+            openNote(NotesNode(path: url.path, name: url.deletingPathExtension().lastPathComponent, kind: .note, children: []))
         } catch NotesActionError.alreadyExists {
             showError("A note with that name already exists.")
         } catch NotesActionError.emptyName {
@@ -748,7 +980,7 @@ final class NotesDetailView: NSObject, ModuleDetailView {
     }
 
     private func performCreateFolder(name: String, in folder: URL) async {
-        guard let actions else { return }
+        guard let actions = await ensureActions() else { return }
         do {
             let url = try await actions.createFolder(name: name, inFolder: folder)
             await refreshTree()

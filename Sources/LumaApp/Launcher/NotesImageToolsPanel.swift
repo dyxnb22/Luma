@@ -47,7 +47,7 @@ final class NotesImageToolsPanel: NSViewController {
         resultsView.font = NSFont.monospacedSystemFont(ofSize: 12, weight: .regular)
         let scroll = NSScrollView()
         scroll.documentView = resultsView
-        scroll.hasVerticalScroller = true
+        GeekUIKit.configureVerticalListScroll(scroll)
         scroll.translatesAutoresizingMaskIntoConstraints = false
 
         closeButton.bezelStyle = .rounded

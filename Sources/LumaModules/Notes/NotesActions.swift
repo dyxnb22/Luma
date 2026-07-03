@@ -164,9 +164,18 @@ public actor NotesActions {
         now: Date = Date()
     ) async throws -> URL {
         let inbox = try await ensureFolder(named: inboxFolderName, under: root)
+        return try await createNoteFromTemplate(template: template, title: title, inFolder: inbox, now: now)
+    }
+
+    public func createNoteFromTemplate(
+        template: NotesTemplateInfo,
+        title: String,
+        inFolder folder: URL,
+        now: Date = Date()
+    ) async throws -> URL {
         let rendered = try NotesTemplateStore.renderTemplate(at: template.url, title: title, now: now)
         let fileName = try validatedNoteFileName(title)
-        let target = inbox.appendingPathComponent(fileName)
+        let target = folder.appendingPathComponent(fileName)
         guard !fileManager.fileExists(atPath: target.path) else { throw NotesActionError.alreadyExists }
         try rendered.write(to: target, atomically: true, encoding: .utf8)
         await index.rebuild(after: [FSChangeEvent(path: target.path, kind: .created)])

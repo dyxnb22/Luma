@@ -2,9 +2,9 @@
 
 ## Status
 
-Accepted, supersedes the Notes scope previously documented in `Features/NotesGraph/README.md`.
+Accepted (2026-06-22). **Scope statements superseded by ADR-019** (`docs/adr/019-notes-long-term-markdown-workspace.md`) for product boundary; retained as historical record of the v0.1 cut-down.
 
-Date: 2026-06-22
+Supersedes the Notes scope previously documented in `Features/NotesGraph/README.md`.
 
 ## Context
 

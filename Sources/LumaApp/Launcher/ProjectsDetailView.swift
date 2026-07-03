@@ -26,6 +26,13 @@ final class ProjectsDetailView: NSObject, ModuleDetailView {
 
     func activate() {
         refresh()
+        DispatchQueue.main.async { [weak self] in
+            self?.syncListScrollDocumentFrame()
+        }
+    }
+
+    @objc private func syncListScrollDocumentFrame() {
+        GeekUIKit.syncVerticalListDocumentFrame(in: tableScroll)
     }
 
     func deactivate() {
@@ -58,7 +65,12 @@ final class ProjectsDetailView: NSObject, ModuleDetailView {
         }
 
         tableScroll.documentView = tableView
-        tableScroll.hasVerticalScroller = true
+        GeekUIKit.wireVerticalListScroll(
+            tableScroll,
+            documentView: tableView,
+            observer: self,
+            onClipViewResize: #selector(syncListScrollDocumentFrame)
+        )
         tableScroll.translatesAutoresizingMaskIntoConstraints = false
         chrome.setContent(tableScroll, embedInScroll: false)
 
@@ -75,6 +87,7 @@ final class ProjectsDetailView: NSObject, ModuleDetailView {
             await MainActor.run {
                 self.records = loaded
                 self.tableView.reloadData()
+                GeekUIKit.syncVerticalListDocumentFrame(in: self.tableScroll)
             }
         }
     }

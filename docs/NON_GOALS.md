@@ -89,13 +89,16 @@ Reference: ADR-021 Clipboard v1 frozen scope.
 
 ## Notes Module
 
-- Page embedding / transclusion / `![[Note]]` rendering.
-- Wiki-link backlinks, forward-link graphs, graph view, orphan dashboards beyond the image utility.
-- Tags, frontmatter parsing, frontmatter generation, templates.
-- Markdown rendering of any kind. Markdown editing of any kind.
-- Full-text search of note bodies. Filename and folder name search only.
+In scope per ADR-019: templates, recent/pinned retrieval, inbox folder, minimal frontmatter indexing, on-demand backlinks, detail create/rename/delete.
+
+Still out of scope:
+
+- Page embedding / transclusion / `![[Note]]` rendering inside Luma.
+- Wiki-link **graph** view, forward-link graphs, orphan dashboards beyond Image Tools.
+- Markdown rendering or editing inside Luma.
+- Full-text search of note bodies as a primary product surface (filename, folder, and metadata qualifiers only).
 - AI summarisation, AI Q&A, semantic search.
 - Multi-vault, vault sync, vault import/export, version history.
 - Image insertion / paste interception / image gallery / image compression / format conversion.
 - Drag-to-move tree nodes.
-- Inbox count, recent count, orphan count surfaced on the launcher home.
+- Inbox / recent / orphan **counts on launcher home** (retrieval lives in Notes detail and `n` commands).

@@ -430,6 +430,83 @@ enum GeekUIKit {
         }
     }
 
+    /// Standard vertical list scroll chrome for module detail tables, outlines, and stacks.
+    static func configureVerticalListScroll(_ scrollView: NSScrollView, horizontal: Bool = false) {
+        scrollView.hasVerticalScroller = true
+        scrollView.hasHorizontalScroller = horizontal
+        scrollView.autohidesScrollers = true
+        scrollView.clipsToBounds = true
+        scrollView.drawsBackground = false
+        scrollView.borderType = .noBorder
+    }
+
+    /// Keeps scroll document frames aligned with visible rows/content so scrollers appear when content overflows.
+    static func syncVerticalListDocumentFrame(in scrollView: NSScrollView) {
+        guard let documentView = scrollView.documentView else { return }
+        let width = max(scrollView.contentSize.width, 1)
+        let viewportHeight = scrollView.contentSize.height
+        let contentHeight = verticalListContentHeight(for: documentView)
+        let height = max(contentHeight, viewportHeight)
+        let frame = NSRect(x: 0, y: 0, width: width, height: height)
+        guard documentView.frame != frame else { return }
+        documentView.frame = frame
+        scrollView.reflectScrolledClipView(scrollView.contentView)
+    }
+
+    /// Wires a detail table/outline scroll view and resyncs the document frame when the clip view resizes.
+    static func wireVerticalListScroll(
+        _ scrollView: NSScrollView,
+        documentView: NSView,
+        observer: NSObject,
+        onClipViewResize selector: Selector
+    ) {
+        scrollView.documentView = documentView
+        if let outlineView = documentView as? NSOutlineView {
+            outlineView.autoresizingMask = [.width]
+        } else if let tableView = documentView as? NSTableView {
+            tableView.autoresizingMask = [.width]
+        }
+        configureVerticalListScroll(scrollView)
+        scrollView.contentView.postsBoundsChangedNotifications = true
+        NotificationCenter.default.addObserver(
+            observer,
+            selector: selector,
+            name: NSView.frameDidChangeNotification,
+            object: scrollView
+        )
+    }
+
+    private static func verticalListContentHeight(for documentView: NSView) -> CGFloat {
+        if let outlineView = documentView as? NSOutlineView {
+            let rowCount = outlineView.numberOfRows
+            return rowCount > 0 ? outlineView.rect(ofRow: rowCount - 1).maxY : 0
+        }
+        if let tableView = documentView as? NSTableView {
+            let rowCount = tableView.numberOfRows
+            return rowCount > 0 ? tableView.rect(ofRow: rowCount - 1).maxY : 0
+        }
+        if let textView = documentView as? NSTextView,
+           let layoutManager = textView.layoutManager,
+           let textContainer = textView.textContainer {
+            layoutManager.ensureLayout(for: textContainer)
+            let used = layoutManager.usedRect(for: textContainer)
+            return used.height + textView.textContainerInset.height * 2
+        }
+        documentView.layoutSubtreeIfNeeded()
+        return max(documentView.fittingSize.height, documentView.frame.height)
+    }
+
+    /// Pins a vertical stack used as an `NSScrollView` document view for Auto Layout content sizing.
+    static func pinVerticalStackDocumentView(_ stack: NSStackView, in scrollView: NSScrollView) {
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            stack.topAnchor.constraint(equalTo: scrollView.contentView.topAnchor),
+            stack.leadingAnchor.constraint(equalTo: scrollView.contentView.leadingAnchor),
+            stack.trailingAnchor.constraint(equalTo: scrollView.contentView.trailingAnchor),
+            stack.widthAnchor.constraint(equalTo: scrollView.contentView.widthAnchor)
+        ])
+    }
+
     static func configureDetailTableRowSurface(_ view: NSView) {
         view.wantsLayer = true
         view.layer?.cornerRadius = LauncherChromeTokens.detailTableRowCornerRadius

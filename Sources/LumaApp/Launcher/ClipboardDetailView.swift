@@ -88,18 +88,13 @@ final class ClipboardDetailView: NSObject, ModuleDetailView {
         tableView.addTableColumn(column)
 
         tableScroll.documentView = tableView
-        tableScroll.hasVerticalScroller = true
-        tableScroll.hasHorizontalScroller = false
-        tableScroll.drawsBackground = false
-        tableScroll.borderType = .noBorder
-        tableScroll.translatesAutoresizingMaskIntoConstraints = false
-        tableScroll.contentView.postsBoundsChangedNotifications = true
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(resizeTableColumn),
-            name: NSView.frameDidChangeNotification,
-            object: tableScroll
+        GeekUIKit.wireVerticalListScroll(
+            tableScroll,
+            documentView: tableView,
+            observer: self,
+            onClipViewResize: #selector(resizeTableColumn)
         )
+        tableScroll.translatesAutoresizingMaskIntoConstraints = false
 
         emptyStateLabel.font = TypographyTokens.body
         emptyStateLabel.textColor = .secondaryLabelColor
@@ -230,6 +225,7 @@ final class ClipboardDetailView: NSObject, ModuleDetailView {
             column.width = width
             tableView.noteHeightOfRows(withIndexesChanged: IndexSet(integersIn: 0..<tableView.numberOfRows))
         }
+        GeekUIKit.syncVerticalListDocumentFrame(in: tableScroll)
     }
 
     @objc private func filterChanged() {
@@ -391,6 +387,7 @@ final class ClipboardDetailView: NSObject, ModuleDetailView {
                 self.entries = loaded
                 self.displayRows = ClipboardTimeGrouping.displayRows(for: loaded)
                 self.tableView.reloadData()
+                GeekUIKit.syncVerticalListDocumentFrame(in: self.tableScroll)
                 self.updateEmptyState(query: query)
                 if let firstEntry = self.displayRows.firstIndex(where: {
                     if case .entry = $0 { return true }

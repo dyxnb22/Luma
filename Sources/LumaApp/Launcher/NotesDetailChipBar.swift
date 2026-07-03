@@ -3,14 +3,12 @@ import LumaModules
 
 enum NotesDetailChip: Int, CaseIterable {
     case today = 0
-    case inbox
     case recent
     case pinned
 
     var title: String {
         switch self {
         case .today: return "Today"
-        case .inbox: return "Inbox"
         case .recent: return "Recent"
         case .pinned: return "Pinned"
         }
@@ -50,8 +48,11 @@ final class NotesDetailChipBar: NSView {
         setup()
     }
 
-    func setInboxCount(_ count: Int) {
-        chipControl.setLabel(count > 0 ? "Inbox(\(count))" : "Inbox", forSegment: NotesDetailChip.inbox.rawValue)
+    func setPanelInboxCount(_ count: Int) {
+        panelControl.setLabel(
+            count > 0 ? "Inbox(\(count))" : "Inbox",
+            forSegment: NotesDetailPanel.inbox.rawValue
+        )
     }
 
     func setTodayHint(missing: Bool) {

@@ -39,7 +39,7 @@ flowchart TD
 | Apps | yes | root search | Open Apps home section |
 | Clipboard | yes | `clip` / `clip <query>` / global search (3+ chars) | |
 | Commands | no | built-in commands | Default off; enable in Settings → Modules |
-| Notes | yes | `n` / `note` / `notes` | warmup index |
+| Notes | yes | `n` / `note` / `notes` | on-demand index; detail workspace (ADR-019) |
 | Todo | yes | `t` / `t <task>` / `todo` | |
 | Translate | yes | `tr <text>` / `translate <text>` | |
 | Wordbook | yes | `word` / `word <query>` | |

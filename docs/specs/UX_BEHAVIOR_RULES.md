@@ -2,6 +2,7 @@
 
 Authoritative home-screen freeze: [LAUNCHER_HOME_CONSTRAINTS.md](LAUNCHER_HOME_CONSTRAINTS.md).  
 Panel positioning and in-panel layout: [LAUNCHER_PANEL_CONSTRAINTS.md](LAUNCHER_PANEL_CONSTRAINTS.md).  
+Notes detail IA and create flows: [NOTES_DETAIL_CONSTRAINTS.md](NOTES_DETAIL_CONSTRAINTS.md).  
 **Open interaction gaps (temporary):** [LAUNCHER_NAVIGATION_AUDIT.md](../qa/LAUNCHER_NAVIGATION_AUDIT.md).
 
 ## Launcher
@@ -103,6 +104,17 @@ Panel positioning and in-panel layout: [LAUNCHER_PANEL_CONSTRAINTS.md](LAUNCHER_
 - **No** `+N more` collapse row — all running apps are listed.
 - Idle list rows use a **transparent** background; only hover/selection add fill.
 - Workbench resume, clipboard transforms, and create suggestions are reached via **search** and **command prefixes**, not home rows.
+
+## Notes detail (Frozen)
+
+Authoritative rules: [NOTES_DETAIL_CONSTRAINTS.md](NOTES_DETAIL_CONSTRAINTS.md).
+
+- **Today** left chip is a quick action (open/create daily note) — not a persistent view.
+- **Inbox** appears only on the right panel segment (`Inbox(n)`), not as a left chip.
+- **Outline** panel shows the directory tree only — no embedded Recent group.
+- **+ Note** / **+ Folder** and `⌘N` / `⌘⇧N` in Tree mode; new notes open in Typora after create.
+- `[Tree | Map]` toggles in-panel; create controls and filter hidden in Map mode.
+- Notes create/rename/delete belong in detail or `n` commands — not on empty-query home.
 
 ## Settings
 

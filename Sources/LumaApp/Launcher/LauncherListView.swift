@@ -210,6 +210,7 @@ final class LauncherListView: NSView {
         }
         updateRowHighlight(oldFlatIndex: nil, newFlatIndex: selectedFlatIndex)
         scrollView.contentView.scroll(to: NSPoint(x: 0, y: 0))
+        GeekUIKit.syncVerticalListDocumentFrame(in: scrollView)
     }
 
     private func makeView(for row: LauncherListRows.Row) -> NSView {

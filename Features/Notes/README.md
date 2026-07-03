@@ -2,65 +2,86 @@
 
 ## Goal
 
-Markdown file index and Typora launcher. Luma lets you search and open notes by filename without leaving the keyboard. It is not a note editor.
+Local-first Markdown workspace for long-term personal use (ADR-019). Luma indexes, organizes, and opens notes by keyboard; **Typora** edits and renders. Luma is not a note editor.
 
 ## Triggers
 
-- `n` / `note` / `notes` — open Notes detail (tree view)
-- `n <query>` — search note filenames and folder names
-- `n daily` / `n today` — jump to or create today's daily note
-- `n review` / `n review week` — open weekly review note
-- `n doctor` — run health checks (broken links, duplicate names, warmup stats)
-- `n new <name>` — create a new note file
+| Trigger | Behavior |
+| --- | --- |
+| `n` / `note` / `notes` | Open Notes detail |
+| `n <query>` | Fuzzy filename / folder search |
+| `n new <title>` | Create note in Inbox and open |
+| `n new <template> <title>` | Create from template in Inbox |
+| `n daily` / `n today` | Open or create today's daily note |
+| `n cap <text>` | Append bullet to today's daily note |
+| `n review` / `n review week` | Weekly review note |
+| `n doctor` | Health checks (broken links, duplicates, warmup stats) |
+| `tag:<name>` / `type:<name>` | Metadata-qualified search |
+
+## Detail view
+
+Frozen IA: `docs/specs/NOTES_DETAIL_CONSTRAINTS.md`.
+
+**Toolbar:** root path; **+ Note** / **+ Folder** (Tree mode); Expand / Collapse; `[Tree | Map]`; settings gear.
+
+**Left chips:** **Today** (quick action — opens daily note, does not stay selected), **Recent**, **Pinned**.
+
+**Right panels:** **Outline** (directory tree only), **Browse** (modified-this-week + groups by frontmatter `type`), **Inbox(n)**.
+
+**Create (detail):** toolbar or `⌘N` / `⌘⇧N`; optional template picker when `_templates/` exists. Default parent folder: selection → note parent → Inbox → root. New notes open in Typora after create.
+
+**In-detail shortcuts:** `⌘1` Today, `⌘2` Recent, `⌘3` Pinned, `⌘L` backlinks, `F2` rename, `⌘⌫` delete.
 
 ## Data Model
 
-No Luma-owned database. Source of truth is a Markdown folder root configured in Settings (stored in `notes.json`).
+No Luma-owned note database. Source of truth is a Markdown folder root (`notes.json` stores root path, expansion, recent list, and folder-name conventions).
 
-Index fields (in-memory only):
+Index fields (in-memory, warmup + FSEvents):
 
 | Field | Notes |
-|-------|-------|
-| filename | searchable, used as display title |
-| relative path | for tree display |
-| FSEvents mtime | for change detection |
+| --- | --- |
+| filename | searchable display title |
+| relative path | tree display |
+| frontmatter | `title`, `type`, `tags`, `pinned` (read-only subset) |
+| FSEvents mtime | change detection |
 
-Frontmatter is parsed for `daily` and `template` markers only. Body content is never read or indexed.
+Body content is not full-text indexed. `n doctor` and backlink discovery read bodies on explicit invocation only.
 
 ## Actions
 
-- **Open** (Return) — opens in Typora; falls back to `NSWorkspace.open` if Typora is not installed
-- **Create note** — writes a new `.md` file at the configured root
-- **Rename / Delete** — folder + note management from the detail tree view
-- **Append to daily note** — cross-module action available from Clipboard and Translate
+- **Open** (Return / double-click) — Typora; `NSWorkspace.open` fallback
+- **Create note / folder** — detail toolbar, context menu, or `n new`
+- **Rename / Delete** — Trash via `FileManager.trashItem`
+- **Templates** — `_templates/*.md` with `{{title}}`, `{{date}}`, `{{week}}`
+- **Append to daily note** — cross-module (`n cap`, Clipboard, Translate)
+- **Image Tools** — orphan scan, broken links, migrate to `_assets/`, Typora config check
 
 ## Privacy Rules
 
-- Note bodies are never read or stored.
-- Only filenames and folder structure are indexed.
-- `n doctor` reads note bodies for wiki-link validation but only on explicit invocation — never on the query hot path.
+- Note bodies are not indexed on the query hot path.
+- Filenames, folder structure, and minimal frontmatter are indexed in memory.
+- Body reads only on explicit actions (`n doctor`, backlinks, template render at create).
 
 ## Permissions
 
-No special permissions required. File access is scoped to the user-configured root folder.
+No special permissions. File access is scoped to the user-configured root folder.
 
 ## Warmup
 
-`warmup` scans the configured root via `FSEventsService` and builds `NotesTreeIndex` and `NotesMetaIndex`. This is a filesystem scan — **Phase 2** only. Never add to `BuiltInModules.fastModuleIDs`.
+`warmup` scans the configured root and builds `NotesTreeIndex` and `NotesMetaIndex`. **On-demand** tier — not in global search hot path.
 
-FSEvents watcher keeps the index current after warmup. `handle` is memory-only.
-
-Warmup duration is tracked in `NotesModule.lastWarmupMilliseconds()` and surfaced in `n doctor`.
+FSEvents keeps indexes current. `handle` is memory-only.
 
 ## Implementation Entry
 
 - Module: `Sources/LumaModules/Notes/NotesModule.swift`
+- Actions: `Sources/LumaModules/Notes/NotesActions.swift`
 - Tree index: `Sources/LumaModules/Notes/NotesTreeIndex.swift`
 - Meta index: `Sources/LumaModules/Notes/NotesMetaIndex.swift`
-- Health checks: `Sources/LumaModules/Notes/NotesDoctor.swift`
-- Root config: `Sources/LumaModules/Notes/NotesRootConfig.swift`
+- Templates: `Sources/LumaModules/Notes/NotesTemplateStore.swift`
 - Detail view: `Sources/LumaApp/Launcher/NotesDetailView.swift`
+- Chip bar: `Sources/LumaApp/Launcher/NotesDetailChipBar.swift`
 
 ## Non-Goals
 
-See `docs/NON_GOALS.md` — Notes section. Backlinks, graph view, full-text search, Markdown rendering, tags, frontmatter generation, multi-vault, and AI features are all explicitly out of scope.
+See `docs/adr/019-notes-long-term-markdown-workspace.md` and `docs/NON_GOALS.md` (Notes section). No in-app Markdown editing/rendering, wiki-link graph, full-text body search as a primary surface, multi-vault, sync, or AI features.

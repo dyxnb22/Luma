@@ -101,7 +101,8 @@ If accepted, this ADR implies the following product posture:
 - `NotesDetailView` can evolve into a stronger workspace view, but not into a full editor
 - commands for create, move, archive, and revisit should remain explicit and reversible
 
-The plan document `docs/strategy/NOTES_LONG_TERM_PLAN.md` should be treated as the roadmap companion to this ADR.
+Detail IA and create flows: `docs/specs/NOTES_DETAIL_CONSTRAINTS.md`  
+Feature README: `Features/Notes/README.md`
 
 Format specification: `docs/specs/NOTES_FORMAT.md`
 

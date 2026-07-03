@@ -54,6 +54,8 @@ The product is already mostly formed. Current work should prioritize:
 
 **Frozen panel constraints:** `docs/specs/LAUNCHER_PANEL_CONSTRAINTS.md` — fixed 720×680 geometry, presentation-screen placement, no full-width `wantsLayer` (prevents horizontal clip on module-prefix search).
 
+**Frozen Notes detail constraints:** `docs/specs/NOTES_DETAIL_CONSTRAINTS.md` — chip/panel IA, create flows, Tree/Map toggle, in-detail shortcuts.
+
 **Open navigation/shortcut gaps (temporary):** `docs/qa/LAUNCHER_NAVIGATION_AUDIT.md` — detail exit, keyboard routing, session restore; align `docs/specs/UX_BEHAVIOR_RULES.md` when closed.
 
 ## Active Built-In Modules
@@ -67,7 +69,7 @@ Deferred (no warmup, not in default registry): Windows (window focus list).
 ## Deferred Or Experimental Scope
 
 - **Windows module** — full window picker/focus (deferred; distinct from Window Layouts presets).
-- Notes Graph / wiki-link graph views.
+- Notes Graph / wiki-link graph views (folder-tree Mind Map in detail is in scope per ADR-012/017).
 - Plugin marketplace or public extension API.
 - Thirds/quarters/saved multi-window split layouts (Window Layouts v2).
 

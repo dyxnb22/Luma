@@ -37,8 +37,13 @@ final class TodoDetailView: NSObject, ModuleDetailView {
     func activate() {
         refresh()
         DispatchQueue.main.async { [weak self] in
+            self?.syncListScrollDocumentFrame()
             self?.detailView.window?.makeFirstResponder(self?.inputField)
         }
+    }
+
+    @objc private func syncListScrollDocumentFrame() {
+        GeekUIKit.syncVerticalListDocumentFrame(in: scrollView)
     }
 
     func deactivate() {
@@ -129,9 +134,13 @@ final class TodoDetailView: NSObject, ModuleDetailView {
         stackView.translatesAutoresizingMaskIntoConstraints = false
 
         scrollView.documentView = stackView
-        scrollView.hasVerticalScroller = true
-        scrollView.drawsBackground = false
-        scrollView.borderType = .noBorder
+        GeekUIKit.wireVerticalListScroll(
+            scrollView,
+            documentView: stackView,
+            observer: self,
+            onClipViewResize: #selector(syncListScrollDocumentFrame)
+        )
+        GeekUIKit.pinVerticalStackDocumentView(stackView, in: scrollView)
         scrollView.translatesAutoresizingMaskIntoConstraints = false
 
         chrome.setToolbar(topBar, height: LauncherChromeTokens.detailToolbarTallHeight)
@@ -144,8 +153,6 @@ final class TodoDetailView: NSObject, ModuleDetailView {
 
             tabControl.leadingAnchor.constraint(equalTo: topBar.leadingAnchor),
             tabControl.bottomAnchor.constraint(equalTo: topBar.bottomAnchor, constant: -2),
-
-            stackView.widthAnchor.constraint(equalTo: scrollView.contentView.widthAnchor, constant: -16)
         ])
         inputField.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         GeekUIKit.constrainDetailToolbarTrailingActions(
@@ -309,8 +316,9 @@ final class TodoDetailView: NSObject, ModuleDetailView {
                 onClearDate: { [weak self] in self?.clearDate(item) }
             )
             stackView.addArrangedSubview(row)
-            row.widthAnchor.constraint(equalTo: stackView.widthAnchor).isActive = true
+            row.widthAnchor.constraint(equalTo: stackView.widthAnchor, constant: -16).isActive = true
         }
+        GeekUIKit.syncVerticalListDocumentFrame(in: scrollView)
     }
 
     private func addPlaceholderRow(_ text: String) {
@@ -318,7 +326,8 @@ final class TodoDetailView: NSObject, ModuleDetailView {
         label.font = .systemFont(ofSize: 13)
         label.textColor = .tertiaryLabelColor
         stackView.addArrangedSubview(label)
-        label.widthAnchor.constraint(equalTo: stackView.widthAnchor).isActive = true
+        label.widthAnchor.constraint(equalTo: stackView.widthAnchor, constant: -16).isActive = true
+        GeekUIKit.syncVerticalListDocumentFrame(in: scrollView)
     }
 
     private func clearRows() {

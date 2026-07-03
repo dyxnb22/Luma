@@ -54,6 +54,7 @@ final class NotesOutlineDataSource: NSObject, NSOutlineViewDataSource, NSOutline
     var filterText = ""
     var onActivate: ((NotesNode) -> Void)?
     var onExpansionChanged: ((NotesNode, Bool) -> Void)?
+    var onVisibleRowsChanged: (() -> Void)?
     /// When true, expand/collapse notifications from programmatic reloads are ignored.
     var suppressExpansionCallbacks = false
     private var flatListTitle: String?
@@ -315,18 +316,22 @@ final class NotesOutlineDataSource: NSObject, NSOutlineViewDataSource, NSOutline
     }
 
     func outlineViewItemDidExpand(_ notification: Notification) {
-        guard !suppressExpansionCallbacks else { return }
-        guard let item = notification.userInfo?["NSObject"] as? NotesOutlineItem else { return }
-        onExpansionChanged?(item.node, true)
-        if !filterText.isEmpty {
-            expandAncestors(of: item, in: notification.object as? NSOutlineView)
+        if !suppressExpansionCallbacks,
+           let item = notification.userInfo?["NSObject"] as? NotesOutlineItem {
+            onExpansionChanged?(item.node, true)
+            if !filterText.isEmpty {
+                expandAncestors(of: item, in: notification.object as? NSOutlineView)
+            }
         }
+        onVisibleRowsChanged?()
     }
 
     func outlineViewItemDidCollapse(_ notification: Notification) {
-        guard !suppressExpansionCallbacks else { return }
-        guard let item = notification.userInfo?["NSObject"] as? NotesOutlineItem else { return }
-        onExpansionChanged?(item.node, false)
+        if !suppressExpansionCallbacks,
+           let item = notification.userInfo?["NSObject"] as? NotesOutlineItem {
+            onExpansionChanged?(item.node, false)
+        }
+        onVisibleRowsChanged?()
     }
 
     private func expandAncestors(of item: NotesOutlineItem, in outlineView: NSOutlineView?) {

@@ -102,6 +102,7 @@ final class CurrentProjectDetailView: NSObject, ModuleDetailView {
   }
 
   private func render(model: CurrentProjectWorkspaceModel, context: CurrentProjectContext?) {
+    defer { (detailView as? BaseDetailContainer)?.syncScrollContentSize() }
     stackView.arrangedSubviews.forEach { $0.removeFromSuperview() }
     pendingActions.removeAll()
 

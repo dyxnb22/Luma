@@ -106,7 +106,12 @@ final class WordbookManageView: NSView {
         tableView.doubleAction = #selector(editSelected)
         tableView.menu = contextMenu()
         tableScroll.documentView = tableView
-        tableScroll.hasVerticalScroller = true
+        GeekUIKit.wireVerticalListScroll(
+            tableScroll,
+            documentView: tableView,
+            observer: self,
+            onClipViewResize: #selector(syncListScrollDocumentFrame)
+        )
         tableScroll.translatesAutoresizingMaskIntoConstraints = false
 
         addSubview(toolbar)
@@ -153,6 +158,10 @@ final class WordbookManageView: NSView {
             name: NSView.boundsDidChangeNotification,
             object: tableScroll.contentView
         )
+    }
+
+    @objc private func syncListScrollDocumentFrame() {
+        GeekUIKit.syncVerticalListDocumentFrame(in: tableScroll)
     }
 
     @objc private func scrollDidLive() {
@@ -217,6 +226,7 @@ final class WordbookManageView: NSView {
             return matchesCat && matchesScope && matchesQ
         }
         tableView.reloadData()
+        GeekUIKit.syncVerticalListDocumentFrame(in: tableScroll)
     }
 
     @objc private func backTapped() { onBack() }

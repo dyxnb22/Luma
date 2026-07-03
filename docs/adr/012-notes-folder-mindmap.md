@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted. Supplements ADR-008 by documenting an in-scope visualization that ADR-008's non-goals language could be read as excluding.
+Accepted. Supplements ADR-008 (historical) and ADR-019 by documenting an in-scope visualization that ADR-008's non-goals language could be read as excluding.
 
 Date: 2026-06-22
 

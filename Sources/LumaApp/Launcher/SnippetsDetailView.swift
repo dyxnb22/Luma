@@ -38,8 +38,13 @@ final class SnippetsDetailView: NSObject, ModuleDetailView {
             }
         }
         DispatchQueue.main.async { [weak self] in
+            self?.syncListScrollDocumentFrame()
             self?.tableView.window?.makeFirstResponder(self?.tableView)
         }
+    }
+
+    @objc private func syncListScrollDocumentFrame() {
+        GeekUIKit.syncVerticalListDocumentFrame(in: tableScroll)
     }
 
     func deactivate() {
@@ -72,7 +77,6 @@ final class SnippetsDetailView: NSObject, ModuleDetailView {
         tableView.dataSource = self
         tableView.target = self
         tableView.doubleAction = #selector(useSelected)
-        tableView.translatesAutoresizingMaskIntoConstraints = false
 
         for (id, title, width) in [
             ("title", "Title", 140.0),
@@ -96,9 +100,12 @@ final class SnippetsDetailView: NSObject, ModuleDetailView {
         tableView.columnAutoresizingStyle = .lastColumnOnlyAutoresizingStyle
 
         tableScroll.documentView = tableView
-        tableScroll.hasVerticalScroller = true
-        tableScroll.drawsBackground = false
-        tableScroll.borderType = .noBorder
+        GeekUIKit.wireVerticalListScroll(
+            tableScroll,
+            documentView: tableView,
+            observer: self,
+            onClipViewResize: #selector(syncListScrollDocumentFrame)
+        )
         tableScroll.translatesAutoresizingMaskIntoConstraints = false
 
         emptyStateLabel.font = TypographyTokens.body
@@ -285,6 +292,7 @@ final class SnippetsDetailView: NSObject, ModuleDetailView {
             await MainActor.run {
                 self.snippets = filtered
                 self.tableView.reloadData()
+                GeekUIKit.syncVerticalListDocumentFrame(in: self.tableScroll)
                 self.emptyStateLabel.isHidden = !filtered.isEmpty
                 self.emptyStateLabel.stringValue = filtered.isEmpty
                     ? (query.isEmpty ? "No snippets yet.\nClick Add to create your first one." : "No results for “\(query)”.")

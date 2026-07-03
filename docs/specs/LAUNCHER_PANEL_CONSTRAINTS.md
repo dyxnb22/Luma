@@ -116,7 +116,7 @@ Module surfaces share one fixed panel width. Content must **compress or scroll**
 | Module | File | Width constraint |
 | --- | --- | --- |
 | Translate | `TranslateDetailView.swift` | `panelsStack`, `toolbar`, `errorBanner` pin to `container` leading/trailing |
-| Notes | `NotesDetailView.swift` | `topStrip`, `chipBar`, `filterStrip`, scroll views pin to `container` |
+| Notes | `NotesDetailView.swift` | `topStrip`, `chipBar`, `filterStrip`, scroll views pin to `container` — IA: [NOTES_DETAIL_CONSTRAINTS.md](NOTES_DETAIL_CONSTRAINTS.md) |
 | Auto Workflow | `AutoworkflowDetailView.swift` | `contentStack.widthAnchor = container.widthAnchor` |
 
 Custom detail toolbars with many controls: use `GeekUIKit.constrainDetailToolbarTrailingActions(_:in:after:)` — trailing actions scroll inside fixed width, do not grow the panel. **Required** for crowded toolbars (today: Media; Clipboard / Secrets / Todo still need adoption — see audit L3).

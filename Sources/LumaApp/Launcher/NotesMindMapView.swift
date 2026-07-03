@@ -10,6 +10,7 @@ final class NotesMindMapView: NSView {
     }
 
     var onActivate: ((NotesNode) -> Void)?
+    var onLayoutChanged: (() -> Void)?
 
     private var root: NotesNode?
     private var expandedPaths = Set<String>()
@@ -102,6 +103,7 @@ final class NotesMindMapView: NSView {
         guard let root else {
             frame.size = CGSize(width: 640, height: 360)
             needsDisplay = true
+            onLayoutChanged?()
             return
         }
 
@@ -110,6 +112,7 @@ final class NotesMindMapView: NSView {
         let width = padding * 2 + CGFloat(maxDepth + 1) * nodeSize.width + CGFloat(maxDepth) * horizontalSpacing
         frame.size = CGSize(width: max(width, 720), height: max(totalHeight + padding, 420))
         needsDisplay = true
+        onLayoutChanged?()
     }
 
     @discardableResult

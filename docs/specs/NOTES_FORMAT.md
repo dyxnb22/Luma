@@ -3,7 +3,8 @@
 Status: active  
 Schema version: 1 (see `NotesRootConfig.schemaVersion`)  
 Companion ADR: `docs/adr/019-notes-long-term-markdown-workspace.md`  
-Strategy plan: `docs/strategy/NOTES_LONG_TERM_PLAN.md`
+Detail IA: `docs/specs/NOTES_DETAIL_CONSTRAINTS.md`  
+Feature README: `Features/Notes/README.md`
 
 ## Purpose
 
@@ -60,7 +61,7 @@ Unknown JSON keys are ignored on read.
 | Projects | `Projects/<name>/` |
 | Archive | `Archive/<year>/` |
 
-These are conventions, not requirements. Luma does not enforce layout beyond create commands defaulting to `Inbox/` and `Daily/`.
+These are conventions, not requirements. Luma create commands default parent folder to **selected folder → parent of note → Inbox → root** (detail UI); launcher `n new` always targets Inbox.
 
 ## Frontmatter (read-only in Luma)
 
@@ -115,4 +116,4 @@ This runs automated tests that simulate an empty `notes.json` and verify tree re
 
 ## Non-goals
 
-See `docs/adr/008-notes-markdown-manager.md` non-goals and `docs/strategy/NOTES_LONG_TERM_PLAN.md` anti-goals. Notably: no proprietary note format, no SQLite vault, no required cloud sync.
+See `docs/adr/019-notes-long-term-markdown-workspace.md` non-goals and `docs/NON_GOALS.md`. Notably: no proprietary note format, no SQLite vault, no required cloud sync.

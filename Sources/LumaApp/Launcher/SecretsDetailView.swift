@@ -33,6 +33,13 @@ final class SecretsDetailView: NSObject, ModuleDetailView {
     func activate() {
         detailReloadRouter.register(.secrets) { [weak self] in self?.refresh() }
         refresh()
+        DispatchQueue.main.async { [weak self] in
+            self?.syncListScrollDocumentFrame()
+        }
+    }
+
+    @objc private func syncListScrollDocumentFrame() {
+        GeekUIKit.syncVerticalListDocumentFrame(in: tableScroll)
     }
 
     func deactivate() {
@@ -77,7 +84,6 @@ final class SecretsDetailView: NSObject, ModuleDetailView {
         tableView.dataSource = self
         tableView.target = self
         tableView.doubleAction = #selector(editSelected)
-        tableView.translatesAutoresizingMaskIntoConstraints = false
 
         for (id, title, width) in [
             ("label", "Label", 180.0),
@@ -92,9 +98,12 @@ final class SecretsDetailView: NSObject, ModuleDetailView {
         GeekUIKit.styleDetailTableColumns(tableView)
 
         tableScroll.documentView = tableView
-        tableScroll.hasVerticalScroller = true
-        tableScroll.drawsBackground = false
-        tableScroll.borderType = .noBorder
+        GeekUIKit.wireVerticalListScroll(
+            tableScroll,
+            documentView: tableView,
+            observer: self,
+            onClipViewResize: #selector(syncListScrollDocumentFrame)
+        )
         tableScroll.translatesAutoresizingMaskIntoConstraints = false
 
         GeekUIKit.configureEmptyStateLabel(emptyStateLabel, text: "")
@@ -270,6 +279,7 @@ final class SecretsDetailView: NSObject, ModuleDetailView {
                 self.searchField.isEnabled = unlocked
                 self.searchField.placeholderString = unlocked ? "Search secrets…" : "Unlock vault to search"
                 self.tableView.reloadData()
+                GeekUIKit.syncVerticalListDocumentFrame(in: self.tableScroll)
                 self.emptyStateLabel.isHidden = !unlocked || !loaded.isEmpty
                 self.emptyStateLabel.stringValue = loaded.isEmpty && unlocked
                     ? (query.isEmpty ? "No secrets yet.\nClick Add to store your first credential." : "No results for “\(query)”.")

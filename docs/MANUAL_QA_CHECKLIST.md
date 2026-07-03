@@ -242,10 +242,17 @@ Panel and search field must stay **horizontally aligned** with panel edges — n
 
 ## Notes v0.1
 
+Frozen detail IA: `docs/specs/NOTES_DETAIL_CONSTRAINTS.md`.
+
 - Root picker writes `notes.json`.
 - Launcher hit: type `tree`, Return opens `Tree.md` in Typora.
 - Detail tree loads, default expansion is root only.
+- Outline shows directory tree only (no embedded Recent group).
+- Left chips: **Today** opens/creates daily note (`Today +` when missing); **Recent** / **Pinned** flat lists; **Inbox** only on right panel segment (with count badge).
+- Partial tree expand shows vertical scrollbar when rows overflow (not only after Expand All).
 - Create / rename / delete (note + empty folder) round-trip.
+- Toolbar **+ Note** / **+ Folder** (⌘N / ⌘⇧N): default parent = selected folder → parent of note → Inbox → root; new note opens in Typora after create.
+- Create note dialog shows template picker when `Templates/` has entries; empty note when "Empty note" selected.
 - Non-empty folder delete is refused with the expected message.
 - External `mkdir` in the root surfaces in the tree within 1 second.
 - Image tools panel: scan + migrate + Typora config check.

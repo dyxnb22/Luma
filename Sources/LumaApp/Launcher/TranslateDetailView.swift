@@ -363,11 +363,9 @@ final class TranslateDetailView: ModuleDetailView {
         textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
 
         let scroll = NSScrollView()
-        scroll.hasVerticalScroller = true
-        scroll.drawsBackground = false
-        scroll.borderType = .noBorder
-        scroll.translatesAutoresizingMaskIntoConstraints = false
+        GeekUIKit.configureVerticalListScroll(scroll)
         scroll.documentView = textView
+        scroll.translatesAutoresizingMaskIntoConstraints = false
 
         panel.addSubview(scroll)
         NSLayoutConstraint.activate([

@@ -86,7 +86,7 @@ final class SnippetEditorSheet: LumaWindow {
 
     let scroll = NSScrollView()
     scroll.documentView = bodyTextView
-    scroll.hasVerticalScroller = true
+    GeekUIKit.configureVerticalListScroll(scroll)
     scroll.borderType = .bezelBorder
     scroll.translatesAutoresizingMaskIntoConstraints = false
 

@@ -34,6 +34,13 @@ final class QuicklinksDetailView: NSObject, ModuleDetailView {
             pendingDraft = draft
         }
         refresh()
+        DispatchQueue.main.async { [weak self] in
+            self?.syncListScrollDocumentFrame()
+        }
+    }
+
+    @objc private func syncListScrollDocumentFrame() {
+        GeekUIKit.syncVerticalListDocumentFrame(in: tableScroll)
     }
 
     func deactivate() {
@@ -83,10 +90,12 @@ final class QuicklinksDetailView: NSObject, ModuleDetailView {
         }
         tableView.columnAutoresizingStyle = .lastColumnOnlyAutoresizingStyle
         tableScroll.documentView = tableView
-        tableScroll.hasVerticalScroller = true
-        tableScroll.hasHorizontalScroller = false
-        tableScroll.drawsBackground = false
-        tableScroll.borderType = .noBorder
+        GeekUIKit.wireVerticalListScroll(
+            tableScroll,
+            documentView: tableView,
+            observer: self,
+            onClipViewResize: #selector(syncListScrollDocumentFrame)
+        )
 
         let editor = NSGridView(views: [
             [label("Trigger"), triggerField],
@@ -140,6 +149,7 @@ final class QuicklinksDetailView: NSObject, ModuleDetailView {
             await MainActor.run {
                 self.quicklinks = loaded
                 self.tableView.reloadData()
+                GeekUIKit.syncVerticalListDocumentFrame(in: self.tableScroll)
                 if let draft = self.pendingDraft {
                     self.tableView.deselectAll(nil)
                     self.loadDraftIntoEditor(draft)

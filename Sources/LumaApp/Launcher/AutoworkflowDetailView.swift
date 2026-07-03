@@ -51,6 +51,7 @@ final class AutoworkflowDetailView: ModuleDetailView {
     private let logScrollView = NSScrollView()
     private let taskListStack = NSStackView()
     private let taskListScroll = NSScrollView()
+    private let bodyScroll = NSScrollView()
     private let contentStack = NSStackView()
     private var containerFrameObserver: NSObjectProtocol?
 
@@ -79,6 +80,11 @@ final class AutoworkflowDetailView: ModuleDetailView {
         installContainerFrameObserverIfNeeded()
         updateDetailLabelWidth()
         updateLogTextContainerWidth()
+        DispatchQueue.main.async { [weak self] in
+            self?.syncBodyScrollDocumentFrame()
+            self?.syncTaskListScrollDocumentFrame()
+            self?.syncLogScrollDocumentFrame()
+        }
         Task {
             config = await module.getConfig()
             await checkHealthAndLoad()
@@ -131,16 +137,33 @@ final class AutoworkflowDetailView: ModuleDetailView {
             right: LauncherChromeTokens.detailMargin
         )
 
-        container.addSubview(contentStack)
+        bodyScroll.translatesAutoresizingMaskIntoConstraints = false
+        GeekUIKit.configureVerticalListScroll(bodyScroll)
+        bodyScroll.documentView = contentStack
+        GeekUIKit.pinVerticalStackDocumentView(contentStack, in: bodyScroll)
+
+        container.addSubview(bodyScroll)
         NSLayoutConstraint.activate([
-            contentStack.topAnchor.constraint(equalTo: container.topAnchor),
-            contentStack.leadingAnchor.constraint(equalTo: container.leadingAnchor),
-            contentStack.trailingAnchor.constraint(equalTo: container.trailingAnchor),
-            contentStack.widthAnchor.constraint(equalTo: container.widthAnchor),
-            contentStack.bottomAnchor.constraint(lessThanOrEqualTo: container.bottomAnchor)
+            bodyScroll.topAnchor.constraint(equalTo: container.topAnchor),
+            bodyScroll.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            bodyScroll.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            bodyScroll.bottomAnchor.constraint(equalTo: container.bottomAnchor)
         ])
 
         installContainerFrameObserverIfNeeded()
+    }
+
+    private func syncBodyScrollDocumentFrame() {
+        GeekUIKit.syncVerticalListDocumentFrame(in: bodyScroll)
+    }
+
+    private func syncLogScrollDocumentFrame() {
+        updateLogTextContainerWidth()
+        GeekUIKit.syncVerticalListDocumentFrame(in: logScrollView)
+    }
+
+    private func syncTaskListScrollDocumentFrame() {
+        GeekUIKit.syncVerticalListDocumentFrame(in: taskListScroll)
     }
 
     private func installContainerFrameObserverIfNeeded() {
@@ -154,6 +177,7 @@ final class AutoworkflowDetailView: ModuleDetailView {
             Task { @MainActor in
                 self?.updateDetailLabelWidth()
                 self?.updateLogTextContainerWidth()
+                self?.syncBodyScrollDocumentFrame()
             }
         }
     }
@@ -301,7 +325,7 @@ final class AutoworkflowDetailView: ModuleDetailView {
         logTextView.textContainer?.widthTracksTextView = true
 
         logScrollView.documentView = logTextView
-        logScrollView.hasVerticalScroller = true
+        GeekUIKit.configureVerticalListScroll(logScrollView)
         logScrollView.translatesAutoresizingMaskIntoConstraints = false
         logScrollView.heightAnchor.constraint(greaterThanOrEqualToConstant: 120).isActive = true
 
@@ -314,8 +338,9 @@ final class AutoworkflowDetailView: ModuleDetailView {
         taskListStack.distribution = .fill
 
         taskListScroll.documentView = taskListStack
-        taskListScroll.hasVerticalScroller = true
+        GeekUIKit.configureVerticalListScroll(taskListScroll)
         taskListScroll.translatesAutoresizingMaskIntoConstraints = false
+        GeekUIKit.pinVerticalStackDocumentView(taskListStack, in: taskListScroll)
         taskListScroll.heightAnchor.constraint(greaterThanOrEqualToConstant: 120).isActive = true
         taskListScroll.heightAnchor.constraint(lessThanOrEqualToConstant: 200).isActive = true
 
@@ -691,8 +716,9 @@ final class AutoworkflowDetailView: ModuleDetailView {
                     let display = log.isEmpty ? "(no output yet)" : log
                     guard display != self.logTextView.string else { return }
                     self.logTextView.string = display
-                    self.updateLogTextContainerWidth()
+                    self.syncLogScrollDocumentFrame()
                     self.logTextView.scrollToEndOfDocument(nil)
+                    self.syncBodyScrollDocumentFrame()
                 }
             }
         }
@@ -758,6 +784,7 @@ final class AutoworkflowDetailView: ModuleDetailView {
             stopButton.isHidden = true
             resumeButton.isHidden = true
         }
+        syncBodyScrollDocumentFrame()
     }
 
     private func setStatus(color: NSColor, text: String) {
@@ -817,6 +844,8 @@ final class AutoworkflowDetailView: ModuleDetailView {
             emptyLabel.font = Self.bodyFont
             emptyLabel.textColor = .tertiaryLabelColor
             taskListStack.addArrangedSubview(emptyLabel)
+            syncTaskListScrollDocumentFrame()
+            syncBodyScrollDocumentFrame()
             return
         }
         for task in tasks.prefix(10) {
@@ -840,6 +869,8 @@ final class AutoworkflowDetailView: ModuleDetailView {
             }
             taskListStack.addArrangedSubview(button)
         }
+        syncTaskListScrollDocumentFrame()
+        syncBodyScrollDocumentFrame()
     }
 
     private func displayStatus(for task: AutoworkflowTaskItem) -> String {

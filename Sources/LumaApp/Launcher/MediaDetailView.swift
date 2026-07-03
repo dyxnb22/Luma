@@ -55,6 +55,13 @@ final class MediaDetailView: NSObject, ModuleDetailView {
             LauncherSharedState.pendingMediaEditorDraft = nil
             presentEditor(draft: draft)
         }
+        DispatchQueue.main.async { [weak self] in
+            self?.syncListScrollDocumentFrame()
+        }
+    }
+
+    @objc private func syncListScrollDocumentFrame() {
+        GeekUIKit.syncVerticalListDocumentFrame(in: tableScroll)
     }
 
     func deactivate() {
@@ -126,7 +133,6 @@ final class MediaDetailView: NSObject, ModuleDetailView {
         tableView.dataSource = self
         tableView.target = self
         tableView.doubleAction = #selector(editSelected)
-        tableView.translatesAutoresizingMaskIntoConstraints = false
 
         for (id, title, width) in [
             ("title", "Title", 160.0),
@@ -144,9 +150,12 @@ final class MediaDetailView: NSObject, ModuleDetailView {
         GeekUIKit.styleDetailTableColumns(tableView)
 
         tableScroll.documentView = tableView
-        tableScroll.hasVerticalScroller = true
-        tableScroll.drawsBackground = false
-        tableScroll.borderType = .noBorder
+        GeekUIKit.wireVerticalListScroll(
+            tableScroll,
+            documentView: tableView,
+            observer: self,
+            onClipViewResize: #selector(syncListScrollDocumentFrame)
+        )
         tableScroll.translatesAutoresizingMaskIntoConstraints = false
 
         GeekUIKit.configureStatusLabel(footerLabel)
@@ -287,6 +296,7 @@ final class MediaDetailView: NSObject, ModuleDetailView {
             await MainActor.run {
                 self.items = filtered
                 self.tableView.reloadData()
+                GeekUIKit.syncVerticalListDocumentFrame(in: self.tableScroll)
                 let avgText: String
                 if let avg = stats.averageRating {
                     avgText = String(format: "%.1f", avg)

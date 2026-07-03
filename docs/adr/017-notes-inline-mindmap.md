@@ -11,10 +11,12 @@ Mind Map was presented as a modal sheet without a dismiss control, trapping user
 ## Decision
 
 - Add `[Tree | Map]` segmented control to `NotesDetailView` toolbar.
+- Add **+ Note** / **+ Folder** toolbar buttons (Tree mode only; see `NOTES_DETAIL_CONSTRAINTS.md`).
 - Embed `NotesMindMapView` in `mindMapScroll` alongside the outline `scrollView`; toggle visibility.
 - Remove `NotesDetailSheets.presentMindMap` and gear menu "Mind Map…".
 - Map interactions: single-click select, double-click folder expand/collapse, double-click note opens via Typora.
 - Expand/Collapse toolbar buttons visible only in Tree mode; filter applies only to Tree.
+- Create toolbar buttons visible only in Tree mode.
 
 ## Consequences
 

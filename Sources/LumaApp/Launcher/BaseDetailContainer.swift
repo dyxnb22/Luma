@@ -60,6 +60,9 @@ final class BaseDetailContainer: NSView {
                 view.topAnchor.constraint(equalTo: scrollView.contentView.topAnchor),
                 view.widthAnchor.constraint(equalTo: scrollView.contentView.widthAnchor)
             ])
+            DispatchQueue.main.async { [weak self] in
+                self?.syncScrollContentSize()
+            }
         } else {
             view.translatesAutoresizingMaskIntoConstraints = false
             bodyHost.addSubview(view)
@@ -70,6 +73,10 @@ final class BaseDetailContainer: NSView {
                 view.bottomAnchor.constraint(equalTo: bodyHost.bottomAnchor)
             ])
         }
+    }
+
+    func syncScrollContentSize() {
+        GeekUIKit.syncVerticalListDocumentFrame(in: scrollView)
     }
 
     func setFooter(_ view: NSView?, height: CGFloat = LauncherChromeTokens.detailFooterHeight) {
@@ -96,6 +103,7 @@ final class BaseDetailContainer: NSView {
         scrollView.hasVerticalScroller = true
         scrollView.hasHorizontalScroller = true
         scrollView.autohidesScrollers = true
+        scrollView.clipsToBounds = true
         scrollView.drawsBackground = false
         scrollView.borderType = .noBorder
         bodyHost.translatesAutoresizingMaskIntoConstraints = false

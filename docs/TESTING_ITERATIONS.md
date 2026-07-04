@@ -32,6 +32,20 @@ The current suite covers launcher behavior and module logic including:
 - Browser Tabs parsing, cache refresh behavior, and automation-path handling
 - Auto Workflow status/list JSON parsing, detached PID parsing, shell argument splitting, and macOS app PATH handling
 - Performance gates including keystroke replay and slow-module budgets
+- Launcher home split layout, guide/detail cross-fade hit-test policy, detail exit routing, and search detail-mode state (pure logic in `LumaCore`; AppKit wiring still manual)
+- Documentation drift guard for deprecated spec phrases (`DocumentationDriftTests`)
+- Action execution result mapping and usage/cache side-effect tests (`ActionExecutorTests`)
+
+## Launcher UI Harness Gap
+
+SwiftPM has no `LumaAppTests` target and AppKit UI automation is intentionally not wired in CI. The following remain **manual QA** (see `docs/MANUAL_QA_CHECKLIST.md`):
+
+- Left Open Apps column keyboard focus and ↑↓ routing while split home is visible
+- Guide ↔ detail cross-fade animation smoothness and z-order during transition
+- Module detail subview shortcuts forwarded from focused controls
+- Visual alignment of split divider and guide table after locale change
+
+Pure planners under `Sources/LumaCore/Home/` cover state transitions that would otherwise require fragile view tests.
 
 ## Iteration Rule
 
@@ -45,8 +59,8 @@ For each meaningful product change:
 
 ## Current Status
 
-As of 2026-07-01:
+As of 2026-07-04:
 
-- `swift test` passes locally with 533 tests.
+- `swift test` passes locally with 576 tests.
 - `qa/SUMMARY.md` records the last full recorded QA round with P0/P1/P2 = 0 open.
 - The canonical scripted smoke entry point is `scripts/qa/run_full_smoke.sh`.

@@ -24,3 +24,15 @@ public struct SelectionSnapshotClientAdapter: SelectionSnapshotClient {
         await service.snapshot()
     }
 }
+
+public struct MenuBarTreeClientAdapter: MenuBarTreeClient {
+    private let service: MenuBarTreeService
+
+    public init(service: MenuBarTreeService) {
+        self.service = service
+    }
+
+    public func staleMenuItemCountForFrontmost() async -> Int {
+        await service.staleRecordsForFrontmost().count
+    }
+}

@@ -1,7 +1,6 @@
 import AppKit
 import LumaCore
 import LumaModules
-import LumaModules
 
 @MainActor
 final class LumaSearchBar: NSView {

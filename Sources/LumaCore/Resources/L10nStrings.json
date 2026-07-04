@@ -56,8 +56,20 @@
     "zh-Hans": "打开应用"
   },
   "home.guide.title": {
-    "en": "Commands",
-    "zh-Hans": "命令"
+    "en": "Module entries",
+    "zh-Hans": "模块入口"
+  },
+  "home.guide.col.module": {
+    "en": "Module",
+    "zh-Hans": "模块"
+  },
+  "home.guide.col.trigger": {
+    "en": "Entry",
+    "zh-Hans": "入口"
+  },
+  "home.guide.col.summary": {
+    "en": "Summary",
+    "zh-Hans": "说明"
   },
   "home.guide.intro": {
     "en": "Type a prefix in the search field to open a module or run a command.",
@@ -72,8 +84,128 @@
     "zh-Hans": "更多："
   },
   "home.guide.footer": {
-    "en": "help <trigger> or <trigger> ? for full module help.",
-    "zh-Hans": "输入 help <触发词> 或 <触发词> ? 查看完整帮助。"
+    "en": "help <entry> or <entry> ? for full module help.",
+    "zh-Hans": "输入 help <入口> 或 <入口> ? 查看完整帮助"
+  },
+  "home.guide.name.clipboard": {
+    "en": "Clipboard",
+    "zh-Hans": "剪贴板"
+  },
+  "home.guide.blurb.clipboard": {
+    "en": "Search clipboard history",
+    "zh-Hans": "搜索剪贴历史"
+  },
+  "home.guide.name.notes": {
+    "en": "Notes",
+    "zh-Hans": "笔记"
+  },
+  "home.guide.blurb.notes": {
+    "en": "Search and manage Markdown notes",
+    "zh-Hans": "Markdown 笔记搜索与管理"
+  },
+  "home.guide.name.todo": {
+    "en": "Todo",
+    "zh-Hans": "待办"
+  },
+  "home.guide.blurb.todo": {
+    "en": "Tasks and quick capture",
+    "zh-Hans": "任务列表与快速添加"
+  },
+  "home.guide.name.translate": {
+    "en": "Translate",
+    "zh-Hans": "翻译"
+  },
+  "home.guide.blurb.translate": {
+    "en": "Translate text between languages",
+    "zh-Hans": "多语言文本翻译"
+  },
+  "home.guide.name.wordbook": {
+    "en": "Wordbook",
+    "zh-Hans": "生词本"
+  },
+  "home.guide.blurb.wordbook": {
+    "en": "Look up words and save vocabulary",
+    "zh-Hans": "查词与生词收藏"
+  },
+  "home.guide.name.snippets": {
+    "en": "Snippets",
+    "zh-Hans": "片段"
+  },
+  "home.guide.blurb.snippets": {
+    "en": "Text snippets and expansion",
+    "zh-Hans": "文本片段与快捷展开"
+  },
+  "home.guide.name.quicklinks": {
+    "en": "Quicklinks",
+    "zh-Hans": "快捷链接"
+  },
+  "home.guide.blurb.quicklinks": {
+    "en": "Open favorite URLs",
+    "zh-Hans": "打开常用网址"
+  },
+  "home.guide.name.secrets": {
+    "en": "Secrets",
+    "zh-Hans": "密钥"
+  },
+  "home.guide.blurb.secrets": {
+    "en": "Store passwords and tokens",
+    "zh-Hans": "安全保存密码与令牌"
+  },
+  "home.guide.name.records": {
+    "en": "Records",
+    "zh-Hans": "录制"
+  },
+  "home.guide.blurb.records": {
+    "en": "Screen and audio recording",
+    "zh-Hans": "屏幕与音频录制"
+  },
+  "home.guide.name.window-layouts": {
+    "en": "Window layouts",
+    "zh-Hans": "窗口布局"
+  },
+  "home.guide.blurb.window-layouts": {
+    "en": "Save and restore window layouts",
+    "zh-Hans": "保存与恢复窗口布局"
+  },
+  "home.guide.name.projects": {
+    "en": "Projects",
+    "zh-Hans": "项目"
+  },
+  "home.guide.blurb.projects": {
+    "en": "Open recent projects",
+    "zh-Hans": "打开最近项目"
+  },
+  "home.guide.name.autoworkflow": {
+    "en": "Autoworkflow",
+    "zh-Hans": "自动化"
+  },
+  "home.guide.blurb.autoworkflow": {
+    "en": "Run quick workflows",
+    "zh-Hans": "快捷工作流"
+  },
+  "home.guide.name.kill-process": {
+    "en": "Kill process",
+    "zh-Hans": "结束进程"
+  },
+  "home.guide.blurb.kill-process": {
+    "en": "Find and quit processes",
+    "zh-Hans": "查找并结束进程"
+  },
+  "home.guide.name.menu-items": {
+    "en": "Menu items",
+    "zh-Hans": "菜单项"
+  },
+  "home.guide.blurb.menu-items": {
+    "en": "Trigger app menu commands",
+    "zh-Hans": "触发应用菜单命令"
+  },
+  "home.guide.name.browser-tabs": {
+    "en": "Browser tabs",
+    "zh-Hans": "浏览器标签"
+  },
+  "home.guide.blurb.browser-tabs": {
+    "en": "Search and switch browser tabs",
+    "zh-Hans": "搜索与切换标签页"
   },
   "action.appendToNote": {
     "en": "Append to Note",

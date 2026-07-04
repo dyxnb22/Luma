@@ -228,7 +228,7 @@ enum GeekUIKit {
         view.clipsToBounds = true
     }
 
-    /// Pinned chrome for the 360 pt Open Apps column (ADR-032). Layer lives on child only.
+    /// Pinned chrome for the 280 pt Open Apps column (ADR-032). Layer lives on child only.
     static func installHomeListColumnSurface(on view: NSView) {
         let surfaceID = "homeListColumnSurface"
         guard view.subviews.first(where: { $0.identifier?.rawValue == surfaceID }) == nil else { return }

@@ -11,15 +11,16 @@ struct WorkbenchContextBuilder {
         clipboardPreview: String?,
         selectionText: String?
     ) async -> WorkbenchContext {
-        let project = await CurrentProjectService.shared.snapshot()
+        async let projectSnapshot = CurrentProjectService.shared.snapshot()
+        async let allEntriesSnapshot = WorkbenchActivityStore.shared.allEntries()
 
+        let project = await projectSnapshot
         let clipboardURL = clipboardPreview.flatMap { URLTextParser.firstHTTPURL(in: $0) }
         let projectIdentity = project.map(WorkbenchProjectIdentity.init(context:))
-        async let allEntries = WorkbenchActivityStore.shared.allEntries()
         async let activitySnapshot = WorkbenchActivityStore.shared.activitySnapshot(
             projectIdentity: projectIdentity
         )
-        let entries = await allEntries
+        let entries = await allEntriesSnapshot
         await WorkbenchLinkStore.shared.ensureLinksIndexed(
             for: projectIdentity?.identity,
             from: entries

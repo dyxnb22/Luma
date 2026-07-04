@@ -83,8 +83,8 @@ Panel and search field must stay **horizontally aligned** with panel edges — n
 
 ### Home List (Frozen — Open Apps + Command Guide)
 
-- Empty query shows **Open Apps** in the **left column** (~280 pt); right pane shows **module command catalog** (all discoverable prefixes).
-- Guide title stays **命令 / Commands** — does not mirror the selected Open Apps row (e.g. app name).
+- Empty query shows **Open Apps** in the **left column** (~280 pt); right pane shows the **compact module entry table** (one primary row per module).
+- Guide shows dense table (**模块** | **入口** | **说明**) — no pane title; primary trigger per module only.
 - Open Notes / Clipboard / any module detail → **right column**; **left Open Apps remain visible** and clickable.
 - Typing any query collapses to **single-column** search results (right pane hidden).
 - **No** setup, recent, continue, or create sections on empty query.
@@ -117,7 +117,7 @@ Panel and search field must stay **horizontally aligned** with panel edges — n
 - Esc in detail returns to the prior search results when a query was suspended; otherwise home.
 - Detail **back** and **close** chrome match Esc (restore suspended query or home; search field becomes editable and clickable again).
 - After detail → home: click search field and type — must accept input (regression: Notes back button).
-- **Known open issues:** see [LAUNCHER_NAVIGATION_AUDIT.md](qa/LAUNCHER_NAVIGATION_AUDIT.md) (split layout keyboard on left column, module shortcuts in detail subviews).
+- **Known open issue:** SPLIT-TEST automated split-layout coverage remains manual; verify split-pane focus, guide/detail transitions, and keyboard routing during QA.
 - Esc on results clears query and shows home.
 - Esc on home closes the panel.
 - Detail toolbars with multiple buttons scroll horizontally instead of clipping (Records, Auto Workflow, Translate, etc.).

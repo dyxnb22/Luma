@@ -33,7 +33,7 @@ public actor QuicklinksModule: LumaModule {
         }
 
         guard let match = index.match(raw: query.raw),
-              let expansion = await expand(match.quicklink, query: match.query) else {
+              let expansion = await expand(match.quicklink, query: match.query, context: context) else {
             return ModuleResult(items: [])
         }
         return ModuleResult(items: [row(for: expansion)])
@@ -121,10 +121,10 @@ public actor QuicklinksModule: LumaModule {
         index = QuicklinksIndex(quicklinks: cachedQuicklinks)
     }
 
-    private func expand(_ quicklink: Quicklink, query: String) async -> QuicklinkExpansion? {
-        let project = await CurrentProjectService.shared.snapshot()
-        let selection = await SelectionSnapshotService.shared.snapshot()
-        let clipboard = await PasteboardService().readString()
+    private func expand(_ quicklink: Quicklink, query: String, context: QueryContext) async -> QuicklinkExpansion? {
+        let project = await context.platform.currentProject.snapshot()
+        let selection = await context.platform.selectionSnapshot.snapshot()
+        let clipboard = await context.platform.pasteboard.readString()
         let urlString = QuicklinkTemplateRenderer.render(
             template: quicklink.urlTemplate,
             query: query,

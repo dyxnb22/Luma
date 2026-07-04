@@ -78,7 +78,7 @@ The detail view polls `cc-loop status --json` every 2 seconds during active runs
 ## Verification
 
 1. `swift build` ✅
-2. `swift test` — 533 tests passing ✅
+2. `swift test` — 554 tests passing ✅
 3. `swift test --filter AutoworkflowServiceTests` — process/JSON/config-path coverage ✅
 4. `./scripts/build_app.sh` — app bundle builds and signs ✅
 5. Manual acceptance: enable module → `aw` → configure → start → status/logs → stop/resume.

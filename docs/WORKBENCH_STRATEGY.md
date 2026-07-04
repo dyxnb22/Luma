@@ -86,7 +86,7 @@ ModuleHost / QueryDispatcher        → unchanged hot path
 
 ### Activity row semantics (Beta)
 
-Home recent, `proj recent` preview rows, and detail recent activity all use **`WorkbenchLinkedEntityOpenPlanner`** via `WorkbenchActivityRowActions.presentation(for:)`. Return encodes the planner result directly (`replaceQuery`, `openModuleDetail`, `resumeActivity`, or `showStatus` for recorded activity). Command preview remains side-effect free.
+`proj recent` preview rows and detail recent activity both use **`WorkbenchLinkedEntityOpenPlanner`** via `WorkbenchActivityRowActions.presentation(for:)`. Return encodes the planner result directly (`replaceQuery`, `openModuleDetail`, `resumeActivity`, or `showStatus` for recorded activity). Command preview remains side-effect free.
 
 ### Link index backfill
 

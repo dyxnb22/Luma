@@ -15,13 +15,20 @@ public actor CommandsModule: LumaModule {
     private static let runnableBuiltIns = ["open-settings", "reload-modules", "quit"]
 
     private let store: CommandsStore
+    private let notesConfigStore: NotesRootConfigStore
     private var cachedCommands: [ScriptCommand] = []
     private var scriptRunner: any ScriptRunnerClient = NoopScriptRunnerClient()
     private var currentProject: any CurrentProjectClient = NoopCurrentProjectClient()
     private var selectionSnapshot: any SelectionSnapshotClient = NoopSelectionSnapshotClient()
+    private var reminders: any RemindersClient = NoopRemindersClient()
+    private var menuBarTree: any MenuBarTreeClient = NoopMenuBarTreeClient()
 
-    public init(store: CommandsStore = CommandsStore()) {
+    public init(
+        store: CommandsStore = CommandsStore(),
+        notesConfigStore: NotesRootConfigStore = NotesRootConfigStore()
+    ) {
         self.store = store
+        self.notesConfigStore = notesConfigStore
     }
 
     public func warmup(_ context: ModuleContext) async {
@@ -30,6 +37,8 @@ public actor CommandsModule: LumaModule {
         scriptRunner = context.platform.scriptRunner
         currentProject = context.platform.currentProject
         selectionSnapshot = context.platform.selectionSnapshot
+        reminders = context.platform.reminders
+        menuBarTree = context.platform.menuBarTree
     }
 
     public func handle(_ query: Query, context: QueryContext) async -> ModuleResult {
@@ -169,10 +178,10 @@ public actor CommandsModule: LumaModule {
     private func doctorResult(context: QueryContext) async -> ModuleResult {
         let axTrusted = await context.platform.accessibility.isTrusted()
         let configValid = await commandsConfigValid()
-        let menuCache = await MenuBarTreeService.shared.staleRecordsForFrontmost().count
-        let notesConfig = await NotesRootConfigStore().load()
+        let menuCache = await menuBarTree.staleMenuItemCountForFrontmost()
+        let notesConfig = await notesConfigStore.load()
         let notesRootConfigured = notesConfig.root != nil
-        let remindersAuthorization = await RemindersService().authorization()
+        let remindersAuthorization = await reminders.authorization()
         let manifests = BuiltInModules.manifestCatalog()
         let summary = LumaDiagnostics.summarize(
             manifests: manifests,

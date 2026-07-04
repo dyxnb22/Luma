@@ -22,7 +22,7 @@ public enum LauncherChromeTokens {
     /// Fixed width for Open Apps column on empty-query home (right pane shows command guide / detail).
     public static let homeLeftColumnWidth: CGFloat = 280
     public static let homeSplitDividerWidth: CGFloat = 1
-    public static let homeSplitColumnGap: CGFloat = 12
+    public static let homeSplitColumnGap: CGFloat = 8
     /// Fallback when the screen is smaller than `defaultPanel*`.
     public static let panelWidthScreenRatio: CGFloat = 0.44
     public static let panelHeightScreenRatio: CGFloat = 0.58
@@ -73,6 +73,8 @@ public enum LauncherChromeTokens {
     public static let detailSurfaceCornerRadius: CGFloat = 12
     public static let detailSurfaceBorderAlpha: CGFloat = 0.28
     public static let detailTableRowHeight: CGFloat = 40
+    public static let homeGuideTableRowHeight: CGFloat = 24
+    public static let homeGuideTableRowSpacing: CGFloat = 1
     public static let detailTableRowSpacing: CGFloat = 4
     public static let detailTableRowCornerRadius: CGFloat = 8
     public static let detailTableRowPaddingH: CGFloat = 12

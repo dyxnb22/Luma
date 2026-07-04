@@ -7,6 +7,7 @@ final class LauncherListView: NSView {
     private let stack = FlippedStackView()
     private var rowViews: [NSView] = []
     private(set) var rows: [LauncherListRows.Row] = []
+    private var lastRenderedHomeSnapshot: LauncherHomeSnapshot?
     private(set) var selectedFlatIndex = 0
     private(set) var currentLayout: ResultListLayout = .flat
 
@@ -89,6 +90,8 @@ final class LauncherListView: NSView {
 
     func renderHome(_ snapshot: LauncherHomeSnapshot, preserveSelection: Bool = false) {
         currentLayout = .flat
+        if !preserveSelection, snapshot == lastRenderedHomeSnapshot { return }
+        lastRenderedHomeSnapshot = snapshot
         apply(rows: LauncherListRows.rows(for: snapshot), preserveSelection: preserveSelection)
     }
 
@@ -105,6 +108,7 @@ final class LauncherListView: NSView {
 
     func clear() {
         currentLayout = .flat
+        lastRenderedHomeSnapshot = nil
         apply(rows: [], preserveSelection: false)
     }
 
@@ -204,6 +208,28 @@ final class LauncherListView: NSView {
         let clampedSelected = selectable.isEmpty
             ? 0
             : min(max(0, nextSelectedFlatIndex), selectable.count - 1)
+
+        if LauncherListRowReuse.canReuseRows(rows, newRows) {
+            rows = newRows
+            for (rowIndex, newRow) in newRows.enumerated() {
+                guard case .item(let item, let flatIndex) = newRow.kind,
+                      let listRow = rowViews[rowIndex] as? LauncherListRow else { continue }
+                listRow.update(
+                    item: item,
+                    isSelected: flatIndex == clampedSelected,
+                    compactColumn: compactHomeColumn,
+                    hidesTrailingModuleLabel: compactHomeColumn
+                        && item.id.module.rawValue == "luma.apps"
+                        && item.listNest == .none,
+                    onRun: { [weak self] item in self?.onRun?(item) },
+                    onRightClick: { [weak self] item in self?.onRightClick?(item) },
+                    onHover: { [weak self] in self?.updateSelection(to: flatIndex) }
+                )
+            }
+            selectedFlatIndex = clampedSelected
+            GeekUIKit.syncVerticalListDocumentFrame(in: scrollView)
+            return
+        }
 
         rows = newRows
         stack.arrangedSubviews.forEach { view in

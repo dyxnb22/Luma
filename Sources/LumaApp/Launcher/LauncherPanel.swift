@@ -57,6 +57,13 @@ final class LauncherPanel: NSPanel {
             y: round(visibleFrame.minY + (visibleFrame.height - frameSize.height) * LauncherChromeTokens.panelVerticalBias)
         )
         let frame = NSRect(origin: origin, size: frameSize)
+        if let locked = lockedFrameSize,
+           abs(locked.width - frameSize.width) < 0.5,
+           abs(locked.height - frameSize.height) < 0.5,
+           abs(self.frame.origin.x - origin.x) < 1,
+           abs(self.frame.origin.y - origin.y) < 1 {
+            return
+        }
         lockedFrameSize = frameSize
         minSize = frameSize
         maxSize = frameSize

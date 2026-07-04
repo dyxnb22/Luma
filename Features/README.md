@@ -42,7 +42,7 @@ Historical / superseded: [DashboardCards](DashboardCards/), [NotesGraph](NotesGr
 
 ## Source Of Truth
 
-Treat `BuiltInModules.swift`, `FeatureCatalog.swift`, and `docs/ARCHITECTURE.md` as source of truth for what ships today.
+Treat `ModuleRegistry.swift`, `BuiltInModules.swift`, `ModuleDetailRegistry.swift`, and `docs/ARCHITECTURE.md` as source of truth for what ships today.
 
 ## Module Rules
 

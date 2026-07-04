@@ -26,6 +26,14 @@ public enum L10n {
         return String(format: format, locale: LumaLocale.locale, arguments: args)
     }
 
+    /// Simplified Chinese copy for the home command guide (always zh-Hans regardless of app locale).
+    public static func trZhHans(_ key: String) -> String {
+        if let value = table[key]?["zh-Hans"] ?? table[key]?["en"] {
+            return value
+        }
+        return key
+    }
+
     private static var languageCode: String {
         switch LumaLocale.choice {
         case .system:

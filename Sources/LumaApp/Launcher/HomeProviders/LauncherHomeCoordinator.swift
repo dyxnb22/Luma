@@ -9,9 +9,15 @@ actor LauncherHomeCoordinator {
     private let openApps: OpenAppsHomeProvider
     private var collapsedAppBundleIDs = Set<String>()
 
-    init(openApps: OpenAppsHomeProvider) {
+    init(
+        openApps: OpenAppsHomeProvider,
+        onHomeDataUpdated: (@Sendable () -> Void)? = nil
+    ) {
         self.openApps = openApps
         self.aggregator = LauncherHomeAggregator(openApps: openApps)
+        if let onHomeDataUpdated {
+            Task { await openApps.setOnCacheUpdated(onHomeDataUpdated) }
+        }
     }
 
     func resetExpansion() {
@@ -22,8 +28,11 @@ actor LauncherHomeCoordinator {
         await openApps.setActive(active)
         await ClipboardPasteboardCache.shared.setActive(active)
         if active {
-            _ = await CurrentProjectService.shared.snapshot()
-            _ = await SelectionSnapshotService.shared.snapshot()
+            // Panel signals are not first-frame critical; avoid competing with home render.
+            Task.detached(priority: .utility) {
+                _ = await CurrentProjectService.shared.snapshot()
+                _ = await SelectionSnapshotService.shared.snapshot()
+            }
         }
     }
 

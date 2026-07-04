@@ -44,7 +44,7 @@ public actor CurrentProjectService {
         }
 
         let task = Task { [matcher] in
-            let raw = await MainActor.run { Self.readCurrentProject() }
+            let raw = await Self.readCurrentProject()
             let enriched = await Self.enrich(raw, matcher: matcher)
             self.store(enriched)
         }
@@ -85,34 +85,36 @@ public actor CurrentProjectService {
         )
     }
 
-    @MainActor
-    private static func readCurrentProject() -> CurrentProjectContext? {
+    private struct FrontAppSnapshot: Sendable {
+        let pid: pid_t
+        let bundleID: String
+        let appName: String
+    }
+
+    private static func readCurrentProject() async -> CurrentProjectContext? {
         guard AXService.isProcessTrusted(),
-              let app = NSWorkspace.shared.frontmostApplication,
-              let bundleID = app.bundleIdentifier,
-              IDEWindowTitle.isIDE(bundleID: bundleID) else {
+              let app = await frontmostIDESnapshot() else {
             return nil
         }
 
-        let appName = app.localizedName ?? ""
-        guard let windowTitle = focusedWindowTitle(for: app.processIdentifier) else { return nil }
+        guard let windowTitle = focusedWindowTitle(for: app.pid) else { return nil }
 
         let projectLabel = IDEWindowTitle.sidebarLabel(
             rawTitle: windowTitle,
-            bundleID: bundleID,
-            appName: appName
+            bundleID: app.bundleID,
+            appName: app.appName
         )
         guard !projectLabel.isEmpty else { return nil }
 
         let filename = IDEWindowTitle.filename(
             rawTitle: windowTitle,
-            bundleID: bundleID,
-            appName: appName
+            bundleID: app.bundleID,
+            appName: app.appName
         )
 
         return CurrentProjectContext(
-            frontAppName: appName,
-            bundleID: bundleID,
+            frontAppName: app.appName,
+            bundleID: app.bundleID,
             windowTitle: windowTitle,
             projectLabel: projectLabel,
             filename: filename
@@ -120,6 +122,19 @@ public actor CurrentProjectService {
     }
 
     @MainActor
+    private static func frontmostIDESnapshot() -> FrontAppSnapshot? {
+        guard let app = NSWorkspace.shared.frontmostApplication,
+              let bundleID = app.bundleIdentifier,
+              IDEWindowTitle.isIDE(bundleID: bundleID) else {
+            return nil
+        }
+        return FrontAppSnapshot(
+            pid: app.processIdentifier,
+            bundleID: bundleID,
+            appName: app.localizedName ?? ""
+        )
+    }
+
     private static func focusedWindowTitle(for pid: pid_t) -> String? {
         let appElement = AXUIElementCreateApplication(pid)
         var focused: CFTypeRef?

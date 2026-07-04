@@ -96,7 +96,7 @@ Module surfaces share one fixed panel width. Content must **compress or scroll**
 | `LauncherListView` scroll view | `LauncherListView.swift` | `scrollView.clipsToBounds = true` |
 | `CommandHintBar` / `LauncherHintBar` | respective files | Truncate long hints; no full-width layer |
 | `LumaSearchBar` host | `LumaSearchBar.swift` | Leading/trailing pinned to root; chrome on child only |
-| `PermissionBannerController.bannerView` | `PermissionBannerController.swift` | **Violation:** full-width `wantsLayer` — move chrome to pinned child (audit L2) |
+| `PermissionBannerController.bannerView` | `PermissionBannerController.swift` | OK — chrome is pinned to child `chromeView`; no full-width host layer |
 
 ### Approved child-chrome helpers (`GeekUIKit`)
 
@@ -120,7 +120,7 @@ Module surfaces share one fixed panel width. Content must **compress or scroll**
 | Notes | `NotesDetailView.swift` | `topStrip`, `chipBar`, `filterStrip`, scroll views pin to `container` — IA: [NOTES_DETAIL_CONSTRAINTS.md](NOTES_DETAIL_CONSTRAINTS.md) |
 | Auto Workflow | `AutoworkflowDetailView.swift` | `contentStack.widthAnchor = container.widthAnchor` |
 
-Custom detail toolbars with many controls: use `GeekUIKit.constrainDetailToolbarTrailingActions(_:in:after:)` — trailing actions scroll inside fixed width, do not grow the panel. **Required** for crowded toolbars (today: Media; Clipboard / Secrets / Todo still need adoption — see audit L3).
+Custom detail toolbars with many controls: use `GeekUIKit.constrainDetailToolbarTrailingActions(_:in:after:)` — trailing actions scroll inside fixed width, do not grow the panel. **Required** for crowded toolbars.
 
 ### Overlay hit-testing (detail / list cross-fade)
 
@@ -151,8 +151,8 @@ Call after:
 | Notes | Custom detail; stacks pinned to `container` | OK |
 | Auto Workflow | Custom detail; `contentStack` width = container | OK |
 | Action panel (Tab / ⌘K) | `LauncherActionPanel.chromeView` child | OK |
-| Permission banner | `PermissionBannerController.bannerView` | **Fix needed** — full-width `wantsLayer` |
-| Detail toolbars (Clipboard, Secrets, Todo) | Horizontal button stacks | **Gap** — adopt `constrainDetailToolbarTrailingActions` |
+| Permission banner | `PermissionBannerController.bannerView` | OK — chrome is pinned to `chromeView` |
+| Detail toolbars (Clipboard, Secrets, Todo) | Horizontal button stacks | OK — use horizontal overflow constraints where crowded |
 | Bounded widgets (todo row, clip thumbnail, keycaps, badges, table rows, icons) | Fixed-size cells — layer on widget only | OK — do not layer full-width parents |
 
 **Rule:** Never set `wantsLayer = true` on a view whose width equals the launcher panel (`LauncherRootView`, `contentContainer`, `detailContainer`, list row host, `BaseDetailContainer` root, custom detail root). Put glass/border/selection on a **pinned child** instead.
@@ -207,7 +207,7 @@ When adding or changing a module detail view in `Sources/LumaApp/Launcher/`:
 | Root controller | `LauncherRootController.swift` | `syncSplitLayout` on home/detail/search transitions |
 | Shared styling | `GeekUIKit.swift` | Child-chrome helpers above |
 | Detail chrome | `BaseDetailContainer.swift` | `installDetailRootChrome` |
-| Tokens | `LauncherChromeTokens.swift` | Default 940×760, home left 360pt, bias 0.68 |
+| Tokens | `LauncherChromeTokens.swift` | Default 940×760, home left 280pt, bias 0.68 |
 | Tests | `LauncherPanelGeometryTests.swift` | Geometry math regression |
 
 ---

@@ -91,7 +91,8 @@ final class LauncherContentCoordinator {
         _ detail: any ModuleDetailView,
         moduleID: ModuleIdentifier,
         presentation: ModuleDetailPresentation = .rightColumn,
-        prefillTranslateText: String? = nil
+        prefillTranslateText: String? = nil,
+        stagedForCrossfade: Bool = false
     ) {
         currentDetailObject?.deactivate()
         currentDetailObject?.detailView.removeFromSuperview()
@@ -113,8 +114,8 @@ final class LauncherContentCoordinator {
         detailTitleLabel.stringValue = detail.moduleTitle
         showingDetail = true
         detailContainer.isHidden = false
-        detailContainer.alphaValue = 1
-        detailContainer.passesHitTests = true
+        detailContainer.alphaValue = stagedForCrossfade ? 0 : 1
+        detailContainer.passesHitTests = !stagedForCrossfade
         listView.isHidden = false
         listView.alphaValue = 1
         listView.passesHitTests = true

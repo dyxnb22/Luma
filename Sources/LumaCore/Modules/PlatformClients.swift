@@ -13,6 +13,7 @@ public struct PlatformClients: Sendable {
     public let notifications: any NotificationClient
     public let currentProject: any CurrentProjectClient
     public let selectionSnapshot: any SelectionSnapshotClient
+    public let menuBarTree: any MenuBarTreeClient
 
     public init(
         pasteboard: any PasteboardClient,
@@ -26,7 +27,8 @@ public struct PlatformClients: Sendable {
         scriptRunner: any ScriptRunnerClient = NoopScriptRunnerClient(),
         notifications: any NotificationClient = NoopNotificationClient(),
         currentProject: any CurrentProjectClient = NoopCurrentProjectClient(),
-        selectionSnapshot: any SelectionSnapshotClient = NoopSelectionSnapshotClient()
+        selectionSnapshot: any SelectionSnapshotClient = NoopSelectionSnapshotClient(),
+        menuBarTree: any MenuBarTreeClient = NoopMenuBarTreeClient()
     ) {
         self.pasteboard = pasteboard
         self.accessibility = accessibility
@@ -40,19 +42,29 @@ public struct PlatformClients: Sendable {
         self.notifications = notifications
         self.currentProject = currentProject
         self.selectionSnapshot = selectionSnapshot
+        self.menuBarTree = menuBarTree
     }
 }
 
 public struct QueryPlatformClients: Sendable {
+    public let pasteboard: any PasteboardClient
     public let accessibility: any AccessibilityClient
     public let processMemory: any ProcessMemoryClient
+    public let currentProject: any CurrentProjectClient
+    public let selectionSnapshot: any SelectionSnapshotClient
 
     public init(
+        pasteboard: any PasteboardClient = NoopPasteboardClient(),
         accessibility: any AccessibilityClient = NoopAccessibilityClient(),
-        processMemory: any ProcessMemoryClient = NoopProcessMemoryClient()
+        processMemory: any ProcessMemoryClient = NoopProcessMemoryClient(),
+        currentProject: any CurrentProjectClient = NoopCurrentProjectClient(),
+        selectionSnapshot: any SelectionSnapshotClient = NoopSelectionSnapshotClient()
     ) {
+        self.pasteboard = pasteboard
         self.accessibility = accessibility
         self.processMemory = processMemory
+        self.currentProject = currentProject
+        self.selectionSnapshot = selectionSnapshot
     }
 }
 

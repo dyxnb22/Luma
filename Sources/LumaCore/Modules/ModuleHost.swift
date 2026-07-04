@@ -119,8 +119,11 @@ public actor ModuleHost {
         QueryContext(
             deadline: deadline,
             platform: QueryPlatformClients(
+                pasteboard: context.platform.pasteboard,
                 accessibility: context.platform.accessibility,
-                processMemory: context.platform.processMemory
+                processMemory: context.platform.processMemory,
+                currentProject: context.platform.currentProject,
+                selectionSnapshot: context.platform.selectionSnapshot
             )
         )
     }
@@ -131,11 +134,15 @@ public actor ModuleHost {
         if state == .warm || state == .warming { return }
         warmupStates[id] = .warming
         let ctx = context
-        _ = await Timeout.run(after: budget) {
+        let completed: Void? = await Timeout.run(after: budget) {
             await module.warmup(ctx)
         }
-        warmupStates[id] = .warm
-        lastUsedAt[id] = ContinuousClock().now
+        if completed != nil {
+            warmupStates[id] = .warm
+            lastUsedAt[id] = ContinuousClock().now
+        } else {
+            warmupStates[id] = .cold
+        }
     }
 
     public func warmupIfNeeded(ids: Set<ModuleIdentifier>, reason: WarmupReason, budget: Duration = .seconds(1)) async {

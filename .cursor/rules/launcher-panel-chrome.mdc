@@ -11,7 +11,7 @@ Navigation / shortcuts: **`docs/specs/UX_BEHAVIOR_RULES.md`** + **`docs/qa/LAUNC
 
 ## Geometry
 
-- Default **940 × 760 pt**, upper-third (`panelVerticalBias` 0.68); empty home left column **360 pt** (ADR-032).
+- Default **940 × 760 pt**, upper-third (`panelVerticalBias` 0.68); empty home left column **280 pt** (ADR-032).
 - Math lives in `LauncherPanelGeometry.swift`; `LauncherPanel.position(on:)` is the only placement API.
 
 ## Positioning — do NOT

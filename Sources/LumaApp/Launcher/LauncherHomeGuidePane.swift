@@ -4,9 +4,24 @@ import LumaCore
 /// Read-only command guide for empty-query home (right column). Not a second navigable list.
 @MainActor
 final class LauncherHomeGuidePane: NSView {
-    private let titleLabel = NSTextField(labelWithString: "")
+    private enum Column: String {
+        case module
+        case trigger
+        case summary
+    }
+
+    private let footerLabel = NSTextField(labelWithString: "")
     private let scrollView = NSScrollView()
-    private let stack = NSStackView()
+    private let tableView = NSTableView()
+    private var rows: [HomeGuideEntryRow] = []
+
+    /// When false, mouse events pass through (used during detail ↔ guide cross-fade).
+    var passesHitTests = true
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        guard passesHitTests, alphaValue > 0.01, !isHidden else { return nil }
+        return super.hitTest(point)
+    }
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -15,42 +30,54 @@ final class LauncherHomeGuidePane: NSView {
         isHidden = true
         GeekUIKit.configureContentSurface(self)
 
-        titleLabel.font = TypographyTokens.callout
-        titleLabel.textColor = .labelColor
-        titleLabel.lineBreakMode = .byTruncatingTail
-        titleLabel.maximumNumberOfLines = 1
-        titleLabel.translatesAutoresizingMaskIntoConstraints = false
+        footerLabel.font = TypographyTokens.caption2
+        footerLabel.textColor = .tertiaryLabelColor
+        footerLabel.lineBreakMode = .byTruncatingTail
+        footerLabel.maximumNumberOfLines = 1
+        footerLabel.translatesAutoresizingMaskIntoConstraints = false
 
-        stack.orientation = .vertical
-        stack.alignment = .leading
-        stack.spacing = 10
-        stack.translatesAutoresizingMaskIntoConstraints = false
+        tableView.headerView = NSTableHeaderView()
+        GeekUIKit.configureDetailTable(tableView, rowHeight: LauncherChromeTokens.homeGuideTableRowHeight)
+        tableView.intercellSpacing = NSSize(
+            width: 0,
+            height: LauncherChromeTokens.homeGuideTableRowSpacing
+        )
+        tableView.selectionHighlightStyle = .none
+        tableView.allowsEmptySelection = true
+        tableView.delegate = self
+        tableView.dataSource = self
 
-        scrollView.hasVerticalScroller = true
-        scrollView.hasHorizontalScroller = false
-        scrollView.autohidesScrollers = true
-        scrollView.drawsBackground = false
-        scrollView.borderType = .noBorder
-        scrollView.documentView = stack
+        for (id, title, width) in [
+            (Column.module.rawValue, L10n.trZhHans("home.guide.col.module"), 72.0),
+            (Column.trigger.rawValue, L10n.trZhHans("home.guide.col.trigger"), 44.0),
+            (Column.summary.rawValue, L10n.trZhHans("home.guide.col.summary"), 200.0)
+        ] {
+            let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier(id))
+            column.title = title
+            column.width = width
+            GeekUIKit.configureDetailTableColumn(column, minWidth: width * 0.6)
+            if id == Column.summary.rawValue {
+                column.resizingMask = [.autoresizingMask]
+            }
+            tableView.addTableColumn(column)
+        }
+
+        scrollView.documentView = tableView
+        GeekUIKit.configureVerticalListScroll(scrollView)
         scrollView.translatesAutoresizingMaskIntoConstraints = false
 
-        addSubview(titleLabel)
         addSubview(scrollView)
+        addSubview(footerLabel)
 
         NSLayoutConstraint.activate([
-            titleLabel.topAnchor.constraint(equalTo: topAnchor, constant: 12),
-            titleLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
-            titleLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
+            scrollView.topAnchor.constraint(equalTo: topAnchor, constant: 4),
+            scrollView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 2),
+            scrollView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -2),
 
-            scrollView.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 8),
-            scrollView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 8),
-            scrollView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
-            scrollView.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -8),
-
-            stack.topAnchor.constraint(equalTo: scrollView.contentView.topAnchor),
-            stack.leadingAnchor.constraint(equalTo: scrollView.contentView.leadingAnchor),
-            stack.trailingAnchor.constraint(equalTo: scrollView.contentView.trailingAnchor),
-            stack.widthAnchor.constraint(equalTo: scrollView.contentView.widthAnchor)
+            footerLabel.topAnchor.constraint(equalTo: scrollView.bottomAnchor, constant: 2),
+            footerLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 8),
+            footerLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
+            footerLabel.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -6)
         ])
     }
 
@@ -59,74 +86,44 @@ final class LauncherHomeGuidePane: NSView {
         fatalError("init(coder:) has not been implemented")
     }
 
-    /// Always shows the module command catalog — never mirrors the left Open Apps selection title.
+    /// Always shows the module entry catalog — never mirrors the left Open Apps selection title.
     func applyCatalog(_ commands: [CommandDefinition]) {
-        titleLabel.stringValue = L10n.tr("home.guide.title")
-        rebuild {
-            appendBody(L10n.tr("home.guide.intro"))
-            for command in commands {
-                appendCommandBlock(command)
-            }
-            appendFooter()
-        }
-    }
-
-    private func rebuild(_ build: () -> Void) {
-        stack.arrangedSubviews.forEach { view in
-            stack.removeArrangedSubview(view)
-            view.removeFromSuperview()
-        }
-        build()
+        footerLabel.stringValue = L10n.trZhHans("home.guide.footer")
+        rows = HomeGuideCatalog.entryRows(from: commands) { L10n.trZhHans($0) }
+        tableView.reloadData()
         layoutSubtreeIfNeeded()
         GeekUIKit.syncVerticalListDocumentFrame(in: scrollView)
     }
+}
 
-    private func appendCommandBlock(_ command: CommandDefinition) {
-        let triggers = command.allTriggers.joined(separator: " · ")
-        appendHeading(triggers)
-        appendBody(command.resolvedDescription)
-        for line in command.helpLines.prefix(3) {
-            appendMonoLine(line)
+extension LauncherHomeGuidePane: NSTableViewDataSource, NSTableViewDelegate {
+    func numberOfRows(in tableView: NSTableView) -> Int { rows.count }
+
+    func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
+        guard rows.indices.contains(row), let tableColumn else { return nil }
+        let entry = rows[row]
+        let columnID = tableColumn.identifier.rawValue
+        let text: String
+        let font: NSFont
+        let color: NSColor
+        switch Column(rawValue: columnID) {
+        case .module:
+            text = entry.moduleName
+            font = TypographyTokens.caption2(weight: .medium)
+            color = .labelColor
+        case .trigger:
+            text = entry.trigger
+            font = TypographyTokens.monoCaption()
+            color = .secondaryLabelColor
+        case .summary:
+            text = entry.summary
+            font = TypographyTokens.caption2
+            color = .labelColor.withAlphaComponent(0.78)
+        case .none:
+            return nil
         }
+        return GeekUIKit.makeDetailTableCell(text: text, font: font, color: color)
     }
 
-    private func appendHeading(_ text: String) {
-        let label = makeLabel(font: TypographyTokens.caption(weight: .semibold), mono: false)
-        label.stringValue = text
-        stack.addArrangedSubview(label)
-        label.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
-    }
-
-    private func appendBody(_ text: String) {
-        let label = makeLabel(font: TypographyTokens.caption, mono: false)
-        label.stringValue = text
-        label.maximumNumberOfLines = 0
-        label.lineBreakMode = .byWordWrapping
-        stack.addArrangedSubview(label)
-        label.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
-    }
-
-    private func appendMonoLine(_ text: String) {
-        let label = makeLabel(font: TypographyTokens.monoCaption(), mono: true)
-        label.stringValue = text
-        label.maximumNumberOfLines = 0
-        label.lineBreakMode = .byWordWrapping
-        stack.addArrangedSubview(label)
-        label.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
-    }
-
-    private func appendFooter() {
-        appendBody(L10n.tr("home.guide.footer"))
-    }
-
-    private func makeLabel(font: NSFont, mono: Bool) -> NSTextField {
-        let label = NSTextField(labelWithString: "")
-        label.font = font
-        label.textColor = mono ? .secondaryLabelColor : .labelColor.withAlphaComponent(0.82)
-        label.isBezeled = false
-        label.isEditable = false
-        label.drawsBackground = false
-        label.translatesAutoresizingMaskIntoConstraints = false
-        return label
-    }
+    func tableView(_ tableView: NSTableView, shouldSelectRow row: Int) -> Bool { false }
 }

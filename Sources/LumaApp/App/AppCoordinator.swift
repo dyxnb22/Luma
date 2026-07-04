@@ -34,6 +34,8 @@ final class AppCoordinator {
     )
     private let reminders = RemindersService()
     private let scriptRunner = ScriptRunnerService()
+    private lazy var menuBarTreeService = MenuBarTreeService.shared
+    private lazy var menuBarTreeClient = MenuBarTreeClientAdapter(service: menuBarTreeService)
     private lazy var currentProjectClient = CurrentProjectClientAdapter(service: CurrentProjectService.shared)
     private let selectionClient = SelectionSnapshotClientAdapter()
     /// Dedicated instance for `CurrentProjectService` path matching before `ModuleHost` registers the module.
@@ -60,7 +62,8 @@ final class AppCoordinator {
         scriptRunner: scriptRunner,
         notifications: NotificationService(),
         currentProject: currentProjectClient,
-        selectionSnapshot: selectionClient
+        selectionSnapshot: selectionClient,
+        menuBarTree: menuBarTreeClient
     )
     private lazy var host = ModuleHost(context: context)
     private var hostClient: AppHostService!
@@ -103,8 +106,12 @@ final class AppCoordinator {
     private lazy var wordbookStore = WordbookStore()
     private lazy var wordbookModule = WordbookModule(store: wordbookStore)
     private lazy var snippetsModule = SnippetsModule()
+    private lazy var menuItemsModule = MenuItemsModule(service: menuBarTreeService)
     private lazy var homeCoordinator = LauncherHomeCoordinator(
-        openApps: openAppsProvider
+        openApps: openAppsProvider,
+        onHomeDataUpdated: { [weak self] in
+            Task { @MainActor in self?.windowController.refreshHome() }
+        }
     )
     private var activationObserver: NSObjectProtocol?
     private var terminationObserver: NSObjectProtocol?
@@ -313,6 +320,8 @@ final class AppCoordinator {
         )
         launcherEnv.install()
 
+        Task { await openAppsProvider.setActive(true) }
+
         windowController.configure(
             viewModel: viewModel,
             homeCoordinator: homeCoordinator,
@@ -341,7 +350,8 @@ final class AppCoordinator {
                 media: mediaModule,
                 projects: projectsModule,
                 quicklinks: quicklinksModule,
-                autoworkflow: autoworkflowModule
+                autoworkflow: autoworkflowModule,
+                menuItems: menuItemsModule
             ))
             for module in modules {
                 await host.register(module)

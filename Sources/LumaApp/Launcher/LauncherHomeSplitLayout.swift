@@ -1,12 +1,6 @@
 import AppKit
 import LumaCore
 
-enum LauncherSplitRightPane: Equatable {
-    case guide
-    case detail
-    case hidden
-}
-
 /// Toggles column split: Open Apps (left) + guide or module detail (right). ADR-032.
 @MainActor
 final class LauncherHomeSplitLayout {
@@ -142,7 +136,74 @@ final class LauncherHomeSplitLayout {
         applyRightPaneLayout()
     }
 
-    var isColumnSplitActive: Bool { columnSplitActive }
+    /// Cross-fades the right column from module detail to the home command guide (ADR-032).
+    func crossfadeFromDetailToGuide(
+        commands: [CommandDefinition],
+        completion: @escaping @MainActor () -> Void
+    ) {
+        rightPane = .guide
+        guidePane.applyCatalog(commands)
+        guidePane.isHidden = false
+        guidePane.alphaValue = 0
+        guidePane.passesHitTests = false
+
+        detailContainer.isHidden = false
+        detailContainer.alphaValue = 1
+        detailContainer.passesHitTests = false
+        detailRightColumnConstraints.forEach { $0.isActive = columnSplitActive }
+
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = MotionTokens.detailPaneCrossfadeDuration
+            context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            detailContainer.animator().alphaValue = 0
+            guidePane.animator().alphaValue = 1
+        } completionHandler: { [weak self] in
+            Task { @MainActor in
+                guard let self else { return }
+                self.detailContainer.alphaValue = 0
+                self.detailContainer.isHidden = true
+                self.detailContainer.passesHitTests = false
+                self.guidePane.alphaValue = 1
+                self.guidePane.passesHitTests = true
+                completion()
+            }
+        }
+    }
+
+    /// Cross-fades the right column from the home command guide into module detail (ADR-032).
+    func crossfadeFromGuideToDetail(
+        prepareDetail: @escaping @MainActor () -> Void,
+        completion: @escaping @MainActor () -> Void
+    ) {
+        rightPane = .detail
+        prepareDetail()
+
+        guidePane.isHidden = false
+        guidePane.alphaValue = 1
+        guidePane.passesHitTests = false
+
+        detailContainer.isHidden = false
+        detailContainer.alphaValue = 0
+        detailContainer.passesHitTests = false
+        detailRightColumnConstraints.forEach { $0.isActive = columnSplitActive }
+
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = MotionTokens.detailPaneCrossfadeDuration
+            context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            guidePane.animator().alphaValue = 0
+            detailContainer.animator().alphaValue = 1
+        } completionHandler: { [weak self] in
+            Task { @MainActor in
+                guard let self else { return }
+                self.guidePane.isHidden = true
+                self.guidePane.alphaValue = 1
+                self.guidePane.passesHitTests = true
+                self.detailContainer.alphaValue = 1
+                self.detailContainer.passesHitTests = true
+                completion()
+            }
+        }
+    }
 
     private func applyRightPaneLayout() {
         guidePane.isHidden = !(columnSplitActive && rightPane == .guide)

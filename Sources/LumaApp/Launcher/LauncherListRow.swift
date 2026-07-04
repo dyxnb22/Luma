@@ -13,11 +13,11 @@ enum LauncherModuleLabel {
 
 @MainActor
 final class LauncherListRow: NSControl {
-    private let item: ResultItem
+    private var item: ResultItem
     private let moduleLabel: String
-    private let onRun: (ResultItem) -> Void
-    private let onRightClick: ((ResultItem) -> Void)?
-    private let onHover: (() -> Void)?
+    private var onRun: (ResultItem) -> Void
+    private var onRightClick: ((ResultItem) -> Void)?
+    private var onHover: (() -> Void)?
     private let treeGuideView = ListTreeGuideView()
     private let iconView = NSImageView()
     private let titleLabel = NSTextField(labelWithString: "")
@@ -111,6 +111,57 @@ final class LauncherListRow: NSControl {
         trailingLabel.isHidden = hidesTrailingModuleLabel || item.listNest != .none || selected
         selectionAccentLayer?.isHidden = !selected
         refreshRowAppearance()
+    }
+
+    func update(
+        item: ResultItem,
+        isSelected: Bool,
+        compactColumn: Bool,
+        hidesTrailingModuleLabel: Bool,
+        onRun: @escaping (ResultItem) -> Void,
+        onRightClick: ((ResultItem) -> Void)?,
+        onHover: (() -> Void)?
+    ) {
+        self.item = item
+        self.onRun = onRun
+        self.onRightClick = onRightClick
+        self.onHover = onHover
+        self.compactColumn = compactColumn
+        self.hidesTrailingModuleLabel = hidesTrailingModuleLabel
+        applyItemPresentation()
+        setSelected(isSelected)
+    }
+
+    private func applyItemPresentation() {
+        let isNested = item.listNest != .none
+
+        iconView.image = Self.iconImage(for: item.icon, nested: isNested)
+        titleLabel.stringValue = item.title
+        titleLabel.font = .systemFont(
+            ofSize: isNested ? 13 : (compactColumn ? 14 : 15),
+            weight: isNested ? .regular : .semibold
+        )
+
+        let hasSubtitle = !(item.subtitle ?? "").isEmpty
+        subtitleLabel.stringValue = item.subtitle ?? ""
+        subtitleLabel.isHidden = !hasSubtitle
+
+        trailingLabel.stringValue = isNested ? "" : "· \(moduleLabel)"
+        trailingLabel.isHidden = hidesTrailingModuleLabel || isNested || isSelected
+
+        if case .child(let isLast) = item.listNest {
+            treeGuideView.isLast = isLast
+        }
+
+        configureReturnHint()
+        applyLabelColors()
+
+        setAccessibilityLabel(item.title)
+        if let subtitle = item.subtitle, !subtitle.isEmpty {
+            setAccessibilityHelp(subtitle)
+        } else {
+            setAccessibilityHelp(nil)
+        }
     }
 
     override func updateTrackingAreas() {
@@ -213,8 +264,6 @@ final class LauncherListRow: NSControl {
         iconView.layer?.masksToBounds = true
         iconView.translatesAutoresizingMaskIntoConstraints = false
 
-        titleLabel.stringValue = item.title
-        titleLabel.font = .systemFont(ofSize: isNested ? 13 : (compactColumn ? 14 : 15), weight: isNested ? .regular : .semibold)
         titleLabel.lineBreakMode = .byTruncatingTail
         titleLabel.maximumNumberOfLines = 1
         titleLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
@@ -222,17 +271,13 @@ final class LauncherListRow: NSControl {
         titleLabel.translatesAutoresizingMaskIntoConstraints = false
 
         let hasSubtitle = !(item.subtitle ?? "").isEmpty
-        subtitleLabel.stringValue = item.subtitle ?? ""
         subtitleLabel.font = .systemFont(ofSize: isNested ? 11 : 12)
         subtitleLabel.lineBreakMode = .byTruncatingTail
         subtitleLabel.maximumNumberOfLines = item.displayDensity == .expanded ? 2 : 1
         subtitleLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         subtitleLabel.setContentHuggingPriority(.defaultLow, for: .horizontal)
-        subtitleLabel.isHidden = !hasSubtitle
         subtitleLabel.translatesAutoresizingMaskIntoConstraints = false
 
-        trailingLabel.stringValue = isNested ? "" : "· \(moduleLabel)"
-        trailingLabel.isHidden = hidesTrailingModuleLabel || isNested || isSelected
         trailingLabel.font = TypographyTokens.monoCaption()
         trailingLabel.textColor = .secondaryLabelColor
         trailingLabel.lineBreakMode = .byTruncatingTail
@@ -339,6 +384,7 @@ final class LauncherListRow: NSControl {
         }
 
         NSLayoutConstraint.activate(constraints)
+        applyItemPresentation()
     }
 
     private static func iconImage(for icon: LumaCore.IconRef, nested: Bool) -> NSImage? {

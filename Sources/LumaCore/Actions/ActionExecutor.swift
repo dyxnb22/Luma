@@ -18,12 +18,17 @@ public actor ActionExecutor {
         self.resultCache = resultCache
     }
 
-    public func run(_ action: Action, for item: ResultItem) async {
-        await run(action, for: item.id)
-        await resultCache.store(item)
+    @discardableResult
+    public func run(_ action: Action, for item: ResultItem) async -> ActionExecutionResult {
+        let result = await run(action, for: item.id)
+        if case .success = result, Self.shouldPersistResultCache(for: action) {
+            await resultCache.store(item)
+        }
+        return result
     }
 
-    public func run(_ action: Action, for resultID: ResultID) async {
+    @discardableResult
+    public func run(_ action: Action, for resultID: ResultID) async -> ActionExecutionResult {
         do {
             switch action.kind {
             case .copyToPasteboard(let value):
@@ -59,11 +64,24 @@ public actor ActionExecutor {
                 }
                 try await module.perform(action, context: context)
             case .noop, .openModuleDetail, .replaceQuery:
-                break
+                return .success
             }
             await usage.record(resultID, at: Date())
+            return .success
         } catch {
             await context.runtime.logger.error("Action failed: \(action.id.key): \(error)")
+            let mapped = ActionExecutionFailureMapper.message(for: error)
+            return .failure(message: mapped.message, recoverable: mapped.recoverable)
+        }
+    }
+
+    /// Navigation-only actions succeed without usage or result-cache side effects.
+    private static func shouldPersistResultCache(for action: Action) -> Bool {
+        switch action.kind {
+        case .noop, .openModuleDetail, .replaceQuery:
+            return false
+        default:
+            return true
         }
     }
 }

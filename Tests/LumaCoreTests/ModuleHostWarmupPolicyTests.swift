@@ -38,6 +38,27 @@ private actor PinnedCountingLifecycleModule: LumaModule {
     func teardown() async { teardownCount += 1 }
 }
 
+private actor SlowWarmupModule: LumaModule {
+    static let manifest = ModuleManifest(
+        identifier: ModuleIdentifier(rawValue: "luma.test.slow-warmup"),
+        displayName: "Slow Warmup",
+        capabilities: [.queryable],
+        defaultEnabled: false,
+        priority: 0,
+        queryTimeout: .milliseconds(40)
+    )
+
+    func warmup(_ context: ModuleContext) async {
+        while !Task.isCancelled {
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+    }
+
+    func handle(_ query: Query, context: QueryContext) async -> ModuleResult {
+        .empty(for: Self.manifest.identifier)
+    }
+}
+
 private struct WarmupTestConfig: ConfigurationClient {
     func enabledModules() async -> Set<ModuleIdentifier>? { nil }
     func clipboardMaxEntries() async -> Int { 500 }
@@ -120,6 +141,21 @@ private struct WarmupTestDoubles {
     await host.warmupIfNeeded(id: CountingLifecycleModule.manifest.identifier, reason: .query)
     #expect(await module.warmupCount == 1)
     #expect(await host.warmupState(for: CountingLifecycleModule.manifest.identifier) == .warm)
+}
+
+@Test func moduleHostWarmupTimeoutDoesNotMarkModuleWarm() async {
+    let host = ModuleHost(context: WarmupTestDoubles.context())
+    let module = SlowWarmupModule()
+    await host.register(module)
+    await host.applyEnabledSet([SlowWarmupModule.manifest.identifier])
+
+    await host.warmupIfNeeded(
+        id: SlowWarmupModule.manifest.identifier,
+        reason: .query,
+        budget: .milliseconds(10)
+    )
+
+    #expect(await host.warmupState(for: SlowWarmupModule.manifest.identifier) == .cold)
 }
 
 @Test func moduleHostTeardownIdleModulesSkipsReservedModules() async {

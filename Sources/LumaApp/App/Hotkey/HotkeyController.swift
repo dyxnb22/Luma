@@ -57,6 +57,12 @@ final class HotkeyController {
     }
 
     nonisolated func schedulePress() {
+        if Thread.isMainThread {
+            MainActor.assumeIsolated {
+                onPress()
+            }
+            return
+        }
         let raw = Unmanaged.passUnretained(self).toOpaque()
         DispatchQueue.main.async {
             MainActor.assumeIsolated {

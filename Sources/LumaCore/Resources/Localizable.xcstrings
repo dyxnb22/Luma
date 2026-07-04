@@ -227,8 +227,26 @@
     },
     "home.guide.title": {
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Commands" } },
-        "zh-Hans": { "stringUnit": { "state": "translated", "value": "命令" } }
+        "en": { "stringUnit": { "state": "translated", "value": "Module entries" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "模块入口" } }
+      }
+    },
+    "home.guide.col.module": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Module" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "模块" } }
+      }
+    },
+    "home.guide.col.trigger": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Entry" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "入口" } }
+      }
+    },
+    "home.guide.col.summary": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Summary" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "说明" } }
       }
     },
     "home.guide.intro": {
@@ -252,7 +270,7 @@
     "home.guide.footer": {
       "localizations": {
         "en": { "stringUnit": { "state": "translated", "value": "help <trigger> or <trigger> ? for full module help." } },
-        "zh-Hans": { "stringUnit": { "state": "translated", "value": "输入 help <触发词> 或 <触发词> ? 查看完整帮助。" } }
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "输入 help <入口> 或 <入口> ? 查看完整帮助" } }
       }
     },
     "action.appendToNote": {

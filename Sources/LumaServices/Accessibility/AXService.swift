@@ -37,7 +37,7 @@ public actor AXService: AccessibilityClient {
     }
 
     public func focus(windowID: UInt32) async {
-        guard let match = Self.cgWindows(for: nil).first(where: { $0.windowID == windowID }) else { return }
+        guard let match = Self.cgWindowRecords(for: nil).first(where: { $0.windowID == windowID }) else { return }
         await Self.focusWindow(windowID: match.windowID, pid: match.pid, title: match.title, axTitle: nil, bounds: match.bounds)
     }
 
@@ -67,23 +67,10 @@ public actor AXService: AccessibilityClient {
     }
 
     private func setFocusedSelectedText(_ text: String) async -> Bool {
-        await MainActor.run {
-            guard let app = NSWorkspace.shared.frontmostApplication else { return false }
-            let appElement = AXUIElementCreateApplication(app.processIdentifier)
-            var focusedRef: CFTypeRef?
-            guard AXUIElementCopyAttributeValue(
-                appElement,
-                kAXFocusedUIElementAttribute as CFString,
-                &focusedRef
-            ) == .success,
-                let focusedRef else { return false }
-            let element = focusedRef as! AXUIElement
-            return AXUIElementSetAttributeValue(
-                element,
-                kAXSelectedTextAttribute as CFString,
-                text as CFString
-            ) == .success
+        guard let pid = await MainActor.run(body: { NSWorkspace.shared.frontmostApplication?.processIdentifier }) else {
+            return false
         }
+        return Self.setFocusedSelectedText(text, pid: pid)
     }
 
     @MainActor
@@ -99,14 +86,16 @@ public actor AXService: AccessibilityClient {
 
     public func applyWindowLayout(_ preset: String) async {
         guard AXIsProcessTrusted() else { return }
-        guard let app = NSWorkspace.shared.frontmostApplication else { return }
-        let appElement = AXUIElementCreateApplication(app.processIdentifier)
+        guard let pid = await MainActor.run(body: { NSWorkspace.shared.frontmostApplication?.processIdentifier }) else { return }
+        let appElement = AXUIElementCreateApplication(pid)
         var focused: CFTypeRef?
         guard AXUIElementCopyAttributeValue(appElement, kAXFocusedWindowAttribute as CFString, &focused) == .success,
               let window = focused else { return }
 
-        // TODO: use the screen containing the focused window instead of main screen.
-        let screen = NSScreen.main?.visibleFrame ?? NSScreen.screens.first?.visibleFrame ?? .zero
+        let windowFrame = Self.rawAXWindowFrame(window as! AXUIElement)
+        let screen = await MainActor.run {
+            Self.visibleFrameForWindowLayout(containingAXFrame: windowFrame)
+        }
         let frame = frame(for: preset, screen: screen)
         var origin = frame.origin
         var size = frame.size
@@ -119,7 +108,20 @@ public actor AXService: AccessibilityClient {
 
     // MARK: - Window enumeration
 
-    nonisolated public static func enumerateWindows(for pid: Int32, appName: String = "") -> [OpenWindowSnapshot] {
+    /// Single CGWindowListCopyWindowInfo pass for all on-screen windows, grouped by owner PID.
+    nonisolated public static func copyOnScreenWindowsByPID() -> [Int32: [CGWindowBoundsInfo]] {
+        var grouped: [Int32: [CGWindowBoundsInfo]] = [:]
+        for record in cgWindowRecords(for: nil) {
+            grouped[record.pid, default: []].append(record.boundsInfo)
+        }
+        return grouped
+    }
+
+    nonisolated public static func enumerateWindows(
+        for pid: Int32,
+        appName: String = "",
+        cgWindows: [CGWindowBoundsInfo]? = nil
+    ) -> [OpenWindowSnapshot] {
         guard AXIsProcessTrusted() else { return [] }
 
         let appElement = AXUIElementCreateApplication(pid)
@@ -129,7 +131,7 @@ public actor AXService: AccessibilityClient {
             return []
         }
 
-        let cgWindows = cgWindows(for: pid)
+        let cgWindowRecords = cgWindows.map { $0.map(CGWindowRecord.init(boundsInfo:)) } ?? cgWindowRecords(for: pid)
         let focusedBounds = focusedAXWindowBounds(for: appElement)
         let fallbackTitle = appName.isEmpty ? (NSRunningApplication(processIdentifier: pid)?.localizedName ?? "Window") : appName
 
@@ -139,7 +141,7 @@ public actor AXService: AccessibilityClient {
             guard let snapshot = snapshot(
                 for: axWindow,
                 pid: pid,
-                cgWindows: cgWindows,
+                cgWindows: cgWindowRecords,
                 usedCGWindowIDs: &usedCGWindowIDs,
                 focusedBounds: focusedBounds,
                 fallbackTitle: fallbackTitle
@@ -369,9 +371,27 @@ public actor AXService: AccessibilityClient {
         let pid: Int32
         let title: String
         let bounds: CGRect
+
+        var boundsInfo: CGWindowBoundsInfo {
+            CGWindowBoundsInfo(windowID: windowID, pid: pid, title: title, bounds: bounds)
+        }
+
+        init(boundsInfo: CGWindowBoundsInfo) {
+            windowID = boundsInfo.windowID
+            pid = boundsInfo.pid
+            title = boundsInfo.title
+            bounds = boundsInfo.bounds
+        }
+
+        init(windowID: UInt32, pid: Int32, title: String, bounds: CGRect) {
+            self.windowID = windowID
+            self.pid = pid
+            self.title = title
+            self.bounds = bounds
+        }
     }
 
-    nonisolated private static func cgWindows(for pid: Int32?) -> [CGWindowRecord] {
+    nonisolated private static func cgWindowRecords(for pid: Int32?) -> [CGWindowRecord] {
         guard let info = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] else {
             return []
         }
@@ -409,6 +429,11 @@ public actor AXService: AccessibilityClient {
     }
 
     nonisolated private static func axWindowBounds(_ window: AXUIElement) -> CGRect? {
+        guard let rawFrame = rawAXWindowFrame(window) else { return nil }
+        return cocoaBounds(fromAXFrame: rawFrame)
+    }
+
+    nonisolated private static func rawAXWindowFrame(_ window: AXUIElement) -> CGRect? {
         var positionRef: CFTypeRef?
         var sizeRef: CFTypeRef?
         guard AXUIElementCopyAttributeValue(window, kAXPositionAttribute as CFString, &positionRef) == .success,
@@ -420,12 +445,59 @@ public actor AXService: AccessibilityClient {
         guard AXValueGetValue(positionValue as! AXValue, .cgPoint, &origin),
               AXValueGetValue(sizeValue as! AXValue, .cgSize, &size) else { return nil }
 
-        guard let screen = NSScreen.main ?? NSScreen.screens.first else {
-            return CGRect(origin: origin, size: size)
-        }
+        return CGRect(origin: origin, size: size)
+    }
 
-        let flippedY = screen.frame.height - origin.y - size.height
-        return CGRect(x: origin.x, y: flippedY, width: size.width, height: size.height)
+    nonisolated private static func cocoaBounds(fromAXFrame frame: CGRect) -> CGRect {
+        let screens = NSScreen.screens
+        guard !screens.isEmpty else { return frame }
+        var bestRect: CGRect?
+        var bestArea: CGFloat = -.greatestFiniteMagnitude
+        for screen in screens {
+            let converted = CGRect(
+                x: frame.origin.x,
+                y: screen.frame.maxY - frame.origin.y - frame.height,
+                width: frame.width,
+                height: frame.height
+            )
+            let area = converted.intersection(screen.frame).lumaIntersectionArea
+            if area > bestArea {
+                bestArea = area
+                bestRect = converted
+            }
+        }
+        return bestRect ?? frame
+    }
+
+    @MainActor
+    private static func visibleFrameForWindowLayout(containingAXFrame frame: CGRect?) -> CGRect {
+        guard let frame else {
+            return NSScreen.main?.visibleFrame ?? NSScreen.screens.first?.visibleFrame ?? .zero
+        }
+        let cocoaFrame = cocoaBounds(fromAXFrame: frame)
+        if let screen = NSScreen.screens.max(by: {
+            $0.frame.intersection(cocoaFrame).lumaIntersectionArea < $1.frame.intersection(cocoaFrame).lumaIntersectionArea
+        }) {
+            return screen.visibleFrame
+        }
+        return NSScreen.main?.visibleFrame ?? NSScreen.screens.first?.visibleFrame ?? .zero
+    }
+
+    nonisolated private static func setFocusedSelectedText(_ text: String, pid: pid_t) -> Bool {
+        let appElement = AXUIElementCreateApplication(pid)
+        var focusedRef: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(
+            appElement,
+            kAXFocusedUIElementAttribute as CFString,
+            &focusedRef
+        ) == .success,
+            let focusedRef else { return false }
+        let element = focusedRef as! AXUIElement
+        return AXUIElementSetAttributeValue(
+            element,
+            kAXSelectedTextAttribute as CFString,
+            text as CFString
+        ) == .success
     }
 
     nonisolated private static func boundsMatch(_ lhs: CGRect, _ rhs: CGRect, tolerance: CGFloat = 20) -> Bool {
@@ -452,5 +524,12 @@ public actor AXService: AccessibilityClient {
         default:
             return screen
         }
+    }
+}
+
+private extension CGRect {
+    var lumaIntersectionArea: CGFloat {
+        guard !isNull, !isEmpty else { return 0 }
+        return width * height
     }
 }

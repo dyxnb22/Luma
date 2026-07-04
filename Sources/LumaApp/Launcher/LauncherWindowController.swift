@@ -11,6 +11,9 @@ final class LauncherWindowController {
     private var rootView: LauncherRootView?
     private var onWillShow: (() -> Void)?
     private var onDidHide: (() -> Void)?
+    private var deferredShowWorkItem: DispatchWorkItem?
+    private var showGeneration: UInt = 0
+    private var lastPositionedVisibleFrame: CGRect?
 
     init() {
         panel.onEscape = { [weak self] in
@@ -109,6 +112,10 @@ final class LauncherWindowController {
     }
 
     func show() {
+        cancelDeferredShowWork()
+        showGeneration &+= 1
+        let generation = showGeneration
+
         onWillShow?()
         HomeLatencyTracker.markHotkey()
         positionPanel()
@@ -118,34 +125,43 @@ final class LauncherWindowController {
             await MenuBarTreeService.shared.setLauncherContextBundleID(previousBundleID)
             await MenuBarTreeService.shared.scheduleRefreshForFrontmost()
         }
-        panel.alphaValue = 0
+
         NSApp.activate(ignoringOtherApps: true)
         panel.orderFrontRegardless()
         panel.makeKey()
-        rootView?.refreshPermissionStatus()
-        rootView?.startPermissionPollingIfNeeded()
-        rootView?.startPerformanceSampling()
-        rootView?.setPanelSignalsActive(true)
-        rootView?.restoreLastSessionIfNeeded()
-        rootView?.focusSearchFieldAfterShow()
-        rootView?.refreshHome()
-        let duration = MotionTokens.panelShowDuration
-        let qaMode = ProcessInfo.processInfo.environment["LUMA_QA"] == "1"
-        NSAnimationContext.runAnimationGroup { context in
-            context.duration = duration
-            context.timingFunction = CAMediaTimingFunction(name: .easeOut)
-            panel.animator().alphaValue = 1
-        } completionHandler: { [weak self] in
-            Task { @MainActor [weak self] in
-                guard let self else { return }
-                if qaMode {
-                    self.ensureSearchFieldFocused()
-                }
+        panel.alphaValue = 1
+
+        // Next runloop: focus + home refresh are async Tasks but still compete with first paint if inline.
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.showGeneration == generation, self.panel.isVisible else { return }
+            self.rootView?.focusSearchFieldAfterShow()
+            self.rootView?.refreshHome()
+            if ProcessInfo.processInfo.environment["LUMA_QA"] == "1" {
+                self.ensureSearchFieldFocused()
             }
         }
+
+        // Heavier panel services stay off the hotkey→visible path.
+        let work = DispatchWorkItem { [weak self] in
+            guard let self, self.showGeneration == generation, self.panel.isVisible else { return }
+            self.rootView?.refreshPermissionStatus()
+            self.rootView?.startPermissionPollingIfNeeded()
+            self.rootView?.startPerformanceSampling()
+            self.rootView?.setPanelSignalsActive(true)
+            self.rootView?.restoreLastSessionIfNeeded()
+        }
+        deferredShowWorkItem = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.075, execute: work)
+    }
+
+    private func cancelDeferredShowWork() {
+        deferredShowWorkItem?.cancel()
+        deferredShowWorkItem = nil
     }
 
     func hide() {
+        cancelDeferredShowWork()
+        showGeneration &+= 1
         Task { @MainActor in
             await self.rootView?.prepareDetailForHide()
             self.finishHide()
@@ -182,6 +198,8 @@ final class LauncherWindowController {
     }
 
     func hideImmediatelyForAction() {
+        cancelDeferredShowWork()
+        showGeneration &+= 1
         Task { @MainActor in
             await self.rootView?.prepareDetailForHide()
             self.clearMenuTarget()
@@ -210,6 +228,9 @@ final class LauncherWindowController {
 
     private func positionPanel() {
         guard let screen = LumaPresentationScreen.current() else { return }
-        panel.position(on: screen.visibleFrame)
+        let visibleFrame = screen.visibleFrame
+        panel.position(on: visibleFrame)
+        lastPositionedVisibleFrame = visibleFrame
     }
+
 }

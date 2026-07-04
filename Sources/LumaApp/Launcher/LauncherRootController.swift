@@ -33,6 +33,8 @@ final class LauncherRootController {
     private var homeRefreshTask: Task<Void, Never>?
     private var querySyncTimer: Timer?
     private var lastSyncedQuery = ""
+    private var lastSplitLayoutState: (columnSplit: Bool, rightPane: LauncherSplitRightPane)?
+    private var lastAppliedGuideCatalogIDs: [String] = []
 
     init(
         viewModel: LauncherViewModel,
@@ -249,7 +251,7 @@ final class LauncherRootController {
         }
     }
 
-    func refreshHome() {
+    func refreshHome(preserveListSelection: Bool = false) {
         homeRefreshTask?.cancel()
         homeRefreshTask = Task {
             let snapshot = await homeCoordinator.snapshot()
@@ -264,11 +266,36 @@ final class LauncherRootController {
                 }
                 guard !self.contentCoordinator.showingResults,
                       self.launcherEnvironment.isLauncherQueryEmpty else { return }
-                self.contentCoordinator.showHome(snapshot)
+                self.contentCoordinator.showHome(
+                    snapshot,
+                    preserveSelection: preserveListSelection
+                )
                 self.syncSplitLayout()
                 self.syncRowActionHint()
                 _ = HomeLatencyTracker.markHomeRendered()
             }
+        }
+    }
+
+    /// Restores empty-query home after detail exit without clearing the left Open Apps list.
+    private func restoreHomeFromDetail(persist: Bool) {
+        homeRefreshTask?.cancel()
+        viewModel.cancel()
+        searchBar.cancelDetailMode()
+        searchBar.resetQueryText()
+        searchBar.setPlaceholder(ModuleSearchHints.cheatSheet)
+        lastSyncedQuery = ""
+        commandHintBar.apply(nil)
+        launcherEnvironment.isLauncherQueryEmpty = true
+        listView.isHidden = false
+        listView.alphaValue = 1
+        syncKeyHints()
+        syncPerformanceStripVisibility()
+        refreshHome(preserveListSelection: true)
+        permissionController.refresh()
+        if persist {
+            saveHomeSession()
+            persistResumeState(translateContent: nil)
         }
     }
 
@@ -485,19 +512,41 @@ final class LauncherRootController {
             }
             let presentation = moduleDetailPresentation()
             let snapshot = await homeCoordinator.snapshot()
-            contentCoordinator.showHome(snapshot)
+            contentCoordinator.showHome(snapshot, preserveSelection: true)
             enterDetailContext(moduleTitle: detail.moduleTitle)
-            contentCoordinator.present(detail, moduleID: moduleID, presentation: presentation)
-            if moduleID == .translate,
-               let translate = contentCoordinator.currentDetailObject as? TranslateDetailView {
-                let state = LauncherResumeStore.load()
-                if !state.translateSource.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    translate.restore(sourceText: state.translateSource, outputText: state.translateOutput)
+
+            let finishPresentation = { [weak self] in
+                guard let self else { return }
+                if moduleID == .translate,
+                   let translate = self.contentCoordinator.currentDetailObject as? TranslateDetailView {
+                    let state = LauncherResumeStore.load()
+                    if !state.translateSource.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        translate.restore(sourceText: state.translateSource, outputText: state.translateOutput)
+                    }
                 }
+                self.lastSplitLayoutState = (self.usesColumnSplitLayout(), .detail)
+                self.syncSplitLayout()
+                self.syncRowActionHint()
+                self.syncPerformanceStripVisibility()
+                self.stabilizePanelContentLayout()
             }
-            syncSplitLayout()
-            syncRowActionHint()
-            stabilizePanelContentLayout()
+
+            if usesColumnSplitLayout() {
+                homeSplitLayout.crossfadeFromGuideToDetail { [weak self] in
+                    guard let self else { return }
+                    self.contentCoordinator.present(
+                        detail,
+                        moduleID: moduleID,
+                        presentation: presentation,
+                        stagedForCrossfade: true
+                    )
+                } completion: {
+                    finishPresentation()
+                }
+            } else {
+                contentCoordinator.present(detail, moduleID: moduleID, presentation: presentation)
+                finishPresentation()
+            }
         }
     }
 
@@ -579,26 +628,48 @@ final class LauncherRootController {
             return
         }
         let restored = searchBar.endDetailMode()
-        closeDetail()
         if let restored,
            !restored.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            closeDetail(animatedToGuide: false)
             searchBar.stringValue = restored
             lastSyncedQuery = ""
             handleTextChange(restored)
-        } else {
-            showHome(focusSearch: true, persist: true)
+            focusSearchField()
+            return
         }
-        focusSearchField()
+        closeDetail(animatedToGuide: usesColumnSplitLayout()) { [weak self] in
+            guard let self else { return }
+            self.restoreHomeFromDetail(persist: true)
+            self.focusSearchField()
+        }
     }
 
-    func closeDetail() {
-        if contentCoordinator.showingDetail {
-            contentCoordinator.closeDetail(presentation: .rightColumn)
-            Task { await launcherEnvironment.reserveDetailModule(nil) }
-            syncSplitLayout()
-            syncKeyHints()
-            syncPerformanceStripVisibility()
+    func closeDetail(animatedToGuide: Bool = false, completion: (@MainActor () -> Void)? = nil) {
+        guard contentCoordinator.showingDetail else {
+            completion?()
+            return
         }
+        Task { await launcherEnvironment.reserveDetailModule(nil) }
+
+        if animatedToGuide, usesColumnSplitLayout() {
+            let commands = viewModel.commandRouter.registry.discoverableCommands
+            lastAppliedGuideCatalogIDs = commands.map(\.id)
+            homeSplitLayout.crossfadeFromDetailToGuide(commands: commands) { [weak self] in
+                self?.tearDownDetailAfterGuideCrossfade()
+                completion?()
+            }
+        } else {
+            syncSplitLayout()
+            tearDownDetailAfterGuideCrossfade()
+            completion?()
+        }
+    }
+
+    private func tearDownDetailAfterGuideCrossfade() {
+        contentCoordinator.closeDetail(presentation: .rightColumn)
+        lastSplitLayoutState = (usesColumnSplitLayout(), .guide)
+        syncKeyHints()
+        syncPerformanceStripVisibility()
         searchBar.clearStuckDetailModeState()
     }
 
@@ -702,14 +773,12 @@ final class LauncherRootController {
     }
 
     private func syncPerformanceStripVisibility() {
-        performanceStrip.setContentVisible(!contentCoordinator.showingDetail)
-        stabilizePanelContentLayout()
+        performanceStrip.setContentVisible(true)
     }
 
     private func enterDetailContext(moduleTitle: String) {
         searchBar.beginDetailMode(moduleTitle: moduleTitle)
         hintBar.setContext(.detail)
-        performanceStrip.setContentVisible(false)
     }
 
     private func activateReturn() {
@@ -846,19 +915,34 @@ final class LauncherRootController {
         if columnSplit {
             LauncherInPanelLayout.ensureHomeSplitPanelSize(from: searchBar)
         }
-        homeSplitLayout.setColumnSplitActive(columnSplit)
 
+        let rightPane: LauncherSplitRightPane
         if columnSplit, contentCoordinator.showingDetail {
-            homeSplitLayout.setRightPane(.detail)
+            rightPane = .detail
         } else if columnSplit {
-            homeSplitLayout.setRightPane(.guide)
-            let commands = viewModel.commandRouter.registry.discoverableCommands
-                .filter { $0.module.rawValue != "luma.apps" }
-            homeSplitLayout.guidePane.applyCatalog(commands)
+            rightPane = .guide
         } else {
-            homeSplitLayout.setRightPane(.hidden)
+            rightPane = .hidden
         }
-        stabilizePanelContentLayout()
+
+        let layoutChanged = lastSplitLayoutState.map { $0 != (columnSplit, rightPane) } ?? true
+        lastSplitLayoutState = (columnSplit, rightPane)
+
+        homeSplitLayout.setColumnSplitActive(columnSplit)
+        homeSplitLayout.setRightPane(rightPane)
+
+        if columnSplit, rightPane == .guide {
+            let commands = viewModel.commandRouter.registry.discoverableCommands
+            let catalogIDs = commands.map(\.id)
+            if catalogIDs != lastAppliedGuideCatalogIDs {
+                homeSplitLayout.guidePane.applyCatalog(commands)
+                lastAppliedGuideCatalogIDs = catalogIDs
+            }
+        }
+
+        if layoutChanged {
+            stabilizePanelContentLayout()
+        }
     }
 
     private func activateSelectedItem() {
@@ -1259,7 +1343,14 @@ final class LauncherRootController {
         if let feedback = LauncherActionFeedback.feedback(for: action) {
             commandHintBar.showStatus(feedback.message)
             Task {
-                await actionExecutor.run(action, for: item)
+                let result = await actionExecutor.run(action, for: item)
+                guard result.succeeded else {
+                    await MainActor.run {
+                        let message = result.userFacingMessage ?? LauncherStatusMessages.operationFailed
+                        self.commandHintBar.showStatus(message)
+                    }
+                    return
+                }
                 if feedback.delayDismiss {
                     try? await Task.sleep(for: .milliseconds(900))
                     await MainActor.run { self.onActionDismiss() }

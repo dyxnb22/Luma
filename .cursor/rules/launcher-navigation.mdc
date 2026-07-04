@@ -17,7 +17,7 @@ Read **`docs/specs/UX_BEHAVIOR_RULES.md`** (navigation + keyboard sections) and 
 ## Detail mode search field
 
 - `beginDetailMode`: suspend query, clear visible field, `isEditable = false`.
-- Do not persist `detailSuspendedQuery` via `stringValue` during detail — session save uses empty field today (audit S1).
+- Persist suspended detail queries through `searchBar.persistedQuery`; do not read `stringValue` alone while detail mode clears the visible field.
 
 ## Keyboard — do NOT
 

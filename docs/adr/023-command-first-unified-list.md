@@ -27,7 +27,7 @@ Route C — **Command-First Unified List**:
 7. **Minimal home abstraction**: **Open Apps** left column on empty visible query; right pane = guide or detail (ADR-032). No suggestion rows on home.
 8. **Performance budget**: Open Apps home provider ≤ 4 ms on main thread; full home snapshot ≤ 16 ms.
 
-Panel geometry (2026-07-03): default **940 × 760 pt**, responsive **720–980 × 640–820 pt**, upper-third bias (`panelVerticalBias` 0.68). Empty-query home: **360 pt** Open Apps column + command guide (ADR-032). Supersedes the earlier 720×680 and 900×600 notes below.
+Panel geometry (2026-07-03): default **940 × 760 pt**, responsive **720–980 × 640–820 pt**, upper-third bias (`panelVerticalBias` 0.68). Empty-query home: **280 pt** Open Apps column + command guide (ADR-032). Supersedes the earlier 720×680 and 900×600 notes below.
 
 Historical panel note (pre-2026-07): ~~900 × 600 pt, 58% screen width × 66% height~~.
 

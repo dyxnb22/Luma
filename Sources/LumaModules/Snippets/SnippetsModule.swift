@@ -14,12 +14,20 @@ public actor SnippetsModule: LumaModule {
 
     private let store: SnippetsStore
     private var cachedSnippets: [Snippet] = []
+    private var pasteboard: any PasteboardClient = NoopPasteboardClient()
+    private var accessibility: any AccessibilityClient = NoopAccessibilityClient()
+    private var currentProject: any CurrentProjectClient = NoopCurrentProjectClient()
+    private var selectionSnapshot: any SelectionSnapshotClient = NoopSelectionSnapshotClient()
 
     public init(store: SnippetsStore = SnippetsStore()) {
         self.store = store
     }
 
     public func warmup(_ context: ModuleContext) async {
+        pasteboard = context.platform.pasteboard
+        accessibility = context.platform.accessibility
+        currentProject = context.platform.currentProject
+        selectionSnapshot = context.platform.selectionSnapshot
         cachedSnippets = await store.all()
     }
 
@@ -141,12 +149,10 @@ public actor SnippetsModule: LumaModule {
         _ = try await store.recordUsage(id: id)
         await refreshCache()
         let expanded = await expandedContentForLauncher(snippet.content)
-        let pasteboard = PasteboardService()
         await pasteboard.write(expanded)
-        let ax = AXService()
-        if await ax.isTrusted() {
+        if await accessibility.isTrusted() {
             try? await Task.sleep(for: .milliseconds(80))
-            await ax.insert(text: expanded)
+            await accessibility.insert(text: expanded)
         }
     }
 
@@ -158,9 +164,9 @@ public actor SnippetsModule: LumaModule {
     }
 
     private func expandedContentForLauncher(_ content: String) async -> String {
-        let project = await CurrentProjectService.shared.snapshot()
-        let selection = await SelectionSnapshotService.shared.snapshot()
-        let clipboard = await PasteboardService().readString()
+        let project = await currentProject.snapshot()
+        let selection = await selectionSnapshot.snapshot()
+        let clipboard = await pasteboard.readString()
         return SnippetVariableExpander.expand(
             content,
             context: SnippetExpansionContext.from(

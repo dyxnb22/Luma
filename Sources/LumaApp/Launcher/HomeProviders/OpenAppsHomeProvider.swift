@@ -4,7 +4,7 @@ import LumaCore
 import LumaModules
 import LumaServices
 
-private struct AppRuntimeSnapshot: Sendable {
+private struct AppRuntimeSnapshot: Sendable, Equatable {
     let bundleID: String
     let name: String
     let appURL: URL
@@ -14,13 +14,24 @@ private struct AppRuntimeSnapshot: Sendable {
 
 actor OpenAppsHomeProvider: LauncherHomeProvider {
     private let appActivationTracker: AppActivationTracker
+    private let windowEnumerator: any AXWindowEnumerating
     private var cachedSnapshots: [AppRuntimeSnapshot] = []
     private var collapsedBundleIDs = Set<String>()
     private var refreshTask: Task<Void, Never>?
+    private var skeletonRefreshTask: Task<Void, Never>?
     private var isActive = false
+    private var onCacheUpdated: (@Sendable () -> Void)?
 
-    init(appActivationTracker: AppActivationTracker) {
+    init(
+        appActivationTracker: AppActivationTracker,
+        windowEnumerator: any AXWindowEnumerating = LiveAXWindowEnumerator()
+    ) {
         self.appActivationTracker = appActivationTracker
+        self.windowEnumerator = windowEnumerator
+    }
+
+    func setOnCacheUpdated(_ handler: (@Sendable () -> Void)?) {
+        onCacheUpdated = handler
     }
 
     func setActive(_ active: Bool) {
@@ -32,6 +43,8 @@ actor OpenAppsHomeProvider: LauncherHomeProvider {
         } else {
             refreshTask?.cancel()
             refreshTask = nil
+            skeletonRefreshTask?.cancel()
+            skeletonRefreshTask = nil
         }
     }
 
@@ -41,9 +54,97 @@ actor OpenAppsHomeProvider: LauncherHomeProvider {
 
     func items() async -> [ResultItem] {
         if cachedSnapshots.isEmpty {
+            let metadata = await MainActor.run { Self.collectAppMetadata() }
+            scheduleFullRefreshIfNeeded()
+            guard !metadata.isEmpty else { return [] }
+            return await buildItems(from: metadata.map(Self.skeletonSnapshot(from:)))
+        }
+        return await buildItems(from: cachedSnapshots)
+    }
+
+    private func refreshLoop() async {
+        await refreshOnce()
+        while !Task.isCancelled {
+            try? await Task.sleep(for: .seconds(2))
+            if Task.isCancelled { break }
             await refreshOnce()
         }
-        let snapshots = cachedSnapshots
+    }
+
+    private func scheduleFullRefreshIfNeeded() {
+        guard skeletonRefreshTask == nil else { return }
+        skeletonRefreshTask = Task { [weak self] in
+            await self?.refreshOnce()
+            await self?.clearSkeletonRefreshTask()
+        }
+    }
+
+    private func clearSkeletonRefreshTask() {
+        skeletonRefreshTask = nil
+    }
+
+    private func refreshOnce() async {
+        let metadata = await MainActor.run { Self.collectAppMetadata() }
+        guard !metadata.isEmpty else {
+            let hadCache = !cachedSnapshots.isEmpty
+            cachedSnapshots = []
+            if hadCache { onCacheUpdated?() }
+            return
+        }
+
+        // AX + CGWindow IPC must not run on MainActor — it blocks hotkey→visible (ADR-023 ≤4ms).
+        let windowsByPID = await Task.detached { [windowEnumerator] in
+            RunningAppsWindowCollector.windowsByPID(for: metadata, using: windowEnumerator)
+        }.value
+
+        let snapshots = metadata.map { app in
+            let windows = windowsByPID[app.pid] ?? []
+            return Self.snapshot(from: app, windows: windows)
+        }
+        let changed = snapshots != cachedSnapshots
+        cachedSnapshots = snapshots
+        if changed { onCacheUpdated?() }
+    }
+
+    @MainActor
+    private static func collectAppMetadata() -> [RunningAppMetadata] {
+        let selfPID = ProcessInfo.processInfo.processIdentifier
+        let runningApps = NSWorkspace.shared.runningApplications.filter { app in
+            app.activationPolicy == .regular
+                && app.bundleIdentifier != nil
+                && app.processIdentifier != selfPID
+        }
+        var seenIDs = Set<String>()
+        var metadata: [RunningAppMetadata] = []
+        for app in runningApps {
+            guard let bundleID = app.bundleIdentifier, seenIDs.insert(bundleID).inserted else { continue }
+            let name = app.localizedName ?? bundleID
+            let url = app.bundleURL ?? URL(fileURLWithPath: "/Applications")
+            metadata.append(RunningAppMetadata(
+                pid: app.processIdentifier,
+                bundleID: bundleID,
+                name: name,
+                appURLPath: url.path
+            ))
+        }
+        return metadata
+    }
+
+    private static func skeletonSnapshot(from metadata: RunningAppMetadata) -> AppRuntimeSnapshot {
+        snapshot(from: metadata, windows: [])
+    }
+
+    private static func snapshot(from metadata: RunningAppMetadata, windows: [OpenWindowSnapshot]) -> AppRuntimeSnapshot {
+        AppRuntimeSnapshot(
+            bundleID: metadata.bundleID,
+            name: metadata.name,
+            appURL: URL(fileURLWithPath: metadata.appURLPath),
+            windowCount: max(windows.count, 1),
+            windows: windows
+        )
+    }
+
+    private func buildItems(from snapshots: [AppRuntimeSnapshot]) async -> [ResultItem] {
         guard !snapshots.isEmpty else { return [] }
 
         let bundleIDs = snapshots.map(\.bundleID)
@@ -66,50 +167,6 @@ actor OpenAppsHomeProvider: LauncherHomeProvider {
             }
         }
         return items
-    }
-
-    private func refreshLoop() async {
-        await refreshOnce()
-        while !Task.isCancelled {
-            try? await Task.sleep(for: .seconds(2))
-            if Task.isCancelled { break }
-            await refreshOnce()
-        }
-    }
-
-    private func refreshOnce() async {
-        let snapshots = await MainActor.run { Self.collectRunningApps() }
-        cachedSnapshots = snapshots
-    }
-
-    @MainActor
-    private static func collectRunningApps() -> [AppRuntimeSnapshot] {
-        let selfPID = ProcessInfo.processInfo.processIdentifier
-        let axGranted = AXService.isProcessTrusted()
-        let runningApps = NSWorkspace.shared.runningApplications.filter { app in
-            app.activationPolicy == .regular
-                && app.bundleIdentifier != nil
-                && app.processIdentifier != selfPID
-        }
-        var seenIDs = Set<String>()
-        var snapshots: [AppRuntimeSnapshot] = []
-        for app in runningApps {
-            guard let bundleID = app.bundleIdentifier, seenIDs.insert(bundleID).inserted else { continue }
-            let name = app.localizedName ?? bundleID
-            let windows: [OpenWindowSnapshot] = axGranted
-                ? AXService.enumerateWindows(for: app.processIdentifier, appName: name)
-                : []
-            let url = app.bundleURL ?? NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID)
-                ?? URL(fileURLWithPath: "/Applications")
-            snapshots.append(AppRuntimeSnapshot(
-                bundleID: bundleID,
-                name: name,
-                appURL: url,
-                windowCount: max(windows.count, 1),
-                windows: windows
-            ))
-        }
-        return snapshots
     }
 
     private static func secondaryActions(for app: AppRuntimeSnapshot) -> [Action] {

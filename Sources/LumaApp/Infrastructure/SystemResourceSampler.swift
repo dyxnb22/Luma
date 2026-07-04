@@ -170,9 +170,14 @@ final class SystemResourceSampler {
         smoothedCPU = nil
         cachedSummary = .empty
         lastSummaryRefreshAt = nil
-        tick(forceSummaryRefresh: true)
+        // First tick: CPU/memory only; summary refresh competes with panel.show hot path.
+        tick(forceSummaryRefresh: false)
         timer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.tick() }
+        }
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(100))
+            self?.tick(forceSummaryRefresh: true)
         }
     }
 

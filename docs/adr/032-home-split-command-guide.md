@@ -27,10 +27,11 @@ When the **visible search query is empty**, the launcher uses a **two-column lay
 
 ### Guide pane behavior
 
-- **Always** shows the module command catalog (`CommandRegistry.discoverableCommands`) — title stays **命令 / Commands**.
+- **Always** shows a compact **module entry table** (`HomeGuideCatalog`) — column headers 模块 / 入口 / 说明 only (no pane title).
+- **One row per module:** 模块 · 入口 (primary trigger only) · 说明 — no full command lists or help lines.
+- Excludes Open Apps (`luma.apps`) and built-in commands module (`luma.commands`).
 - **Never** mirrors the left Open Apps row title (e.g. app name) as the guide header.
-- Each module block: triggers (`n · note · notes`), description, and up to 3 help lines (e.g. Notes create/search).
-- **Not a second list:** no clickable command rows; keyboard focus stays in search + left list.
+- **Not a second list:** table rows are not selectable; keyboard focus stays in search + left list.
 
 ### When split is inactive
 

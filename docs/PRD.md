@@ -6,7 +6,7 @@ Luma is a personal macOS launcher for one keyboard-heavy developer. It opens via
 
 ## Strategic Update
 
-The active product strategy is **Route C** (ADR-023): a command-first unified list launcher. Command+Space opens a single-column list with an **Open Apps-only** home (empty query) and flat search results. Module detail views remain in the same panel; dashboard feature cards and home suggestion sections are not used.
+The active product strategy is **Route C** (ADR-023): a command-first unified launcher. Command+Space opens the ADR-032 home: **Open Apps** in the left column and a compact module guide/detail area on the right. Non-empty queries use flat search results. Module detail views remain in the same panel; dashboard feature cards and home suggestion sections are not used.
 
 Authoritative planning docs:
 

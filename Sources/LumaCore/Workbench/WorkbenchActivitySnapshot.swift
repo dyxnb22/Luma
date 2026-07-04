@@ -1,6 +1,6 @@
 import Foundation
 
-/// Unified read model for workbench activity across Home, commands, and project detail.
+/// Unified read model for workbench activity across commands and project detail surfaces.
 public struct WorkbenchActivitySnapshot: Sendable, Equatable {
     public static let globalRecentLimit = 8
     public static let projectRecentLimit = 5

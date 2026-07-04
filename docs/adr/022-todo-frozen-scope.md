@@ -4,6 +4,8 @@
 
 Accepted (2026-06-24)
 
+> **Historical / amended by ADR-023 and ADR-032.** Do not implement dashboard/card instructions in this ADR. Todo entry is `t` / `todo` trigger and detail panel only.
+
 ## Context
 
 Todo is an EventKit pass-through for system Reminders (ADR-009). The module already supports launcher capture (`t `), structured time suffixes, today's due list with cache, and a detail panel. Remaining work is **freezing** the product to “daily capture + triage desk” — not building a Todoist/Things replacement.

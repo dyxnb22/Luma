@@ -26,6 +26,6 @@ import LumaModules
 }
 
 @Test func hotPathModulesMatchOnDemandExclusion() {
-    #expect(ModuleRegistry.onDemandModuleIDs == [.notes, .projects, .menuItems, .autoworkflow])
+    #expect(ModuleRegistry.onDemandModuleIDs == [.notes, .projects, .menuItems, .media, .autoworkflow])
     #expect(ModuleRegistry.hotPathModuleIDs.isDisjoint(with: ModuleRegistry.onDemandModuleIDs))
 }

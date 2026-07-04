@@ -56,7 +56,7 @@ flowchart TD
 
 `FeatureCatalog.moduleDetailMetadata()` supplies detail-header chrome only under Route C; it is not the home-screen entry model.
 
-Module bundle registration is the single built-in module manifest surface. Each `*ModuleBundle` owns manifest forwarding, warmup tier, command definitions, feature-card metadata, optional detail presentation, and module construction. `BuiltInModules.makeAll()` and `BuiltInCommandRegistry` derive from `ModuleRegistry`; adding a module should only require the module folder, the bundle entry in `ModuleRegistry.allBundles`, an optional detail factory, and focused tests.
+Module bundle registration is the single built-in module manifest surface. Each `*ModuleBundle` owns manifest forwarding, warmup tier, command definitions, detail metadata / presentation metadata, optional detail presentation, and module construction. `BuiltInModules.makeAll()` and `BuiltInCommandRegistry` derive from `ModuleRegistry`; adding a module should only require the module folder, the bundle entry in `ModuleRegistry.allBundles`, an optional detail factory, and focused tests.
 
 ### Deferred (source retained, excluded from `makeAll()`)
 

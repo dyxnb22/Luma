@@ -3,7 +3,7 @@ import Foundation
 public enum WarmupTier: Sendable, Equatable {
     /// Phase 1 startup; participates in global search when warm.
     case hotPath
-    /// Warm on first targeted or global query hit.
+    /// Warm on first targeted query, detail open, or explicit on-demand path.
     case onDemand
     /// Warm only when opening module detail.
     case detailOnly

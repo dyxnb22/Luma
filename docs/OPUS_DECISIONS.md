@@ -51,7 +51,7 @@ These decisions answer the previous open questions and are now in force for Luma
 
 - No automated AppKit panel/hotkey/Spaces UI tests.
 - Maintain the manual QA checklist.
-- Automate cross-module flow tests in `LumaModulesTests` (clipboard → note/snippet, URL → quicklink draft, notes capture) and home suggestion memory in `LumaCoreTests`.
+- Automate cross-module flow tests in `LumaModulesTests` (clipboard → note/snippet, URL → quicklink draft, notes capture) and workbench activity / project detail routing in `LumaCoreTests`.
 - Automate the 1,000-keystroke replay perf test.
 - Release path: Developer ID signed and notarized DMG from v1.
 - Skip CI for v1; run local tests and release script.

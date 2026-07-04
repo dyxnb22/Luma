@@ -4,6 +4,8 @@
 
 Accepted.
 
+> **Historical / amended by ADR-023 and ADR-032.** Do not implement dashboard/card or `FeatureCatalog.dashboardCoreCards()` instructions. Media remains trigger-only (`rec` / `m` / `media`); detail via same-panel view.
+
 Date: 2026-06-22
 
 ## Context

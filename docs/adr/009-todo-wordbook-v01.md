@@ -4,6 +4,8 @@
 
 Accepted. Partially superseded by ADR-013 (Wordbook review panel → in-panel detail).
 
+> **Historical / amended by ADR-023 and ADR-032.** Do not implement dashboard/card or home-row instructions in this ADR. Route C uses prefix triggers and same-panel detail only.
+
 Date: 2026-06-22
 
 ## Context

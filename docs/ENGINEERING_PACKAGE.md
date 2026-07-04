@@ -1,5 +1,7 @@
 # Engineering Package
 
+**Single development entry point.** Agents and contributors should read this document first, then the frozen specs listed below. Do not plan from historical dashboard/card ADRs unless explicitly asked.
+
 ## Current Entry Points
 
 If you are new to the repo or preparing to make changes, read these documents first and treat them as the current source of truth:
@@ -18,7 +20,8 @@ If you are new to the repo or preparing to make changes, read these documents fi
 12. [Module Maturity Checklist](specs/MODULE_MATURITY.md) — shipping checklist for built-in modules.
 13. [Manual QA Checklist](MANUAL_QA_CHECKLIST.md) — current product-review and regression checks.
 14. [Recorded QA Brief](RECORDED_QA_BRIEF.md) — recorded walkthrough scope and findings format.
-15. [Integration P0](INTEGRATION_P0.md) — current short list for wiring together existing functionality.
+15. [QA index](../qa/README.md) — current acceptance runners vs historical run artifacts.
+16. [Integration P0](INTEGRATION_P0.md) — current short list for wiring together existing functionality.
 
 Recommended reading order for most engineering work:
 
@@ -82,7 +85,12 @@ Until then: keep per-module JSON namespaces, schema versions, and in-memory inde
 - [ADR-005 Carbon Global Hotkey](adr/005-carbon-global-hotkey.md)
 - [ADR-006 Launcher Convergence](adr/006-launcher-convergence.md)
 - [ADR-007 Dashboard Widget Single Window](adr/007-dashboard-widget-single-window.md) — superseded by ADR-023
+- [ADR-009 Todo + Wordbook v0.1](adr/009-todo-wordbook-v01.md) — historical; dashboard/card steps superseded
+- [ADR-010 Snippets + Secrets](adr/010-snippets-secrets.md) — historical; dashboard/card steps superseded
+- [ADR-011 Media Tracker](adr/011-media-tracker.md) — historical; dashboard registration superseded
+- [ADR-022 Todo Frozen Scope](adr/022-todo-frozen-scope.md) — historical; dashboard card row superseded
 - [ADR-023 Command-First Unified List (Route C)](adr/023-command-first-unified-list.md) — **active UI route**
+- [ADR-032 Home Split Command Guide](adr/032-home-split-command-guide.md) — **active empty-query home**
 - [ADR-031 Auto Workflow cc-loop Integration](adr/031-autoworkflow-integration.md)
 
 ## How to Add a New Module
@@ -97,7 +105,7 @@ Until then: keep per-module JSON namespaces, schema versions, and in-memory inde
 Warmup tiers:
 
 - `hotPath` — participates in global search fan-out; warms at startup when pinned (default for in-memory modules).
-- `onDemand` — excluded from global search; warms on first targeted query or detail open (examples: Notes, Projects, MenuItems, Auto Workflow).
+- `onDemand` — excluded from global search; warms on first targeted query or detail open (examples: Notes, Projects, MenuItems, Media, Auto Workflow).
 
 Users can pin modules in Settings → Modules for always-hot startup behavior and workbench gating (`enabled ∩ pinned`). Pinning does **not** add home rows.
 
@@ -106,7 +114,7 @@ Home and cross-module rules:
 - **Do not** restore setup/recent/continue/create home sections or wire removed home providers into `LauncherHomeAggregator` without a new ADR — see [Launcher Home Constraints](specs/LAUNCHER_HOME_CONSTRAINTS.md).
 - Add workbench behavior through `WorkbenchContextBuilder`, capture services, and command routers for **command and detail** surfaces only.
 - Keep cross-module draft construction behind narrow helpers/protocols such as `ProjectContextSuggestions` or `QuicklinkDraftSource`.
-- Do not add new App-layer switches for commands, feature cards, or detail metadata; read those from `ModuleRegistry` / `ModuleDetailRegistry`.
+- Do not add new App-layer switches for commands or detail metadata; read those from `ModuleRegistry` / `ModuleDetailRegistry`.
 
 ## Workbench Core
 

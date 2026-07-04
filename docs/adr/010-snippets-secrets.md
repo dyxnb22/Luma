@@ -4,6 +4,8 @@
 
 Accepted. Supersedes the "Secrets as first-class UX" exclusion in `docs/ROADMAP.md` v0.1 row and the "First-class password manager" line in `docs/NON_GOALS.md` for the developer-credentials slice.
 
+> **Historical / amended by ADR-023 and ADR-032.** Do not implement dashboard/card instructions in this ADR. Route C uses prefix triggers and same-panel detail only.
+
 Date: 2026-06-22
 
 ## Context

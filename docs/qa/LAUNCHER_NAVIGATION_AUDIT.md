@@ -12,9 +12,9 @@
 | --- | ---: | ---: |
 | P0 | 3 | 0 |
 | P1 | 12 | 0 |
-| P2 | 14 | 1 |
+| P2 | 15 | 1 |
 
-**Remaining open:** L4 (spec drift — doc-only), SPLIT-TEST (no automated split-layout tests).
+**Remaining open:** SPLIT-TEST (no automated split-layout tests).
 
 ---
 
@@ -61,15 +61,15 @@
 | DEAD-01 | `onBackFromDetail` → `closeDetailIfShowing` → `exitDetailFromChrome` |
 | L7 | `LauncherActionPanel.configureLayout` + `reposition(relativeTo:)`; `openActionPanel` anchors to selected row |
 | C1 | `WorkbenchCommandRouter.commandHint` + `handleTextChange` applies workbench hint when `workbenchRoute != .none` |
+| L4 | Spec aligned (prior doc pass) — no code change |
+| SPLIT-KB | **Fixed 2026-07-03:** ↑↓ / ⌘1–9 route to left Open Apps when list holds focus during split detail. |
+| SPLIT-LAYOUT | **Fixed 2026-07-03:** list trailing constraint + `ensureHomeSplitPanelSize` + geometry prefers 940×760. |
 
 ### Still open
 
 | ID | Notes |
 | --- | --- |
-| L4 | Spec aligned (prior doc pass) — no code change |
-| SPLIT-KB | **Fixed 2026-07-03:** ↑↓ / ⌘1–9 route to left Open Apps when list holds focus during split detail. |
 | SPLIT-TEST | No unit tests for `LauncherHomeSplitLayout` constraint toggling or `syncSplitLayout` state machine. |
-| SPLIT-LAYOUT | **Fixed 2026-07-03:** list trailing constraint + `ensureHomeSplitPanelSize` + geometry prefers 940×760. |
 
 ---
 

@@ -1,5 +1,7 @@
 # Luma QA Summary
 
+> **Index:** see [README.md](README.md) for current acceptance entry points vs historical run artifacts.
+
 ## Current QA Baseline
 
 Luma is already broadly formed. QA now focuses on validating that existing launcher flows, module triggers, detail views, permissions, and cross-module actions feel connected and trustworthy.

@@ -1,43 +1,14 @@
 # Luma
 
-Luma is a personal macOS launcher built for native speed, keyboard-first workflows, and local-first command execution.
+Personal macOS launcher built for native speed, keyboard-first workflows, and local-first command execution.
 
-The project is macOS-only: Swift 6, AppKit for the launcher surface, SwiftUI only where it helps in Settings/About, and in-process modules until the architecture has been dogfooded.
+Swift 6 · AppKit launcher · SwiftUI for Settings/About only · macOS 14+.
 
-## Current Status
+## Status
 
-**Route C** (Command-First Unified List, ADR-023) is the active product surface:
+**Route C** (command-first unified list, [ADR-023](docs/adr/023-command-first-unified-list.md)) is the active product surface. Empty-query home is Open Apps left + guide/detail right ([ADR-032](docs/adr/032-home-split-command-guide.md)). Current phase: **integration and polish** — wire existing flows, tighten trust and keyboard behavior; no new surface area.
 
-- Command+Space opens a pre-instantiated AppKit panel (default **940×760** pt, upper-third placement; see `docs/specs/LAUNCHER_PANEL_CONSTRAINTS.md`).
-- **Empty query:** Open Apps left column + command guide or module detail on the right (ADR-032).
-- **Non-empty query:** flat ranked results (max 8 rows) from all enabled modules.
-- **Module detail:** same-panel views entered via trigger keywords or contextual suggestions (not dashboard cards).
-- **Built-in modules:** Apps, Clipboard, Commands, Notes, Todo, Translate, Wordbook, Snippets, Secrets, Media, Window Layouts, Projects, Quicklinks, Menu Bar Search, Kill Process, Browser Tabs, Auto Workflow.
-- **Default-off modules in Settings:** Commands, Media, Browser Tabs, Auto Workflow.
-- **Deferred from default registration** (source retained): Windows (window focus list).
-- Translation uses Apple Translation / Shortcuts fallback — no network API.
-- Clipboard history is local-first with secret filtering, image support, and pin/search.
-
-## Current Focus
-
-Luma is already broadly formed. The current phase is not feature sprawl; it is **making existing functionality feel fully connected and trustworthy**:
-
-- wire cross-module flows cleanly
-- improve permission and recovery UX
-- remove dead or misleading docs and prompts
-- tighten keyboard-first behavior, visual consistency, and empty states
-- keep the hot path fast while polishing detail views
-
-## Feature Direction
-
-The launcher should prove:
-
-1. Command+Space toggles a pre-instantiated AppKit launcher panel.
-2. Empty query shows a keyboard-navigable home list (not a card grid).
-3. Non-empty query fans out to enabled modules through a timeout-protected dispatcher.
-4. Ranked results render quickly and actions run without blocking UI.
-5. The panel hides immediately after action dispatch.
-6. Latency is measured from day one (keystroke→paint and hotkey→home-rendered).
+**For development:** start with [Engineering Package](docs/ENGINEERING_PACKAGE.md) (single entry point for reading order, frozen constraints, and module rules).
 
 ## Commands
 
@@ -84,35 +55,19 @@ The LaunchAgent points at `build/Luma.app/Contents/MacOS/Luma` and restarts Luma
 
 ## Key Documents
 
-- [PRD](docs/PRD.md)
-- [Architecture](docs/ARCHITECTURE.md)
-- [ADR-023 Route C](docs/adr/023-command-first-unified-list.md)
-- [ADR-031 Auto Workflow](docs/adr/031-autoworkflow-integration.md)
-- [Engineering Package](docs/ENGINEERING_PACKAGE.md)
-- [Opus Decisions](docs/OPUS_DECISIONS.md)
-- [Roadmap](docs/ROADMAP.md)
-- [Integration P0](docs/INTEGRATION_P0.md)
-- [Feature Index](Features/README.md)
-- [Performance Spec](docs/specs/PERFORMANCE.md)
-- [Manual QA Checklist](docs/MANUAL_QA_CHECKLIST.md)
-- [Recorded QA Brief](docs/RECORDED_QA_BRIEF.md)
+| Doc | Role |
+| --- | --- |
+| [Engineering Package](docs/ENGINEERING_PACKAGE.md) | **Primary dev entry** — reading order, conflict priority, module/workbench rules |
+| [PRD](docs/PRD.md) | Product scope and success criteria |
+| [Architecture](docs/ARCHITECTURE.md) | Runtime layers and module boundaries |
+| [Manual QA Checklist](docs/MANUAL_QA_CHECKLIST.md) | Current regression / review checklist |
+| [QA index](qa/README.md) | What to run vs historical run artifacts |
+| [Feature Index](Features/README.md) | Per-module notes |
 
 ## Quick Review
-
-For a one-command recorded review pass:
 
 ```bash
 ./scripts/run_recorded_review.sh
 ```
 
-It will build Luma, prepare the QA environment, run the scripted smoke pass, and then leave you at the recorded walkthrough stage with the current brief, checklist, and findings template.
-
-## Non-Negotiables
-
-- No Electron, Tauri, or WebView primary UI.
-- No SwiftUI launcher panel.
-- No plugin API in v1.
-- No custom file index.
-- No module may block the launcher hot path beyond its timeout.
-- No dashboard-first launcher panel.
-- Default hotkey is Command+Space.
+Builds Luma, prepares the QA environment, runs the scripted smoke pass, then leaves you at the recorded walkthrough stage.

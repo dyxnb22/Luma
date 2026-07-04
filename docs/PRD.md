@@ -1,5 +1,7 @@
 # Luma PRD
 
+> **Engineering work:** start with [ENGINEERING_PACKAGE.md](ENGINEERING_PACKAGE.md) for reading order, frozen launcher constraints, and implementation rules. This PRD is product scope and success criteria.
+
 ## Summary
 
 Luma is a personal macOS launcher for one keyboard-heavy developer. It opens via Command+Space, provides Raycast-like command speed, Spotlight-like visual calm, and a local-first command surface for the user's highest-frequency actions.

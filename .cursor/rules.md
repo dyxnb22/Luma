@@ -1,61 +1,26 @@
 # Cursor Rules for Luma
 
-Cursor should be a precise implementation assistant for Luma. Keep edits scoped and aligned with the current product.
+Precise implementation assistant. Scoped edits aligned with Route C.
 
 ## Read First
 
-- `README.md`
-- `docs/PRD.md`
-- `docs/ARCHITECTURE.md`
-- `docs/ENGINEERING_PACKAGE.md`
-- `docs/specs/MODULE_CONTRACT.md`
-- `docs/specs/PERFORMANCE.md`
-- `docs/MANUAL_QA_CHECKLIST.md`
+1. **`docs/ENGINEERING_PACKAGE.md`** — single development entry point (reading order, conflict priority, module/workbench rules).
+2. **Frozen specs** — read before touching matching surfaces:
+   - `docs/specs/LAUNCHER_HOME_CONSTRAINTS.md` (empty-query home)
+   - `docs/specs/LAUNCHER_PANEL_CONSTRAINTS.md` (panel geometry, placement, in-panel layout)
+   - `docs/specs/UX_BEHAVIOR_RULES.md` (navigation, keyboard, detail exit)
+   - `docs/specs/NOTES_DETAIL_CONSTRAINTS.md` (Notes detail only)
+3. **Open gaps:** `docs/qa/LAUNCHER_NAVIGATION_AUDIT.md`
 
-## Current Focus
-
-- Active route: **Route C** (`docs/adr/023-command-first-unified-list.md`)
-- Luma is feature-complete and in final close-out / polish phase.
-- Current work should prioritize **finish quality**: fixing rough edges, improving trust, closing empty states, and consistency — not adding new surface area.
-
-## Route Guardrail
-
-- Single command-first panel
-- Empty query: **Open Apps** left column + guide/detail right (frozen — see `docs/specs/LAUNCHER_HOME_CONSTRAINTS.md`, ADR-032)
-- Non-empty query: flat results; exact title match gets +0.30 ranking boost
-- Snippet trigger word in global search + Return → inline expansion, no detail
-- Global queries ≥ 3 chars surface up to 3 clipboard entries alongside other results
-- Same-panel detail views
-- No dashboard card grid
-- No permanent sidebar
+Historical ADRs may describe dashboard cards or Route B home (superseded by ADR-023 / ADR-032). Do not implement those instructions unless the user explicitly asks for archaeology.
 
 ## Composer Rules
 
 - Use normal mode only.
 - Do not enable Fast mode.
-- Do one scoped task at a time.
-- Do not add adjacent features unless explicitly requested.
-- If a request conflicts with Route C, stop and ask.
-
-## Product Rules
-
-- Default hotkey is Command+Space.
-- AppKit owns the launcher.
-- SwiftUI only for Settings/About.
-- No Electron, Tauri, WebView launcher UI, React shell, plugin marketplace, JS/Lua runtime, custom file index, cloud sync, telemetry, onboarding, or updater work.
-
-## Implementation Rules
-
-- Prefer integration fixes over new modules.
-- Improve permissions, recovery, empty states, cross-module flows, and keyboard-first behavior.
-- Keep heavy work out of the query hot path.
-- Use existing service boundaries.
-- Do not filesystem-scan on each keystroke.
-- `LauncherEnvironment.showStatus` is `let (String) -> Void` — inject at init, never post-assign.
-- AX IPC calls must not run on the MainActor; only PID capture (`frontmostApplication`) is allowed on main.
-- `BuiltInModules.fastModuleIDs` is Phase 1 warmup; Notes/Projects/MenuItems/Media/Auto Workflow stay out of the hot path.
-- `WorkbenchContextBuilder` loads activity and link stores in parallel; keep those fetches concurrent.
-- New `LauncherEnvironment` callbacks must be `let` parameters in `init`, not optional `var`.
+- One scoped task at a time.
+- No adjacent features unless explicitly requested.
+- If a request conflicts with Route C or frozen specs, stop and ask.
 
 ## Verification
 

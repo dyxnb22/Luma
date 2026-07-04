@@ -2,7 +2,9 @@
 
 ## Status
 
-Accepted as active strategic direction for v1 planning.
+Superseded by ADR-023 and ADR-032. Historical record of Route A planning.
+
+This ADR is retained for product archaeology only. Do not use it as guidance for current home navigation, module detail placement, or active module scope.
 
 ## Context
 
@@ -59,4 +61,3 @@ Negative:
 - Disable or hide non-core modules before deleting them.
 - Keep all future features behind a strict question: is this one of the core launcher functions?
 - Prefer `ScriptedCommandsModule` over a public plugin runtime.
-

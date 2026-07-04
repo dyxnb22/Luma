@@ -29,8 +29,8 @@ Recommended reading order for most engineering work:
 2. Active UI route: [ADR-023](adr/023-command-first-unified-list.md), [ADR-032](adr/032-home-split-command-guide.md)
 3. Workbench direction: [WORKBENCH_STRATEGY.md](WORKBENCH_STRATEGY.md)
 4. System shape: [Architecture](ARCHITECTURE.md)
-4. Constraints: [Launcher Home Constraints](specs/LAUNCHER_HOME_CONSTRAINTS.md), [Launcher Panel Constraints](specs/LAUNCHER_PANEL_CONSTRAINTS.md), [Module Contract](specs/MODULE_CONTRACT.md), [Performance](specs/PERFORMANCE.md), [UX Behavior Rules](specs/UX_BEHAVIOR_RULES.md)
-5. Repo navigation: [Project Structure](PROJECT_STRUCTURE.md)
+5. Constraints: [Launcher Home Constraints](specs/LAUNCHER_HOME_CONSTRAINTS.md), [Launcher Panel Constraints](specs/LAUNCHER_PANEL_CONSTRAINTS.md), [Module Contract](specs/MODULE_CONTRACT.md), [Performance](specs/PERFORMANCE.md), [UX Behavior Rules](specs/UX_BEHAVIOR_RULES.md)
+6. Repo navigation: [Project Structure](PROJECT_STRUCTURE.md)
 
 ## Priority Order
 
@@ -83,7 +83,7 @@ Until then: keep per-module JSON namespaces, schema versions, and in-memory inde
 - [ADR-003 Actor-Based Module System](adr/003-actor-module-system.md)
 - [ADR-004 In-Process Modules for v1](adr/004-in-process-modules-v1.md)
 - [ADR-005 Carbon Global Hotkey](adr/005-carbon-global-hotkey.md)
-- [ADR-006 Launcher Convergence](adr/006-launcher-convergence.md)
+- [ADR-006 Launcher Convergence](adr/006-launcher-convergence.md) — superseded by ADR-023
 - [ADR-007 Dashboard Widget Single Window](adr/007-dashboard-widget-single-window.md) — superseded by ADR-023
 - [ADR-009 Todo + Wordbook v0.1](adr/009-todo-wordbook-v01.md) — historical; dashboard/card steps superseded
 - [ADR-010 Snippets + Secrets](adr/010-snippets-secrets.md) — historical; dashboard/card steps superseded

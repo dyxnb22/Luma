@@ -6,7 +6,7 @@ Command-first window positioning for the focused window: left/right/top/bottom h
 
 ## Active Behavior (Route C)
 
-- Registered in `BuiltInModules.makeAll()`.
+- Registered through `ModuleRegistry.allBundles` and instantiated by `BuiltInModules.makeAll()`.
 - Prefix triggers only: `layout`, `win`, `wl` (e.g. `layout left`, `win center`).
 - Empty payload lists all presets; payload filters by title/alias.
 - Return applies preset to the **focused window** via Accessibility APIs.

@@ -62,7 +62,7 @@ The product is already mostly formed. Current work should prioritize:
 
 ## Active Built-In Modules
 
-Registered at launch (`BuiltInModules.makeAll()`): Apps, Clipboard, Commands, Notes, Todo, Translate, Wordbook, Snippets, Secrets, Records (`luma.media`), Window Layouts, Projects, Quicklinks, Menu Bar Search, Kill Process, Browser Tabs, Auto Workflow.
+Registered at launch (`ModuleRegistry.allBundles` → `BuiltInModules.makeAll()`): Apps, Clipboard, Commands, Notes, Todo, Translate, Wordbook, Snippets, Secrets, Records (`luma.media`), Window Layouts, Projects, Quicklinks, Menu Bar Search, Kill Process, Browser Tabs, Auto Workflow.
 
 Default off in Settings: Commands, Records (`luma.media`), Browser Tabs, Auto Workflow.
 

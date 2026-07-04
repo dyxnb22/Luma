@@ -28,7 +28,7 @@ These decisions answer the previous open questions and are now in force for Luma
 ## Architecture
 
 - Current persistence uses local JSON/UserDefaults/Keychain/App Support files. Do not claim GRDB/SQLite is active until a dedicated migration lands.
-- Module registration remains a manual list through `BuiltInModules` plus app-coordinator-owned shared instances where needed.
+- Module registration remains a manual bundle list through `ModuleRegistry.allBundles`; `BuiltInModules.makeAll()` derives from that list and may receive app-coordinator-owned shared instances where needed.
 - macOS 14+ only.
 - Translation uses system translation on supported macOS versions and Shortcuts fallback where needed; no HTTP provider abstraction in v1.
 

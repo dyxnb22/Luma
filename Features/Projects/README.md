@@ -6,7 +6,7 @@ Quickly open frequently used dev projects in Cursor, VS Code, Finder, or Termina
 
 ## Active Behavior (Route C)
 
-- Registered in `BuiltInModules.makeAll()`.
+- Registered through `ModuleRegistry.allBundles` and instantiated by `BuiltInModules.makeAll()`.
 - Prefix triggers: `proj`, `p`, `project` (e.g. `proj luma`, `p luma`).
 - Empty payload: up to 8 pinned/recent projects.
 - With query: fuzzy search name, path, aliases from in-memory index.

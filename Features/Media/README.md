@@ -61,7 +61,7 @@ Stored in `~/Library/Application Support/Luma/media.json`.
 
 ## Warmup
 
-`warmup` loads all entries from `media.json` into `cachedItems: [MediaItem]`. Subsequent `handle` calls are memory-only. **Phase 2** (JSON file load). Never add to `BuiltInModules.fastModuleIDs`.
+`warmup` loads all entries from `media.json` into `cachedItems: [MediaItem]`. Subsequent `handle` calls are memory-only. Warmup tier is `onDemand`; do not add Media to `BuiltInModules.fastModuleIDs`.
 
 ## Implementation Entry
 

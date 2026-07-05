@@ -6,9 +6,9 @@ This folder is the maintenance index for Luma's feature modules. Each feature ow
 
 **Home (frozen 2026-07-03):** Open Apps in the left column; right pane = command guide or module detail (ADR-032). No dashboard card grid, no setup/recent/continue/create sections, no `+N more`, no auto-onboarding.
 
-**Modules (registered at launch):** Apps, Clipboard, Commands, Notes, Todo, Translate, Wordbook, Snippets, Secrets, Media, Window Layouts, Projects, Quicklinks, Menu Bar Search, Kill Process, Browser Tabs, Auto Workflow.
+**Modules (registered at launch):** Apps, Clipboard, Commands, Notes, Todo, Translate, Wordbook, Snippets, Secrets, Media, Window Layouts, Projects, Quicklinks, Menu Bar Search, Kill Process, Browser Tabs.
 
-**Default off:** Commands, Media, Browser Tabs, Auto Workflow.
+**Default off:** Commands, Media, Browser Tabs.
 
 **Deferred:** Windows (source retained, not in `BuiltInModules.makeAll()`).
 
@@ -34,7 +34,6 @@ See `docs/adr/023-command-first-unified-list.md`, `docs/specs/LAUNCHER_HOME_CONS
 | Menu Bar Search | on | [MenuItems](MenuItems/) |
 | Kill Process | on | [KillProcess](KillProcess/) |
 | Browser Tabs | off | [BrowserTabs](BrowserTabs/) |
-| Auto Workflow | off | [Autoworkflow](Autoworkflow/) |
 
 Deferred (source retained, not registered): Windows
 

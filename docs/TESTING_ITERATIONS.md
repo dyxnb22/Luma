@@ -30,7 +30,6 @@ The current suite covers launcher behavior and module logic including:
 - Menu Bar Search parser and cached query behavior
 - Kill Process result generation and guarded actions
 - Browser Tabs parsing, cache refresh behavior, and automation-path handling
-- Auto Workflow status/list JSON parsing, detached PID parsing, shell argument splitting, and macOS app PATH handling
 - Performance gates including keystroke replay and slow-module budgets
 - Launcher home split layout, guide/detail cross-fade hit-test policy, detail exit routing, and search detail-mode state (pure logic in `LumaCore`; AppKit wiring still manual)
 - Documentation drift guard for deprecated spec phrases (`DocumentationDriftTests`)

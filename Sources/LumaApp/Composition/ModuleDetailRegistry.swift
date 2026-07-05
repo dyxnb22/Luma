@@ -97,24 +97,6 @@ final class ModuleDetailRegistry {
         registry.register(.quicklinks) { ctx in
             QuicklinksDetailView(module: ctx.quicklinksModule)
         }
-        registry.register(.autoworkflow) { ctx in
-            guard let env = LauncherEnvironment.current else { return nil }
-            let defaults = UserDefaults.standard
-            let config = AutoworkflowConfig(
-                autoworkflowPath: defaults.string(forKey: "aw_path") ?? "\(NSHomeDirectory())/autoworkflow",
-                stateRoot: defaults.string(forKey: "aw_stateRoot") ?? NSHomeDirectory() + "/.cc-loop",
-                defaultPlanner: defaults.string(forKey: "aw_planner") ?? "claude-code",
-                defaultReviewer: defaults.string(forKey: "aw_reviewer") ?? "claude-code",
-                defaultImplementer: defaults.string(forKey: "aw_implementer") ?? "cursor",
-                defaultModel: defaults.string(forKey: "aw_model") ?? "sonnet"
-            )
-            return AutoworkflowDetailView(
-                module: env.autoworkflowModule,
-                service: env.autoworkflowModule.service,
-                config: config,
-                onOpenSettings: ctx.onOpenSettings
-            )
-        }
         return registry
     }
 }

@@ -1,3 +1,0 @@
- 2774 35368 S    Cursor Helper (Plugin): extension-host (user) Luma [10-23]                      
-11512     1 S    /Users/diaoyuxuan/Luma/build/Luma.app/Contents/MacOS/Luma
-14464 61282 Ss   bash ./scripts/qa/autoworkflow_collect.sh

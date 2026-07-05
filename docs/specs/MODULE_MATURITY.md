@@ -39,4 +39,4 @@ Use this when adding or shipping changes to a built-in module. Goal: consistent 
 
 ## Default-off modules
 
-Commands, Records (`luma.media`), Browser Tabs, and Auto Workflow ship **disabled**. Each must include `defaultOffNote` on the bundle and Settings copy explaining why.
+Commands, Records (`luma.media`), and Browser Tabs ship **disabled**. Each must include `defaultOffNote` on the bundle and Settings copy explaining why.

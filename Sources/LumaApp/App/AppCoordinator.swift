@@ -102,7 +102,6 @@ final class AppCoordinator {
     private let secretsModule = SecretsModule()
     private let mediaModule = MediaModule()
     private let quicklinksModule = QuicklinksModule()
-    private let autoworkflowModule = AutoworkflowModule()
     private lazy var wordbookStore = WordbookStore()
     private lazy var wordbookModule = WordbookModule(store: wordbookStore)
     private lazy var snippetsModule = SnippetsModule()
@@ -289,7 +288,6 @@ final class AppCoordinator {
             wordbookStore: wordbookStore,
             projectsModule: projectsModule,
             quicklinksModule: quicklinksModule,
-            autoworkflowModule: autoworkflowModule,
             translation: translation,
             config: config,
             accessibility: accessibility,
@@ -350,7 +348,6 @@ final class AppCoordinator {
                 media: mediaModule,
                 projects: projectsModule,
                 quicklinks: quicklinksModule,
-                autoworkflow: autoworkflowModule,
                 menuItems: menuItemsModule
             ))
             for module in modules {

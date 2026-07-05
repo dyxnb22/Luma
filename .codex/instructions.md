@@ -20,7 +20,7 @@ Do not implement dashboard/card or Route B home instructions from historical ADR
 - Keep command modules prefix-triggered; `handle` memory-only on the query path.
 - `LumaCore` UI-free; system boundaries in `LumaServices`; launcher UI in `LumaApp`.
 - `LauncherEnvironment.showStatus` and other callbacks: `let` parameters in `init`, never optional `var`.
-- Filesystem-heavy modules (Notes, Projects, MenuItems, Media) and Auto Workflow: `onDemand`, not in `fastModuleIDs`.
+- Filesystem-heavy modules (Notes, Projects, MenuItems, Media): `onDemand`, not in `fastModuleIDs`.
 - AX IPC off MainActor; only `frontmostApplication` capture on main.
 
 ## Verification

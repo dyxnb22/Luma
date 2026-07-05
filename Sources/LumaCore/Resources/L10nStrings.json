@@ -48,8 +48,8 @@
     "zh-Hans": "选择建议项或按 Return"
   },
   "search.placeholder.cheatSheet": {
-    "en": "Search apps, paste, translate, todo, aw…",
-    "zh-Hans": "搜索应用、剪贴板、翻译、待办、aw…"
+    "en": "Search apps, paste, translate, todo…",
+    "zh-Hans": "搜索应用、剪贴板、翻译、待办…"
   },
   "home.section.openApps": {
     "en": "OPEN APPS",
@@ -174,14 +174,6 @@
   "home.guide.blurb.projects": {
     "en": "Open recent projects",
     "zh-Hans": "打开最近项目"
-  },
-  "home.guide.name.autoworkflow": {
-    "en": "Autoworkflow",
-    "zh-Hans": "自动化"
-  },
-  "home.guide.blurb.autoworkflow": {
-    "en": "Run quick workflows",
-    "zh-Hans": "快捷工作流"
   },
   "home.guide.name.kill-process": {
     "en": "Kill process",

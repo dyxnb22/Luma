@@ -16,7 +16,6 @@ enum SettingsSection: String, CaseIterable, Identifiable {
     case secrets       = "Secrets"
     case accessibility = "Accessibility"
     case activity      = "Activity"
-    case autoworkflow  = "Auto Workflow"
     case developer     = "Developer"
 
     var id: String { rawValue }
@@ -31,7 +30,6 @@ enum SettingsSection: String, CaseIterable, Identifiable {
         case .secrets:       return "lock.shield"
         case .accessibility: return "hand.raised"
         case .activity:      return "chart.bar"
-        case .autoworkflow:  return "gearshape.2"
         case .developer:     return "hammer"
         }
     }
@@ -46,7 +44,6 @@ enum SettingsSection: String, CaseIterable, Identifiable {
         case .secrets:       return .yellow
         case .accessibility: return .green
         case .activity:      return .indigo
-        case .autoworkflow:  return .teal
         case .developer:     return .brown
         }
     }
@@ -147,8 +144,6 @@ struct SettingsSwiftUIView: View {
             AccessibilitySettingsView()
         case .activity:
             ActivitySettingsPage(usage: usage)
-        case .autoworkflow:
-            AutoworkflowSettingsView()
         case .developer:
             DeveloperSettingsView(
                 snapshot: snapshot,
@@ -869,188 +864,6 @@ struct SettingsRow<Control: View>: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 9)
-    }
-}
-
-// MARK: - Auto Workflow settings
-
-struct AutoworkflowSettingsView: View {
-    @State private var autoworkflowPath: String
-    @State private var stateRoot: String
-    @State private var planner: String
-    @State private var reviewer: String
-    @State private var implementer: String
-    @State private var model: String
-    @State private var saved = false
-    @State private var errorMessage: String?
-    @State private var ccLoopAvailable = false
-    @State private var sourceExists = false
-
-    private let store = AutoworkflowConfigStore()
-
-    init() {
-        // Load synchronously from UserDefaults for initial state
-        let defaults = UserDefaults.standard
-        _autoworkflowPath = State(initialValue: defaults.string(forKey: "aw_path") ?? "\(NSHomeDirectory())/autoworkflow")
-        _stateRoot = State(initialValue: defaults.string(forKey: "aw_stateRoot") ?? NSHomeDirectory() + "/.cc-loop")
-        _planner = State(initialValue: defaults.string(forKey: "aw_planner") ?? "claude-code")
-        _reviewer = State(initialValue: defaults.string(forKey: "aw_reviewer") ?? "claude-code")
-        _implementer = State(initialValue: defaults.string(forKey: "aw_implementer") ?? "cursor")
-        _model = State(initialValue: defaults.string(forKey: "aw_model") ?? "sonnet")
-    }
-
-    var body: some View {
-        SettingsPage("Auto Workflow") {
-            SettingsCard("Status") {
-                SettingsRow("autoworkflow source", icon: sourceExists ? "checkmark.circle.fill" : "xmark.circle.fill") {
-                    HStack(spacing: 6) {
-                        Circle().fill(sourceExists ? Color.green : Color.red).frame(width: 8, height: 8)
-                        Text(sourceExists ? "Found" : "Not found")
-                            .foregroundStyle(sourceExists ? .primary : .secondary)
-                            .font(.system(size: 13))
-                    }
-                }
-                Divider()
-                SettingsRow("cc-loop CLI", icon: ccLoopAvailable ? "terminal.fill" : "terminal") {
-                    HStack(spacing: 6) {
-                        Circle().fill(ccLoopAvailable ? Color.green : Color.orange).frame(width: 8, height: 8)
-                        Text(ccLoopAvailable ? "Available" : "Check PATH")
-                            .foregroundStyle(ccLoopAvailable ? .primary : .secondary)
-                            .font(.system(size: 13))
-                    }
-                }
-            }
-            .onAppear { checkAvailability() }
-
-            SettingsCard("Paths") {
-                VStack(alignment: .leading, spacing: 6) {
-                    SettingsRow("Source path", icon: "folder") {
-                        TextField("/Users/diaoyuxuan/autoworkflow", text: $autoworkflowPath)
-                            .textFieldStyle(.roundedBorder).frame(width: 280)
-                            .onChange(of: autoworkflowPath) { checkAvailability() }
-                    }
-                    Text("Directory where autoworkflow is cloned (cc-loop source)")
-                        .font(.caption).foregroundStyle(.tertiary).padding(.leading, 30)
-                }
-                Divider()
-                VStack(alignment: .leading, spacing: 6) {
-                    SettingsRow("State root", icon: "tray") {
-                        TextField("~/.cc-loop", text: $stateRoot)
-                            .textFieldStyle(.roundedBorder).frame(width: 280)
-                    }
-                    Text("Where cc-loop stores task state, logs, and artifacts")
-                        .font(.caption).foregroundStyle(.tertiary).padding(.leading, 30)
-                }
-            }
-
-            SettingsCard("Defaults") {
-                PickerRow(label: "Planner", icon: "brain.head.profile", selection: $planner,
-                          options: ["claude-code", "codex"])
-                Divider()
-                PickerRow(label: "Reviewer", icon: "eye", selection: $reviewer,
-                          options: ["claude-code", "codex"])
-                Divider()
-                PickerRow(label: "Implementer", icon: "hammer", selection: $implementer,
-                          options: ["cursor", "claude-code"])
-                Divider()
-                VStack(alignment: .leading, spacing: 6) {
-                    SettingsRow("Model", icon: "cpu") {
-                        TextField("sonnet", text: $model)
-                            .textFieldStyle(.roundedBorder).frame(width: 160)
-                    }
-                    Text("Model passed to provider: sonnet, opus, haiku")
-                        .font(.caption).foregroundStyle(.tertiary).padding(.leading, 30)
-                }
-            }
-
-            HStack {
-                if let errorMessage {
-                    Text(errorMessage).foregroundStyle(.red).font(.subheadline)
-                } else if saved {
-                    Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
-                    Text("Saved").foregroundStyle(.secondary).font(.subheadline)
-                }
-                Spacer()
-                Button("Save") { saveConfig() }
-                    .buttonStyle(.borderedProminent)
-            }
-        }
-    }
-
-    private func checkAvailability() {
-        let path = autoworkflowPath
-        Task {
-            var isDirectory: ObjCBool = false
-            let exists = FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory)
-                && isDirectory.boolValue
-            let ccLoop = Self.isCcLoopOnPath()
-            await MainActor.run {
-                sourceExists = exists
-                ccLoopAvailable = ccLoop
-            }
-        }
-    }
-
-    private static func isCcLoopOnPath() -> Bool {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-        process.arguments = ["which", "cc-loop"]
-        process.environment = AutoworkflowCLIEnvironment.environment()
-        process.standardOutput = FileHandle.nullDevice
-        process.standardError = FileHandle.nullDevice
-        do {
-            try process.run()
-            process.waitUntilExit()
-            return process.terminationStatus == 0
-        } catch {
-            return false
-        }
-    }
-
-    private func saveConfig() {
-        let path = autoworkflowPath.trimmingCharacters(in: .whitespacesAndNewlines)
-        let root = stateRoot.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !path.isEmpty, !root.isEmpty else {
-            errorMessage = "Source path and State root are required"
-            saved = false
-            return
-        }
-        errorMessage = nil
-        let config = AutoworkflowConfig(
-            autoworkflowPath: path,
-            stateRoot: root,
-            defaultPlanner: planner,
-            defaultReviewer: reviewer,
-            defaultImplementer: implementer,
-            defaultModel: model
-        )
-        Task {
-            await store.save(config)
-            await LauncherEnvironment.current?.autoworkflowModule.updateConfig(config)
-        }
-        checkAvailability()
-        saved = true
-        Task {
-            try? await Task.sleep(for: .seconds(2))
-            await MainActor.run { saved = false }
-        }
-    }
-}
-
-private struct PickerRow: View {
-    let label: String
-    let icon: String
-    @Binding var selection: String
-    let options: [String]
-
-    var body: some View {
-        SettingsRow(label, icon: icon) {
-            Picker("", selection: $selection) {
-                ForEach(options, id: \.self) { Text($0).tag($0) }
-            }
-            .labelsHidden()
-            .frame(width: 160)
-        }
     }
 }
 

@@ -18,5 +18,4 @@ extension ModuleIdentifier {
     public static let menuItems = ModuleIdentifier(rawValue: "luma.menu-items")
     public static let killProcess = ModuleIdentifier(rawValue: "luma.kill-process")
     public static let browserTabs = ModuleIdentifier(rawValue: "luma.browser-tabs")
-    public static let autoworkflow = ModuleIdentifier(rawValue: "luma.autoworkflow")
 }

@@ -118,7 +118,6 @@ Module surfaces share one fixed panel width. Content must **compress or scroll**
 | --- | --- | --- |
 | Translate | `TranslateDetailView.swift` | `panelsStack`, `toolbar`, `errorBanner` pin to `container` leading/trailing |
 | Notes | `NotesDetailView.swift` | `topStrip`, `chipBar`, `filterStrip`, scroll views pin to `container` — IA: [NOTES_DETAIL_CONSTRAINTS.md](NOTES_DETAIL_CONSTRAINTS.md) |
-| Auto Workflow | `AutoworkflowDetailView.swift` | `contentStack.widthAnchor = container.widthAnchor` |
 
 Custom detail toolbars with many controls: use `GeekUIKit.constrainDetailToolbarTrailingActions(_:in:after:)` — trailing actions scroll inside fixed width, do not grow the panel. **Required** for crowded toolbars.
 
@@ -149,7 +148,6 @@ Call after:
 | Clipboard, Todo, Secrets, Snippets, Media, Wordbook, Projects, Quicklinks, Current Project | `BaseDetailContainer` → `installDetailRootChrome` | OK |
 | Translate | `GeekGlassPanel` + `configureContentSurface` chrome child | OK |
 | Notes | Custom detail; stacks pinned to `container` | OK |
-| Auto Workflow | Custom detail; `contentStack` width = container | OK |
 | Action panel (Tab / ⌘K) | `LauncherActionPanel.chromeView` child | OK |
 | Permission banner | `PermissionBannerController.bannerView` | OK — chrome is pinned to `chromeView` |
 | Detail toolbars (Clipboard, Secrets, Todo) | Horizontal button stacks | OK — use horizontal overflow constraints where crowded |
@@ -228,9 +226,9 @@ Any PR that touches panel positioning, size tokens, presentation screen, launche
 
 - Open launcher on **each** connected display (move cursor first) → panel centered, not clipped on the right.
 - Type module prefixes — panel stays centered; search field and list align with panel edges:
-  - `help`, `?`, `clip`, `note`, `tr`, `word`, `rec`, `t`, `aw`, `secret`, `ql`, `proj`
+  - `help`, `?`, `clip`, `note`, `tr`, `word`, `rec`, `t`, `secret`, `ql`, `proj`
 - `help` / `?` global command list must not expand panel width — rows truncate inside fixed width.
-- Open Translate / Notes / Clipboard / Auto Workflow detail → no horizontal growth; toolbars scroll if crowded.
+- Open Translate / Notes / Clipboard detail → no horizontal growth; toolbars scroll if crowded.
 - Tab action panel on a result → overlay does not shift the panel.
 - Open Settings from menu while cursor is on secondary display → window appears on that display.
 

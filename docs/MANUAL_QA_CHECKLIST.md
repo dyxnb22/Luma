@@ -40,13 +40,13 @@
 Panel and search field must stay **horizontally aligned** with panel edges — no right-edge clip or content shift when layout changes.
 
 - Type each prefix below; command hint appears without horizontal drift:
-  - `help`, `?`, `clip`, `note`, `tr`, `word`, `rec`, `t`, `aw`, `secret`, `ql`, `proj`, `mb`, `kill`, `tab`
+  - `help`, `?`, `clip`, `note`, `tr`, `word`, `rec`, `t`, `secret`, `ql`, `proj`, `mb`, `kill`, `tab`
 - `help` alone shows global command list — panel width unchanged; rows truncate, no edge-to-edge stretch.
 - Clear query → home restores without drift.
 - Open detail from prefix or result → no right-edge clip; Esc back to results → still centered.
 - During detail open/close fade, list area must remain clickable after animation completes (audit L1).
 - Tab action panel on a result → overlay does not shift the panel.
-- Open Translate / Notes / Clipboard / Auto Workflow / Todo detail → toolbars scroll if crowded; panel width unchanged.
+- Open Translate / Notes / Clipboard / Todo detail → toolbars scroll if crowded; panel width unchanged.
 
 ### Multi-monitor
 
@@ -120,7 +120,7 @@ Panel and search field must stay **horizontally aligned** with panel edges — n
 - **Known open issue:** SPLIT-TEST automated split-layout coverage remains manual; verify split-pane focus, guide/detail transitions, and keyboard routing during QA.
 - Esc on results clears query and shows home.
 - Esc on home closes the panel.
-- Detail toolbars with multiple buttons scroll horizontally instead of clipping (Records, Auto Workflow, Translate, etc.).
+- Detail toolbars with multiple buttons scroll horizontally instead of clipping (Records, Translate, etc.).
 - Standard edit shortcuts (Command+A/C/V/X/Z, undo/redo) work in detail text fields via `LumaStandardEditShortcuts`.
 
 ### Latency HUD
@@ -230,20 +230,6 @@ Panel and search field must stay **horizontally aligned** with panel edges — n
 - `tab ?` shows help rows and notes Automation permission.
 - Test Safari closed, Chrome not running, Arc/Edge/Brave in background, duplicate titles, stale cache after tab switch.
 - Deny Automation permission and verify the failure is user-facing rather than raw script output.
-
-## Auto Workflow
-
-- Detailed pass: `docs/qa/AUTOWORKFLOW_UI_ACCEPTANCE.md`.
-- Preflight: `./scripts/qa/autoworkflow_preflight.sh`.
-- Evidence collection: `./scripts/qa/autoworkflow_collect.sh`.
-- Enable Auto Workflow in Settings → Modules.
-- Settings → Auto Workflow shows source path and `cc-loop` availability accurately.
-- Cmd+Space → `aw` opens the same-panel Auto Workflow detail view.
-- Empty goal/repo cannot start and shows a user-facing error.
-- Valid goal/repo runs doctor → init → detached start and shows task ID, PID, polling status, and log tail.
-- Stop terminates the runner without killing unrelated processes; stopped/interrupted tasks expose Resume when `cc-loop` reports it.
-- Hide and reopen the launcher; polling is stopped while hidden and resumes from task status when the panel is opened again.
-- Test missing source path, missing `cc-loop`, large log tail, and prefixed status/list output.
 
 ## Notes v0.1
 

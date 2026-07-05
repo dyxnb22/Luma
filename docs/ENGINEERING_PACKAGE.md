@@ -49,7 +49,6 @@ When documents conflict, follow:
 - Empty query shows **Open Apps** in the left column with guide/detail on the right (frozen; ADR-032).
 - Module details open in the same panel.
 - User-facing media functionality is named Records; the technical module identifier remains `luma.media`.
-- Auto Workflow is a default-off, on-demand wrapper around the external `cc-loop` CLI; see ADR-031.
 - The product is already broadly built; current priority is integration and polish over new scope.
 
 ## Implementation Defaults
@@ -91,7 +90,6 @@ Until then: keep per-module JSON namespaces, schema versions, and in-memory inde
 - [ADR-022 Todo Frozen Scope](adr/022-todo-frozen-scope.md) — historical; dashboard card row superseded
 - [ADR-023 Command-First Unified List (Route C)](adr/023-command-first-unified-list.md) — **active UI route**
 - [ADR-032 Home Split Command Guide](adr/032-home-split-command-guide.md) — **active empty-query home**
-- [ADR-031 Auto Workflow cc-loop Integration](adr/031-autoworkflow-integration.md)
 
 ## How to Add a New Module
 
@@ -105,7 +103,7 @@ Until then: keep per-module JSON namespaces, schema versions, and in-memory inde
 Warmup tiers:
 
 - `hotPath` — participates in global search fan-out; warms at startup when pinned (default for in-memory modules).
-- `onDemand` — excluded from global search; warms on first targeted query or detail open (examples: Notes, Projects, MenuItems, Media, Auto Workflow).
+- `onDemand` — excluded from global search; warms on first targeted query or detail open (examples: Notes, Projects, MenuItems, Media).
 
 Users can pin modules in Settings → Modules for always-hot startup behavior and workbench gating (`enabled ∩ pinned`). Pinning does **not** add home rows.
 

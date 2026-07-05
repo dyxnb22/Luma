@@ -83,7 +83,7 @@ Notes detail IA and create flows: [NOTES_DETAIL_CONSTRAINTS.md](NOTES_DETAIL_CON
 - Full-width hosts (`LauncherRootView`, `contentContainer`, `detailContainer`, list row body, `BaseDetailContainer` root) must **not** use `wantsLayer`. Default layer `anchorPoint (0.5, 0.5)` causes horizontal drift when command hints, sectioned results, or detail toolbars relayout — right edge clips (regression: typing `clip`, `note`).
 - Glass, borders, selection, and search chrome go on **pinned child views** (`GeekUIKit` helpers — see [LAUNCHER_PANEL_CONSTRAINTS.md](LAUNCHER_PANEL_CONSTRAINTS.md)).
 - After search, results, home, or detail transitions, the host calls `LauncherInPanelLayout.stabilizePanel(from:)` → `LauncherPanel.enforceLockedGeometry()` (re-centers and clamps width to `lockedFrameSize`) plus `stabilizeContentLayout()`.
-- Custom module details (Translate, Notes, Auto Workflow) pin horizontal stacks to the detail container width; crowded toolbars scroll horizontally.
+- Custom module details (Translate, Notes) pin horizontal stacks to the detail container width; crowded toolbars scroll horizontally.
 - During detail ↔ list transitions, fading overlays must not block clicks (`ignoresMouseEvents` or `isHidden` until transition completes — see audit L1). Split-mode detail does not fade out the left Open Apps column.
 - Bounded widgets (icons, keycaps, table row surfaces, thumbnails) may keep `wantsLayer` on the widget itself.
 

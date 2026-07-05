@@ -31,7 +31,6 @@ final class LauncherEnvironment {
     let wordbookStore: WordbookStore
     let projectsModule: ProjectsModule
     let quicklinksModule: QuicklinksModule
-    let autoworkflowModule: AutoworkflowModule
     let translation: any TranslationClient
     let config: ConfigurationStore
     let accessibility: any AccessibilityClient
@@ -65,7 +64,6 @@ final class LauncherEnvironment {
         wordbookStore: WordbookStore,
         projectsModule: ProjectsModule,
         quicklinksModule: QuicklinksModule,
-        autoworkflowModule: AutoworkflowModule = AutoworkflowModule(),
         translation: any TranslationClient,
         config: ConfigurationStore,
         accessibility: any AccessibilityClient,
@@ -92,7 +90,6 @@ final class LauncherEnvironment {
         self.wordbookStore = wordbookStore
         self.projectsModule = projectsModule
         self.quicklinksModule = quicklinksModule
-        self.autoworkflowModule = autoworkflowModule
         self.translation = translation
         self.config = config
         self.accessibility = accessibility

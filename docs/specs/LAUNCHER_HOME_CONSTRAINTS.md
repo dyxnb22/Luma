@@ -40,6 +40,15 @@ That is the **only** section `LauncherHomeAggregator` may append on empty query.
 - Multi-window apps may still expand/collapse per-app window rows (unchanged).
 - Section header label comes from i18n key `home.section.openApps` (e.g. 打开应用 / Open Apps).
 
+### Presentation stability rules
+
+- Showing the launcher must **not** rebuild the Open Apps column as part of the first visible frame.
+- Empty-home session restore is a no-op when the persisted query/module is empty; it must focus the search field without calling `showHome()` or `refreshHome()`.
+- Open Apps background cache updates may continue while the app is running, but they must not repaint the visible home list while the panel is open.
+- `restoreLastSessionIfNeeded()` may restore a non-empty query or module detail, but `.showHome` restore must not re-render home.
+- App activation for Luma itself must not trigger a home refresh.
+- Ignore non-visual AX/CGWindow churn such as focus/bounds changes when deciding whether Open Apps cache changes require a UI update. Title/window identity/minimized/app membership changes may update cached data.
+
 ---
 
 ## What Home Must NOT Show (Frozen Out)
@@ -122,7 +131,9 @@ In-panel layout rules (search bar, list, detail) live in **[LAUNCHER_PANEL_CONST
 | Home composition | `LauncherHomeAggregator.swift` | Only `.openApps` on empty query |
 | App wiring | `AppCoordinator.swift` | No `SetupHomeProvider` on coordinator |
 | Coordinator | `LauncherHomeCoordinator.swift` | `configure(collapsedBundleIDs:)`; no app limit / `+N more` |
-| Open apps | `OpenAppsHomeProvider.swift` | No `moreRow` append |
+| Open apps | `OpenAppsHomeProvider.swift` | No `moreRow` append; stable comparison ignores focus/bounds churn |
+| Show/hide | `LauncherWindowController.swift` | Hotkey show focuses existing UI; no `refreshHome()` on show |
+| Session restore | `LauncherRootController.swift` | Empty `.showHome` restore is no-op; non-empty query/detail restore only |
 | Onboarding | — | No auto-present; wizard view removed |
 | Tokens | `LauncherChromeTokens.swift` | Panel + list visual values above |
 | Rows | `LauncherListRow.swift` | Idle = clear background; selection on `backgroundView` child only |

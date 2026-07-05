@@ -75,6 +75,11 @@ final class LauncherWindowController {
         rootView?.refreshHome()
     }
 
+    func refreshHomeForBackgroundDataUpdate() {
+        guard !panel.isVisible else { return }
+        rootView?.refreshHome()
+    }
+
     func setLatencyHUDEnabled(_ enabled: Bool) {
         rootView?.setLatencyHUDEnabled(enabled)
     }
@@ -131,11 +136,9 @@ final class LauncherWindowController {
         panel.makeKey()
         panel.alphaValue = 1
 
-        // Next runloop: focus + home refresh are async Tasks but still compete with first paint if inline.
         DispatchQueue.main.async { [weak self] in
             guard let self, self.showGeneration == generation, self.panel.isVisible else { return }
             self.rootView?.focusSearchFieldAfterShow()
-            self.rootView?.refreshHome()
             if ProcessInfo.processInfo.environment["LUMA_QA"] == "1" {
                 self.ensureSearchFieldFocused()
             }

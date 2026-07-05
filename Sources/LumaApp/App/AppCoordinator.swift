@@ -112,7 +112,7 @@ final class AppCoordinator {
     private lazy var homeCoordinator = LauncherHomeCoordinator(
         openApps: openAppsProvider,
         onHomeDataUpdated: { [weak self] in
-            Task { @MainActor in self?.windowController.refreshHome() }
+            Task { @MainActor in self?.windowController.refreshHomeForBackgroundDataUpdate() }
         }
     )
     private var activationObserver: NSObjectProtocol?
@@ -183,6 +183,7 @@ final class AppCoordinator {
                   let bundleID = app.bundleIdentifier else { return }
             Task { @MainActor in
                 await self.appActivationTracker.record(bundleID: bundleID)
+                guard bundleID != Bundle.main.bundleIdentifier else { return }
                 self.windowController.hideIfShowingForExternalActivation(bundleID: bundleID)
                 self.windowController.refreshHome()
             }

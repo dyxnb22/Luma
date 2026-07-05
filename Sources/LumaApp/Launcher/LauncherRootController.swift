@@ -756,7 +756,7 @@ final class LauncherRootController {
             searchBar.stringValue = query
             handleTextChange(query)
         case .showHome:
-            showHome(focusSearch: false, persist: false)
+            break
         }
     }
 

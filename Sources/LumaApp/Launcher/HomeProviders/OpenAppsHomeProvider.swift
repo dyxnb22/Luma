@@ -10,6 +10,34 @@ private struct AppRuntimeSnapshot: Sendable, Equatable {
     let appURL: URL
     let windowCount: Int
     let windows: [OpenWindowSnapshot]
+
+    static func == (lhs: AppRuntimeSnapshot, rhs: AppRuntimeSnapshot) -> Bool {
+        lhs.bundleID == rhs.bundleID
+            && lhs.name == rhs.name
+            && lhs.appURL == rhs.appURL
+            && lhs.windowCount == rhs.windowCount
+            && lhs.windows.stableOpenAppsIdentity == rhs.windows.stableOpenAppsIdentity
+    }
+}
+
+private extension Array where Element == OpenWindowSnapshot {
+    var stableOpenAppsIdentity: [StableOpenAppsWindowIdentity] {
+        map(StableOpenAppsWindowIdentity.init)
+    }
+}
+
+private struct StableOpenAppsWindowIdentity: Equatable {
+    let windowID: UInt32
+    let pid: Int32
+    let title: String
+    let isMinimized: Bool
+
+    init(_ window: OpenWindowSnapshot) {
+        self.windowID = window.windowID
+        self.pid = window.pid
+        self.title = window.title
+        self.isMinimized = window.isMinimized
+    }
 }
 
 actor OpenAppsHomeProvider: LauncherHomeProvider {
@@ -63,7 +91,9 @@ actor OpenAppsHomeProvider: LauncherHomeProvider {
     }
 
     private func refreshLoop() async {
-        await refreshOnce()
+        if cachedSnapshots.isEmpty {
+            await refreshOnce()
+        }
         while !Task.isCancelled {
             try? await Task.sleep(for: .seconds(2))
             if Task.isCancelled { break }

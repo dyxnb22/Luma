@@ -77,7 +77,7 @@ Module bundle registration is the single built-in module manifest surface. Each 
 ## Data Flow
 
 1. Global hotkey fires.
-2. `LauncherWindowController` shows the already-created panel and focuses the search field.
+2. `LauncherWindowController` shows the already-created panel and focuses the search field; it must not rebuild home/Open Apps on show.
 3. `LauncherViewModel` converts text input into `Query` values with monotonic sequence numbers (12 ms debounce).
 4. `QueryDispatcher` fans out to enabled modules with per-module timeouts.
 5. Module results are merged, ranked, truncated, and emitted progressively.
@@ -88,12 +88,14 @@ Module bundle registration is the single built-in module manifest surface. Each 
 ## Home List Flow (Route C)
 
 1. Empty query: `LauncherHomeCoordinator` aggregates **Open Apps** in the left column; right pane shows command guide or module detail (ADR-032 — see `docs/specs/LAUNCHER_HOME_CONSTRAINTS.md`).
-2. Non-empty query: `QueryDispatcher` results render as a flat list (max 8 rows).
-3. Tab / ⌘K opens `LauncherActionPanel` for primary and secondary actions.
-4. Module detail entry: trigger keyword → result row → Return (or workbench / bare command).
-5. Some command-style modules, including Wordbook, surface an open-detail row whose primary action opens in-panel detail.
-6. `FeatureCatalog.moduleDetailMetadata()` supplies detail header chrome only.
-7. **Snippet trigger expansion**: if the raw query exactly matches a snippet's `trigger` field (case-insensitive) and the `CommandRouter` classifies it as a global search, Return expands and pastes the snippet inline without opening detail.
+2. Open Apps data is cached and refreshed off the panel presentation path; background updates must not repaint the visible home list while the panel is open.
+3. Empty persisted-session restore is a no-op for home rendering; non-empty query/detail restore may intentionally mutate visible UI.
+4. Non-empty query: `QueryDispatcher` results render as a flat list (max 8 rows).
+5. Tab / ⌘K opens `LauncherActionPanel` for primary and secondary actions.
+6. Module detail entry: trigger keyword → result row → Return (or workbench / bare command).
+7. Some command-style modules, including Wordbook, surface an open-detail row whose primary action opens in-panel detail.
+8. `FeatureCatalog.moduleDetailMetadata()` supplies detail header chrome only.
+9. **Snippet trigger expansion**: if the raw query exactly matches a snippet's `trigger` field (case-insensitive) and the `CommandRouter` classifies it as a global search, Return expands and pastes the snippet inline without opening detail.
 
 ### Workbench context (off-home)
 

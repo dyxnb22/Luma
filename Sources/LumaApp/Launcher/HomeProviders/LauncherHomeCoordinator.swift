@@ -25,7 +25,6 @@ actor LauncherHomeCoordinator {
     }
 
     func setActive(_ active: Bool) async {
-        await openApps.setActive(active)
         await ClipboardPasteboardCache.shared.setActive(active)
         if active {
             // Panel signals are not first-frame critical; avoid competing with home render.

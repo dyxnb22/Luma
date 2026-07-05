@@ -23,6 +23,9 @@ Launcher convergence strategy adds a stricter working rule: warm keystroke p95 a
 ## Hot Path Rules
 
 - Panel is instantiated at app launch.
+- Hotkey show must reuse the already-rendered launcher/home UI; it must not call `refreshHome()` or rebuild Open Apps as part of panel presentation.
+- Empty persisted session restore must be a no-op for home rendering. Only non-empty query/detail restore may mutate the visible launcher after show.
+- Background Open Apps cache updates must be stale-while-revalidate: update cache off the hot path, and do not repaint the visible home list while the panel is open.
 - Result rows use stable dimensions.
 - No disk or network I/O in per-keystroke module queries.
 - No animated table diffs.

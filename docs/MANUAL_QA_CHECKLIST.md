@@ -97,6 +97,9 @@ Panel and search field must stay **horizontally aligned** with panel edges — n
 - Order changes after switching apps externally.
 - Open Apps does not list Luma itself.
 - Return or click on an app row activates that app.
+- Repeatedly close and re-open Luma with an empty query: the left Open Apps column must not visibly refresh, flash, collapse/expand, or reset selection.
+- Empty persisted home session restore must not repaint Open Apps on show. A non-empty persisted query/detail may restore intentionally.
+- Background Open Apps updates while the panel is visible must not repaint the left column; the next explicit home render may pick up cached changes.
 
 ### Search Results
 
@@ -112,7 +115,7 @@ Panel and search field must stay **horizontally aligned** with panel edges — n
 ### Module Detail
 
 - On **empty visible query**, detail opens in the **right column** (~540 pt); **left Open Apps stay visible** and clickable (ADR-032).
-- `presentModuleDetail` always refreshes home first — there is no full-width detail overlay path while visible query is empty.
+- Opening detail from empty home preserves the left Open Apps column and does not use the historical full-width detail overlay path.
 - Detail view uses `BaseDetailContainer` (16 pt margins); must scroll within right-column width — never widen the panel.
 - Search bar remains visible but read-only with an `In <Module> — Esc to go back` placeholder (prior query is restored when leaving detail).
 - Top bar shows Back, module title, and close.

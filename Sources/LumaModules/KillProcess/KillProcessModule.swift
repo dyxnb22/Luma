@@ -25,7 +25,7 @@ public actor KillProcessModule: LumaModule {
     }
 
     public func warmup(_ context: ModuleContext) async {
-        await refreshCache()
+        scheduleRefreshIfStale(force: cacheFetchedAt == nil)
     }
 
     public func handle(_ query: Query, context: QueryContext) async -> ModuleResult {
@@ -73,7 +73,7 @@ public actor KillProcessModule: LumaModule {
         case .relaunch(let bundleID, let pid):
             await service.relaunch(bundleID: bundleID, previousPID: pid, workspace: context.platform.workspace)
         }
-        await refreshCache()
+        scheduleRefreshIfStale()
     }
 
     internal func seedCacheForTesting(
@@ -84,8 +84,10 @@ public actor KillProcessModule: LumaModule {
         cacheFetchedAt = fetchedAt
     }
 
-    private func scheduleRefreshIfStale() {
-        if let fetchedAt = cacheFetchedAt, ContinuousClock.now - fetchedAt < cacheTTL {
+    private func scheduleRefreshIfStale(force: Bool = false) {
+        if !force,
+           let fetchedAt = cacheFetchedAt,
+           ContinuousClock.now - fetchedAt < cacheTTL {
             return
         }
         guard refreshTask == nil else { return }

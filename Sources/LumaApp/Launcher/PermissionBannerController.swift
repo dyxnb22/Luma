@@ -12,12 +12,14 @@ final class PermissionBannerController {
     private let label = NSTextField(labelWithString: "")
     private var heightConstraint: NSLayoutConstraint?
     private var pollingTask: Task<Void, Never>?
+    private var lastContext = AccessibilityGuidanceContext(surface: .none)
+    private(set) var isBannerVisible = false
 
     init(config: ConfigurationStore) {
         self.config = config
     }
 
-    func install(in parent: NSView) {
+    func install(in parent: NSView, above anchorView: NSView) {
         let chromeView = NSView()
         chromeView.wantsLayer = true
         chromeView.layer?.backgroundColor = NSColor.systemYellow.withAlphaComponent(0.12).cgColor
@@ -57,7 +59,7 @@ final class PermissionBannerController {
 
             bannerView.leadingAnchor.constraint(equalTo: parent.leadingAnchor, constant: 20),
             bannerView.trailingAnchor.constraint(equalTo: parent.trailingAnchor, constant: -20),
-            bannerView.bottomAnchor.constraint(equalTo: parent.bottomAnchor, constant: -8),
+            bannerView.bottomAnchor.constraint(equalTo: anchorView.topAnchor, constant: -8),
             heightConstraint!,
 
             label.leadingAnchor.constraint(equalTo: bannerView.leadingAnchor, constant: 12),
@@ -70,44 +72,51 @@ final class PermissionBannerController {
             settingsButton.trailingAnchor.constraint(equalTo: actionButton.leadingAnchor, constant: -6),
             settingsButton.centerYAnchor.constraint(equalTo: bannerView.centerYAnchor)
         ])
-        refresh()
+        refresh(context: .init(surface: .none))
     }
 
-    func refresh() {
-        Task { await refreshAsync() }
+    func refresh(context: AccessibilityGuidanceContext) {
+        lastContext = context
+        Task { await refreshAsync(context: context) }
     }
 
     func startPollingIfNeeded() {
+        guard isBannerVisible else {
+            stopPolling()
+            return
+        }
         Task { await startPollingIfNeededAsync() }
     }
 
-    private func refreshAsync() async {
+    private func refreshAsync(context: AccessibilityGuidanceContext) async {
         let enabled = await resolvedEnabledModules()
-        guard BuiltInModules.enabledModulesRequireAccessibility(enabled) else {
-            heightConstraint?.constant = 0
-            bannerView.isHidden = true
-            return
-        }
-        let granted = AXService.isProcessTrusted()
-        heightConstraint?.constant = granted ? 0 : 36
-        bannerView.isHidden = granted
-        label.stringValue = granted
-            ? ""
-            : L10n.tr("permission.banner.inactive")
-        if granted {
+        let shouldShow = AccessibilityGuidancePolicy.shouldShowBanner(
+            context: context,
+            enabledModules: enabled
+        )
+        isBannerVisible = shouldShow
+        heightConstraint?.constant = shouldShow ? 36 : 0
+        bannerView.isHidden = !shouldShow
+        if shouldShow {
+            label.stringValue = L10n.tr("permission.banner.inactive")
+            await startPollingIfNeededAsync()
+        } else {
+            label.stringValue = ""
             stopPolling()
         }
     }
 
     private func startPollingIfNeededAsync() async {
-        let enabled = await resolvedEnabledModules()
-        guard BuiltInModules.enabledModulesRequireAccessibility(enabled),
-              !AXService.isProcessTrusted() else { return }
+        guard isBannerVisible, !AXService.isProcessTrusted() else {
+            stopPolling()
+            return
+        }
         pollingTask?.cancel()
         pollingTask = Task { [weak self] in
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(3))
-                await self?.refreshAsync()
+                guard let self else { return }
+                await self.refreshAsync(context: self.lastContext)
             }
         }
     }
@@ -122,7 +131,7 @@ final class PermissionBannerController {
         if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
             NSWorkspace.shared.open(url)
         }
-        refresh()
+        refresh(context: lastContext)
     }
 
     @objc private func openSettings() {

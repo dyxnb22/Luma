@@ -1,4 +1,5 @@
 import AppKit
+import LumaCore
 import LumaModules
 
 @MainActor
@@ -177,10 +178,25 @@ final class QuicklinksDetailView: NSObject, ModuleDetailView {
     @objc private func deleteQuicklink() {
         let row = tableView.selectedRow
         guard quicklinks.indices.contains(row) else { return }
-        let id = quicklinks[row].id
+        let quicklink = quicklinks[row]
+        let alert = NSAlert()
+        alert.messageText = L10n.tr("quicklinks.detail.delete.title", quicklink.name)
+        alert.informativeText = L10n.tr("detail.delete.cannotUndo")
+        alert.addButton(withTitle: L10n.tr("detail.delete.confirm"))
+        alert.addButton(withTitle: L10n.tr("detail.delete.cancel"))
+        alert.alertStyle = .warning
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        let id = quicklink.id
         Task { [weak self] in
-            try? await self?.module.delete(id: id)
-            await MainActor.run { self?.refresh() }
+            guard let self else { return }
+            do {
+                try await self.module.delete(id: id)
+                await MainActor.run { self.refresh() }
+            } catch {
+                await MainActor.run {
+                    LauncherEnvironment.current?.showStatus(LauncherStatusMessages.deleteFailed)
+                }
+            }
         }
     }
 

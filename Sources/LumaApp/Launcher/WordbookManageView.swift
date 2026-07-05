@@ -1,4 +1,5 @@
 import AppKit
+import LumaCore
 import LumaModules
 
 @MainActor
@@ -253,11 +254,24 @@ final class WordbookManageView: NSView {
         let row = tableView.selectedRow
         guard filtered.indices.contains(row) else { return }
         let entry = filtered[row]
+        let alert = NSAlert()
+        alert.messageText = L10n.tr("wordbook.manage.delete.title", entry.term)
+        alert.informativeText = L10n.tr("detail.delete.cannotUndo")
+        alert.addButton(withTitle: L10n.tr("detail.delete.confirm"))
+        alert.addButton(withTitle: L10n.tr("detail.delete.cancel"))
+        alert.alertStyle = .warning
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
         Task {
-            try? await store.deleteWord(id: entry.id)
-            await MainActor.run {
-                allWords.removeAll { $0.id == entry.id }
-                applyFilter()
+            do {
+                try await store.deleteWord(id: entry.id)
+                await MainActor.run {
+                    allWords.removeAll { $0.id == entry.id }
+                    applyFilter()
+                }
+            } catch {
+                await MainActor.run {
+                    LauncherEnvironment.current?.showStatus(LauncherStatusMessages.deleteFailed)
+                }
             }
         }
     }

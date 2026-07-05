@@ -243,7 +243,7 @@ final class LauncherRootController {
         syncSplitLayout()
         syncPerformanceStripVisibility()
         refreshHome()
-        permissionController.refresh()
+        refreshPermissionBanner()
         if focusSearch { focusSearchField() }
         if persist {
             saveHomeSession()
@@ -292,7 +292,7 @@ final class LauncherRootController {
         syncKeyHints()
         syncPerformanceStripVisibility()
         refreshHome(preserveListSelection: true)
-        permissionController.refresh()
+        refreshPermissionBanner()
         if persist {
             saveHomeSession()
             persistResumeState(translateContent: nil)
@@ -308,7 +308,10 @@ final class LauncherRootController {
     func toggleOpenAppWindows(bundleID: String) {
         Task {
             await homeCoordinator.toggleAppWindows(bundleID: bundleID)
-            await MainActor.run { self.refreshHome() }
+            await MainActor.run {
+                self.refreshHome()
+                self.refreshPermissionBanner()
+            }
         }
     }
 
@@ -529,6 +532,7 @@ final class LauncherRootController {
                 self.syncRowActionHint()
                 self.syncPerformanceStripVisibility()
                 self.stabilizePanelContentLayout()
+                self.refreshPermissionBanner()
             }
 
             if usesColumnSplitLayout() {
@@ -671,6 +675,7 @@ final class LauncherRootController {
         syncKeyHints()
         syncPerformanceStripVisibility()
         searchBar.clearStuckDetailModeState()
+        refreshPermissionBanner()
     }
 
     func showStatus(_ message: String) {
@@ -697,6 +702,7 @@ final class LauncherRootController {
             syncSplitLayout()
             syncKeyHints()
             refreshHome()
+            refreshPermissionBanner()
             return
         }
         syncSplitLayout()
@@ -730,10 +736,42 @@ final class LauncherRootController {
             )
             commandHintBar.showStatus(message)
             viewModel.cancel()
+            refreshPermissionBanner()
             return
         }
         viewModel.queryChanged(text, issuedAt: .now)
         stabilizePanelContentLayout()
+        refreshPermissionBanner()
+    }
+
+    func refreshPermissionBanner() {
+        Task { @MainActor in
+            let context = await currentAccessibilityGuidanceContext()
+            permissionController.refresh(context: context)
+        }
+    }
+
+    private func currentAccessibilityGuidanceContext() async -> AccessibilityGuidanceContext {
+        if contentCoordinator.showingDetail,
+           let moduleID = contentCoordinator.currentDetailModuleID,
+           AccessibilityGuidancePolicy.isGuidanceModule(moduleID) {
+            return AccessibilityGuidanceContext(surface: .moduleDetail(moduleID))
+        }
+
+        let trimmed = searchBar.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty {
+            if await homeCoordinator.hasExpandedOpenApps() {
+                return AccessibilityGuidanceContext(surface: .openAppsExpanded)
+            }
+            return AccessibilityGuidanceContext(surface: .none)
+        }
+
+        let route = viewModel.commandRouter.route(raw: searchBar.stringValue)
+        if case .targeted(let module, _, _) = route,
+           AccessibilityGuidancePolicy.isGuidanceModule(module) {
+            return AccessibilityGuidanceContext(surface: .targetedModule(module))
+        }
+        return AccessibilityGuidanceContext(surface: .none)
     }
 
     private func stabilizePanelContentLayout() {
@@ -770,6 +808,7 @@ final class LauncherRootController {
             LatencyTelemetry.report(p95Milliseconds: paintMs)
         }
         stabilizePanelContentLayout()
+        refreshPermissionBanner()
     }
 
     private func syncPerformanceStripVisibility() {

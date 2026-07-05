@@ -32,6 +32,7 @@ enum LauncherStatusMessages {
     static var quicklinkSaveFailed: String { L10n.tr("status.quicklinkSaveFailed") }
     static var noteSaveFailed: String { L10n.tr("status.noteSaveFailed") }
     static var operationFailed: String { L10n.tr("status.operationFailed") }
+    static var deleteFailed: String { L10n.tr("status.deleteFailed") }
     static var nothingToCapture: String { L10n.tr("status.nothingToCapture") }
     static var moduleDisabledInSettings: String { L10n.tr("status.moduleDisabledInSettings") }
     static var activityNoLongerAvailable: String { L10n.tr("status.activityNoLongerAvailable") }

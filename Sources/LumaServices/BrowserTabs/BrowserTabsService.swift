@@ -7,6 +7,7 @@ public actor BrowserTabsService {
 
     private let runner: AppleScriptRunner
     private let adapters: [any BrowserAdapter]
+    private let runningBundleIDs: @Sendable () async -> Set<String>
     private var cached: [TabRecord] = []
     private var lastRefresh: Date?
     private var refreshTask: Task<Void, Never>?
@@ -24,10 +25,18 @@ public actor BrowserTabsService {
             ChromiumAdapter(bundleID: "com.brave.Browser", applicationName: "Brave Browser"),
             ChromiumAdapter(bundleID: "com.microsoft.edgemac", applicationName: "Microsoft Edge"),
             ChromiumAdapter(bundleID: "company.thebrowser.Browser", applicationName: "Arc")
-        ]
+        ],
+        runningBundleIDs: (@Sendable () async -> Set<String>)? = nil
     ) {
         self.runner = runner
         self.adapters = adapters
+        self.runningBundleIDs = runningBundleIDs ?? Self.defaultRunningBundleIDs
+    }
+
+    private static func defaultRunningBundleIDs() async -> Set<String> {
+        await MainActor.run {
+            Set(NSWorkspace.shared.runningApplications.compactMap(\.bundleIdentifier))
+        }
     }
 
     public func refresh() async {
@@ -37,9 +46,7 @@ public actor BrowserTabsService {
             isRefreshing = false
             refreshTask = nil
         }
-        let runningBundleIDs = await MainActor.run {
-            Set(NSWorkspace.shared.runningApplications.compactMap(\.bundleIdentifier))
-        }
+        let runningBundleIDs = await self.runningBundleIDs()
         let runnable = adapters.filter { runningBundleIDs.contains($0.bundleID) }
         var records: [TabRecord] = []
         var issues: [String] = []

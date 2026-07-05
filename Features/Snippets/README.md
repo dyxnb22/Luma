@@ -38,7 +38,8 @@ Stored in `~/Library/Application Support/Luma/snippets.json`.
 ## Actions
 
 - **Copy** (Return) — copies expanded content to pasteboard
-- **Paste** (Tab) — copies + AX-inserts into frontmost app; requires Accessibility permission
+- **Paste** (Command+Return) — copies + AX-inserts into frontmost app; requires Accessibility permission
+- **Action panel** (Tab or ⌘K) — choose Copy or Paste; Return runs the highlighted action
 - **Inline trigger expansion** — if raw query exactly matches `trigger` (case-insensitive) in global search, Return expands and pastes without opening detail
 - **Edit / Delete / Duplicate** — via detail view; changes persist immediately
 
@@ -48,8 +49,8 @@ Snippet content is local-only. No content leaves the device. `SnippetsStore` nev
 
 ## Permissions
 
-- **Accessibility** required for Tab paste (AX `insert`). Copy works without it.
-- If AX is denied, Tab paste silently degrades to clipboard-only.
+- **Accessibility** required for Paste (AX `insert`). Copy works without it.
+- If AX is denied, Paste shows a status hint; Copy still works.
 
 ## Warmup
 

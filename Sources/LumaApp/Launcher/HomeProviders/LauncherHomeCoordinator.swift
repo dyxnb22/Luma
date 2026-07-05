@@ -43,6 +43,10 @@ actor LauncherHomeCoordinator {
         }
     }
 
+    func hasExpandedOpenApps() -> Bool {
+        !collapsedAppBundleIDs.isEmpty
+    }
+
     func snapshot() async -> LauncherHomeSnapshot {
         await openApps.configure(collapsedBundleIDs: collapsedAppBundleIDs)
         return await aggregator.snapshot()

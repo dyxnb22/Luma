@@ -84,8 +84,14 @@ final class MediaDetailView: NSObject, ModuleDetailView {
         } onDelete: { [weak self] id in
             guard let self else { return }
             Task {
-                try? await self.module.delete(id: id)
-                await MainActor.run { self.refresh() }
+                do {
+                    try await self.module.delete(id: id)
+                    await MainActor.run { self.refresh() }
+                } catch {
+                    await MainActor.run {
+                        LauncherEnvironment.current?.showStatus(LauncherStatusMessages.deleteFailed)
+                    }
+                }
             }
         }
         if let window = detailView.window {
@@ -253,10 +259,23 @@ final class MediaDetailView: NSObject, ModuleDetailView {
         let row = tableView.selectedRow
         guard items.indices.contains(row) else { return }
         let item = items[row]
+        let alert = NSAlert()
+        alert.messageText = L10n.tr("media.detail.delete.title", item.title)
+        alert.informativeText = L10n.tr("detail.delete.cannotUndo")
+        alert.addButton(withTitle: L10n.tr("detail.delete.confirm"))
+        alert.addButton(withTitle: L10n.tr("detail.delete.cancel"))
+        alert.alertStyle = .warning
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
         Task { [weak self] in
             guard let self else { return }
-            try? await self.module.delete(id: item.id)
-            await MainActor.run { self.refresh() }
+            do {
+                try await self.module.delete(id: item.id)
+                await MainActor.run { self.refresh() }
+            } catch {
+                await MainActor.run {
+                    LauncherEnvironment.current?.showStatus(LauncherStatusMessages.deleteFailed)
+                }
+            }
         }
     }
 
@@ -656,6 +675,14 @@ private final class MediaItemEditorSheet: LumaWindow {
 
     @objc private func deleteItem() {
         guard let id = draft.existingID else { return }
+        let title = titleField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        let alert = NSAlert()
+        alert.messageText = L10n.tr("media.detail.delete.title", title.isEmpty ? "Record" : title)
+        alert.informativeText = L10n.tr("detail.delete.cannotUndo")
+        alert.addButton(withTitle: L10n.tr("detail.delete.confirm"))
+        alert.addButton(withTitle: L10n.tr("detail.delete.cancel"))
+        alert.alertStyle = .warning
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
         onDelete?(id)
         close()
     }

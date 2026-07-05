@@ -4,6 +4,8 @@ import AppKit
 import Testing
 @testable import LumaServices
 
+private let testBrowserBundleID = "com.test.SlowBrowser"
+
 private struct FailingBrowserAdapter: BrowserAdapter {
     let bundleID: String
     let applicationName: String
@@ -38,15 +40,21 @@ private struct SlowBrowserAdapter: BrowserAdapter {
     func activate(record: TabRecord, runner: AppleScriptRunner) async throws {}
 }
 
-@Test func browserTabsServiceEmptyCacheReturnsImmediately() async throws {
-    guard let runningBundleID = await MainActor.run(body: {
-        NSWorkspace.shared.runningApplications.compactMap(\.bundleIdentifier).first
-    }) else { return }
+private func makeTestService(
+    adapters: [any BrowserAdapter],
+    runningBundleIDs: Set<String> = [testBrowserBundleID]
+) -> BrowserTabsService {
+    BrowserTabsService(
+        adapters: adapters,
+        runningBundleIDs: { runningBundleIDs }
+    )
+}
 
-    let service = BrowserTabsService(
+@Test func browserTabsServiceEmptyCacheReturnsImmediately() async throws {
+    let service = makeTestService(
         adapters: [
             SlowBrowserAdapter(
-                bundleID: runningBundleID,
+                bundleID: testBrowserBundleID,
                 applicationName: "Slow Browser",
                 delay: .seconds(2)
             )
@@ -61,21 +69,22 @@ private struct SlowBrowserAdapter: BrowserAdapter {
     #expect(tabs.isEmpty)
     #expect(elapsed < .milliseconds(500))
 
-    try await Task.sleep(for: .seconds(3))
-    let refreshed = await service.searchableTabs()
+    var refreshed: [TabRecord] = []
+    let deadline = ContinuousClock.now + .seconds(5)
+    while ContinuousClock.now < deadline {
+        refreshed = await service.searchableTabs()
+        if refreshed.count == 1 { break }
+        try await Task.sleep(for: .milliseconds(100))
+    }
     #expect(refreshed.count == 1)
     #expect(refreshed[0].title == "Slow Tab")
 }
 
 @Test func browserTabsServiceSurfacesAutomationDeniedDiagnostic() async {
-    guard let runningBundleID = await MainActor.run(body: {
-        NSWorkspace.shared.runningApplications.compactMap(\.bundleIdentifier).first
-    }) else { return }
-
-    let service = BrowserTabsService(
+    let service = makeTestService(
         adapters: [
             FailingBrowserAdapter(
-                bundleID: runningBundleID,
+                bundleID: testBrowserBundleID,
                 applicationName: "Test Browser",
                 error: AppleScriptRunner.RunnerError.failed("Not authorized to send Apple events to Safari. (-1743)")
             )
@@ -88,14 +97,10 @@ private struct SlowBrowserAdapter: BrowserAdapter {
 }
 
 @Test func browserTabsServiceSurfacesTimeoutDiagnostic() async {
-    guard let runningBundleID = await MainActor.run(body: {
-        NSWorkspace.shared.runningApplications.compactMap(\.bundleIdentifier).first
-    }) else { return }
-
-    let service = BrowserTabsService(
+    let service = makeTestService(
         adapters: [
             FailingBrowserAdapter(
-                bundleID: runningBundleID,
+                bundleID: testBrowserBundleID,
                 applicationName: "Test Browser",
                 error: AppleScriptRunner.RunnerError.timedOut
             )

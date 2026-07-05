@@ -57,7 +57,7 @@ Stored in `~/Library/Application Support/Luma/media.json`.
 - **Search** (Return on result row) — opens entry in detail
 - **Edit / Delete** — in detail view; persists immediately
 - **Export CSV** — writes to Downloads folder, opens in Finder
-- **Tab on result** — copies `title — rating/10` to clipboard
+- **Tab on result** — opens the action panel; **Command+Return** copies `title — rating/10` to clipboard
 
 ## Warmup
 

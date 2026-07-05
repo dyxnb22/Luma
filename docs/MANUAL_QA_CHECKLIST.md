@@ -63,11 +63,12 @@ Panel and search field must stay **horizontally aligned** with panel edges — n
 
 ## Permissions
 
-- Accessibility denied state is clear.
+- Accessibility denied state is clear on AX-dependent surfaces only (not on empty home or ordinary app search).
+- With Accessibility denied: empty home and global app search show **no** permission banner; banner appears for `mb` / `s` / `wl` targeted queries, Snippets / Menu Bar Search / Window Layouts detail, or after toggling Open Apps window expansion.
 - Accessibility granted state enables window focus.
 - Settings links to System Settings when permission is missing.
 - Automation-denied state for Browser Tabs is actionable and not raw AppleScript noise.
-- Permission banners do not trap keyboard focus or block Esc dismissal unexpectedly.
+- Permission banners sit above the hint bar and do not trap keyboard focus or block Esc dismissal unexpectedly.
 
 ## Clipboard
 
@@ -108,6 +109,7 @@ Panel and search field must stay **horizontally aligned** with panel edges — n
 - Clearing text restores the home list immediately (no stale results after Esc).
 - Up/Down moves selection without rebuilding rows (from the search field).
 - Tab opens the action panel; Shift+Tab closes it when open.
+- Command+Return runs the first secondary action when present.
 - Selected row shows accent background and Return hint capsule.
 - Return runs the selected item and hides the panel.
 - Selection sticks to the previously selected item if it remains in the new result set.
@@ -175,7 +177,7 @@ Panel and search field must stay **horizontally aligned** with panel edges — n
 
 - `s` / `snip` result rows and actions open the relevant snippet flow.
 - Add snippet via detail → `s <query>` finds it → Return copies content.
-- Tab on a snippet result pastes into front app (requires Accessibility).
+- Tab on a snippet result opens the action panel; Command+Return pastes into front app (requires Accessibility).
 - Edit / Delete / Duplicate round-trip across app restart.
 - **Trigger expansion**: create a snippet with a trigger (e.g. `;hdr`) → type `;hdr` in the launcher search bar → Return expands and pastes inline → panel dismisses → status bar shows "Snippet expanded".
 - Trigger expansion only fires in global search mode (not when already scoped to `s` / `snip`).
@@ -196,17 +198,17 @@ Panel and search field must stay **horizontally aligned** with panel edges — n
 - `m Oppenheimer movie 9` captures and appears in `m oppen` search.
 - `m` shows recent items; `m log` opens detail view.
 - Detail view: category tabs, status filter, sort work on empty and populated lists.
-- Add / Edit / Delete round-trip across restart.
+- Add / Edit / Delete round-trip across restart (Delete shows confirmation; Cancel leaves data intact).
 - Export CSV writes to Downloads and opens in Finder.
-- Tab on search result copies `title — rating/10`.
+- Tab on search result opens the action panel; Command+Return copies `title — rating/10`.
 
 ## Quicklinks
 
 - Cmd+Space → `gh swift package` shows GitHub Search with an encoded GitHub URL.
 - Return opens the URL in the default browser.
-- Tab on the row shows Copy URL and Reveal Quicklinks Config.
+- Tab on the row opens the action panel (Copy URL, Reveal Quicklinks Config); Command+Return runs the first secondary action.
 - `ql` opens the same-panel Quicklinks manager.
-- Add, edit, delete one quicklink and confirm the trigger works after returning to results.
+- Add, edit, delete one quicklink (Delete confirms; Cancel aborts) and confirm the trigger works after returning to results.
 - Test Chinese, emoji, quote characters, duplicate triggers, malformed URL templates, and missing config file.
 
 ## Menu Bar Search
@@ -301,7 +303,7 @@ Frozen detail IA: `docs/specs/NOTES_DETAIL_CONSTRAINTS.md`.
 - [ ] 已学过 skips answer reveal and jumps to next card.
 - [ ] Done state shows `Continue · N more` with real N.
 - [ ] Search bar: single character shows "继续输入以搜索…".
-- [ ] Wordbook Manage: scroll to bottom loads next page; right-click Edit/Delete/Reset work.
+- [ ] Wordbook Manage: scroll to bottom loads next page; right-click Edit/Delete/Reset work; Delete confirms and Cancel aborts.
 - [ ] Settings Modules: rapid toggles debounce to one write (~200ms).
 - [ ] Clipboard Image entries copy image bytes to pasteboard.
 - [ ] Snippets: double-click copies snippet; ⌘E edits.

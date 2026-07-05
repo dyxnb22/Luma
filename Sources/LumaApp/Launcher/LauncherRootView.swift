@@ -105,7 +105,7 @@ final class LauncherRootView: NSView {
         )
         _ = homeSplitLayout
         installLatencyHUD()
-        controller.permissionController.install(in: self)
+        controller.permissionController.install(in: self, above: hintBar)
         controller.showHome(persist: false)
         Task { setLatencyHUDEnabled(await config.latencyHUDEnabled()) }
     }
@@ -156,7 +156,7 @@ final class LauncherRootView: NSView {
 
     @objc private func closeDetailAction() { controller.exitDetailFromChrome() }
     func prepareDetailForHide() async { await contentCoordinator.currentDetailObject?.prepareForLauncherHide() }
-    func refreshPermissionStatus() { controller.permissionController.refresh() }
+    func refreshPermissionStatus() { controller.refreshPermissionBanner() }
     func startPermissionPollingIfNeeded() { controller.permissionController.startPollingIfNeeded() }
     func stopPermissionPolling() { controller.permissionController.stopPolling() }
 

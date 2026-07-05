@@ -53,3 +53,48 @@ import LumaServices
     #expect(result.items.first?.title == "Preview")
     #expect(elapsedMs < 50)
 }
+
+@Test func killProcessWarmupDoesNotAwaitFullRefresh() async {
+    let module = KillProcessModule()
+    let context = ModuleContext(
+        logger: NoopLoggingClient(),
+        metrics: NoopMetricsClient(),
+        database: NoopDatabaseClient(),
+        pasteboard: NoopPasteboardClient(),
+        accessibility: NoopAccessibilityClient(),
+        fileSystem: NoopFileSystemClient(),
+        translation: NoopTranslationClient(),
+        config: NoopConfigurationClient()
+    )
+
+    let start = ContinuousClock.now
+    await module.warmup(context)
+    let elapsed = start.duration(to: .now)
+    let elapsedMs = Double(elapsed.components.seconds) * 1000
+        + Double(elapsed.components.attoseconds) / 1_000_000_000_000_000
+
+    #expect(elapsedMs < 50)
+    try? await Task.sleep(for: .milliseconds(200))
+    #expect(await module.refreshCallCount >= 1)
+}
+
+private struct NoopLoggingClient: LoggingClient {
+    func debug(_ message: String) async {}
+    func error(_ message: String) async {}
+}
+
+private struct NoopDatabaseClient: DatabaseClient {}
+
+private struct NoopConfigurationClient: ConfigurationClient {
+    func enabledModules() async -> Set<ModuleIdentifier>? { nil }
+    func clipboardMaxEntries() async -> Int { 500 }
+    func clipboardMaxAgeDays() async -> Int { 7 }
+    func clipboardMaxEntrySizeKB() async -> Int { 100 }
+    func clipboardHistoryEnabled() async -> Bool { true }
+    func clipboardIgnoredBundleIDs() async -> [String] { [] }
+    func clipboardPasteBehavior() async -> String { "pasteDirectly" }
+    func translationTargetLanguage() async -> String { "en" }
+    func secretsAutoClearSeconds() async -> Int { 10 }
+    func secretsRelockTimeoutSeconds() async -> Int { 300 }
+    func secretsRequireUnlockOnLaunch() async -> Bool { true }
+}

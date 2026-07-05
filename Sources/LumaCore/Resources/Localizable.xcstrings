@@ -1168,6 +1168,48 @@
           }
         }
       }
+    },
+    "detail.delete.confirm": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Delete" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "删除" } }
+      }
+    },
+    "detail.delete.cancel": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Cancel" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "取消" } }
+      }
+    },
+    "detail.delete.cannotUndo": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "This cannot be undone." } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "此操作无法撤销。" } }
+      }
+    },
+    "quicklinks.detail.delete.title": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Delete “%@”?" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "删除“%@”？" } }
+      }
+    },
+    "media.detail.delete.title": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Delete “%@”?" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "删除“%@”？" } }
+      }
+    },
+    "wordbook.manage.delete.title": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Delete “%@”?" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "删除“%@”？" } }
+      }
+    },
+    "status.deleteFailed": {
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Delete failed." } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "删除失败。" } }
+      }
     }
   },
   "version": "1.0"

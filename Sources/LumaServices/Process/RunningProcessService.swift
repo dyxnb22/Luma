@@ -23,25 +23,49 @@ public struct RunningProcessRecord: Sendable, Hashable {
     }
 }
 
+struct ProcessMetadata: Sendable, Hashable {
+    let pid: pid_t
+    let bundleID: String
+    let name: String
+    let launchDate: Date?
+}
+
 public struct RunningProcessService: Sendable {
     public init() {}
 
     public func runningGUIApplications() async -> [RunningProcessRecord] {
-        await MainActor.run {
-            let selfPID = ProcessInfo.processInfo.processIdentifier
-            return NSWorkspace.shared.runningApplications.compactMap { app in
-                guard app.activationPolicy == .regular,
-                      app.processIdentifier != selfPID,
-                      let bundleID = app.bundleIdentifier else { return nil }
-                return RunningProcessRecord(
-                    pid: app.processIdentifier,
-                    bundleID: bundleID,
-                    name: app.localizedName ?? bundleID,
-                    launchDate: app.launchDate,
-                    residentBytes: Self.residentBytes(pid: app.processIdentifier)
+        let metadata = await MainActor.run { Self.collectGUIMetadata() }
+        return await enrichWithMemory(metadata)
+    }
+
+    @MainActor
+    private static func collectGUIMetadata() -> [ProcessMetadata] {
+        let selfPID = ProcessInfo.processInfo.processIdentifier
+        return NSWorkspace.shared.runningApplications.compactMap { app in
+            guard app.activationPolicy == .regular,
+                  app.processIdentifier != selfPID,
+                  let bundleID = app.bundleIdentifier else { return nil }
+            return ProcessMetadata(
+                pid: app.processIdentifier,
+                bundleID: bundleID,
+                name: app.localizedName ?? bundleID,
+                launchDate: app.launchDate
+            )
+        }
+    }
+
+    private func enrichWithMemory(_ metadata: [ProcessMetadata]) async -> [RunningProcessRecord] {
+        await Task.detached(priority: .utility) {
+            metadata.map { item in
+                RunningProcessRecord(
+                    pid: item.pid,
+                    bundleID: item.bundleID,
+                    name: item.name,
+                    launchDate: item.launchDate,
+                    residentBytes: Self.residentBytes(pid: item.pid)
                 )
             }
-        }
+        }.value
     }
 
     public func quit(pid: pid_t) async -> Bool {

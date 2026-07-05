@@ -123,7 +123,8 @@ public actor ModuleHost {
                 accessibility: context.platform.accessibility,
                 processMemory: context.platform.processMemory,
                 currentProject: context.platform.currentProject,
-                selectionSnapshot: context.platform.selectionSnapshot
+                selectionSnapshot: context.platform.selectionSnapshot,
+                runningApplications: context.platform.runningApplications
             )
         )
     }

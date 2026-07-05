@@ -188,7 +188,8 @@ final class SnippetsDetailView: NSObject, ModuleDetailView {
         onHideLauncherIfNeeded()
         Task { [weak self] in
             guard let self else { return }
-            try? await self.module.insertSnippet(id: snippet.id)
+            let outcome = (try? await self.module.insertSnippet(id: snippet.id)) ?? .copiedOnly
+            LauncherEnvironment.current?.showStatus(LauncherStatusMessages.message(for: outcome))
             await MainActor.run { self.refresh() }
         }
     }

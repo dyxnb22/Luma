@@ -34,7 +34,7 @@ public actor MenuBarTreeService {
     public func start(disabledBundleIDs: Set<String> = []) {
         self.disabledBundleIDs = disabledBundleIDs
         guard observer == nil else {
-            scheduleRefreshForFrontmost()
+            Task { await scheduleRefreshForFrontmost() }
             return
         }
         observer = NSWorkspace.shared.notificationCenter.addObserver(
@@ -44,20 +44,20 @@ public actor MenuBarTreeService {
         ) { [weak self] _ in
             Task { await self?.scheduleRefreshForFrontmost() }
         }
-        scheduleRefreshForFrontmost()
+        Task { await scheduleRefreshForFrontmost() }
     }
 
     public func setLauncherContextBundleID(_ bundleID: String?) {
         launcherContextBundleID = bundleID
     }
 
-    public func cachedRecordsForFrontmost() -> [MenuItemRecord] {
-        staleRecordsForFrontmost(maxAge: ttl)
+    public func cachedRecordsForFrontmost() async -> [MenuItemRecord] {
+        await staleRecordsForFrontmost(maxAge: ttl)
     }
 
     /// Returns cached menu items even when stale — used for stale-while-revalidate queries.
-    public func staleRecordsForFrontmost(maxAge: TimeInterval? = nil) -> [MenuItemRecord] {
-        guard let bundleID = effectiveTargetBundleID(),
+    public func staleRecordsForFrontmost(maxAge: TimeInterval? = nil) async -> [MenuItemRecord] {
+        guard let bundleID = await effectiveTargetBundleID(),
               !disabledBundleIDs.contains(bundleID),
               let cached = cache[bundleID] else { return [] }
         if let maxAge, Date().timeIntervalSince(cached.date) > maxAge { return [] }
@@ -65,48 +65,49 @@ public actor MenuBarTreeService {
     }
 
     public func recordsForTarget(deadline: ContinuousClock.Instant) async -> [MenuItemRecord] {
-        let stale = staleRecordsForFrontmost()
+        let stale = await staleRecordsForFrontmost()
         if !stale.isEmpty {
-            scheduleRefreshForFrontmost()
+            await scheduleRefreshForFrontmost()
             return stale
         }
-        scheduleRefreshForFrontmost()
+        await scheduleRefreshForFrontmost()
         while ContinuousClock.now < deadline {
-            let records = cachedRecordsForFrontmost()
+            let records = await cachedRecordsForFrontmost()
             if !records.isEmpty { return records }
             try? await Task.sleep(for: .milliseconds(25))
         }
-        return staleRecordsForFrontmost()
+        return await staleRecordsForFrontmost()
     }
 
-    private func effectiveTargetBundleID() -> String? {
-        let lumaBundleID = Bundle.main.bundleIdentifier
-        if let context = LauncherMenuTarget.current(),
-           context != lumaBundleID {
-            return context
+    private func effectiveTargetBundleID() async -> String? {
+        let contextBundleID = launcherContextBundleID
+        return await MainActor.run {
+            MenuBarFrontmostCapture.target(
+                launcherContextBundleID: contextBundleID,
+                lumaBundleID: Bundle.main.bundleIdentifier
+            )?.bundleID
         }
-        if let launcherContextBundleID,
-           launcherContextBundleID != lumaBundleID {
-            return launcherContextBundleID
-        }
-        guard let app = NSWorkspace.shared.frontmostApplication,
-              let bundleID = app.bundleIdentifier,
-              bundleID != lumaBundleID else { return nil }
-        return bundleID
     }
 
-    public func frontmostBundleID() -> String? {
-        effectiveTargetBundleID()
+    public func frontmostBundleID() async -> String? {
+        await effectiveTargetBundleID()
     }
 
-    public func scheduleRefreshForFrontmost() {
+    public func scheduleRefreshForFrontmost() async {
         walkTask?.cancel()
-        guard AXIsProcessTrusted(),
-              let bundleID = effectiveTargetBundleID(),
-              !disabledBundleIDs.contains(bundleID),
-              let app = NSRunningApplication.runningApplications(withBundleIdentifier: bundleID).first else { return }
+        guard AXIsProcessTrusted() else { return }
+        let contextBundleID = launcherContextBundleID
+        let target = await MainActor.run {
+            MenuBarFrontmostCapture.target(
+                launcherContextBundleID: contextBundleID,
+                lumaBundleID: Bundle.main.bundleIdentifier
+            )
+        }
+        guard let target, !disabledBundleIDs.contains(target.bundleID) else { return }
+        let pid = target.pid
+        let bundleID = target.bundleID
         walkTask = Task.detached(priority: .utility) { [weak self] in
-            let records = Self.walk(app: app, bundleID: bundleID)
+            let records = Self.walk(pid: pid, bundleID: bundleID)
             guard !Task.isCancelled else { return }
             await self?.store(records: records, bundleID: bundleID)
         }
@@ -116,9 +117,9 @@ public actor MenuBarTreeService {
         cache[bundleID] = (Date(), records)
     }
 
-    private nonisolated static func walk(app: NSRunningApplication, bundleID: String) -> [MenuItemRecord] {
+    private nonisolated static func walk(pid: pid_t, bundleID: String) -> [MenuItemRecord] {
         let start = Date()
-        let appElement = AXUIElementCreateApplication(app.processIdentifier)
+        let appElement = AXUIElementCreateApplication(pid)
         var menuBarRef: CFTypeRef?
         guard AXUIElementCopyAttributeValue(appElement, kAXMenuBarAttribute as CFString, &menuBarRef) == .success,
               let menuBar = menuBarRef else { return [] }
@@ -199,5 +200,30 @@ public actor MenuBarTreeService {
         guard AXUIElementCopyAttributeValue(element, name, &ref) == .success else { return nil }
         if let number = ref as? NSNumber { return number.intValue }
         return nil
+    }
+}
+
+@MainActor
+private enum MenuBarFrontmostCapture {
+    struct Target: Sendable {
+        let bundleID: String
+        let pid: pid_t
+    }
+
+    static func target(launcherContextBundleID: String?, lumaBundleID: String?) -> Target? {
+        if let context = LauncherMenuTarget.current(),
+           context != lumaBundleID,
+           let app = NSRunningApplication.runningApplications(withBundleIdentifier: context).first {
+            return Target(bundleID: context, pid: app.processIdentifier)
+        }
+        if let launcherContextBundleID,
+           launcherContextBundleID != lumaBundleID,
+           let app = NSRunningApplication.runningApplications(withBundleIdentifier: launcherContextBundleID).first {
+            return Target(bundleID: launcherContextBundleID, pid: app.processIdentifier)
+        }
+        guard let app = NSWorkspace.shared.frontmostApplication,
+              let bundleID = app.bundleIdentifier,
+              bundleID != lumaBundleID else { return nil }
+        return Target(bundleID: bundleID, pid: app.processIdentifier)
     }
 }

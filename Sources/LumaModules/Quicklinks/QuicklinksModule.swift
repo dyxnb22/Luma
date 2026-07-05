@@ -32,11 +32,10 @@ public actor QuicklinksModule: LumaModule {
             return ModuleResult(items: [manageRow()])
         }
 
-        guard let match = index.match(raw: query.raw),
-              let expansion = await expand(match.quicklink, query: match.query, context: context) else {
+        guard let match = index.match(raw: query.raw) else {
             return ModuleResult(items: [])
         }
-        return ModuleResult(items: [row(for: expansion)])
+        return ModuleResult(items: [previewRow(for: match.quicklink, query: match.query)])
     }
 
     public func perform(_ action: Action, context: ActionContext) async throws {
@@ -45,15 +44,22 @@ public actor QuicklinksModule: LumaModule {
         }
         let decoded = try ModuleActionCoding.decode(QuicklinksAction.self, from: payload)
         switch decoded {
-        case .open(let urlString, let bundleID):
-            guard let url = URL(string: urlString) else { throw ModuleError.dataUnavailable }
-            if let bundleID {
-                await context.platform.workspace.openApplication(bundleID: bundleID, arguments: [url.absoluteString])
-            } else {
-                await context.platform.workspace.openURL(url)
+        case .open(let id, let query, let bundleID):
+            guard let quicklink = cachedQuicklinks.first(where: { $0.id == id }),
+                  let expansion = await expandForPerform(quicklink, query: query, context: context) else {
+                throw ModuleError.dataUnavailable
             }
-        case .copy(let url):
-            await context.platform.pasteboard.write(url)
+            if let bundleID {
+                await context.platform.workspace.openApplication(bundleID: bundleID, arguments: [expansion.url.absoluteString])
+            } else {
+                await context.platform.workspace.openURL(expansion.url)
+            }
+        case .copy(let id, let query):
+            guard let quicklink = cachedQuicklinks.first(where: { $0.id == id }),
+                  let expansion = await expandForPerform(quicklink, query: query, context: context) else {
+                throw ModuleError.dataUnavailable
+            }
+            await context.platform.pasteboard.write(expansion.urlString)
         case .revealConfig:
             await context.platform.workspace.revealInFinder(await store.configFileURL())
         case .prepareDraft:
@@ -121,7 +127,44 @@ public actor QuicklinksModule: LumaModule {
         index = QuicklinksIndex(quicklinks: cachedQuicklinks)
     }
 
-    private func expand(_ quicklink: Quicklink, query: String, context: QueryContext) async -> QuicklinkExpansion? {
+    private func previewRow(for quicklink: Quicklink, query: String) -> ResultItem {
+        let previewURL = QuicklinkTemplateRenderer.render(template: quicklink.urlTemplate, query: query)
+        let openPayload = (try? ModuleActionCoding.encode(QuicklinksAction.open(id: quicklink.id, query: query, bundleID: quicklink.openWith))) ?? Data()
+        let copyPayload = (try? ModuleActionCoding.encode(QuicklinksAction.copy(id: quicklink.id, query: query))) ?? Data()
+        let revealPayload = (try? ModuleActionCoding.encode(QuicklinksAction.revealConfig)) ?? Data()
+        let openAction = Action(
+            id: ActionID(module: Self.manifest.identifier, key: "open.\(quicklink.id.uuidString)"),
+            title: "Open \(quicklink.name)",
+            kind: .custom(payload: openPayload, handler: Self.manifest.identifier)
+        )
+        return ResultItem(
+            id: ResultID(module: Self.manifest.identifier, key: quicklink.id.uuidString),
+            title: quicklink.name,
+            titleAttributed: AttributedString(quicklink.name),
+            subtitle: previewURL,
+            icon: .symbol(quicklink.icon ?? "link"),
+            primaryAction: openAction,
+            secondaryActions: [
+                Action(
+                    id: ActionID(module: Self.manifest.identifier, key: "copy.\(quicklink.id.uuidString)"),
+                    title: "Copy URL",
+                    kind: .custom(payload: copyPayload, handler: Self.manifest.identifier)
+                ),
+                Action(
+                    id: ActionID(module: Self.manifest.identifier, key: "config"),
+                    title: "Reveal Quicklinks Config",
+                    kind: .custom(payload: revealPayload, handler: Self.manifest.identifier)
+                )
+            ],
+            rankingHints: RankingHints(basePriority: Self.manifest.priority)
+        )
+    }
+
+    private func expandForPerform(
+        _ quicklink: Quicklink,
+        query: String,
+        context: ActionContext
+    ) async -> QuicklinkExpansion? {
         let project = await context.platform.currentProject.snapshot()
         let selection = await context.platform.selectionSnapshot.snapshot()
         let clipboard = await context.platform.pasteboard.readString()
@@ -150,48 +193,6 @@ public actor QuicklinksModule: LumaModule {
                 kind: .openModuleDetail(Self.manifest.identifier, payload: nil)
             ),
             rankingHints: RankingHints(basePriority: Self.manifest.priority),
-        )
-    }
-
-    private func row(for expansion: QuicklinkExpansion) -> ResultItem {
-        let q = expansion.quicklink
-        let openPayload = (try? ModuleActionCoding.encode(QuicklinksAction.open(url: expansion.urlString, bundleID: q.openWith))) ?? Data()
-        let copyPayload = (try? ModuleActionCoding.encode(QuicklinksAction.copy(url: expansion.urlString))) ?? Data()
-        let revealPayload = (try? ModuleActionCoding.encode(QuicklinksAction.revealConfig)) ?? Data()
-        let openAction: Action
-        if q.openWith == nil {
-            openAction = Action(
-                id: ActionID(module: Self.manifest.identifier, key: "open.\(q.id.uuidString)"),
-                title: "Open \(q.name)",
-                kind: .openURL(expansion.url)
-            )
-        } else {
-            openAction = Action(
-                id: ActionID(module: Self.manifest.identifier, key: "open.\(q.id.uuidString)"),
-                title: "Open \(q.name)",
-                kind: .custom(payload: openPayload, handler: Self.manifest.identifier)
-            )
-        }
-        return ResultItem(
-            id: ResultID(module: Self.manifest.identifier, key: q.id.uuidString),
-            title: q.name,
-            titleAttributed: AttributedString(q.name),
-            subtitle: expansion.urlString,
-            icon: .symbol(q.icon ?? "link"),
-            primaryAction: openAction,
-            secondaryActions: [
-                Action(
-                    id: ActionID(module: Self.manifest.identifier, key: "copy.\(q.id.uuidString)"),
-                    title: "Copy URL",
-                    kind: .custom(payload: copyPayload, handler: Self.manifest.identifier)
-                ),
-                Action(
-                    id: ActionID(module: Self.manifest.identifier, key: "config"),
-                    title: "Reveal Quicklinks Config",
-                    kind: .custom(payload: revealPayload, handler: Self.manifest.identifier)
-                )
-            ],
-            rankingHints: RankingHints(basePriority: Self.manifest.priority)
         )
     }
 

@@ -28,17 +28,17 @@ final class PermissionBannerController {
         bannerView.translatesAutoresizingMaskIntoConstraints = false
         bannerView.addSubview(chromeView)
 
-        label.stringValue = "Accessibility permission needed for window focus features."
+        label.stringValue = L10n.tr("permission.banner.initial")
         label.font = .systemFont(ofSize: 12, weight: .medium)
         label.textColor = .labelColor
         label.translatesAutoresizingMaskIntoConstraints = false
 
-        let actionButton = NSButton(title: "Grant", target: self, action: #selector(grantPermission))
+        let actionButton = NSButton(title: L10n.tr("permission.banner.grant"), target: self, action: #selector(grantPermission))
         actionButton.bezelStyle = .rounded
         actionButton.font = .systemFont(ofSize: 12, weight: .medium)
         actionButton.translatesAutoresizingMaskIntoConstraints = false
 
-        let settingsButton = NSButton(title: "Settings", target: self, action: #selector(openSettings))
+        let settingsButton = NSButton(title: L10n.tr("permission.banner.settings"), target: self, action: #selector(openSettings))
         settingsButton.bezelStyle = .rounded
         settingsButton.font = .systemFont(ofSize: 12, weight: .medium)
         settingsButton.translatesAutoresizingMaskIntoConstraints = false
@@ -93,7 +93,7 @@ final class PermissionBannerController {
         bannerView.isHidden = granted
         label.stringValue = granted
             ? ""
-            : "Accessibility permission not active for this build. If Luma is enabled, toggle it off and on."
+            : L10n.tr("permission.banner.inactive")
         if granted {
             stopPolling()
         }

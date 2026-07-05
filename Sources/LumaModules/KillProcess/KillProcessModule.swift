@@ -14,13 +14,15 @@ public actor KillProcessModule: LumaModule {
 
     private let service: RunningProcessService
     private var cachedRecords: [RunningProcessRecord] = []
+    private var cacheFetchedAt: ContinuousClock.Instant?
+    private let cacheTTL: Duration = .seconds(3)
 
     public init(service: RunningProcessService = RunningProcessService()) {
         self.service = service
     }
 
     public func warmup(_ context: ModuleContext) async {
-        cachedRecords = await service.runningGUIApplications()
+        await refreshCache()
     }
 
     public func handle(_ query: Query, context: QueryContext) async -> ModuleResult {
@@ -30,7 +32,26 @@ public actor KillProcessModule: LumaModule {
         if ModuleHelp.isHelpQuery(payload) {
             return ModuleResult(items: ModuleHelp.results(for: Self.manifest.identifier))
         }
-        cachedRecords = await service.runningGUIApplications()
+        if payload.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "refresh" {
+            await refreshCache()
+            return ModuleResult(items: [
+                ResultItem(
+                    id: ResultID(module: Self.manifest.identifier, key: "refreshed"),
+                    title: "Process list refreshed",
+                    titleAttributed: AttributedString("Process list refreshed"),
+                    subtitle: "\(cachedRecords.count) running apps",
+                    icon: .symbol("arrow.clockwise"),
+                    primaryAction: Action(
+                        id: ActionID(module: Self.manifest.identifier, key: "noop"),
+                        title: "Refreshed",
+                        kind: .custom(payload: Data(), handler: Self.manifest.identifier)
+                    ),
+                    rankingHints: RankingHints(basePriority: Self.manifest.priority),
+                    rowKind: .informational
+                )
+            ])
+        }
+        await refreshCacheIfStale()
         let matches = KillProcessIndex.search(cachedRecords, query: payload, limit: 8)
         return ModuleResult(items: matches.map { row(for: $0.record) })
     }
@@ -39,6 +60,7 @@ public actor KillProcessModule: LumaModule {
         guard case .custom(let payload, let handler) = action.kind, handler == Self.manifest.identifier else {
             throw ModuleError.unsupportedAction(action.id)
         }
+        if payload.isEmpty { return }
         let decoded = try ModuleActionCoding.decode(KillProcessAction.self, from: payload)
         switch decoded {
         case .quit(let pid):
@@ -48,7 +70,19 @@ public actor KillProcessModule: LumaModule {
         case .relaunch(let bundleID, let pid):
             await service.relaunch(bundleID: bundleID, previousPID: pid, workspace: context.platform.workspace)
         }
+        await refreshCache()
+    }
+
+    private func refreshCacheIfStale() async {
+        if let fetchedAt = cacheFetchedAt, ContinuousClock.now - fetchedAt < cacheTTL {
+            return
+        }
+        await refreshCache()
+    }
+
+    private func refreshCache() async {
         cachedRecords = await service.runningGUIApplications()
+        cacheFetchedAt = ContinuousClock.now
     }
 
     private func row(for record: RunningProcessRecord) -> ResultItem {

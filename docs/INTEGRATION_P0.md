@@ -43,4 +43,4 @@ Status legend: ✅ done · 🔄 in progress · ☐ not started
 - ✅ Empty states always suggest a next step
 - ✅ Cross-module actions visibly land where the user expects (project context + resume rows)
 - ✅ Detail navigation feels consistent across modules
-- 🔄 No P0/P1 regressions in the recorded review pass
+- ✅ No P0/P1 regressions in the recorded review pass

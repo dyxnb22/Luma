@@ -115,9 +115,10 @@ final class LauncherHomeSplitLayout {
     func setColumnSplitActive(_ active: Bool) {
         guard active != columnSplitActive else { return }
         columnSplitActive = active
-        divider.isHidden = !active
-        listSplitWidth.isActive = active
-        listFullWidthTrailing.isActive = !active
+        let flags = LauncherHomeSplitConstraintPolicy.flags(for: currentState)
+        divider.isHidden = !flags.dividerVisible
+        listSplitWidth.isActive = flags.listSplitWidthActive
+        listFullWidthTrailing.isActive = flags.listFullWidthTrailingActive
         listView.setCompactHomeColumn(active)
         if active {
             GeekUIKit.installHomeListColumnSurface(on: listView)
@@ -206,10 +207,13 @@ final class LauncherHomeSplitLayout {
     }
 
     private func applyRightPaneLayout() {
-        guidePane.isHidden = !(columnSplitActive && rightPane == .guide)
-        let showsDetail = rightPane == .detail
-        detailContainer.isHidden = !showsDetail
-        let useRightColumnDetail = columnSplitActive && showsDetail
-        detailRightColumnConstraints.forEach { $0.isActive = useRightColumnDetail }
+        let flags = LauncherHomeSplitConstraintPolicy.flags(for: currentState)
+        guidePane.isHidden = !flags.guideVisible
+        detailContainer.isHidden = !flags.detailVisible
+        detailRightColumnConstraints.forEach { $0.isActive = flags.detailRightColumnActive }
+    }
+
+    private var currentState: LauncherHomeSplitState {
+        LauncherHomeSplitState(columnSplitActive: columnSplitActive, rightPane: rightPane)
     }
 }

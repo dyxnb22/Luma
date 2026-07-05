@@ -1,4 +1,3 @@
-import AppKit
 import Foundation
 import LumaCore
 
@@ -13,6 +12,7 @@ public actor AppsModule: LumaModule {
     )
 
     private var index = AppIndex(apps: [])
+    private var runningApplications: any RunningApplicationsClient = NoopRunningApplicationsClient()
 
     public init() {}
 
@@ -31,13 +31,15 @@ public actor AppsModule: LumaModule {
         let apps = scanned.isEmpty ? fallback : scanned
         index = AppIndex(apps: apps)
         AppIndexCache.save(apps, to: cacheURL)
+        runningApplications = context.platform.runningApplications
+        await runningApplications.startMonitoring()
     }
 
     public func handle(_ query: Query, context: QueryContext) async -> ModuleResult {
         if let payload = query.command?.payload ?? Self.extractPayload(raw: query.raw) {
             return await handlePayload(payload, context: context)
         }
-        let running = await runningBundleIDs()
+        let running = await context.platform.runningApplications.runningBundleIDs()
         let matches = index.search(query.raw).map { result(for: $0, isRunning: running.contains($0.bundleID)) }
         return ModuleResult(items: matches)
     }
@@ -77,7 +79,7 @@ public actor AppsModule: LumaModule {
             return await memoryTopResult(context: context)
         }
         let searchText = trimmed
-        let running = await runningBundleIDs()
+        let running = await context.platform.runningApplications.runningBundleIDs()
         let matches = index.search(searchText).map { result(for: $0, isRunning: running.contains($0.bundleID)) }
         return ModuleResult(items: matches)
     }
@@ -122,12 +124,6 @@ public actor AppsModule: LumaModule {
             ],
             rankingHints: RankingHints(basePriority: Self.manifest.priority)
         )
-    }
-
-    private func runningBundleIDs() async -> Set<String> {
-        await MainActor.run {
-            Set(NSWorkspace.shared.runningApplications.compactMap(\.bundleIdentifier))
-        }
     }
 
     private func secondaryActions(for app: AppRecord, isRunning: Bool) -> [Action] {

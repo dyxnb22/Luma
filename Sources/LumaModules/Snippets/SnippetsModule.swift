@@ -142,7 +142,7 @@ public actor SnippetsModule: LumaModule {
     }
 
     /// Expands and inserts a snippet from detail UI with full project/selection/clipboard context.
-    public func insertSnippet(id: UUID) async throws {
+    public func insertSnippet(id: UUID) async throws -> PasteOutcome {
         guard let snippet = cachedSnippets.first(where: { $0.id == id }) else {
             throw ModuleError.dataUnavailable
         }
@@ -150,10 +150,10 @@ public actor SnippetsModule: LumaModule {
         await refreshCache()
         let expanded = await expandedContentForLauncher(snippet.content)
         await pasteboard.write(expanded)
-        if await accessibility.isTrusted() {
-            try? await Task.sleep(for: .milliseconds(80))
-            await accessibility.insert(text: expanded)
-        }
+        try? await Task.sleep(for: .milliseconds(80))
+        guard await accessibility.isTrusted() else { return .permissionRequired }
+        await accessibility.insert(text: expanded)
+        return .pasted
     }
 
     /// Returns the cached snippet whose trigger exactly matches `raw` (case-insensitive).

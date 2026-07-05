@@ -68,7 +68,16 @@ public enum ModuleRegistry {
     }
 
     public static func defaultOffNote(for id: ModuleIdentifier) -> String? {
-        bundle(for: id)?.defaultOffNote
+        switch id {
+        case .commands:
+            return CommandsModuleBundle.defaultOffNote
+        case .browserTabs:
+            return BrowserTabsModuleBundle.defaultOffNote
+        case .media:
+            return MediaModuleBundle.defaultOffNote
+        default:
+            return nil
+        }
     }
 
     public static func displayName(for id: ModuleIdentifier) -> String {

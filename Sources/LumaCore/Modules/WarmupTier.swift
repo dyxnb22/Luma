@@ -40,8 +40,6 @@ public enum ModuleWarmupDefaults {
         ModuleIdentifier(rawValue: "luma.wordbook"),
         ModuleIdentifier(rawValue: "luma.window-layouts"),
         ModuleIdentifier(rawValue: "luma.kill-process"),
-        ModuleIdentifier(rawValue: "luma.commands"),
-        ModuleIdentifier(rawValue: "luma.quicklinks"),
-        ModuleIdentifier(rawValue: "luma.browser-tabs")
+        ModuleIdentifier(rawValue: "luma.quicklinks")
     ]
 }

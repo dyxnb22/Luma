@@ -35,6 +35,16 @@ Modules must not:
 
 The host enforces timeouts. A timeout becomes an empty module result plus a diagnostic. Missing Accessibility permission becomes `ModuleDiagnostic.Kind.permissionRequired`. One slow or permission-blocked module must never delay the whole launcher.
 
+### Targeted slow-query exceptions
+
+Some modules intentionally exceed the default 80 ms `handle` budget when invoked through **targeted** dispatch only (prefix commands such as `tab`, `mb`, `kill`). Requirements:
+
+- `manifest.queryTimeout` declares the longer budget (for example Browser Tabs 900 ms, Menu Bar Search 800 ms, Kill Process 150 ms).
+- `handle` must still avoid disk I/O and external process spawn on the query path unless the exception is documented and covered by performance tests.
+- **Global search** fan-out must remain memory-only with timeouts at or below 80 ms per module.
+
+Modules with approved targeted exceptions must have p95 budget tests in `Tests/LumaModulesTests/SlowModuleQueryPerformanceTests.swift` (or module-specific performance tests).
+
 ## Action Routing
 
 Host-handled action kinds:

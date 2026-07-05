@@ -63,7 +63,8 @@ final class AppCoordinator {
         notifications: NotificationService(),
         currentProject: currentProjectClient,
         selectionSnapshot: selectionClient,
-        menuBarTree: menuBarTreeClient
+        menuBarTree: menuBarTreeClient,
+        runningApplications: runningApplicationsCache
     )
     private lazy var host = ModuleHost(context: context)
     private var hostClient: AppHostService!
@@ -95,6 +96,7 @@ final class AppCoordinator {
         commandUsage: commandUsage
     )
     private let appActivationTracker = AppActivationTracker.defaultTracker()
+    private let runningApplicationsCache = RunningApplicationsCache.shared
     private lazy var openAppsProvider = OpenAppsHomeProvider(appActivationTracker: appActivationTracker)
     private lazy var clipboardModule = ClipboardModule(pasteboard: pasteboard, accessibility: accessibility)
     private lazy var notesModule = NotesModule()

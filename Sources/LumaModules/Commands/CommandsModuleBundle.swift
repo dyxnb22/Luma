@@ -2,7 +2,7 @@ import LumaCore
 
 public enum CommandsModuleBundle: ModuleBundle {
     public static var manifest: ModuleManifest { CommandsModule.manifest }
-    public static var warmupTier: WarmupTier { .hotPath }
+    public static var warmupTier: WarmupTier { .onDemand }
     public static var defaultOffNote: String? {
         "Built-in shell commands (settings, reload, quit). Enable if you want them in global help discovery."
     }

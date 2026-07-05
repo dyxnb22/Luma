@@ -12,9 +12,9 @@
 | --- | ---: | ---: |
 | P0 | 3 | 0 |
 | P1 | 12 | 0 |
-| P2 | 15 | 1 |
+| P2 | 16 | 0 |
 
-**Remaining open:** SPLIT-TEST (no automated split-layout tests).
+**Remaining open:** none.
 
 ---
 
@@ -67,9 +67,13 @@
 
 ### Still open
 
-| ID | Notes |
+_None._
+
+### Fixed (SPLIT-TEST)
+
+| ID | Fix |
 | --- | --- |
-| SPLIT-TEST | No unit tests for `LauncherHomeSplitLayout` constraint toggling or `syncSplitLayout` state machine. |
+| SPLIT-TEST | `LauncherHomeSplitConstraintPolicy` + `LauncherHomeSplitConstraintPolicyTests` cover split constraint toggling aligned with `LauncherHomeSplitPlanner`. |
 
 ---
 

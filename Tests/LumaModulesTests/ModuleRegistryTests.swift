@@ -26,6 +26,25 @@ import LumaModules
 }
 
 @Test func hotPathModulesMatchOnDemandExclusion() {
-    #expect(ModuleRegistry.onDemandModuleIDs == [.notes, .projects, .menuItems, .media])
+    #expect(ModuleRegistry.onDemandModuleIDs == [.notes, .projects, .menuItems, .media, .commands, .browserTabs])
     #expect(ModuleRegistry.hotPathModuleIDs.isDisjoint(with: ModuleRegistry.onDemandModuleIDs))
+}
+
+@Test func defaultPinnedModulesExcludeDefaultOff() {
+    let defaultOff = Set(
+        ModuleRegistry.manifestCatalog()
+            .filter { !$0.defaultEnabled }
+            .map(\.identifier)
+    )
+    let overlap = ModuleWarmupDefaults.defaultPinnedModuleIDs.intersection(defaultOff)
+    #expect(overlap.isEmpty)
+}
+
+@Test func defaultOffModulesProvideOffNote() {
+    for bundle in ModuleRegistry.allBundles where !bundle.manifest.defaultEnabled {
+        #expect(
+            ModuleRegistry.defaultOffNote(for: bundle.identifier) != nil,
+            "Expected defaultOffNote for \(bundle.identifier.rawValue)"
+        )
+    }
 }

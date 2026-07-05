@@ -303,6 +303,14 @@
     "en": "Snippet expanded",
     "zh-Hans": "片段已展开"
   },
+  "status.pastedToFrontApp": {
+    "en": "Pasted into front app",
+    "zh-Hans": "已粘贴到前台应用"
+  },
+  "status.accessibilityRequiredForPaste": {
+    "en": "Copied — grant Accessibility to paste",
+    "zh-Hans": "已复制 — 授予辅助功能权限后可粘贴"
+  },
   "status.notesRootNotConfigured": {
     "en": "Set a Notes root first",
     "zh-Hans": "请先设置笔记根目录"
@@ -346,6 +354,22 @@
   "status.nothingToCapture": {
     "en": "Nothing to capture",
     "zh-Hans": "没有可捕获的内容"
+  },
+  "status.moduleDisabledInSettings": {
+    "en": "Module disabled in Settings",
+    "zh-Hans": "已在设置中禁用该模块"
+  },
+  "status.activityNoLongerAvailable": {
+    "en": "Activity no longer available",
+    "zh-Hans": "活动已不可用"
+  },
+  "status.linkedItemNoLongerAvailable": {
+    "en": "Linked item no longer available",
+    "zh-Hans": "关联条目已不可用"
+  },
+  "status.snippetsDisabledInSettings": {
+    "en": "Snippets disabled in Settings",
+    "zh-Hans": "已在设置中禁用片段模块"
   },
   "status.modulesLoading": {
     "en": "Modules loading…",
@@ -426,5 +450,29 @@
   "commandHint.helpSuffix": {
     "en": " · Help: help %@",
     "zh-Hans": " · 帮助: help %@"
+  },
+  "permission.banner.initial": {
+    "en": "Accessibility permission needed for window focus features.",
+    "zh-Hans": "窗口聚焦功能需要辅助功能权限。"
+  },
+  "permission.banner.inactive": {
+    "en": "Accessibility permission not active for this build. If Luma is enabled, toggle it off and on.",
+    "zh-Hans": "当前构建未获得辅助功能权限。若已启用 Luma，请关闭后重新打开。"
+  },
+  "permission.banner.grant": {
+    "en": "Grant",
+    "zh-Hans": "授权"
+  },
+  "permission.banner.settings": {
+    "en": "Settings",
+    "zh-Hans": "设置"
+  },
+  "notes.viewMode.tree": {
+    "en": "Tree",
+    "zh-Hans": "树形"
+  },
+  "notes.viewMode.map": {
+    "en": "Map",
+    "zh-Hans": "导图"
   }
 }

@@ -170,8 +170,8 @@ final class NotesDetailView: NSObject, ModuleDetailView {
         newFolderButton.action = #selector(createFolderFromToolbar)
 
         viewModeControl.segmentCount = 2
-        viewModeControl.setLabel("Tree", forSegment: 0)
-        viewModeControl.setLabel("Map", forSegment: 1)
+        viewModeControl.setLabel(L10n.tr("notes.viewMode.tree"), forSegment: 0)
+        viewModeControl.setLabel(L10n.tr("notes.viewMode.map"), forSegment: 1)
         viewModeControl.selectedSegment = 0
         viewModeControl.segmentStyle = .rounded
         viewModeControl.target = self

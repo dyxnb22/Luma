@@ -9,7 +9,7 @@ Date: 2026-06-26
 
 ## Decision
 
-Load `commands.json` from Application Support in `CommandsModule.warmup`. Execute via `ScriptRunnerService` in `perform()` with timeout, background execution, and `UNUserNotification` on completion.
+Load `commands.json` from Application Support in `CommandsModule.warmup`. Execute via `ScriptRunnerService` in `perform()`: `perform` returns immediately after scheduling a structured `Task` (not `Task.detached`); the script runs in the background with per-command timeout; completion is surfaced via `UNUserNotification` from `ScriptRunnerService` (ADR-025). Long-running scripts must not block `ActionExecutor` or panel dismiss.
 
 Extend existing `CommandsModule` rather than adding a separate module.
 

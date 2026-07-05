@@ -33,7 +33,8 @@ public struct ModuleContext: Sendable {
         notifications: any NotificationClient = NoopNotificationClient(),
         currentProject: any CurrentProjectClient = NoopCurrentProjectClient(),
         selectionSnapshot: any SelectionSnapshotClient = NoopSelectionSnapshotClient(),
-        menuBarTree: any MenuBarTreeClient = NoopMenuBarTreeClient()
+        menuBarTree: any MenuBarTreeClient = NoopMenuBarTreeClient(),
+        runningApplications: any RunningApplicationsClient = NoopRunningApplicationsClient()
     ) {
         self.runtime = ModuleRuntimeClients(
             logger: logger,
@@ -54,7 +55,8 @@ public struct ModuleContext: Sendable {
             notifications: notifications,
             currentProject: currentProject,
             selectionSnapshot: selectionSnapshot,
-            menuBarTree: menuBarTree
+            menuBarTree: menuBarTree,
+            runningApplications: runningApplications
         )
         self.launcherUI = launcherUI
     }

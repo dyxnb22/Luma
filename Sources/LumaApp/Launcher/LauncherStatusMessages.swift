@@ -9,6 +9,19 @@ enum LauncherStatusMessages {
     static var quicklinkSaved: String { L10n.tr("status.quicklinkSaved") }
     static var copiedToClipboard: String { L10n.tr("status.copiedToClipboard") }
     static var snippetExpanded: String { L10n.tr("status.snippetExpanded") }
+    static var pastedToFrontApp: String { L10n.tr("status.pastedToFrontApp") }
+    static var accessibilityRequiredForPaste: String { L10n.tr("status.accessibilityRequiredForPaste") }
+
+    static func message(for outcome: PasteOutcome) -> String {
+        switch outcome {
+        case .copiedOnly:
+            copiedToClipboard
+        case .pasted:
+            pastedToFrontApp
+        case .permissionRequired:
+            accessibilityRequiredForPaste
+        }
+    }
     static var notesRootNotConfigured: String { L10n.tr("status.notesRootNotConfigured") }
     static var quicklinkTriggerTaken: String { L10n.tr("status.quicklinkTriggerTaken") }
     static var quicklinkURLDuplicate: String { L10n.tr("status.quicklinkURLDuplicate") }
@@ -20,6 +33,10 @@ enum LauncherStatusMessages {
     static var noteSaveFailed: String { L10n.tr("status.noteSaveFailed") }
     static var operationFailed: String { L10n.tr("status.operationFailed") }
     static var nothingToCapture: String { L10n.tr("status.nothingToCapture") }
+    static var moduleDisabledInSettings: String { L10n.tr("status.moduleDisabledInSettings") }
+    static var activityNoLongerAvailable: String { L10n.tr("status.activityNoLongerAvailable") }
+    static var linkedItemNoLongerAvailable: String { L10n.tr("status.linkedItemNoLongerAvailable") }
+    static var snippetsDisabledInSettings: String { L10n.tr("status.snippetsDisabledInSettings") }
     static var modulesLoading: String { L10n.tr("status.modulesLoading") }
     static var noAlternateActions: String { L10n.tr("status.noAlternateActions") }
     static var noActionPanelActions: String { L10n.tr("status.noActionPanelActions") }

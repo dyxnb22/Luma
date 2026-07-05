@@ -139,7 +139,7 @@ public actor ClipboardModule: LumaModule {
         case .copyEntry(let id, let plainTextOnly):
             try await copyEntry(id: id, pasteboard: context.platform.pasteboard, plainTextOnly: plainTextOnly)
         case .pasteEntry(let id):
-            try await pasteEntry(id: id)
+            _ = try await pasteEntry(id: id)
         case .togglePin(let id):
             await togglePin(id)
         }
@@ -152,17 +152,17 @@ public actor ClipboardModule: LumaModule {
         try await writeEntry(entry, to: pasteboard ?? self.pasteboard, plainTextOnly: plainTextOnly)
     }
 
-    public func pasteEntry(id: UUID) async throws {
+    public func pasteEntry(id: UUID) async throws -> PasteOutcome {
         guard let entry = await store.entry(id: id) else {
             throw ModuleError.dataUnavailable
         }
         try await writeEntry(entry, to: pasteboard, plainTextOnly: false)
-        guard pasteBehavior == .pasteDirectly else { return }
-        guard entry.imageData == nil, entry.fileURLs?.isEmpty != false else { return }
+        guard pasteBehavior == .pasteDirectly else { return .copiedOnly }
+        guard entry.imageData == nil, entry.fileURLs?.isEmpty != false else { return .copiedOnly }
         try? await Task.sleep(for: .milliseconds(80))
-        if await accessibility.isTrusted() {
-            await accessibility.insert(text: entry.plainTextForCopy)
-        }
+        guard await accessibility.isTrusted() else { return .permissionRequired }
+        await accessibility.insert(text: entry.plainTextForCopy)
+        return .pasted
     }
 
     public func recentEntries(limit: Int = 50) async -> [ClipboardEntry] {

@@ -366,7 +366,10 @@ final class ClipboardDetailView: NSObject, ModuleDetailView {
 
     private func pasteEntry(_ entry: ClipboardEntry) {
         onHideLauncher?()
-        Task { try? await module.pasteEntry(id: entry.id) }
+        Task {
+            let outcome = (try? await module.pasteEntry(id: entry.id)) ?? .copiedOnly
+            LauncherEnvironment.current?.showStatus(LauncherStatusMessages.message(for: outcome))
+        }
     }
 
     private func selectedEntry() -> ClipboardEntry? {
@@ -438,7 +441,7 @@ final class ClipboardDetailView: NSObject, ModuleDetailView {
                 ?? Set(ModuleRegistry.allBundles.map { $0.identifier })
             guard enabled.contains(.snippets) else {
                 await MainActor.run {
-                    LauncherEnvironment.current?.showStatus("Snippets disabled in Settings")
+                    LauncherEnvironment.current?.showStatus(LauncherStatusMessages.snippetsDisabledInSettings)
                 }
                 return
             }

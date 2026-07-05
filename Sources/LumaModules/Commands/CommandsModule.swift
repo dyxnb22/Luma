@@ -71,8 +71,9 @@ public actor CommandsModule: LumaModule {
                     workingDirectory: cwd,
                     timeoutSeconds: command.timeoutSec
                 )
-                Task.detached { [scriptRunner] in
-                    _ = await scriptRunner.run(request)
+                let runner = scriptRunner
+                Task {
+                    _ = await runner.run(request)
                 }
             case .revealConfig:
                 let url = await store.configFileURL()

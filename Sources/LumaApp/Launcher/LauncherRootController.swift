@@ -457,7 +457,7 @@ final class LauncherRootController {
     func openModuleDetail(for moduleID: ModuleIdentifier, payload: Data? = nil) {
         Task { @MainActor in
             guard await isModuleEnabledForDetail(moduleID) else {
-                showStatus("Module disabled in Settings")
+                showStatus(LauncherStatusMessages.moduleDisabledInSettings)
                 return
             }
             if moduleID == .snippets, let payload,
@@ -502,7 +502,7 @@ final class LauncherRootController {
     private func presentModuleDetail(for moduleID: ModuleIdentifier) {
         Task { @MainActor in
             guard await isModuleEnabledForDetail(moduleID) else {
-                showStatus("Module disabled in Settings")
+                showStatus(LauncherStatusMessages.moduleDisabledInSettings)
                 return
             }
             await launcherEnvironment.warmModuleForDetail(moduleID)
@@ -800,8 +800,8 @@ final class LauncherRootController {
             if case .globalSearch = route {
                 Task {
                     if let snippet = await launcherEnvironment.snippetsModule.snippetForTrigger(raw) {
-                        launcherEnvironment.showStatus(LauncherStatusMessages.snippetExpanded)
-                        try? await launcherEnvironment.snippetsModule.insertSnippet(id: snippet.id)
+                        let outcome = (try? await launcherEnvironment.snippetsModule.insertSnippet(id: snippet.id)) ?? .copiedOnly
+                        launcherEnvironment.showStatus(LauncherStatusMessages.message(for: outcome))
                         await MainActor.run { self.onActionDismiss() }
                         return
                     }
@@ -1098,13 +1098,13 @@ final class LauncherRootController {
         Task {
             let activities = await WorkbenchActivityStore.shared.allEntries()
             guard let entry = activities.first(where: { $0.id == entryID }) else {
-                await MainActor.run { commandHintBar.showStatus("Activity no longer available") }
+                await MainActor.run { commandHintBar.showStatus(LauncherStatusMessages.activityNoLongerAvailable) }
                 return
             }
             let enabled = await config.enabledModules()
                 ?? Set(ModuleRegistry.allBundles.map { $0.identifier })
             guard enabled.contains(entry.moduleID) else {
-                await MainActor.run { commandHintBar.showStatus("Module disabled in Settings") }
+                await MainActor.run { commandHintBar.showStatus(LauncherStatusMessages.moduleDisabledInSettings) }
                 return
             }
             let rowAction = WorkbenchLinkedEntityOpenPlanner.rowAction(for: entry)
@@ -1119,7 +1119,7 @@ final class LauncherRootController {
         Task {
             let links = await WorkbenchLinkStore.shared.allLinks()
             guard let link = links.first(where: { $0.id == linkID }) else {
-                await MainActor.run { commandHintBar.showStatus("Linked item no longer available") }
+                await MainActor.run { commandHintBar.showStatus(LauncherStatusMessages.linkedItemNoLongerAvailable) }
                 return
             }
             let entry: WorkbenchActivityEntry?
@@ -1132,7 +1132,7 @@ final class LauncherRootController {
             let enabled = await config.enabledModules()
                 ?? Set(ModuleRegistry.allBundles.map { $0.identifier })
             guard enabled.contains(link.entityRef.moduleID) else {
-                await MainActor.run { commandHintBar.showStatus("Module disabled in Settings") }
+                await MainActor.run { commandHintBar.showStatus(LauncherStatusMessages.moduleDisabledInSettings) }
                 return
             }
             let rowAction = WorkbenchLinkedEntityOpenPlanner.rowAction(for: link, entry: entry)
@@ -1163,9 +1163,9 @@ final class LauncherRootController {
             ) else {
                 await MainActor.run {
                     if !signals.enabledModuleIDs.contains(target.moduleID) {
-                        commandHintBar.showStatus("Module disabled in Settings")
+                        commandHintBar.showStatus(LauncherStatusMessages.moduleDisabledInSettings)
                     } else {
-                        commandHintBar.showStatus("Nothing to capture")
+                        commandHintBar.showStatus(LauncherStatusMessages.nothingToCapture)
                     }
                 }
                 return
@@ -1181,13 +1181,13 @@ final class LauncherRootController {
         Task {
             let activities = await WorkbenchActivityStore.shared.allEntries()
             guard let entry = activities.first(where: { $0.id == entryID }) else {
-                await MainActor.run { commandHintBar.showStatus("Activity no longer available") }
+                await MainActor.run { commandHintBar.showStatus(LauncherStatusMessages.activityNoLongerAvailable) }
                 return
             }
             let enabled = await config.enabledModules()
                 ?? Set(ModuleRegistry.allBundles.map { $0.identifier })
             guard enabled.contains(entry.moduleID) else {
-                await MainActor.run { commandHintBar.showStatus("Module disabled in Settings") }
+                await MainActor.run { commandHintBar.showStatus(LauncherStatusMessages.moduleDisabledInSettings) }
                 return
             }
             await MainActor.run {

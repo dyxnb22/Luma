@@ -2,7 +2,7 @@ import LumaCore
 
 public enum BrowserTabsModuleBundle: ModuleBundle {
     public static var manifest: ModuleManifest { BrowserTabsModule.manifest }
-    public static var warmupTier: WarmupTier { .hotPath }
+    public static var warmupTier: WarmupTier { .onDemand }
     public static var defaultOffNote: String? {
         "Requires Automation permission per browser. Enable only if you search open tabs regularly."
     }

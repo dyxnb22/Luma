@@ -8,7 +8,7 @@ struct AccessibilityGuidanceContext: Sendable, Equatable {
         case none
         case targetedModule(ModuleIdentifier)
         case moduleDetail(ModuleIdentifier)
-        case openAppsExpanded
+        case openAppsWindowControlUsed
     }
 
     let surface: Surface
@@ -32,7 +32,7 @@ enum AccessibilityGuidancePolicy {
             return false
         case .targetedModule(let module), .moduleDetail(let module):
             return guidanceModuleIDs.contains(module) && enabledModules.contains(module)
-        case .openAppsExpanded:
+        case .openAppsWindowControlUsed:
             return enabledModules.contains(.apps) || guidanceModuleIDs.contains(where: enabledModules.contains)
         }
     }

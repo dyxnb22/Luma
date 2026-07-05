@@ -760,8 +760,8 @@ final class LauncherRootController {
 
         let trimmed = searchBar.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.isEmpty {
-            if await homeCoordinator.hasExpandedOpenApps() {
-                return AccessibilityGuidanceContext(surface: .openAppsExpanded)
+            if await homeCoordinator.hasToggledOpenAppWindows() {
+                return AccessibilityGuidanceContext(surface: .openAppsWindowControlUsed)
             }
             return AccessibilityGuidanceContext(surface: .none)
         }

@@ -31,7 +31,11 @@ struct ProcessMetadata: Sendable, Hashable {
 }
 
 public struct RunningProcessService: Sendable {
-    public init() {}
+    private let sampleDelay: Duration
+
+    public init(sampleDelay: Duration = .zero) {
+        self.sampleDelay = sampleDelay
+    }
 
     public func runningGUIApplications() async -> [RunningProcessRecord] {
         let metadata = await MainActor.run { Self.collectGUIMetadata() }
@@ -55,8 +59,12 @@ public struct RunningProcessService: Sendable {
     }
 
     private func enrichWithMemory(_ metadata: [ProcessMetadata]) async -> [RunningProcessRecord] {
-        await Task.detached(priority: .utility) {
-            metadata.map { item in
+        let delay = sampleDelay
+        return await Task.detached(priority: .utility) {
+            if delay > .zero {
+                try? await Task.sleep(for: delay)
+            }
+            return metadata.map { item in
                 RunningProcessRecord(
                     pid: item.pid,
                     bundleID: item.bundleID,

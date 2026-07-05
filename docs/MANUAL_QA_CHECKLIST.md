@@ -64,7 +64,7 @@ Panel and search field must stay **horizontally aligned** with panel edges — n
 ## Permissions
 
 - Accessibility denied state is clear on AX-dependent surfaces only (not on empty home or ordinary app search).
-- With Accessibility denied: empty home and global app search show **no** permission banner; banner appears for `mb` / `s` / `wl` targeted queries, Snippets / Menu Bar Search / Window Layouts detail, or after toggling Open Apps window expansion.
+- With Accessibility denied: empty home and global app search show **no** permission banner; banner appears for `mb` / `s` / `wl` targeted queries, Snippets / Menu Bar Search / Window Layouts detail, or after toggling Open Apps window controls (collapse/expand).
 - Accessibility granted state enables window focus.
 - Settings links to System Settings when permission is missing.
 - Automation-denied state for Browser Tabs is actionable and not raw AppleScript noise.
@@ -223,6 +223,7 @@ Panel and search field must stay **horizontally aligned** with panel edges — n
 ## Kill Process
 
 - Cmd+Space → `kill` lists recent running GUI apps, excluding Luma.
+- Cold start: immediately after launch, `kill <app>` before the background refresh completes shows an informational “Refreshing process list…” row instead of a silent empty list.
 - `kill preview` finds Preview when running and shows bundle ID plus memory.
 - Return sends normal Quit and the list refreshes.
 - Tab shows Force Kill and Relaunch; Force Kill requires the second modifier.

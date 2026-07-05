@@ -55,6 +55,12 @@ public actor KillProcessModule: LumaModule {
             ])
         }
         scheduleRefreshIfStale()
+        if isColdCacheRefreshInFlight {
+            let matches = KillProcessIndex.search(cachedRecords, query: payload, limit: 8)
+            if matches.isEmpty {
+                return ModuleResult(items: [coldCacheRefreshingRow()])
+            }
+        }
         let matches = KillProcessIndex.search(cachedRecords, query: payload, limit: 8)
         return ModuleResult(items: matches.map { row(for: $0.record) })
     }
@@ -101,6 +107,20 @@ public actor KillProcessModule: LumaModule {
         refreshCallCount += 1
         cachedRecords = await service.runningGUIApplications()
         cacheFetchedAt = ContinuousClock.now
+    }
+
+    private var isColdCacheRefreshInFlight: Bool {
+        cacheFetchedAt == nil && refreshTask != nil
+    }
+
+    private func coldCacheRefreshingRow() -> ResultItem {
+        ModuleDiagnosticResults.informationalRow(
+            module: Self.manifest.identifier,
+            diagnostic: ModuleDiagnostic(
+                kind: .degraded,
+                message: L10n.tr("killProcess.cacheRefreshing")
+            )
+        )
     }
 
     private func row(for record: RunningProcessRecord) -> ResultItem {

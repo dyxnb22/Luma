@@ -43,7 +43,7 @@ actor LauncherHomeCoordinator {
         }
     }
 
-    func hasExpandedOpenApps() -> Bool {
+    func hasToggledOpenAppWindows() -> Bool {
         !collapsedAppBundleIDs.isEmpty
     }
 

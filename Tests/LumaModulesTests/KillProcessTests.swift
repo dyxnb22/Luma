@@ -78,6 +78,32 @@ import LumaServices
     #expect(await module.refreshCallCount >= 1)
 }
 
+@Test func killProcessShowsRefreshingWhileColdCacheInFlight() async {
+    let module = KillProcessModule(service: RunningProcessService(sampleDelay: .milliseconds(500)))
+    let context = ModuleContext(
+        logger: NoopLoggingClient(),
+        metrics: NoopMetricsClient(),
+        database: NoopDatabaseClient(),
+        pasteboard: NoopPasteboardClient(),
+        accessibility: NoopAccessibilityClient(),
+        fileSystem: NoopFileSystemClient(),
+        translation: NoopTranslationClient(),
+        config: NoopConfigurationClient()
+    )
+    await module.warmup(context)
+
+    let query = Query(
+        raw: "kill preview",
+        sequence: 1,
+        command: ParsedCommand(trigger: "kill", payload: "preview", module: .killProcess)
+    )
+    let result = await module.handle(query, context: QueryContext(deadline: .now + .seconds(1)))
+
+    #expect(result.items.count == 1)
+    #expect(result.items[0].rowKind == .informational)
+    #expect(result.items[0].title == L10n.tr("killProcess.cacheRefreshing"))
+}
+
 private struct NoopLoggingClient: LoggingClient {
     func debug(_ message: String) async {}
     func error(_ message: String) async {}

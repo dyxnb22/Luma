@@ -33,6 +33,7 @@ final class LumaSearchBar: NSView {
     private let hintsButton = NSButton()
     private let clearButton = NSButton()
     private let hintsPopover = NSPopover()
+    private var currentPlaceholderText: String?
     var onTextChange: ((String) -> Void)?
     var onEscape: (() -> Void)?
     var onReturn: (() -> Void)?
@@ -299,6 +300,8 @@ final class LumaSearchBar: NSView {
     }
 
     private func applyPlaceholder(_ text: String) {
+        guard currentPlaceholderText != text else { return }
+        currentPlaceholderText = text
         textField.placeholderString = nil
         textField.placeholderAttributedString = NSAttributedString(
             string: text,

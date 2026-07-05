@@ -215,13 +215,8 @@ final class LauncherRootController {
     }
 
     private func syncQueryIfNeeded() {
-        searchBar.commitEditingIfNeeded()
         let text = searchBar.queryText
         guard text != lastSyncedQuery else { return }
-        if text.isEmpty {
-            let committed = searchBar.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !committed.isEmpty { return }
-        }
         handleTextChange(text)
     }
 

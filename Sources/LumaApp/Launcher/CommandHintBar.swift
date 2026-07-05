@@ -11,6 +11,8 @@ final class CommandHintBar: NSView {
     private let statusLine = CommandHintBar.makeLine(mono: false)
     private var heightConstraint: NSLayoutConstraint!
     private var statusDismissTask: Task<Void, Never>?
+    private var appliedHint: CommandHint?
+    private var appliedHelpTrigger: String?
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -59,6 +61,13 @@ final class CommandHintBar: NSView {
     }
 
     func apply(_ hint: CommandHint?, helpTrigger: String? = nil) {
+        if hint == appliedHint,
+           helpTrigger == appliedHelpTrigger,
+           statusLine.isHidden {
+            return
+        }
+        appliedHint = hint
+        appliedHelpTrigger = helpTrigger
         statusDismissTask?.cancel()
         statusLine.isHidden = true
         guard let hint else {

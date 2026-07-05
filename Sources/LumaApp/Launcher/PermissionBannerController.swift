@@ -8,10 +8,17 @@ import LumaServices
 final class PermissionBannerController {
     let bannerView = NSView()
     var onOpenSettings: (() -> Void)?
+    private static let defaultEnabledModuleIDs = Set(
+        ModuleRegistry.manifestCatalog()
+            .filter(\.defaultEnabled)
+            .map(\.identifier)
+    )
+
     private let config: ConfigurationStore
     private let label = NSTextField(labelWithString: "")
     private var heightConstraint: NSLayoutConstraint?
     private var pollingTask: Task<Void, Never>?
+    private var refreshTask: Task<Void, Never>?
     private var lastContext = AccessibilityGuidanceContext(surface: .none)
     private(set) var isBannerVisible = false
 
@@ -77,7 +84,14 @@ final class PermissionBannerController {
 
     func refresh(context: AccessibilityGuidanceContext) {
         lastContext = context
-        Task { await refreshAsync(context: context) }
+        refreshTask?.cancel()
+        if context.surface == .none {
+            applyBannerVisibility(false)
+            return
+        }
+        refreshTask = Task { [weak self] in
+            await self?.refreshAsync(context: context)
+        }
     }
 
     func startPollingIfNeeded() {
@@ -94,16 +108,16 @@ final class PermissionBannerController {
             context: context,
             enabledModules: enabled
         )
+        applyBannerVisibility(shouldShow)
+        if shouldShow { await startPollingIfNeededAsync() }
+    }
+
+    private func applyBannerVisibility(_ shouldShow: Bool) {
         isBannerVisible = shouldShow
         heightConstraint?.constant = shouldShow ? 36 : 0
         bannerView.isHidden = !shouldShow
-        if shouldShow {
-            label.stringValue = L10n.tr("permission.banner.inactive")
-            await startPollingIfNeededAsync()
-        } else {
-            label.stringValue = ""
-            stopPolling()
-        }
+        label.stringValue = shouldShow ? L10n.tr("permission.banner.inactive") : ""
+        if !shouldShow { stopPolling() }
     }
 
     private func startPollingIfNeededAsync() async {
@@ -139,11 +153,6 @@ final class PermissionBannerController {
     }
 
     private func resolvedEnabledModules() async -> Set<ModuleIdentifier> {
-        let defaultEnabled = Set(
-            BuiltInModules.makeAll()
-                .filter { type(of: $0).manifest.defaultEnabled }
-                .map { type(of: $0).manifest.identifier }
-        )
-        return await config.enabledModules() ?? defaultEnabled
+        await config.enabledModules() ?? Self.defaultEnabledModuleIDs
     }
 }

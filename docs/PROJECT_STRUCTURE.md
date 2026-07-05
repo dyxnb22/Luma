@@ -10,6 +10,8 @@ Sources/
 Tests/
   LumaCoreTests/
   LumaModulesTests/
+  LumaInfrastructureTests/
+  LumaServicesTests/
 docs/
   adr/
   specs/

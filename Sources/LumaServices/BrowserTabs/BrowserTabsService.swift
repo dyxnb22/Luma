@@ -128,7 +128,7 @@ public actor BrowserTabsService {
         guard refreshTask == nil else { return }
         refreshTask = Task {
             await self.refresh()
-            await self.clearRefreshTask()
+            self.clearRefreshTask()
         }
     }
 

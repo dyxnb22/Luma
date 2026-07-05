@@ -40,8 +40,8 @@ public actor BrowserTabsModule: LumaModule {
                 return ModuleResult(items: [], diagnostic: diagnostic)
             }
             let message = trimmed.isEmpty
-                ? "No browser tabs — open Safari or Chrome, or grant automation in System Settings → Privacy → Automation"
-                : "No tabs match \"\(trimmed)\""
+                ? L10n.tr("browserTabs.diagnostic.noTabsEmpty")
+                : L10n.tr("browserTabs.diagnostic.noMatch", trimmed)
             return ModuleResult(
                 items: [],
                 diagnostic: ModuleDiagnostic(kind: .degraded, message: message)
@@ -52,7 +52,7 @@ public actor BrowserTabsModule: LumaModule {
                 items: [],
                 diagnostic: ModuleDiagnostic(
                     kind: .degraded,
-                    message: "No tabs available to list"
+                    message: L10n.tr("browserTabs.diagnostic.noTabsList")
                 )
             )
         }
@@ -60,7 +60,7 @@ public actor BrowserTabsModule: LumaModule {
             items: [],
             diagnostic: ModuleDiagnostic(
                 kind: .degraded,
-                message: "No tabs match \"\(trimmed)\""
+                message: L10n.tr("browserTabs.diagnostic.noMatch", trimmed)
             )
         )
     }
@@ -86,18 +86,18 @@ public actor BrowserTabsModule: LumaModule {
             icon: .bundleID(record.bundleID),
             primaryAction: Action(
                 id: ActionID(module: Self.manifest.identifier, key: "activate"),
-                title: "Activate Tab",
+                title: L10n.tr("browserTabs.action.activateTab"),
                 kind: .custom(payload: payload, handler: Self.manifest.identifier)
             ),
             secondaryActions: [
                 Action(
                     id: ActionID(module: Self.manifest.identifier, key: "copy.\(record.url)"),
-                    title: "Copy URL",
+                    title: L10n.tr("browserTabs.action.copyURL"),
                     kind: .copyToPasteboard(record.url)
                 ),
                 Action(
                     id: ActionID(module: Self.manifest.identifier, key: "quicklink.\(record.url)"),
-                    title: "Save as Quicklink",
+                    title: L10n.tr("browserTabs.action.saveQuicklink"),
                     kind: .openModuleDetail(.quicklinks, payload: quicklinkPayload(for: record.url))
                 )
             ],

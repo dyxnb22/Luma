@@ -258,17 +258,23 @@ public actor RemindersService: RemindersClient {
     }
 }
 
+private final class StoreChangeCallback: @unchecked Sendable {
+    let handler: () -> Void
+    init(_ handler: @escaping () -> Void) { self.handler = handler }
+}
+
 private final class StoreChangeObserver: @unchecked Sendable {
     private let lock = NSLock()
     private nonisolated(unsafe) var token: (any NSObjectProtocol)?
 
     func install(store: EKEventStore, onChange: @escaping () -> Void) {
+        let callback = StoreChangeCallback(onChange)
         let newToken = NotificationCenter.default.addObserver(
             forName: .EKEventStoreChanged,
             object: store,
             queue: nil
         ) { _ in
-            onChange()
+            callback.handler()
         }
         lock.lock()
         token = newToken

@@ -478,5 +478,253 @@
   "notes.viewMode.map": {
     "en": "Map",
     "zh-Hans": "导图"
+  },
+  "clipboard.detail.title": {
+    "en": "Clipboard",
+    "zh-Hans": "剪贴板"
+  },
+  "clipboard.detail.searchPlaceholder": {
+    "en": "Search clipboard…",
+    "zh-Hans": "搜索剪贴板…"
+  },
+  "clipboard.detail.filter.all": {
+    "en": "All",
+    "zh-Hans": "全部"
+  },
+  "clipboard.detail.filter.pinned": {
+    "en": "Pinned",
+    "zh-Hans": "已固定"
+  },
+  "clipboard.detail.filter.image": {
+    "en": "Image",
+    "zh-Hans": "图片"
+  },
+  "clipboard.detail.clearUnpinned": {
+    "en": "Clear Unpinned",
+    "zh-Hans": "清除未固定项"
+  },
+  "clipboard.detail.textActions": {
+    "en": "Text Actions",
+    "zh-Hans": "文本操作"
+  },
+  "clipboard.detail.copyResult": {
+    "en": "Copy Result",
+    "zh-Hans": "复制结果"
+  },
+  "clipboard.detail.replaceEntry": {
+    "en": "Replace Entry",
+    "zh-Hans": "替换条目"
+  },
+  "clipboard.detail.clearRecent": {
+    "en": "Clear Recent…",
+    "zh-Hans": "清除最近…"
+  },
+  "clipboard.detail.settings": {
+    "en": "Settings",
+    "zh-Hans": "设置"
+  },
+  "clipboard.detail.clearUnpinned.title": {
+    "en": "Clear unpinned clipboard history?",
+    "zh-Hans": "清除未固定的剪贴板历史？"
+  },
+  "clipboard.detail.clearUnpinned.message": {
+    "en": "Pinned items will be kept.",
+    "zh-Hans": "已固定的条目将保留。"
+  },
+  "clipboard.detail.clear": {
+    "en": "Clear",
+    "zh-Hans": "清除"
+  },
+  "clipboard.detail.cancel": {
+    "en": "Cancel",
+    "zh-Hans": "取消"
+  },
+  "clipboard.detail.clearRecent.title": {
+    "en": "Clear recent clipboard items?",
+    "zh-Hans": "清除最近的剪贴板条目？"
+  },
+  "clipboard.detail.clearRecent.message": {
+    "en": "Pinned items are kept. Choose a time window.",
+    "zh-Hans": "已固定条目将保留。请选择时间范围。"
+  },
+  "clipboard.detail.clearRecent.last5Minutes": {
+    "en": "Last 5 minutes",
+    "zh-Hans": "最近 5 分钟"
+  },
+  "clipboard.detail.clearRecent.lastHour": {
+    "en": "Last hour",
+    "zh-Hans": "最近 1 小时"
+  },
+  "clipboard.detail.clearRecent.today": {
+    "en": "Today",
+    "zh-Hans": "今天"
+  },
+  "clipboard.detail.preview": {
+    "en": "Preview: %@",
+    "zh-Hans": "预览：%@"
+  },
+  "clipboard.detail.empty": {
+    "en": "Clipboard history is empty.\nCopied text will appear here.",
+    "zh-Hans": "剪贴板历史为空。\n复制的内容将显示在这里。"
+  },
+  "clipboard.detail.emptyNoResults": {
+    "en": "No results for “%@”.",
+    "zh-Hans": "未找到 “%@”。"
+  },
+  "notes.detail.chip.today": {
+    "en": "Today",
+    "zh-Hans": "今天"
+  },
+  "notes.detail.chip.todayMissing": {
+    "en": "Today +",
+    "zh-Hans": "今天 +"
+  },
+  "notes.detail.chip.recent": {
+    "en": "Recent",
+    "zh-Hans": "最近"
+  },
+  "notes.detail.chip.pinned": {
+    "en": "Pinned",
+    "zh-Hans": "已固定"
+  },
+  "notes.detail.panel.outline": {
+    "en": "Outline",
+    "zh-Hans": "大纲"
+  },
+  "notes.detail.panel.browse": {
+    "en": "Browse",
+    "zh-Hans": "浏览"
+  },
+  "notes.detail.panel.inbox": {
+    "en": "Inbox",
+    "zh-Hans": "收件箱"
+  },
+  "notes.detail.panel.inboxCount": {
+    "en": "Inbox(%d)",
+    "zh-Hans": "收件箱(%d)"
+  },
+  "browserTabs.diagnostic.noTabsEmpty": {
+    "en": "No browser tabs — open Safari or Chrome, or grant automation in System Settings → Privacy → Automation",
+    "zh-Hans": "无浏览器标签页 — 请打开 Safari 或 Chrome，或在系统设置 → 隐私与安全性 → 自动化 中授权"
+  },
+  "browserTabs.diagnostic.noMatch": {
+    "en": "No tabs match \"%@\"",
+    "zh-Hans": "没有匹配 \"%@\" 的标签页"
+  },
+  "browserTabs.diagnostic.noTabsList": {
+    "en": "No tabs available to list",
+    "zh-Hans": "暂无可列出的标签页"
+  },
+  "browserTabs.action.activateTab": {
+    "en": "Activate Tab",
+    "zh-Hans": "激活标签页"
+  },
+  "browserTabs.action.copyURL": {
+    "en": "Copy URL",
+    "zh-Hans": "复制 URL"
+  },
+  "browserTabs.action.saveQuicklink": {
+    "en": "Save as Quicklink",
+    "zh-Hans": "保存为快捷链接"
+  },
+  "secrets.detail.title": {
+    "en": "Secrets",
+    "zh-Hans": "密钥库"
+  },
+  "secrets.detail.searchPlaceholder": {
+    "en": "Search secrets…",
+    "zh-Hans": "搜索密钥…"
+  },
+  "secrets.detail.searchLocked": {
+    "en": "Unlock vault to search",
+    "zh-Hans": "解锁保险库后搜索"
+  },
+  "secrets.detail.unlockVault": {
+    "en": "Unlock Vault",
+    "zh-Hans": "解锁保险库"
+  },
+  "secrets.detail.add": {
+    "en": "Add",
+    "zh-Hans": "添加"
+  },
+  "secrets.detail.edit": {
+    "en": "Edit",
+    "zh-Hans": "编辑"
+  },
+  "secrets.detail.delete": {
+    "en": "Delete",
+    "zh-Hans": "删除"
+  },
+  "secrets.detail.reveal": {
+    "en": "Reveal",
+    "zh-Hans": "显示"
+  },
+  "secrets.detail.lockVault": {
+    "en": "Lock Vault",
+    "zh-Hans": "锁定保险库"
+  },
+  "secrets.detail.column.label": {
+    "en": "Label",
+    "zh-Hans": "标签"
+  },
+  "secrets.detail.column.account": {
+    "en": "Account",
+    "zh-Hans": "账户"
+  },
+  "secrets.detail.column.updated": {
+    "en": "Updated",
+    "zh-Hans": "更新时间"
+  },
+  "secrets.detail.delete.title": {
+    "en": "Delete “%@”?",
+    "zh-Hans": "删除 “%@”？"
+  },
+  "secrets.detail.delete.message": {
+    "en": "This cannot be undone.",
+    "zh-Hans": "此操作无法撤销。"
+  },
+  "secrets.detail.empty": {
+    "en": "No secrets yet.\nClick Add to store your first credential.",
+    "zh-Hans": "暂无密钥。\n点击添加以存储第一个凭据。"
+  },
+  "secrets.detail.emptyNoResults": {
+    "en": "No results for “%@”.",
+    "zh-Hans": "未找到 “%@”。"
+  },
+  "secrets.editor.addTitle": {
+    "en": "Add Secret",
+    "zh-Hans": "添加密钥"
+  },
+  "secrets.editor.editTitle": {
+    "en": "Edit Secret",
+    "zh-Hans": "编辑密钥"
+  },
+  "secrets.editor.labelPlaceholder": {
+    "en": "Label",
+    "zh-Hans": "标签"
+  },
+  "secrets.editor.accountPlaceholder": {
+    "en": "Account (optional)",
+    "zh-Hans": "账户（可选）"
+  },
+  "secrets.editor.valuePlaceholderNew": {
+    "en": "Secret value",
+    "zh-Hans": "密钥值"
+  },
+  "secrets.editor.valuePlaceholderEdit": {
+    "en": "New value (leave blank to keep)",
+    "zh-Hans": "新值（留空则保持不变）"
+  },
+  "secrets.editor.save": {
+    "en": "Save",
+    "zh-Hans": "保存"
+  },
+  "secrets.editor.cancel": {
+    "en": "Cancel",
+    "zh-Hans": "取消"
+  },
+  "secrets.detail.ok": {
+    "en": "OK",
+    "zh-Hans": "好"
   }
 }

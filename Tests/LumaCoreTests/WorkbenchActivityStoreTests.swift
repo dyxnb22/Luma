@@ -152,7 +152,7 @@ import LumaCore
         openDetailPayload: Data(),
         resumeDraftJSON: Data("{}".utf8)
     )
-    await store.recordCapture(
+    _ = await store.recordCapture(
         result: result,
         context: context,
         attribution: WorkbenchCaptureAttribution(sourceKind: .home, followUp: .openDetail)
@@ -180,7 +180,7 @@ import LumaCore
         moduleID: .todo,
         preview: "buy milk"
     )
-    await store.recordCapture(
+    _ = await store.recordCapture(
         result: result,
         context: context,
         attribution: WorkbenchCaptureAttribution(sourceKind: .command, followUp: .replaceQuery)
@@ -203,7 +203,7 @@ import LumaCore
     )
     let draftA = Data("{\"trigger\":\"proj-a\"}".utf8)
     let draftB = Data("{\"trigger\":\"proj-b\"}".utf8)
-    await store.recordCapture(
+    _ = await store.recordCapture(
         result: WorkbenchCaptureResult(
             target: .snippetDraft,
             moduleID: .snippets,
@@ -213,7 +213,7 @@ import LumaCore
         context: context,
         attribution: WorkbenchCaptureAttribution(sourceKind: .home)
     )
-    await store.recordCapture(
+    _ = await store.recordCapture(
         result: WorkbenchCaptureResult(
             target: .snippetDraft,
             moduleID: .snippets,

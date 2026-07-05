@@ -62,7 +62,10 @@ public actor ActionExecutor {
                 guard let module = await host.enabledModule(handler) else {
                     throw ModuleError.unsupportedAction(action.id)
                 }
-                try await module.perform(action, context: context)
+                let customResult = await runCustomAction(module: module, action: action)
+                guard customResult.succeeded else {
+                    return customResult
+                }
             case .noop, .openModuleDetail, .replaceQuery:
                 return .success
             }
@@ -83,5 +86,22 @@ public actor ActionExecutor {
         default:
             return true
         }
+    }
+
+    private func runCustomAction(module: any LumaModule, action: Action) async -> ActionExecutionResult {
+        let result = await Timeout.run(after: .seconds(2)) {
+            do {
+                try await module.perform(action, context: self.context)
+                return ActionExecutionResult.success
+            } catch {
+                let mapped = ActionExecutionFailureMapper.message(for: error)
+                return ActionExecutionResult.failure(message: mapped.message, recoverable: mapped.recoverable)
+            }
+        }
+        if let result {
+            return result
+        }
+        let mapped = ActionExecutionFailureMapper.message(for: ModuleError.actionTimedOut)
+        return .failure(message: mapped.message, recoverable: mapped.recoverable)
     }
 }

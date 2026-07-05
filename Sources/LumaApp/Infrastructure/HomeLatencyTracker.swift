@@ -15,7 +15,7 @@ enum HomeLatencyTracker {
         let ms = (CFAbsoluteTimeGetCurrent() - start) * 1000
         LatencyTelemetry.reportHotkey(ms)
         if ProcessInfo.processInfo.environment["LUMA_QA"] == "1" {
-            try? LatencyTelemetry.shared.exportReport()
+            _ = try? LatencyTelemetry.shared.exportReport()
         }
         return ms
     }

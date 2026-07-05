@@ -2,7 +2,7 @@ import LumaCore
 
 /// Single registration point for all built-in module bundles.
 public enum ModuleRegistry {
-    public static let allBundles: [any ModuleBundle.Type] = [
+    nonisolated(unsafe) public static let allBundles: [any ModuleBundle.Type] = [
         AppsModuleBundle.self,
         ClipboardModuleBundle.self,
         CommandsModuleBundle.self,

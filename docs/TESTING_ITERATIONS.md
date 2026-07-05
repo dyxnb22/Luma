@@ -58,8 +58,8 @@ For each meaningful product change:
 
 ## Current Status
 
-As of 2026-07-04:
+As of 2026-07-05:
 
-- `swift test` passes locally with 576 tests.
+- `swift test` passes locally with 596 tests.
 - `qa/SUMMARY.md` records the last full recorded QA round with P0/P1/P2 = 0 open.
 - The canonical scripted smoke entry point is `scripts/qa/run_full_smoke.sh`.

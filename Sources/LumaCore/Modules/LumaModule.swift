@@ -101,6 +101,7 @@ public struct ModuleDiagnostic: Sendable {
 public enum ModuleError: Error, Sendable {
     case unsupportedAction(ActionID)
     case dataUnavailable
+    case actionTimedOut
     case permissionRequired(Permission)
 }
 

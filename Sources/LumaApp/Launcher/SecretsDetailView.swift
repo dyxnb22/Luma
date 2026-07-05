@@ -4,7 +4,7 @@ import LumaModules
 
 @MainActor
 final class SecretsDetailView: NSObject, ModuleDetailView {
-    let moduleTitle = "Secrets"
+    let moduleTitle = L10n.tr("secrets.detail.title")
     let detailView: NSView
     let usesSharedTopBar = true
 
@@ -59,7 +59,7 @@ final class SecretsDetailView: NSObject, ModuleDetailView {
 
     private func setup(chrome: BaseDetailContainer) {
         lockedContainer.translatesAutoresizingMaskIntoConstraints = false
-        unlockButton.title = "Unlock Vault"
+        unlockButton.title = L10n.tr("secrets.detail.unlockVault")
         GeekUIKit.stylePrimaryButton(unlockButton)
         unlockButton.target = self
         unlockButton.action = #selector(unlockVault)
@@ -85,13 +85,13 @@ final class SecretsDetailView: NSObject, ModuleDetailView {
         tableView.target = self
         tableView.doubleAction = #selector(editSelected)
 
-        for (id, title, width) in [
-            ("label", "Label", 180.0),
-            ("account", "Account", 140.0),
-            ("updated", "Updated", 120.0)
+        for (id, titleKey, width) in [
+            ("label", "secrets.detail.column.label", 180.0),
+            ("account", "secrets.detail.column.account", 140.0),
+            ("updated", "secrets.detail.column.updated", 120.0)
         ] {
             let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier(id))
-            column.title = title
+            column.title = L10n.tr(titleKey)
             column.width = width
             tableView.addTableColumn(column)
         }
@@ -136,15 +136,15 @@ final class SecretsDetailView: NSObject, ModuleDetailView {
         let toolbar = NSView()
         toolbar.translatesAutoresizingMaskIntoConstraints = false
 
-        searchField.placeholderString = "Search secrets…"
+        searchField.placeholderString = L10n.tr("secrets.detail.searchPlaceholder")
         GeekUIKit.styleDetailSearchField(searchField)
         searchField.translatesAutoresizingMaskIntoConstraints = false
 
-        let addButton = GeekUIKit.makeToolbarButton("Add", target: self, action: #selector(addSecret))
-        let editButton = GeekUIKit.makeToolbarButton("Edit", target: self, action: #selector(editSelected))
-        let deleteButton = GeekUIKit.makeToolbarButton("Delete", target: self, action: #selector(deleteSelected))
-        let revealButton = GeekUIKit.makeToolbarButton("Reveal", target: self, action: #selector(revealSelected))
-        let lockButton = GeekUIKit.makeToolbarButton("Lock Vault", target: self, action: #selector(lockVault))
+        let addButton = GeekUIKit.makeToolbarButton(L10n.tr("secrets.detail.add"), target: self, action: #selector(addSecret))
+        let editButton = GeekUIKit.makeToolbarButton(L10n.tr("secrets.detail.edit"), target: self, action: #selector(editSelected))
+        let deleteButton = GeekUIKit.makeToolbarButton(L10n.tr("secrets.detail.delete"), target: self, action: #selector(deleteSelected))
+        let revealButton = GeekUIKit.makeToolbarButton(L10n.tr("secrets.detail.reveal"), target: self, action: #selector(revealSelected))
+        let lockButton = GeekUIKit.makeToolbarButton(L10n.tr("secrets.detail.lockVault"), target: self, action: #selector(lockVault))
 
         let buttonStack = NSStackView(views: [addButton, editButton, deleteButton, revealButton, lockButton])
         buttonStack.orientation = .horizontal
@@ -202,10 +202,10 @@ final class SecretsDetailView: NSObject, ModuleDetailView {
         guard records.indices.contains(row) else { return }
         let record = records[row]
         let alert = NSAlert()
-        alert.messageText = "Delete “\(record.label)”?"
-        alert.informativeText = "This cannot be undone."
-        alert.addButton(withTitle: "Delete")
-        alert.addButton(withTitle: "Cancel")
+        alert.messageText = L10n.tr("secrets.detail.delete.title", record.label)
+        alert.informativeText = L10n.tr("secrets.detail.delete.message")
+        alert.addButton(withTitle: L10n.tr("secrets.detail.delete"))
+        alert.addButton(withTitle: L10n.tr("secrets.editor.cancel"))
         alert.alertStyle = .warning
         guard alert.runModal() == .alertFirstButtonReturn else { return }
         Task { [weak self] in
@@ -227,7 +227,7 @@ final class SecretsDetailView: NSObject, ModuleDetailView {
                 alert.messageText = record.label
                 alert.informativeText = value
                 alert.alertStyle = .informational
-                alert.addButton(withTitle: "OK")
+                alert.addButton(withTitle: L10n.tr("secrets.detail.ok"))
                 alert.runModal()
             }
         }
@@ -277,12 +277,16 @@ final class SecretsDetailView: NSObject, ModuleDetailView {
                 self.toolbarContainer.isHidden = !unlocked
                 self.tableScroll.isHidden = !unlocked
                 self.searchField.isEnabled = unlocked
-                self.searchField.placeholderString = unlocked ? "Search secrets…" : "Unlock vault to search"
+                self.searchField.placeholderString = unlocked
+                    ? L10n.tr("secrets.detail.searchPlaceholder")
+                    : L10n.tr("secrets.detail.searchLocked")
                 self.tableView.reloadData()
                 GeekUIKit.syncVerticalListDocumentFrame(in: self.tableScroll)
                 self.emptyStateLabel.isHidden = !unlocked || !loaded.isEmpty
                 self.emptyStateLabel.stringValue = loaded.isEmpty && unlocked
-                    ? (query.isEmpty ? "No secrets yet.\nClick Add to store your first credential." : "No results for “\(query)”.")
+                    ? (query.isEmpty
+                        ? L10n.tr("secrets.detail.empty")
+                        : L10n.tr("secrets.detail.emptyNoResults", query))
                     : ""
                 if unlocked, !loaded.isEmpty {
                     self.tableView.selectRowIndexes(IndexSet(integer: 0), byExtendingSelection: false)
@@ -337,7 +341,7 @@ private final class SecretEditorSheet: LumaWindow {
             backing: .buffered,
             defer: false
         )
-        title = record == nil ? "Add Secret" : "Edit Secret"
+        title = record == nil ? L10n.tr("secrets.editor.addTitle") : L10n.tr("secrets.editor.editTitle")
         setup(record: record)
     }
 
@@ -345,22 +349,24 @@ private final class SecretEditorSheet: LumaWindow {
         let container = NSView(frame: NSRect(x: 0, y: 0, width: 440, height: 220))
 
         labelField.stringValue = record?.label ?? ""
-        labelField.placeholderString = "Label"
+        labelField.placeholderString = L10n.tr("secrets.editor.labelPlaceholder")
         labelField.translatesAutoresizingMaskIntoConstraints = false
 
         accountField.stringValue = record?.account ?? ""
-        accountField.placeholderString = "Account (optional)"
+        accountField.placeholderString = L10n.tr("secrets.editor.accountPlaceholder")
         accountField.translatesAutoresizingMaskIntoConstraints = false
 
-        valueField.placeholderString = isEditing ? "New value (leave blank to keep)" : "Secret value"
+        valueField.placeholderString = isEditing
+            ? L10n.tr("secrets.editor.valuePlaceholderEdit")
+            : L10n.tr("secrets.editor.valuePlaceholderNew")
         valueField.translatesAutoresizingMaskIntoConstraints = false
 
-        let saveButton = NSButton(title: "Save", target: self, action: #selector(save))
+        let saveButton = NSButton(title: L10n.tr("secrets.editor.save"), target: self, action: #selector(save))
         saveButton.bezelStyle = .rounded
         saveButton.keyEquivalent = "\r"
         saveButton.translatesAutoresizingMaskIntoConstraints = false
 
-        let cancelButton = NSButton(title: "Cancel", target: self, action: #selector(cancel))
+        let cancelButton = NSButton(title: L10n.tr("secrets.editor.cancel"), target: self, action: #selector(cancel))
         cancelButton.bezelStyle = .rounded
         cancelButton.translatesAutoresizingMaskIntoConstraints = false
 

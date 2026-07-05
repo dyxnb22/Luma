@@ -23,7 +23,7 @@ import LumaCore
         .appendingPathComponent("workbench-activity-\(UUID().uuidString).json")
     defer { try? FileManager.default.removeItem(at: url) }
     let store = WorkbenchActivityStore(fileURL: url)
-    await store.recordCapture(
+    _ = await store.recordCapture(
         target: .quicklinkDraft,
         moduleID: .workbenchQuicklinks,
         preview: "github"

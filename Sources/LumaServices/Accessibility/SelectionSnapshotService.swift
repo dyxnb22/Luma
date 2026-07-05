@@ -37,7 +37,7 @@ public actor SelectionSnapshotService {
         refreshTask = nil
     }
 
-    private func store(_ text: String?) {
+    private func store(_ text: String?) async {
         cachedText = text
         cachedAt = Date()
     }

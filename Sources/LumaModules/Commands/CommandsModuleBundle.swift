@@ -4,7 +4,7 @@ public enum CommandsModuleBundle: ModuleBundle {
     public static var manifest: ModuleManifest { CommandsModule.manifest }
     public static var warmupTier: WarmupTier { .onDemand }
     public static var defaultOffNote: String? {
-        "Built-in shell commands (settings, reload, quit). Enable if you want them in global help discovery."
+        "Built-in shell commands plus user-defined scripts from commands.json (local executables, configurable timeout). Enable for global help discovery."
     }
     public static var presentation: ModulePresentation? {
         ModulePresentation(settingsSymbol: "terminal")

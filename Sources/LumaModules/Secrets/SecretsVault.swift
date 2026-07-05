@@ -150,7 +150,7 @@ public actor SecretsVault {
         }
     }
 
-    private func expireLock() {
+    private func expireLock() async {
         guard isUnlocked else { return }
         isUnlocked = false
         relockTask = nil

@@ -156,7 +156,7 @@ public actor ModuleHost {
         warmupTasks[id] = nil
     }
 
-    private func finishWarmup(id: ModuleIdentifier, generation: UInt64, succeeded: Bool) {
+    private func finishWarmup(id: ModuleIdentifier, generation: UInt64, succeeded: Bool) async {
         guard warmupGenerations[id] == generation else { return }
         if succeeded {
             warmupStates[id] = .warm

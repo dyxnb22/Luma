@@ -1,4 +1,5 @@
 import AppKit
+import LumaCore
 import LumaModules
 
 enum NotesDetailChip: Int, CaseIterable {
@@ -8,9 +9,9 @@ enum NotesDetailChip: Int, CaseIterable {
 
     var title: String {
         switch self {
-        case .today: return "Today"
-        case .recent: return "Recent"
-        case .pinned: return "Pinned"
+        case .today: return L10n.tr("notes.detail.chip.today")
+        case .recent: return L10n.tr("notes.detail.chip.recent")
+        case .pinned: return L10n.tr("notes.detail.chip.pinned")
         }
     }
 }
@@ -22,9 +23,9 @@ enum NotesDetailPanel: Int, CaseIterable {
 
     var title: String {
         switch self {
-        case .outline: return "Outline"
-        case .browse: return "Browse"
-        case .inbox: return "Inbox"
+        case .outline: return L10n.tr("notes.detail.panel.outline")
+        case .browse: return L10n.tr("notes.detail.panel.browse")
+        case .inbox: return L10n.tr("notes.detail.panel.inbox")
         }
     }
 }
@@ -50,13 +51,16 @@ final class NotesDetailChipBar: NSView {
 
     func setPanelInboxCount(_ count: Int) {
         panelControl.setLabel(
-            count > 0 ? "Inbox(\(count))" : "Inbox",
+            count > 0 ? L10n.tr("notes.detail.panel.inboxCount", count) : L10n.tr("notes.detail.panel.inbox"),
             forSegment: NotesDetailPanel.inbox.rawValue
         )
     }
 
     func setTodayHint(missing: Bool) {
-        chipControl.setLabel(missing ? "Today +" : "Today", forSegment: NotesDetailChip.today.rawValue)
+        chipControl.setLabel(
+            missing ? L10n.tr("notes.detail.chip.todayMissing") : L10n.tr("notes.detail.chip.today"),
+            forSegment: NotesDetailChip.today.rawValue
+        )
     }
 
     func selectChip(_ chip: NotesDetailChip?) {

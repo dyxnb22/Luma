@@ -8,6 +8,8 @@ public enum ActionExecutionFailureMapper {
                 return ("This action is not supported.", true)
             case .dataUnavailable:
                 return ("Required data is unavailable.", true)
+            case .actionTimedOut:
+                return ("The action took too long and was cancelled.", true)
             case .permissionRequired(let permission):
                 switch permission {
                 case .accessibility:

@@ -29,7 +29,10 @@ import LumaCore
 
     let snapshot = WorkbenchActivitySnapshot.build(
         entries: entries,
-        currentProjectPath: projectPath
+        projectIdentity: WorkbenchProjectIdentity(
+            matchedPath: projectPath,
+            labelFallback: "Luma"
+        )
     )
 
     #expect(snapshot.globalRecent.count == 8)
@@ -150,7 +153,10 @@ import LumaCore
     }
     let snapshot = WorkbenchActivitySnapshot.build(
         entries: global + [draft],
-        currentProjectPath: projectPath
+        projectIdentity: WorkbenchProjectIdentity(
+            matchedPath: projectPath,
+            labelFallback: "Luma"
+        )
     )
     #expect(snapshot.currentProjectDrafts.count == 1)
     #expect(snapshot.currentProjectDrafts[0].title == "Stale draft")

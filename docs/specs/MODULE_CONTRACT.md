@@ -9,7 +9,7 @@ Required semantics:
 - `manifest`: static, nonisolated metadata.
 - `warmup`: load indexes and caches; 1 second soft budget.
 - `handle`: answer a query from memory only; hard timeout <= 80 ms.
-- `perform`: execute custom actions; 2 second soft budget.
+- `perform`: execute custom actions; 2 second soft budget (enforced by `ActionExecutor` via `Timeout.run`).
 - `teardown`: cancel background work and flush state.
 
 ## Rules

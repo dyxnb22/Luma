@@ -22,7 +22,7 @@ public struct WorkspaceService: WorkspaceClient, Sendable {
     }
 
     public func terminateApplication(bundleID: String) async {
-        await MainActor.run {
+        _ = await MainActor.run {
             NSWorkspace.shared.runningApplications
                 .first { $0.bundleIdentifier == bundleID }?
                 .terminate()

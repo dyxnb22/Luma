@@ -5,7 +5,7 @@ import LumaServices
 
 @MainActor
 final class ClipboardDetailView: NSObject, ModuleDetailView {
-    let moduleTitle = "Clipboard"
+    let moduleTitle = L10n.tr("clipboard.detail.title")
     let detailView: NSView
     let usesSharedTopBar = true
 
@@ -136,26 +136,26 @@ final class ClipboardDetailView: NSObject, ModuleDetailView {
         let toolbar = NSView()
         toolbar.translatesAutoresizingMaskIntoConstraints = false
 
-        searchField.placeholderString = "Search clipboard…"
+        searchField.placeholderString = L10n.tr("clipboard.detail.searchPlaceholder")
         GeekUIKit.styleDetailSearchField(searchField)
         searchField.translatesAutoresizingMaskIntoConstraints = false
 
         filterControl.segmentCount = 3
-        filterControl.setLabel("All", forSegment: 0)
-        filterControl.setLabel("Pinned", forSegment: 1)
-        filterControl.setLabel("Image", forSegment: 2)
+        filterControl.setLabel(L10n.tr("clipboard.detail.filter.all"), forSegment: 0)
+        filterControl.setLabel(L10n.tr("clipboard.detail.filter.pinned"), forSegment: 1)
+        filterControl.setLabel(L10n.tr("clipboard.detail.filter.image"), forSegment: 2)
         filterControl.selectedSegment = 0
         filterControl.target = self
         filterControl.action = #selector(filterChanged)
         filterControl.translatesAutoresizingMaskIntoConstraints = false
 
-        clearUnpinnedButton.title = "Clear Unpinned"
+        clearUnpinnedButton.title = L10n.tr("clipboard.detail.clearUnpinned")
         GeekUIKit.styleToolbarButton(clearUnpinnedButton)
         clearUnpinnedButton.target = self
         clearUnpinnedButton.action = #selector(clearUnpinned)
         clearUnpinnedButton.translatesAutoresizingMaskIntoConstraints = false
 
-        transformPopup.addItem(withTitle: "Text Actions")
+        transformPopup.addItem(withTitle: L10n.tr("clipboard.detail.textActions"))
         for (title, _) in Self.textTransformActions {
             transformPopup.addItem(withTitle: title)
         }
@@ -170,25 +170,25 @@ final class ClipboardDetailView: NSObject, ModuleDetailView {
         transformPreviewLabel.lineBreakMode = .byTruncatingTail
         transformPreviewLabel.translatesAutoresizingMaskIntoConstraints = false
 
-        copyTransformButton.title = "Copy Result"
+        copyTransformButton.title = L10n.tr("clipboard.detail.copyResult")
         GeekUIKit.styleToolbarButton(copyTransformButton)
         copyTransformButton.target = self
         copyTransformButton.action = #selector(copyTransformResult)
         copyTransformButton.isHidden = true
         copyTransformButton.translatesAutoresizingMaskIntoConstraints = false
 
-        replaceTransformButton.title = "Replace Entry"
+        replaceTransformButton.title = L10n.tr("clipboard.detail.replaceEntry")
         GeekUIKit.styleToolbarButton(replaceTransformButton)
         replaceTransformButton.target = self
         replaceTransformButton.action = #selector(replaceWithTransform)
         replaceTransformButton.isHidden = true
         replaceTransformButton.translatesAutoresizingMaskIntoConstraints = false
 
-        let clearRecentButton = NSButton(title: "Clear Recent…", target: self, action: #selector(clearRecent))
+        let clearRecentButton = NSButton(title: L10n.tr("clipboard.detail.clearRecent"), target: self, action: #selector(clearRecent))
         GeekUIKit.styleToolbarButton(clearRecentButton)
         clearRecentButton.translatesAutoresizingMaskIntoConstraints = false
 
-        let settingsButton = NSButton(title: "Settings", target: self, action: #selector(openSettings))
+        let settingsButton = NSButton(title: L10n.tr("clipboard.detail.settings"), target: self, action: #selector(openSettings))
         GeekUIKit.styleToolbarButton(settingsButton)
         settingsButton.translatesAutoresizingMaskIntoConstraints = false
 
@@ -239,10 +239,10 @@ final class ClipboardDetailView: NSObject, ModuleDetailView {
 
     @objc private func clearUnpinned() {
         let alert = NSAlert()
-        alert.messageText = "Clear unpinned clipboard history?"
-        alert.informativeText = "Pinned items will be kept."
-        alert.addButton(withTitle: "Clear")
-        alert.addButton(withTitle: "Cancel")
+        alert.messageText = L10n.tr("clipboard.detail.clearUnpinned.title")
+        alert.informativeText = L10n.tr("clipboard.detail.clearUnpinned.message")
+        alert.addButton(withTitle: L10n.tr("clipboard.detail.clear"))
+        alert.addButton(withTitle: L10n.tr("clipboard.detail.cancel"))
         alert.alertStyle = .warning
         guard alert.runModal() == .alertFirstButtonReturn else { return }
         Task { [weak self] in
@@ -254,12 +254,12 @@ final class ClipboardDetailView: NSObject, ModuleDetailView {
 
     @objc private func clearRecent() {
         let alert = NSAlert()
-        alert.messageText = "Clear recent clipboard items?"
-        alert.informativeText = "Pinned items are kept. Choose a time window."
-        alert.addButton(withTitle: "Last 5 minutes")
-        alert.addButton(withTitle: "Last hour")
-        alert.addButton(withTitle: "Today")
-        alert.addButton(withTitle: "Cancel")
+        alert.messageText = L10n.tr("clipboard.detail.clearRecent.title")
+        alert.informativeText = L10n.tr("clipboard.detail.clearRecent.message")
+        alert.addButton(withTitle: L10n.tr("clipboard.detail.clearRecent.last5Minutes"))
+        alert.addButton(withTitle: L10n.tr("clipboard.detail.clearRecent.lastHour"))
+        alert.addButton(withTitle: L10n.tr("clipboard.detail.clearRecent.today"))
+        alert.addButton(withTitle: L10n.tr("clipboard.detail.cancel"))
         alert.alertStyle = .warning
         let response = alert.runModal()
         let window: ClipboardRecentClearWindow?
@@ -300,7 +300,7 @@ final class ClipboardDetailView: NSObject, ModuleDetailView {
         let (_, transform) = Self.textTransformActions[index - 1]
         let output = transform(entry.plainTextForCopy)
         pendingTransformOutput = output
-        transformPreviewLabel.stringValue = "Preview: \(output)"
+        transformPreviewLabel.stringValue = L10n.tr("clipboard.detail.preview", output)
         transformPreviewLabel.isHidden = false
         copyTransformButton.isHidden = false
         replaceTransformButton.isHidden = false
@@ -406,9 +406,9 @@ final class ClipboardDetailView: NSObject, ModuleDetailView {
         if entries.isEmpty {
             emptyStateLabel.isHidden = false
             if query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                emptyStateLabel.stringValue = "Clipboard history is empty.\nCopied text will appear here."
+                emptyStateLabel.stringValue = L10n.tr("clipboard.detail.empty")
             } else {
-                emptyStateLabel.stringValue = "No results for “\(query)”."
+                emptyStateLabel.stringValue = L10n.tr("clipboard.detail.emptyNoResults", query)
             }
         } else {
             emptyStateLabel.isHidden = true

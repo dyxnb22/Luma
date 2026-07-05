@@ -119,7 +119,7 @@ Panel and search field must stay **horizontally aligned** with panel edges — n
 - Esc in detail returns to the prior search results when a query was suspended; otherwise home.
 - Detail **back** and **close** chrome match Esc (restore suspended query or home; search field becomes editable and clickable again).
 - After detail → home: click search field and type — must accept input (regression: Notes back button).
-- **Known open issue:** SPLIT-TEST automated split-layout coverage remains manual; verify split-pane focus, guide/detail transitions, and keyboard routing during QA.
+- Split-layout constraint coverage: `LauncherHomeSplitConstraintPolicyTests` — during manual QA still verify split-pane focus, guide/detail transitions, and keyboard routing.
 - Esc on results clears query and shows home.
 - Esc on home closes the panel.
 - Detail toolbars with multiple buttons scroll horizontally instead of clipping (Records, Translate, etc.).
@@ -346,6 +346,15 @@ Frozen detail IA: `docs/specs/NOTES_DETAIL_CONSTRAINTS.md`.
 - Dense lists remain readable on both a 13-inch and larger display setup.
 - Mixed-language input feels natural with Chinese and English queries.
 - The app still feels coherent after enabling default-off modules.
+
+## Release & Accessibility (v1)
+
+See [RELEASE.md](RELEASE.md) for Developer ID / notarized DMG steps.
+
+- [ ] Clean-machine Gatekeeper install from release DMG (no quarantine override).
+- [ ] VoiceOver: search field, list row labels, detail enter/exit, Settings module toggles.
+- [ ] Keyboard-only smoke: global hotkey, Esc stack, detail Tab blocked, module shortcuts in detail.
+- [ ] Archive smoke output under `qa/<date>/` via `./scripts/qa/run_full_smoke.sh` when launcher-facing behavior changes.
 
 ## Issue Logging Rules
 

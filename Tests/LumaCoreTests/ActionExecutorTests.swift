@@ -21,6 +21,25 @@ private actor FailingActionModule: LumaModule {
     }
 }
 
+private actor HangingActionModule: LumaModule {
+    static let manifest = ModuleManifest(
+        identifier: ModuleIdentifier(rawValue: "luma.test.hanging-action"),
+        displayName: "Hanging",
+        capabilities: [.providesActions],
+        defaultEnabled: true,
+        priority: 0,
+        queryTimeout: .milliseconds(20)
+    )
+
+    func handle(_ query: Query, context: QueryContext) async -> ModuleResult {
+        .empty(for: Self.manifest.identifier)
+    }
+
+    func perform(_ action: Action, context: ActionContext) async throws {
+        try await Task.sleep(for: .seconds(5))
+    }
+}
+
 private actor RecordingPasteboard: PasteboardClient {
     private(set) var writes: [String] = []
 
@@ -141,6 +160,33 @@ private func temporaryCacheURL() -> URL {
     #expect(result == .failure(message: "Required data is unavailable.", recoverable: true))
     #expect(await usage.snapshot().isEmpty)
     #expect(await cache.item(for: item.id) == nil)
+}
+
+@Test func actionExecutorCustomActionTimesOut() async throws {
+    let host = ModuleHost(context: ModuleContext(logger: ActionExecutorTestLogger(), metrics: NoopMetricsClient(), database: NoopDatabaseClient(), pasteboard: NoopPasteboardClient(), accessibility: NoopAccessibilityClient(), fileSystem: NoopFileSystemClient(), translation: NoopTranslationClient(), config: NoopConfigurationClient()))
+    await host.register(HangingActionModule())
+    let executor = makeExecutor(host: host)
+    let moduleID = HangingActionModule.manifest.identifier
+    let item = ResultItem(
+        id: ResultID(module: moduleID, key: "hang"),
+        title: "Hang",
+        titleAttributed: AttributedString("Hang"),
+        icon: .symbol("clock"),
+        primaryAction: Action(
+            id: ActionID(module: moduleID, key: "hang"),
+            title: "Hang",
+            kind: .custom(payload: Data(), handler: moduleID)
+        ),
+        rankingHints: RankingHints()
+    )
+
+    let clock = ContinuousClock()
+    let start = clock.now
+    let result = await executor.run(item.primaryAction, for: item)
+    let elapsed = start.duration(to: clock.now)
+
+    #expect(result == .failure(message: "The action took too long and was cancelled.", recoverable: true))
+    #expect(elapsed < .seconds(3))
 }
 
 @Test func actionExecutorNoopSkipsUsageAndCache() async throws {

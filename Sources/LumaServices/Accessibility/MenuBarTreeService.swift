@@ -47,6 +47,20 @@ public actor MenuBarTreeService {
         Task { await scheduleRefreshForFrontmost() }
     }
 
+    public func stop() {
+        walkTask?.cancel()
+        walkTask = nil
+        if let observer {
+            NSWorkspace.shared.notificationCenter.removeObserver(observer)
+            self.observer = nil
+        }
+        cache.removeAll()
+    }
+
+    internal var hasObserverInstalled: Bool {
+        observer != nil
+    }
+
     public func setLauncherContextBundleID(_ bundleID: String?) {
         launcherContextBundleID = bundleID
     }

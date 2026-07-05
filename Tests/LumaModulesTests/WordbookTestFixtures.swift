@@ -81,4 +81,34 @@ enum WordbookTestFixtures {
             throw WordbookStoreError.stepFailed(message: "insert due word step failed")
         }
     }
+
+    static func bulkInsertWords(at url: URL, count: Int, prefix: String = "word") throws {
+        var db: OpaquePointer?
+        guard sqlite3_open(url.path, &db) == SQLITE_OK else {
+            throw WordbookStoreError.openFailed
+        }
+        defer { sqlite3_close(db) }
+        let now = WordbookDateFormat.iso(Date())
+        let sql = """
+        INSERT INTO words(term, phonetic, meaning, example, category, familiarity,
+            review_stage, review_count, wrong_count, next_review_at, created_at, updated_at)
+        VALUES(?, '', ?, '', '', 'new', 0, 0, 0, '', ?, ?)
+        """
+        var stmt: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else {
+            throw WordbookStoreError.prepareFailed(message: "bulk insert prepare failed")
+        }
+        defer { sqlite3_finalize(stmt) }
+        for index in 0..<count {
+            let term = "\(prefix)\(index)"
+            sqlite3_bind_text(stmt, 1, term, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+            sqlite3_bind_text(stmt, 2, "meaning \(index)", -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+            sqlite3_bind_text(stmt, 3, now, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+            sqlite3_bind_text(stmt, 4, now, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+            guard sqlite3_step(stmt) == SQLITE_DONE else {
+                throw WordbookStoreError.stepFailed(message: "bulk insert step failed")
+            }
+            sqlite3_reset(stmt)
+        }
+    }
 }

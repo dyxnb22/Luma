@@ -231,6 +231,15 @@ final class LauncherListView: NSView {
             return
         }
 
+        if LauncherListRowReuse.canReorderRows(rows, newRows) {
+            reorderRowViews(toMatch: newRows, selectedFlatIndex: clampedSelected)
+            rows = newRows
+            selectedFlatIndex = clampedSelected
+            updateRowHighlight(newFlatIndex: clampedSelected)
+            GeekUIKit.syncVerticalListDocumentFrame(in: scrollView)
+            return
+        }
+
         rows = newRows
         stack.arrangedSubviews.forEach { view in
             stack.removeArrangedSubview(view)
@@ -254,6 +263,48 @@ final class LauncherListView: NSView {
         updateRowHighlight(newFlatIndex: clampedSelected)
         scrollView.contentView.scroll(to: NSPoint(x: 0, y: 0))
         GeekUIKit.syncVerticalListDocumentFrame(in: scrollView)
+    }
+
+    private func reorderRowViews(toMatch newRows: [LauncherListRows.Row], selectedFlatIndex: Int) {
+        var viewsByKey: [String: NSView] = [:]
+        for (index, row) in rows.enumerated() {
+            viewsByKey[LauncherListRowReuse.identityKey(for: row)] = rowViews[index]
+        }
+
+        stack.arrangedSubviews.forEach { view in
+            stack.removeArrangedSubview(view)
+            view.removeFromSuperview()
+        }
+        rowViews.removeAll()
+
+        for (index, row) in newRows.enumerated() {
+            let key = LauncherListRowReuse.identityKey(for: row)
+            let reusedView = viewsByKey[key]
+            let view = reusedView ?? makeView(for: row, selectedFlatIndex: selectedFlatIndex)
+            rowViews.append(view)
+            stack.addArrangedSubview(view)
+            if reusedView == nil {
+                view.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
+            }
+            if index > 0, isNestedChildRow(row), isNestedChildRow(newRows[index - 1]) {
+                stack.setCustomSpacing(1, after: rowViews[index - 1])
+            } else if index > 0, isNestedChildRow(row), isAppParentRow(newRows[index - 1]) {
+                stack.setCustomSpacing(2, after: rowViews[index - 1])
+            }
+            if case .item(let item, let flatIndex) = row.kind, let listRow = view as? LauncherListRow {
+                listRow.update(
+                    item: item,
+                    isSelected: flatIndex == selectedFlatIndex,
+                    compactColumn: compactHomeColumn,
+                    hidesTrailingModuleLabel: compactHomeColumn
+                        && item.id.module.rawValue == "luma.apps"
+                        && item.listNest == .none,
+                    onRun: { [weak self] item in self?.onRun?(item) },
+                    onRightClick: { [weak self] item in self?.onRightClick?(item) },
+                    onHover: { [weak self] in self?.updateSelection(to: flatIndex) }
+                )
+            }
+        }
     }
 
     private func makeView(for row: LauncherListRows.Row, selectedFlatIndex: Int) -> NSView {

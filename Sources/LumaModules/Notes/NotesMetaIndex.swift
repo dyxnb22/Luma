@@ -28,6 +28,10 @@ public actor NotesMetaIndex {
         entries[path] = loadMeta(for: node)
     }
 
+    public func remove(path: String) {
+        entries.removeValue(forKey: path)
+    }
+
     public func meta(for path: String) -> NotesMeta? {
         entries[path]
     }
@@ -83,10 +87,12 @@ public actor NotesMetaIndex {
         return Array(Set(tags)).sorted { $0.localizedStandardCompare($1) == .orderedAscending }
     }
 
+    private static let frontmatterReadCap = 4096
+
     private func loadMeta(for node: NotesNode) -> NotesMeta {
         let url = URL(fileURLWithPath: node.path)
         let mtime = (try? url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
-        let body = (try? String(contentsOf: url, encoding: .utf8)) ?? ""
+        let body = readFilePrefix(url: url)
         let fields = FrontmatterParser.parse(body)
         return NotesMeta(
             path: node.path,
@@ -96,6 +102,13 @@ public actor NotesMetaIndex {
             pinned: fields.pinned,
             mtime: mtime
         )
+    }
+
+    private func readFilePrefix(url: URL) -> String {
+        guard let handle = try? FileHandle(forReadingFrom: url) else { return "" }
+        defer { try? handle.close() }
+        guard let data = try? handle.read(upToCount: Self.frontmatterReadCap) else { return "" }
+        return String(data: data, encoding: .utf8) ?? ""
     }
 
     private func flatten(_ node: NotesNode) -> [NotesNode] {

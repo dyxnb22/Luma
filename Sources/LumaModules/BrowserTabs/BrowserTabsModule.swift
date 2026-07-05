@@ -19,7 +19,7 @@ public actor BrowserTabsModule: LumaModule {
     }
 
     public func warmup(_ context: ModuleContext) async {
-        await service.refresh()
+        _ = await service.searchableTabs()
     }
 
     public func handle(_ query: Query, context: QueryContext) async -> ModuleResult {

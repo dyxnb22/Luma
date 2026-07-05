@@ -225,3 +225,57 @@ private struct WarmupTestDoubles {
     #expect(await host.warmupState(for: CountingLifecycleModule.manifest.identifier) == .tornDown)
     #expect(await host.warmupState(for: PinnedCountingLifecycleModule.manifest.identifier) == .warm)
 }
+
+@Test func moduleHostConcurrentWarmupJoinsSingleInFlightTask() async {
+    let host = ModuleHost(context: WarmupTestDoubles.context())
+    let module = CountingLifecycleModule()
+    await host.register(module)
+    await host.applyEnabledSet([CountingLifecycleModule.manifest.identifier])
+
+    async let first = host.warmupIfNeeded(id: CountingLifecycleModule.manifest.identifier, reason: .query)
+    async let second = host.warmupIfNeeded(id: CountingLifecycleModule.manifest.identifier, reason: .query)
+    await (first, second)
+
+    #expect(await module.warmupCount == 1)
+    #expect(await host.warmupState(for: CountingLifecycleModule.manifest.identifier) == .warm)
+}
+
+private actor LateFinishingWarmupModule: LumaModule {
+    static let manifest = ModuleManifest(
+        identifier: ModuleIdentifier(rawValue: "luma.test.late-warmup"),
+        displayName: "Late Warmup",
+        capabilities: [.queryable],
+        defaultEnabled: false,
+        priority: 0,
+        queryTimeout: .milliseconds(40)
+    )
+
+    private(set) var warmupFinished = false
+
+    func warmup(_ context: ModuleContext) async {
+        try? await Task.sleep(for: .milliseconds(100))
+        warmupFinished = true
+    }
+
+    func handle(_ query: Query, context: QueryContext) async -> ModuleResult {
+        .empty(for: Self.manifest.identifier)
+    }
+}
+
+@Test func moduleHostTeardownInvalidatesLateWarmupCompletion() async {
+    let host = ModuleHost(context: WarmupTestDoubles.context())
+    let module = LateFinishingWarmupModule()
+    await host.register(module)
+    await host.applyEnabledSet([LateFinishingWarmupModule.manifest.identifier])
+
+    await host.warmupIfNeeded(
+        id: LateFinishingWarmupModule.manifest.identifier,
+        reason: .query,
+        budget: .milliseconds(10)
+    )
+    #expect(await host.warmupState(for: LateFinishingWarmupModule.manifest.identifier) == .cold)
+
+    try? await Task.sleep(for: .milliseconds(150))
+    #expect(await module.warmupFinished == true)
+    #expect(await host.warmupState(for: LateFinishingWarmupModule.manifest.identifier) == .cold)
+}

@@ -390,10 +390,7 @@ final class LauncherListRow: NSControl {
     private static func iconImage(for icon: LumaCore.IconRef, nested: Bool) -> NSImage? {
         switch icon {
         case .bundleID(let bundleID):
-            if let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID) {
-                return IconCache.shared.appIcon(for: url)
-            }
-            return NSImage(systemSymbolName: "app.fill", accessibilityDescription: nil)
+            return IconCache.shared.appIcon(bundleID: bundleID)
         case .symbol(let symbol):
             let config = nested ? NSImage.SymbolConfiguration(pointSize: 13, weight: .regular) : nil
             return NSImage(systemSymbolName: symbol, accessibilityDescription: nil)?

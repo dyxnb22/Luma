@@ -12,7 +12,9 @@ public actor BrowserTabsService {
     private var refreshTask: Task<Void, Never>?
     private var isRefreshing = false
     private let ttl: TimeInterval = 5
+    private let denialTTL: TimeInterval = 60
     private var lastRefreshDiagnostic: ModuleDiagnostic?
+    private var automationDeniedAt: Date?
 
     public init(
         runner: AppleScriptRunner = AppleScriptRunner(),
@@ -67,6 +69,11 @@ public actor BrowserTabsService {
         cached = records
         lastRefresh = Date()
         lastRefreshDiagnostic = Self.diagnostic(records: records, issues: issues)
+        if lastRefreshDiagnostic?.kind == .permissionRequired {
+            automationDeniedAt = Date()
+        } else if !records.isEmpty {
+            automationDeniedAt = nil
+        }
     }
 
     public func lastDiagnostic() -> ModuleDiagnostic? {
@@ -103,17 +110,30 @@ public actor BrowserTabsService {
     }
 
     public func searchableTabs() async -> [TabRecord] {
-        if cached.isEmpty || isStale {
-            await refresh()
-        }
+        scheduleBackgroundRefreshIfNeeded()
         return cached
     }
 
     public func cachedTabs() -> [TabRecord] {
-        if isStale, !isRefreshing, refreshTask == nil {
-            refreshTask = Task { await self.refresh() }
-        }
+        scheduleBackgroundRefreshIfNeeded()
         return cached
+    }
+
+    private func scheduleBackgroundRefreshIfNeeded() {
+        if let automationDeniedAt, Date().timeIntervalSince(automationDeniedAt) < denialTTL {
+            return
+        }
+        guard !isRefreshing else { return }
+        guard cached.isEmpty || isStale else { return }
+        guard refreshTask == nil else { return }
+        refreshTask = Task {
+            await self.refresh()
+            await self.clearRefreshTask()
+        }
+    }
+
+    private func clearRefreshTask() {
+        refreshTask = nil
     }
 
     private var isStale: Bool {

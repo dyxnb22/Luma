@@ -13,7 +13,10 @@ enum HomeLatencyTracker {
         guard let start = hotkeyMark else { return nil }
         hotkeyMark = nil
         let ms = (CFAbsoluteTimeGetCurrent() - start) * 1000
-        LatencyTelemetry.report(p95Milliseconds: ms)
+        LatencyTelemetry.reportHotkey(ms)
+        if ProcessInfo.processInfo.environment["LUMA_QA"] == "1" {
+            try? LatencyTelemetry.shared.exportReport()
+        }
         return ms
     }
 }

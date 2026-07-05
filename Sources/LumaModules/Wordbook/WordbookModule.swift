@@ -14,8 +14,11 @@ public actor WordbookModule: LumaModule {
     private let store: WordbookStore
     private var cachedDue: [WordEntry] = []
     private var cachedDueAt: Date?
-    private var searchIndex: [WordEntry] = []
+    private var cachedDueTodayCount: Int?
+    private var searchIndex: [WordSearchRow] = []
     private var dataChangeTask: Task<Void, Never>?
+
+    internal private(set) var dueTodayCountQueryCount = 0
 
     public init(store: WordbookStore = WordbookStore()) {
         self.store = store
@@ -40,7 +43,8 @@ public actor WordbookModule: LumaModule {
     }
 
     public func storeDueTodayCount() async -> Int {
-        (try? await store.dueTodayCount()) ?? 0
+        dueTodayCountQueryCount += 1
+        return (try? await store.dueTodayCount()) ?? 0
     }
 
     public func handle(_ query: Query, context: QueryContext) async -> ModuleResult {
@@ -55,7 +59,8 @@ public actor WordbookModule: LumaModule {
         let searchText = payload
 
         if searchText.compare("review", options: .caseInsensitive) == .orderedSame {
-            return ModuleResult(items: [reviewStartRow(dueCount: await storeDueTodayCount())])
+            let dueCount = cachedDueTodayCount ?? 0
+            return ModuleResult(items: [reviewStartRow(dueCount: dueCount)])
         }
 
         if searchText.isEmpty {
@@ -78,6 +83,7 @@ public actor WordbookModule: LumaModule {
     public func invalidateDueCache() async {
         cachedDue = []
         cachedDueAt = nil
+        cachedDueTodayCount = nil
     }
 
     private func cachedDueList() async -> [WordEntry] {
@@ -97,6 +103,7 @@ public actor WordbookModule: LumaModule {
         let due = (try? await store.dueWords(limit: 8)) ?? []
         cachedDue = due
         cachedDueAt = now
+        cachedDueTodayCount = (try? await store.dueTodayCount()) ?? 0
         return due
     }
 
@@ -126,49 +133,70 @@ public actor WordbookModule: LumaModule {
     }
 
     private func wordResult(_ word: WordEntry) -> ResultItem {
-        let id = ResultID(module: Self.manifest.identifier, key: String(word.id))
+        wordResult(
+            id: word.id,
+            term: word.term,
+            phonetic: word.phonetic,
+            meaning: word.meaning,
+            example: word.example,
+            category: word.category
+        )
+    }
+
+    private func wordResult(_ row: WordSearchRow) -> ResultItem {
+        wordResult(
+            id: row.id,
+            term: row.term,
+            phonetic: row.phonetic,
+            meaning: row.meaning,
+            example: row.example,
+            category: row.category
+        )
+    }
+
+    private func wordResult(
+        id: Int64,
+        term: String,
+        phonetic: String,
+        meaning: String,
+        example: String,
+        category: String
+    ) -> ResultItem {
+        let resultID = ResultID(module: Self.manifest.identifier, key: String(id))
         let subtitle: String
-        if word.category.isEmpty {
-            subtitle = word.meaning
+        if category.isEmpty {
+            subtitle = meaning
         } else {
-            subtitle = "\(word.meaning) · \(word.category)"
+            subtitle = "\(meaning) · \(category)"
         }
         return ResultItem(
-            id: id,
-            title: word.term,
-            titleAttributed: AttributedString(word.term),
+            id: resultID,
+            title: term,
+            titleAttributed: AttributedString(term),
             subtitle: subtitle,
             icon: .symbol("text.book.closed"),
             primaryAction: Action(
-                id: ActionID(module: Self.manifest.identifier, key: "copy.\(word.id)"),
+                id: ActionID(module: Self.manifest.identifier, key: "copy.\(id)"),
                 title: "Copy Meaning",
-                kind: .copyToPasteboard("\(word.term) \(word.phonetic)\n\(word.meaning)\n\(word.example)")
+                kind: .copyToPasteboard("\(term) \(phonetic)\n\(meaning)\n\(example)")
             ),
             rankingHints: RankingHints(basePriority: Self.manifest.priority)
         )
     }
 
     private func reloadSearchIndex() async {
-        searchIndex = (try? await store.allWords(limit: 50_000, offset: 0)) ?? []
+        searchIndex = (try? await store.searchCorpus(limit: 50_000)) ?? []
     }
 
-    private static func searchInMemory(_ index: [WordEntry], query: String, limit: Int) -> [WordEntry] {
+    private static func searchInMemory(_ index: [WordSearchRow], query: String, limit: Int) -> [WordSearchRow] {
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         guard !trimmed.isEmpty else { return [] }
         let tokens = trimmed.split(whereSeparator: \.isWhitespace).map(String.init)
-        var matches = index.filter { entry in
-            let haystack = [entry.term, entry.meaning, entry.example, entry.category, entry.phonetic]
-                .joined(separator: " ")
-                .lowercased()
-            return tokens.allSatisfy { haystack.contains($0) }
+        var matches = index.filter { row in
+            tokens.allSatisfy { row.haystack.contains($0) }
         }
         if matches.isEmpty {
-            matches = index.filter { entry in
-                let haystack = [entry.term, entry.meaning, entry.example, entry.category]
-                    .joined(separator: " ")
-                    .lowercased()
-                return haystack.contains(trimmed)
-            }
+            matches = index.filter { $0.haystack.contains(trimmed) }
         }
         return Array(matches.prefix(limit))
     }

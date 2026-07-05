@@ -88,6 +88,17 @@ public actor QueryDispatcher {
         }
 
         let usageRecords = await usage.snapshot()
+        let warmupState = await host.warmupState(for: moduleID)
+        if warmupState == .cold || warmupState == .warming {
+            let warmingRow = ModuleDiagnosticResults.informationalRow(
+                module: moduleID,
+                diagnostic: ModuleDiagnostic(
+                    kind: .degraded,
+                    message: L10n.tr("module.warming")
+                )
+            )
+            await onSnapshot(ResultSnapshot(querySequence: query.sequence, items: [warmingRow]))
+        }
         await host.warmupIfNeeded(id: moduleID, reason: .query)
         await host.markUsed(id: moduleID)
         let deadline = ContinuousClock().now.advanced(by: manifest.queryTimeout)

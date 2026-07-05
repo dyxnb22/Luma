@@ -141,11 +141,14 @@ public enum ClipboardStoreChangeHub {
 
 public actor ClipboardHistoryStore {
     private var entries: [ClipboardEntry] = []
+    private var sortedEntries: [ClipboardEntry] = []
     private var maxEntries: Int
     private var maxAge: TimeInterval
     private var maxTextBytes: Int
     private var ignoredBundleIDs: Set<String> = []
     private let persistenceURL: URL?
+    private var lastPruneAt = Date.distantPast
+    private let pruneInterval: TimeInterval = 30
 
     public init(maxEntries: Int = 500, maxAge: TimeInterval = 7 * 24 * 60 * 60, maxTextBytes: Int = 100 * 1024, persistenceURL: URL? = nil) {
         self.maxEntries = maxEntries
@@ -161,6 +164,10 @@ public actor ClipboardHistoryStore {
                 self.entries = []
                 Self.quarantineCorruptFile(at: persistenceURL)
             }
+        }
+        sortedEntries = entries.sorted {
+            if $0.isPinned != $1.isPinned { return $0.isPinned && !$1.isPinned }
+            return $0.createdAt > $1.createdAt
         }
     }
 
@@ -231,20 +238,23 @@ public actor ClipboardHistoryStore {
     }
 
     public func list(filter: ClipboardListFilter, query: String = "", limit: Int = 50) -> [ClipboardEntry] {
-        prune(now: Date())
-        let sorted = entries.sorted {
-            if $0.isPinned != $1.isPinned { return $0.isPinned && !$1.isPinned }
-            return $0.createdAt > $1.createdAt
+        pruneIfNeeded()
+        var count = 0
+        var results: [ClipboardEntry] = []
+        results.reserveCapacity(min(limit, sortedEntries.count))
+        for entry in sortedEntries {
+            guard matchesFilter(entry, filter: filter) else { continue }
+            guard matchesQuery(entry, query: query) else { continue }
+            results.append(entry)
+            count += 1
+            if count >= limit { break }
         }
-        let filtered = sorted.filter { entry in
-            guard matchesFilter(entry, filter: filter) else { return false }
-            return matchesQuery(entry, query: query)
-        }
-        return Array(filtered.prefix(limit))
+        return results
     }
 
     public func statistics() -> ClipboardStatistics {
         prune(now: Date())
+        rebuildSortedEntries()
         let pinned = entries.filter(\.isPinned).count
         return ClipboardStatistics(total: entries.count, pinned: pinned)
     }
@@ -260,6 +270,7 @@ public actor ClipboardHistoryStore {
     public func pin(_ id: UUID, isPinned: Bool = true) {
         guard let index = entries.firstIndex(where: { $0.id == id }) else { return }
         entries[index].isPinned = isPinned
+        rebuildSortedEntries()
         persist()
     }
 
@@ -284,17 +295,20 @@ public actor ClipboardHistoryStore {
             fileURLs: entries[index].fileURLs,
             colorHex: entries[index].colorHex
         )
+        rebuildSortedEntries()
         persist()
         return true
     }
 
     public func clear() {
         entries.removeAll()
+        rebuildSortedEntries()
         persist()
     }
 
     public func clearUnpinned() {
         entries.removeAll { !$0.isPinned }
+        rebuildSortedEntries()
         persist()
     }
 
@@ -306,11 +320,13 @@ public actor ClipboardHistoryStore {
         case .last5Minutes, .lastHour:
             entries.removeAll { !$0.isPinned && $0.createdAt >= cutoff }
         }
+        rebuildSortedEntries()
         persist()
     }
 
     public func removeEntry(_ id: UUID) {
         entries.removeAll { $0.id == id }
+        rebuildSortedEntries()
         persist()
     }
 
@@ -369,8 +385,22 @@ public actor ClipboardHistoryStore {
         return parts.tokens.allSatisfy { haystack.contains($0) }
     }
 
+    private func pruneIfNeeded(now: Date = Date()) {
+        guard now.timeIntervalSince(lastPruneAt) >= pruneInterval else { return }
+        lastPruneAt = now
+        prune(now: now)
+    }
+
     private func prune(now: Date) {
         entries = Self.pruned(entries: entries, maxEntries: maxEntries, maxAge: maxAge, now: now)
+        rebuildSortedEntries()
+    }
+
+    private func rebuildSortedEntries() {
+        sortedEntries = entries.sorted {
+            if $0.isPinned != $1.isPinned { return $0.isPinned && !$1.isPinned }
+            return $0.createdAt > $1.createdAt
+        }
     }
 
     public func persistPrunedStateIfNeeded(now: Date = Date()) {

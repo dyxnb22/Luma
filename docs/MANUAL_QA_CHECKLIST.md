@@ -58,6 +58,8 @@ Panel and search field must stay **horizontally aligned** with panel edges — n
 - Hotkey -> panel p95 <= 50 ms.
 - Keystroke -> first result p95 <= 30 ms.
 - No visible row jumping while typing.
+- Enable Settings → General → "Show latency HUD overlay" for live hk/ks p95.
+- With `LUMA_QA=1`, open/close the panel and type queries; verify `~/Library/Logs/Luma/latency-report.json` is written and `./scripts/qa/export_latency_report.sh` passes budgets.
 
 ## Permissions
 

@@ -53,6 +53,10 @@ Modules pinned to the hot path should complete warmup well within 300 ms under n
 
 Global search dispatch only fans out to `ModuleRegistry.globalSearchModuleIDs` (hot-path tier). Targeted commands and detail opens still call `warmupIfNeeded` for on-demand modules.
 
+**Stale-return pattern:** `RunningApplicationsCache`, `KillProcessModule`, `ProcessMemorySampler`, and Browser Tabs use stale-while-revalidate — `handle` returns cached data immediately and schedules background refresh. TTL expiry must not block the query path on MainActor or process spawn.
+
+**Targeted warming snapshot:** `QueryDispatcher.dispatchTargeted` emits a degraded informational row (`module.warming`) when the module is cold, then awaits warmup and delivers results. First-snapshot latency is measured separately from warmup completion.
+
 After the panel hides, `AppCoordinator` schedules idle teardown:
 
 1. Wait **30 seconds** after hide (cancelled if the panel reopens).

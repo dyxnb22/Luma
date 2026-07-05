@@ -40,8 +40,14 @@ public actor NotesTreeIndex {
 
     public func rebuild(after events: [FSChangeEvent]) async {
         guard rootURL != nil else { return }
-        _ = events
-        await warmup()
+        if events.isEmpty {
+            await warmup()
+            return
+        }
+        let onlyModified = events.allSatisfy { $0.kind == .modified }
+        if !onlyModified {
+            await warmup()
+        }
     }
 
     public func snapshot() async -> NotesNode? {

@@ -423,6 +423,10 @@
     "en": "In %@ — Esc to go back",
     "zh-Hans": "在 %@ 中 — Esc 返回"
   },
+  "module.warming": {
+    "en": "Loading module…",
+    "zh-Hans": "正在加载模块…"
+  },
   "hint.select": {
     "en": "↑↓ Select",
     "zh-Hans": "↑↓ 选择"

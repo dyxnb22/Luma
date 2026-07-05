@@ -189,6 +189,7 @@ private actor SnapshotCollector {
     let host = ModuleHost(context: TestDoubles.context())
     await host.register(AlphaModule())
     await host.register(BetaModule())
+    await host.warmupIfNeeded(id: AlphaModule.manifest.identifier, reason: .query)
     let dispatcher = QueryDispatcher(host: host)
 
     let query = Query(raw: "rec test", sequence: 1)
@@ -225,6 +226,7 @@ private actor SnapshotCollector {
 @Test func targetedDispatchSurfacesModuleDiagnosticAsInformationalRow() async {
     let host = ModuleHost(context: TestDoubles.context())
     await host.register(DiagnosticModule())
+    await host.warmupIfNeeded(id: DiagnosticModule.manifest.identifier, reason: .query)
     let dispatcher = QueryDispatcher(host: host)
 
     let query = Query(raw: "tab github", sequence: 3)
@@ -243,7 +245,8 @@ private actor SnapshotCollector {
 
 @Test func targetedDispatchKeepsAppTopMemoryRowsDespitePayloadMismatch() async {
     let host = ModuleHost(context: TestDoubles.context(processMemory: StubProcessMemoryClient()))
-    await host.register(AppsModule())
+    await host.register(AppsTopProbeModule())
+    await host.warmupIfNeeded(id: .apps, reason: .query)
     let dispatcher = QueryDispatcher(host: host)
 
     let parsed = ParsedCommand(trigger: "app", payload: "top", module: .apps)
@@ -262,7 +265,8 @@ private actor SnapshotCollector {
 
 @Test func targetedDispatchPreservesAppTopOrderingAcrossMultipleRows() async {
     let host = ModuleHost(context: TestDoubles.context(processMemory: MultiRowProcessMemoryClient()))
-    await host.register(AppsModule())
+    await host.register(AppsTopProbeModule())
+    await host.warmupIfNeeded(id: .apps, reason: .query)
     let dispatcher = QueryDispatcher(host: host)
 
     let parsed = ParsedCommand(trigger: "app", payload: "top", module: .apps)
@@ -278,9 +282,49 @@ private actor SnapshotCollector {
     #expect(snapshots[0].items.map { $0.subtitle ?? "" } == ["512 MB", "256 MB"])
 }
 
+private actor SlowColdTargetedModule: LumaModule {
+    static let manifest = ModuleManifest(
+        identifier: ModuleIdentifier(rawValue: "luma.test.slow-cold"),
+        displayName: "Slow Cold",
+        capabilities: [.queryable],
+        defaultEnabled: true,
+        priority: 1,
+        queryTimeout: .milliseconds(200)
+    )
+
+    func warmup(_ context: ModuleContext) async {
+        try? await Task.sleep(for: .milliseconds(150))
+    }
+
+    func handle(_ query: Query, context: QueryContext) async -> ModuleResult {
+        ModuleResult(items: [row(title: "Slow go", module: Self.manifest.identifier)])
+    }
+}
+
+@Test func targetedDispatchEmitsWarmingSnapshotBeforeColdWarmupCompletes() async {
+    let host = ModuleHost(context: TestDoubles.context())
+    await host.register(SlowColdTargetedModule())
+    let dispatcher = QueryDispatcher(host: host)
+
+    let parsed = ParsedCommand(trigger: "slow", payload: "go", module: SlowColdTargetedModule.manifest.identifier)
+    let query = Query(raw: "slow go", sequence: 8, command: parsed)
+    let collector = SnapshotCollector()
+    await dispatcher.dispatchTargeted(query, moduleID: SlowColdTargetedModule.manifest.identifier) { snapshot in
+        await collector.append(snapshot)
+    }
+
+    let snapshots = await collector.values
+    #expect(snapshots.count == 2)
+    #expect(snapshots[0].items.count == 1)
+    #expect(snapshots[0].items[0].rowKind == .informational)
+    #expect(snapshots[0].items[0].title == L10n.tr("module.warming"))
+    #expect(snapshots[1].items.first?.title == "Slow go")
+}
+
 @Test func targetedDispatchKeepsSnippetCreateRowForNewCommand() async {
     let host = ModuleHost(context: TestDoubles.context())
     await host.register(SnippetsModule())
+    await host.warmupIfNeeded(id: .snippets, reason: .query)
     let dispatcher = QueryDispatcher(host: host)
 
     let parsed = ParsedCommand(trigger: "s", payload: "new", module: .snippets)
@@ -341,6 +385,46 @@ private struct MultiRowProcessMemoryClient: ProcessMemoryClient {
                 residentBytes: 256 * 1_048_576
             )
         ]
+    }
+}
+
+private actor AppsTopProbeModule: LumaModule {
+    static let manifest = ModuleManifest(
+        identifier: .apps,
+        displayName: "Apps",
+        capabilities: [.queryable],
+        defaultEnabled: true,
+        priority: 5,
+        queryTimeout: .milliseconds(40)
+    )
+
+    func warmup(_ context: ModuleContext) async {
+        _ = context
+    }
+
+    func handle(_ query: Query, context: QueryContext) async -> ModuleResult {
+        guard query.command?.payload.lowercased() == "top" else {
+            return ModuleResult(items: [])
+        }
+        let samples = await context.platform.processMemory.topApplications(limit: 8)
+        return ModuleResult(items: samples.map(memoryRow))
+    }
+
+    private func memoryRow(_ sample: RunningApplicationMemory) -> ResultItem {
+        let mb = String(format: "%.0f MB", sample.residentMB)
+        return ResultItem(
+            id: ResultID(module: Self.manifest.identifier, key: "mem.\(sample.bundleID)"),
+            title: sample.name,
+            titleAttributed: AttributedString(sample.name),
+            subtitle: mb,
+            icon: .symbol("app"),
+            primaryAction: Action(
+                id: ActionID(module: Self.manifest.identifier, key: "launch.\(sample.bundleID)"),
+                title: "Activate \(sample.name)",
+                kind: .openURL(URL(string: "https://example.com")!)
+            ),
+            rankingHints: RankingHints(basePriority: Self.manifest.priority)
+        )
     }
 }
 

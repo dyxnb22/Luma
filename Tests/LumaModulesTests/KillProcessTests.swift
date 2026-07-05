@@ -2,6 +2,7 @@ import Darwin
 import Foundation
 import Testing
 @testable import LumaModules
+import LumaCore
 import LumaServices
 
 @Test func killProcessIndexFiltersSelfPID() {
@@ -34,4 +35,21 @@ import LumaServices
     #expect(KillProcessIndex.memoryDisplay(bytes: 512 * 1_048_576) == "512 MB")
     #expect(KillProcessIndex.memoryDisplay(bytes: 1536 * 1_048_576) == "1.5 GB")
     #expect(KillProcessIndex.memoryDisplay(bytes: nil) == "memory unknown")
+}
+
+@Test func killProcessHandleReturnsStaleCacheWithoutBlocking() async {
+    let module = KillProcessModule()
+    await module.seedCacheForTesting([
+        RunningProcessRecord(pid: 10, bundleID: "com.apple.Preview", name: "Preview", launchDate: nil, residentBytes: nil)
+    ])
+
+    let query = Query(raw: "kill preview", sequence: 1, command: ParsedCommand(trigger: "kill", payload: "preview", module: .killProcess))
+    let start = ContinuousClock.now
+    let result = await module.handle(query, context: QueryContext(deadline: .now + .seconds(1)))
+    let elapsed = start.duration(to: .now)
+    let elapsedMs = Double(elapsed.components.seconds) * 1000
+        + Double(elapsed.components.attoseconds) / 1_000_000_000_000_000
+
+    #expect(result.items.first?.title == "Preview")
+    #expect(elapsedMs < 50)
 }

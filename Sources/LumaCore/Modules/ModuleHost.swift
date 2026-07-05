@@ -34,6 +34,8 @@ public actor ModuleHost {
     private var modules: [ModuleIdentifier: any LumaModule] = [:]
     private var enabled: Set<ModuleIdentifier> = []
     private var warmupStates: [ModuleIdentifier: WarmupState] = [:]
+    private var warmupTasks: [ModuleIdentifier: Task<Void, Never>] = [:]
+    private var warmupGenerations: [ModuleIdentifier: UInt64] = [:]
     private var lastUsedAt: [ModuleIdentifier: ContinuousClock.Instant] = [:]
     private var pinnedIDs: Set<ModuleIdentifier> = []
     /// When set, only these module IDs participate in global (non-targeted) query dispatch.
@@ -77,6 +79,7 @@ public actor ModuleHost {
         let added = ids.subtracting(enabled)
 
         for id in removed {
+            invalidateWarmup(id: id)
             if let module = modules[id] {
                 await module.teardown()
                 warmupStates[id] = .tornDown
@@ -131,19 +134,42 @@ public actor ModuleHost {
 
     public func warmupIfNeeded(id: ModuleIdentifier, reason: WarmupReason, budget: Duration = .seconds(1)) async {
         guard enabled.contains(id), let module = modules[id] else { return }
-        let state = warmupStates[id] ?? .cold
-        if state == .warm || state == .warming { return }
+        if warmupStates[id] == .warm { return }
+        if let existing = warmupTasks[id] {
+            await existing.value
+            return
+        }
+
+        let generation = (warmupGenerations[id] ?? 0) + 1
+        warmupGenerations[id] = generation
         warmupStates[id] = .warming
         let ctx = context
-        let completed: Void? = await Timeout.run(after: budget) {
-            await module.warmup(ctx)
+
+        let task = Task<Void, Never> {
+            let completed: Void? = await Timeout.run(after: budget) {
+                await module.warmup(ctx)
+            }
+            await self.finishWarmup(id: id, generation: generation, succeeded: completed != nil)
         }
-        if completed != nil {
+        warmupTasks[id] = task
+        await task.value
+        warmupTasks[id] = nil
+    }
+
+    private func finishWarmup(id: ModuleIdentifier, generation: UInt64, succeeded: Bool) {
+        guard warmupGenerations[id] == generation else { return }
+        if succeeded {
             warmupStates[id] = .warm
             lastUsedAt[id] = ContinuousClock().now
         } else {
             warmupStates[id] = .cold
         }
+    }
+
+    private func invalidateWarmup(id: ModuleIdentifier) {
+        warmupGenerations[id, default: 0] &+= 1
+        warmupTasks[id]?.cancel()
+        warmupTasks[id] = nil
     }
 
     public func warmupIfNeeded(ids: Set<ModuleIdentifier>, reason: WarmupReason, budget: Duration = .seconds(1)) async {
@@ -178,6 +204,7 @@ public actor ModuleHost {
             guard warmupStates[id] == .warm else { continue }
             if let last = lastUsedAt[id], now - last < olderThan { continue }
             if let module = modules[id] {
+                invalidateWarmup(id: id)
                 await module.teardown()
                 warmupStates[id] = .tornDown
             }

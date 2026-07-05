@@ -57,7 +57,7 @@ final class AppCoordinator {
         workspace: workspace,
         clipboardSnapshot: clipboardSnapshotService,
         launcherUI: launcherUIService,
-        processMemory: ProcessMemoryService(),
+        processMemory: ProcessMemoryService(sampler: processMemorySampler),
         reminders: reminders,
         scriptRunner: scriptRunner,
         notifications: NotificationService(),
@@ -97,6 +97,7 @@ final class AppCoordinator {
     )
     private let appActivationTracker = AppActivationTracker.defaultTracker()
     private let runningApplicationsCache = RunningApplicationsCache.shared
+    private let processMemorySampler = ProcessMemorySampler.shared
     private lazy var openAppsProvider = OpenAppsHomeProvider(appActivationTracker: appActivationTracker)
     private lazy var clipboardModule = ClipboardModule(pasteboard: pasteboard, accessibility: accessibility)
     private lazy var notesModule = NotesModule()
@@ -365,6 +366,9 @@ final class AppCoordinator {
             let startupWarm = pinned.intersection(enabled ?? Set(modules.map { type(of: $0).manifest.identifier }))
             await host.warmupIfNeeded(ids: startupWarm, reason: .startup)
             windowController.setModulesReady(true)
+            Task {
+                await processMemorySampler.start()
+            }
 
             if policy == .eagerAllEnabled {
                 await host.warmupRemainingEnabled()
@@ -379,6 +383,7 @@ final class AppCoordinator {
         let source = DispatchSource.makeMemoryPressureSource(eventMask: [.warning, .critical], queue: .main)
         source.setEventHandler { [weak self] in
             guard let self else { return }
+            IconCache.shared.trimForMemoryPressure()
             Task {
                 let pinned = await self.config.pinnedModuleIDs()
                 await self.host.teardownIdleModules(

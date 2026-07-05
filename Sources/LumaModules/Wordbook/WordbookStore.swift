@@ -293,6 +293,40 @@ public actor WordbookStore {
         """, params: [String(limit), String(offset)])
     }
 
+    func searchCorpus(limit: Int = 50_000) async throws -> [WordSearchRow] {
+        let entries = try query("""
+        SELECT id, term, phonetic, meaning, example, category, familiarity,
+               review_stage, review_count, wrong_count, next_review_at
+        FROM words
+        ORDER BY term COLLATE NOCASE ASC
+        LIMIT ?
+        """, params: [String(limit)])
+        return entries.map {
+            WordSearchRow(
+                id: $0.id,
+                term: $0.term,
+                phonetic: $0.phonetic,
+                meaning: $0.meaning,
+                example: $0.example,
+                category: $0.category
+            )
+        }
+    }
+
+    public func words(ids: [Int64]) async throws -> [WordEntry] {
+        guard !ids.isEmpty else { return [] }
+        let placeholders = Array(repeating: "?", count: ids.count).joined(separator: ",")
+        let params = ids.map { String($0) }
+        let rows = try query("""
+        SELECT id, term, phonetic, meaning, example, category, familiarity,
+               review_stage, review_count, wrong_count, next_review_at
+        FROM words
+        WHERE id IN (\(placeholders))
+        """, params: params)
+        let byID = Dictionary(uniqueKeysWithValues: rows.map { ($0.id, $0) })
+        return ids.compactMap { byID[$0] }
+    }
+
     public func upsertWords(_ entries: [WordEntry], replaceDuplicates: Bool = false) async throws -> (imported: Int, skipped: Int) {
         var imported = 0
         var skipped = 0

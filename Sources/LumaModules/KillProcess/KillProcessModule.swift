@@ -15,7 +15,10 @@ public actor KillProcessModule: LumaModule {
     private let service: RunningProcessService
     private var cachedRecords: [RunningProcessRecord] = []
     private var cacheFetchedAt: ContinuousClock.Instant?
+    private var refreshTask: Task<Void, Never>?
     private let cacheTTL: Duration = .seconds(3)
+
+    internal private(set) var refreshCallCount = 0
 
     public init(service: RunningProcessService = RunningProcessService()) {
         self.service = service
@@ -51,7 +54,7 @@ public actor KillProcessModule: LumaModule {
                 )
             ])
         }
-        await refreshCacheIfStale()
+        scheduleRefreshIfStale()
         let matches = KillProcessIndex.search(cachedRecords, query: payload, limit: 8)
         return ModuleResult(items: matches.map { row(for: $0.record) })
     }
@@ -73,14 +76,27 @@ public actor KillProcessModule: LumaModule {
         await refreshCache()
     }
 
-    private func refreshCacheIfStale() async {
+    internal func seedCacheForTesting(
+        _ records: [RunningProcessRecord],
+        fetchedAt: ContinuousClock.Instant = ContinuousClock.now - .seconds(10)
+    ) {
+        cachedRecords = records
+        cacheFetchedAt = fetchedAt
+    }
+
+    private func scheduleRefreshIfStale() {
         if let fetchedAt = cacheFetchedAt, ContinuousClock.now - fetchedAt < cacheTTL {
             return
         }
-        await refreshCache()
+        guard refreshTask == nil else { return }
+        refreshTask = Task {
+            await refreshCache()
+            refreshTask = nil
+        }
     }
 
     private func refreshCache() async {
+        refreshCallCount += 1
         cachedRecords = await service.runningGUIApplications()
         cacheFetchedAt = ContinuousClock.now
     }

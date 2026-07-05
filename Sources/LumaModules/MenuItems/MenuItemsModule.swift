@@ -36,6 +36,10 @@ public actor MenuItemsModule: LumaModule {
         await service.start(disabledBundleIDs: disabledBundleIDs)
     }
 
+    public func teardown() async {
+        await service.stop()
+    }
+
     public func handle(_ query: Query, context: QueryContext) async -> ModuleResult {
         guard let payload = query.command?.payload ?? Self.extractPayload(raw: query.raw) else {
             return ModuleResult(items: [])

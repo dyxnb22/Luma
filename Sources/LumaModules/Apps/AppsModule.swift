@@ -18,10 +18,27 @@ public actor AppsModule: LumaModule {
 
     public func warmup(_ context: ModuleContext) async {
         let cacheURL = AppIndexCache.defaultURL()
-        if let cached = AppIndexCache.load(from: cacheURL) {
+        let cached = AppIndexCache.load(from: cacheURL)
+        if let cached, !cached.isEmpty {
             index = AppIndex(apps: cached)
         }
+        runningApplications = context.platform.runningApplications
+        await runningApplications.startMonitoring()
 
+        if cached != nil {
+            Task {
+                await self.refreshIndexFromDisk(cacheURL: cacheURL)
+            }
+        } else {
+            await refreshIndexFromDisk(cacheURL: cacheURL)
+        }
+    }
+
+    public func teardown() async {
+        await runningApplications.stopMonitoring()
+    }
+
+    private func refreshIndexFromDisk(cacheURL: URL) async {
         let scanned = AppScanner.scan()
         let fallback = [
             AppRecord(bundleID: "com.apple.finder", url: URL(fileURLWithPath: "/System/Library/CoreServices/Finder.app"), name: "Finder", localizedName: "Finder", aliases: [], pinyinFull: "", pinyinInitials: ""),
@@ -31,8 +48,6 @@ public actor AppsModule: LumaModule {
         let apps = scanned.isEmpty ? fallback : scanned
         index = AppIndex(apps: apps)
         AppIndexCache.save(apps, to: cacheURL)
-        runningApplications = context.platform.runningApplications
-        await runningApplications.startMonitoring()
     }
 
     public func handle(_ query: Query, context: QueryContext) async -> ModuleResult {

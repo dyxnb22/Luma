@@ -138,6 +138,12 @@ final class LauncherViewModel {
         )
         await MainActor.run {
             guard enriched.querySequence == self.sequence else { return }
+            if let issuedAt = self.issuedAtBySequence.removeValue(forKey: sequence) {
+                let elapsed = issuedAt.duration(to: .now)
+                let ms = Double(elapsed.components.seconds) * 1000
+                    + Double(elapsed.components.attoseconds) / 1_000_000_000_000_000
+                LatencyTelemetry.reportKeystroke(ms)
+            }
             self.onSnapshot?(enriched)
         }
     }

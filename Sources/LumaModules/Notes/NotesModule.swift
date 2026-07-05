@@ -267,7 +267,15 @@ public actor NotesModule: LumaModule {
             for await batch in stream {
                 if Task.isCancelled { break }
                 await index.rebuild(after: batch)
-                await metaIndex.rebuild(from: await index.snapshot())
+                let snapshot = await index.snapshot()
+                for event in batch {
+                    switch event.kind {
+                    case .removed:
+                        await metaIndex.remove(path: event.path)
+                    default:
+                        await metaIndex.update(path: event.path, in: snapshot)
+                    }
+                }
             }
         }
     }

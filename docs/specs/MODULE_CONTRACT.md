@@ -41,6 +41,8 @@ Some modules intentionally exceed the default 80 ms `handle` budget when invoked
 
 - `manifest.queryTimeout` declares the longer budget (for example Browser Tabs 900 ms, Menu Bar Search 800 ms, Kill Process 150 ms).
 - `handle` must still avoid disk I/O and external process spawn on the query path unless the exception is documented and covered by performance tests.
+- `app top` reads from `ProcessMemorySampler` (background sampling); `handle` must not spawn `/bin/ps` or block on MainActor workspace enumeration.
+- Browser Tabs `handle` returns cached tabs immediately and refreshes via AppleScript in the background; automation-denied responses are TTL-cached to avoid osascript storms.
 - **Global search** fan-out must remain memory-only with timeouts at or below 80 ms per module.
 
 Modules with approved targeted exceptions must have p95 budget tests in `Tests/LumaModulesTests/SlowModuleQueryPerformanceTests.swift` (or module-specific performance tests).

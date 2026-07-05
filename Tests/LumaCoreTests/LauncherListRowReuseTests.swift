@@ -45,6 +45,18 @@ import LumaModules
         #expect(!LauncherListRowReuse.canReuseRows(oldRows, newRows))
     }
 
+    @Test func canReuseWhenOnlyFlatIndexChanges() {
+        let oldRows = [itemRow(id: "a", flatIndex: 0), itemRow(id: "b", flatIndex: 1)]
+        let newRows = [itemRow(id: "a", flatIndex: 1), itemRow(id: "b", flatIndex: 0)]
+        #expect(LauncherListRowReuse.canReuseRows(oldRows, newRows))
+    }
+
+    @Test func canReorderWhenIdentitiesMatchButOrderChanges() {
+        let oldRows = [itemRow(id: "a", flatIndex: 0), itemRow(id: "b", flatIndex: 1)]
+        let newRows = [itemRow(id: "b", flatIndex: 0), itemRow(id: "a", flatIndex: 1)]
+        #expect(LauncherListRowReuse.canReorderRows(oldRows, newRows))
+    }
+
     @Test func cannotReuseWhenListNestChanges() {
         let oldRows = [itemRow(id: "a", flatIndex: 0)]
         let nested = ResultItem(

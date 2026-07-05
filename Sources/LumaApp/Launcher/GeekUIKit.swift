@@ -31,7 +31,7 @@ enum GeekUIKit {
         let strip = CALayer()
         strip.name = "geekSidebarAccent"
         strip.backgroundColor = NSColor.controlAccentColor.cgColor
-        strip.cornerRadius = 1
+        strip.cornerRadius = 1.5
         strip.cornerCurve = .continuous
         strip.isHidden = true
         row.layer?.addSublayer(strip)
@@ -40,10 +40,10 @@ enum GeekUIKit {
 
     static func layoutSidebarAccent(_ strip: CALayer, in bounds: CGRect) {
         strip.frame = CGRect(
-            x: 2,
-            y: 6,
+            x: 3,
+            y: 8,
             width: GeekStyleTokens.sidebarAccentWidth,
-            height: max(0, bounds.height - 12)
+            height: max(0, bounds.height - 16)
         )
     }
 
@@ -207,9 +207,8 @@ enum GeekUIKit {
         chrome.layer?.cornerRadius = LauncherChromeTokens.detailSurfaceCornerRadius
         chrome.layer?.cornerCurve = .continuous
         chrome.layer?.borderWidth = 0.5
-        chrome.layer?.borderColor = NSColor.separatorColor
-            .withAlphaComponent(LauncherChromeTokens.detailSurfaceBorderAlpha).cgColor
-        chrome.layer?.backgroundColor = NSColor.controlBackgroundColor.withAlphaComponent(0.18).cgColor
+        chrome.layer?.borderColor = ColorTokens.contentSurfaceBorder.cgColor
+        chrome.layer?.backgroundColor = ColorTokens.contentSurfaceFill.cgColor
         view.addSubview(chrome, positioned: .below, relativeTo: nil)
         NSLayoutConstraint.activate([
             chrome.topAnchor.constraint(equalTo: view.topAnchor),
@@ -240,7 +239,9 @@ enum GeekUIKit {
         surface.wantsLayer = true
         surface.layer?.cornerRadius = LauncherChromeTokens.homeListSurfaceCornerRadius
         surface.layer?.cornerCurve = .continuous
-        surface.layer?.backgroundColor = NSColor.controlBackgroundColor.withAlphaComponent(0.12).cgColor
+        surface.layer?.backgroundColor = NSColor.controlBackgroundColor.withAlphaComponent(0.20).cgColor
+        surface.layer?.borderWidth = 0.5
+        surface.layer?.borderColor = NSColor.separatorColor.withAlphaComponent(0.18).cgColor
         view.addSubview(surface, positioned: .below, relativeTo: nil)
         NSLayoutConstraint.activate([
             surface.topAnchor.constraint(equalTo: view.topAnchor),
@@ -418,13 +419,13 @@ enum GeekUIKit {
         chrome.wantsLayer = true
         chrome.layer?.cornerRadius = LauncherChromeTokens.searchBarCornerRadius
         chrome.layer?.cornerCurve = .continuous
-        chrome.layer?.borderWidth = 0.75
+        chrome.layer?.borderWidth = 0.6
         chrome.layer?.borderColor = ColorTokens.searchSurfaceBorder.cgColor
         chrome.layer?.backgroundColor = ColorTokens.searchSurfaceFill.cgColor
         chrome.layer?.shadowColor = NSColor.black.cgColor
         chrome.layer?.shadowOpacity = ColorTokens.searchSurfaceShadowOpacity
-        chrome.layer?.shadowRadius = 10
-        chrome.layer?.shadowOffset = CGSize(width: 0, height: -2)
+        chrome.layer?.shadowRadius = 8
+        chrome.layer?.shadowOffset = CGSize(width: 0, height: -1)
         view.addSubview(chrome, positioned: .below, relativeTo: nil)
         NSLayoutConstraint.activate([
             chrome.topAnchor.constraint(equalTo: view.topAnchor),
@@ -441,6 +442,7 @@ enum GeekUIKit {
         tableView.selectionHighlightStyle = .regular
         tableView.usesAlternatingRowBackgroundColors = false
         tableView.intercellSpacing = NSSize(width: 0, height: LauncherChromeTokens.detailTableRowSpacing)
+        tableView.gridStyleMask = []
         styleDetailTableColumns(tableView)
     }
 
@@ -448,7 +450,7 @@ enum GeekUIKit {
         for column in tableView.tableColumns {
             let headerCell = column.headerCell
             headerCell.font = TypographyTokens.caption2(weight: .semibold)
-            headerCell.textColor = .secondaryLabelColor
+            headerCell.textColor = .labelColor.withAlphaComponent(0.82)
         }
     }
 

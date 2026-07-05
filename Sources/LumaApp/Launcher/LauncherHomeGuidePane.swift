@@ -31,12 +31,14 @@ final class LauncherHomeGuidePane: NSView {
         GeekUIKit.configureContentSurface(self)
 
         footerLabel.font = TypographyTokens.caption2
-        footerLabel.textColor = .tertiaryLabelColor
+        footerLabel.textColor = .secondaryLabelColor.withAlphaComponent(0.72)
         footerLabel.lineBreakMode = .byTruncatingTail
         footerLabel.maximumNumberOfLines = 1
         footerLabel.translatesAutoresizingMaskIntoConstraints = false
 
-        tableView.headerView = NSTableHeaderView()
+        let headerView = NSTableHeaderView()
+        headerView.frame.size.height = 28
+        tableView.headerView = headerView
         GeekUIKit.configureDetailTable(tableView, rowHeight: LauncherChromeTokens.homeGuideTableRowHeight)
         tableView.intercellSpacing = NSSize(
             width: 0,
@@ -44,12 +46,13 @@ final class LauncherHomeGuidePane: NSView {
         )
         tableView.selectionHighlightStyle = .none
         tableView.allowsEmptySelection = true
+        tableView.usesAlternatingRowBackgroundColors = false
         tableView.delegate = self
         tableView.dataSource = self
 
         for (id, title, width) in [
-            (Column.module.rawValue, L10n.trZhHans("home.guide.col.module"), 72.0),
-            (Column.trigger.rawValue, L10n.trZhHans("home.guide.col.trigger"), 44.0),
+            (Column.module.rawValue, L10n.trZhHans("home.guide.col.module"), 78.0),
+            (Column.trigger.rawValue, L10n.trZhHans("home.guide.col.trigger"), 52.0),
             (Column.summary.rawValue, L10n.trZhHans("home.guide.col.summary"), 200.0)
         ] {
             let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier(id))
@@ -70,14 +73,14 @@ final class LauncherHomeGuidePane: NSView {
         addSubview(footerLabel)
 
         NSLayoutConstraint.activate([
-            scrollView.topAnchor.constraint(equalTo: topAnchor, constant: 4),
-            scrollView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 2),
-            scrollView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -2),
+            scrollView.topAnchor.constraint(equalTo: topAnchor, constant: 8),
+            scrollView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 8),
+            scrollView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
 
             footerLabel.topAnchor.constraint(equalTo: scrollView.bottomAnchor, constant: 2),
-            footerLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 8),
-            footerLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
-            footerLabel.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -6)
+            footerLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
+            footerLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
+            footerLabel.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -8)
         ])
     }
 
@@ -109,16 +112,16 @@ extension LauncherHomeGuidePane: NSTableViewDataSource, NSTableViewDelegate {
         switch Column(rawValue: columnID) {
         case .module:
             text = entry.moduleName
-            font = TypographyTokens.caption2(weight: .medium)
+            font = TypographyTokens.caption(weight: .semibold)
             color = .labelColor
         case .trigger:
             text = entry.trigger
-            font = TypographyTokens.monoCaption()
-            color = .secondaryLabelColor
+            font = TypographyTokens.monoCaption(weight: .semibold)
+            color = .secondaryLabelColor.withAlphaComponent(0.88)
         case .summary:
             text = entry.summary
-            font = TypographyTokens.caption2
-            color = .labelColor.withAlphaComponent(0.78)
+            font = TypographyTokens.caption()
+            color = .labelColor.withAlphaComponent(0.82)
         case .none:
             return nil
         }
@@ -126,4 +129,23 @@ extension LauncherHomeGuidePane: NSTableViewDataSource, NSTableViewDelegate {
     }
 
     func tableView(_ tableView: NSTableView, shouldSelectRow row: Int) -> Bool { false }
+
+    func tableView(_ tableView: NSTableView, rowViewForRow row: Int) -> NSTableRowView? {
+        let rowView = GuideTableRowView()
+        rowView.rowIndex = row
+        return rowView
+    }
+}
+
+@MainActor
+private final class GuideTableRowView: NSTableRowView {
+    var rowIndex = -1
+
+    override func drawBackground(in dirtyRect: NSRect) {
+        guard rowIndex >= 0 else { return }
+        let fill: NSColor = rowIndex.isMultiple(of: 2) ? ColorTokens.guideRowStripeFill : .clear
+        guard fill != .clear else { return }
+        fill.setFill()
+        NSBezierPath(roundedRect: bounds.insetBy(dx: 2, dy: 1), xRadius: 6, yRadius: 6).fill()
+    }
 }

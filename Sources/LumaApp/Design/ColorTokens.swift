@@ -19,9 +19,9 @@ enum ColorTokens {
     static let cardShortcutAlpha: CGFloat = 0.65
     static let returnHintCapsuleAlpha: CGFloat = 0.24
     static let listRowSelectionAlpha: CGFloat = LauncherChromeTokens.listRowSelectionAlpha
-    static let searchSurfaceAlpha: CGFloat = 0.58
-    static let searchSurfaceBorderAlpha: CGFloat = 0.48
-    static let searchSurfaceShadowOpacity: Float = 0.14
+    static let searchSurfaceAlpha: CGFloat = 0.68
+    static let searchSurfaceBorderAlpha: CGFloat = 0.38
+    static let searchSurfaceShadowOpacity: Float = 0.08
 
     static var panelBorderColor: NSColor {
         separatorBlend(alpha: LauncherChromeTokens.panelBorderAlpha)
@@ -36,11 +36,24 @@ enum ColorTokens {
     }
 
     static var listRowSelectionFill: NSColor {
-        NSColor.controlAccentColor.withAlphaComponent(listRowSelectionAlpha)
+        let base = NSColor.controlAccentColor.withAlphaComponent(listRowSelectionAlpha)
+        return base.blended(withFraction: 0.18, of: NSColor.controlBackgroundColor) ?? base
     }
 
     static var listRowHoverFill: NSColor {
         NSColor.labelColor.withAlphaComponent(LauncherChromeTokens.listRowHoverAlpha)
+    }
+
+    static var contentSurfaceFill: NSColor {
+        controlFillBlend(alpha: isDarkAppearance ? 0.22 : 0.34)
+    }
+
+    static var contentSurfaceBorder: NSColor {
+        separatorBlend(alpha: isDarkAppearance ? 0.36 : 0.44)
+    }
+
+    static var guideRowStripeFill: NSColor {
+        NSColor.labelColor.withAlphaComponent(isDarkAppearance ? 0.045 : 0.032)
     }
 
     static var performanceStripSurfaceFill: NSColor {

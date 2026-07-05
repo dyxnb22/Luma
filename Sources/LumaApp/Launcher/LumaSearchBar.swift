@@ -53,7 +53,7 @@ final class LumaSearchBar: NSView {
         )
         iconView.image = NSImage(systemSymbolName: "magnifyingglass", accessibilityDescription: nil)?
             .withSymbolConfiguration(symbolConfig)
-        iconView.contentTintColor = .secondaryLabelColor
+        iconView.contentTintColor = .secondaryLabelColor.withAlphaComponent(0.82)
         iconView.imageScaling = .scaleProportionallyDown
         iconView.translatesAutoresizingMaskIntoConstraints = false
 
@@ -61,7 +61,8 @@ final class LumaSearchBar: NSView {
         textField.isBezeled = false
         textField.drawsBackground = false
         textField.font = .systemFont(ofSize: LauncherChromeTokens.searchFontSize, weight: .regular)
-        textField.placeholderString = ModuleSearchHints.default
+        applyPlaceholder(ModuleSearchHints.default)
+        textField.textColor = .labelColor.withAlphaComponent(0.92)
         textField.focusRingType = .none
         textField.delegate = self
         textField.target = self
@@ -76,7 +77,7 @@ final class LumaSearchBar: NSView {
         hintsButton.bezelStyle = .inline
         hintsButton.image = NSImage(systemSymbolName: "info.circle", accessibilityDescription: "Keyboard shortcuts")
         hintsButton.imagePosition = .imageOnly
-        hintsButton.contentTintColor = .tertiaryLabelColor
+        hintsButton.contentTintColor = .secondaryLabelColor.withAlphaComponent(0.58)
         hintsButton.target = self
         hintsButton.action = #selector(hintsTapped)
         hintsButton.toolTip = "Keyboard shortcuts"
@@ -87,7 +88,7 @@ final class LumaSearchBar: NSView {
         settingsButton.bezelStyle = .inline
         settingsButton.image = NSImage(systemSymbolName: "gearshape", accessibilityDescription: "Settings")
         settingsButton.imagePosition = .imageOnly
-        settingsButton.contentTintColor = .tertiaryLabelColor
+        settingsButton.contentTintColor = .secondaryLabelColor.withAlphaComponent(0.58)
         settingsButton.target = self
         settingsButton.action = #selector(settingsTapped)
         settingsButton.toolTip = "Settings"
@@ -98,7 +99,7 @@ final class LumaSearchBar: NSView {
         clearButton.bezelStyle = .inline
         clearButton.image = NSImage(systemSymbolName: "xmark.circle.fill", accessibilityDescription: "Clear search")
         clearButton.imagePosition = .imageOnly
-        clearButton.contentTintColor = .tertiaryLabelColor
+        clearButton.contentTintColor = .secondaryLabelColor.withAlphaComponent(0.58)
         clearButton.target = self
         clearButton.action = #selector(clearTapped)
         clearButton.isHidden = true
@@ -182,7 +183,7 @@ final class LumaSearchBar: NSView {
     }
 
     func setPlaceholder(_ text: String) {
-        textField.placeholderString = text
+        applyPlaceholder(text)
     }
 
     func appendText(_ text: String) {
@@ -295,6 +296,17 @@ final class LumaSearchBar: NSView {
 
     private func updateClearButtonVisibility() {
         clearButton.isHidden = textField.stringValue.isEmpty
+    }
+
+    private func applyPlaceholder(_ text: String) {
+        textField.placeholderString = nil
+        textField.placeholderAttributedString = NSAttributedString(
+            string: text,
+            attributes: [
+                .foregroundColor: NSColor.secondaryLabelColor.withAlphaComponent(0.66),
+                .font: textField.font ?? .systemFont(ofSize: LauncherChromeTokens.searchFontSize)
+            ]
+        )
     }
 }
 

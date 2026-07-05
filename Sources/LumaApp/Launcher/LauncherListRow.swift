@@ -195,8 +195,8 @@ final class LauncherListRow: NSControl {
 
     private func applyLabelColors() {
         let isNested = item.listNest != .none
-        titleLabel.textColor = isNested ? .secondaryLabelColor : .labelColor
-        subtitleLabel.textColor = isNested ? .tertiaryLabelColor : .secondaryLabelColor
+        titleLabel.textColor = isNested ? .secondaryLabelColor : .labelColor.withAlphaComponent(0.94)
+        subtitleLabel.textColor = isNested ? .tertiaryLabelColor : .secondaryLabelColor.withAlphaComponent(0.82)
         iconView.contentTintColor = isNested ? .secondaryLabelColor : nil
     }
 
@@ -205,9 +205,10 @@ final class LauncherListRow: NSControl {
         if isSelected {
             backgroundView.layer?.masksToBounds = false
             layer.backgroundColor = ColorTokens.listRowSelectionFill.cgColor
-            layer.borderWidth = 0
-            layer.shadowColor = NSColor.controlAccentColor.withAlphaComponent(0.22).cgColor
-            layer.shadowOpacity = 0.28
+            layer.borderWidth = 0.5
+            layer.borderColor = NSColor.controlAccentColor.withAlphaComponent(0.26).cgColor
+            layer.shadowColor = NSColor.controlAccentColor.withAlphaComponent(0.14).cgColor
+            layer.shadowOpacity = 0.18
             layer.shadowRadius = LauncherChromeTokens.listRowSelectedShadowRadius
             layer.shadowOffset = CGSize(width: 0, height: -1)
         } else if isHovered {
@@ -433,17 +434,12 @@ private final class ListTreeGuideView: NSView {
 
 @MainActor
 final class LauncherSectionHeaderView: NSView {
-    private let divider = NSView()
     private let titleLabel = NSTextField(labelWithString: "")
     private let shortcutLabel = NSTextField(labelWithString: "")
 
     init(title: String, shortcutIndex: Int?) {
         super.init(frame: .zero)
         translatesAutoresizingMaskIntoConstraints = false
-
-        divider.wantsLayer = true
-        divider.layer?.backgroundColor = NSColor.separatorColor.withAlphaComponent(0.55).cgColor
-        divider.translatesAutoresizingMaskIntoConstraints = false
 
         titleLabel.stringValue = title
         titleLabel.font = TypographyTokens.caption2(weight: .semibold)
@@ -469,17 +465,11 @@ final class LauncherSectionHeaderView: NSView {
         shortcutLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         shortcutLabel.translatesAutoresizingMaskIntoConstraints = false
 
-        addSubview(divider)
         addSubview(titleLabel)
         addSubview(shortcutLabel)
         heightAnchor.constraint(equalToConstant: LauncherChromeTokens.sectionHeaderHeight).isActive = true
 
         NSLayoutConstraint.activate([
-            divider.topAnchor.constraint(equalTo: topAnchor),
-            divider.leadingAnchor.constraint(equalTo: leadingAnchor),
-            divider.trailingAnchor.constraint(equalTo: trailingAnchor),
-            divider.heightAnchor.constraint(equalToConstant: 0.5),
-
             titleLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 6),
             titleLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
             titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: shortcutLabel.leadingAnchor, constant: -8),

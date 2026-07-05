@@ -43,9 +43,9 @@ final class LauncherHintBar: NSView {
         heightAnchor.constraint(equalToConstant: LauncherChromeTokens.hintBarHeight).isActive = true
 
         NSLayoutConstraint.activate([
-            leftLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 4),
+            leftLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 8),
             leftLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
-            statusLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -4),
+            statusLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
             statusLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
             statusLabel.leadingAnchor.constraint(greaterThanOrEqualTo: leftLabel.trailingAnchor, constant: 12)
         ])
@@ -106,6 +106,6 @@ final class LauncherHintBar: NSView {
     }
 
     private static var hintTextColor: NSColor {
-        .labelColor.withAlphaComponent(0.72)
+        .labelColor.withAlphaComponent(0.78)
     }
 }

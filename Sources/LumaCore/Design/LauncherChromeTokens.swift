@@ -57,9 +57,9 @@ public enum LauncherChromeTokens {
     public static let listRowHeightNested: CGFloat = 40
     public static let listRowIconSize: CGFloat = 34
     public static let listRowIconSizeNested: CGFloat = 22
-    public static let listRowSelectionAlpha: CGFloat = 0.16
-    public static let listRowHoverAlpha: CGFloat = 0.06
-    public static let listRowSelectedShadowRadius: CGFloat = 6
+    public static let listRowSelectionAlpha: CGFloat = 0.18
+    public static let listRowHoverAlpha: CGFloat = 0.075
+    public static let listRowSelectedShadowRadius: CGFloat = 4
     public static let homeListSurfaceCornerRadius: CGFloat = 14
     public static let sectionHeaderHeight: CGFloat = 28
 

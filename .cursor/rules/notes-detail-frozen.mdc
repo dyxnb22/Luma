@@ -1,14 +1,14 @@
 ---
 description: Frozen Notes detail IA — chips, panels, create flows, Tree/Map
-globs: Sources/LumaApp/Launcher/Notes*.swift,Sources/LumaModules/Notes/**,docs/specs/NOTES*.md,Features/Notes/**
+globs: Sources/LumaApp/Launcher/Notes*.swift,Sources/LumaModules/Notes/**,docs/ENGINEERING.md,docs/MODULES.md,docs/QA.md
 alwaysApply: false
 ---
 
 # Notes detail (frozen)
 
-Read **`docs/specs/NOTES_DETAIL_CONSTRAINTS.md`** before changing Notes detail IA, chips, panels, create flows, or in-detail shortcuts.
+Read **`docs/ENGINEERING.md`** and **`docs/MODULES.md`** before changing Notes detail IA, chips, panels, create flows, or in-detail shortcuts.
 
-Scope boundary: **`docs/adr/019-notes-long-term-markdown-workspace.md`**. Notes is a workspace manager — not an in-app Markdown editor.
+Scope boundary: Notes is a workspace manager, not an in-app Markdown editor.
 
 ## Chips — do NOT
 
@@ -35,4 +35,4 @@ Scope boundary: **`docs/adr/019-notes-long-term-markdown-workspace.md`**. Notes 
 
 ## PR requirements
 
-Update `NOTES_DETAIL_CONSTRAINTS.md`, `UX_BEHAVIOR_RULES.md`, `Features/Notes/README.md`, and `MANUAL_QA_CHECKLIST.md` when detail behavior changes.
+Update `docs/ENGINEERING.md`, `docs/MODULES.md`, and `docs/QA.md` when detail behavior changes.

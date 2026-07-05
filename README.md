@@ -6,9 +6,9 @@ Swift 6 · AppKit launcher · SwiftUI for Settings/About only · macOS 14+.
 
 ## Status
 
-**Route C** (command-first unified list, [ADR-023](docs/adr/023-command-first-unified-list.md)) is the active product surface. Empty-query home is Open Apps left + guide/detail right ([ADR-032](docs/adr/032-home-split-command-guide.md)). Current phase: **integration and polish** — wire existing flows, tighten trust and keyboard behavior; no new surface area.
+**Route C** is the active product surface: command-first unified list, with empty-query home showing Open Apps left and guide/detail right. Current phase: **integration and polish** — wire existing flows, tighten trust and keyboard behavior; no new surface area.
 
-**For development:** start with [Engineering Package](docs/ENGINEERING_PACKAGE.md) (single entry point for reading order, frozen constraints, and module rules).
+**For development:** start with [Engineering Handbook](docs/ENGINEERING.md).
 
 ## Commands
 
@@ -57,12 +57,10 @@ The LaunchAgent points at `build/Luma.app/Contents/MacOS/Luma` and restarts Luma
 
 | Doc | Role |
 | --- | --- |
-| [Engineering Package](docs/ENGINEERING_PACKAGE.md) | **Primary dev entry** — reading order, conflict priority, module/workbench rules |
-| [PRD](docs/PRD.md) | Product scope and success criteria |
-| [Architecture](docs/ARCHITECTURE.md) | Runtime layers and module boundaries |
-| [Manual QA Checklist](docs/MANUAL_QA_CHECKLIST.md) | Current regression / review checklist |
-| [QA index](qa/README.md) | What to run vs historical run artifacts |
-| [Feature Index](Features/README.md) | Per-module notes |
+| [Engineering Handbook](docs/ENGINEERING.md) | Product shape, architecture, launcher contract, performance, privacy, non-goals |
+| [Module Handbook](docs/MODULES.md) | User-visible behavior for every built-in module |
+| [Decision Log](docs/DECISIONS.md) | Compact active and historical ADR record |
+| [QA, Testing, And Release](docs/QA.md) | Automated gates, manual smoke, recorded review, release checklist |
 
 ## Quick Review
 

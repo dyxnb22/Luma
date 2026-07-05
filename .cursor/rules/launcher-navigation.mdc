@@ -6,7 +6,7 @@ alwaysApply: true
 
 # Launcher navigation (frozen intent)
 
-Read **`docs/specs/UX_BEHAVIOR_RULES.md`** (navigation + keyboard sections) and **`docs/qa/LAUNCHER_NAVIGATION_AUDIT.md`** (open issues) before changing detail enter/exit, Esc, or keyboard routing.
+Read **`docs/ENGINEERING.md`** (launcher contract) and **`docs/QA.md`** before changing detail enter/exit, Esc, or keyboard routing.
 
 ## Detail exit — always
 
@@ -21,9 +21,9 @@ Read **`docs/specs/UX_BEHAVIOR_RULES.md`** (navigation + keyboard sections) and 
 
 ## Keyboard — do NOT
 
-- Route ↑↓ or ⌘1–9 to hidden list rows while `showingDetail` (audit K6).
-- Advertise ⌘W close detail without implementing it on `LauncherPanel` (audit K1).
-- Rely on `ModuleDetailView.handleKeyDown` via search field only when `activate()` focuses subviews (audit MOD-KB).
+- Route ↑↓ or ⌘1–9 to hidden list rows while `showingDetail`.
+- Advertise ⌘W close detail without implementing it on `LauncherPanel`.
+- Rely on `ModuleDetailView.handleKeyDown` via search field only when `activate()` focuses subviews.
 
 ## Keyboard — always
 
@@ -37,4 +37,4 @@ Read **`docs/specs/UX_BEHAVIOR_RULES.md`** (navigation + keyboard sections) and 
 
 ## PR requirements
 
-When fixing navigation/shortcut issues: update `UX_BEHAVIOR_RULES.md`, mark items resolved in `LAUNCHER_NAVIGATION_AUDIT.md`, and extend `MANUAL_QA_CHECKLIST.md` Module Detail section.
+When fixing navigation/shortcut issues: update `docs/ENGINEERING.md`, `docs/MODULES.md`, and `docs/QA.md`.

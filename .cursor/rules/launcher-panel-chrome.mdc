@@ -6,8 +6,8 @@ alwaysApply: true
 
 # Launcher panel chrome (frozen)
 
-Read **`docs/specs/LAUNCHER_PANEL_CONSTRAINTS.md`** before changing panel size, placement, show animation, presentation screen, or in-panel layout.  
-Navigation / shortcuts: **`docs/specs/UX_BEHAVIOR_RULES.md`** + **`docs/qa/LAUNCHER_NAVIGATION_AUDIT.md`**.
+Read **`docs/ENGINEERING.md`** before changing panel size, placement, show animation, presentation screen, or in-panel layout.  
+Manual verification lives in **`docs/QA.md`**.
 
 ## Geometry
 
@@ -40,10 +40,10 @@ Navigation / shortcuts: **`docs/specs/UX_BEHAVIOR_RULES.md`** + **`docs/qa/LAUNC
 - Empty-query home: module detail in **right column** only (`LauncherHomeSplitLayout`); left Open Apps stay visible.
 - Put chrome on **pinned child views** (`GeekUIKit.installSearchSurface`, `configureContentSurface`, `installHomeListSurface`, list row `backgroundView`, `LauncherActionPanel.chromeView`).
 - Custom details: pin stacks to `container.leading`/`trailing` or `container.widthAnchor`; crowded toolbars use `constrainDetailToolbarTrailingActions`.
-- Disable mouse hits on fading `detailContainer` / `listView` during cross-fade (audit L1).
+- Disable mouse hits on fading `detailContainer` / `listView` during cross-fade.
 - Module detail placeholders: `L10n.tr` with string literals.
 - Bounded widgets (icons, keycaps, table rows, thumbnails) may use `wantsLayer` on the widget only.
 
 ## PR requirements
 
-Update `LAUNCHER_PANEL_CONSTRAINTS.md`, `UX_BEHAVIOR_RULES.md`, and `MANUAL_QA_CHECKLIST.md` when panel or in-panel layout rules change.
+Update `docs/ENGINEERING.md`, `docs/MODULES.md`, and `docs/QA.md` when panel or in-panel layout rules change.

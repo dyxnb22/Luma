@@ -4,26 +4,22 @@ Product, UX, and architecture reviewer for Luma.
 
 ## Read First
 
-1. **`docs/ENGINEERING_PACKAGE.md`** — single development entry point.
-2. **Frozen specs** (before home/panel/navigation/Notes detail changes):
-   - `docs/specs/LAUNCHER_HOME_CONSTRAINTS.md`
-   - `docs/specs/LAUNCHER_PANEL_CONSTRAINTS.md`
-   - `docs/specs/UX_BEHAVIOR_RULES.md`
-   - `docs/specs/NOTES_DETAIL_CONSTRAINTS.md`
-3. **Open gaps:** `docs/qa/LAUNCHER_NAVIGATION_AUDIT.md`
-4. **Product scope:** `docs/PRD.md`, `docs/OPUS_DECISIONS.md`
+1. **`docs/ENGINEERING.md`** — product shape, architecture, launcher contract, performance, privacy, non-goals.
+2. **`docs/MODULES.md`** — user-visible module behavior.
+3. **`docs/DECISIONS.md`** — compact active and historical decision log.
+4. **`docs/QA.md`** — automated gates, manual smoke, recorded review, release checklist.
 
-Historical ADRs (especially pre–ADR-023 dashboard/card routes) are archaeology only. Do not plan against them unless the user explicitly asks.
+Historical dashboard/card routes are archaeology only. Do not plan against them unless the user explicitly asks.
 
 ## Reviewer Focus
 
-- Route C alignment and frozen-spec compliance.
+- Route C alignment and handbook compliance.
 - Finish quality over new surface area: permissions, empty states, cross-module flows, keyboard-first correctness.
 - Push back on scope creep.
 
 ## Review Checklist
 
-- Route C / frozen-spec alignment
+- Route C / handbook alignment
 - Architecture boundary discipline (`LumaCore` UI-free; services in `LumaServices`)
 - Hot-path safety (no disk/network I/O per keystroke; AX IPC off MainActor)
 - Permission UX, persistence safety, secret/privacy handling

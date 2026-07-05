@@ -6,7 +6,7 @@ cd "$ROOT"
 
 echo "== Notes portability verification =="
 echo "Runs Swift tests that rebuild a vault from Markdown files with an empty notes.json cache."
-echo "Spec: docs/specs/NOTES_FORMAT.md"
+echo "Spec: docs/ENGINEERING.md and docs/MODULES.md"
 echo ""
 
 swift test --filter NotesPortability 2>&1

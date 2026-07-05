@@ -1,14 +1,13 @@
 ---
 description: Frozen launcher home — Open Apps left column; guide/detail right; no suggestion rows
-globs: Sources/LumaApp/Launcher/**,Sources/LumaCore/Home/**,docs/specs/**
+globs: Sources/LumaApp/Launcher/**,Sources/LumaCore/Home/**,docs/ENGINEERING.md,docs/MODULES.md,docs/DECISIONS.md,docs/QA.md
 alwaysApply: true
 ---
 
 # Launcher home (frozen)
 
-Read **`docs/specs/LAUNCHER_HOME_CONSTRAINTS.md`** and **`docs/adr/032-home-split-command-guide.md`** before changing home UI, panel size, or list chrome.  
-Panel positioning: **`docs/specs/LAUNCHER_PANEL_CONSTRAINTS.md`**.  
-Navigation / detail exit / shortcuts: **`docs/specs/UX_BEHAVIOR_RULES.md`** + **`docs/qa/LAUNCHER_NAVIGATION_AUDIT.md`**.
+Read **`docs/ENGINEERING.md`**, **`docs/MODULES.md`**, and **`docs/DECISIONS.md`** before changing home UI, panel size, or list chrome.  
+Manual verification lives in **`docs/QA.md`**.
 
 ## Empty-query layout (visible query empty)
 
@@ -19,7 +18,7 @@ Navigation / detail exit / shortcuts: **`docs/specs/UX_BEHAVIOR_RULES.md`** + **
 
 ## Do NOT restore without a new ADR
 
-- Setup / 开始使用 rows or `SetupHomeProvider` on home
+- Setup / getting-started rows or `SetupHomeProvider` on home
 - Recent / 最近, Continue / 继续, Create / 创建 sections
 - Auto-present onboarding wizard
 - Gray background on every idle list row
@@ -29,7 +28,7 @@ Navigation / detail exit / shortcuts: **`docs/specs/UX_BEHAVIOR_RULES.md`** + **
 
 - Default **940 × 760 pt**, left column **280 pt**, upper-third (`panelVerticalBias` 0.68).
 - Tokens: `LauncherChromeTokens.swift`.
-- Positioning + in-panel layout: **`docs/specs/LAUNCHER_PANEL_CONSTRAINTS.md`**.
+- Positioning + in-panel layout: **`docs/ENGINEERING.md`**.
 
 ## Where features go instead
 
@@ -37,4 +36,4 @@ Navigation / detail exit / shortcuts: **`docs/specs/UX_BEHAVIOR_RULES.md`** + **
 
 ## PR requirements
 
-If adding home sections or changing split layout: update `LAUNCHER_HOME_CONSTRAINTS.md`, `UX_BEHAVIOR_RULES.md`, `LAUNCHER_PANEL_CONSTRAINTS.md`, `MANUAL_QA_CHECKLIST.md`, and ADR-032 if behavior changes.
+If adding home sections or changing split layout: update `docs/ENGINEERING.md`, `docs/MODULES.md`, `docs/DECISIONS.md`, and `docs/QA.md` if behavior changes.

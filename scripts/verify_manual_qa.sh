@@ -10,5 +10,5 @@ swift build
 
 echo ""
 echo "== Manual QA checklist =="
-echo "See docs/MANUAL_QA_CHECKLIST.md for interactive checks."
+echo "See docs/QA.md for interactive checks."
 echo "Focus on: Hotkey, Panel, Performance, Permissions, Launcher Home/Results, module detail flows, default-off modules, visual polish, and recorded-review notes."

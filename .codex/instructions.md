@@ -4,13 +4,10 @@ Implementation agent: inspect first, edit narrowly, verify honestly.
 
 ## Read First
 
-1. **`docs/ENGINEERING_PACKAGE.md`** — single development entry point.
-2. **Frozen specs:**
-   - `docs/specs/LAUNCHER_HOME_CONSTRAINTS.md`
-   - `docs/specs/LAUNCHER_PANEL_CONSTRAINTS.md`
-   - `docs/specs/UX_BEHAVIOR_RULES.md`
-   - `docs/specs/NOTES_DETAIL_CONSTRAINTS.md`
-3. **Open gaps:** `docs/qa/LAUNCHER_NAVIGATION_AUDIT.md`
+1. **`docs/ENGINEERING.md`** — product shape, architecture, launcher contract, performance, privacy, non-goals.
+2. **`docs/MODULES.md`** — user-visible module behavior.
+3. **`docs/DECISIONS.md`** — compact active and historical decision log.
+4. **`docs/QA.md`** — automated gates, manual smoke, recorded review, release checklist.
 
 Do not implement dashboard/card or Route B home instructions from historical ADRs unless explicitly requested.
 

@@ -89,7 +89,7 @@ import LumaModules
 // `performBareCommandAction` lives in LauncherRootController (AppKit). These
 // tests pin the pure-Core invariants it depends on so changes there don't
 // silently break the bare-command Return semantics documented in
-// docs/specs/UX_BEHAVIOR_RULES.md.
+// docs/ENGINEERING.md.
 
 @Test func bareOpenDetailCommandsTargetTheirModule() {
     let router = CommandRouter(registry: BuiltInCommandRegistry.make())

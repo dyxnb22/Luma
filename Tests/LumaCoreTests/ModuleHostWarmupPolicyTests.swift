@@ -240,6 +240,25 @@ private struct WarmupTestDoubles {
     #expect(await host.warmupState(for: CountingLifecycleModule.manifest.identifier) == .warm)
 }
 
+private actor WarmupGate {
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+    private var isOpen = false
+
+    func wait() async {
+        if isOpen { return }
+        await withCheckedContinuation { waiters.append($0) }
+    }
+
+    func open() {
+        guard !isOpen else { return }
+        isOpen = true
+        for waiter in waiters {
+            waiter.resume()
+        }
+        waiters.removeAll()
+    }
+}
+
 private actor LateFinishingWarmupModule: LumaModule {
     static let manifest = ModuleManifest(
         identifier: ModuleIdentifier(rawValue: "luma.test.late-warmup"),
@@ -250,11 +269,19 @@ private actor LateFinishingWarmupModule: LumaModule {
         queryTimeout: .milliseconds(40)
     )
 
+    private let gate = WarmupGate()
     private(set) var warmupFinished = false
 
     func warmup(_ context: ModuleContext) async {
-        try? await Task.sleep(for: .milliseconds(100))
+        _ = context
+        await withTaskCancellationHandler {
+            await gate.wait()
+        } onCancel: {}
         warmupFinished = true
+    }
+
+    func releaseWarmup() async {
+        await gate.open()
     }
 
     func handle(_ query: Query, context: QueryContext) async -> ModuleResult {
@@ -274,8 +301,10 @@ private actor LateFinishingWarmupModule: LumaModule {
         budget: .milliseconds(10)
     )
     #expect(await host.warmupState(for: LateFinishingWarmupModule.manifest.identifier) == .cold)
+    #expect(await module.warmupFinished == false)
 
-    try? await Task.sleep(for: .milliseconds(150))
+    await module.releaseWarmup()
+    try? await Task.sleep(for: .milliseconds(20))
     #expect(await module.warmupFinished == true)
     #expect(await host.warmupState(for: LateFinishingWarmupModule.manifest.identifier) == .cold)
 }

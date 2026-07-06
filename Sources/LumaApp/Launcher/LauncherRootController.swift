@@ -346,6 +346,9 @@ final class LauncherRootController: LauncherDetailPresenting {
                 let homeGen = await self.homeCoordinator.currentSnapshotGeneration()
                 if homeGen == self.lastRenderedHomeGeneration,
                    await self.homeCoordinator.cachedSnapshotIfAvailable() != nil {
+                    await MainActor.run {
+                        _ = HomeLatencyTracker.markHomeRendered()
+                    }
                     return
                 }
             }
@@ -549,7 +552,7 @@ final class LauncherRootController: LauncherDetailPresenting {
         syncPerformanceStripVisibility()
         syncRowActionHint()
         if let paintMs = LatencyTracker.shared.markFirstPaint() {
-            LatencyTelemetry.report(p95Milliseconds: paintMs)
+            LatencyTelemetry.reportKeystrokeToPaint(paintMs)
         }
         stabilizePanelContentLayout()
         refreshPermissionBannerCoalesced()

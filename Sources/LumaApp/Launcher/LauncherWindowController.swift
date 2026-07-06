@@ -221,6 +221,8 @@ final class LauncherWindowController {
             if ProcessInfo.processInfo.environment["LUMA_QA"] == "1" {
                 self.ensureSearchFieldFocused()
             }
+            // Cache-warm shows do not call refreshHome(); close the hotkey sample at first interactive frame.
+            _ = HomeLatencyTracker.markHomeRendered()
         }
 
         // Heavier panel services stay off the hotkey→visible path.
@@ -255,6 +257,7 @@ final class LauncherWindowController {
 
     func hide() {
         guard let generationAtHide = visibilitySession.beginHide() else { return }
+        HomeLatencyTracker.abandonPendingHotkeyMark()
         LauncherPerfCounters.increment(.panelHide)
         hideStart = ContinuousClock.now
         cancelDeferredShowWork()
@@ -308,6 +311,7 @@ final class LauncherWindowController {
 
     func hideImmediatelyForAction() {
         guard let generationAtHide = visibilitySession.beginHide() else { return }
+        HomeLatencyTracker.abandonPendingHotkeyMark()
         LauncherPerfCounters.increment(.panelHide)
         cancelDeferredShowWork()
         rootView?.cancelActiveQueryAndSnapshotApply()

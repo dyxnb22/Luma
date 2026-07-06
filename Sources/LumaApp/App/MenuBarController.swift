@@ -9,10 +9,19 @@ final class MenuBarController {
     private var secretsVaultLocked = true
     private let onShow: @MainActor () -> Void
     private let onSettings: @MainActor () -> Void
+    private let onRunDoctor: @MainActor () -> Void
+    private let onExportDiagnostics: @MainActor () -> Void
 
-    init(onShow: @escaping @MainActor () -> Void, onSettings: @escaping @MainActor () -> Void) {
+    init(
+        onShow: @escaping @MainActor () -> Void,
+        onSettings: @escaping @MainActor () -> Void,
+        onRunDoctor: @escaping @MainActor () -> Void,
+        onExportDiagnostics: @escaping @MainActor () -> Void
+    ) {
         self.onShow = onShow
         self.onSettings = onSettings
+        self.onRunDoctor = onRunDoctor
+        self.onExportDiagnostics = onExportDiagnostics
         configure()
         markHotkeyOK()
     }
@@ -59,6 +68,8 @@ final class MenuBarController {
     private func configure() {
         menu.addItem(NSMenuItem(title: "Show Luma", action: #selector(show), keyEquivalent: ""))
         menu.addItem(NSMenuItem(title: "Settings...", action: #selector(settings), keyEquivalent: ","))
+        menu.addItem(NSMenuItem(title: "Run Doctor…", action: #selector(runDoctor), keyEquivalent: ""))
+        menu.addItem(NSMenuItem(title: "Export Diagnostics…", action: #selector(exportDiagnostics), keyEquivalent: ""))
         menu.addItem(NSMenuItem(title: "About Luma", action: #selector(showAbout), keyEquivalent: ""))
         menu.addItem(.separator())
         menu.addItem(NSMenuItem(title: "Quit Luma", action: #selector(quit), keyEquivalent: "q"))
@@ -76,6 +87,14 @@ final class MenuBarController {
 
     @objc private func settings() {
         onSettings()
+    }
+
+    @objc private func runDoctor() {
+        onRunDoctor()
+    }
+
+    @objc private func exportDiagnostics() {
+        onExportDiagnostics()
     }
 
     @objc private func showAbout() {

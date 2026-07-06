@@ -105,7 +105,10 @@ final class AppCoordinator {
     private lazy var clipboardModule = ClipboardModule(pasteboard: pasteboard, accessibility: accessibility)
     private lazy var notesModule = NotesModule()
     private lazy var todoModule = TodoModule()
-    private let secretsModule = SecretsModule()
+    private let secretsVault = SecretsVault()
+    private lazy var secretsModule = SecretsModule(vault: secretsVault)
+    private lazy var commandsStore = CommandsStore()
+    private lazy var notesConfigStore = NotesRootConfigStore()
     private let mediaModule = MediaModule()
     private let quicklinksModule = QuicklinksModule()
     private lazy var wordbookStore = WordbookStore()
@@ -126,6 +129,13 @@ final class AppCoordinator {
 
     func start() {
         hostClient = AppHostService(
+            config: config,
+            accessibility: accessibility,
+            reminders: reminders,
+            menuBarTree: menuBarTreeClient,
+            notesConfigStore: notesConfigStore,
+            secretsVault: secretsVault,
+            commandsStore: commandsStore,
             onOpenSettings: { [weak self] in
                 self?.windowController.hideImmediatelyForAction()
                 self?.settingsWindowController?.show()
@@ -244,6 +254,22 @@ final class AppCoordinator {
             onSettings: { [weak self] in
                 self?.windowController.hideImmediatelyForAction()
                 self?.settingsWindowController?.show()
+            },
+            onRunDoctor: { [weak self] in
+                guard let self else { return }
+                Task { await self.hostClient.runDoctor() }
+            },
+            onExportDiagnostics: { [weak self] in
+                guard let self else { return }
+                Task {
+                    do {
+                        let url = try await self.hostClient.exportDiagnostics()
+                        let crashPath = CrashLogBuffer.standardFileURL?.path
+                        RecoveryDiagnosticsPresenter.showExportSuccess(url: url, crashLogPath: crashPath)
+                    } catch {
+                        RecoveryDiagnosticsPresenter.showExportFailure(error)
+                    }
+                }
             }
         )
         do {
@@ -269,6 +295,16 @@ final class AppCoordinator {
                 await LumaLogger(category: "hotkey").error("Failed to register global hotkey: \(error)")
             }
             menuBarController?.markHotkeyFailed()
+        }
+        if ProcessInfo.processInfo.environment["LUMA_QA_EXPORT"] == "1" {
+            Task { [weak self] in
+                guard let self else { return }
+                do {
+                    _ = try await self.hostClient.exportDiagnostics()
+                } catch {
+                    CrashLogRecording.record("diagnostics.export.failed error=\(error.localizedDescription)")
+                }
+            }
         }
 
         notificationObservers.append(

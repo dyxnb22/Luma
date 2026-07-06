@@ -8,6 +8,11 @@ enum HomeLatencyTracker {
         hotkeyMark = CFAbsoluteTimeGetCurrent()
     }
 
+    /// Drop a pending hotkey sample when hide aborts the show→home path (prevents stale marks from attributing later background refresh).
+    static func abandonPendingHotkeyMark() {
+        hotkeyMark = nil
+    }
+
     @discardableResult
     static func markHomeRendered() -> Double? {
         guard let start = hotkeyMark else { return nil }

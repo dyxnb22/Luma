@@ -149,9 +149,17 @@ final class LauncherViewModel {
                 let elapsed = issuedAt.duration(to: .now)
                 let ms = Double(elapsed.components.seconds) * 1000
                     + Double(elapsed.components.attoseconds) / 1_000_000_000_000_000
-                LatencyTelemetry.reportKeystroke(ms)
+                self.recordDispatchLatencySample(ms)
             }
             self.onSnapshot?(enriched)
+        }
+    }
+
+    /// Query dispatch → snapshot delivered (not exported; keystroke p95 is paint-only via `LatencyTracker`).
+    private func recordDispatchLatencySample(_ ms: Double) {
+        latencySamples.append(ms)
+        if latencySamples.count > 100 {
+            latencySamples.removeFirst(latencySamples.count - 100)
         }
     }
 

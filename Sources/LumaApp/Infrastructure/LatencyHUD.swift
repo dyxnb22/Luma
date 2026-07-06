@@ -20,8 +20,14 @@ final class LatencyTelemetry {
         shared.record(milliseconds, into: \.hotkeySamples)
     }
 
-    static func reportKeystroke(_ milliseconds: Double) {
+    /// Keystroke → first ranked result paint (`LumaSearchBar` change through snapshot apply).
+    /// Do not report dispatch-only latency here; ViewModel deliver timing stays in `p95LatencyMilliseconds(for:)`.
+    static func reportKeystrokeToPaint(_ milliseconds: Double) {
         shared.record(milliseconds, into: \.keystrokeSamples)
+    }
+
+    static func reportKeystroke(_ milliseconds: Double) {
+        reportKeystrokeToPaint(milliseconds)
     }
 
     func record(_ ms: Double, into keyPath: WritableKeyPath<LatencyTelemetry, [Double]>) {

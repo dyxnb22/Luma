@@ -5,18 +5,62 @@ public struct DiagnosticsPayload: Codable, Equatable, Sendable {
         public let osVersion: String
         public let screenCount: Int
         public let presentationScreenName: String?
+
+        public init(osVersion: String, screenCount: Int, presentationScreenName: String?) {
+            self.osVersion = osVersion
+            self.screenCount = screenCount
+            self.presentationScreenName = presentationScreenName
+        }
     }
 
     public struct ModuleInfo: Codable, Equatable, Sendable {
         public let enabledCount: Int
         public let totalCount: Int
         public let defaultEnabledCount: Int
+        /// Enabled module identifiers at export time (sorted).
+        public let enabledModuleIDs: [String]
+        /// MVP P0 core modules and whether each is enabled at export time.
+        public let mvpCoreModuleStatus: [MVPCoreModuleStatus]
+
+        public init(
+            enabledCount: Int,
+            totalCount: Int,
+            defaultEnabledCount: Int,
+            enabledModuleIDs: [String] = [],
+            mvpCoreModuleStatus: [MVPCoreModuleStatus] = []
+        ) {
+            self.enabledCount = enabledCount
+            self.totalCount = totalCount
+            self.defaultEnabledCount = defaultEnabledCount
+            self.enabledModuleIDs = enabledModuleIDs
+            self.mvpCoreModuleStatus = mvpCoreModuleStatus
+        }
+    }
+
+    public struct MVPCoreModuleStatus: Codable, Equatable, Sendable {
+        public let moduleID: String
+        public let enabled: Bool
+
+        public init(moduleID: String, enabled: Bool) {
+            self.moduleID = moduleID
+            self.enabled = enabled
+        }
     }
 
     public struct PermissionsInfo: Codable, Equatable, Sendable {
         public let accessibilityTrusted: Bool
         public let remindersAuthorization: String?
         public let hotkeyRegistered: Bool
+
+        public init(
+            accessibilityTrusted: Bool,
+            remindersAuthorization: String?,
+            hotkeyRegistered: Bool
+        ) {
+            self.accessibilityTrusted = accessibilityTrusted
+            self.remindersAuthorization = remindersAuthorization
+            self.hotkeyRegistered = hotkeyRegistered
+        }
     }
 
     public let generatedAt: String
@@ -31,6 +75,10 @@ public struct DiagnosticsPayload: Codable, Equatable, Sendable {
     public let permissions: PermissionsInfo?
     public let recentErrors: [String]
     public let corruptConfigFiles: [String]
+    /// `~/Library/Application Support/Luma/crash-log.txt` when known.
+    public let crashLogPath: String?
+    /// `available`, `missing`, `writeFailed`, or `unavailable` when path cannot be resolved.
+    public let crashLogWriteStatus: String?
 
     public init(
         generatedAt: String,
@@ -44,7 +92,9 @@ public struct DiagnosticsPayload: Codable, Equatable, Sendable {
         modules: ModuleInfo? = nil,
         permissions: PermissionsInfo? = nil,
         recentErrors: [String] = [],
-        corruptConfigFiles: [String] = []
+        corruptConfigFiles: [String] = [],
+        crashLogPath: String? = nil,
+        crashLogWriteStatus: String? = nil
     ) {
         self.generatedAt = generatedAt
         self.appVersion = appVersion
@@ -58,6 +108,8 @@ public struct DiagnosticsPayload: Codable, Equatable, Sendable {
         self.permissions = permissions
         self.recentErrors = recentErrors
         self.corruptConfigFiles = corruptConfigFiles
+        self.crashLogPath = crashLogPath
+        self.crashLogWriteStatus = crashLogWriteStatus
     }
 }
 
@@ -84,7 +136,9 @@ public enum DiagnosticsExport {
         modules: DiagnosticsPayload.ModuleInfo? = nil,
         permissions: DiagnosticsPayload.PermissionsInfo? = nil,
         recentErrors: [String] = [],
-        corruptConfigFiles: [String] = ConfigCorruptionRegistry.snapshot()
+        corruptConfigFiles: [String] = ConfigCorruptionRegistry.snapshot(),
+        crashLogPath: String? = nil,
+        crashLogWriteStatus: String? = nil
     ) -> DiagnosticsPayload {
         DiagnosticsPayload(
             generatedAt: ISO8601DateFormatter().string(from: Date()),
@@ -98,8 +152,23 @@ public enum DiagnosticsExport {
             modules: modules,
             permissions: permissions,
             recentErrors: recentErrors.map(redactBreadcrumb),
-            corruptConfigFiles: corruptConfigFiles
+            corruptConfigFiles: corruptConfigFiles,
+            crashLogPath: crashLogPath,
+            crashLogWriteStatus: crashLogWriteStatus
         )
+    }
+
+    public static func writePayload(_ payload: DiagnosticsPayload) throws -> URL {
+        let directory = FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask).first?
+            .appendingPathComponent("Logs/\(defaultDirectoryName)", isDirectory: true)
+        guard let directory else {
+            throw NSError(domain: "DiagnosticsExport", code: 1)
+        }
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let url = directory.appendingPathComponent(defaultFileName)
+        let data = try JSONEncoder().encode(payload)
+        try data.write(to: url, options: .atomic)
+        return url
     }
 
     public static func exportToLogsDirectory(
@@ -108,26 +177,21 @@ public enum DiagnosticsExport {
         platform: DiagnosticsPayload.PlatformInfo? = nil,
         modules: DiagnosticsPayload.ModuleInfo? = nil,
         permissions: DiagnosticsPayload.PermissionsInfo? = nil,
-        recentErrors: [String] = []
+        recentErrors: [String] = [],
+        crashLogPath: String? = nil,
+        crashLogWriteStatus: String? = nil
     ) throws -> URL {
-        let directory = FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask).first?
-            .appendingPathComponent("Logs/\(defaultDirectoryName)", isDirectory: true)
-        guard let directory else {
-            throw NSError(domain: "DiagnosticsExport", code: 1)
-        }
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        let url = directory.appendingPathComponent(defaultFileName)
         let payload = buildPayload(
             latencyP95: latencyP95,
             breadcrumbs: breadcrumbs,
             platform: platform,
             modules: modules,
             permissions: permissions,
-            recentErrors: recentErrors
+            recentErrors: recentErrors,
+            crashLogPath: crashLogPath,
+            crashLogWriteStatus: crashLogWriteStatus
         )
-        let data = try JSONEncoder().encode(payload)
-        try data.write(to: url, options: .atomic)
-        return url
+        return try writePayload(payload)
     }
 
     /// Redacts known sensitive `key=value` fields and home-directory path fragments.

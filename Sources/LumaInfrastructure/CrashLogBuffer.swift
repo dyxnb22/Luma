@@ -5,8 +5,15 @@ import LumaCore
 public actor CrashLogBuffer {
     public static let shared = CrashLogBuffer()
 
+    /// On-disk breadcrumb file used by support (`~/Library/Application Support/Luma/crash-log.txt`).
+    public static var standardFileURL: URL? {
+        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first?
+            .appendingPathComponent("Luma/crash-log.txt")
+    }
+
     private var entries: [String] = []
     private let capacity = 50
+    private var lastPersistFailed = false
 
     public func record(_ message: String) {
         let redacted = DiagnosticsExport.redactBreadcrumb(message)
@@ -22,11 +29,29 @@ public actor CrashLogBuffer {
         entries
     }
 
+    /// `available`, `missing`, `writeFailed`, or `unavailable`.
+    public func fileWriteStatus() -> String {
+        guard let url = Self.standardFileURL else { return "unavailable" }
+        if lastPersistFailed { return "writeFailed" }
+        if FileManager.default.fileExists(atPath: url.path) { return "available" }
+        return entries.isEmpty ? "missing" : "writeFailed"
+    }
+
     private func persist() {
-        let url = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first?
-            .appendingPathComponent("Luma/crash-log.txt")
-        guard let url else { return }
-        try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try? entries.joined(separator: "\n").write(to: url, atomically: true, encoding: .utf8)
+        let url = Self.standardFileURL
+        guard let url else {
+            lastPersistFailed = true
+            return
+        }
+        do {
+            try FileManager.default.createDirectory(
+                at: url.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            try entries.joined(separator: "\n").write(to: url, atomically: true, encoding: .utf8)
+            lastPersistFailed = false
+        } catch {
+            lastPersistFailed = true
+        }
     }
 }

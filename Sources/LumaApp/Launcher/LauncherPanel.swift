@@ -36,9 +36,9 @@ final class LauncherPanel: NSPanel {
         isOpaque = false
     }
 
-    override var canBecomeKey: Bool { true }
-    override var canBecomeMain: Bool { false }
-    override var acceptsFirstResponder: Bool { true }
+    nonisolated override var canBecomeKey: Bool { true }
+    nonisolated override var canBecomeMain: Bool { false }
+    nonisolated override var acceptsFirstResponder: Bool { true }
 
     nonisolated override func cancelOperation(_ sender: Any?) {
         Task { @MainActor [weak self] in
@@ -118,12 +118,12 @@ final class LauncherPanel: NSPanel {
         enforceLockedGeometry(using: visibleFrame)
     }
 
-    override func setFrame(_ frameRect: NSRect, display displayFlag: Bool) {
+    nonisolated override func setFrame(_ frameRect: NSRect, display displayFlag: Bool) {
         super.setFrame(clampedFrame(frameRect), display: displayFlag)
         stabilizeContentLayout()
     }
 
-    override func setContentSize(_ size: NSSize) {
+    nonisolated override func setContentSize(_ size: NSSize) {
         if let locked = lockedFrameSize {
             super.setContentSize(locked)
         } else {

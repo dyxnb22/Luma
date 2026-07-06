@@ -351,14 +351,17 @@ final class NotesDetailView: NSObject, ModuleDetailView {
         ])
     }
 
-    @objc private func resizeOutlineColumn() {
-        guard let column = outlineView.tableColumns.first else { return }
-        let width = max(120, scrollView.contentSize.width - 8)
-        if abs(column.width - width) > 1 {
-            column.width = width
-            outlineView.noteHeightOfRows(withIndexesChanged: IndexSet(integersIn: 0..<outlineView.numberOfRows))
+    @objc nonisolated private func resizeOutlineColumn() {
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            guard let column = outlineView.tableColumns.first else { return }
+            let width = max(120, scrollView.contentSize.width - 8)
+            if abs(column.width - width) > 1 {
+                column.width = width
+                outlineView.noteHeightOfRows(withIndexesChanged: IndexSet(integersIn: 0..<outlineView.numberOfRows))
+            }
+            syncOutlineDocumentFrame()
         }
-        syncOutlineDocumentFrame()
     }
 
     private func syncOutlineDocumentFrame() {
@@ -371,23 +374,26 @@ final class NotesDetailView: NSObject, ModuleDetailView {
         GeekUIKit.syncVerticalListDocumentFrame(in: mindMapScroll)
     }
 
-    @objc private func viewModeChanged() {
-        viewMode = viewModeControl.selectedSegment == 0 ? .outline : .mindMap
-        let outline = viewMode == .outline
-        scrollView.isHidden = !outline
-        mindMapScroll.isHidden = outline
-        filterStrip.isHidden = !outline
-        expandAllButton.isHidden = !outline
-        collapseAllButton.isHidden = !outline
-        newNoteButton.isHidden = !outline
-        newFolderButton.isHidden = !outline
-        if outline {
-            scrollView.window?.makeFirstResponder(outlineView)
-        } else {
-            mindMapView.reload(root: dataSource.mindMapRootNode())
-            mindMapScroll.contentView.scroll(to: .zero)
-            syncMindMapDocumentFrame()
-            mindMapScroll.window?.makeFirstResponder(mindMapView)
+    @objc nonisolated private func viewModeChanged() {
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            viewMode = viewModeControl.selectedSegment == 0 ? .outline : .mindMap
+            let outline = viewMode == .outline
+            scrollView.isHidden = !outline
+            mindMapScroll.isHidden = outline
+            filterStrip.isHidden = !outline
+            expandAllButton.isHidden = !outline
+            collapseAllButton.isHidden = !outline
+            newNoteButton.isHidden = !outline
+            newFolderButton.isHidden = !outline
+            if outline {
+                scrollView.window?.makeFirstResponder(outlineView)
+            } else {
+                mindMapView.reload(root: dataSource.mindMapRootNode())
+                mindMapScroll.contentView.scroll(to: .zero)
+                syncMindMapDocumentFrame()
+                mindMapScroll.window?.makeFirstResponder(mindMapView)
+            }
         }
     }
 
@@ -663,23 +669,32 @@ final class NotesDetailView: NSObject, ModuleDetailView {
         }
     }
 
-    @objc private func expandAll() {
-        dataSource.expandAll(in: outlineView)
-        syncOutlineDocumentFrame()
+    @objc nonisolated private func expandAll() {
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            dataSource.expandAll(in: outlineView)
+            syncOutlineDocumentFrame()
+        }
     }
 
-    @objc private func collapseAll() {
-        dataSource.collapseAll(in: outlineView)
-        syncOutlineDocumentFrame()
+    @objc nonisolated private func collapseAll() {
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            dataSource.collapseAll(in: outlineView)
+            syncOutlineDocumentFrame()
+        }
     }
 
-    @objc private func pickRoot() {
-        let panel = NSOpenPanel()
-        panel.canChooseDirectories = true
-        panel.canChooseFiles = false
-        panel.allowsMultipleSelection = false
-        panel.prompt = "Choose"
-        beginRootPanel(panel)
+    @objc nonisolated private func pickRoot() {
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            let panel = NSOpenPanel()
+            panel.canChooseDirectories = true
+            panel.canChooseFiles = false
+            panel.allowsMultipleSelection = false
+            panel.prompt = "Choose"
+            beginRootPanel(panel)
+        }
     }
 
     private func beginRootPanel(_ panel: NSOpenPanel) {
@@ -707,37 +722,46 @@ final class NotesDetailView: NSObject, ModuleDetailView {
         await runRefreshTree()
     }
 
-    @objc private func showGearMenu(_ sender: NSButton) {
-        let menu = NSMenu()
-        menu.addItem(withTitle: "Change Root…", action: #selector(pickRoot), keyEquivalent: "")
-        menu.addItem(withTitle: "Reveal Root in Finder", action: #selector(revealRoot), keyEquivalent: "")
-        menu.addItem(NSMenuItem.separator())
-        menu.addItem(withTitle: "Image Tools…", action: #selector(openImageTools), keyEquivalent: "")
-        menu.addItem(withTitle: "Experimental: Mind Map…", action: #selector(showExperimentalMindMap), keyEquivalent: "")
-        menu.items.forEach { $0.target = self }
-        menu.popUp(positioning: nil, at: NSPoint(x: 0, y: sender.bounds.height + 4), in: sender)
+    @objc nonisolated private func showGearMenu(_ sender: NSButton) {
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            let menu = NSMenu()
+            menu.addItem(withTitle: "Change Root…", action: #selector(pickRoot), keyEquivalent: "")
+            menu.addItem(withTitle: "Reveal Root in Finder", action: #selector(revealRoot), keyEquivalent: "")
+            menu.addItem(NSMenuItem.separator())
+            menu.addItem(withTitle: "Image Tools…", action: #selector(openImageTools), keyEquivalent: "")
+            menu.addItem(withTitle: "Experimental: Mind Map…", action: #selector(showExperimentalMindMap), keyEquivalent: "")
+            menu.items.forEach { $0.target = self }
+            menu.popUp(positioning: nil, at: NSPoint(x: 0, y: sender.bounds.height + 4), in: sender)
+        }
     }
 
-    @objc private func openImageTools() {
+    @objc nonisolated private func openImageTools() {
         Task { @MainActor [weak self] in
             guard let self, let root = await module.loadConfig().root, let window = detailView.window else { return }
             await NotesDetailSheets.presentImageTools(on: window, root: root)
         }
     }
 
-    @objc private func revealRoot() {
-        Task { [weak self] in
+    @objc nonisolated private func revealRoot() {
+        Task { @MainActor [weak self] in
             guard let self, let root = await module.loadConfig().root else { return }
-            NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: root.path)
+            try? await workspace.revealInFinder(root)
         }
     }
 
-    @objc private func outlineDoubleClicked() {
-        dataSource.handleDoubleClick(on: outlineView)
+    @objc nonisolated private func outlineDoubleClicked() {
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            dataSource.handleDoubleClick(on: outlineView)
+        }
     }
 
-    @objc private func filterChanged() {
-        applyFilter()
+    @objc nonisolated private func filterChanged() {
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            applyFilter()
+        }
     }
 
     private func applyFilter() {
@@ -831,14 +855,20 @@ final class NotesDetailView: NSObject, ModuleDetailView {
         alert.beginSheetModal(for: window)
     }
 
-    @objc private func createNoteFromToolbar() {
-        let preferred = selectedItem()
-        contextItem = nil
-        beginCreateNote(preferred: preferred)
+    @objc nonisolated private func createNoteFromToolbar() {
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            let preferred = selectedItem()
+            contextItem = nil
+            beginCreateNote(preferred: preferred)
+        }
     }
 
-    @objc private func createNote() {
-        beginCreateNote(preferred: nil)
+    @objc nonisolated private func createNote() {
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            beginCreateNote(preferred: nil)
+        }
     }
 
     private func beginCreateNote(preferred: NotesOutlineItem?) {
@@ -851,14 +881,20 @@ final class NotesDetailView: NSObject, ModuleDetailView {
         }
     }
 
-    @objc private func createFolderFromToolbar() {
-        let preferred = selectedItem()
-        contextItem = nil
-        beginCreateFolder(preferred: preferred)
+    @objc nonisolated private func createFolderFromToolbar() {
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            let preferred = selectedItem()
+            contextItem = nil
+            beginCreateFolder(preferred: preferred)
+        }
     }
 
-    @objc private func createFolder() {
-        beginCreateFolder(preferred: nil)
+    @objc nonisolated private func createFolder() {
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            beginCreateFolder(preferred: nil)
+        }
     }
 
     private func beginCreateFolder(preferred: NotesOutlineItem?) {
@@ -1052,11 +1088,14 @@ final class NotesDetailView: NSObject, ModuleDetailView {
         }
     }
 
-    @objc private func showRenamePrompt() {
-        guard let item = selectedActionItem(), !isRootItem(item) else { return }
-        let defaultName = item.node.kind == .note ? item.node.name : item.node.name
-        showNamePrompt(title: "Rename", defaultName: defaultName) { [weak self] name in
-            Task { await self?.performRename(item: item, to: name) }
+    @objc nonisolated private func showRenamePrompt() {
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            guard let item = selectedActionItem(), !isRootItem(item) else { return }
+            let defaultName = item.node.kind == .note ? item.node.name : item.node.name
+            showNamePrompt(title: "Rename", defaultName: defaultName) { [weak self] name in
+                Task { await self?.performRename(item: item, to: name) }
+            }
         }
     }
 
@@ -1073,25 +1112,28 @@ final class NotesDetailView: NSObject, ModuleDetailView {
         }
     }
 
-    @objc private func showDeleteConfirmation() {
-        guard let item = selectedActionItem(), !isRootItem(item) else { return }
-        if item.node.kind == .folder {
-            Task { await confirmFolderDelete(item: item) }
-            return
-        }
+    @objc nonisolated private func showDeleteConfirmation() {
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            guard let item = selectedActionItem(), !isRootItem(item) else { return }
+            if item.node.kind == .folder {
+                Task { await confirmFolderDelete(item: item) }
+                return
+            }
 
-        let alert = NSAlert()
-        alert.messageText = "Move to Trash?"
-        alert.informativeText = item.node.name
-        alert.addButton(withTitle: "Cancel")
-        alert.addButton(withTitle: "Move to Trash")
-        if let button = alert.buttons.last {
-            button.hasDestructiveAction = true
-        }
-        guard let window = detailView.window else { return }
-        alert.beginSheetModal(for: window) { [weak self] response in
-            guard response == .alertSecondButtonReturn else { return }
-            Task { await self?.performTrash(item: item) }
+            let alert = NSAlert()
+            alert.messageText = "Move to Trash?"
+            alert.informativeText = item.node.name
+            alert.addButton(withTitle: "Cancel")
+            alert.addButton(withTitle: "Move to Trash")
+            if let button = alert.buttons.last {
+                button.hasDestructiveAction = true
+            }
+            guard let window = detailView.window else { return }
+            alert.beginSheetModal(for: window) { [weak self] response in
+                guard response == .alertSecondButtonReturn else { return }
+                Task { await self?.performTrash(item: item) }
+            }
         }
     }
 
@@ -1133,45 +1175,48 @@ final class NotesDetailView: NSObject, ModuleDetailView {
         }
     }
 
-    @objc private func revealSelectedInFinder() {
-        if let item = selectedActionItem() {
-            NSWorkspace.shared.selectFile(item.node.path, inFileViewerRootedAtPath: "")
-            return
+    @objc nonisolated private func revealSelectedInFinder() {
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            if let item = selectedActionItem() {
+                try? await workspace.revealInFinder(URL(fileURLWithPath: item.node.path))
+                return
+            }
+            guard let root = await module.loadConfig().root else { return }
+            try? await workspace.revealInFinder(root)
         }
-        Task { [weak self] in
-            guard let self, let root = await module.loadConfig().root else { return }
-            NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: root.path)
+    }
+
+    @objc nonisolated private func copySelectedPath() {
+        Task { @MainActor [weak self] in
+            guard let self, let item = selectedActionItem() else { return }
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(item.node.path, forType: .string)
         }
     }
 
-    @objc private func copySelectedPath() {
-        guard let item = selectedActionItem() else { return }
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(item.node.path, forType: .string)
+    @objc nonisolated private func openSelectedInTypora() {
+        Task { @MainActor [weak self] in
+            guard let self, let item = selectedActionItem(), item.node.kind == .note else { return }
+            openNote(item.node)
+        }
     }
 
-    @objc private func openSelectedInTypora() {
-        guard let item = selectedActionItem(), item.node.kind == .note else { return }
-        openNote(item.node)
-    }
-
-    @objc private func moveSelectedToFolder() {
-        guard let item = selectedActionItem(), item.node.kind == .note else { return }
-        Task { [weak self] in
-            guard let self, let root = await module.loadConfig().root else { return }
-            await MainActor.run {
-                let panel = NSOpenPanel()
-                panel.canChooseDirectories = true
-                panel.canChooseFiles = false
-                panel.allowsMultipleSelection = false
-                panel.directoryURL = root
-                panel.prompt = "Move Here"
-                panel.message = "Choose destination folder"
-                guard let window = self.detailView.window else { return }
-                panel.beginSheetModal(for: window) { response in
-                    guard response == .OK, let folder = panel.url else { return }
-                    Task { await self.performMove(item: item, to: folder) }
-                }
+    @objc nonisolated private func moveSelectedToFolder() {
+        Task { @MainActor [weak self] in
+            guard let self, let item = selectedActionItem(), item.node.kind == .note else { return }
+            guard let root = await module.loadConfig().root else { return }
+            let panel = NSOpenPanel()
+            panel.canChooseDirectories = true
+            panel.canChooseFiles = false
+            panel.allowsMultipleSelection = false
+            panel.directoryURL = root
+            panel.prompt = "Move Here"
+            panel.message = "Choose destination folder"
+            guard let window = detailView.window else { return }
+            panel.beginSheetModal(for: window) { response in
+                guard response == .OK, let folder = panel.url else { return }
+                Task { await self.performMove(item: item, to: folder) }
             }
         }
     }
@@ -1189,37 +1234,36 @@ final class NotesDetailView: NSObject, ModuleDetailView {
         }
     }
 
-    @objc private func showExperimentalMindMap() {
-        viewModeControl.isHidden = false
-        viewModeControl.selectedSegment = 1
-        viewModeChanged()
+    @objc nonisolated private func showExperimentalMindMap() {
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            viewModeControl.isHidden = false
+            viewModeControl.selectedSegment = 1
+            viewModeChanged()
+        }
     }
 
-    @objc private func findBacklinksForSelected() {
-        guard let item = selectedActionItem(), item.node.kind == .note else { return }
-        let target = item.node.name
-        Task { [weak self] in
-            guard let self, let actions else { return }
+    @objc nonisolated private func findBacklinksForSelected() {
+        Task { @MainActor [weak self] in
+            guard let self, let item = selectedActionItem(), item.node.kind == .note else { return }
+            let target = item.node.name
+            guard let actions else { return }
             let links = await actions.findBacklinks(to: target)
-            await MainActor.run {
-                if links.isEmpty {
-                    self.showError("No notes link to “\(target)” via [[\(target)]].")
-                } else {
-                    self.showNoteListPopover(title: "Backlinks to \(target)", links: links, anchoredTo: item)
-                }
+            if links.isEmpty {
+                showError("No notes link to “\(target)” via [[\(target)]].")
+            } else {
+                showNoteListPopover(title: "Backlinks to \(target)", links: links, anchoredTo: item)
             }
         }
     }
 
-    @objc private func openLinkedNotes() {
-        guard let item = selectedActionItem(), item.node.kind == .note else { return }
-        Task { [weak self] in
-            guard let self, let actions else { return }
+    @objc nonisolated private func openLinkedNotes() {
+        Task { @MainActor [weak self] in
+            guard let self, let item = selectedActionItem(), item.node.kind == .note else { return }
+            guard let actions else { return }
             let links = await actions.relatedNotes(in: URL(fileURLWithPath: item.node.path))
             guard !links.isEmpty else { return }
-            await MainActor.run {
-                self.showNoteListPopover(title: "Linked notes", links: links, anchoredTo: item)
-            }
+            showNoteListPopover(title: "Linked notes", links: links, anchoredTo: item)
         }
     }
 

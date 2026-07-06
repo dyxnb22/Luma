@@ -152,16 +152,37 @@ final class PermissionBannerController {
         pollingTask = nil
     }
 
-    @objc private func grantPermission() {
+    @objc nonisolated private func grantPermission() {
+        Task { @MainActor [weak self] in
+            self?.grantPermissionOnMainActor()
+        }
+    }
+
+    @objc nonisolated private func openSettings() {
+        Task { @MainActor [weak self] in
+            self?.openSettingsOnMainActor()
+        }
+    }
+
+    @MainActor
+    private func grantPermissionOnMainActor() {
         AXService.requestPermission()
         if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
-            NSWorkspace.shared.open(url)
+            Task {
+                await SystemSettingsOpener.open(
+                    url,
+                    onFailure: { message in
+                        LauncherEnvironment.current?.showStatus(message)
+                    }
+                )
+            }
         }
         lastAppliedContext = nil
         refresh(context: lastContext)
     }
 
-    @objc private func openSettings() {
+    @MainActor
+    private func openSettingsOnMainActor() {
         onOpenSettings?()
     }
 

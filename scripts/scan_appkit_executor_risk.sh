@@ -32,9 +32,9 @@ if rg -n --type swift "@MainActor\\s+(?:final\\s+)?(?:class|final class)\\s+\\w+
   fail=1
 fi
 
-echo "== 3. AppKit overrides missing nonisolated =="
-OVERRIDES='layout|draw|hitTest|keyDown|cancelOperation|performKeyEquivalent|mouseDown|rightMouseDown|mouseEntered|mouseExited|updateTrackingAreas|viewDidChangeEffectiveAppearance|viewDidMoveToWindow|viewWillMoveToWindow|drawSelection|drawBackground|intrinsicContentSize|updateConstraints|loadView|viewDidLoad|viewWillAppear|awakeFromNib|becomeKey|resignKey|becomeMain|resignMain'
-if rg -n --type swift "^\s*override func (${OVERRIDES})\b" Sources/LumaApp \
+echo "== 3. AppKit func overrides missing nonisolated =="
+FUNC_OVERRIDES='layout|draw|hitTest|keyDown|cancelOperation|performKeyEquivalent|mouseDown|rightMouseDown|mouseEntered|mouseExited|updateTrackingAreas|viewDidChangeEffectiveAppearance|viewDidMoveToWindow|viewWillMoveToWindow|drawSelection|drawBackground|updateConstraints|loadView|viewDidLoad|viewWillAppear|awakeFromNib|becomeKey|resignKey|becomeMain|resignMain|setFrame|setContentSize|insertText'
+if rg -n --type swift "^\s*override func (${FUNC_OVERRIDES})\b" Sources/LumaApp \
    | rg -v 'nonisolated' >/tmp/luma_override_risk.txt || true; then
   if [ -s /tmp/luma_override_risk.txt ]; then
     echo "ERROR: AppKit override without nonisolated:"
@@ -42,6 +42,48 @@ if rg -n --type swift "^\s*override func (${OVERRIDES})\b" Sources/LumaApp \
     fail=1
   fi
 fi
+
+echo "== 3b. AppKit property overrides missing nonisolated =="
+PROPERTY_OVERRIDES='isFlipped|acceptsFirstResponder|isOpaque|intrinsicContentSize|canBecomeKey|canBecomeMain|string|stringValue'
+if rg -n --type swift "^\s*override (class )?var (${PROPERTY_OVERRIDES})\b" Sources/LumaApp \
+   | rg -v 'nonisolated' >/tmp/luma_property_override_risk.txt || true; then
+  if [ -s /tmp/luma_property_override_risk.txt ]; then
+    echo "ERROR: AppKit property override without nonisolated:"
+    cat /tmp/luma_property_override_risk.txt
+    fail=1
+  fi
+fi
+
+echo "== 3c. @MainActor annotation on AppKit overrides =="
+if rg -U -n --type swift "@MainActor\s*\n\s*(nonisolated\s+)?override\s+(func|var)" Sources/LumaApp; then
+  echo "ERROR: @MainActor on AppKit override; use nonisolated entry + Task { @MainActor }"
+  fail=1
+fi
+
+echo "== 7. @MainActor NSObject target/action entrypoints (warn-only) =="
+for f in $(rg -l --type swift '@MainActor' Sources/LumaApp/Launcher Sources/LumaApp/Settings 2>/dev/null || true); do
+  if ! rg -q '@MainActor\s+(?:final\s+)?class' "$f"; then
+    continue
+  fi
+  while IFS= read -r line; do
+    lineno="${line%%:*}"
+    rest="${line#*:}"
+    if echo "$rest" | rg -q 'nonisolated'; then
+      continue
+    fi
+    if echo "$rest" | rg -q '@objc nonisolated'; then
+      continue
+    fi
+    prevline=""
+    if [ "$lineno" -gt 1 ]; then
+      prevline=$(sed -n "$((lineno - 1))p" "$f")
+    fi
+    if echo "$prevline" | rg -q 'nonisolated'; then
+      continue
+    fi
+    echo "WARN: $f:$lineno: @objc target/action inside @MainActor type should be nonisolated: $rest"
+  done < <(rg -n --type swift '@objc\s+(private\s+)?func' "$f" || true)
+done
 
 echo "== 4. MainActor.assumeIsolated =="
 if rg -n --type swift 'MainActor\.assumeIsolated' Sources; then

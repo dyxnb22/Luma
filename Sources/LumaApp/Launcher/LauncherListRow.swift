@@ -418,7 +418,7 @@ final class LauncherListRow: NSControl {
 private final class ListTreeGuideView: NSView {
     nonisolated(unsafe) var isLast = false
 
-    override var isFlipped: Bool { true }
+    nonisolated override var isFlipped: Bool { true }
 
     nonisolated override func draw(_ dirtyRect: NSRect) {
         let stroke = NSColor.separatorColor.withAlphaComponent(0.55)

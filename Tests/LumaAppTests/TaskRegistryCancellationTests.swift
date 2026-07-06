@@ -7,7 +7,11 @@ import Testing
     let registry = LauncherTaskRegistry()
     var finished = false
     let task = Task {
-        try? await Task.sleep(for: .seconds(60))
+        do {
+            try await Task.sleep(for: .seconds(60))
+        } catch {
+            return
+        }
         finished = true
     }
     registry.register(key: "test", task: task)

@@ -22,8 +22,8 @@ final class NotesMindMapView: NSView {
     private let verticalSpacing: CGFloat = 20
     private let padding: CGFloat = 28
 
-    override var isFlipped: Bool { true }
-    override var acceptsFirstResponder: Bool { true }
+    nonisolated override var isFlipped: Bool { true }
+    nonisolated override var acceptsFirstResponder: Bool { true }
 
     @MainActor
     func reload(root: NotesNode?) {

@@ -207,7 +207,11 @@ struct GeneralSettingsView: View {
                     }
                     Spacer()
                     Button("Open Keyboard Settings…") {
-                        NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.keyboard")!)
+                        Task {
+                            if let url = URL(string: "x-apple.systempreferences:com.apple.preference.keyboard") {
+                                await SystemSettingsOpener.open(url)
+                            }
+                        }
                     }
                     .buttonStyle(.link).font(.caption)
                 }
@@ -771,8 +775,10 @@ struct AccessibilitySettingsView: View {
                             .font(.caption).foregroundStyle(.secondary)
                         Spacer()
                         Button("Open System Settings…") {
-                            if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
-                                NSWorkspace.shared.open(url)
+                            Task {
+                                if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
+                                    await SystemSettingsOpener.open(url)
+                                }
                             }
                         }
                         .buttonStyle(.bordered)
@@ -785,8 +791,10 @@ struct AccessibilitySettingsView: View {
                         Spacer()
                         Button("Grant Access…") {
                             AXService.requestPermission()
-                            if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
-                                NSWorkspace.shared.open(url)
+                            Task {
+                                if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
+                                    await SystemSettingsOpener.open(url)
+                                }
                             }
                             DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
                                 trusted = AXService.isProcessTrusted()

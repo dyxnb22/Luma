@@ -5,7 +5,7 @@ import LumaModules
 final class ActivitySparklineView: NSView {
     nonisolated(unsafe) private var buckets: [PersistentUsageTracker.ActivityBucket] = []
 
-    override var isFlipped: Bool { true }
+    nonisolated override var isFlipped: Bool { true }
 
     @MainActor
     func apply(buckets: [PersistentUsageTracker.ActivityBucket]) {

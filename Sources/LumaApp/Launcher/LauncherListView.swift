@@ -34,7 +34,7 @@ final class LauncherListView: NSView {
         compactHomeColumn = compact
     }
 
-    override var acceptsFirstResponder: Bool { !currentItems.isEmpty }
+    nonisolated override var acceptsFirstResponder: Bool { !rows.isEmpty }
 
     nonisolated override func hitTest(_ point: NSPoint) -> NSView? {
         guard passesHitTests, alphaValue > 0.01, !isHidden else { return nil }

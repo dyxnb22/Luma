@@ -1,6 +1,18 @@
 import Foundation
 import Testing
 
+private let appKitPropertyOverridePattern = try! NSRegularExpression(
+    pattern: #"^\s*override (class )?var (isFlipped|acceptsFirstResponder|isOpaque|intrinsicContentSize|canBecomeKey|canBecomeMain|string|stringValue)\b"#
+)
+
+@Test func appKitPropertyOverridePatternFlagsMissingNonisolated() {
+    let badLine = "    override var isFlipped: Bool { true }"
+    let goodLine = "    nonisolated override var isFlipped: Bool { true }"
+    let badRange = NSRange(badLine.startIndex..., in: badLine)
+    #expect(appKitPropertyOverridePattern.firstMatch(in: badLine, range: badRange) != nil)
+    #expect(goodLine.contains("nonisolated"))
+}
+
 @Test func appKitExecutorBoundaryScanPasses() throws {
     let root = URL(fileURLWithPath: #filePath)
         .deletingLastPathComponent()

@@ -12,6 +12,7 @@ final class TodoDetailView: NSObject, ModuleDetailView {
     let usesSharedTopBar = true
 
     private let module: TodoModule
+    private let workspace = WorkspaceService()
     private let inputField = NSTextField()
     private let addButton = NSButton()
     private let refreshButton = NSButton()
@@ -249,7 +250,9 @@ final class TodoDetailView: NSObject, ModuleDetailView {
     @objc private func refreshTapped() { refresh() }
 
     @objc private func openReminders() {
-        NSWorkspace.shared.open(URL(fileURLWithPath: "/System/Applications/Reminders.app"))
+        Task {
+            await workspace.openApplication(bundleID: "com.apple.reminders", arguments: [])
+        }
     }
 
     private func refresh() {

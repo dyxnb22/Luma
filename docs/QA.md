@@ -41,6 +41,7 @@ After executor-boundary changes, clear `~/Library/Logs/DiagnosticReports/Luma-*.
 - Translate detail: Accessibility Inspector focus traversal
 - System light/dark toggle with panel open
 - Notes detail + home list scroll without crash
+- Each MVP module bare prefix + Return opens detail without crash: Apps (`a`), Clipboard (`c`), Notes (`n`), Todo (`t`), Translate, Wordbook (`w`), Quicklinks, Projects (`proj`), Window Layouts, Snippets, Media, Secrets
 
 See `docs/swift6-appkit-boundaries.md` for the full contract.
 

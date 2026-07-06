@@ -14,7 +14,7 @@ If a Swift `NSView` / `NSPanel` / `NSWindow` subclass is `@MainActor` (explicitl
 
 1. Do **not** annotate `NSView` / `NSPanel` / `NSWindow` / `NSControl` / `NSTextField` / `NSTextView` / `NSTableRowView` / `NSViewController` subclasses **or project wrappers** (`LumaWindow`, `LauncherPanel`) with `@MainActor`.
 2. AppKit subclass files must use `@preconcurrency import AppKit`.
-3. All AppKit overrides must be `nonisolated override`.
+3. All AppKit overrides (`override func` and `override var`, including `isFlipped`, `acceptsFirstResponder`, `canBecomeKey`, `canBecomeMain`, `intrinsicContentSize`, `setFrame`, `setContentSize`) must be `nonisolated override`.
 4. When an override needs MainActor state, use `Task { @MainActor in ... }`. Do **not** use `MainActor.assumeIsolated`.
 5. Do **not** use `Thread.isMainThread` as a proxy for MainActor.
 6. `NotificationCenter` observers on MainActor-owned UI must be block-based with `Task { @MainActor in handler() }` — use `LumaNotificationCenter.observe`. Never `addObserver(self, selector:)` (including multiline formatting).
@@ -34,7 +34,7 @@ Only two paths: Carbon hotkey (`HotkeyController`) when panel hidden; `LauncherP
 
 ## Exceptions
 
-None. CI runs `scripts/scan_appkit_executor_risk.sh` (multiline `@MainActor` AppKit subclasses including `LumaWindow`/`LauncherPanel`, multiline selector observers, extended lifecycle overrides including `becomeKey`, `@preconcurrency import` on AppKit subclass files).
+None. CI runs `scripts/scan_appkit_executor_risk.sh` (multiline `@MainActor` AppKit subclasses including `LumaWindow`/`LauncherPanel`, multiline selector observers, func and property overrides including `setFrame`/`setContentSize`, `@MainActor` on overrides, warn-only `@objc` in `@MainActor` types, `@preconcurrency import` on AppKit subclass files).
 
 ## Verification
 

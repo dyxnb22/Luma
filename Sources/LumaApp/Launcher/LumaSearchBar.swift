@@ -2,7 +2,6 @@
 import LumaCore
 import LumaModules
 
-@MainActor
 final class LumaSearchBar: NSView {
     enum KeyCommand {
         case up
@@ -24,6 +23,11 @@ final class LumaSearchBar: NSView {
     /// Query to persist while detail mode suspends the visible field.
     var persistedQuery: String {
         detailSuspendedQuery ?? stringValue
+    }
+
+    /// Suspended query snapshot for `LauncherDetailExitPlanner` (chrome Esc/back/close only).
+    var detailSuspendedQueryForPlanner: String? {
+        detailSuspendedQuery
     }
 
     /// True while IME composition is in progress (marked text active).

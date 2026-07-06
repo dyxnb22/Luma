@@ -1,4 +1,4 @@
-import AppKit
+@preconcurrency import AppKit
 import LumaCore
 import LumaModules
 
@@ -368,7 +368,7 @@ extension MediaDetailView: NSTableViewDataSource, NSTableViewDelegate {
     }()
 }
 
-@MainActor
+/// Sheet editor — AppKit target/action must not use @MainActor class isolation.
 private final class MediaItemEditorSheet: LumaWindow {
     private let onSave: (MediaEditorDraft) -> Void
     private let onDelete: ((UUID) -> Void)?
@@ -399,6 +399,7 @@ private final class MediaItemEditorSheet: LumaWindow {
         setup()
     }
 
+    @MainActor
     private func setup() {
         let container = NSView(frame: NSRect(x: 0, y: 0, width: 500, height: 520))
         titleField.stringValue = draft.title
@@ -608,6 +609,11 @@ private final class MediaItemEditorSheet: LumaWindow {
     }
 
     @objc private func categoryChanged() {
+        Task { @MainActor in self.categoryChangedOnMainActor() }
+    }
+
+    @MainActor
+    private func categoryChangedOnMainActor() {
         if MediaStatus.allCases.indices.contains(statusPopup.indexOfSelectedItem) {
             draft.status = MediaStatus.allCases[statusPopup.indexOfSelectedItem]
         }
@@ -615,6 +621,11 @@ private final class MediaItemEditorSheet: LumaWindow {
     }
 
     @objc private func toggleStarted() {
+        Task { @MainActor in self.toggleStartedOnMainActor() }
+    }
+
+    @MainActor
+    private func toggleStartedOnMainActor() {
         if startedPicker.isEnabled {
             startedPicker.isEnabled = false
             clearStartedButton.title = "Set"
@@ -626,6 +637,11 @@ private final class MediaItemEditorSheet: LumaWindow {
     }
 
     @objc private func toggleCompleted() {
+        Task { @MainActor in self.toggleCompletedOnMainActor() }
+    }
+
+    @MainActor
+    private func toggleCompletedOnMainActor() {
         if completedPicker.isEnabled {
             completedPicker.isEnabled = false
             clearCompletedButton.title = "Set"
@@ -637,6 +653,11 @@ private final class MediaItemEditorSheet: LumaWindow {
     }
 
     @objc private func ratingChanged() {
+        Task { @MainActor in self.ratingChangedOnMainActor() }
+    }
+
+    @MainActor
+    private func ratingChangedOnMainActor() {
         let disabled = noRatingToggle.state == .on
         ratingSlider.isEnabled = !disabled
         if disabled {
@@ -647,6 +668,11 @@ private final class MediaItemEditorSheet: LumaWindow {
     }
 
     @objc private func save() {
+        Task { @MainActor in self.saveOnMainActor() }
+    }
+
+    @MainActor
+    private func saveOnMainActor() {
         let title = titleField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !title.isEmpty else { return }
         guard let category = selectedCategory() else { return }
@@ -669,6 +695,11 @@ private final class MediaItemEditorSheet: LumaWindow {
     }
 
     @objc private func deleteItem() {
+        Task { @MainActor in self.deleteItemOnMainActor() }
+    }
+
+    @MainActor
+    private func deleteItemOnMainActor() {
         guard let id = draft.existingID else { return }
         let title = titleField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
         let alert = NSAlert()
@@ -683,6 +714,6 @@ private final class MediaItemEditorSheet: LumaWindow {
     }
 
     @objc private func cancel() {
-        close()
+        Task { @MainActor in self.close() }
     }
 }

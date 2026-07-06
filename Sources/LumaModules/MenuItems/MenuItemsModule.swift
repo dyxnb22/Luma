@@ -47,7 +47,11 @@ public actor MenuItemsModule: LumaModule {
         if ModuleHelp.isHelpQuery(payload) {
             return ModuleResult(items: ModuleHelp.results(for: Self.manifest.identifier))
         }
-        let records = await service.recordsForTarget(deadline: context.deadline)
+        let records = await service.staleRecordsForFrontmost()
+        if records.isEmpty {
+            Task { await service.scheduleRefreshForFrontmost() }
+            LauncherPerfCounters.increment(.moduleHandleCold)
+        }
         let matches = MenuItemsIndex.search(records, query: payload, limit: 8)
         if matches.isEmpty {
             let diagnostic = await menuSearchDiagnostic(records: records, query: payload, context: context)

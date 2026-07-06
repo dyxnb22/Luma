@@ -30,7 +30,6 @@ enum NotesDetailPanel: Int, CaseIterable {
     }
 }
 
-@MainActor
 final class NotesDetailChipBar: NSView {
     var onChipChanged: ((NotesDetailChip?) -> Void)?
     var onPanelChanged: ((NotesDetailPanel) -> Void)?

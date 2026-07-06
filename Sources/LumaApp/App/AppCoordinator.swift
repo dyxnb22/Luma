@@ -43,6 +43,9 @@ final class AppCoordinator {
 
     init() {
         CurrentProjectService.bootstrap(matcher: ProjectsModuleMatcher(module: projectsModule))
+        CrashLogRecording.setHandler { message in
+            Task { await CrashLogBuffer.shared.record(message) }
+        }
     }
 
     private lazy var context = ModuleContext(
@@ -216,6 +219,15 @@ final class AppCoordinator {
             self.hotkeyController = hotkeyController
             menuBarController?.markHotkeyOK()
         } catch {
+            let hotkeyMessage: String
+            if case HotkeyError.registrationFailed(let status) = error {
+                hotkeyMessage = "hotkey.registrationFailed status=\(status)"
+            } else if case HotkeyError.handlerInstallFailed(let status) = error {
+                hotkeyMessage = "hotkey.handlerInstallFailed status=\(status)"
+            } else {
+                hotkeyMessage = "hotkey.registrationFailed status=unknown"
+            }
+            CrashLogRecording.record(hotkeyMessage)
             Task {
                 await LumaLogger(category: "hotkey").error("Failed to register global hotkey: \(error)")
             }

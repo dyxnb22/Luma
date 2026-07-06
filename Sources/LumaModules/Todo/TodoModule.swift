@@ -53,6 +53,7 @@ public actor TodoModule: LumaModule {
     private var cachedDue: [ReminderSnapshot]?
     private var cachedAt: Date?
     private var storeChangesTask: Task<Void, Never>?
+    private var dueCacheRefreshTask: Task<Void, Never>?
     private var contentRevision: UInt64 = 0
 
     private static let dueListLimit = 8
@@ -63,6 +64,19 @@ public actor TodoModule: LumaModule {
 
     public func detailContentRevision() async -> UInt64 {
         contentRevision
+    }
+
+    internal func clearDueCacheForTesting() {
+        cachedDue = nil
+        cachedAt = nil
+    }
+
+    internal func configureRemindersForTesting(_ client: any RemindersClient) {
+        reminders = client
+    }
+
+    internal func isDueCachePopulatedForTesting() -> Bool {
+        cachedDue != nil && cachedAt != nil
     }
 
     public func warmup(_ context: ModuleContext) async {
@@ -76,6 +90,8 @@ public actor TodoModule: LumaModule {
     public func teardown() async {
         storeChangesTask?.cancel()
         storeChangesTask = nil
+        dueCacheRefreshTask?.cancel()
+        dueCacheRefreshTask = nil
     }
 
     public func todayDueCount() async throws -> Int {
@@ -103,9 +119,7 @@ public actor TodoModule: LumaModule {
             return ModuleResult(items: ModuleHelp.results(for: Self.manifest.identifier))
         }
         if trimmed.isEmpty {
-            // List today's due (cached to avoid EventKit IPC on every keystroke)
-            do {
-                let due = try await cachedTodayDue()
+            if let due = freshCachedDue() {
                 var items = [openDetailRow(dueCount: due.count)]
                 if due.isEmpty {
                     items.append(emptyTodayRow())
@@ -113,11 +127,10 @@ public actor TodoModule: LumaModule {
                     items.append(contentsOf: due.map(dueRow(_:)))
                 }
                 return ModuleResult(items: items)
-            } catch RemindersServiceError.accessDenied {
-                return ModuleResult(items: [permissionRow(authorization: .denied)])
-            } catch {
-                return ModuleResult(items: [])
             }
+            scheduleDueCacheRefreshIfNeeded()
+            LauncherPerfCounters.increment(.moduleHandleCold)
+            return ModuleResult(items: [openDetailRow(dueCount: 0), warmingDueListRow()])
         }
 
         // Capture path: preview the parsed reminder. Return creates it.
@@ -237,6 +250,24 @@ public actor TodoModule: LumaModule {
 
     // MARK: - Due cache
 
+    private func freshCachedDue() -> [ReminderSnapshot]? {
+        let currentNow = now()
+        guard let cachedDue, let cachedAt,
+              currentNow.timeIntervalSince(cachedAt) < CacheTTL.dueListSeconds else {
+            return nil
+        }
+        return cachedDue
+    }
+
+    private func scheduleDueCacheRefreshIfNeeded() {
+        guard dueCacheRefreshTask == nil else { return }
+        dueCacheRefreshTask = Task {
+            defer { dueCacheRefreshTask = nil }
+            guard !Task.isCancelled else { return }
+            _ = try? await refreshDueCache(force: false)
+        }
+    }
+
     private func cachedTodayDue() async throws -> [ReminderSnapshot] {
         let currentNow = now()
         if let cachedDue, let cachedAt, currentNow.timeIntervalSince(cachedAt) < CacheTTL.dueListSeconds {
@@ -251,7 +282,9 @@ public actor TodoModule: LumaModule {
         if !force, let cachedDue, let cachedAt, currentNow.timeIntervalSince(cachedAt) < CacheTTL.dueListSeconds {
             return cachedDue
         }
+        guard !Task.isCancelled else { return cachedDue ?? [] }
         let due = try await reminders.todayDue(now: currentNow, limit: Self.dueListLimit)
+        guard !Task.isCancelled else { return cachedDue ?? [] }
         cachedDue = due
         cachedAt = currentNow
         return due
@@ -378,6 +411,23 @@ public actor TodoModule: LumaModule {
                 kind: .openModuleDetail(.todo, payload: nil)
             ),
             rankingHints: RankingHints(basePriority: Self.manifest.priority + 2),
+        )
+    }
+
+    private func warmingDueListRow() -> ResultItem {
+        ResultItem(
+            id: ResultID(module: Self.manifest.identifier, key: "warming"),
+            title: "Loading today's reminders…",
+            titleAttributed: AttributedString("Loading today's reminders…"),
+            subtitle: "Refreshing from Reminders",
+            icon: .symbol("arrow.clockwise"),
+            primaryAction: Action(
+                id: ActionID(module: Self.manifest.identifier, key: "noop"),
+                title: "Loading",
+                kind: .noop
+            ),
+            rankingHints: RankingHints(basePriority: Self.manifest.priority),
+            rowKind: .informational
         )
     }
 

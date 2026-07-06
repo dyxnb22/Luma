@@ -152,6 +152,8 @@ final class LauncherRootView: NSView {
     @MainActor
     func cancelPendingRestore() { controller.cancelPendingRestore() }
     @MainActor
+    func cancelActiveQueryAndSnapshotApply() { controller.cancelActiveQueryAndSnapshotApply() }
+    @MainActor
     func restoreLastSessionIfNeeded() { controller.restoreLastSessionIfNeeded() }
     @MainActor
     func saveCurrentSession() { controller.saveCurrentSession() }

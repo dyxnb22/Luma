@@ -593,7 +593,6 @@ private final class ClipboardEntriesTableView: NSTableView {
     }
 }
 
-@MainActor
 private final class ClipboardRowCell: NSTableCellView {
     private let sectionLabel = NSTextField(labelWithString: "Pinned")
     private let iconView = NSImageView()

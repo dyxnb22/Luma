@@ -70,10 +70,13 @@ Panel:
 
 Show/hide generation guards (Swift 6):
 
-- `LauncherWindowController.showGeneration` increments on every show/hide; `finishHide(generationAtHide:)` must `guard showGeneration == generationAtHide` before `orderOut`.
-- `hide()` sets `panel.alphaValue = 0` before awaiting `prepareDetailForHide` to shrink the visible-but-`panelShown=false` window.
-- `LauncherRootController.restoreGeneration` increments via `cancelPendingRestore()` on hide; `restoreLastSessionIfNeeded` async apply must guard generation.
-- `LauncherSnapshotApplyCoalescer.cancel()` runs on hide via `cancelPendingRestore()`.
+- `LauncherPanelVisibilitySession` in LumaCore backs `LauncherWindowController` show/hide tokens.
+- `show()` calls `cancelPanelHideAnimation()` before ordering front (cancels `panelHideTask`, clears `panel.animations`, zero-duration alpha reset) so rapid show during fade does not leave the panel transparent.
+- `finishHide(generationAtHide:)` calls `shouldCompleteHide` before `orderOut`; `hideImmediatelyForAction` uses the same guard.
+- Deferred show work (`focusSearchFieldAfterShow`, permission polling, `restoreLastSessionIfNeeded`) uses `shouldCompleteDeferredShow`.
+- `CancellationGeneration` backs `LauncherRootController.restoreGeneration`; `cancelPendingRestore()` bumps on hide; async restore apply calls `isCurrent`.
+- `cancelActiveQueryAndSnapshotApply()` runs on hide (before `cancelPendingRestore()`): cancels `LauncherViewModel` query dispatch, drops pending snapshot apply, and clears `isPanelActiveForQueryApply` so stale snapshots cannot paint after `orderOut`. Detail UI state is preserved across hide; show re-enables apply via `activatePanelForQueryApply()`.
+- `LauncherSnapshotApplyCoalescer.cancel()` runs on hide via `cancelPendingRestore()` and `cancelActiveQueryAndSnapshotApply()`.
 - Cmd+Space: Carbon hotkey when hidden; `LauncherPanel.performKeyEquivalent` when visible (`guard isVisible`). No duplicate handlers in search field or list view.
 
 Keyboard:

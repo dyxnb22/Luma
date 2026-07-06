@@ -1,7 +1,6 @@
 @preconcurrency import AppKit
 import LumaModules
 
-@MainActor
 final class WordbookProgressCardView: NSView {
     private let titleLabel = NSTextField(labelWithString: "Today's Plan")
     private let progressBar = NSProgressIndicator()

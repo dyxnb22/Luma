@@ -33,7 +33,6 @@ final class ActivitySparklineView: NSView {
     }
 }
 
-@MainActor
 final class ActivitySettingsView: NSView {
     private let usage: PersistentUsageTracker
     private let sparkline7 = ActivitySparklineView()

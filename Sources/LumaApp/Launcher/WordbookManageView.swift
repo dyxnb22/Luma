@@ -2,7 +2,6 @@
 import LumaCore
 import LumaModules
 
-@MainActor
 final class WordbookManageView: NSView {
     enum ScopeFilter: Int { case all = 0, wrongWords = 1 }
 

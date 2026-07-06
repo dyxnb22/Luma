@@ -556,7 +556,6 @@ final class TodoDetailView: NSObject, ModuleDetailView {
     }
 }
 
-@MainActor
 private final class TodoReminderRow: NSView {
     private let reminder: ReminderSnapshot
     private let isCompleted: Bool

@@ -12,12 +12,12 @@ final class LauncherWindowController {
     private var onWillShow: (() -> Void)?
     private var onDidHide: (() -> Void)?
     private var deferredShowWorkItem: DispatchWorkItem?
-    private var showGeneration: UInt = 0
+    private var panelHideTask: Task<Void, Never>?
+    private var visibilitySession = LauncherPanelVisibilitySession()
     private var lastPositionedVisibleFrame: CGRect?
-    private var panelShown = false
     private var lastToggleAt: ContinuousClock.Instant?
 
-    var isPanelVisible: Bool { panelShown }
+    var isPanelVisible: Bool { visibilitySession.isVisible }
 
     init() {
         panel.onEscape = { [weak self] in
@@ -133,14 +133,13 @@ final class LauncherWindowController {
             return
         }
         lastToggleAt = now
-        panelShown ? hide() : show()
+        visibilitySession.isVisible ? hide() : show()
     }
 
     func show() {
         cancelDeferredShowWork()
-        showGeneration &+= 1
-        let generation = showGeneration
-        panelShown = true
+        cancelPanelHideAnimation()
+        let generation = visibilitySession.beginShow()
 
         onWillShow?()
         HomeLatencyTracker.markHotkey()
@@ -157,10 +156,9 @@ final class LauncherWindowController {
         NSApp.activate(ignoringOtherApps: true)
         panel.orderFrontRegardless()
         panel.makeKey()
-        panel.alphaValue = 1
 
         DispatchQueue.main.async { [weak self] in
-            guard let self, self.showGeneration == generation, self.panelShown else { return }
+            guard let self, self.visibilitySession.shouldCompleteDeferredShow(generation: generation) else { return }
             self.rootView?.focusSearchFieldAfterShow()
             if ProcessInfo.processInfo.environment["LUMA_QA"] == "1" {
                 self.ensureSearchFieldFocused()
@@ -169,7 +167,7 @@ final class LauncherWindowController {
 
         // Heavier panel services stay off the hotkey→visible path.
         let work = DispatchWorkItem { [weak self] in
-            guard let self, self.showGeneration == generation, self.panelShown else { return }
+            guard let self, self.visibilitySession.shouldCompleteDeferredShow(generation: generation) else { return }
             self.rootView?.refreshPermissionStatus()
             self.rootView?.startPermissionPollingIfNeeded()
             self.rootView?.startPerformanceSampling()
@@ -185,16 +183,39 @@ final class LauncherWindowController {
         deferredShowWorkItem = nil
     }
 
+    /// Stops an in-flight hide fade so a rapid show does not leave the panel transparent.
+    private func cancelPanelHideAnimation() {
+        panelHideTask?.cancel()
+        panelHideTask = nil
+        panel.animations.removeAll()
+        NSAnimationContext.beginGrouping()
+        NSAnimationContext.current.duration = 0
+        NSAnimationContext.current.allowsImplicitAnimation = false
+        panel.alphaValue = 1
+        NSAnimationContext.endGrouping()
+    }
+
     func hide() {
-        guard panelShown else { return }
+        guard let generationAtHide = visibilitySession.beginHide() else { return }
+        LauncherPerfCounters.increment(.panelHide)
         cancelDeferredShowWork()
-        showGeneration &+= 1
-        let generationAtHide = showGeneration
-        panelShown = false
+        rootView?.cancelActiveQueryAndSnapshotApply()
         rootView?.cancelPendingRestore()
-        panel.alphaValue = 0
-        Task { @MainActor in
-            await self.rootView?.prepareDetailForHide()
+        let duration = MotionTokens.panelHideDuration
+        panelHideTask?.cancel()
+        panelHideTask = Task { @MainActor in
+            async let prepared = self.rootView?.prepareDetailForHide()
+            await withCheckedContinuation { continuation in
+                NSAnimationContext.runAnimationGroup({ context in
+                    context.duration = duration
+                    context.timingFunction = CAMediaTimingFunction(name: .easeIn)
+                    self.panel.animator().alphaValue = 0
+                }, completionHandler: {
+                    continuation.resume()
+                })
+            }
+            await prepared
+            guard !Task.isCancelled else { return }
             self.finishHide(generationAtHide: generationAtHide)
         }
     }
@@ -207,7 +228,7 @@ final class LauncherWindowController {
     }
 
     private func finishHide(generationAtHide: UInt) {
-        guard showGeneration == generationAtHide else { return }
+        guard visibilitySession.shouldCompleteHide(generationAtHide: generationAtHide) else { return }
         clearMenuTarget()
         rootView?.invalidatePanelSignalsCache()
         rootView?.flushPendingSessionWrites()
@@ -222,13 +243,14 @@ final class LauncherWindowController {
     }
 
     func hideImmediatelyForAction() {
-        guard panelShown else { return }
+        guard let generationAtHide = visibilitySession.beginHide() else { return }
+        LauncherPerfCounters.increment(.panelHide)
         cancelDeferredShowWork()
-        showGeneration &+= 1
-        panelShown = false
+        rootView?.cancelActiveQueryAndSnapshotApply()
         rootView?.cancelPendingRestore()
         Task { @MainActor in
             await self.rootView?.prepareDetailForHide()
+            guard self.visibilitySession.shouldCompleteHide(generationAtHide: generationAtHide) else { return }
             self.clearMenuTarget()
             self.rootView?.invalidatePanelSignalsCache()
             self.rootView?.flushPendingSessionWrites()
@@ -244,7 +266,7 @@ final class LauncherWindowController {
     }
 
     func hideIfShowingForExternalActivation(bundleID: String?) {
-        guard panelShown else { return }
+        guard visibilitySession.isVisible else { return }
         guard bundleID != Bundle.main.bundleIdentifier else { return }
         hideImmediatelyForAction()
     }

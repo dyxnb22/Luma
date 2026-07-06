@@ -1,7 +1,6 @@
 @preconcurrency import AppKit
 import LumaCore
 
-@MainActor
 final class LauncherActionPanel: NSView {
     private let chromeView = NSView()
     private let stack = NSStackView()
@@ -194,7 +193,6 @@ final class LauncherActionPanel: NSView {
     }
 }
 
-@MainActor
 private final class ActionRowHost: NSView {
     let rowIndex: Int
     private let highlightView = NSView()

@@ -1,7 +1,7 @@
 @preconcurrency import AppKit
 import LumaModules
 
-@MainActor
+// AppKit lifecycle and target/action enter without Swift MainActor executor — do not isolate this controller.
 final class NotesImageToolsPanel: NSViewController {
     private let root: URL
     private let scanOrphansButton = NSButton(title: "Scan Orphans", target: nil, action: nil)
@@ -22,7 +22,7 @@ final class NotesImageToolsPanel: NSViewController {
         fatalError("init(coder:) has not been implemented")
     }
 
-    override func loadView() {
+    nonisolated override func loadView() {
         let container = NSView(frame: NSRect(x: 0, y: 0, width: 480, height: 360))
         self.view = container
 
@@ -47,7 +47,12 @@ final class NotesImageToolsPanel: NSViewController {
         resultsView.font = NSFont.monospacedSystemFont(ofSize: 12, weight: .regular)
         let scroll = NSScrollView()
         scroll.documentView = resultsView
-        GeekUIKit.configureVerticalListScroll(scroll)
+        scroll.hasVerticalScroller = true
+        scroll.hasHorizontalScroller = false
+        scroll.autohidesScrollers = true
+        scroll.clipsToBounds = true
+        scroll.drawsBackground = false
+        scroll.borderType = .noBorder
         scroll.translatesAutoresizingMaskIntoConstraints = false
 
         closeButton.bezelStyle = .rounded
@@ -78,7 +83,7 @@ final class NotesImageToolsPanel: NSViewController {
         ])
     }
 
-    private func configureButton(_ button: NSButton, symbol: String) {
+    nonisolated private func configureButton(_ button: NSButton, symbol: String) {
         let config = NSImage.SymbolConfiguration(pointSize: 13, weight: .medium)
         button.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)?
             .withSymbolConfiguration(config)
@@ -87,51 +92,64 @@ final class NotesImageToolsPanel: NSViewController {
     }
 
     @objc private func closeSheet() {
-        view.window?.sheetParent?.endSheet(view.window!)
+        Task { @MainActor in
+            self.view.window?.sheetParent?.endSheet(self.view.window!)
+        }
     }
 
+    @MainActor
     private func setButtonsEnabled(_ enabled: Bool) {
         [scanOrphansButton, scanBrokenButton, migrateButton, typoraButton, closeButton].forEach { $0.isEnabled = enabled }
     }
 
+    @MainActor
     private func setResults(_ text: String) {
         resultsView.string = text
     }
 
     @objc private func scanOrphans() {
-        runTool { tools in
-            let report = await tools.scan()
-            return "Orphans (\(report.orphans.count)):\n" + report.orphans.map(\.lastPathComponent).joined(separator: "\n")
+        Task { @MainActor in
+            self.runTool { tools in
+                let report = await tools.scan()
+                return "Orphans (\(report.orphans.count)):\n" + report.orphans.map(\.lastPathComponent).joined(separator: "\n")
+            }
         }
     }
 
     @objc private func scanBroken() {
-        runTool { tools in
-            let report = await tools.scan()
-            let lines = report.brokenLinks.map { "\($0.0.lastPathComponent): \($0.1)" }
-            return "Broken links (\(lines.count)):\n" + lines.joined(separator: "\n")
+        Task { @MainActor in
+            self.runTool { tools in
+                let report = await tools.scan()
+                let lines = report.brokenLinks.map { "\($0.0.lastPathComponent): \($0.1)" }
+                return "Broken links (\(lines.count)):\n" + lines.joined(separator: "\n")
+            }
         }
     }
 
     @objc private func migrate() {
-        runTool { [weak self] tools in
-            let report = await tools.scan()
-            let count = Set(report.brokenLinks.map(\.1) + report.orphans.map(\.lastPathComponent)).count
-            guard await self?.confirmMigrate(count: count) == true else {
-                return "Migration cancelled."
+        Task { @MainActor in
+            self.runTool { [weak self] tools in
+                let report = await tools.scan()
+                let count = Set(report.brokenLinks.map(\.1) + report.orphans.map(\.lastPathComponent)).count
+                guard await self?.confirmMigrate(count: count) == true else {
+                    return "Migration cancelled."
+                }
+                let result = try await tools.migrateToAssets()
+                return "Moved \(result.moved) images, rewrote \(result.rewritten) references."
             }
-            let result = try await tools.migrateToAssets()
-            return "Moved \(result.moved) images, rewrote \(result.rewritten) references."
         }
     }
 
     @objc private func checkTypora() {
-        runTool { tools in
-            let warnings = await tools.checkTyporaConfig()
-            return warnings.joined(separator: "\n")
+        Task { @MainActor in
+            self.runTool { tools in
+                let warnings = await tools.checkTyporaConfig()
+                return warnings.joined(separator: "\n")
+            }
         }
     }
 
+    @MainActor
     private func confirmMigrate(count: Int) async -> Bool {
         await withCheckedContinuation { continuation in
             let alert = NSAlert()
@@ -145,6 +163,7 @@ final class NotesImageToolsPanel: NSViewController {
         }
     }
 
+    @MainActor
     private func runTool(_ work: @escaping (NotesImageTools) async throws -> String) {
         runningTask?.cancel()
         setButtonsEnabled(false)

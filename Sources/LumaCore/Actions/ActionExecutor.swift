@@ -73,6 +73,11 @@ public actor ActionExecutor {
             return .success
         } catch {
             await context.runtime.logger.error("Action failed: \(action.id.key): \(error)")
+            if case .custom(_, let handler) = action.kind {
+                CrashLogRecording.record("action.failed module=\(handler.rawValue) kind=custom")
+            } else {
+                CrashLogRecording.record("action.failed module=builtin kind=\(action.id.key)")
+            }
             let mapped = ActionExecutionFailureMapper.message(for: error)
             return .failure(message: mapped.message, recoverable: mapped.recoverable)
         }

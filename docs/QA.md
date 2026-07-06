@@ -27,6 +27,8 @@ swift test --filter AppKitExecutor
 swift test --filter LauncherListRowReuse
 swift test --filter LauncherPanelExecutor
 swift test --filter HotkeyToggle
+swift test --filter LauncherPanelVisibilitySession
+swift test --filter CancellationGeneration
 ```
 
 ## Swift 6 / AppKit smoke (manual)

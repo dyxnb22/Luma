@@ -2,7 +2,6 @@
 import LumaCore
 
 /// Standard detail-view chrome: shared margins, toolbar, scrollable content, optional footer.
-@MainActor
 final class BaseDetailContainer: NSView {
     static var margin: CGFloat { LauncherChromeTokens.detailMargin }
 

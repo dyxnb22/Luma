@@ -144,13 +144,19 @@ public actor ModuleHost {
         guard enabled.contains(id), let module = modules[id] else { return }
         if warmupStates[id] == .warm { return }
         if let existing = warmupTasks[id] {
+            let generationBeforeJoin = warmupGenerations[id] ?? 0
             await existing.value
-            return
+            if enabled.contains(id),
+               warmupGenerations[id] == generationBeforeJoin,
+               warmupStates[id] == .warm {
+                return
+            }
         }
 
         let generation = (warmupGenerations[id] ?? 0) + 1
         warmupGenerations[id] = generation
         warmupStates[id] = .warming
+        LauncherPerfCounters.increment(.moduleWarmupStarted)
         let ctx = context
 
         let task = Task<Void, Never> {
@@ -166,11 +172,17 @@ public actor ModuleHost {
 
     private func finishWarmup(id: ModuleIdentifier, generation: UInt64, succeeded: Bool) async {
         guard warmupGenerations[id] == generation else { return }
+        guard enabled.contains(id) else {
+            warmupStates[id] = .cold
+            return
+        }
         if succeeded {
             warmupStates[id] = .warm
             lastUsedAt[id] = ContinuousClock().now
+            LauncherPerfCounters.increment(.moduleWarmupFinished)
         } else {
             warmupStates[id] = .cold
+            LauncherPerfCounters.increment(.moduleWarmupTimedOut)
         }
     }
 
@@ -178,6 +190,9 @@ public actor ModuleHost {
         warmupGenerations[id, default: 0] &+= 1
         warmupTasks[id]?.cancel()
         warmupTasks[id] = nil
+        if warmupStates[id] == .warming {
+            warmupStates[id] = .cold
+        }
     }
 
     public func warmupIfNeeded(ids: Set<ModuleIdentifier>, reason: WarmupReason, budget: Duration = .seconds(1)) async {

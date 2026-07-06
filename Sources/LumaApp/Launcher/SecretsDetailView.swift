@@ -1,4 +1,4 @@
-import AppKit
+@preconcurrency import AppKit
 import LumaCore
 import LumaModules
 
@@ -337,7 +337,7 @@ extension SecretsDetailView: NSTableViewDataSource, NSTableViewDelegate {
     }
 }
 
-@MainActor
+/// Sheet editor — AppKit target/action must not use @MainActor class isolation.
 private final class SecretEditorSheet: LumaWindow {
     private let onSave: (String, String, String?) -> Void
     private let labelField = NSTextField()
@@ -358,6 +358,7 @@ private final class SecretEditorSheet: LumaWindow {
         setup(record: record)
     }
 
+    @MainActor
     private func setup(record: SecretRecord?) {
         let container = NSView(frame: NSRect(x: 0, y: 0, width: 440, height: 220))
 
@@ -411,6 +412,11 @@ private final class SecretEditorSheet: LumaWindow {
     }
 
     @objc private func save() {
+        Task { @MainActor in self.saveOnMainActor() }
+    }
+
+    @MainActor
+    private func saveOnMainActor() {
         let label = labelField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
         let account = accountField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
         let rawValue = valueField.stringValue
@@ -426,6 +432,6 @@ private final class SecretEditorSheet: LumaWindow {
     }
 
     @objc private func cancel() {
-        close()
+        Task { @MainActor in self.close() }
     }
 }

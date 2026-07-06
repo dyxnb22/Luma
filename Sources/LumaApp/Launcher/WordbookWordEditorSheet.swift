@@ -1,7 +1,7 @@
-import AppKit
+@preconcurrency import AppKit
 import LumaModules
 
-@MainActor
+/// Sheet editor — AppKit target/action must not use @MainActor class isolation.
 final class WordbookWordEditorSheet: LumaWindow {
     private let onSave: (WordEntry, Bool) -> Void
     private let onResetStage: (() -> Void)?
@@ -34,6 +34,7 @@ final class WordbookWordEditorSheet: LumaWindow {
         setup(entry: entry)
     }
 
+    @MainActor
     private func setup(entry: WordEntry?) {
         let container = NSView(frame: NSRect(x: 0, y: 0, width: 420, height: 400))
         termField.stringValue = entry?.term ?? ""
@@ -133,14 +134,18 @@ final class WordbookWordEditorSheet: LumaWindow {
             saveButton.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -16)
         ])
         contentView = container
-    }
-
-    override func becomeKey() {
-        super.becomeKey()
-        makeFirstResponder(termField)
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.makeFirstResponder(self.termField)
+        }
     }
 
     @objc private func suggestIPA() {
+        Task { @MainActor in self.suggestIPAOnMainActor() }
+    }
+
+    @MainActor
+    private func suggestIPAOnMainActor() {
         let term = termField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !term.isEmpty else { return }
         ipaButton.isEnabled = false
@@ -158,6 +163,11 @@ final class WordbookWordEditorSheet: LumaWindow {
     }
 
     @objc private func resetStageTapped() {
+        Task { @MainActor in self.resetStageTappedOnMainActor() }
+    }
+
+    @MainActor
+    private func resetStageTappedOnMainActor() {
         guard existing != nil else { return }
         let alert = NSAlert()
         alert.messageText = "Reset review progress?"
@@ -172,6 +182,11 @@ final class WordbookWordEditorSheet: LumaWindow {
     }
 
     @objc private func save() {
+        Task { @MainActor in self.saveOnMainActor() }
+    }
+
+    @MainActor
+    private func saveOnMainActor() {
         let term = termField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !term.isEmpty else { return }
         let markMastered = masteredCheckbox.state == .on
@@ -193,9 +208,10 @@ final class WordbookWordEditorSheet: LumaWindow {
     }
 
     @objc private func cancel() {
-        dismiss()
+        Task { @MainActor in self.dismiss() }
     }
 
+    @MainActor
     private func dismiss() {
         if let parent = sheetParent {
             parent.endSheet(self)

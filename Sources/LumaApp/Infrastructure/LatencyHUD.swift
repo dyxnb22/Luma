@@ -103,7 +103,6 @@ final class LatencyTelemetry {
     }
 }
 
-@MainActor
 final class LatencyHUDOverlayView: NSView {
     private let label = NSTextField(labelWithString: "")
 

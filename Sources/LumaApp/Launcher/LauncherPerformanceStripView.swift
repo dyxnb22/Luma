@@ -1,7 +1,6 @@
 @preconcurrency import AppKit
 import LumaCore
 
-@MainActor
 final class LauncherPerformanceStripView: NSView {
     var onPresenceChanged: ((Bool) -> Void)?
 

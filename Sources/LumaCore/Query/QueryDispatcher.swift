@@ -36,6 +36,7 @@ public actor QueryDispatcher {
             normalizedQuery: query.normalized,
             moduleGeneration: moduleGeneration
         ) {
+            LauncherPerfCounters.increment(.cacheQueryHit)
             let immediate = ResultSnapshot(
                 querySequence: query.sequence,
                 items: cached.items,
@@ -53,6 +54,7 @@ public actor QueryDispatcher {
             return
         }
 
+        LauncherPerfCounters.increment(.cacheQueryMiss)
         await performGlobalSearch(
             query,
             moduleGeneration: moduleGeneration,
@@ -138,10 +140,13 @@ public actor QueryDispatcher {
                     let context = await self.host.makeQueryContext(deadline: deadline)
                     let result = await Timeout.run(after: manifest.queryTimeout) {
                         await module.handle(query, context: context)
-                    } ?? ModuleResult.empty(
-                        for: manifest.identifier,
-                        diagnostic: ModuleDiagnostic(kind: .timeout, message: "Module timed out")
-                    )
+                    } ?? {
+                        CrashLogRecording.record("module.timeout id=\(manifest.identifier.rawValue)")
+                        return ModuleResult.empty(
+                            for: manifest.identifier,
+                            diagnostic: ModuleDiagnostic(kind: .timeout, message: "Module timed out")
+                        )
+                    }()
                     await self.metrics.mark("module.\(manifest.identifier.rawValue).finish")
                     return (manifest.identifier, result)
                 }
@@ -195,10 +200,13 @@ public actor QueryDispatcher {
         let context = await host.makeQueryContext(deadline: deadline)
         let result = await Timeout.run(after: manifest.queryTimeout) {
             await module.handle(query, context: context)
-        } ?? ModuleResult.empty(
-            for: moduleID,
-            diagnostic: ModuleDiagnostic(kind: .timeout, message: "Module timed out")
-        )
+        } ?? {
+            CrashLogRecording.record("module.timeout id=\(moduleID.rawValue)")
+            return ModuleResult.empty(
+                for: moduleID,
+                diagnostic: ModuleDiagnostic(kind: .timeout, message: "Module timed out")
+            )
+        }()
 
         var merged: [ResultID: ScoredItem] = [:]
         Self.mergeItems(

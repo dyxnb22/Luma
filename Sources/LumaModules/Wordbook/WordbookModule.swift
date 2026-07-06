@@ -18,8 +18,17 @@ public actor WordbookModule: LumaModule {
     private var searchIndex: [WordSearchRow] = []
     private var searchResultCache: [String: [WordSearchRow]] = [:]
     private var dataChangeTask: Task<Void, Never>?
+    private var dueCacheRefreshTask: Task<Void, Never>?
 
     internal private(set) var dueTodayCountQueryCount = 0
+
+    internal func isDueCachePopulatedForTesting() -> Bool {
+        cachedDueAt != nil
+    }
+
+    internal func isDueCacheRefreshInFlightForTesting() -> Bool {
+        dueCacheRefreshTask != nil
+    }
 
     public init(store: WordbookStore = WordbookStore()) {
         self.store = store
@@ -41,6 +50,8 @@ public actor WordbookModule: LumaModule {
     public func teardown() async {
         dataChangeTask?.cancel()
         dataChangeTask = nil
+        dueCacheRefreshTask?.cancel()
+        dueCacheRefreshTask = nil
     }
 
     public func storeDueTodayCount() async -> Int {
@@ -65,8 +76,12 @@ public actor WordbookModule: LumaModule {
         }
 
         if searchText.isEmpty {
-            let due = await cachedDueList()
-            return ModuleResult(items: due.map(wordResult))
+            if let due = freshCachedDueList() {
+                return ModuleResult(items: due.map(wordResult))
+            }
+            scheduleDueCacheRefreshIfNeeded()
+            LauncherPerfCounters.increment(.moduleHandleCold)
+            return ModuleResult(items: [warmingDueListRow()])
         }
 
         let cacheKey = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
@@ -93,6 +108,40 @@ public actor WordbookModule: LumaModule {
         cachedDueTodayCount = nil
     }
 
+    private func freshCachedDueList() -> [WordEntry]? {
+        let now = Date()
+        guard let cachedDueAt, now.timeIntervalSince(cachedDueAt) < CacheTTL.dueListSeconds else {
+            return nil
+        }
+        return cachedDue
+    }
+
+    private func scheduleDueCacheRefreshIfNeeded() {
+        guard dueCacheRefreshTask == nil else { return }
+        dueCacheRefreshTask = Task {
+            defer { dueCacheRefreshTask = nil }
+            guard !Task.isCancelled else { return }
+            _ = await refreshDueCache(force: false)
+        }
+    }
+
+    private func warmingDueListRow() -> ResultItem {
+        ResultItem(
+            id: ResultID(module: Self.manifest.identifier, key: "warming"),
+            title: "Loading due words…",
+            titleAttributed: AttributedString("Loading due words…"),
+            subtitle: "Refreshing wordbook",
+            icon: .symbol("arrow.clockwise"),
+            primaryAction: Action(
+                id: ActionID(module: Self.manifest.identifier, key: "noop"),
+                title: "Loading",
+                kind: .noop
+            ),
+            rankingHints: RankingHints(basePriority: Self.manifest.priority),
+            rowKind: .informational
+        )
+    }
+
     private func cachedDueList() async -> [WordEntry] {
         let now = Date()
         if let cachedDueAt, now.timeIntervalSince(cachedDueAt) < CacheTTL.dueListSeconds, !cachedDue.isEmpty {
@@ -107,7 +156,9 @@ public actor WordbookModule: LumaModule {
         if !force, let cachedDueAt, now.timeIntervalSince(cachedDueAt) < CacheTTL.dueListSeconds {
             return cachedDue
         }
+        guard !Task.isCancelled else { return cachedDue }
         let due = (try? await store.dueWords(limit: 8)) ?? []
+        guard !Task.isCancelled else { return cachedDue }
         cachedDue = due
         cachedDueAt = now
         cachedDueTodayCount = (try? await store.dueTodayCount()) ?? 0

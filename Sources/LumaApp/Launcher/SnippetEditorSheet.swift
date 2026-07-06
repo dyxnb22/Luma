@@ -1,7 +1,7 @@
-import AppKit
+@preconcurrency import AppKit
 import LumaModules
 
-@MainActor
+/// Sheet editor — AppKit target/action and notifications must not use @MainActor class isolation.
 final class SnippetEditorSheet: LumaWindow {
   private let editingID: UUID?
   private let onSave: (String, String, String, [String]) -> Void
@@ -12,6 +12,7 @@ final class SnippetEditorSheet: LumaWindow {
   private let conflictLabel = NSTextField(labelWithString: "")
   private let bodyTextView = NSTextView()
   private var conflictTask: Task<Void, Never>?
+  nonisolated(unsafe) private var notificationObservers: [NSObjectProtocol] = []
 
   init(
     snippet: Snippet?,
@@ -30,6 +31,13 @@ final class SnippetEditorSheet: LumaWindow {
     setup(snippet: snippet, draft: draft)
   }
 
+  deinit {
+    for token in notificationObservers {
+      NotificationCenter.default.removeObserver(token)
+    }
+  }
+
+  @MainActor
   private func setup(snippet: Snippet?, draft: SnippetDraft?) {
     let container = NSView(frame: NSRect(x: 0, y: 0, width: 480, height: 440))
 
@@ -47,8 +55,13 @@ final class SnippetEditorSheet: LumaWindow {
     triggerField.translatesAutoresizingMaskIntoConstraints = false
     triggerField.target = self
     triggerField.action = #selector(fieldsChanged)
-    NotificationCenter.default.addObserver(
-      self, selector: #selector(fieldsChanged), name: NSTextField.textDidChangeNotification, object: triggerField
+    notificationObservers.append(
+      LumaNotificationCenter.observe(
+        name: NSTextField.textDidChangeNotification,
+        object: triggerField
+      ) { [weak self] in
+        self?.fieldsChanged()
+      }
     )
 
     tagsField.stringValue = snippet?.tags.joined(separator: ", ") ?? draft?.tags.joined(separator: ", ") ?? ""
@@ -80,8 +93,13 @@ final class SnippetEditorSheet: LumaWindow {
     bodyTextView.font = .monospacedSystemFont(ofSize: 12, weight: .regular)
     bodyTextView.isAutomaticQuoteSubstitutionEnabled = false
     bodyTextView.translatesAutoresizingMaskIntoConstraints = false
-    NotificationCenter.default.addObserver(
-      self, selector: #selector(fieldsChanged), name: NSText.didChangeNotification, object: bodyTextView
+    notificationObservers.append(
+      LumaNotificationCenter.observe(
+        name: NSText.didChangeNotification,
+        object: bodyTextView
+      ) { [weak self] in
+        self?.fieldsChanged()
+      }
     )
 
     let scroll = NSScrollView()
@@ -145,6 +163,13 @@ final class SnippetEditorSheet: LumaWindow {
   }
 
   @objc private func fieldsChanged() {
+    Task { @MainActor in
+      self.fieldsChangedOnMainActor()
+    }
+  }
+
+  @MainActor
+  private func fieldsChangedOnMainActor() {
     conflictTask?.cancel()
     conflictTask = Task { [weak self] in
       guard let self else { return }
@@ -172,6 +197,13 @@ final class SnippetEditorSheet: LumaWindow {
   }
 
   @objc private func save() {
+    Task { @MainActor in
+      self.saveOnMainActor()
+    }
+  }
+
+  @MainActor
+  private func saveOnMainActor() {
     let title = titleField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
     let trigger = triggerField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
     let content = bodyTextView.string.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -196,6 +228,8 @@ final class SnippetEditorSheet: LumaWindow {
   }
 
   @objc private func cancel() {
-    close()
+    Task { @MainActor in
+      self.close()
+    }
   }
 }

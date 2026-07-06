@@ -41,8 +41,9 @@ final class LauncherRootController {
     private lazy var snapshotApplyCoalescer = LauncherSnapshotApplyCoalescer { [weak self] snapshot in
         self?.apply(snapshot: snapshot)
     }
-    private var restoreGeneration: UInt = 0
+    private var restoreGeneration = CancellationGeneration()
     private var querySyncGraceUntil: ContinuousClock.Instant?
+    private var isPanelActiveForQueryApply = false
 
     init(
         viewModel: LauncherViewModel,
@@ -397,6 +398,7 @@ final class LauncherRootController {
     }
 
     func focusSearchFieldAfterShow() {
+        activatePanelForQueryApply()
         if contentCoordinator.showingDetail {
             contentCoordinator.currentDetailObject?.activate()
             return
@@ -418,8 +420,22 @@ final class LauncherRootController {
     }
 
     func cancelPendingRestore() {
-        restoreGeneration &+= 1
+        restoreGeneration.bump()
         snapshotApplyCoalescer.cancel()
+    }
+
+    /// Cancels in-flight query dispatch and pending snapshot UI apply on panel hide.
+    func cancelActiveQueryAndSnapshotApply() {
+        isPanelActiveForQueryApply = false
+        viewModel.cancel()
+        cancelPendingSnapshotApply()
+        LauncherPerfCounters.increment(.queryCancelOnHide)
+        syncKeyHints()
+        syncPerformanceStripVisibility()
+    }
+
+    func activatePanelForQueryApply() {
+        isPanelActiveForQueryApply = true
     }
 
     func restoreLastSessionIfNeeded() {
@@ -429,11 +445,11 @@ final class LauncherRootController {
             return
         }
         guard searchBar.stringValue.isEmpty else { return }
-        let generation = restoreGeneration
+        let generation = restoreGeneration.current
         Task {
             let persisted = await sessionStore.loadPersistedSession()
             await MainActor.run {
-                guard self.restoreGeneration == generation else { return }
+                guard self.restoreGeneration.isCurrent(generation) else { return }
                 self.applyRestore(
                     moduleRaw: persisted.moduleRaw,
                     query: persisted.query,
@@ -727,25 +743,39 @@ final class LauncherRootController {
     }
 
     func exitDetailFromChrome() {
-        guard contentCoordinator.showingDetail else {
+        let outcome = LauncherDetailExitPlanner.outcome(
+            showingDetail: contentCoordinator.showingDetail,
+            suspendedQuery: searchBar.detailSuspendedQueryForPlanner,
+            columnSplitActive: currentHomeSplitState().columnSplitActive
+        )
+        executeDetailExitOutcome(outcome)
+    }
+
+    /// User typed a new query while module detail was open — discard suspended query and search.
+    private func exitDetailForUserTyping() {
+        searchBar.cancelDetailMode()
+        closeDetail(animatedToGuide: false)
+    }
+
+    private func executeDetailExitOutcome(_ outcome: LauncherDetailExitOutcome) {
+        switch outcome {
+        case .reenableSearchOnly:
             searchBar.reEnableSearchFieldIfNeeded()
             focusSearchField()
-            return
-        }
-        let restored = searchBar.endDetailMode()
-        if let restored,
-           !restored.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+        case .restoreSuspendedQuery(let restored):
+            _ = searchBar.endDetailMode()
             closeDetail(animatedToGuide: false)
             searchBar.stringValue = restored
             lastSyncedQuery = ""
             handleTextChange(restored)
             focusSearchField()
-            return
-        }
-        closeDetail(animatedToGuide: usesColumnSplitLayout()) { [weak self] in
-            guard let self else { return }
-            self.restoreHomeFromDetail(persist: true)
-            self.focusSearchField()
+        case .returnToHome(let crossfadeToGuide):
+            _ = searchBar.endDetailMode()
+            closeDetail(animatedToGuide: crossfadeToGuide) { [weak self] in
+                guard let self else { return }
+                self.restoreHomeFromDetail(persist: true)
+                self.focusSearchField()
+            }
         }
     }
 
@@ -809,8 +839,7 @@ final class LauncherRootController {
         guard modulesReady else { return }
         homeRefreshTask?.cancel()
         if contentCoordinator.showingDetail {
-            searchBar.cancelDetailMode()
-            closeDetail()
+            exitDetailForUserTyping()
         }
         listView.isHidden = false
         listView.alphaValue = 1
@@ -920,7 +949,16 @@ final class LauncherRootController {
     }
 
     private func apply(snapshot: ResultSnapshot) {
-        guard !launcherEnvironment.isLauncherQueryEmpty else { return }
+        let policy = LauncherSnapshotApplyPolicy.decision(
+            isPanelActive: isPanelActiveForQueryApply,
+            isQueryEmpty: launcherEnvironment.isLauncherQueryEmpty
+        )
+        guard policy.apply else {
+            if policy.recordDroppedCounter {
+                LauncherPerfCounters.increment(.snapshotApplyDropped)
+            }
+            return
+        }
         LauncherPerfCounters.increment(.snapshotApply)
         contentCoordinator.apply(snapshot: snapshot)
         preferBareOpenDetailRowSelection()
@@ -937,16 +975,8 @@ final class LauncherRootController {
         snapshotApplyCoalescer.enqueue(snapshot)
     }
 
-    private func flushPendingSnapshotApplyNow() {
-        snapshotApplyCoalescer.flushNow()
-    }
-
     private func cancelPendingSnapshotApply() {
         snapshotApplyCoalescer.cancel()
-    }
-
-    private func flushPendingSnapshotApply() {
-        snapshotApplyCoalescer.flushNow()
     }
 
     private func syncPerformanceStripVisibility() {
@@ -1073,10 +1103,16 @@ final class LauncherRootController {
     }
 
     private func usesColumnSplitLayout() -> Bool {
-        let trimmed = searchBar.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !trimmed.isEmpty { return false }
-        if contentCoordinator.showingDetail { return true }
-        return !contentCoordinator.showingResults
+        currentHomeSplitState().columnSplitActive
+    }
+
+    private func currentHomeSplitState() -> LauncherHomeSplitState {
+        LauncherHomeSplitPlanner.layout(
+            queryTrimmedIsEmpty: searchBar.stringValue
+                .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+            showingDetail: contentCoordinator.showingDetail,
+            showingResults: contentCoordinator.showingResults
+        )
     }
 
     private func listHoldsKeyboardFocus() -> Bool {
@@ -1087,18 +1123,11 @@ final class LauncherRootController {
     }
 
     private func syncSplitLayout() {
-        let columnSplit = usesColumnSplitLayout()
+        let splitState = currentHomeSplitState()
+        let columnSplit = splitState.columnSplitActive
+        let rightPane = splitState.rightPane
         if columnSplit {
             LauncherInPanelLayout.ensureHomeSplitPanelSize(from: searchBar)
-        }
-
-        let rightPane: LauncherSplitRightPane
-        if columnSplit, contentCoordinator.showingDetail {
-            rightPane = .detail
-        } else if columnSplit {
-            rightPane = .guide
-        } else {
-            rightPane = .hidden
         }
 
         let layoutChanged = lastSplitLayoutState.map { $0 != (columnSplit, rightPane) } ?? true

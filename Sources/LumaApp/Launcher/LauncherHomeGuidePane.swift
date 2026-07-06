@@ -137,7 +137,6 @@ extension LauncherHomeGuidePane: NSTableViewDataSource, NSTableViewDelegate {
     }
 }
 
-@MainActor
 private final class GuideTableRowView: NSTableRowView {
     nonisolated(unsafe) var rowIndex = -1
 

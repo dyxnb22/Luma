@@ -1,4 +1,4 @@
-import AppKit
+@preconcurrency import AppKit
 import LumaCore
 
 /// Standard detail-view chrome: shared margins, toolbar, scrollable content, optional footer.

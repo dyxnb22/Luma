@@ -1,6 +1,6 @@
 import Foundation
 import OSLog
-import AppKit
+@preconcurrency import AppKit
 import LumaCore
 
 @MainActor

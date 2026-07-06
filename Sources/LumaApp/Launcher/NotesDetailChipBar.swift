@@ -1,4 +1,4 @@
-import AppKit
+@preconcurrency import AppKit
 import LumaCore
 import LumaModules
 
@@ -35,8 +35,8 @@ final class NotesDetailChipBar: NSView {
     var onChipChanged: ((NotesDetailChip?) -> Void)?
     var onPanelChanged: ((NotesDetailPanel) -> Void)?
 
-    private let chipControl = NSSegmentedControl()
-    private let panelControl = NSSegmentedControl()
+    private let chipControl = LauncherSegmentedControl()
+    private let panelControl = LauncherSegmentedControl()
     private var selectedChip: NotesDetailChip?
 
     override init(frame frameRect: NSRect) {
@@ -83,21 +83,21 @@ final class NotesDetailChipBar: NSView {
         for chip in NotesDetailChip.allCases {
             chipControl.setLabel(chip.title, forSegment: chip.rawValue)
         }
-        chipControl.segmentStyle = .rounded
         chipControl.trackingMode = .selectOne
         chipControl.selectedSegment = -1
         chipControl.target = self
         chipControl.action = #selector(chipChanged)
+        chipControl.refreshCachedIntrinsicSize()
         chipControl.translatesAutoresizingMaskIntoConstraints = false
 
         panelControl.segmentCount = NotesDetailPanel.allCases.count
         for panel in NotesDetailPanel.allCases {
             panelControl.setLabel(panel.title, forSegment: panel.rawValue)
         }
-        panelControl.segmentStyle = .rounded
         panelControl.selectedSegment = NotesDetailPanel.outline.rawValue
         panelControl.target = self
         panelControl.action = #selector(panelChanged)
+        panelControl.refreshCachedIntrinsicSize()
         panelControl.translatesAutoresizingMaskIntoConstraints = false
 
         addSubview(chipControl)

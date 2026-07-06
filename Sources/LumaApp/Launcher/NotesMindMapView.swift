@@ -1,7 +1,7 @@
-import AppKit
+@preconcurrency import AppKit
 import LumaModules
 
-@MainActor
+// AppKit delivers mouse/key/draw callbacks without Swift MainActor executor — do not isolate this view.
 final class NotesMindMapView: NSView {
     private struct PositionedNode {
         let node: NotesNode
@@ -9,13 +9,13 @@ final class NotesMindMapView: NSView {
         let parentPath: String?
     }
 
-    var onActivate: ((NotesNode) -> Void)?
-    var onLayoutChanged: (() -> Void)?
+    nonisolated(unsafe) var onActivate: ((NotesNode) -> Void)?
+    nonisolated(unsafe) var onLayoutChanged: (() -> Void)?
 
-    private var root: NotesNode?
-    private var expandedPaths = Set<String>()
-    private var positionedNodes: [PositionedNode] = []
-    private var selectedPath: String?
+    nonisolated(unsafe) private var root: NotesNode?
+    nonisolated(unsafe) private var expandedPaths = Set<String>()
+    nonisolated(unsafe) private var positionedNodes: [PositionedNode] = []
+    nonisolated(unsafe) private var selectedPath: String?
 
     private let nodeSize = CGSize(width: 168, height: 48)
     private let horizontalSpacing: CGFloat = 92
@@ -25,6 +25,7 @@ final class NotesMindMapView: NSView {
     override var isFlipped: Bool { true }
     override var acceptsFirstResponder: Bool { true }
 
+    @MainActor
     func reload(root: NotesNode?) {
         self.root = root
         expandedPaths = root.map { initialExpandedPaths(for: $0) } ?? []
@@ -40,17 +41,24 @@ final class NotesMindMapView: NSView {
         return paths
     }
 
+    @MainActor
     func expandAll() {
         expandedPaths = root.map { collectFolderPaths(from: $0) } ?? []
         rebuildLayout()
     }
 
+    @MainActor
     func collapseAll() {
         expandedPaths = root.map { [$0.path] } ?? []
         rebuildLayout()
     }
 
-    override func mouseDown(with event: NSEvent) {
+    nonisolated override func mouseDown(with event: NSEvent) {
+        Task { @MainActor in self.handleMouseDown(event) }
+    }
+
+    @MainActor
+    private func handleMouseDown(_ event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
         guard let hit = positionedNodes.first(where: { $0.rect.contains(point) }) else {
             selectedPath = nil
@@ -65,7 +73,12 @@ final class NotesMindMapView: NSView {
         }
     }
 
-    override func keyDown(with event: NSEvent) {
+    nonisolated override func keyDown(with event: NSEvent) {
+        Task { @MainActor in self.handleKeyDown(event) }
+    }
+
+    @MainActor
+    private func handleKeyDown(_ event: NSEvent) {
         if event.keyCode == 36, let path = selectedPath,
            let node = positionedNodes.first(where: { $0.node.path == path })?.node {
             handleActivate(node)
@@ -87,7 +100,7 @@ final class NotesMindMapView: NSView {
         }
     }
 
-    override func draw(_ dirtyRect: NSRect) {
+    nonisolated override func draw(_ dirtyRect: NSRect) {
         NSColor.textBackgroundColor.setFill()
         bounds.fill()
 

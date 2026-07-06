@@ -1,4 +1,4 @@
-import AppKit
+@preconcurrency import AppKit
 
 @MainActor
 final class FlippedStackView: NSStackView {

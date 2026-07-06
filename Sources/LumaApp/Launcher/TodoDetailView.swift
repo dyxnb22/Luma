@@ -1,4 +1,4 @@
-import AppKit
+@preconcurrency import AppKit
 import LumaCore
 import LumaModules
 import LumaServices
@@ -16,7 +16,7 @@ final class TodoDetailView: NSObject, ModuleDetailView {
     private let addButton = NSButton()
     private let refreshButton = NSButton()
     private let openRemindersButton = NSButton()
-    private let tabControl = NSSegmentedControl()
+    private let tabControl = LauncherSegmentedControl()
     private let statusLabel = NSTextField(labelWithString: "")
     private let scrollView = NSScrollView()
     private let stackView = NSStackView()
@@ -122,6 +122,7 @@ final class TodoDetailView: NSObject, ModuleDetailView {
         tabControl.selectedSegment = 0
         tabControl.target = self
         tabControl.action = #selector(tabChanged)
+        tabControl.refreshCachedIntrinsicSize()
         tabControl.translatesAutoresizingMaskIntoConstraints = false
 
         GeekUIKit.configureStatusLabel(statusLabel)
@@ -145,8 +146,9 @@ final class TodoDetailView: NSObject, ModuleDetailView {
         GeekUIKit.wireVerticalListScroll(
             scrollView,
             documentView: stackView,
-            observer: self,
-            onClipViewResize: #selector(syncListScrollDocumentFrame)
+            onClipViewResize: { [weak self] in
+                self?.syncListScrollDocumentFrame()
+            }
         )
         GeekUIKit.pinVerticalStackDocumentView(stackView, in: scrollView)
         scrollView.translatesAutoresizingMaskIntoConstraints = false

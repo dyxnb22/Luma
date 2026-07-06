@@ -1,11 +1,10 @@
-import AppKit
+@preconcurrency import AppKit
 
 /// Standard text-editing shortcuts for Luma windows.
 /// Menu-bar apps have no Edit menu, so AppKit's default `performKeyEquivalent`
 /// chain never reaches `selectAll:` / `copy:` / `paste:` / etc. Route them here.
-@MainActor
 enum LumaStandardEditShortcuts {
-    static func performKeyEquivalent(_ event: NSEvent, in window: NSWindow) -> Bool {
+    nonisolated static func performKeyEquivalent(_ event: NSEvent, in window: NSWindow) -> Bool {
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         guard flags.contains(.command) else { return false }
         guard let key = event.charactersIgnoringModifiers?.lowercased() else { return false }
@@ -39,49 +38,42 @@ enum LumaStandardEditShortcuts {
     }
 
     /// Fallback for code paths that receive `keyDown` instead of `performKeyEquivalent`.
-    static func handleKeyDown(_ event: NSEvent, in window: NSWindow?) -> Bool {
+    nonisolated static func handleKeyDown(_ event: NSEvent, in window: NSWindow?) -> Bool {
         guard let window else { return false }
         return performKeyEquivalent(event, in: window)
     }
 
-    @discardableResult
-    static func selectAll(in window: NSWindow) -> Bool {
+    @discardableResult nonisolated static func selectAll(in window: NSWindow) -> Bool {
         guard let responder = window.firstResponder else { return false }
         return selectAll(for: responder)
     }
 
-    @discardableResult
-    static func copy(in window: NSWindow) -> Bool {
+    @discardableResult nonisolated static func copy(in window: NSWindow) -> Bool {
         guard let responder = window.firstResponder else { return false }
         return copy(for: responder, in: window)
     }
 
-    @discardableResult
-    static func paste(in window: NSWindow) -> Bool {
+    @discardableResult nonisolated static func paste(in window: NSWindow) -> Bool {
         guard let responder = window.firstResponder else { return false }
         return paste(for: responder, in: window)
     }
 
-    @discardableResult
-    static func cut(in window: NSWindow) -> Bool {
+    @discardableResult nonisolated static func cut(in window: NSWindow) -> Bool {
         guard let responder = window.firstResponder else { return false }
         return cut(for: responder, in: window)
     }
 
-    @discardableResult
-    static func undo(in window: NSWindow) -> Bool {
+    @discardableResult nonisolated static func undo(in window: NSWindow) -> Bool {
         guard let responder = window.firstResponder else { return false }
         return undo(for: responder)
     }
 
-    @discardableResult
-    static func redo(in window: NSWindow) -> Bool {
+    @discardableResult nonisolated static func redo(in window: NSWindow) -> Bool {
         guard let responder = window.firstResponder else { return false }
         return redo(for: responder)
     }
 
-    @discardableResult
-    static func selectAll(for responder: NSResponder) -> Bool {
+    @discardableResult nonisolated static func selectAll(for responder: NSResponder) -> Bool {
         if let textView = responder as? NSTextView, textView.isSelectable {
             textView.selectAll(nil)
             return true
@@ -93,8 +85,7 @@ enum LumaStandardEditShortcuts {
         return false
     }
 
-    @discardableResult
-    static func copy(for responder: NSResponder, in window: NSWindow) -> Bool {
+    @discardableResult nonisolated static func copy(for responder: NSResponder, in window: NSWindow) -> Bool {
         if let textView = responder as? NSTextView {
             guard textView.isSelectable else { return false }
             guard textView.selectedRange().length > 0 else { return false }
@@ -115,8 +106,7 @@ enum LumaStandardEditShortcuts {
         return false
     }
 
-    @discardableResult
-    static func paste(for responder: NSResponder, in window: NSWindow) -> Bool {
+    @discardableResult nonisolated static func paste(for responder: NSResponder, in window: NSWindow) -> Bool {
         guard hasPasteableString else { return false }
         if let textView = responder as? NSTextView {
             guard textView.isEditable else { return false }
@@ -133,8 +123,7 @@ enum LumaStandardEditShortcuts {
         return false
     }
 
-    @discardableResult
-    static func cut(for responder: NSResponder, in window: NSWindow) -> Bool {
+    @discardableResult nonisolated static func cut(for responder: NSResponder, in window: NSWindow) -> Bool {
         if let textView = responder as? NSTextView {
             guard textView.isEditable, textView.isSelectable else { return false }
             guard textView.selectedRange().length > 0 else { return false }
@@ -152,8 +141,7 @@ enum LumaStandardEditShortcuts {
         return false
     }
 
-    @discardableResult
-    static func undo(for responder: NSResponder) -> Bool {
+    @discardableResult nonisolated static func undo(for responder: NSResponder) -> Bool {
         if let textView = responder as? NSTextView {
             guard textView.isEditable, textView.allowsUndo else { return false }
             guard let undoManager = textView.undoManager, undoManager.canUndo else { return false }
@@ -163,8 +151,7 @@ enum LumaStandardEditShortcuts {
         return false
     }
 
-    @discardableResult
-    static func redo(for responder: NSResponder) -> Bool {
+    @discardableResult nonisolated static func redo(for responder: NSResponder) -> Bool {
         if let textView = responder as? NSTextView {
             guard textView.isEditable, textView.allowsUndo else { return false }
             guard let undoManager = textView.undoManager, undoManager.canRedo else { return false }
@@ -174,7 +161,7 @@ enum LumaStandardEditShortcuts {
         return false
     }
 
-    private static func activeEditor(for textField: NSTextField, in window: NSWindow) -> NSTextView? {
+    nonisolated private static func activeEditor(for textField: NSTextField, in window: NSWindow) -> NSTextView? {
         if let editor = textField.currentEditor() as? NSTextView {
             return editor
         }
@@ -183,7 +170,7 @@ enum LumaStandardEditShortcuts {
         return window.fieldEditor(false, for: textField) as? NSTextView
     }
 
-    private static func syncTextField(_ textField: NSTextField, from editor: NSTextView) {
+    nonisolated private static func syncTextField(_ textField: NSTextField, from editor: NSTextView) {
         let updated = editor.string
         guard textField.stringValue != updated else { return }
         textField.stringValue = updated
@@ -193,11 +180,11 @@ enum LumaStandardEditShortcuts {
         )
     }
 
-    private static var hasPasteableString: Bool {
+    nonisolated private static var hasPasteableString: Bool {
         NSPasteboard.general.string(forType: .string) != nil
     }
 
-    private static func writePasteboard(_ text: String) {
+    nonisolated private static func writePasteboard(_ text: String) {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(text, forType: .string)
     }

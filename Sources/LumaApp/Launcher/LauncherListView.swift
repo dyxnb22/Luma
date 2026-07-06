@@ -1,7 +1,7 @@
-import AppKit
+@preconcurrency import AppKit
 import LumaCore
 
-@MainActor
+// AppKit delivers responder callbacks on the main thread, not Swift's MainActor — do not isolate this view.
 final class LauncherListView: NSView {
     private let scrollView = NSScrollView()
     private let stack = FlippedStackView()
@@ -11,17 +11,17 @@ final class LauncherListView: NSView {
     private(set) var selectedFlatIndex = 0
     private(set) var currentLayout: ResultListLayout = .flat
 
-    var onRun: ((ResultItem) -> Void)?
-    var onRightClick: ((ResultItem) -> Void)?
-    var onSelectionChanged: ((Int) -> Void)?
-    var onKeyCommand: ((LumaSearchBar.KeyCommand) -> Bool)?
-    var onInterceptKeyDown: ((NSEvent) -> Bool)?
-    var onActivate: (() -> Void)?
-    var onEscape: (() -> Void)?
-    var onTypeToSearch: ((String) -> Void)?
+    nonisolated(unsafe) var onRun: ((ResultItem) -> Void)?
+    nonisolated(unsafe) var onRightClick: ((ResultItem) -> Void)?
+    nonisolated(unsafe) var onSelectionChanged: ((Int) -> Void)?
+    nonisolated(unsafe) var onKeyCommand: ((LumaSearchBar.KeyCommand) -> Bool)?
+    nonisolated(unsafe) var onInterceptKeyDown: ((NSEvent) -> Bool)?
+    nonisolated(unsafe) var onActivate: (() -> Void)?
+    nonisolated(unsafe) var onEscape: (() -> Void)?
+    nonisolated(unsafe) var onTypeToSearch: ((String) -> Void)?
 
     /// When false, mouse events pass through (used during detail cross-fade).
-    var passesHitTests = true
+    nonisolated(unsafe) var passesHitTests = true
 
     private(set) var compactHomeColumn = false {
         didSet {
@@ -36,7 +36,7 @@ final class LauncherListView: NSView {
 
     override var acceptsFirstResponder: Bool { !currentItems.isEmpty }
 
-    override func hitTest(_ point: NSPoint) -> NSView? {
+    nonisolated override func hitTest(_ point: NSPoint) -> NSView? {
         guard passesHitTests, alphaValue > 0.01, !isHidden else { return nil }
         return super.hitTest(point)
     }
@@ -121,12 +121,12 @@ final class LauncherListView: NSView {
         onSelectionChanged?(clamped)
     }
 
-    override func mouseDown(with event: NSEvent) {
-        focusList()
+    nonisolated override func mouseDown(with event: NSEvent) {
+        Task { @MainActor in self.focusList() }
         super.mouseDown(with: event)
     }
 
-    override func keyDown(with event: NSEvent) {
+    nonisolated override func keyDown(with event: NSEvent) {
         if onInterceptKeyDown?(event) == true { return }
         if shouldForwardTyping(event), let text = event.characters, !text.isEmpty {
             onTypeToSearch?(text)
@@ -140,14 +140,13 @@ final class LauncherListView: NSView {
         super.keyDown(with: event)
     }
 
-    override func insertText(_ insertString: Any) {
+    nonisolated override func insertText(_ insertString: Any) {
         let text: String
         if let string = insertString as? String {
             text = string
         } else if let attributed = insertString as? NSAttributedString {
             text = attributed.string
         } else {
-            super.insertText(insertString)
             return
         }
         guard !text.isEmpty else { return }
@@ -166,8 +165,8 @@ final class LauncherListView: NSView {
             || CharacterSet.whitespaces.contains(scalar)
     }
 
-    override func cancelOperation(_ sender: Any?) {
-        onEscape?()
+    nonisolated override func cancelOperation(_ sender: Any?) {
+        Task { @MainActor in self.onEscape?() }
     }
 
     private func mappedKeyCommand(_ event: NSEvent) -> LumaSearchBar.KeyCommand? {

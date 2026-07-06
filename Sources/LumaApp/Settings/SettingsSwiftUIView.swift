@@ -1,4 +1,4 @@
-import AppKit
+@preconcurrency import AppKit
 import SwiftUI
 import LumaCore
 import LumaInfrastructure
@@ -994,18 +994,17 @@ private enum SettingsKeyboardActions {
     }
 }
 
-@MainActor
 private final class SettingsKeyHandlerView: NSView {
-    var onWindowChanged: (() -> Void)?
+    nonisolated(unsafe) var onWindowChanged: (() -> Void)?
 
-    override func viewDidMoveToWindow() {
+    nonisolated override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        onWindowChanged?()
+        Task { @MainActor in self.onWindowChanged?() }
     }
 
-    override func viewWillMove(toWindow newWindow: NSWindow?) {
+    nonisolated override func viewWillMove(toWindow newWindow: NSWindow?) {
         if newWindow == nil {
-            onWindowChanged?()
+            Task { @MainActor in self.onWindowChanged?() }
         }
         super.viewWillMove(toWindow: newWindow)
     }

@@ -20,6 +20,7 @@ final class SecretsDetailView: NSObject, ModuleDetailView {
     private var records: [SecretRecord] = []
     private var refreshTask: Task<Void, Never>?
     private var isUnlocked = false
+    nonisolated(unsafe) private var searchObserver: NSObjectProtocol?
 
     init(module: SecretsModule, detailReloadRouter: ModuleDetailReloadRouter) {
         self.module = module
@@ -28,6 +29,12 @@ final class SecretsDetailView: NSObject, ModuleDetailView {
         self.detailView = chrome
         super.init()
         setup(chrome: chrome)
+    }
+
+    deinit {
+        if let searchObserver {
+            NotificationCenter.default.removeObserver(searchObserver)
+        }
     }
 
     func activate() {
@@ -101,8 +108,9 @@ final class SecretsDetailView: NSObject, ModuleDetailView {
         GeekUIKit.wireVerticalListScroll(
             tableScroll,
             documentView: tableView,
-            observer: self,
-            onClipViewResize: #selector(syncListScrollDocumentFrame)
+            onClipViewResize: { [weak self] in
+                self?.syncListScrollDocumentFrame()
+            }
         )
         tableScroll.translatesAutoresizingMaskIntoConstraints = false
 
@@ -129,7 +137,12 @@ final class SecretsDetailView: NSObject, ModuleDetailView {
 
         searchField.target = self
         searchField.action = #selector(searchChanged)
-        NotificationCenter.default.addObserver(self, selector: #selector(searchChanged), name: NSSearchField.textDidChangeNotification, object: searchField)
+        searchObserver = LumaNotificationCenter.observe(
+            name: NSSearchField.textDidChangeNotification,
+            object: searchField
+        ) { [weak self] in
+            self?.searchChanged()
+        }
     }
 
     private func buildToolbar() -> NSView {

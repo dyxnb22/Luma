@@ -1,4 +1,4 @@
-import AppKit
+@preconcurrency import AppKit
 import LumaCore
 
 enum LauncherHintContext {
@@ -7,7 +7,7 @@ enum LauncherHintContext {
     case detail
 }
 
-@MainActor
+// AppKit display cycle calls layout() without Swift MainActor executor — do not isolate this view.
 final class LauncherHintBar: NSView {
     private let leftLabel = NSTextField(labelWithString: "")
     private let statusLabel = NSTextField(labelWithString: "")
@@ -54,7 +54,7 @@ final class LauncherHintBar: NSView {
         setModulesReady(true)
     }
 
-    override func layout() {
+    nonisolated override func layout() {
         super.layout()
         let maxWidth = max(0, bounds.width - statusLabel.intrinsicContentSize.width - 24)
         leftLabel.preferredMaxLayoutWidth = maxWidth
@@ -65,6 +65,7 @@ final class LauncherHintBar: NSView {
         fatalError("init(coder:) has not been implemented")
     }
 
+    @MainActor
     func setContext(_ context: LauncherHintContext, selectedItem: ResultItem? = nil) {
         switch context {
         case .home, .results:
@@ -74,6 +75,7 @@ final class LauncherHintBar: NSView {
         }
     }
 
+    @MainActor
     private func keyHints(for context: LauncherHintContext, selectedItem: ResultItem?) -> String {
         let escLabel = context == .home ? L10n.tr("hint.escClose") : L10n.tr("hint.escClear")
         var parts = [L10n.tr("hint.select"), L10n.tr("hint.open")]
@@ -94,12 +96,14 @@ final class LauncherHintBar: NSView {
         return parts.joined(separator: "    ")
     }
 
+    @MainActor
     private func shortActionLabel(_ title: String) -> String {
         let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.count <= 18 { return trimmed }
         return String(trimmed.prefix(16)) + "…"
     }
 
+    @MainActor
     func setModulesReady(_ ready: Bool) {
         statusLabel.stringValue = ready ? "" : "Loading…"
         statusLabel.isHidden = ready

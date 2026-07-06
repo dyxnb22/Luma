@@ -1,4 +1,4 @@
-import AppKit
+@preconcurrency import AppKit
 import LumaModules
 
 @MainActor
@@ -403,7 +403,7 @@ final class NotesOutlineDataSource: NSObject, NSOutlineViewDataSource, NSOutline
 }
 
 private final class NotesOutlineRowView: NSTableRowView {
-    override func drawSelection(in dirtyRect: NSRect) {
+    nonisolated override func drawSelection(in dirtyRect: NSRect) {
         guard selectionHighlightStyle != .none, isSelected else { return }
         NSColor.selectedContentBackgroundColor.setFill()
         dirtyRect.fill()

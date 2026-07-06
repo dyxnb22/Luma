@@ -1,13 +1,14 @@
-import AppKit
+@preconcurrency import AppKit
 import LumaCore
 
-@MainActor
+/// AppKit delivers key events on the main thread, not Swift's MainActor — do not isolate this panel.
 final class LauncherPanel: NSPanel {
-    var onEscape: (() -> Void)?
+    nonisolated(unsafe) var onEscape: (() -> Void)?
+    nonisolated(unsafe) var onToggleHotkey: (() -> Void)?
     /// Forwards module detail shortcuts when detail subviews hold focus.
-    var onDetailKeyDown: ((NSEvent) -> Bool)?
+    nonisolated(unsafe) var onDetailKeyDown: ((NSEvent) -> Bool)?
     /// ⌘W close detail — return true when handled.
-    var onCloseDetail: (() -> Bool)?
+    nonisolated(unsafe) var onCloseDetail: (() -> Bool)?
 
     /// Frame size locked after `position(on:)` — in-panel relayout must not widen the panel.
     private(set) var lockedFrameSize: NSSize?
@@ -39,8 +40,10 @@ final class LauncherPanel: NSPanel {
     override var canBecomeMain: Bool { false }
     override var acceptsFirstResponder: Bool { true }
 
-    override func cancelOperation(_ sender: Any?) {
-        onEscape?()
+    nonisolated override func cancelOperation(_ sender: Any?) {
+        Task { @MainActor [weak self] in
+            self?.onEscape?()
+        }
     }
 
     func resizeForScreen(_ visibleFrame: NSRect) {
@@ -138,28 +141,35 @@ final class LauncherPanel: NSPanel {
         return rect
     }
 
-    override func performKeyEquivalent(with event: NSEvent) -> Bool {
-        if LumaStandardEditShortcuts.performKeyEquivalent(event, in: self) {
+    nonisolated override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        if HotkeyConfig.load().matches(event) {
+            guard isVisible else { return false }
+            Task { @MainActor [weak self] in
+                self?.onToggleHotkey?()
+            }
             return true
         }
-        if onDetailKeyDown?(event) == true { return true }
-        if closeDetailIfCommandW(event) { return true }
-        return super.performKeyEquivalent(with: event)
+        if forwardCloseDetailIfCommandW(event) { return true }
+        return false
     }
 
-    override func keyDown(with event: NSEvent) {
-        if onDetailKeyDown?(event) == true { return }
-        if closeDetailIfCommandW(event) { return }
+    nonisolated override func keyDown(with event: NSEvent) {
+        if forwardCloseDetailIfCommandW(event) { return }
         if event.keyCode == 53 {
-            onEscape?()
+            Task { @MainActor [weak self] in
+                self?.onEscape?()
+            }
             return
         }
-        super.keyDown(with: event)
     }
 
-    private func closeDetailIfCommandW(_ event: NSEvent) -> Bool {
+    nonisolated private func forwardCloseDetailIfCommandW(_ event: NSEvent) -> Bool {
         guard event.modifierFlags.contains(.command),
               event.charactersIgnoringModifiers?.lowercased() == "w" else { return false }
-        return onCloseDetail?() ?? false
+        guard let onCloseDetail else { return false }
+        Task { @MainActor in
+            _ = onCloseDetail()
+        }
+        return true
     }
 }

@@ -68,8 +68,9 @@ final class ProjectsDetailView: NSObject, ModuleDetailView {
         GeekUIKit.wireVerticalListScroll(
             tableScroll,
             documentView: tableView,
-            observer: self,
-            onClipViewResize: #selector(syncListScrollDocumentFrame)
+            onClipViewResize: { [weak self] in
+                self?.syncListScrollDocumentFrame()
+            }
         )
         tableScroll.translatesAutoresizingMaskIntoConstraints = false
         chrome.setContent(tableScroll, embedInScroll: false)

@@ -8,6 +8,7 @@ Run before merging launcher/module changes:
 
 ```bash
 swift test
+scripts/scan_appkit_executor_risk.sh
 ```
 
 Targeted checks:
@@ -22,7 +23,24 @@ swift test --filter QuerySnapshot
 swift test --filter LauncherSnapshot
 swift test --filter BackHome
 swift test --filter DetailHierarchy
+swift test --filter AppKitExecutor
+swift test --filter LauncherListRowReuse
+swift test --filter LauncherPanelExecutor
+swift test --filter HotkeyToggle
 ```
+
+## Swift 6 / AppKit smoke (manual)
+
+After executor-boundary changes, clear `~/Library/Logs/DiagnosticReports/Luma-*.ips`, then verify:
+
+- Cmd+Space show/hide ×20 without crash
+- Cmd+Space rapid toggle ×50 without panel stuck hidden
+- Esc from home, search results, detail, and action panel
+- Translate detail: Accessibility Inspector focus traversal
+- System light/dark toggle with panel open
+- Notes detail + home list scroll without crash
+
+See `docs/swift6-appkit-boundaries.md` for the full contract.
 
 Build local app:
 

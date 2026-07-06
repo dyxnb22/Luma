@@ -1,4 +1,4 @@
-import AppKit
+@preconcurrency import AppKit
 import LumaCore
 import LumaModules
 
@@ -19,6 +19,7 @@ final class WordbookManageView: NSView {
     private let pageSize = 200
     private var loadTask: Task<Void, Never>?
     private var isLoadingMore = false
+    nonisolated(unsafe) private var notificationObservers: [NSObjectProtocol] = []
 
     init(store: WordbookStore, wrongWordsOnly: Bool = false, onBack: @escaping () -> Void) {
         self.store = store
@@ -34,6 +35,12 @@ final class WordbookManageView: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
+    }
+
+    deinit {
+        for token in notificationObservers {
+            NotificationCenter.default.removeObserver(token)
+        }
     }
 
     private func setup() {
@@ -65,7 +72,14 @@ final class WordbookManageView: NSView {
         searchField.target = self
         searchField.action = #selector(filterChanged)
         searchField.translatesAutoresizingMaskIntoConstraints = false
-        NotificationCenter.default.addObserver(self, selector: #selector(filterChanged), name: NSSearchField.textDidChangeNotification, object: searchField)
+        notificationObservers.append(
+            LumaNotificationCenter.observe(
+                name: NSSearchField.textDidChangeNotification,
+                object: searchField
+            ) { [weak self] in
+                self?.filterChanged()
+            }
+        )
 
         categoryFilter.addItem(withTitle: "All categories")
         categoryFilter.target = self
@@ -110,8 +124,9 @@ final class WordbookManageView: NSView {
         GeekUIKit.wireVerticalListScroll(
             tableScroll,
             documentView: tableView,
-            observer: self,
-            onClipViewResize: #selector(syncListScrollDocumentFrame)
+            onClipViewResize: { [weak self] in
+                self?.syncListScrollDocumentFrame()
+            }
         )
         tableScroll.translatesAutoresizingMaskIntoConstraints = false
 
@@ -146,18 +161,22 @@ final class WordbookManageView: NSView {
             tableScroll.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -8)
         ])
 
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(scrollDidLive),
-            name: NSScrollView.didLiveScrollNotification,
-            object: tableScroll
+        notificationObservers.append(
+            LumaNotificationCenter.observe(
+                name: NSScrollView.didLiveScrollNotification,
+                object: tableScroll
+            ) { [weak self] in
+                self?.scrollDidLive()
+            }
         )
         tableScroll.contentView.postsBoundsChangedNotifications = true
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(scrollDidLive),
-            name: NSView.boundsDidChangeNotification,
-            object: tableScroll.contentView
+        notificationObservers.append(
+            LumaNotificationCenter.observe(
+                name: NSView.boundsDidChangeNotification,
+                object: tableScroll.contentView
+            ) { [weak self] in
+                self?.scrollDidLive()
+            }
         )
     }
 

@@ -159,8 +159,9 @@ final class MediaDetailView: NSObject, ModuleDetailView {
         GeekUIKit.wireVerticalListScroll(
             tableScroll,
             documentView: tableView,
-            observer: self,
-            onClipViewResize: #selector(syncListScrollDocumentFrame)
+            onClipViewResize: { [weak self] in
+                self?.syncListScrollDocumentFrame()
+            }
         )
         tableScroll.translatesAutoresizingMaskIntoConstraints = false
 
@@ -191,12 +192,6 @@ final class MediaDetailView: NSObject, ModuleDetailView {
 
         searchField.target = self
         searchField.action = #selector(searchChanged)
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(searchChanged),
-            name: NSSearchField.textDidChangeNotification,
-            object: searchField
-        )
     }
 
     private func buildToolbar() -> NSView {

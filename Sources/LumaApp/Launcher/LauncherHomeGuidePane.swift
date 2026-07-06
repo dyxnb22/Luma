@@ -1,8 +1,7 @@
-import AppKit
+@preconcurrency import AppKit
 import LumaCore
 
 /// Read-only command guide for empty-query home (right column). Not a second navigable list.
-@MainActor
 final class LauncherHomeGuidePane: NSView {
     private enum Column: String {
         case module
@@ -16,9 +15,9 @@ final class LauncherHomeGuidePane: NSView {
     private var rows: [HomeGuideEntryRow] = []
 
     /// When false, mouse events pass through (used during detail ↔ guide cross-fade).
-    var passesHitTests = true
+    nonisolated(unsafe) var passesHitTests = true
 
-    override func hitTest(_ point: NSPoint) -> NSView? {
+    nonisolated override func hitTest(_ point: NSPoint) -> NSView? {
         guard passesHitTests, alphaValue > 0.01, !isHidden else { return nil }
         return super.hitTest(point)
     }
@@ -90,6 +89,7 @@ final class LauncherHomeGuidePane: NSView {
     }
 
     /// Always shows the module entry catalog — never mirrors the left Open Apps selection title.
+    @MainActor
     func applyCatalog(_ commands: [CommandDefinition]) {
         footerLabel.stringValue = L10n.trZhHans("home.guide.footer")
         rows = HomeGuideCatalog.entryRows(from: commands) { L10n.trZhHans($0) }
@@ -139,11 +139,13 @@ extension LauncherHomeGuidePane: NSTableViewDataSource, NSTableViewDelegate {
 
 @MainActor
 private final class GuideTableRowView: NSTableRowView {
-    var rowIndex = -1
+    nonisolated(unsafe) var rowIndex = -1
 
-    override func drawBackground(in dirtyRect: NSRect) {
+    nonisolated override func drawBackground(in dirtyRect: NSRect) {
         guard rowIndex >= 0 else { return }
-        let fill: NSColor = rowIndex.isMultiple(of: 2) ? ColorTokens.guideRowStripeFill : .clear
+        let fill: NSColor = rowIndex.isMultiple(of: 2)
+            ? NSColor.quaternaryLabelColor.withAlphaComponent(0.35)
+            : .clear
         guard fill != .clear else { return }
         fill.setFill()
         NSBezierPath(roundedRect: bounds.insetBy(dx: 2, dy: 1), xRadius: 6, yRadius: 6).fill()

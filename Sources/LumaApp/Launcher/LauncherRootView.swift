@@ -1,9 +1,9 @@
-import AppKit
+@preconcurrency import AppKit
 import LumaCore
 import LumaInfrastructure
 import LumaModules
 
-@MainActor
+// AppKit display cycle calls layout() without Swift MainActor executor — do not isolate this view.
 final class LauncherRootView: NSView {
     private let glassBackground = NSVisualEffectView()
     private let performanceStrip = LauncherPerformanceStripView()
@@ -115,57 +115,89 @@ final class LauncherRootView: NSView {
         fatalError("init(coder:) has not been implemented")
     }
 
-    override func layout() {
+    nonisolated override func layout() {
         super.layout()
         LauncherPanelChrome.layoutChromeLayers(on: self)
     }
 
+    @MainActor
     func setLatencyHUDEnabled(_ enabled: Bool) {
         latencyHUDEnabled = enabled
         latencyHUD.isHidden = !enabled
         if enabled { latencyHUD.refresh() }
     }
 
+    @MainActor
     func setModulesReady(_ ready: Bool) { controller.setModulesReady(ready) }
+    @MainActor
     func showHome(focusSearch: Bool = true, persist: Bool = true) { controller.showHome(focusSearch: focusSearch, persist: persist) }
+    @MainActor
     func setPanelSignalsActive(_ active: Bool) {
         Task { [homeCoordinator] in await homeCoordinator.setActive(active) }
     }
+    @MainActor
     func refreshHome() { controller.refreshHome() }
+    @MainActor
     func resetHomeExpansion() { controller.resetHomeExpansion() }
+    @MainActor
     func focusSearchField() { controller.focusSearchField() }
+    @MainActor
     func focusSearchFieldAfterShow() { controller.focusSearchFieldAfterShow() }
+    @MainActor
     func dispatchDetailKeyDown(_ event: NSEvent) -> Bool { controller.dispatchDetailKeyDown(event) }
+    @MainActor
     func dispatchDetailCloseFromKeyboard() -> Bool { controller.dispatchDetailCloseFromKeyboard() }
+    @MainActor
     var isShowingDetail: Bool { controller.isShowingDetail }
+    @MainActor
+    func cancelPendingRestore() { controller.cancelPendingRestore() }
+    @MainActor
     func restoreLastSessionIfNeeded() { controller.restoreLastSessionIfNeeded() }
+    @MainActor
     func saveCurrentSession() { controller.saveCurrentSession() }
+    @MainActor
     func resetForActionDismiss() { controller.resetForActionDismiss() }
+    @MainActor
     func openModuleDetail(for moduleID: ModuleIdentifier) { controller.openModuleDetail(for: moduleID) }
+    @MainActor
     func runWorkbenchCaptureFromDetail(source: WorkbenchCaptureSource, target: WorkbenchCaptureTarget) {
         controller.runWorkbenchCaptureFromDetail(source: source, target: target)
     }
+    @MainActor
     func runWorkspaceRowActionFromDetail(_ action: CurrentProjectWorkspaceRowAction) {
         controller.runWorkspaceRowActionFromDetail(action)
     }
+    @MainActor
     func handleEscape() { controller.handleEscape() }
+    @MainActor
     func closeDetail() { controller.closeDetail() }
+    @MainActor
     func exitDetailFromChrome() { controller.exitDetailFromChrome() }
 
+    @MainActor
     func showStatus(_ message: String) { controller.showStatus(message) }
 
+    @MainActor
     @objc private func closeDetailAction() { controller.exitDetailFromChrome() }
+    @MainActor
     func prepareDetailForHide() async { await contentCoordinator.currentDetailObject?.prepareForLauncherHide() }
+    @MainActor
     func flushPendingSessionWrites() { controller.flushPendingSessionWrites() }
 
+    @MainActor
     func invalidatePanelSignalsCache() { controller.invalidatePanelSignalsCache() }
 
+    @MainActor
     func invalidatePermissionModuleCache() { controller.invalidatePermissionModuleCache() }
 
+    @MainActor
     func refreshPermissionStatus() { controller.refreshPermissionBanner() }
+    @MainActor
     func startPermissionPollingIfNeeded() { controller.permissionController.startPollingIfNeeded() }
+    @MainActor
     func stopPermissionPolling() { controller.permissionController.stopPolling() }
 
+    @MainActor
     func startPerformanceSampling() {
         resourceSampler.onUpdate = { [weak self] presentation in
             self?.performanceStrip.apply(presentation)
@@ -186,6 +218,7 @@ final class LauncherRootView: NSView {
         controller.startQuerySync()
     }
 
+    @MainActor
     func stopPerformanceSampling() {
         controller.stopQuerySync()
         resourceSampler.stop()

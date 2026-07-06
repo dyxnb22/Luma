@@ -18,6 +18,7 @@ final class SnippetsDetailView: NSObject, ModuleDetailView {
     private var snippets: [Snippet] = []
     private var refreshTask: Task<Void, Never>?
     private var copiedFeedbackTask: Task<Void, Never>?
+    nonisolated(unsafe) private var searchObserver: NSObjectProtocol?
 
     init(module: SnippetsModule, detailReloadRouter: ModuleDetailReloadRouter) {
         self.module = module
@@ -26,6 +27,12 @@ final class SnippetsDetailView: NSObject, ModuleDetailView {
         self.detailView = chrome
         super.init()
         setup(chrome: chrome)
+    }
+
+    deinit {
+        if let searchObserver {
+            NotificationCenter.default.removeObserver(searchObserver)
+        }
     }
 
     func activate() {
@@ -103,8 +110,9 @@ final class SnippetsDetailView: NSObject, ModuleDetailView {
         GeekUIKit.wireVerticalListScroll(
             tableScroll,
             documentView: tableView,
-            observer: self,
-            onClipViewResize: #selector(syncListScrollDocumentFrame)
+            onClipViewResize: { [weak self] in
+                self?.syncListScrollDocumentFrame()
+            }
         )
         tableScroll.translatesAutoresizingMaskIntoConstraints = false
 
@@ -135,7 +143,12 @@ final class SnippetsDetailView: NSObject, ModuleDetailView {
 
         searchField.target = self
         searchField.action = #selector(searchChanged)
-        NotificationCenter.default.addObserver(self, selector: #selector(searchChanged), name: NSSearchField.textDidChangeNotification, object: searchField)
+        searchObserver = LumaNotificationCenter.observe(
+            name: NSSearchField.textDidChangeNotification,
+            object: searchField
+        ) { [weak self] in
+            self?.searchChanged()
+        }
     }
 
     private func buildToolbar() -> NSView {

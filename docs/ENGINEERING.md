@@ -68,6 +68,14 @@ Panel:
 - Overlay hit testing is disabled during list/detail cross-fades.
 - Text, buttons, table rows, and toolbars must not resize the panel or cause horizontal drift.
 
+Show/hide generation guards (Swift 6):
+
+- `LauncherWindowController.showGeneration` increments on every show/hide; `finishHide(generationAtHide:)` must `guard showGeneration == generationAtHide` before `orderOut`.
+- `hide()` sets `panel.alphaValue = 0` before awaiting `prepareDetailForHide` to shrink the visible-but-`panelShown=false` window.
+- `LauncherRootController.restoreGeneration` increments via `cancelPendingRestore()` on hide; `restoreLastSessionIfNeeded` async apply must guard generation.
+- `LauncherSnapshotApplyCoalescer.cancel()` runs on hide via `cancelPendingRestore()`.
+- Cmd+Space: Carbon hotkey when hidden; `LauncherPanel.performKeyEquivalent` when visible (`guard isVisible`). No duplicate handlers in search field or list view.
+
 Keyboard:
 
 | Key | Behavior |
@@ -235,6 +243,7 @@ Before changing launcher home, panel layout, keyboard routing, module contracts,
 
 - Update this handbook and `docs/MODULES.md` if user-visible behavior changes.
 - Add or update tests near the touched layer.
-- Run `swift test`.
+- Run `swift test` and `scripts/scan_appkit_executor_risk.sh`.
 - For UI changes, run `./scripts/build_app.sh` and the relevant manual QA checks in `docs/QA.md`.
+- AppKit `NSView` subclasses: follow `docs/swift6-appkit-boundaries.md` (`@preconcurrency import AppKit`, `nonisolated override`, no selector-based `NotificationCenter` observers).
 - Do not revive deleted historical behavior unless `docs/DECISIONS.md` records the new decision.

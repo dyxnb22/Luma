@@ -1,7 +1,7 @@
-import AppKit
+@preconcurrency import AppKit
 import LumaCore
 
-@MainActor
+// AppKit display cycle calls layout() without Swift MainActor executor — do not isolate this view.
 final class CommandHintBar: NSView {
     private let stack = NSStackView()
     private let formatLine = CommandHintBar.makeLine(mono: true)
@@ -50,9 +50,12 @@ final class CommandHintBar: NSView {
         }
     }
 
-    override func layout() {
+    nonisolated override func layout() {
         super.layout()
-        updateLabelWidths()
+        let maxWidth = bounds.width > 0 ? max(0, bounds.width - 8) : 640
+        for label in [formatLine, descriptionLine, exampleLine, returnLine, statusLine] {
+            label.preferredMaxLayoutWidth = maxWidth
+        }
     }
 
     @available(*, unavailable)
@@ -60,6 +63,7 @@ final class CommandHintBar: NSView {
         fatalError("init(coder:) has not been implemented")
     }
 
+    @MainActor
     func apply(_ hint: CommandHint?, helpTrigger: String? = nil) {
         if hint == appliedHint,
            helpTrigger == appliedHelpTrigger,
@@ -98,6 +102,7 @@ final class CommandHintBar: NSView {
         refreshHeight()
     }
 
+    @MainActor
     private func updateLabelWidths() {
         let maxWidth = bounds.width > 0 ? max(0, bounds.width - 8) : 640
         for label in [formatLine, descriptionLine, exampleLine, returnLine, statusLine] {
@@ -105,12 +110,14 @@ final class CommandHintBar: NSView {
         }
     }
 
+    @MainActor
     private func refreshHeight() {
         layoutSubtreeIfNeeded()
         let contentHeight = stack.fittingSize.height
         heightConstraint.constant = max(44, min(76, contentHeight + 6))
     }
 
+    @MainActor
     func setReturnAction(_ text: String?) {
         guard let text, !text.isEmpty else {
             returnLine.stringValue = ""
@@ -121,6 +128,7 @@ final class CommandHintBar: NSView {
         returnLine.isHidden = false
     }
 
+    @MainActor
     func showStatus(_ message: String, duration: TimeInterval = 1.6) {
         statusDismissTask?.cancel()
         statusLine.stringValue = message
@@ -138,6 +146,7 @@ final class CommandHintBar: NSView {
         }
     }
 
+    @MainActor
     private func collapse() {
         heightConstraint.constant = 0
         isHidden = true

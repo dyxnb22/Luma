@@ -1,14 +1,15 @@
-import AppKit
+@preconcurrency import AppKit
 import LumaCore
 import LumaInfrastructure
 import LumaModules
 import LumaServices
 
 @main
+@MainActor
 final class LumaApplication: NSObject, NSApplicationDelegate {
     private var coordinator: AppCoordinator?
 
-    static func main() {
+    nonisolated static func main() {
         let app = NSApplication.shared
         let delegate = LumaApplication()
         app.delegate = delegate

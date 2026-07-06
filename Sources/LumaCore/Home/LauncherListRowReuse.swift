@@ -14,9 +14,18 @@ public enum LauncherListRowReuse {
     /// True when identities are unchanged but row order changed — views can be reordered in place.
     public static func canReorderRows(_ oldRows: [LauncherListRows.Row], _ newRows: [LauncherListRows.Row]) -> Bool {
         guard oldRows.count == newRows.count else { return false }
-        guard oldRows.map(identityKey(for:)) != newRows.map(identityKey(for:)) else { return false }
-        guard oldRows.map(identityKey(for:)).sorted() == newRows.map(identityKey(for:)).sorted() else { return false }
-        let oldByKey = Dictionary(uniqueKeysWithValues: oldRows.map { (identityKey(for: $0), $0) })
+        let oldKeys = oldRows.map(identityKey(for:))
+        let newKeys = newRows.map(identityKey(for:))
+        guard oldKeys != newKeys else { return false }
+        guard Set(oldKeys).count == oldKeys.count, Set(newKeys).count == newKeys.count else { return false }
+        guard oldKeys.sorted() == newKeys.sorted() else { return false }
+        var oldByKey: [String: LauncherListRows.Row] = [:]
+        oldByKey.reserveCapacity(oldRows.count)
+        for row in oldRows {
+            let key = identityKey(for: row)
+            guard oldByKey[key] == nil else { return false }
+            oldByKey[key] = row
+        }
         for newRow in newRows {
             guard let oldRow = oldByKey[identityKey(for: newRow)] else { return false }
             guard structurallyCompatible(oldRow, newRow) else { return false }

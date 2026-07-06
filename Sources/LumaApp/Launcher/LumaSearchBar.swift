@@ -1,4 +1,4 @@
-import AppKit
+@preconcurrency import AppKit
 import LumaCore
 import LumaModules
 
@@ -361,14 +361,13 @@ final class LatencyTracker {
     }
 }
 
-@MainActor
 private final class LumaSearchTextField: NSTextField {
-    var onEscape: (() -> Void)?
-    var onKeyCommand: ((LumaSearchBar.KeyCommand) -> Bool)?
-    var onDetailKey: ((NSEvent) -> Bool)?
-    var onInterceptKeyDown: ((NSEvent) -> Bool)?
+    nonisolated(unsafe) var onEscape: (() -> Void)?
+    nonisolated(unsafe) var onKeyCommand: ((LumaSearchBar.KeyCommand) -> Bool)?
+    nonisolated(unsafe) var onDetailKey: ((NSEvent) -> Bool)?
+    nonisolated(unsafe) var onInterceptKeyDown: ((NSEvent) -> Bool)?
 
-    override var stringValue: String {
+    nonisolated override var stringValue: String {
         get { super.stringValue }
         set {
             let before = super.stringValue
@@ -381,29 +380,18 @@ private final class LumaSearchTextField: NSTextField {
         }
     }
 
-    private func notifyTextDidChange() {
+    nonisolated private func notifyTextDidChange() {
         NotificationCenter.default.post(name: NSControl.textDidChangeNotification, object: self)
     }
 
-    override func setAccessibilityValue(_ accessibilityValue: Any?) {
-        let before = stringValue
-        super.setAccessibilityValue(accessibilityValue)
-        guard stringValue != before else { return }
-        notifyTextDidChange()
-    }
-
-    override func insertText(_ insertString: Any) {
-        super.insertText(insertString)
-    }
-
-    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+    nonisolated override func performKeyEquivalent(with event: NSEvent) -> Bool {
         if let window, LumaStandardEditShortcuts.performKeyEquivalent(event, in: window) {
             return true
         }
         return super.performKeyEquivalent(with: event)
     }
 
-    override func keyDown(with event: NSEvent) {
+    nonisolated override func keyDown(with event: NSEvent) {
         if onInterceptKeyDown?(event) == true { return }
         if LumaStandardEditShortcuts.handleKeyDown(event, in: window) { return }
         if !isEditable {
@@ -442,24 +430,23 @@ private final class LumaSearchTextField: NSTextField {
         super.keyDown(with: event)
     }
 
-    override func cancelOperation(_ sender: Any?) {
-        onEscape?()
+    nonisolated override func cancelOperation(_ sender: Any?) {
+        Task { @MainActor in self.onEscape?() }
     }
 
-    override func insertTab(_ sender: Any?) {
+    nonisolated override func insertTab(_ sender: Any?) {
         _ = onKeyCommand?(.tab)
     }
 
-    override func insertBacktab(_ sender: Any?) {
+    nonisolated override func insertBacktab(_ sender: Any?) {
         _ = onKeyCommand?(.backtab)
     }
 }
 
-@MainActor
 private final class SettingsGearButton: NSButton {
     private var tracking: NSTrackingArea?
 
-    override func updateTrackingAreas() {
+    nonisolated override func updateTrackingAreas() {
         super.updateTrackingAreas()
         if let tracking { removeTrackingArea(tracking) }
         let area = NSTrackingArea(
@@ -472,11 +459,11 @@ private final class SettingsGearButton: NSButton {
         tracking = area
     }
 
-    override func mouseEntered(with event: NSEvent) {
+    nonisolated override func mouseEntered(with event: NSEvent) {
         contentTintColor = .secondaryLabelColor
     }
 
-    override func mouseExited(with event: NSEvent) {
+    nonisolated override func mouseExited(with event: NSEvent) {
         contentTintColor = .tertiaryLabelColor
     }
 }

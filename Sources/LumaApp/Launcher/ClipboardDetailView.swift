@@ -1,4 +1,4 @@
-import AppKit
+@preconcurrency import AppKit
 import LumaCore
 import LumaModules
 import LumaServices
@@ -11,7 +11,7 @@ final class ClipboardDetailView: NSObject, ModuleDetailView {
 
     private let module: ClipboardModule
     private let searchField = NSSearchField()
-    private let filterControl = NSSegmentedControl()
+    private let filterControl = LauncherSegmentedControl()
     private let clearUnpinnedButton = NSButton()
     private let transformPopup = NSPopUpButton()
     private let transformPreviewLabel = NSTextField(wrappingLabelWithString: "")
@@ -28,8 +28,15 @@ final class ClipboardDetailView: NSObject, ModuleDetailView {
     private var onOpenSettings: (() -> Void)?
     private var onHideLauncher: (() -> Void)?
     private var cachedDetailContentGeneration: UInt64 = 0
+    nonisolated(unsafe) private var searchObserver: NSObjectProtocol?
 
     var detailContentGeneration: UInt64 { cachedDetailContentGeneration }
+
+    deinit {
+        if let searchObserver {
+            NotificationCenter.default.removeObserver(searchObserver)
+        }
+    }
 
     func refreshDetailContentGeneration() async {
         cachedDetailContentGeneration = await module.detailContentRevision()
@@ -99,8 +106,9 @@ final class ClipboardDetailView: NSObject, ModuleDetailView {
         GeekUIKit.wireVerticalListScroll(
             tableScroll,
             documentView: tableView,
-            observer: self,
-            onClipViewResize: #selector(resizeTableColumn)
+            onClipViewResize: { [weak self] in
+                self?.resizeTableColumn()
+            }
         )
         tableScroll.translatesAutoresizingMaskIntoConstraints = false
 
@@ -137,7 +145,12 @@ final class ClipboardDetailView: NSObject, ModuleDetailView {
 
         searchField.target = self
         searchField.action = #selector(searchChanged)
-        NotificationCenter.default.addObserver(self, selector: #selector(searchChanged), name: NSSearchField.textDidChangeNotification, object: searchField)
+        searchObserver = LumaNotificationCenter.observe(
+            name: NSSearchField.textDidChangeNotification,
+            object: searchField
+        ) { [weak self] in
+            self?.searchChanged()
+        }
     }
 
     private func buildToolbar() -> NSView {
@@ -155,6 +168,7 @@ final class ClipboardDetailView: NSObject, ModuleDetailView {
         filterControl.selectedSegment = 0
         filterControl.target = self
         filterControl.action = #selector(filterChanged)
+        filterControl.refreshCachedIntrinsicSize()
         filterControl.translatesAutoresizingMaskIntoConstraints = false
 
         clearUnpinnedButton.title = L10n.tr("clipboard.detail.clearUnpinned")
@@ -551,28 +565,27 @@ extension ClipboardDetailView: NSTableViewDataSource, NSTableViewDelegate {
     func tableViewSelectionDidChange(_ notification: Notification) {}
 }
 
-@MainActor
 private final class ClipboardEntriesTableView: NSTableView {
-    var onCopy: (() -> Void)?
-    var onCopyPlainText: (() -> Void)?
-    var onDelete: (() -> Void)?
-    var onPin: (() -> Void)?
-    var onPaste: (() -> Void)?
+    nonisolated(unsafe) var onCopy: (() -> Void)?
+    nonisolated(unsafe) var onCopyPlainText: (() -> Void)?
+    nonisolated(unsafe) var onDelete: (() -> Void)?
+    nonisolated(unsafe) var onPin: (() -> Void)?
+    nonisolated(unsafe) var onPaste: (() -> Void)?
 
-    override func keyDown(with event: NSEvent) {
+    nonisolated override func keyDown(with event: NSEvent) {
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         switch event.keyCode {
         case 36, 76:
-            onPaste?()
+            Task { @MainActor in self.onPaste?() }
         case 51:
-            onDelete?()
+            Task { @MainActor in self.onDelete?() }
         default:
             if flags.contains(.command), event.charactersIgnoringModifiers?.lowercased() == "p" {
-                onPin?()
+                Task { @MainActor in self.onPin?() }
             } else if flags.contains(.command), flags.contains(.shift), event.charactersIgnoringModifiers?.lowercased() == "c" {
-                onCopyPlainText?()
+                Task { @MainActor in self.onCopyPlainText?() }
             } else if flags.contains(.command), event.charactersIgnoringModifiers?.lowercased() == "c" {
-                onCopy?()
+                Task { @MainActor in self.onCopy?() }
             } else {
                 super.keyDown(with: event)
             }

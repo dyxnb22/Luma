@@ -22,7 +22,7 @@ final class NotesDetailView: NSObject, ModuleDetailView {
     private let collapseAllButton = NSButton()
     private let newNoteButton = NSButton()
     private let newFolderButton = NSButton()
-    private let viewModeControl = NSSegmentedControl()
+    private let viewModeControl = LauncherSegmentedControl()
     private let gearButton = NSButton()
     private let emptyStateButton = NSButton()
     private let scrollView = NSScrollView()
@@ -37,8 +37,15 @@ final class NotesDetailView: NSObject, ModuleDetailView {
     private var activeChip: NotesDetailChip?
     private var activePanel: NotesDetailPanel = .outline
     private var cachedDetailContentGeneration: UInt64 = 0
+    nonisolated(unsafe) private var filterTextObserver: NSObjectProtocol?
 
     var detailContentGeneration: UInt64 { cachedDetailContentGeneration }
+
+    deinit {
+        if let filterTextObserver {
+            NotificationCenter.default.removeObserver(filterTextObserver)
+        }
+    }
 
     func refreshDetailContentGeneration() async {
         cachedDetailContentGeneration = await module.detailContentRevision()
@@ -180,9 +187,9 @@ final class NotesDetailView: NSObject, ModuleDetailView {
         viewModeControl.setLabel(L10n.tr("notes.viewMode.tree"), forSegment: 0)
         viewModeControl.setLabel(L10n.tr("notes.viewMode.map"), forSegment: 1)
         viewModeControl.selectedSegment = 0
-        viewModeControl.segmentStyle = .rounded
         viewModeControl.target = self
         viewModeControl.action = #selector(viewModeChanged)
+        viewModeControl.refreshCachedIntrinsicSize()
         viewModeControl.isHidden = true
         viewModeControl.translatesAutoresizingMaskIntoConstraints = false
 
@@ -198,7 +205,12 @@ final class NotesDetailView: NSObject, ModuleDetailView {
         filterField.target = self
         filterField.action = #selector(filterChanged)
         filterField.translatesAutoresizingMaskIntoConstraints = false
-        NotificationCenter.default.addObserver(self, selector: #selector(filterTextDidChange(_:)), name: NSControl.textDidChangeNotification, object: filterField)
+        filterTextObserver = LumaNotificationCenter.observe(
+            name: NSControl.textDidChangeNotification,
+            object: filterField
+        ) { [weak self] in
+            self?.applyFilter()
+        }
 
         emptyStateButton.title = "Set Notes Root…"
         GeekUIKit.styleSecondaryButton(emptyStateButton)
@@ -228,8 +240,9 @@ final class NotesDetailView: NSObject, ModuleDetailView {
         GeekUIKit.wireVerticalListScroll(
             scrollView,
             documentView: outlineView,
-            observer: self,
-            onClipViewResize: #selector(resizeOutlineColumn)
+            onClipViewResize: { [weak self] in
+                self?.resizeOutlineColumn()
+            }
         )
         scrollView.translatesAutoresizingMaskIntoConstraints = false
 
@@ -692,10 +705,6 @@ final class NotesDetailView: NSObject, ModuleDetailView {
     }
 
     @objc private func filterChanged() {
-        applyFilter()
-    }
-
-    @objc private func filterTextDidChange(_ note: Notification) {
         applyFilter()
     }
 

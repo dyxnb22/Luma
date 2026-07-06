@@ -1,4 +1,4 @@
-import AppKit
+@preconcurrency import AppKit
 import LumaCore
 
 /// Light glass chrome for the launcher panel — native frosted surface, not heavy liquid glass.
@@ -69,7 +69,7 @@ enum LauncherPanelChrome {
         overlay.layer?.addSublayer(depth)
     }
 
-    static func layoutChromeLayers(on view: NSView) {
+  nonisolated static func layoutChromeLayers(on view: NSView) {
         guard let overlay = chromeOverlay(in: view) else { return }
         let bounds = overlay.bounds
         overlay.layer?.sublayers?
@@ -80,11 +80,11 @@ enum LauncherPanelChrome {
             .frame = bounds
     }
 
-    static func layoutSheen(on view: NSView) {
+    nonisolated static func layoutSheen(on view: NSView) {
         layoutChromeLayers(on: view)
     }
 
-    private static func chromeOverlay(in view: NSView) -> NSView? {
-        view.subviews.first { $0.identifier?.rawValue == overlayIdentifier }
+    nonisolated private static func chromeOverlay(in view: NSView) -> NSView? {
+        view.subviews.first { $0.identifier?.rawValue == "launcherChromeOverlay" }
     }
 }

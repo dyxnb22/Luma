@@ -1,4 +1,4 @@
-import AppKit
+@preconcurrency import AppKit
 import LumaCore
 import LumaModules
 
@@ -11,13 +11,13 @@ enum LauncherModuleLabel {
     }
 }
 
-@MainActor
+// AppKit delivers layout/draw/mouse callbacks without Swift MainActor executor — do not isolate this control.
 final class LauncherListRow: NSControl {
-    private var item: ResultItem
+    nonisolated(unsafe) private var item: ResultItem
     private let moduleLabel: String
-    private var onRun: (ResultItem) -> Void
-    private var onRightClick: ((ResultItem) -> Void)?
-    private var onHover: (() -> Void)?
+    nonisolated(unsafe) private var onRun: (ResultItem) -> Void
+    nonisolated(unsafe) private var onRightClick: ((ResultItem) -> Void)?
+    nonisolated(unsafe) private var onHover: (() -> Void)?
     private let treeGuideView = ListTreeGuideView()
     private let iconView = NSImageView()
     private let titleLabel = NSTextField(labelWithString: "")
@@ -27,10 +27,10 @@ final class LauncherListRow: NSControl {
     private let returnHint = NSTextField(labelWithString: "↩")
     private let backgroundView = NSView()
     private var selectionAccentLayer: CALayer?
-    private var isSelected = false
-    private var isHovered = false
-    private var hidesTrailingModuleLabel = false
-    private var compactColumn = false
+    nonisolated(unsafe) private var isSelected = false
+    nonisolated(unsafe) private var isHovered = false
+    nonisolated(unsafe) private var hidesTrailingModuleLabel = false
+    nonisolated(unsafe) private var compactColumn = false
     private var trackingArea: NSTrackingArea?
 
     init(
@@ -82,28 +82,33 @@ final class LauncherListRow: NSControl {
         fatalError("init(coder:) has not been implemented")
     }
 
-    override func mouseDown(with event: NSEvent) {
-        if event.type == .rightMouseDown || event.modifierFlags.contains(.control) {
-            onRightClick?(item)
-            return
+    nonisolated override func mouseDown(with event: NSEvent) {
+        Task { @MainActor in
+            if event.type == .rightMouseDown || event.modifierFlags.contains(.control) {
+                self.onRightClick?(self.item)
+                return
+            }
+            self.onRun(self.item)
         }
-        onRun(item)
     }
 
-    override func rightMouseDown(with event: NSEvent) {
-        onRightClick?(item)
+    nonisolated override func rightMouseDown(with event: NSEvent) {
+        Task { @MainActor in self.onRightClick?(self.item) }
     }
 
+    @MainActor
     func setHidesTrailingModuleLabel(_ hidden: Bool) {
         hidesTrailingModuleLabel = hidden
         trailingLabel.isHidden = hidden || isSelected || item.listNest != .none
     }
 
+    @MainActor
     func setCompactColumn(_ compact: Bool) {
         compactColumn = compact
         setSelected(isSelected)
     }
 
+    @MainActor
     func setSelected(_ selected: Bool) {
         isSelected = selected
         let showsHint = selected && item.rowKind != .informational && !compactColumn
@@ -113,6 +118,7 @@ final class LauncherListRow: NSControl {
         refreshRowAppearance()
     }
 
+    @MainActor
     func update(
         item: ResultItem,
         isSelected: Bool,
@@ -164,7 +170,7 @@ final class LauncherListRow: NSControl {
         }
     }
 
-    override func updateTrackingAreas() {
+    nonisolated override func updateTrackingAreas() {
         super.updateTrackingAreas()
         if let trackingArea { removeTrackingArea(trackingArea) }
         let area = NSTrackingArea(
@@ -177,20 +183,24 @@ final class LauncherListRow: NSControl {
         trackingArea = area
     }
 
-    override func mouseEntered(with event: NSEvent) {
-        isHovered = true
-        onHover?()
-        refreshRowAppearance()
+    nonisolated override func mouseEntered(with event: NSEvent) {
+        Task { @MainActor in
+            self.isHovered = true
+            self.onHover?()
+            self.refreshRowAppearance()
+        }
     }
 
-    override func mouseExited(with event: NSEvent) {
-        isHovered = false
-        refreshRowAppearance()
+    nonisolated override func mouseExited(with event: NSEvent) {
+        Task { @MainActor in
+            self.isHovered = false
+            self.refreshRowAppearance()
+        }
     }
 
-    override func viewDidChangeEffectiveAppearance() {
+    nonisolated override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
-        applyLabelColors()
+        Task { @MainActor in self.applyLabelColors() }
     }
 
     private func applyLabelColors() {
@@ -224,11 +234,12 @@ final class LauncherListRow: NSControl {
         }
     }
 
-    override func layout() {
+    nonisolated override func layout() {
         super.layout()
         backgroundView.geekLayoutAccentLayers()
     }
 
+    @MainActor
     @objc private func run() {
         onRun(item)
     }
@@ -404,13 +415,12 @@ final class LauncherListRow: NSControl {
     }
 }
 
-@MainActor
 private final class ListTreeGuideView: NSView {
-    var isLast = false
+    nonisolated(unsafe) var isLast = false
 
     override var isFlipped: Bool { true }
 
-    override func draw(_ dirtyRect: NSRect) {
+    nonisolated override func draw(_ dirtyRect: NSRect) {
         let stroke = NSColor.separatorColor.withAlphaComponent(0.55)
         stroke.setStroke()
 
@@ -432,7 +442,6 @@ private final class ListTreeGuideView: NSView {
     }
 }
 
-@MainActor
 final class LauncherSectionHeaderView: NSView {
     private let titleLabel = NSTextField(labelWithString: "")
     private let shortcutLabel = NSTextField(labelWithString: "")
@@ -488,7 +497,6 @@ final class LauncherSectionHeaderView: NSView {
     }
 }
 
-@MainActor
 final class LauncherPlaceholderRow: NSView {
     private let label = NSTextField(labelWithString: "")
 

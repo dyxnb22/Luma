@@ -1,6 +1,38 @@
-import AppKit
+@preconcurrency import AppKit
 import LumaCore
+import ObjectiveC
 
+/// Holds a clip-view resize observer token for `wireVerticalListScroll`.
+private final class ScrollClipResizeObserver {
+    private let token: NSObjectProtocol
+
+    init(scrollView: NSScrollView, handler: @escaping @MainActor () -> Void) {
+        token = NotificationCenter.default.addObserver(
+            forName: NSView.frameDidChangeNotification,
+            object: scrollView,
+            queue: nil
+        ) { _ in
+            Task { @MainActor in
+                handler()
+            }
+        }
+    }
+
+    deinit {
+        NotificationCenter.default.removeObserver(token)
+    }
+}
+
+private enum ScrollClipObserverAssociation {
+    nonisolated(unsafe) static var key: UInt8 = 0
+}
+
+private extension NSScrollView {
+    var clipResizeObserver: ScrollClipResizeObserver? {
+        get { objc_getAssociatedObject(self, &ScrollClipObserverAssociation.key) as? ScrollClipResizeObserver }
+        set { objc_setAssociatedObject(self, &ScrollClipObserverAssociation.key, newValue, .OBJC_ASSOCIATION_RETAIN_NONATOMIC) }
+    }
+}
 /// Shared light-geek AppKit styling: glass panels, keycaps, action buttons, accent strips.
 @MainActor
 enum GeekUIKit {
@@ -14,11 +46,11 @@ enum GeekUIKit {
         return strip
     }
 
-    static func layoutAccentStrip(_ strip: CALayer, in bounds: CGRect) {
+    nonisolated static func layoutAccentStrip(_ strip: CALayer, in bounds: CGRect) {
         strip.frame = CGRect(
             x: 0,
             y: 0,
-            width: GeekStyleTokens.accentStripWidth,
+            width: 4,
             height: bounds.height
         )
     }
@@ -38,11 +70,11 @@ enum GeekUIKit {
         return strip
     }
 
-    static func layoutSidebarAccent(_ strip: CALayer, in bounds: CGRect) {
+    nonisolated static func layoutSidebarAccent(_ strip: CALayer, in bounds: CGRect) {
         strip.frame = CGRect(
             x: 3,
             y: 8,
-            width: GeekStyleTokens.sidebarAccentWidth,
+            width: 2,
             height: max(0, bounds.height - 16)
         )
     }
@@ -192,8 +224,8 @@ enum GeekUIKit {
 
     private static let contentSurfaceChromeID = "geekContentSurface"
 
-    static func contentSurfaceChrome(in view: NSView) -> NSView? {
-        view.subviews.first { $0.identifier?.rawValue == contentSurfaceChromeID }
+    nonisolated static func contentSurfaceChrome(in view: NSView) -> NSView? {
+        view.subviews.first { $0.identifier?.rawValue == "geekContentSurface" }
     }
 
     static func configureContentSurface(_ view: NSView) {
@@ -478,11 +510,11 @@ enum GeekUIKit {
     }
 
     /// Wires a detail table/outline scroll view and resyncs the document frame when the clip view resizes.
+    /// AppKit posts frame notifications off the Swift MainActor; hop before touching UI state.
     static func wireVerticalListScroll(
         _ scrollView: NSScrollView,
         documentView: NSView,
-        observer: NSObject,
-        onClipViewResize selector: Selector
+        onClipViewResize: @escaping @MainActor () -> Void
     ) {
         scrollView.documentView = documentView
         if let outlineView = documentView as? NSOutlineView {
@@ -492,11 +524,9 @@ enum GeekUIKit {
         }
         configureVerticalListScroll(scrollView)
         scrollView.contentView.postsBoundsChangedNotifications = true
-        NotificationCenter.default.addObserver(
-            observer,
-            selector: selector,
-            name: NSView.frameDidChangeNotification,
-            object: scrollView
+        scrollView.clipResizeObserver = ScrollClipResizeObserver(
+            scrollView: scrollView,
+            handler: onClipViewResize
         )
     }
 
@@ -566,7 +596,7 @@ enum GeekUIKit {
 }
 
 extension NSView {
-    func geekLayoutAccentLayers() {
+    nonisolated func geekLayoutAccentLayers() {
         guard let sublayers = layer?.sublayers else { return }
         for sublayer in sublayers where sublayer.name == "geekAccentStrip" {
             GeekUIKit.layoutAccentStrip(sublayer, in: bounds)
@@ -577,8 +607,145 @@ extension NSView {
     }
 }
 
-@MainActor
+/// AppKit-only segmented control that avoids `NSSegmentedControl`.
+/// macOS 26 routes `NSSegmentedControl` sizing/layout through DesignLibrary SwiftUI, and AppKit may
+/// call those Objective-C entry points on the main thread without Swift's MainActor executor.
+/// Keep this as a self-drawing `NSControl` so launcher show/hide never enters that crash-prone path.
+final class LauncherSegmentedControl: NSControl {
+    nonisolated(unsafe) var trackingMode: NSSegmentedControl.SwitchTracking = .selectOne
+    private nonisolated(unsafe) var cachedIntrinsicSize = NSSize(width: 80, height: 28)
+    private nonisolated(unsafe) var labels: [String] = []
+    private nonisolated(unsafe) var selectedIndex: Int = -1
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        wantsLayer = true
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    nonisolated var segmentCount: Int {
+        get { labels.count }
+        set {
+            let count = max(0, newValue)
+            if labels.count < count {
+                labels.append(contentsOf: Array(repeating: "", count: count - labels.count))
+            } else if labels.count > count {
+                labels.removeLast(labels.count - count)
+            }
+            if selectedIndex >= count {
+                selectedIndex = count - 1
+            }
+            refreshCachedIntrinsicSize()
+            needsDisplay = true
+        }
+    }
+
+    nonisolated var selectedSegment: Int {
+        get { selectedIndex }
+        set {
+            selectedIndex = labels.indices.contains(newValue) ? newValue : -1
+            needsDisplay = true
+        }
+    }
+
+    nonisolated func setLabel(_ label: String, forSegment segment: Int) {
+        guard labels.indices.contains(segment) else { return }
+        labels[segment] = label
+        refreshCachedIntrinsicSize()
+        needsDisplay = true
+    }
+
+    nonisolated func label(forSegment segment: Int) -> String? {
+        guard labels.indices.contains(segment) else { return nil }
+        return labels[segment]
+    }
+
+    nonisolated func refreshCachedIntrinsicSize() {
+        let font = font ?? NSFont.systemFont(ofSize: NSFont.smallSystemFontSize)
+        var width: CGFloat = 8
+        for title in labels {
+            width += ceil((title as NSString).size(withAttributes: [.font: font]).width) + 20
+        }
+        cachedIntrinsicSize = NSSize(width: max(width, 80), height: 28)
+        invalidateIntrinsicContentSize()
+    }
+
+    nonisolated override var intrinsicContentSize: NSSize {
+        cachedIntrinsicSize
+    }
+
+    nonisolated override func mouseDown(with event: NSEvent) {
+        guard !labels.isEmpty else { return }
+        let point = convert(event.locationInWindow, from: nil)
+        guard bounds.contains(point) else { return }
+        let index = min(max(Int(point.x / max(bounds.width / CGFloat(labels.count), 1)), 0), labels.count - 1)
+        selectedSegment = index
+        Task { @MainActor [weak self] in
+            guard let self, let action = self.action else { return }
+            NSApp.sendAction(action, to: self.target, from: self)
+        }
+    }
+
+    nonisolated override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+        guard !labels.isEmpty else { return }
+
+        let rect = bounds.insetBy(dx: 0.5, dy: 0.5)
+        let outer = NSBezierPath(roundedRect: rect, xRadius: 7, yRadius: 7)
+        NSColor.controlBackgroundColor.withAlphaComponent(0.75).setFill()
+        outer.fill()
+        NSColor.separatorColor.withAlphaComponent(0.45).setStroke()
+        outer.lineWidth = 1
+        outer.stroke()
+
+        let segmentWidth = bounds.width / CGFloat(labels.count)
+        let font = font ?? NSFont.systemFont(ofSize: NSFont.smallSystemFontSize, weight: .medium)
+        for (index, title) in labels.enumerated() {
+            let segmentRect = NSRect(
+                x: bounds.minX + CGFloat(index) * segmentWidth,
+                y: bounds.minY,
+                width: segmentWidth,
+                height: bounds.height
+            ).insetBy(dx: 2, dy: 2)
+
+            if index == selectedIndex {
+                NSColor.controlAccentColor.withAlphaComponent(0.18).setFill()
+                NSBezierPath(roundedRect: segmentRect, xRadius: 5, yRadius: 5).fill()
+            }
+
+            if index > 0 {
+                NSColor.separatorColor.withAlphaComponent(0.35).setStroke()
+                let divider = NSBezierPath()
+                divider.move(to: NSPoint(x: segmentRect.minX - 2, y: bounds.minY + 5))
+                divider.line(to: NSPoint(x: segmentRect.minX - 2, y: bounds.maxY - 5))
+                divider.lineWidth = 1
+                divider.stroke()
+            }
+
+            let color: NSColor = index == selectedIndex ? .controlAccentColor : .secondaryLabelColor
+            let attributes: [NSAttributedString.Key: Any] = [
+                .font: font,
+                .foregroundColor: color
+            ]
+            let size = (title as NSString).size(withAttributes: attributes)
+            let drawRect = NSRect(
+                x: segmentRect.midX - size.width / 2,
+                y: segmentRect.midY - size.height / 2,
+                width: size.width,
+                height: size.height
+            )
+            (title as NSString).draw(in: drawRect, withAttributes: attributes)
+        }
+    }
+}
+
+// AppKit display cycle calls layout() without Swift MainActor executor — do not isolate this view.
 final class GeekGlassPanel: NSView {
+    @MainActor
     init(accentHex: String?) {
         super.init(frame: .zero)
         translatesAutoresizingMaskIntoConstraints = false
@@ -593,7 +760,7 @@ final class GeekGlassPanel: NSView {
         fatalError("init(coder:) has not been implemented")
     }
 
-    override func layout() {
+    nonisolated override func layout() {
         super.layout()
         GeekUIKit.contentSurfaceChrome(in: self)?.geekLayoutAccentLayers()
     }

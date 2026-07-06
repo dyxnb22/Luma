@@ -20,6 +20,7 @@ final class QuicklinksDetailView: NSObject, ModuleDetailView {
     private var quicklinks: [Quicklink] = []
     private var refreshTask: Task<Void, Never>?
     private var pendingDraft: URLQuicklinkDraft?
+    nonisolated(unsafe) private var editorObservers: [NSObjectProtocol] = []
 
     init(module: QuicklinksModule) {
         self.module = module
@@ -27,6 +28,12 @@ final class QuicklinksDetailView: NSObject, ModuleDetailView {
         self.detailView = chrome
         super.init()
         setup(chrome: chrome)
+    }
+
+    deinit {
+        for token in editorObservers {
+            NotificationCenter.default.removeObserver(token)
+        }
     }
 
     func activate() {
@@ -94,8 +101,9 @@ final class QuicklinksDetailView: NSObject, ModuleDetailView {
         GeekUIKit.wireVerticalListScroll(
             tableScroll,
             documentView: tableView,
-            observer: self,
-            onClipViewResize: #selector(syncListScrollDocumentFrame)
+            onClipViewResize: { [weak self] in
+                self?.syncListScrollDocumentFrame()
+            }
         )
 
         let editor = NSGridView(views: [
@@ -124,7 +132,13 @@ final class QuicklinksDetailView: NSObject, ModuleDetailView {
         for field in [nameField, triggerField, urlField, openWithField] {
             field.target = self
             field.action = #selector(editorChanged)
-            NotificationCenter.default.addObserver(self, selector: #selector(editorChanged), name: NSTextField.textDidChangeNotification, object: field)
+            let token = LumaNotificationCenter.observe(
+                name: NSTextField.textDidChangeNotification,
+                object: field
+            ) { [weak self] in
+                self?.editorChanged()
+            }
+            editorObservers.append(token)
         }
 
         let split = NSSplitView()

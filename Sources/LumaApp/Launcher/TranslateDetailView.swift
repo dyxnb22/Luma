@@ -1,4 +1,4 @@
-import AppKit
+@preconcurrency import AppKit
 import LumaCore
 import LumaInfrastructure
 import LumaServices
@@ -48,6 +48,7 @@ final class TranslateDetailView: ModuleDetailView {
     private var languageChipButtons: [NSButton] = []
     private var translationStartedAt: CFAbsoluteTime?
     private var lastLatencyMS: Int?
+    nonisolated(unsafe) private var inputTextObserver: NSObjectProtocol?
     private let onOpenTranslationSettings: (() -> Void)?
     private let onHideLauncher: (() -> Void)?
 
@@ -250,16 +251,18 @@ final class TranslateDetailView: ModuleDetailView {
         inputTextView.onCommandReturn = { [weak self] in self?.performTranslation() }
         outputTextView.onCommandC = { [weak self] in self?.copyResult() }
 
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(inputChanged),
+        inputTextObserver = LumaNotificationCenter.observe(
             name: NSText.didChangeNotification,
             object: inputTextView
-        )
+        ) { [weak self] in
+            self?.inputChanged()
+        }
     }
 
     deinit {
-        NotificationCenter.default.removeObserver(self)
+        if let inputTextObserver {
+            NotificationCenter.default.removeObserver(inputTextObserver)
+        }
     }
 
     private func buildToolbar() -> NSView {
@@ -768,21 +771,22 @@ private enum TranslationUIState: Equatable {
 }
 
 private final class TranslateInputTextView: NSTextView {
-    var onCommandReturn: (() -> Void)?
-    var placeholderString = ""
+    nonisolated(unsafe) var onCommandReturn: (() -> Void)?
+    nonisolated(unsafe) var placeholderString = ""
 
-    private var placeholderAttributes: [NSAttributedString.Key: Any] {
+    nonisolated private var placeholderAttributes: [NSAttributedString.Key: Any] {
         [
             .font: font ?? NSFont.systemFont(ofSize: 14),
             .foregroundColor: NSColor.placeholderTextColor
         ]
     }
 
+    @MainActor
     func refreshPlaceholder() {
         needsDisplay = true
     }
 
-    override func draw(_ dirtyRect: NSRect) {
+    nonisolated override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
         guard string.isEmpty, !placeholderString.isEmpty else { return }
         let padding = textContainer?.lineFragmentPadding ?? 0
@@ -798,19 +802,23 @@ private final class TranslateInputTextView: NSTextView {
         placeholderString.draw(with: rect, options: [.usesLineFragmentOrigin, .usesFontLeading], attributes: placeholderAttributes)
     }
 
-    override var string: String {
-        didSet { needsDisplay = true }
+    nonisolated override var string: String {
+        get { super.string }
+        set {
+            super.string = newValue
+            needsDisplay = true
+        }
     }
 
-    override func didChangeText() {
+    nonisolated override func didChangeText() {
         super.didChangeText()
         needsDisplay = true
     }
 
-    override func keyDown(with event: NSEvent) {
+    nonisolated override func keyDown(with event: NSEvent) {
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         if flags.contains(.command), event.charactersIgnoringModifiers == "\r" {
-            onCommandReturn?()
+            Task { @MainActor in self.onCommandReturn?() }
             return
         }
         if event.keyCode == 36 || event.keyCode == 76 {
@@ -818,7 +826,7 @@ private final class TranslateInputTextView: NSTextView {
                 super.keyDown(with: event)
                 return
             }
-            onCommandReturn?()
+            Task { @MainActor in self.onCommandReturn?() }
             return
         }
         super.keyDown(with: event)
@@ -826,12 +834,12 @@ private final class TranslateInputTextView: NSTextView {
 }
 
 private final class TranslateOutputTextView: NSTextView {
-    var onCommandC: (() -> Void)?
+    nonisolated(unsafe) var onCommandC: (() -> Void)?
 
-    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+    nonisolated override func performKeyEquivalent(with event: NSEvent) -> Bool {
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         if flags.contains(.command), event.charactersIgnoringModifiers?.lowercased() == "c" {
-            onCommandC?()
+            Task { @MainActor in self.onCommandC?() }
             return true
         }
         return super.performKeyEquivalent(with: event)

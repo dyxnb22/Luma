@@ -41,6 +41,7 @@ final class LauncherRootController {
     private lazy var snapshotApplyCoalescer = LauncherSnapshotApplyCoalescer { [weak self] snapshot in
         self?.apply(snapshot: snapshot)
     }
+    private var restoreGeneration: UInt = 0
     private var querySyncGraceUntil: ContinuousClock.Instant?
 
     init(
@@ -416,6 +417,11 @@ final class LauncherRootController {
         handleTextChange(searchBar.stringValue)
     }
 
+    func cancelPendingRestore() {
+        restoreGeneration &+= 1
+        snapshotApplyCoalescer.cancel()
+    }
+
     func restoreLastSessionIfNeeded() {
         guard ProcessInfo.processInfo.environment["LUMA_QA"] != "1" else { return }
         if contentCoordinator.showingDetail {
@@ -423,9 +429,11 @@ final class LauncherRootController {
             return
         }
         guard searchBar.stringValue.isEmpty else { return }
+        let generation = restoreGeneration
         Task {
             let persisted = await sessionStore.loadPersistedSession()
             await MainActor.run {
+                guard self.restoreGeneration == generation else { return }
                 self.applyRestore(
                     moduleRaw: persisted.moduleRaw,
                     query: persisted.query,

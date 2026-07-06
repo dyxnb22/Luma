@@ -1,19 +1,19 @@
-import AppKit
+@preconcurrency import AppKit
 import LumaCore
 import LumaModules
 
-@MainActor
 final class ActivitySparklineView: NSView {
-    private var buckets: [PersistentUsageTracker.ActivityBucket] = []
+    nonisolated(unsafe) private var buckets: [PersistentUsageTracker.ActivityBucket] = []
 
     override var isFlipped: Bool { true }
 
+    @MainActor
     func apply(buckets: [PersistentUsageTracker.ActivityBucket]) {
         self.buckets = buckets
         needsDisplay = true
     }
 
-    override func draw(_ dirtyRect: NSRect) {
+    nonisolated override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
         guard !buckets.isEmpty else { return }
         let maxCount = max(buckets.map(\.count).max() ?? 1, 1)

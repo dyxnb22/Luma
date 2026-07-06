@@ -30,17 +30,30 @@ public enum WarmupPolicy: String, Sendable, Codable, CaseIterable {
 }
 
 public enum ModuleWarmupDefaults {
-    public static let defaultPinnedModuleIDs: Set<ModuleIdentifier> = [
+    /// MVP modules enabled on fresh install (matches manifest `defaultEnabled` today).
+    public static let defaultEnabledModuleIDs: Set<ModuleIdentifier> = [
         ModuleIdentifier(rawValue: "luma.apps"),
         ModuleIdentifier(rawValue: "luma.clipboard"),
         ModuleIdentifier(rawValue: "luma.snippets"),
-        ModuleIdentifier(rawValue: "luma.secrets"),
         ModuleIdentifier(rawValue: "luma.todo"),
         ModuleIdentifier(rawValue: "luma.translate"),
-        ModuleIdentifier(rawValue: "luma.wordbook"),
-        ModuleIdentifier(rawValue: "luma.window-layouts"),
-        ModuleIdentifier(rawValue: "luma.kill-process"),
+        ModuleIdentifier(rawValue: "luma.notes"),
         ModuleIdentifier(rawValue: "luma.quicklinks")
+    ]
+
+    public static let defaultPinnedModuleIDs: Set<ModuleIdentifier> = defaultEnabledModuleIDs
+
+    /// Expert modules default-off since D-012; trimmed on enabledModules schema v2 migration.
+    public static let expertDefaultOffModuleIDs: Set<ModuleIdentifier> = [
+        ModuleIdentifier(rawValue: "luma.menu-items"),
+        ModuleIdentifier(rawValue: "luma.window-layouts"),
+        ModuleIdentifier(rawValue: "luma.wordbook"),
+        ModuleIdentifier(rawValue: "luma.secrets"),
+        ModuleIdentifier(rawValue: "luma.kill-process"),
+        ModuleIdentifier(rawValue: "luma.projects"),
+        ModuleIdentifier(rawValue: "luma.media"),
+        ModuleIdentifier(rawValue: "luma.browser-tabs"),
+        ModuleIdentifier(rawValue: "luma.commands")
     ]
 }
 
@@ -49,7 +62,6 @@ public enum GlobalSearchTiers {
     public static let fastModuleIDs: Set<ModuleIdentifier> = [
         ModuleIdentifier(rawValue: "luma.apps"),
         ModuleIdentifier(rawValue: "luma.quicklinks"),
-        ModuleIdentifier(rawValue: "luma.kill-process"),
         ModuleIdentifier(rawValue: "luma.snippets")
     ]
 

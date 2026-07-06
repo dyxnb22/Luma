@@ -10,7 +10,7 @@ public enum ProjectOpenerRunner {
         case .vscode:
             try await runCLI(named: "code", arguments: [path], bundleID: "com.microsoft.VSCode", workspace: workspace)
         case .finder:
-            await workspace.revealInFinder(url)
+            try await workspace.revealInFinder(url)
         case .terminal:
             let process = Process()
             process.executableURL = URL(fileURLWithPath: "/usr/bin/open")

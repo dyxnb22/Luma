@@ -4,10 +4,9 @@ import Foundation
 
 /// Shadow session reducer for launcher axes (panel / content / detail).
 ///
-/// `LauncherRootController` is still the authority for UI side effects; events recorded here
-/// are observability and guard rails only — returned `LauncherSessionEffect` values are not
-/// routed to an effect executor yet. Illegal transitions are no-ops until a later pass
-/// centralizes session driving.
+/// `LauncherRootController` applies returned `LauncherSessionEffect` values via `LauncherSessionEffectApplier`.
+/// Detail search-field suspend/restore is owned by `LauncherDetailPresenter.enterDetailContext` and
+/// `exitDetailFromChrome` / `LumaSearchBar.endDetailMode` — not by this reducer.
 
 public enum LauncherPanelPhase: Equatable, Sendable {
     case hidden
@@ -48,8 +47,6 @@ public enum LauncherSessionEvent: Equatable, Sendable {
 
 public enum LauncherSessionEffect: Equatable, Sendable {
     case cancelAllTasks
-    case suspendSearchField(String?)
-    case restoreSearchField(String?)
     case clearDetailModeState
 }
 
@@ -121,12 +118,12 @@ public struct LauncherSessionState: Equatable, Sendable {
             guard case .inactive = detailMode else { return [] }
             detailMode = .active(suspendedQuery: nil)
             content = .detail(moduleID)
-            return [.suspendSearchField(nil)]
+            return []
 
         case .detailOpened(let moduleID, let suspended):
             content = .detail(moduleID)
             detailMode = .active(suspendedQuery: suspended)
-            return [.suspendSearchField(suspended)]
+            return []
 
         case .detailExitRequested(let outcome):
             guard isDetailActive else { return [] }
@@ -138,7 +135,7 @@ public struct LauncherSessionState: Equatable, Sendable {
             if case .detail = content {
                 content = .home
             }
-            return [.clearDetailModeState, .restoreSearchField(nil)]
+            return [.clearDetailModeState]
 
         case .userTypedInDetail:
             guard isDetailActive else { return [] }

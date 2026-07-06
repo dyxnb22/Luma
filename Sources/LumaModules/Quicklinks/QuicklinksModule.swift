@@ -52,16 +52,16 @@ public actor QuicklinksModule: LumaModule {
             if let bundleID {
                 await context.platform.workspace.openApplication(bundleID: bundleID, arguments: [expansion.url.absoluteString])
             } else {
-                await context.platform.workspace.openURL(expansion.url)
+                try await context.platform.workspace.openURL(expansion.url)
             }
         case .copy(let id, let query):
             guard let quicklink = cachedQuicklinks.first(where: { $0.id == id }),
                   let expansion = await expandForPerform(quicklink, query: query, context: context) else {
                 throw ModuleError.dataUnavailable
             }
-            await context.platform.pasteboard.write(expansion.urlString)
+            try await context.platform.pasteboard.write(expansion.urlString)
         case .revealConfig:
-            await context.platform.workspace.revealInFinder(await store.configFileURL())
+            try await context.platform.workspace.revealInFinder(await store.configFileURL())
         case .prepareDraft:
             break
         }

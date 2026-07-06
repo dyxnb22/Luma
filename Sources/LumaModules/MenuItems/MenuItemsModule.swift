@@ -11,7 +11,7 @@ public actor MenuItemsModule: LumaModule {
         identifier: .menuItems,
         displayName: "Menu Bar Search",
         capabilities: [.queryable, .providesActions, .backgroundUpdater],
-        defaultEnabled: true,
+        defaultEnabled: false,
         priority: 3,
         queryTimeout: .milliseconds(800)
     )

@@ -1,14 +1,19 @@
 import Foundation
+import LumaCore
 
 public actor ProjectStore {
     private let fileURL: URL
     private let fileManager: FileManager
     private var config: ProjectsConfig
 
+    private var lastLoadWasCorrupt = false
+
     public init(fileURL: URL = ProjectStore.defaultFileURL, fileManager: FileManager = .default) {
         self.fileURL = fileURL
         self.fileManager = fileManager
-        self.config = Self.load(from: fileURL)
+        let result = JSONConfigPersistence.load(from: fileURL, fallback: ProjectsConfig.empty, fileManager: fileManager)
+        self.config = result.value
+        self.lastLoadWasCorrupt = result.wasCorrupt
     }
 
     public static var defaultFileURL: URL {
@@ -21,11 +26,12 @@ public actor ProjectStore {
         config
     }
 
+    public func loadWasCorrupt() -> Bool {
+        lastLoadWasCorrupt
+    }
+
     public func save(_ updated: ProjectsConfig) throws {
-        let directory = fileURL.deletingLastPathComponent()
-        try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
-        let data = try JSONEncoder().encode(updated)
-        try data.write(to: fileURL, options: .atomic)
+        try JSONConfigPersistence.save(updated, to: fileURL, fileManager: fileManager)
         config = updated
     }
 
@@ -80,11 +86,5 @@ public actor ProjectStore {
 
     public func configFileURL() -> URL {
         fileURL
-    }
-
-    private static func load(from url: URL) -> ProjectsConfig {
-        guard let data = try? Data(contentsOf: url) else { return .empty }
-        guard let config = try? JSONDecoder().decode(ProjectsConfig.self, from: data) else { return .empty }
-        return config
     }
 }

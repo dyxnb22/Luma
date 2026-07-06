@@ -298,6 +298,7 @@ public actor WorkbenchActivityStore {
     }
 
     private static func loadEntries(from fileURL: URL) -> (entries: [WorkbenchActivityEntry], migrated: Bool) {
+        guard FileManager.default.fileExists(atPath: fileURL.path) else { return ([], false) }
         guard let data = try? Data(contentsOf: fileURL) else { return ([], false) }
         let decoder = JSONDecoder()
         if let envelope = try? decoder.decode(WorkbenchActivityEnvelope.self, from: data) {
@@ -313,6 +314,9 @@ public actor WorkbenchActivityStore {
             let migrated = migrateEntries(legacy.entries)
             return (migrated, true)
         }
+        _ = JSONConfigPersistence.quarantineCorruptFile(at: fileURL)
+        ConfigCorruptionRegistry.record(fileName: fileURL.lastPathComponent)
+        CrashLogRecording.record("config.corrupt file=\(fileURL.lastPathComponent)")
         return ([], false)
     }
 

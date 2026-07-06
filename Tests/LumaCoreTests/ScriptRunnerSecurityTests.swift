@@ -53,6 +53,20 @@ import Testing
     }
 }
 
+@Test func scriptRunnerSecurityRejectsSensitiveCWD() {
+    let home = FileManager.default.homeDirectoryForCurrentUser.path
+    #expect(throws: ScriptRunnerSecurityPolicy.ValidationError.self) {
+        try ScriptRunnerSecurityPolicy.validateWorkingDirectory("\(home)/.ssh")
+    }
+}
+
+@Test func scriptRunnerSecurityAllowsCommandsCWD() throws {
+    let home = FileManager.default.homeDirectoryForCurrentUser
+    let commandsDir = home.appendingPathComponent(".luma/commands", isDirectory: true)
+    try FileManager.default.createDirectory(at: commandsDir, withIntermediateDirectories: true)
+    try ScriptRunnerSecurityPolicy.validateWorkingDirectory(commandsDir.path)
+}
+
 @Test func scriptRunnerSecurityAllowsScriptInsideSymlinkedCommandsDir() throws {
     let home = FileManager.default.homeDirectoryForCurrentUser
     let realDir = home.appendingPathComponent(".luma/commands-real-\(UUID().uuidString)", isDirectory: true)

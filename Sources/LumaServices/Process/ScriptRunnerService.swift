@@ -34,11 +34,14 @@ public actor ScriptRunnerService: ScriptRunnerClient {
     private func execute(request: ScriptRunRequest, timeoutSeconds: Int) async -> ScriptRunResult {
         do {
             try ScriptRunnerSecurityPolicy.validateExecutable(request.executable)
+            if let cwd = request.workingDirectory, !cwd.isEmpty {
+                try ScriptRunnerSecurityPolicy.validateWorkingDirectory(cwd)
+            }
         } catch {
             return ScriptRunResult(
                 exitCode: -1,
                 stdoutTail: "",
-                stderrTail: "Executable not allowed: \(request.executable)",
+                stderrTail: "Script validation failed: \(error)",
                 timedOut: false
             )
         }
@@ -46,6 +49,20 @@ public actor ScriptRunnerService: ScriptRunnerClient {
         return await withCheckedContinuation { continuation in
             DispatchQueue.global(qos: .utility).async {
                 let process = Process()
+                do {
+                    try ScriptRunnerSecurityPolicy.validateExecutable(request.executable)
+                    if let cwd = request.workingDirectory, !cwd.isEmpty {
+                        try ScriptRunnerSecurityPolicy.validateWorkingDirectory(cwd)
+                    }
+                } catch {
+                    continuation.resume(returning: ScriptRunResult(
+                        exitCode: -1,
+                        stdoutTail: "",
+                        stderrTail: "Script validation failed: \(error)",
+                        timedOut: false
+                    ))
+                    return
+                }
                 process.executableURL = URL(fileURLWithPath: request.executable)
                 process.arguments = request.arguments
                 process.environment = environment

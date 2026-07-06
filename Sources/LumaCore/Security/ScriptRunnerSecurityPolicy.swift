@@ -9,6 +9,7 @@ public enum ScriptRunnerSecurityPolicy {
     public enum ValidationError: Error, Equatable, Sendable {
         case emptyExecutable
         case pathNotAllowed(String)
+        case notADirectory(String)
     }
 
     /// Returns allowed absolute paths: `~/.luma/commands` and Application Support commands dir.
@@ -38,6 +39,31 @@ public enum ScriptRunnerSecurityPolicy {
         }
         let isAllowed = allowed.contains { dir in
             resolved.path == dir.path || resolved.path.hasPrefix(dir.path + "/")
+        }
+        guard isAllowed else { throw ValidationError.pathNotAllowed(expanded) }
+    }
+
+    public static func defaultAllowedWorkingDirectories() -> [URL] {
+        defaultAllowedDirectories()
+    }
+
+    public static func validateWorkingDirectory(
+        _ path: String,
+        allowedDirectories: [URL] = defaultAllowedWorkingDirectories()
+    ) throws {
+        let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        let expanded = (trimmed as NSString).expandingTildeInPath
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: expanded, isDirectory: &isDirectory), isDirectory.boolValue else {
+            throw ValidationError.notADirectory(expanded)
+        }
+        let url = URL(fileURLWithPath: expanded).standardizedFileURL.resolvingSymlinksInPath().standardizedFileURL
+        let allowed = allowedDirectories.map {
+            $0.standardizedFileURL.resolvingSymlinksInPath().standardizedFileURL
+        }
+        let isAllowed = allowed.contains { dir in
+            url.path == dir.path || url.path.hasPrefix(dir.path + "/")
         }
         guard isAllowed else { throw ValidationError.pathNotAllowed(expanded) }
     }

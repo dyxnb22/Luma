@@ -191,12 +191,27 @@ public actor ConfigurationStore: ConfigurationClient {
     }
 
     private static let schemaVersionKey = "configSchemaVersion"
-    private static let currentSchemaVersion = 1
+    private static let currentSchemaVersion = 2
 
-    /// Bumps `configSchemaVersion` when defaults change. Add migration steps here as schema evolves.
+    /// Expert modules switched to default-off in D-012; trimmed on v2 migration unless pinned.
     public func migrateIfNeeded() async {
-        let version = defaults.integer(forKey: Self.schemaVersionKey)
-        guard version < Self.currentSchemaVersion else { return }
-        defaults.set(Self.currentSchemaVersion, forKey: Self.schemaVersionKey)
+        var version = defaults.integer(forKey: Self.schemaVersionKey)
+
+        if version < 1 {
+            defaults.set(1, forKey: Self.schemaVersionKey)
+            version = 1
+        }
+
+        if version < 2 {
+            await migrateEnabledModulesToV2()
+            defaults.set(2, forKey: Self.schemaVersionKey)
+        }
+    }
+
+    private func migrateEnabledModulesToV2() async {
+        guard let raw = defaults.stringArray(forKey: enabledModulesKey) else { return }
+        let stored = Set(raw.compactMap { ModuleIdentifier(rawValue: $0) })
+        let pinned = await pinnedModuleIDs()
+        setEnabledModules(EnabledModulesMigration.migratedEnabledSet(stored: stored, pinned: pinned))
     }
 }

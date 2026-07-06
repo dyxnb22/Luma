@@ -34,7 +34,18 @@ import LumaModules
     let router = CommandRouter(registry: BuiltInCommandRegistry.make())
     let commands = ModuleIdentifier(rawValue: "luma.commands")
     #expect(router.route(raw: "open-settings") == .targeted(module: commands, trigger: "open-settings", payload: ""))
-    #expect(router.route(raw: "quit") == .targeted(module: commands, trigger: "quit", payload: ""))
+}
+
+@Test func commandRouterQuitRoutesToKillProcess() {
+    let router = CommandRouter(registry: BuiltInCommandRegistry.make())
+    let killProcess = ModuleIdentifier(rawValue: "luma.kill-process")
+    #expect(router.route(raw: "quit") == .targeted(module: killProcess, trigger: "kill", payload: ""))
+}
+
+@Test func commandRouterExitRoutesToCommands() {
+    let router = CommandRouter(registry: BuiltInCommandRegistry.make())
+    let commands = ModuleIdentifier(rawValue: "luma.commands")
+    #expect(router.route(raw: "exit") == .targeted(module: commands, trigger: "exit", payload: ""))
 }
 
 @Test func globalHelpPrefersFrequentCommands() async {

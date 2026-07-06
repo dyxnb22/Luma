@@ -10,6 +10,8 @@ import LumaServices
 enum SettingsSection: String, CaseIterable, Identifiable {
     case general       = "General"
     case modules       = "Modules"
+    case notes         = "Notes"
+    case projects      = "Projects"
     case clipboard     = "Clipboard"
     case translation   = "Translation"
     case wordbook      = "Wordbook"
@@ -24,6 +26,8 @@ enum SettingsSection: String, CaseIterable, Identifiable {
         switch self {
         case .general:       return "gearshape"
         case .modules:       return "square.grid.2x2"
+        case .notes:         return "note.text"
+        case .projects:      return "folder"
         case .clipboard:     return "doc.on.clipboard"
         case .translation:   return "character.bubble"
         case .wordbook:      return "text.book.closed"
@@ -38,6 +42,8 @@ enum SettingsSection: String, CaseIterable, Identifiable {
         switch self {
         case .general:       return .gray
         case .modules:       return .blue
+        case .notes:         return .mint
+        case .projects:      return .teal
         case .clipboard:     return .orange
         case .translation:   return .cyan
         case .wordbook:      return .purple
@@ -60,6 +66,8 @@ struct SettingsSwiftUIView: View {
     let onClipboardSettingsChanged: @MainActor (SettingsSnapshot) -> Void
     let onSecretsSettingsChanged: @MainActor (Int, Int) -> Void
     let onLatencyHUDChanged: @MainActor (Bool) -> Void
+    let onNotesRootChosen: @MainActor (URL) -> Void
+    let onProjectsRootChosen: @MainActor (URL) -> Void
     private let initialSection: SettingsSection
 
     @State private var selected: SettingsSection?
@@ -73,6 +81,8 @@ struct SettingsSwiftUIView: View {
         onClipboardSettingsChanged: @escaping @MainActor (SettingsSnapshot) -> Void,
         onSecretsSettingsChanged: @escaping @MainActor (Int, Int) -> Void,
         onLatencyHUDChanged: @escaping @MainActor (Bool) -> Void,
+        onNotesRootChosen: @escaping @MainActor (URL) -> Void = { _ in },
+        onProjectsRootChosen: @escaping @MainActor (URL) -> Void = { _ in },
         initialSection: SettingsSection = .general
     ) {
         self.snapshot = snapshot
@@ -83,6 +93,8 @@ struct SettingsSwiftUIView: View {
         self.onClipboardSettingsChanged = onClipboardSettingsChanged
         self.onSecretsSettingsChanged = onSecretsSettingsChanged
         self.onLatencyHUDChanged = onLatencyHUDChanged
+        self.onNotesRootChosen = onNotesRootChosen
+        self.onProjectsRootChosen = onProjectsRootChosen
         self.initialSection = initialSection
         _selected = State(initialValue: initialSection)
     }
@@ -124,6 +136,10 @@ struct SettingsSwiftUIView: View {
                 onModulesChanged: onModulesChanged,
                 onPinnedChanged: onPinnedChanged
             )
+        case .notes:
+            NotesSettingsView(snapshot: snapshot, onChooseRoot: onNotesRootChosen)
+        case .projects:
+            ProjectsSettingsView(snapshot: snapshot, onAddRoot: onProjectsRootChosen)
         case .clipboard:
             ClipboardSettingsView(
                 snapshot: snapshot,
@@ -527,6 +543,61 @@ struct TranslationSettingsView: View {
 
             Text("This sets the default target in Translate detail. You can also switch per-session using the language chips in the Translate panel.")
                 .font(.caption).foregroundStyle(.secondary).padding(.horizontal, 2)
+        }
+    }
+}
+
+struct NotesSettingsView: View {
+    let snapshot: SettingsSnapshot
+    let onChooseRoot: @MainActor (URL) -> Void
+
+    var body: some View {
+        SettingsPage("Notes") {
+            SettingsCard("Notes root folder") {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(snapshot.notesRootPath ?? "No folder selected")
+                        .font(.system(size: 12, design: .monospaced))
+                        .foregroundStyle(snapshot.notesRootPath == nil ? .secondary : .primary)
+                        .textSelection(.enabled)
+                    Button("Choose root folder…") {
+                        if let url = SettingsFolderPicker.chooseDirectory() {
+                            onChooseRoot(url)
+                        }
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+    }
+}
+
+struct ProjectsSettingsView: View {
+    let snapshot: SettingsSnapshot
+    let onAddRoot: @MainActor (URL) -> Void
+
+    var body: some View {
+        SettingsPage("Projects") {
+            SettingsCard("Scan roots") {
+                VStack(alignment: .leading, spacing: 8) {
+                    if snapshot.projectScanRoots.isEmpty {
+                        Text("Add a folder to scan for git projects.")
+                            .font(.system(size: 12))
+                            .foregroundStyle(.secondary)
+                    } else {
+                        ForEach(snapshot.projectScanRoots, id: \.self) { root in
+                            Text(root)
+                                .font(.system(size: 11, design: .monospaced))
+                                .textSelection(.enabled)
+                        }
+                    }
+                    Button("Add scan root…") {
+                        if let url = SettingsFolderPicker.chooseDirectory() {
+                            onAddRoot(url)
+                        }
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
         }
     }
 }

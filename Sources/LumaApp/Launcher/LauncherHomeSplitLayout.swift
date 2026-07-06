@@ -150,12 +150,13 @@ final class LauncherHomeSplitLayout {
     /// Cross-fades the right column from module detail to the home command guide (ADR-032).
     func crossfadeFromDetailToGuide(
         commands: [CommandDefinition],
+        enabledModules: Set<ModuleIdentifier>,
         completion: @escaping @MainActor () -> Void
     ) {
         crossfadeGeneration &+= 1
         let generation = crossfadeGeneration
         rightPane = .guide
-        guidePane.applyCatalog(commands)
+        guidePane.applyCatalog(commands, enabledModules: enabledModules)
         let during = LauncherSplitCrossfadePolicy.duringAnimation(.detailToGuide)
         applyOverlayPaneState(during, guideAlpha: 0, detailAlpha: 1)
 

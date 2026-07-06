@@ -44,7 +44,7 @@ import Testing
     }
     let body = String(source[bodyStart..<bodyEnd.lowerBound])
     #expect(body.contains("isPanelActiveForQueryApply = false"))
-    #expect(body.contains("panelHideBegan"))
+    #expect(body.contains("applySessionEvent(.panelHideBegan)"))
 }
 
 @Test func finishPresentationGuardsPresentationGeneration() throws {
@@ -52,8 +52,8 @@ import Testing
         .deletingLastPathComponent()
         .deletingLastPathComponent()
         .deletingLastPathComponent()
-    let path = root.appending(path: "Sources/LumaApp/Launcher/LauncherRootController.swift")
-    let source = try String(contentsOf: path, encoding: .utf8)
+    let presenterPath = root.appending(path: "Sources/LumaApp/Launcher/Session/LauncherDetailPresenter.swift")
+    let source = try String(contentsOf: presenterPath, encoding: .utf8)
     #expect(source.contains("isPresentationGenerationCurrent(generation)"))
     #expect(source.contains("detailLifecycle.nextPresentationGeneration()"))
 }

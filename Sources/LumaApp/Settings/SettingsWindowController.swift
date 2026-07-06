@@ -9,6 +9,8 @@ struct SettingsSnapshot {
     var enabledModules: Set<ModuleIdentifier>
     var pinnedModuleIDs: Set<ModuleIdentifier>
     var warmupPolicy: WarmupPolicy
+    var notesRootPath: String?
+    var projectScanRoots: [String]
     var clipboardMaxEntries: Int
     var clipboardMaxAgeDays: Int
     var clipboardMaxEntrySizeKB: Int
@@ -33,23 +35,35 @@ final class SettingsWindowController {
     private let onClipboardSettingsChanged: @MainActor (SettingsSnapshot) -> Void
     private let onSecretsSettingsChanged: @MainActor (Int, Int) -> Void
     private let onLatencyHUDChanged: @MainActor (Bool) -> Void
+    private let onNotesRootChosen: @MainActor (URL) -> Void
+    private let onProjectsRootChosen: @MainActor (URL) -> Void
+    private let notesModule: NotesModule
+    private let projectsModule: ProjectsModule
 
     init(
         config: ConfigurationStore,
         usage: PersistentUsageTracker,
+        notesModule: NotesModule,
+        projectsModule: ProjectsModule,
         onModulesChanged: @escaping @MainActor (Set<ModuleIdentifier>) -> Void,
         onPinnedChanged: @escaping @MainActor (Set<ModuleIdentifier>) -> Void,
         onClipboardSettingsChanged: @escaping @MainActor (SettingsSnapshot) -> Void,
         onSecretsSettingsChanged: @escaping @MainActor (Int, Int) -> Void,
-        onLatencyHUDChanged: @escaping @MainActor (Bool) -> Void
+        onLatencyHUDChanged: @escaping @MainActor (Bool) -> Void,
+        onNotesRootChosen: @escaping @MainActor (URL) -> Void = { _ in },
+        onProjectsRootChosen: @escaping @MainActor (URL) -> Void = { _ in }
     ) {
         self.config = config
         self.usage = usage
+        self.notesModule = notesModule
+        self.projectsModule = projectsModule
         self.onModulesChanged = onModulesChanged
         self.onPinnedChanged = onPinnedChanged
         self.onClipboardSettingsChanged = onClipboardSettingsChanged
         self.onSecretsSettingsChanged = onSecretsSettingsChanged
         self.onLatencyHUDChanged = onLatencyHUDChanged
+        self.onNotesRootChosen = onNotesRootChosen
+        self.onProjectsRootChosen = onProjectsRootChosen
     }
 
     func show(section: SettingsSection = .general) {
@@ -108,6 +122,8 @@ final class SettingsWindowController {
             onClipboardSettingsChanged: onClipboardSettingsChanged,
             onSecretsSettingsChanged: onSecretsSettingsChanged,
             onLatencyHUDChanged: onLatencyHUDChanged,
+            onNotesRootChosen: onNotesRootChosen,
+            onProjectsRootChosen: onProjectsRootChosen,
             initialSection: initialSection
         )
     }
@@ -115,10 +131,14 @@ final class SettingsWindowController {
     private func makeSnapshot() async -> SettingsSnapshot {
         let modules = BuiltInModules.makeAll().map { (type(of: $0).manifest.identifier, type(of: $0).manifest.displayName) }
         let defaultEnabled = Set(BuiltInModules.makeAll().filter { type(of: $0).manifest.defaultEnabled }.map { type(of: $0).manifest.identifier })
+        let notesConfig = await notesModule.loadConfig()
+        let projectRoots = await projectsModule.roots()
         return SettingsSnapshot(
             enabledModules: await config.enabledModules() ?? defaultEnabled,
             pinnedModuleIDs: await config.pinnedModuleIDs(),
             warmupPolicy: await config.warmupPolicy(),
+            notesRootPath: notesConfig.root?.path,
+            projectScanRoots: projectRoots,
             clipboardMaxEntries: await config.clipboardMaxEntries(),
             clipboardMaxAgeDays: await config.clipboardMaxAgeDays(),
             clipboardMaxEntrySizeKB: await config.clipboardMaxEntrySizeKB(),

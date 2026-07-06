@@ -120,6 +120,7 @@ final class AppCoordinator {
     )
     private var activationObserver: NSObjectProtocol?
     private var terminationObserver: NSObjectProtocol?
+    private var notificationObservers: [NSObjectProtocol] = []
     private var memoryPressureSource: DispatchSourceMemoryPressure?
     private var idleTeardownTask: Task<Void, Never>?
 
@@ -142,7 +143,7 @@ final class AppCoordinator {
                 guard let self else { return }
                 Task {
                     let previous = await self.config.enabledModules()
-                        ?? Set(ModuleRegistry.manifestCatalog().filter(\.defaultEnabled).map(\.identifier))
+                        ?? ModuleRegistry.defaultEnabledModuleIDs
                     await self.host.applyEnabledSet(enabled)
                     let removed = previous.subtracting(enabled)
                     await MainActor.run {
@@ -181,7 +182,35 @@ final class AppCoordinator {
             onLatencyHUDChanged: { [weak self] enabled in
                 self?.windowController.setLatencyHUDEnabled(enabled)
             }
-        ).makeWindowController(config: config, usage: usage)
+        ).makeWindowController(
+            config: config,
+            usage: usage,
+            notesModule: notesModule,
+            projectsModule: projectsModule,
+            onNotesRootChosen: { [weak self] url in
+                guard let self else { return }
+                Task {
+                    var config = await self.notesModule.loadConfig()
+                    config.root = url.standardizedFileURL
+                    try? await self.notesModule.saveConfig(config)
+                    await self.host.warmupIfNeeded(ids: [.notes], reason: .startup)
+                    self.detailReloadRouter.reload(.notes)
+                }
+            },
+            onProjectsRootChosen: { [weak self] url in
+                guard let self else { return }
+                Task {
+                    let payload = (try? ModuleActionCoding.encode(ProjectAction.addRoot(url.path))) ?? Data()
+                    let action = Action(
+                        id: ActionID(module: .projects, key: "settings.addRoot"),
+                        title: "Add Root",
+                        kind: .custom(payload: payload, handler: .projects)
+                    )
+                    _ = await self.actionExecutor.run(action, for: ResultID(module: .projects, key: "settings.addRoot"))
+                    self.detailReloadRouter.reload(.projects)
+                }
+            }
+        )
         activationObserver = NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.didActivateApplicationNotification,
             object: nil,
@@ -223,8 +252,10 @@ final class AppCoordinator {
             }
             try hotkeyController.register(HotkeyConfig.load())
             self.hotkeyController = hotkeyController
+            LauncherRuntimeState.hotkeyRegistered = true
             menuBarController?.markHotkeyOK()
         } catch {
+            LauncherRuntimeState.hotkeyRegistered = false
             let hotkeyMessage: String
             if case HotkeyError.registrationFailed(let status) = error {
                 hotkeyMessage = "hotkey.registrationFailed status=\(status)"
@@ -239,6 +270,28 @@ final class AppCoordinator {
             }
             menuBarController?.markHotkeyFailed()
         }
+
+        notificationObservers.append(
+            NSWorkspace.shared.notificationCenter.addObserver(
+                forName: NSWorkspace.activeSpaceDidChangeNotification,
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in
+                self?.reRegisterHotkey()
+            }
+        )
+        notificationObservers.append(
+            NSWorkspace.shared.notificationCenter.addObserver(
+                forName: NSWorkspace.didWakeNotification,
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in
+                Task { @MainActor in
+                    try? await Task.sleep(for: .seconds(1))
+                    self?.windowController.refreshHomeForBackgroundDataUpdate()
+                }
+            }
+        )
 
         // One-way migration of the wordbot SQLite into Luma's Application Support (ADR-009).
         // Idempotent: re-running the app never overwrites the Luma copy.
@@ -330,8 +383,12 @@ final class AppCoordinator {
                         title: "Project",
                         kind: .custom(payload: payload, handler: .projects)
                     )
-                    await self.actionExecutor.run(act, for: ResultID(module: .projects, key: "detail"))
+                    let result = await self.actionExecutor.run(act, for: ResultID(module: .projects, key: "detail"))
                     await MainActor.run {
+                        if !result.succeeded {
+                            let message = result.userFacingMessage ?? LauncherStatusMessages.operationFailed
+                            self.windowController.showStatus(message)
+                        }
                         completion()
                     }
                 }
@@ -424,6 +481,19 @@ final class AppCoordinator {
                 pinned: pinned,
                 reason: .idle
             )
+        }
+    }
+
+    private func reRegisterHotkey() {
+        guard let hotkeyController else { return }
+        do {
+            try hotkeyController.register(HotkeyConfig.load())
+            LauncherRuntimeState.hotkeyRegistered = true
+            menuBarController?.markHotkeyOK()
+        } catch {
+            LauncherRuntimeState.hotkeyRegistered = false
+            CrashLogRecording.record("hotkey.reregisterFailed")
+            menuBarController?.markHotkeyFailed()
         }
     }
 }

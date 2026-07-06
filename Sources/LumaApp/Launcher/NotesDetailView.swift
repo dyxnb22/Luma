@@ -32,7 +32,7 @@ final class NotesDetailView: NSObject, ModuleDetailView {
     private let dataSource = NotesOutlineDataSource()
     private var viewMode: ViewMode = .outline
     private var refreshGate = NotesDetailRefreshGate()
-    private var refreshTask: Task<Void, Never>?
+    private let taskRegistry = LauncherTaskRegistry()
     private var actions: NotesActions?
     private var savedExpansion = Set<String>()
     private var activeChip: NotesDetailChip?
@@ -392,15 +392,14 @@ final class NotesDetailView: NSObject, ModuleDetailView {
     }
 
     private func invalidateRefreshWork() {
-        refreshTask?.cancel()
-        refreshTask = nil
+        taskRegistry.cancel(key: "refreshTree")
         refreshGate.invalidate()
     }
 
     private func scheduleRefreshTree(reloadConfig: Bool = false) {
-        refreshTask?.cancel()
+        taskRegistry.cancel(key: "refreshTree")
         let token = refreshGate.beginRefresh()
-        refreshTask = Task { [weak self] in
+        let task = Task { [weak self] in
             guard let self else { return }
             if reloadConfig {
                 await module.reloadFromConfig()
@@ -410,6 +409,7 @@ final class NotesDetailView: NSObject, ModuleDetailView {
             guard refreshGate.isCurrent(token) else { return }
             resizeOutlineColumn()
         }
+        taskRegistry.register(key: "refreshTree", task: task)
     }
 
     private func refreshTree(generation: UInt) async {
@@ -472,7 +472,7 @@ final class NotesDetailView: NSObject, ModuleDetailView {
     }
 
     private func runRefreshTree() async {
-        refreshTask?.cancel()
+        taskRegistry.cancel(key: "refreshTree")
         let token = refreshGate.beginRefresh()
         await refreshTree(generation: token)
     }
@@ -574,7 +574,7 @@ final class NotesDetailView: NSObject, ModuleDetailView {
                 dailyFolderName: config.dailyFolderName
             )
             await module.recordOpenedNote(path: url.path)
-            await workspace.openURL(url)
+            try await workspace.openLocalFileURL(url)
             chipBar.setTodayHint(missing: false)
             await runRefreshTree()
         } catch {
@@ -770,7 +770,15 @@ final class NotesDetailView: NSObject, ModuleDetailView {
         let url = URL(fileURLWithPath: node.path)
         Task {
             await module.recordOpenedNote(path: node.path)
-            await workspace.openURL(url)
+            let config = await module.loadConfig()
+            if let root = config.root {
+                do {
+                    try PathContainment.validateContained(path: node.path, in: root)
+                    try await workspace.openLocalFileURL(url)
+                } catch {
+                    LauncherEnvironment.current?.showStatus(LauncherStatusMessages.operationFailed)
+                }
+            }
         }
     }
 
@@ -1350,6 +1358,6 @@ private final class LinkedNotesDataSource: NSObject, NSTableViewDataSource, NSTa
         guard let tableView = notification.object as? NSTableView else { return }
         let row = tableView.selectedRow
         guard row >= 0 else { return }
-        Task { await workspace.openURL(urls[row]) }
+        Task { try? await workspace.openLocalFileURL(urls[row]) }
     }
 }

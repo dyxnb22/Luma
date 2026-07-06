@@ -19,6 +19,7 @@ final class LauncherWindowController {
     private var lastCarbonShowAt: ContinuousClock.Instant?
     private var lastPanelHideAt: ContinuousClock.Instant?
     private var hideStart: ContinuousClock.Instant?
+    private var notificationObservers: [NSObjectProtocol] = []
 
     var isPanelVisible: Bool { visibilitySession.isVisible }
 
@@ -35,6 +36,34 @@ final class LauncherWindowController {
             self?.hideFromVisibleHotkey()
         }
         panel.orderOut(nil)
+        notificationObservers.append(
+            LumaNotificationCenter.observe(name: NSApplication.didChangeScreenParametersNotification) { [weak self] in
+                self?.repositionPanelIfVisible()
+            }
+        )
+        notificationObservers.append(
+            NSWorkspace.shared.notificationCenter.addObserver(
+                forName: NSWorkspace.activeSpaceDidChangeNotification,
+                object: nil,
+                queue: nil
+            ) { [weak self] _ in
+                Task { @MainActor in
+                    self?.repositionPanelIfVisible()
+                }
+            }
+        )
+    }
+
+    private func repositionPanelIfVisible() {
+        guard let screen = LumaPresentationScreen.current() else { return }
+        let visibleFrame = screen.visibleFrame
+        guard LauncherPanelRepositionPolicy.shouldReposition(
+            isPanelVisible: visibilitySession.isVisible,
+            lastVisibleFrame: lastPositionedVisibleFrame,
+            newVisibleFrame: visibleFrame
+        ) else { return }
+        positionPanel()
+        panel.enforceLockedGeometry(using: visibleFrame)
     }
 
     func configure(

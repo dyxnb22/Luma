@@ -3,6 +3,9 @@ import LumaCore
 public enum MenuItemsModuleBundle: ModuleBundle {
     public static var manifest: ModuleManifest { MenuItemsModule.manifest }
     public static var warmupTier: WarmupTier { .onDemand }
+    public static var defaultOffNote: String? {
+        "Search and press menu items in the frontmost app via Accessibility. Enable after granting Accessibility permission."
+    }
     public static var presentation: ModulePresentation? {
         ModulePresentation(settingsSymbol: "menubar.rectangle", listBadge: "mb")
     }

@@ -16,14 +16,18 @@ public struct HomeGuideEntryRow: Sendable, Equatable {
 
 /// Compact module entry rows for the empty-query home guide (right column).
 public enum HomeGuideCatalog {
-    private static let excludedModules: Set<String> = ["luma.apps", "luma.commands"]
+    private static let excludedModules: Set<String> = ["luma.commands"]
 
     public static func entryRows(
         from commands: [CommandDefinition],
+        enabledModules: Set<ModuleIdentifier>,
         localize: (String) -> String
     ) -> [HomeGuideEntryRow] {
         var primaryByModule: [ModuleIdentifier: CommandDefinition] = [:]
-        for command in commands where command.isDiscoverable && !excludedModules.contains(command.module.rawValue) {
+        for command in commands
+            where command.isDiscoverable
+            && !excludedModules.contains(command.module.rawValue)
+            && enabledModules.contains(command.module) {
             if let existing = primaryByModule[command.module] {
                 let shouldReplace = command.discoverPriority > existing.discoverPriority
                     || (

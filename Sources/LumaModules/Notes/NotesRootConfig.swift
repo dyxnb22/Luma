@@ -1,4 +1,5 @@
 import Foundation
+import LumaCore
 
 public struct NotesRootConfig: Codable, Sendable, Equatable {
     public static let schemaVersion = 1
@@ -92,16 +93,19 @@ public actor NotesRootConfigStore {
         return base.appendingPathComponent("Luma/notes.json", isDirectory: false)
     }
 
+    private var lastLoadWasCorrupt = false
+
+    public func loadWasCorrupt() -> Bool {
+        lastLoadWasCorrupt
+    }
+
     public func load() -> NotesRootConfig {
-        guard let data = try? Data(contentsOf: fileURL) else { return .empty }
-        guard let config = try? JSONDecoder().decode(NotesRootConfig.self, from: data) else { return .empty }
-        return config
+        let result = JSONConfigPersistence.load(from: fileURL, fallback: NotesRootConfig.empty, fileManager: fileManager)
+        lastLoadWasCorrupt = result.wasCorrupt
+        return result.value
     }
 
     public func save(_ config: NotesRootConfig) throws {
-        let directory = fileURL.deletingLastPathComponent()
-        try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
-        let data = try JSONEncoder().encode(config)
-        try data.write(to: fileURL, options: .atomic)
+        try JSONConfigPersistence.save(config, to: fileURL, fileManager: fileManager)
     }
 }

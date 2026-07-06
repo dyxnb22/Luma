@@ -6,7 +6,7 @@ public actor ProjectsModule: LumaModule {
         identifier: .projects,
         displayName: "Projects",
         capabilities: [.queryable, .providesActions, .backgroundUpdater],
-        defaultEnabled: true,
+        defaultEnabled: false,
         priority: 4,
         queryTimeout: .milliseconds(30)
     )
@@ -46,7 +46,7 @@ public actor ProjectsModule: LumaModule {
         }
 
         if matches.isEmpty {
-            return ModuleResult(items: [])
+            return emptyProjectsResult(payload: payload)
         }
 
         return ModuleResult(items: matches.map { projectRow($0) })
@@ -63,12 +63,12 @@ public actor ProjectsModule: LumaModule {
             try await store.recordOpened(path: path)
             await refreshIndex()
         case .copyPath(let path):
-            await context.platform.pasteboard.write(path)
+            try await context.platform.pasteboard.write(path)
         case .reveal(let path):
-            await context.platform.workspace.revealInFinder(URL(fileURLWithPath: path, isDirectory: true))
+            try await context.platform.workspace.revealInFinder(URL(fileURLWithPath: path, isDirectory: true))
         case .revealConfig:
             let url = await store.configFileURL()
-            await context.platform.workspace.revealInFinder(url)
+            try await context.platform.workspace.revealInFinder(url)
         case .openCurrentDetail:
             break
         case .openManage:
@@ -80,9 +80,9 @@ public actor ProjectsModule: LumaModule {
         case .openNotes(let path, let projectName):
             let candidates = ProjectNotesPaths.candidates(projectPath: path, projectName: projectName)
             if let existing = candidates.first(where: { FileManager.default.fileExists(atPath: $0.path) }) {
-                await context.platform.workspace.openURL(existing)
+                try await context.platform.workspace.openLocalFileURL(existing)
             } else {
-                await context.platform.workspace.revealInFinder(URL(fileURLWithPath: path, isDirectory: true))
+                try await context.platform.workspace.revealInFinder(URL(fileURLWithPath: path, isDirectory: true))
             }
         case .togglePin(let path):
             try await store.togglePin(path: path)
@@ -247,6 +247,29 @@ public actor ProjectsModule: LumaModule {
             return "~" + path.dropFirst(home.count)
         }
         return path
+    }
+
+    private func emptyProjectsResult(payload: String) -> ModuleResult {
+        let subtitle = payload.isEmpty
+            ? "Settings → Projects → Add scan root"
+            : "No projects match \"\(payload)\""
+        let settingsPayload = (try? ModuleActionCoding.encode(ProjectAction.openManage)) ?? Data()
+        return ModuleResult(items: [
+            ResultItem(
+                id: ResultID(module: Self.manifest.identifier, key: "empty-onboarding"),
+                title: payload.isEmpty ? "Add a project scan root" : "No matching projects",
+                titleAttributed: AttributedString(payload.isEmpty ? "Add a project scan root" : "No matching projects"),
+                subtitle: subtitle,
+                icon: .symbol("folder.badge.plus"),
+                primaryAction: Action(
+                    id: ActionID(module: Self.manifest.identifier, key: "manage"),
+                    title: "Manage Projects",
+                    kind: .openModuleDetail(Self.manifest.identifier, payload: settingsPayload)
+                ),
+                rankingHints: RankingHints(basePriority: Self.manifest.priority),
+                rowKind: .informational
+            )
+        ])
     }
 
     static func extractPayload(raw: String) -> String? {

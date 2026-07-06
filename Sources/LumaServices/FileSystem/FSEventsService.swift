@@ -183,6 +183,10 @@ private func shouldEmitEvent(for path: String) -> Bool {
 }
 
 private func mapKind(flags: FSEventStreamEventFlags) -> FSChangeEvent.Kind {
+    if flags & UInt32(kFSEventStreamEventFlagUserDropped) != 0
+        || flags & UInt32(kFSEventStreamEventFlagKernelDropped) != 0 {
+        return .overflow
+    }
     if flags & UInt32(kFSEventStreamEventFlagItemCreated) != 0 { return .created }
     if flags & UInt32(kFSEventStreamEventFlagItemRemoved) != 0 { return .removed }
     if flags & UInt32(kFSEventStreamEventFlagItemRenamed) != 0 { return .renamed }

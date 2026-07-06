@@ -78,7 +78,7 @@ public actor SnippetsModule: LumaModule {
             _ = try await store.recordUsage(id: id)
             await refreshCache()
             let expanded = await expandedContent(for: snippet.content, context: context)
-            await context.platform.pasteboard.write(expanded)
+            try await context.platform.pasteboard.write(expanded)
         case .paste(let id):
             guard let snippet = cachedSnippets.first(where: { $0.id == id }) else {
                 throw ModuleError.dataUnavailable
@@ -86,10 +86,11 @@ public actor SnippetsModule: LumaModule {
             _ = try await store.recordUsage(id: id)
             await refreshCache()
             let expanded = await expandedContent(for: snippet.content, context: context)
-            await context.platform.pasteboard.write(expanded)
-            if await context.platform.accessibility.isTrusted() {
-                await context.platform.accessibility.insert(text: expanded)
+            try await context.platform.pasteboard.write(expanded)
+            guard await context.platform.accessibility.isTrusted() else {
+                throw ModuleError.permissionRequired(.accessibility)
             }
+            try await context.platform.accessibility.insert(text: expanded)
         case .create:
             break
         case .prepareDraft:
@@ -149,10 +150,10 @@ public actor SnippetsModule: LumaModule {
         _ = try await store.recordUsage(id: id)
         await refreshCache()
         let expanded = await expandedContentForLauncher(snippet.content)
-        await pasteboard.write(expanded)
+        try await pasteboard.write(expanded)
         try? await Task.sleep(for: .milliseconds(80))
         guard await accessibility.isTrusted() else { return .permissionRequired }
-        await accessibility.insert(text: expanded)
+        try await accessibility.insert(text: expanded)
         return .pasted
     }
 

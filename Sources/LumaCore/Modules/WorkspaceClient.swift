@@ -2,8 +2,9 @@ import Foundation
 
 public protocol WorkspaceClient: Sendable {
     func launchApplication(at url: URL) async throws
-    func openURL(_ url: URL) async
-    func revealInFinder(_ url: URL) async
+    func openURL(_ url: URL) async throws
+    func openLocalFileURL(_ url: URL) async throws
+    func revealInFinder(_ url: URL) async throws
     func terminateApplication(bundleID: String) async
     func openApplication(bundleID: String, arguments: [String]) async
 }
@@ -15,11 +16,15 @@ public struct NoopWorkspaceClient: WorkspaceClient {
         _ = url
     }
 
-    public func openURL(_ url: URL) async {
+    public func openURL(_ url: URL) async throws {
         _ = url
     }
 
-    public func revealInFinder(_ url: URL) async {
+    public func openLocalFileURL(_ url: URL) async throws {
+        _ = url
+    }
+
+    public func revealInFinder(_ url: URL) async throws {
         _ = url
     }
 

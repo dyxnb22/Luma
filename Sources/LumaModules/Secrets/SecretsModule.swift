@@ -6,7 +6,7 @@ public actor SecretsModule: LumaModule {
         identifier: .secrets,
         displayName: "Secrets",
         capabilities: [.queryable, .providesActions],
-        defaultEnabled: true,
+        defaultEnabled: false,
         priority: 1,
         queryTimeout: .milliseconds(30)
     )
@@ -78,7 +78,7 @@ public actor SecretsModule: LumaModule {
             await vault.unlock()
         case .copySecret(let id):
             let value = try await vault.revealValue(id: id)
-            await context.platform.pasteboard.writeSecure(value, clearAfterSeconds: autoClearSeconds)
+            try await context.platform.pasteboard.writeSecure(value, clearAfterSeconds: autoClearSeconds)
         }
     }
 

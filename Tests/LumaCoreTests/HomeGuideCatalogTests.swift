@@ -1,36 +1,50 @@
 import LumaCore
 import Testing
 
-@Test func homeGuideCatalogExcludesAppsAndBuiltinCommands() {
-    let commands = [
+@Test func homeGuideCatalogExcludesBuiltinCommandsAndDisabledModules() {
+    let apps = ModuleIdentifier(rawValue: "luma.apps")
+    let commands = ModuleIdentifier(rawValue: "luma.commands")
+    let notes = ModuleIdentifier(rawValue: "luma.notes")
+    let media = ModuleIdentifier(rawValue: "luma.media")
+    let commandDefs = [
         CommandDefinition(
             id: "apps",
-            module: ModuleIdentifier(rawValue: "luma.apps"),
+            module: apps,
             title: "Apps",
             primaryTrigger: "app",
-            placeholder: ""
+            placeholder: "",
+            isDiscoverable: true
         ),
         CommandDefinition(
             id: "settings",
-            module: ModuleIdentifier(rawValue: "luma.commands"),
+            module: commands,
             title: "Settings",
             primaryTrigger: "settings",
             placeholder: ""
         ),
         CommandDefinition(
             id: "notes",
-            module: ModuleIdentifier(rawValue: "luma.notes"),
+            module: notes,
             title: "Notes",
             primaryTrigger: "n",
             placeholder: "",
             discoverPriority: 50
+        ),
+        CommandDefinition(
+            id: "media",
+            module: media,
+            title: "Media",
+            primaryTrigger: "rec",
+            placeholder: "",
+            discoverPriority: 40,
+            isDiscoverable: true
         )
     ]
 
-    let rows = HomeGuideCatalog.entryRows(from: commands) { $0 }
-    #expect(rows.count == 1)
-    #expect(rows[0].commandID == "notes")
-    #expect(rows[0].trigger == "n")
+    let enabled: Set<ModuleIdentifier> = [apps, notes]
+    let rows = HomeGuideCatalog.entryRows(from: commandDefs, enabledModules: enabled) { $0 }
+    #expect(rows.count == 2)
+    #expect(rows.map(\.commandID).sorted() == ["apps", "notes"])
 }
 
 @Test func homeGuideCatalogSortsByDiscoverPriority() {
@@ -53,7 +67,11 @@ import Testing
         )
     ]
 
-    let rows = HomeGuideCatalog.entryRows(from: commands) { $0 }
+    let enabled: Set<ModuleIdentifier> = [
+        ModuleIdentifier(rawValue: "luma.todo"),
+        ModuleIdentifier(rawValue: "luma.notes")
+    ]
+    let rows = HomeGuideCatalog.entryRows(from: commands, enabledModules: enabled) { $0 }
     #expect(rows.map(\.commandID) == ["notes", "todo"])
 }
 
@@ -86,7 +104,11 @@ import Testing
         )
     ]
 
-    let rows = HomeGuideCatalog.entryRows(from: commands) { $0 }
+    let enabled: Set<ModuleIdentifier> = [
+        ModuleIdentifier(rawValue: "luma.todo"),
+        ModuleIdentifier(rawValue: "luma.notes")
+    ]
+    let rows = HomeGuideCatalog.entryRows(from: commands, enabledModules: enabled) { $0 }
     #expect(rows.map(\.commandID) == ["notes-primary", "todo"])
     #expect(rows.filter { $0.moduleName == "Notes" }.count == 1)
 }

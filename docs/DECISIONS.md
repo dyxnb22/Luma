@@ -17,6 +17,17 @@ This compact log replaces the individual ADR files. Older superseded route and d
 | D-009 | Home dashboard/cards/setup/recent/project rows are not active. | Active |
 | D-010 | Accessibility guidance is lazy and path-specific. | Active |
 | D-011 | Hot paths are stale-while-revalidate and memory-only. | Active |
+| D-012 | Stabilization MVP: seven default-on modules (Apps, Clipboard, Snippets, Quicklinks, Todo, Translate, Notes); six expert modules default off. | Active |
+| D-013 | IME composition gate: no query dispatch while marked text is active. | Active |
+| D-014 | Bare `quit` resolves to Kill Process; Luma exit is `exit` (Commands module). When Kill Process / Commands are off (MVP default), bare `quit` and `exit` do not respond — use menu bar ⌘Q. | Active |
+| D-015 | External actions use perform-then-dismiss; failures keep the panel open with status feedback. | Active |
+| D-016 | Notes `.open` paths must resolve under configured root; local files use `openLocalFileURL` after containment check. | Active |
+| D-017 | `WorkspaceService.openURL` allows `http`/`https`/`mailto` only; `file://` requires `openLocalFileURL`. | Active |
+| D-018 | Singleton JSON configs use `JSONConfigPersistence` quarantine on decode failure; doctor lists corrupt files. | Active |
+| D-019 | Global hotkey re-registers on Space change; Open Apps refreshes after system wake. | Active |
+| D-020 | Window Layouts (`win`/`wl`) remains default-off; no hot-path registration until warm-cache ships. | Active |
+| D-021 | Launcher detail presentation and keyboard routing live in `LauncherDetailPresenter` / `LauncherKeyboardDispatcher`. | Active |
+| D-022 | Existing installs migrate `enabledModules` to schema v2 (MVP defaults + pinned expert modules). | Active |
 
 ## Architecture Decisions
 

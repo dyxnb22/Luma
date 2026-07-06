@@ -93,6 +93,24 @@ Launcher:
 - Command+1...9 targets visible result/action rows.
 - Search field remains editable after leaving detail.
 - Multi-monitor placement uses the presentation screen and keeps the panel centered.
+- Move cursor to an external display (or switch Space) while the panel stays open — panel repositions to the current presentation screen without manual hide/show.
+
+Action feedback (stabilization):
+
+- Trigger an action that requires Accessibility without granting permission (e.g. Snippet paste, clipboard paste-directly) — status bar shows permission message; panel stays open.
+- Copy-to-clipboard success still shows brief status and delayed dismiss.
+
+CJK IME:
+
+- Enable Chinese Pinyin input; type several letters before selecting a candidate — results must not update until composition commits.
+
+Action panel + query:
+
+- Open action panel (Tab) on a result row; type in the search field — panel dismisses and results refresh for the new query.
+
+Multi-monitor (manual):
+
+- Show panel on display A; move cursor to display B; switch Space — panel recenters on the presentation screen while visible.
 
 Performance:
 
@@ -107,6 +125,12 @@ Performance:
 - Carbon hotkey when panel hidden shows once; visible ⌘Space hides via panel path only (no double toggle).
 - Permission banner follows live `searchBar.stringValue`, not a stale normalized snapshot.
 - `cmd doctor` only — bare global `doctor` must not run AX/EventKit doctor checks.
+- `cmd doctor` reports hotkey registration, corrupt config files, and latency p95 budget.
+- Settings → Notes / Projects: choose scan roots; fresh install `n` / `proj` show onboarding rows.
+- Switch Space with panel hidden: global hotkey still works after re-register.
+- Wake from sleep: Open Apps refreshes within ~5 s.
+- Query paste over 8192 chars truncates without crash.
+- After upgrade, legacy all-modules-enabled installs migrate to MVP defaults (schema v2); pinned expert modules stay enabled.
 - Background cache updates do not repaint visible home.
 - Long text and large stores do not resize rows or drift layout.
 - Detail open: pooled module detail reopens without rebuilding the view (`detail.viewMade` stays flat on second open).

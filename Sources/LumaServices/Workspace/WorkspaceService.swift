@@ -9,13 +9,29 @@ public struct WorkspaceService: WorkspaceClient, Sendable {
         try await Self.launchAndActivateApplication(at: url)
     }
 
-    public func openURL(_ url: URL) async {
-        await MainActor.run {
-            _ = NSWorkspace.shared.open(url)
+    public func openURL(_ url: URL) async throws {
+        try ExternalURLPolicy.validateOpenURL(url, allowFileURLs: false)
+        let opened = await MainActor.run {
+            NSWorkspace.shared.open(url)
+        }
+        guard opened else {
+            throw ModuleError.dataUnavailable
         }
     }
 
-    public func revealInFinder(_ url: URL) async {
+    public func openLocalFileURL(_ url: URL) async throws {
+        guard url.isFileURL else {
+            throw ExternalURLPolicyError.schemeNotAllowed(url.scheme ?? "(missing)")
+        }
+        let opened = await MainActor.run {
+            NSWorkspace.shared.open(url)
+        }
+        guard opened else {
+            throw ModuleError.dataUnavailable
+        }
+    }
+
+    public func revealInFinder(_ url: URL) async throws {
         await MainActor.run {
             NSWorkspace.shared.activateFileViewerSelecting([url])
         }

@@ -6,7 +6,7 @@ public actor WindowLayoutsModule: LumaModule {
         identifier: .windowLayouts,
         displayName: "Window Layouts",
         capabilities: [.queryable, .providesActions],
-        defaultEnabled: true,
+        defaultEnabled: false,
         priority: 3,
         queryTimeout: .milliseconds(40)
     )
@@ -46,7 +46,7 @@ public actor WindowLayoutsModule: LumaModule {
             await context.platform.accessibility.requestPermission()
         case .openSettings:
             if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
-                await context.platform.workspace.openURL(url)
+                try await context.platform.workspace.openURL(url)
             }
         }
     }

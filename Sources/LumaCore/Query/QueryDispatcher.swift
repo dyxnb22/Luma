@@ -143,6 +143,7 @@ public actor QueryDispatcher {
                         await module.handle(query, context: context)
                     } ?? {
                         CrashLogRecording.record("module.timeout id=\(manifest.identifier.rawValue)")
+                        LauncherRuntimeState.incrementWarmupTimeouts()
                         return ModuleResult.empty(
                             for: manifest.identifier,
                             diagnostic: ModuleDiagnostic(kind: .timeout, message: "Module timed out")
@@ -210,6 +211,7 @@ public actor QueryDispatcher {
             await module.handle(query, context: context)
         } ?? {
             CrashLogRecording.record("module.timeout id=\(moduleID.rawValue)")
+            LauncherRuntimeState.incrementWarmupTimeouts()
             return ModuleResult.empty(
                 for: moduleID,
                 diagnostic: ModuleDiagnostic(kind: .timeout, message: "Module timed out")

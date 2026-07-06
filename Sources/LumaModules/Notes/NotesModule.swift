@@ -110,9 +110,14 @@ public actor NotesModule: LumaModule {
         let url: URL
         switch decoded {
         case .open(let path):
+            do {
+                try PathContainment.validateContained(path: path, in: root)
+            } catch PathContainmentError.pathOutsideRoot {
+                throw NotesActionError.pathOutsideRoot
+            }
             url = URL(fileURLWithPath: path)
             await recordRecent(path: path)
-            await context.platform.workspace.openURL(url)
+            try await context.platform.workspace.openLocalFileURL(url)
             return
         case .createInInbox(let title):
             url = try await actions.createNoteInInbox(
@@ -152,7 +157,7 @@ public actor NotesModule: LumaModule {
         }
 
         await recordRecent(path: url.path)
-        await context.platform.workspace.openURL(url)
+        try await context.platform.workspace.openLocalFileURL(url)
     }
 
     public func recordOpenedNote(path: String) async {
@@ -273,6 +278,9 @@ public actor NotesModule: LumaModule {
                 await index.rebuild(after: batch)
                 let snapshot = await index.snapshot()
                 for event in batch {
+                    if event.kind == .overflow {
+                        CrashLogRecording.record("fsevents.overflow root=\(watchRoot?.path ?? "")")
+                    }
                     switch event.kind {
                     case .removed:
                         await metaIndex.remove(path: event.path)
@@ -500,9 +508,9 @@ public actor NotesModule: LumaModule {
         let id = ResultID(module: Self.manifest.identifier, key: "no-root")
         return ResultItem(
             id: id,
-            title: "Set a Notes root first",
-            titleAttributed: AttributedString("Set a Notes root first"),
-            subtitle: "Open Notes detail and choose a folder",
+            title: "Choose a Notes root folder",
+            titleAttributed: AttributedString("Choose a Notes root folder"),
+            subtitle: "Open Notes detail or Settings → Notes",
             icon: .symbol("folder.badge.questionmark"),
             primaryAction: Action(
                 id: ActionID(module: Self.manifest.identifier, key: "open-detail"),

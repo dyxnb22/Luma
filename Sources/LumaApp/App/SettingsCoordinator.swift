@@ -12,15 +12,26 @@ struct SettingsCoordinator {
     let onSecretsSettingsChanged: @MainActor @Sendable (Int, Int) -> Void
     let onLatencyHUDChanged: @MainActor @Sendable (Bool) -> Void
 
-    func makeWindowController(config: ConfigurationStore, usage: PersistentUsageTracker) -> SettingsWindowController {
+    func makeWindowController(
+        config: ConfigurationStore,
+        usage: PersistentUsageTracker,
+        notesModule: NotesModule,
+        projectsModule: ProjectsModule,
+        onNotesRootChosen: @escaping @MainActor (URL) -> Void = { _ in },
+        onProjectsRootChosen: @escaping @MainActor (URL) -> Void = { _ in }
+    ) -> SettingsWindowController {
         SettingsWindowController(
             config: config,
             usage: usage,
+            notesModule: notesModule,
+            projectsModule: projectsModule,
             onModulesChanged: onModulesChanged,
             onPinnedChanged: onPinnedChanged,
             onClipboardSettingsChanged: onClipboardSettingsChanged,
             onSecretsSettingsChanged: onSecretsSettingsChanged,
-            onLatencyHUDChanged: onLatencyHUDChanged
+            onLatencyHUDChanged: onLatencyHUDChanged,
+            onNotesRootChosen: onNotesRootChosen,
+            onProjectsRootChosen: onProjectsRootChosen
         )
     }
 }

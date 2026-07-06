@@ -161,7 +161,7 @@ public actor TodoModule: LumaModule {
             invalidateDueCache()
         case .grant:
             if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Reminders") {
-                await context.platform.workspace.openURL(url)
+                try await context.platform.workspace.openURL(url)
             }
         case .requestAccess:
             _ = await reminders.requestAccess()

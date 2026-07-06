@@ -1,5 +1,6 @@
 import AppKit
 import LumaCore
+import LumaModules
 
 @MainActor
 final class LauncherDetailLifecycleController {
@@ -8,6 +9,7 @@ final class LauncherDetailLifecycleController {
     private let searchBar: LumaSearchBar
     private let usesColumnSplitLayout: () -> Bool
     private let discoverableCommands: () -> [CommandDefinition]
+    private let enabledModuleIDs: () -> Set<ModuleIdentifier>
     private var detailCloseCrossfadeInFlight = false
     private var detailPresentationGeneration = CancellationGeneration()
 
@@ -19,13 +21,15 @@ final class LauncherDetailLifecycleController {
         homeSplitLayout: LauncherHomeSplitLayout,
         searchBar: LumaSearchBar,
         usesColumnSplitLayout: @escaping () -> Bool,
-        discoverableCommands: @escaping () -> [CommandDefinition]
+        discoverableCommands: @escaping () -> [CommandDefinition],
+        enabledModuleIDs: @escaping () -> Set<ModuleIdentifier>
     ) {
         self.contentCoordinator = contentCoordinator
         self.homeSplitLayout = homeSplitLayout
         self.searchBar = searchBar
         self.usesColumnSplitLayout = usesColumnSplitLayout
         self.discoverableCommands = discoverableCommands
+        self.enabledModuleIDs = enabledModuleIDs
     }
 
     var isShowingDetail: Bool { contentCoordinator.showingDetail }
@@ -51,9 +55,13 @@ final class LauncherDetailLifecycleController {
             return
         }
         if animatedToGuide, usesColumnSplitLayout() {
-            let commands = discoverableCommands()
+            let enabled = enabledModuleIDs()
+            let commands = discoverableCommands().filter { enabled.contains($0.module) }
             detailCloseCrossfadeInFlight = true
-            homeSplitLayout.crossfadeFromDetailToGuide(commands: commands) { [weak self] in
+            homeSplitLayout.crossfadeFromDetailToGuide(
+                commands: commands,
+                enabledModules: enabled
+            ) { [weak self] in
                 self?.detailCloseCrossfadeInFlight = false
                 self?.tearDownAfterGuideCrossfade()
                 completion?()

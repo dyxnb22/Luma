@@ -3,6 +3,9 @@ import LumaCore
 public enum WindowLayoutsModuleBundle: ModuleBundle {
     public static var manifest: ModuleManifest { WindowLayoutsModule.manifest }
     public static var warmupTier: WarmupTier { .hotPath }
+    public static var defaultOffNote: String? {
+        "Resize the frontmost window with Accessibility presets (left-half, center, etc.). Enable after granting Accessibility permission."
+    }
     public static var presentation: ModulePresentation? {
         ModulePresentation(settingsSymbol: "rectangle.split.2x1", listBadge: "win")
     }

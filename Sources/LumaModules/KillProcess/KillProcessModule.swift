@@ -7,7 +7,7 @@ public actor KillProcessModule: LumaModule {
         identifier: .killProcess,
         displayName: "Kill Process",
         capabilities: [.queryable, .providesActions],
-        defaultEnabled: true,
+        defaultEnabled: false,
         priority: 2,
         queryTimeout: .milliseconds(150)
     )

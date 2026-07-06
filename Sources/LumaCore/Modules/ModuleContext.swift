@@ -141,20 +141,20 @@ public struct NoopMetricsClient: MetricsClient {
 public protocol DatabaseClient: Sendable {}
 
 public protocol PasteboardClient: Sendable {
-    func write(_ string: String) async
-    func writeSecure(_ string: String, clearAfterSeconds: Int) async
-    func writeImage(data: Data, pasteboardType: String) async
-    func writeFileURLs(_ urls: [URL]) async
+    func write(_ string: String) async throws
+    func writeSecure(_ string: String, clearAfterSeconds: Int) async throws
+    func writeImage(data: Data, pasteboardType: String) async throws
+    func writeFileURLs(_ urls: [URL]) async throws
     func readString() async -> String?
 }
 
 public protocol AccessibilityClient: Sendable {
     func isTrusted() async -> Bool
     func requestPermission() async
-    func focus(windowID: UInt32, pid: Int32, title: String, axTitle: String?, bounds: WindowBounds?) async
-    func insert(text: String) async
+    func focus(windowID: UInt32, pid: Int32, title: String, axTitle: String?, bounds: WindowBounds?) async throws
+    func insert(text: String) async throws
     func replaceSelectedText(with text: String) async -> Bool
-    func applyWindowLayout(_ preset: String) async
+    func applyWindowLayout(_ preset: String) async throws
 }
 
 public protocol FileSystemClient: Sendable {
@@ -178,4 +178,28 @@ public protocol ConfigurationClient: Sendable {
     func secretsAutoClearSeconds() async -> Int
     func secretsRelockTimeoutSeconds() async -> Int
     func secretsRequireUnlockOnLaunch() async -> Bool
+    func pinnedModuleIDs() async -> Set<ModuleIdentifier>
+}
+
+public extension ConfigurationClient {
+    func pinnedModuleIDs() async -> Set<ModuleIdentifier> {
+        ModuleWarmupDefaults.defaultPinnedModuleIDs
+    }
+}
+
+public struct NoopConfigurationClient: ConfigurationClient {
+    public init() {}
+
+    public func enabledModules() async -> Set<ModuleIdentifier>? { nil }
+
+    public func clipboardMaxEntries() async -> Int { 500 }
+    public func clipboardMaxAgeDays() async -> Int { 7 }
+    public func clipboardMaxEntrySizeKB() async -> Int { 512 }
+    public func clipboardHistoryEnabled() async -> Bool { true }
+    public func clipboardIgnoredBundleIDs() async -> [String] { [] }
+    public func clipboardPasteBehavior() async -> String { "pasteDirectly" }
+    public func translationTargetLanguage() async -> String { "en" }
+    public func secretsAutoClearSeconds() async -> Int { 60 }
+    public func secretsRelockTimeoutSeconds() async -> Int { 300 }
+    public func secretsRequireUnlockOnLaunch() async -> Bool { false }
 }

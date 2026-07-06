@@ -27,7 +27,7 @@ public enum CommandsModuleBundle: ModuleBundle {
                     "settings — open Luma preferences",
                     "open-settings — same from command mode",
                     "reload-modules — refresh module registry",
-                    "quit — exit Luma"
+                    "exit — exit Luma (when Commands module is enabled)"
                 ],
                 discoverPriority: 120,
                 isDiscoverable: true
@@ -59,16 +59,16 @@ public enum CommandsModuleBundle: ModuleBundle {
                 isDiscoverable: false
             ),
             CommandDefinition(
-                id: "quit",
+                id: "exit-luma",
                 module: .commands,
-                title: "Quit Luma",
-                primaryTrigger: "quit",
+                title: "Exit Luma",
+                primaryTrigger: "exit",
                 placeholder: "Exit Luma",
-                usageFormat: "quit",
+                usageFormat: "exit",
                 description: "Exit Luma",
-                examples: ["quit"],
+                examples: ["exit"],
                 sectionTitle: "COMMANDS",
-                helpLines: ["Quit Luma"],
+                helpLines: ["Exit Luma"],
                 isDiscoverable: false
             )
         ]

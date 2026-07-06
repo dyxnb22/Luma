@@ -12,23 +12,27 @@ public actor CommandsModule: LumaModule {
         queryTimeout: .milliseconds(20)
     )
 
-    private static let runnableBuiltIns = ["open-settings", "reload-modules", "quit", "export-diagnostics"]
+    private static let runnableBuiltIns = ["open-settings", "reload-modules", "quit", "exit", "export-diagnostics"]
 
     private let store: CommandsStore
     private let notesConfigStore: NotesRootConfigStore
+    private let secretsVault: SecretsVault
     private var cachedCommands: [ScriptCommand] = []
     private var scriptRunner: any ScriptRunnerClient = NoopScriptRunnerClient()
     private var currentProject: any CurrentProjectClient = NoopCurrentProjectClient()
     private var selectionSnapshot: any SelectionSnapshotClient = NoopSelectionSnapshotClient()
     private var reminders: any RemindersClient = NoopRemindersClient()
     private var menuBarTree: any MenuBarTreeClient = NoopMenuBarTreeClient()
+    private var config: any ConfigurationClient = NoopConfigurationClient()
 
     public init(
         store: CommandsStore = CommandsStore(),
-        notesConfigStore: NotesRootConfigStore = NotesRootConfigStore()
+        notesConfigStore: NotesRootConfigStore = NotesRootConfigStore(),
+        secretsVault: SecretsVault = SecretsVault()
     ) {
         self.store = store
         self.notesConfigStore = notesConfigStore
+        self.secretsVault = secretsVault
     }
 
     public func warmup(_ context: ModuleContext) async {
@@ -39,6 +43,7 @@ public actor CommandsModule: LumaModule {
         selectionSnapshot = context.platform.selectionSnapshot
         reminders = context.platform.reminders
         menuBarTree = context.platform.menuBarTree
+        config = context.runtime.config
     }
 
     public func handle(_ query: Query, context: QueryContext) async -> ModuleResult {
@@ -73,17 +78,21 @@ public actor CommandsModule: LumaModule {
                 )
                 do {
                     try ScriptRunnerSecurityPolicy.validateExecutable(command.exec)
+                    if let cwd, !cwd.isEmpty {
+                        try ScriptRunnerSecurityPolicy.validateWorkingDirectory(cwd)
+                    }
                 } catch {
                     CrashLogRecording.record("commands.run rejected executable=\(URL(fileURLWithPath: command.exec).lastPathComponent)")
                     throw ModuleError.dataUnavailable
                 }
                 let runner = scriptRunner
-                Task {
-                    _ = await runner.run(request)
+                let result = await runner.run(request)
+                if result.exitCode != 0 {
+                    CrashLogRecording.record("commands.run failed id=\(command.id) exit=\(result.exitCode)")
                 }
             case .revealConfig:
                 let url = await store.configFileURL()
-                await context.platform.workspace.revealInFinder(url)
+                try await context.platform.workspace.revealInFinder(url)
             case .doctor:
                 _ = await doctorResult(context: QueryContext(
                     deadline: ContinuousClock().now.advanced(by: .seconds(1)),
@@ -100,6 +109,7 @@ public actor CommandsModule: LumaModule {
     }
 
     public func commandsConfigValid() async -> Bool {
+        if await store.loadWasCorrupt() { return false }
         let url = await store.configFileURL()
         guard let data = try? Data(contentsOf: url) else { return true }
         return (try? JSONDecoder().decode(CommandsConfig.self, from: data)) != nil
@@ -181,17 +191,38 @@ public actor CommandsModule: LumaModule {
         let menuCache = await menuBarTree.staleMenuItemCountForFrontmost()
         let notesConfig = await notesConfigStore.load()
         let notesRootConfigured = notesConfig.root != nil
+        let notesRootReadable: Bool = {
+            guard let root = notesConfig.root else { return true }
+            return FileManager.default.isReadableFile(atPath: root.path)
+        }()
         let remindersAuthorization = await reminders.authorization()
         let manifests = BuiltInModules.manifestCatalog()
+        let corruptFiles = ConfigCorruptionRegistry.snapshot()
+        if await store.loadWasCorrupt() {
+            ConfigCorruptionRegistry.record(fileName: "commands.json")
+        }
+        let enabled = await config.enabledModules() ?? ModuleWarmupDefaults.defaultEnabledModuleIDs
+        let pinned = await config.pinnedModuleIDs()
+        let enabledPinnedConsistent = pinned.isSubset(of: enabled)
         let summary = LumaDiagnostics.summarize(
             manifests: manifests,
             context: LumaDoctorContext(
                 accessibilityTrusted: axTrusted,
                 remindersAuthorization: remindersAuthorization,
                 notesRootConfigured: notesRootConfigured,
+                notesRootReadable: notesRootReadable,
                 enabledModuleCount: manifests.filter(\.defaultEnabled).count,
                 totalModuleCount: manifests.count,
-                menuItemsCachedCount: menuCache
+                menuItemsCachedCount: menuCache,
+                hotkeyRegistered: LauncherRuntimeState.hotkeyRegistered,
+                commandsConfigValid: configValid,
+                corruptConfigFiles: corruptFiles,
+                secretsMetadataCorrupt: await secretsVault.metadataLoadWasCorrupt(),
+                secretsLocked: !(await secretsVault.unlocked()),
+                clipboardEntryCount: ClipboardHistoryEntryCount.readFromApplicationSupport(),
+                warmupTimeoutCount: LauncherRuntimeState.warmupTimeoutCount,
+                latencyP95Milliseconds: LauncherDurationRecorder.exportSummary()["query.dispatch"],
+                enabledPinnedConsistent: enabledPinnedConsistent
             )
         )
         var rows = LumaDiagnostics.doctorRows(
@@ -255,7 +286,7 @@ public actor CommandsModule: LumaModule {
             await context.host.openSettings()
         case "reload-modules":
             await context.host.reloadModules()
-        case "quit":
+        case "quit", "exit":
             await context.host.quitHost()
         case "export-diagnostics":
             _ = try await context.host.exportDiagnostics()
@@ -280,7 +311,7 @@ public actor CommandsModule: LumaModule {
         switch key {
         case "open-settings": "Open Settings"
         case "reload-modules": "Reload Modules"
-        case "quit": "Quit Luma"
+        case "quit", "exit": "Exit Luma"
         case "export-diagnostics": "Export Diagnostics"
         case "doctor": "Global Doctor"
         default: key

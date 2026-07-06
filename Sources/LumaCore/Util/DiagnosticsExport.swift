@@ -1,8 +1,22 @@
 import Foundation
 
 public struct DiagnosticsPayload: Codable, Equatable, Sendable {
-    public struct DurationSummary: Codable, Equatable, Sendable {
-        public let p95Milliseconds: [String: Double]
+    public struct PlatformInfo: Codable, Equatable, Sendable {
+        public let osVersion: String
+        public let screenCount: Int
+        public let presentationScreenName: String?
+    }
+
+    public struct ModuleInfo: Codable, Equatable, Sendable {
+        public let enabledCount: Int
+        public let totalCount: Int
+        public let defaultEnabledCount: Int
+    }
+
+    public struct PermissionsInfo: Codable, Equatable, Sendable {
+        public let accessibilityTrusted: Bool
+        public let remindersAuthorization: String?
+        public let hotkeyRegistered: Bool
     }
 
     public let generatedAt: String
@@ -12,6 +26,11 @@ public struct DiagnosticsPayload: Codable, Equatable, Sendable {
     public let perfCounters: [String: Int]
     public let durationSummary: [String: Double]
     public let breadcrumbs: [String]
+    public let platform: PlatformInfo?
+    public let modules: ModuleInfo?
+    public let permissions: PermissionsInfo?
+    public let recentErrors: [String]
+    public let corruptConfigFiles: [String]
 
     public init(
         generatedAt: String,
@@ -20,7 +39,12 @@ public struct DiagnosticsPayload: Codable, Equatable, Sendable {
         latencyP95Milliseconds: Double?,
         perfCounters: [String: Int],
         durationSummary: [String: Double],
-        breadcrumbs: [String]
+        breadcrumbs: [String],
+        platform: PlatformInfo? = nil,
+        modules: ModuleInfo? = nil,
+        permissions: PermissionsInfo? = nil,
+        recentErrors: [String] = [],
+        corruptConfigFiles: [String] = []
     ) {
         self.generatedAt = generatedAt
         self.appVersion = appVersion
@@ -29,6 +53,11 @@ public struct DiagnosticsPayload: Codable, Equatable, Sendable {
         self.perfCounters = perfCounters
         self.durationSummary = durationSummary
         self.breadcrumbs = breadcrumbs
+        self.platform = platform
+        self.modules = modules
+        self.permissions = permissions
+        self.recentErrors = recentErrors
+        self.corruptConfigFiles = corruptConfigFiles
     }
 }
 
@@ -40,7 +69,8 @@ public enum DiagnosticsExport {
     private static let sensitiveBreadcrumbKeys: Set<String> = [
         "query", "clipboard", "secret", "notebody", "payload",
         "token", "password", "apikey", "accesstoken", "refreshtoken",
-        "file", "path", "url", "bundle", "title", "subtitle"
+        "file", "path", "url", "bundle", "title", "subtitle",
+        "stderr", "email", "hostname"
     ]
 
     public static func buildPayload(
@@ -49,7 +79,12 @@ public enum DiagnosticsExport {
         latencyP95: Double? = nil,
         perfCounters: [String: Int] = LauncherPerfCounters.exportSnapshot(),
         durationSummary: [String: Double] = LauncherDurationRecorder.exportSummary(),
-        breadcrumbs: [String] = []
+        breadcrumbs: [String] = [],
+        platform: DiagnosticsPayload.PlatformInfo? = nil,
+        modules: DiagnosticsPayload.ModuleInfo? = nil,
+        permissions: DiagnosticsPayload.PermissionsInfo? = nil,
+        recentErrors: [String] = [],
+        corruptConfigFiles: [String] = ConfigCorruptionRegistry.snapshot()
     ) -> DiagnosticsPayload {
         DiagnosticsPayload(
             generatedAt: ISO8601DateFormatter().string(from: Date()),
@@ -58,13 +93,22 @@ public enum DiagnosticsExport {
             latencyP95Milliseconds: latencyP95,
             perfCounters: perfCounters,
             durationSummary: durationSummary,
-            breadcrumbs: breadcrumbs.map(redactBreadcrumb)
+            breadcrumbs: breadcrumbs.map(redactBreadcrumb),
+            platform: platform,
+            modules: modules,
+            permissions: permissions,
+            recentErrors: recentErrors.map(redactBreadcrumb),
+            corruptConfigFiles: corruptConfigFiles
         )
     }
 
     public static func exportToLogsDirectory(
         latencyP95: Double? = nil,
-        breadcrumbs: [String] = []
+        breadcrumbs: [String] = [],
+        platform: DiagnosticsPayload.PlatformInfo? = nil,
+        modules: DiagnosticsPayload.ModuleInfo? = nil,
+        permissions: DiagnosticsPayload.PermissionsInfo? = nil,
+        recentErrors: [String] = []
     ) throws -> URL {
         let directory = FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask).first?
             .appendingPathComponent("Logs/\(defaultDirectoryName)", isDirectory: true)
@@ -73,7 +117,14 @@ public enum DiagnosticsExport {
         }
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let url = directory.appendingPathComponent(defaultFileName)
-        let payload = buildPayload(latencyP95: latencyP95, breadcrumbs: breadcrumbs)
+        let payload = buildPayload(
+            latencyP95: latencyP95,
+            breadcrumbs: breadcrumbs,
+            platform: platform,
+            modules: modules,
+            permissions: permissions,
+            recentErrors: recentErrors
+        )
         let data = try JSONEncoder().encode(payload)
         try data.write(to: url, options: .atomic)
         return url

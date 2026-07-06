@@ -3,6 +3,9 @@ import LumaCore
 public enum KillProcessModuleBundle: ModuleBundle {
     public static var manifest: ModuleManifest { KillProcessModule.manifest }
     public static var warmupTier: WarmupTier { .hotPath }
+    public static var defaultOffNote: String? {
+        "Quit or force-kill the frontmost GUI app (`quit`, `kill`, `k`). Expert use — enable intentionally."
+    }
     public static var presentation: ModulePresentation? {
         ModulePresentation(settingsSymbol: "xmark.circle", listBadge: "kill")
     }

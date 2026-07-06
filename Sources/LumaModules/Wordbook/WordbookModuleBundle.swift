@@ -3,6 +3,9 @@ import LumaCore
 public enum WordbookModuleBundle: ModuleBundle {
     public static var manifest: ModuleManifest { WordbookModule.manifest }
     public static var warmupTier: WarmupTier { .hotPath }
+    public static var defaultOffNote: String? {
+        "Spaced-repetition vocabulary review. Import a CSV in Settings after enabling."
+    }
 
     public static var detailMetadata: FeatureCard? {
         FeatureCard(

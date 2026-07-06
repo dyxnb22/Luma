@@ -14,10 +14,16 @@ import LumaModules
     #expect(registry.command(forTrigger: "translate")?.module == translate)
 }
 
-@Test func moduleRegistryQuitResolvesToCommandsNotKillProcess() {
+@Test func moduleRegistryQuitResolvesToKillProcessNotCommands() {
+    let registry = ModuleRegistry.makeCommandRegistry()
+    let killProcess = ModuleIdentifier(rawValue: "luma.kill-process")
+    #expect(registry.command(forTrigger: "quit")?.module == killProcess)
+}
+
+@Test func moduleRegistryExitResolvesToCommandsWhenEnabled() {
     let registry = ModuleRegistry.makeCommandRegistry()
     let commands = ModuleIdentifier(rawValue: "luma.commands")
-    #expect(registry.command(forTrigger: "quit")?.module == commands)
+    #expect(registry.command(forTrigger: "exit")?.module == commands)
 }
 
 @Test func moduleRegistryDetailMetadataIncludesClipboard() {

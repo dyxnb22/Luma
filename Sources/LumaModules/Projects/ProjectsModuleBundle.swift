@@ -3,6 +3,9 @@ import LumaCore
 public enum ProjectsModuleBundle: ModuleBundle {
     public static var manifest: ModuleManifest { ProjectsModule.manifest }
     public static var warmupTier: WarmupTier { .onDemand }
+    public static var defaultOffNote: String? {
+        "Project roots and openers. Add project folders in Settings after enabling."
+    }
     public static var presentation: ModulePresentation? {
         ModulePresentation(settingsSymbol: "folder", listBadge: "proj")
     }

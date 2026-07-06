@@ -1,4 +1,5 @@
 import Foundation
+import LumaCore
 
 public struct SecretRecord: Identifiable, Sendable, Hashable {
     public let id: UUID
@@ -50,10 +51,15 @@ public actor SecretsVault {
                 ?? fileManager.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support")
             self.metadataURL = base.appendingPathComponent("Luma/secrets-metadata.json")
         }
-        if let data = try? Data(contentsOf: self.metadataURL),
-           let decoded = try? JSONDecoder().decode([SecretMetadata].self, from: data) {
-            records = Dictionary(uniqueKeysWithValues: decoded.map { ($0.id, $0) })
-        }
+        let result = JSONConfigPersistence.load(from: self.metadataURL, fallback: [SecretMetadata](), fileManager: fileManager)
+        metadataWasCorrupt = result.wasCorrupt
+        records = Dictionary(uniqueKeysWithValues: result.value.map { ($0.id, $0) })
+    }
+
+    private var metadataWasCorrupt = false
+
+    public func metadataLoadWasCorrupt() -> Bool {
+        metadataWasCorrupt
     }
 
     public func configure(relockTimeoutSeconds: Int, onLockStateChanged: (@Sendable (Bool) async -> Void)? = nil) {

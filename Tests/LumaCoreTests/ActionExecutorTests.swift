@@ -64,10 +64,22 @@ private struct ActionExecutorTestLogger: LoggingClient {
     func error(_ message: String) async {}
 }
 
+private struct ValidatingWorkspaceClient: WorkspaceClient {
+    func launchApplication(at url: URL) async throws { _ = url }
+    func openURL(_ url: URL) async throws {
+        try ExternalURLPolicy.validateOpenURL(url, allowFileURLs: false)
+    }
+    func openLocalFileURL(_ url: URL) async throws { _ = url }
+    func revealInFinder(_ url: URL) async throws { _ = url }
+    func terminateApplication(bundleID: String) async { _ = bundleID }
+    func openApplication(bundleID: String, arguments: [String]) async { _ = bundleID; _ = arguments }
+}
+
 private func makeExecutor(
     host: ModuleHost,
     pasteboard: any PasteboardClient = RecordingPasteboard(),
-    translation: any TranslationClient = NoopTranslationClient()
+    translation: any TranslationClient = NoopTranslationClient(),
+    workspace: any WorkspaceClient = NoopWorkspaceClient()
 ) -> ActionExecutor {
     let usage = InMemoryUsageTracker()
     let context = ActionContext(
@@ -75,7 +87,8 @@ private func makeExecutor(
         metrics: NoopMetricsClient(),
         pasteboard: pasteboard,
         accessibility: NoopAccessibilityClient(),
-        translation: translation
+        translation: translation,
+        workspace: workspace
     )
     return ActionExecutor(host: host, context: context, usage: usage, resultCache: UsageResultCache(url: temporaryCacheURL()))
 }
@@ -222,6 +235,32 @@ private func temporaryCacheURL() -> URL {
     #expect(await cache.item(for: item.id) == nil)
 }
 
+@Test func actionExecutorInsertTextWithoutAccessibilityReturnsPermissionFailure() async {
+    let host = ModuleHost(context: ModuleContext(logger: ActionExecutorTestLogger(), metrics: NoopMetricsClient(), database: NoopDatabaseClient(), pasteboard: NoopPasteboardClient(), accessibility: NoopAccessibilityClient(), fileSystem: NoopFileSystemClient(), translation: NoopTranslationClient(), config: NoopConfigurationClient()))
+    let executor = makeExecutor(host: host)
+    let id = ResultID(module: .snippets, key: "paste")
+    let result = await executor.run(
+        Action(id: ActionID(module: .snippets, key: "paste"), title: "Paste", kind: .insertText("hello")),
+        for: id
+    )
+    #expect(result == .failure(message: "Accessibility permission is required.", recoverable: true))
+}
+
+@Test func actionExecutorFocusWindowWithoutAccessibilityReturnsPermissionFailure() async {
+    let host = ModuleHost(context: ModuleContext(logger: ActionExecutorTestLogger(), metrics: NoopMetricsClient(), database: NoopDatabaseClient(), pasteboard: NoopPasteboardClient(), accessibility: NoopAccessibilityClient(), fileSystem: NoopFileSystemClient(), translation: NoopTranslationClient(), config: NoopConfigurationClient()))
+    let executor = makeExecutor(host: host)
+    let id = ResultID(module: .apps, key: "focus")
+    let result = await executor.run(
+        Action(
+            id: ActionID(module: .apps, key: "focus"),
+            title: "Focus",
+            kind: .focusWindow(windowID: 1, pid: 1, title: "Test", axTitle: nil, bounds: nil)
+        ),
+        for: id
+    )
+    #expect(result == .failure(message: "Accessibility permission is required.", recoverable: true))
+}
+
 @Test func actionExecutorTranslationFailureReturnsMappedMessage() async {
     let host = ModuleHost(context: ModuleContext(logger: ActionExecutorTestLogger(), metrics: NoopMetricsClient(), database: NoopDatabaseClient(), pasteboard: NoopPasteboardClient(), accessibility: NoopAccessibilityClient(), fileSystem: NoopFileSystemClient(), translation: FailingTranslationClient(), config: NoopConfigurationClient()))
     let executor = makeExecutor(host: host, translation: FailingTranslationClient())
@@ -232,6 +271,28 @@ private func temporaryCacheURL() -> URL {
     )
     #expect(result.succeeded == false)
     #expect(result.userFacingMessage == nil)
+}
+
+@Test func actionExecutorOpenURLRejectsFileScheme() async {
+    let host = ModuleHost(context: ModuleContext(logger: ActionExecutorTestLogger(), metrics: NoopMetricsClient(), database: NoopDatabaseClient(), pasteboard: NoopPasteboardClient(), accessibility: NoopAccessibilityClient(), fileSystem: NoopFileSystemClient(), translation: NoopTranslationClient(), config: NoopConfigurationClient()))
+    let executor = makeExecutor(host: host, workspace: ValidatingWorkspaceClient())
+    let id = ResultID(module: .quicklinks, key: "open")
+    let result = await executor.run(
+        Action(id: ActionID(module: .quicklinks, key: "open"), title: "Open", kind: .openURL(URL(fileURLWithPath: "/etc/passwd"))),
+        for: id
+    )
+    #expect(result.succeeded == false)
+}
+
+@Test func actionExecutorApplyWindowLayoutWithoutAccessibilityReturnsPermissionFailure() async {
+    let host = ModuleHost(context: ModuleContext(logger: ActionExecutorTestLogger(), metrics: NoopMetricsClient(), database: NoopDatabaseClient(), pasteboard: NoopPasteboardClient(), accessibility: NoopAccessibilityClient(), fileSystem: NoopFileSystemClient(), translation: NoopTranslationClient(), config: NoopConfigurationClient()))
+    let executor = makeExecutor(host: host)
+    let id = ResultID(module: .windowLayouts, key: "layout")
+    let result = await executor.run(
+        Action(id: ActionID(module: .windowLayouts, key: "layout"), title: "Layout", kind: .applyWindowLayout("left")),
+        for: id
+    )
+    #expect(result == .failure(message: "Accessibility permission is required.", recoverable: true))
 }
 
 private struct NoopDatabaseClient: DatabaseClient {}

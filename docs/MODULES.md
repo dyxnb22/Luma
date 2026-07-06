@@ -13,28 +13,52 @@ This file is the source of truth for shipped user-visible module behavior. It re
 - `help <trigger>` or `<trigger> ?` shows module help.
 - Detail views open in the right column while Open Apps remains on the left.
 
+## MVP default-on modules (fresh install)
+
+Apps, Clipboard, Snippets, Quicklinks, Todo, Translate, Notes.
+
+## Default-off modules (enable in Settings)
+
+Commands, Media, Browser Tabs, Menu Bar Search, Window Layouts, Wordbook, Secrets, Kill Process, Projects.
+
+Home guide (empty query, right column) lists discoverable commands for **enabled** modules only; Apps appears in the guide. Disabled modules do not show guide rows.
+
 ## Active Modules
 
 | Module | Triggers | Global Search | Default | Primary Surface |
 | --- | --- | --- | --- | --- |
 | Apps / Open Apps | `app`, `apps`, `open`, `top` | Yes | On | Home, app launch, app focus |
 | Clipboard | `clip`, `clipboard` | Yes, capped | On | Clipboard detail/history |
-| Commands | `cmd`, `reload`, `quit`, `settings`, scripted commands | Built-ins only | On | Built-in and local scripts |
+| Commands | `cmd`, `reload`, `exit`, `settings`, scripted commands | Built-ins only | Off | Built-in and local scripts |
 | Notes | `n`, `note`, `notes` | No | On | Markdown workspace detail |
 | Todo | `todo`, `td` | No | On | EventKit reminders |
 | Translate | `tr`, `translate` | No | On | Translation detail/result |
-| Wordbook | `word`, `wb` | No | On | Review/manage detail |
+| Wordbook | `word`, `wb` | No | Off | Review/manage detail |
 | Snippets | `s`, `snip`, `snippet` | Exact trigger expansion only | On | Snippet copy/paste/detail |
-| Secrets | `secret`, `sec` | No values | On | Locked Keychain-backed vault |
-| Records / Media | `m`, `rec`, `media` | No | On | Media log/search/detail |
-| Window Layouts | `win`, `wl` | No | On | Focused-window layouts |
-| Projects | `proj`, `p`, `project` | No | On | Project workspace |
+| Secrets | `secret`, `sec` | No values | Off | Locked Keychain-backed vault |
+| Records / Media | `m`, `rec`, `media` | No | Off | Media log/search/detail |
+| Window Layouts | `win`, `wl` | No | Off | Focused-window layouts |
+| Projects | `proj`, `p`, `project` | No | Off | Project workspace |
 | Quicklinks | `ql`, `quicklink`, configured exact triggers | Exact trigger only | On | URL template launcher/manager |
-| Menu Bar Search | `mb`, `menu` | No | On | Active-app menu item search |
-| Kill Process | `kill` | No | On | Quit/relaunch GUI apps |
+| Menu Bar Search | `mb`, `menu` | No | Off | Active-app menu item search |
+| Kill Process | `kill`, `quit`, `k` | No | Off | Quit/relaunch GUI apps |
 | Browser Tabs | `tab`, `tabs` | No | Off | Browser tab search |
 
+**Quit vs exit:** bare `quit` / `kill` / `k` targets Kill Process (quit frontmost GUI app). Bare `exit` exits Luma when the Commands module is enabled. `cmd quit` also exits Luma from command mode.
+
+**MVP default install:** Kill Process and Commands are **off by default**, so bare `quit`, `kill`, `k`, and `exit` do **not** respond until you enable those modules in Settings. To quit Luma without enabling Commands, use the menu bar **⌘Q** or Luma → Quit.
+
 Deferred source-retained module: **Windows** (`BuiltInModules.makeDeferred()`). Not registered in active warmup/default enablement; `handle()` must not ship on the hot path until warm-cache + tests land.
+
+## Snippets vs Quicklinks vs Commands
+
+| Surface | Purpose | Trigger model | Storage |
+| --- | --- | --- | --- |
+| **Snippets** | Expand text templates into paste/insert | Exact trigger match on Return (e.g. `sig`) | Local snippet store |
+| **Quicklinks** | Open URLs from templates | Exact first-token triggers (e.g. `gh`) | `quicklinks.json` |
+| **Commands** | Run local scripts + built-ins (`settings`, `exit`, `doctor`) | `cmd` prefix or bare built-in | `commands.json` |
+
+Snippets never open URLs; Quicklinks never run shell scripts; Commands never store snippet bodies. Enable Commands in Settings when needed.
 
 ## Apps / Open Apps
 
@@ -58,8 +82,10 @@ Deferred source-retained module: **Windows** (`BuiltInModules.makeDeferred()`). 
 
 ## Commands And Scripts
 
-- Built-ins include Settings, reload modules, diagnostics, and quit.
-- `cmd doctor` / `commands doctor` runs the global doctor scan (AX, EventKit, config checks). Bare global `doctor` without the commands prefix does **not** run doctor checks.
+- Built-ins include Settings, reload modules, diagnostics, and exit (`exit` bare or `cmd quit`).
+- `cmd doctor` / `commands doctor` runs the global doctor scan (AX, EventKit, config checks, hotkey registration, corrupt configs, latency p95). Bare global `doctor` without the commands prefix does **not** run doctor checks.
+- Notes without a configured root shows onboarding row ("Choose a Notes root folder"); configure via Settings → Notes or Notes detail.
+- Projects with no scan roots or matches shows onboarding row; configure via Settings → Projects.
 - `cmd export-diagnostics` writes redacted `~/Library/Logs/Luma/diagnostics.json` (perf counters, durations, latency p95, CrashLogBuffer breadcrumbs).
 - User scripts load from `commands.json` in Application Support.
 - Scripts execute asynchronously and do not block panel dismissal.

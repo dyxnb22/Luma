@@ -127,10 +127,24 @@ Query rules:
 
 Action rules:
 
-- Panel hides before external actions complete.
+- **Perform-then-dismiss:** external actions await `ActionExecutor.run` before hiding the panel. On failure, `CommandHintBar.showStatus` surfaces the mapped message and the panel stays open for retry.
 - In-panel intents may keep the panel visible.
+- Builtin platform actions (paste, focus, insert, open URL, window layout) propagate `ModuleError` from `PasteboardClient` / `AccessibilityClient` / `WorkspaceClient` — they must not report success when the platform call no-ops.
 - Destructive persistent actions require confirmation or an undo/status path.
 - Failures must surface a short status or diagnostic row.
+
+IME / query dispatch:
+
+- While `LumaSearchBar.isComposing` (marked text active), `controlTextDidChange` must not dispatch query. Composition end is picked up by the 200 ms query-sync poll or `controlTextDidEndEditing`.
+
+Action panel / query:
+
+- Editing the search query while the action panel is visible dismisses the panel (same as abandoning row context).
+
+Presentation screen:
+
+- `LumaPresentationScreen.current()` prefers the screen under the cursor, then key window, then main.
+- `LauncherWindowController` repositions the panel when `NSApplication.didChangeScreenParametersNotification` or `NSWorkspace.activeSpaceDidChangeNotification` fires while the panel is visible.
 
 ## Performance Contract
 
@@ -150,7 +164,7 @@ Hot path rules:
 - Hotkey show reuses the already-rendered launcher/home UI.
 - Empty persisted-session restore is a no-op for home rendering.
 - Stale-while-revalidate is the default for slow system surfaces.
-- Global search uses tiered fan-out: fast modules (apps, quicklinks, kill-process, snippets) run first; deferred modules follow after a short yield.
+- Global search uses tiered fan-out: fast modules (apps, quicklinks) run first; deferred modules follow after a short yield.
 - Global search fan-out is limited to **contributing** modules (`apps`, `quicklinks`, `clipboard`); other hot-path modules return empty for unprefixed queries and are not scheduled.
 - Progressive global snapshots are coalesced to at most one emit per 16 ms frame, with a forced final snapshot when dispatch completes.
 - UI snapshot apply uses the same 16 ms coalescer in `LauncherRootController` so progressive query results do not repaint faster than one frame.
@@ -162,7 +176,14 @@ Hot path rules:
 - Pooled detail views keep their view hierarchy in `detailContainer` when reopening the same module; `closeDetail` hides rather than removing pooled subviews.
 - Returning from detail paints cached home first, then revalidates Open Apps in the background.
 - Open Apps refresh is bound to panel visibility; hidden panel must not grow `openApps.refresh` counters.
-- `LauncherPerfCounters` and `LauncherDurationRecorder` in `LumaCore` track layout, session, snapshot, module warmup/handle, action perform, and panel-hide durations for tests. `DiagnosticsExport` writes redacted local JSON to `~/Library/Logs/Luma/diagnostics.json`; trigger via `cmd export-diagnostics` (`HostClient.exportDiagnostics`, includes `CrashLogBuffer` breadcrumbs + latency p95).
+- After wake from sleep (`NSWorkspace.didWakeNotification`), Open Apps refresh waits **1 s** before reloading so the window server and filesystem can settle.
+- `LauncherPerfCounters` and `LauncherDurationRecorder` in `LumaCore` track layout, session, snapshot, module warmup/handle, action perform, and panel-hide durations for tests. `DiagnosticsExport` writes redacted local JSON to `~/Library/Logs/Luma/diagnostics.json` with `platform`, `modules`, `permissions`, `recentErrors`, and `corruptConfigFiles` sections; trigger via `cmd export-diagnostics` (`HostClient.exportDiagnostics`, includes `CrashLogBuffer` breadcrumbs + latency p95).
+- Query text is capped at 8192 characters (`LauncherQueryLimits`); paste/truncation happens in `LumaSearchBar`.
+- Config files (`notes.json`, `commands.json`, `projects.json`, secrets metadata, `workbench-activity.json`) quarantine corrupt JSON to `*.corrupt-<ts>.json` via `JSONConfigPersistence`; `ConfigCorruptionRegistry` feeds `cmd doctor`.
+- Script commands validate executable and CWD against allowlists before launch (`ScriptRunnerSecurityPolicy`); CWD is limited to `~/.luma/commands` and Application Support `Luma/commands`.
+- FSEvents overflow emits `.overflow` events and triggers full Notes index rebuild.
+- Module detail presentation: `LauncherDetailPresenter` (warmup, cross-fade, payload staging). Keyboard list/search routing: `LauncherKeyboardDispatcher`. Session reducer effects: `LauncherSessionEffectApplier`.
+- `enabledModules` schema v2 migration trims legacy all-enabled installs to MVP defaults while preserving pinned expert modules.
 - `SelectionSnapshotService` may capture the frontmost PID on MainActor; AX IPC runs off-main.
 - Browser Tabs must not await AppleScript on the keystroke path.
 - Kill Process must not do process memory sampling on MainActor.

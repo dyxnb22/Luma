@@ -5,7 +5,7 @@ import LumaModules
 import LumaServices
 
 @MainActor
-final class LauncherRootController {
+final class LauncherRootController: LauncherDetailPresenting {
     let searchBar: LumaSearchBar
     let commandHintBar: CommandHintBar
     let listView: LauncherListView
@@ -34,7 +34,7 @@ final class LauncherRootController {
     private var workbenchPreviewTask: Task<Void, Never>?
     private var querySyncTimer: Timer?
     private var lastSyncedQuery = ""
-    private var lastSplitLayoutState: (columnSplit: Bool, rightPane: LauncherSplitRightPane)?
+    var lastSplitLayoutState: (columnSplit: Bool, rightPane: LauncherSplitRightPane)?
     private var lastResultsRouteKind: QueryView.ResultsRouteKind?
     private var lastQueryView: QueryView?
     private var permissionRefreshTask: Task<Void, Never>?
@@ -57,11 +57,28 @@ final class LauncherRootController {
         usesColumnSplitLayout: { [weak self] in self?.usesColumnSplitLayout() ?? false },
         discoverableCommands: { [weak self] in
             self?.viewModel.commandRouter.registry.discoverableCommands ?? []
+        },
+        enabledModuleIDs: { [weak self] in
+            self?.cachedEnabledModuleIDs ?? ModuleRegistry.defaultEnabledModuleIDs
         }
+    )
+    private lazy var detailPresenter = LauncherDetailPresenter(
+        host: self,
+        config: config,
+        sessionStore: sessionStore,
+        taskRegistry: taskRegistry,
+        detailLifecycle: detailLifecycle,
+        launcherEnvironment: launcherEnvironment,
+        homeCoordinator: homeCoordinator,
+        contentCoordinator: contentCoordinator,
+        searchBar: searchBar,
+        hintBar: hintBar,
+        homeSplitLayout: homeSplitLayout
     )
     private var restoreGeneration = CancellationGeneration()
     private var querySyncGraceUntil: ContinuousClock.Instant?
-    private var isPanelActiveForQueryApply = false
+    var isPanelActiveForQueryApply = false
+    private var cachedEnabledModuleIDs = ModuleRegistry.defaultEnabledModuleIDs
 
     init(
         viewModel: LauncherViewModel,
@@ -102,6 +119,7 @@ final class LauncherRootController {
 
         wireCallbacks()
         permissionController.onOpenSettings = { [weak self] in self?.onOpenSettings() }
+        Task { await self.refreshEnabledModuleCache() }
     }
 
     private func wireCallbacks() {
@@ -128,8 +146,10 @@ final class LauncherRootController {
             self?.actionPanel.handleKeyDown(event) ?? false
         }
         searchBar.onTextChange = { [weak self] text in
-            self?.noteSearchTextChangedForQuerySync()
             self?.handleTextChange(text)
+        }
+        searchBar.onCompositionActive = { [weak self] in
+            self?.noteSearchTextChangedForQuerySync()
         }
         searchBar.onKeyCommand = { [weak self] command in self?.handleKeyCommand(command) ?? false }
         searchBar.onOpenSettings = onOpenSettings
@@ -199,10 +219,15 @@ final class LauncherRootController {
                 title: "Capture",
                 kind: kind
             )
-            Task {
-                await actionExecutor.run(action, for: ResultID(module: .notes, key: "workbench.capture"))
-                await MainActor.run { self.onActionDismiss() }
-            }
+            performActionThenDismiss(action: action, for: ResultItem(
+                id: ResultID(module: .notes, key: "workbench.capture"),
+                title: "Capture",
+                titleAttributed: AttributedString("Capture"),
+                icon: .symbol("square.and.arrow.down"),
+                primaryAction: action,
+                secondaryActions: [],
+                rankingHints: RankingHints(basePriority: 0)
+            ))
             return true
         case .resumeActivity(let entryID):
             runWorkbenchResumeActivity(entryID: entryID, for: ResultItem(
@@ -310,7 +335,7 @@ final class LauncherRootController {
         }
     }
 
-    private var lastRenderedHomeGeneration: UInt64 = 0
+    var lastRenderedHomeGeneration: UInt64 = 0
 
     func refreshHome(preserveListSelection: Bool = false, force: Bool = false) {
         homeRefreshTask?.cancel()
@@ -478,7 +503,7 @@ final class LauncherRootController {
         cancelLauncherAsyncWork()
         isPanelActiveForQueryApply = false
         if sessionState.panel == .visible || sessionState.panel == .showing {
-            _ = sessionState.apply(.panelHideBegan)
+            applySessionEvent(.panelHideBegan)
         }
         LauncherPerfCounters.increment(.queryCancelOnHide)
     }
@@ -491,11 +516,32 @@ final class LauncherRootController {
         }
         launcherEnvironment.evictDetailModules(removed)
         invalidatePanelSignalsCache()
+        Task { await refreshEnabledModuleCache() }
+    }
+
+    private func refreshEnabledModuleCache() async {
+        cachedEnabledModuleIDs = await config.enabledModules() ?? ModuleRegistry.defaultEnabledModuleIDs
+        lastAppliedGuideCatalogIDs = []
+        await MainActor.run { syncSplitLayout() }
     }
 
     func activatePanelForQueryApply() {
         isPanelActiveForQueryApply = true
-        _ = sessionState.apply(.panelShowCompleted)
+        applySessionEvent(.panelShowCompleted)
+    }
+
+    func applySessionEvent(_ event: LauncherSessionEvent) {
+        let effects = sessionState.apply(event)
+        LauncherSessionEffectApplier.apply(effects, environment: sessionEffectEnvironment())
+    }
+
+    private func sessionEffectEnvironment() -> LauncherSessionEffectApplier.Environment {
+        LauncherSessionEffectApplier.Environment(
+            cancelAllTasks: { [weak self] in self?.cancelLauncherAsyncWork() },
+            clearDetailModeState: { [weak self] in
+                self?.searchBar.cancelDetailMode()
+            }
+        )
     }
 
     private func onSnapshotApplied() {
@@ -636,158 +682,7 @@ final class LauncherRootController {
     }
 
     func openModuleDetail(for moduleID: ModuleIdentifier, payload: Data? = nil) {
-        Task { @MainActor in
-            guard await isModuleEnabledForDetail(moduleID) else {
-                showStatus(LauncherStatusMessages.moduleDisabledInSettings)
-                return
-            }
-            if moduleID == .snippets, let payload,
-               let action = try? ModuleActionCoding.decode(SnippetsAction.self, from: payload) {
-                switch action {
-                case .prepareDraft(let draft):
-                    LauncherSharedState.pendingSnippetDraft = draft
-                case .create(let title):
-                    LauncherSharedState.pendingSnippetDraft = SnippetDraft(title: title, content: "")
-                default:
-                    break
-                }
-                if let message = draftLoadedStatus(for: moduleID, payload: payload) {
-                    launcherEnvironment.showStatus(message)
-                }
-                presentModuleDetail(for: moduleID)
-                return
-            }
-            applyModuleDetailPayload(moduleID: moduleID, payload: payload)
-            if let message = draftLoadedStatus(for: moduleID, payload: payload) {
-                launcherEnvironment.showStatus(message)
-            }
-            presentModuleDetail(for: moduleID)
-        }
-    }
-
-    private func draftLoadedStatus(for moduleID: ModuleIdentifier, payload: Data?) -> String? {
-        guard let payload else { return nil }
-        let probe = Action(
-            id: ActionID(module: moduleID, key: "draft-probe"),
-            title: "",
-            kind: .openModuleDetail(moduleID, payload: payload)
-        )
-        return LauncherActionFeedback.statusMessage(for: probe)
-    }
-
-    private func isModuleEnabledForDetail(_ moduleID: ModuleIdentifier) async -> Bool {
-        guard let enabled = await config.enabledModules() else { return true }
-        return enabled.contains(moduleID)
-    }
-
-    private func presentModuleDetail(for moduleID: ModuleIdentifier) {
-        let generation = detailLifecycle.nextPresentationGeneration()
-        let task = Task { @MainActor [weak self] in
-            guard let self else { return }
-            sessionStore.flushPendingWrites()
-            await launcherEnvironment.warmModuleForDetail(moduleID)
-            guard self.detailLifecycle.isPresentationGenerationCurrent(generation) else { return }
-            guard await isModuleEnabledForDetail(moduleID) else {
-                showStatus(LauncherStatusMessages.moduleDisabledInSettings)
-                return
-            }
-            guard self.isPanelActiveForQueryApply || self.contentCoordinator.showingDetail else { return }
-            guard let detail = launcherEnvironment.makeDetailView(for: moduleID) else {
-                showHome(focusSearch: true, persist: false)
-                return
-            }
-            _ = sessionState.apply(.detailOpened(moduleID, suspendedQuery: searchBar.persistedQuery))
-            let presentation = moduleDetailPresentation()
-            if let cached = await homeCoordinator.cachedSnapshotIfAvailable() {
-                contentCoordinator.showHome(cached, preserveSelection: true)
-                lastRenderedHomeGeneration = await homeCoordinator.currentSnapshotGeneration()
-            } else {
-                let snapshot = await homeCoordinator.snapshot()
-                contentCoordinator.showHome(snapshot, preserveSelection: true)
-                lastRenderedHomeGeneration = await homeCoordinator.currentSnapshotGeneration()
-            }
-            enterDetailContext(moduleTitle: detail.moduleTitle)
-
-            let finishPresentation = { [weak self] in
-                guard let self else { return }
-                guard self.detailLifecycle.isPresentationGenerationCurrent(generation) else { return }
-                if moduleID == .translate,
-                   let translate = self.contentCoordinator.currentDetailObject as? TranslateDetailView {
-                    let state = LauncherResumeStore.load()
-                    if !state.translateSource.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                        translate.restore(sourceText: state.translateSource, outputText: state.translateOutput)
-                    }
-                }
-                self.lastSplitLayoutState = (self.usesColumnSplitLayout(), .detail)
-                self.syncSplitLayout()
-                self.syncRowActionHint()
-                self.syncPerformanceStripVisibility()
-                self.stabilizePanelContentLayout()
-                self.refreshPermissionBannerCoalesced()
-            }
-
-            if usesColumnSplitLayout() {
-                homeSplitLayout.crossfadeFromGuideToDetail { [weak self] in
-                    guard let self else { return }
-                    self.contentCoordinator.present(
-                        detail,
-                        moduleID: moduleID,
-                        presentation: presentation,
-                        stagedForCrossfade: true
-                    )
-                    Task { @MainActor in
-                        await self.launcherEnvironment.activateDetail(detail, for: moduleID)
-                    }
-                } completion: {
-                    finishPresentation()
-                    LauncherPerfCounters.increment(.detailOpen)
-                }
-            } else {
-                contentCoordinator.present(detail, moduleID: moduleID, presentation: presentation)
-                await launcherEnvironment.activateDetail(detail, for: moduleID)
-                finishPresentation()
-                LauncherPerfCounters.increment(.detailOpen)
-            }
-        }
-        taskRegistry.register(key: "presentModuleDetail", task: task)
-    }
-
-    private func applyModuleDetailPayload(moduleID: ModuleIdentifier, payload: Data?) {
-        guard let payload else { return }
-        if moduleID == .media,
-           let action = try? ModuleActionCoding.decode(MediaAction.self, from: payload) {
-            switch action {
-            case .editDraft(let draft):
-                LauncherSharedState.pendingMediaEditorDraft = draft
-            case .openDetail:
-                LauncherSharedState.pendingMediaEditorDraft = nil
-            default:
-                break
-            }
-            return
-        }
-        if moduleID == .wordbook,
-           let action = try? ModuleActionCoding.decode(WordbookAction.self, from: payload),
-           action == .review {
-            LauncherSharedState.pendingWordbookAutoStartReview = true
-        }
-        if moduleID == .projects,
-           let action = try? ModuleActionCoding.decode(ProjectAction.self, from: payload) {
-            switch action {
-            case .openCurrentDetail(let context):
-                LauncherSharedState.pendingCurrentProjectContext = context
-            case .openManage:
-                LauncherSharedState.pendingProjectsManage = true
-            default:
-                break
-            }
-            return
-        }
-        if moduleID == .quicklinks,
-           let action = try? ModuleActionCoding.decode(QuicklinksAction.self, from: payload),
-           case .prepareDraft(let draft) = action {
-            LauncherSharedState.pendingQuicklinkDraft = draft
-        }
+        detailPresenter.openModuleDetail(for: moduleID, payload: payload)
     }
 
     func handleEscape() {
@@ -873,7 +768,7 @@ final class LauncherRootController {
             self.syncKeyHints()
             self.syncPerformanceStripVisibility()
             self.refreshPermissionBanner()
-            _ = self.sessionState.apply(.detailClosed)
+            applySessionEvent(.detailClosed)
         }
         detailLifecycle.closeDetail(animatedToGuide: animatedToGuide, completion: completion)
     }
@@ -888,6 +783,13 @@ final class LauncherRootController {
 
     func handleTextChange(_ text: String) {
         guard text != lastSyncedQuery else { return }
+        if LauncherActionPanelInvalidationPolicy.shouldDismissOnQueryChange(
+            previousQuery: lastSyncedQuery,
+            newQuery: text,
+            actionPanelVisible: actionPanel.isVisible
+        ) {
+            actionPanel.dismiss()
+        }
         lastSyncedQuery = text
         let queryState = QueryView(raw: text, viewModel: viewModel)
         lastQueryView = queryState
@@ -963,7 +865,7 @@ final class LauncherRootController {
         }
     }
 
-    private func refreshPermissionBannerCoalesced() {
+    func refreshPermissionBannerCoalesced() {
         permissionRefreshTask?.cancel()
         permissionRefreshTask = Task { @MainActor [weak self] in
             try? await Task.sleep(for: .milliseconds(16))
@@ -1003,7 +905,7 @@ final class LauncherRootController {
         return AccessibilityGuidanceContext(surface: .none)
     }
 
-    private func stabilizePanelContentLayout() {
+    func stabilizePanelContentLayout() {
         LauncherInPanelLayout.stabilizePanel(from: searchBar)
     }
 
@@ -1039,13 +941,8 @@ final class LauncherRootController {
         snapshotPipeline.cancelPending()
     }
 
-    private func syncPerformanceStripVisibility() {
+    func syncPerformanceStripVisibility() {
         performanceStrip.setContentVisible(true)
-    }
-
-    private func enterDetailContext(moduleTitle: String) {
-        searchBar.beginDetailMode(moduleTitle: moduleTitle)
-        hintBar.setContext(.detail)
     }
 
     private func activateReturn() {
@@ -1067,9 +964,19 @@ final class LauncherRootController {
             if case .globalSearch = route {
                 Task {
                     if let snippet = await launcherEnvironment.snippetsModule.snippetForTrigger(raw) {
-                        let outcome = (try? await launcherEnvironment.snippetsModule.insertSnippet(id: snippet.id)) ?? .copiedOnly
-                        launcherEnvironment.showStatus(LauncherStatusMessages.message(for: outcome))
-                        await MainActor.run { self.onActionDismiss() }
+                        do {
+                            let outcome = try await launcherEnvironment.snippetsModule.insertSnippet(id: snippet.id)
+                            launcherEnvironment.showStatus(LauncherStatusMessages.message(for: outcome))
+                            if outcome == .pasted || outcome == .copiedOnly {
+                                await MainActor.run { self.onActionDismiss() }
+                            }
+                        } catch {
+                            await MainActor.run {
+                                let mapped = ActionExecutionFailureMapper.message(for: error)
+                                let message = mapped.message ?? LauncherStatusMessages.operationFailed
+                                self.commandHintBar.showStatus(message)
+                            }
+                        }
                         return
                     }
                     await MainActor.run { self.activateSelectedOrShowNoResults() }
@@ -1131,7 +1038,7 @@ final class LauncherRootController {
         return true
     }
 
-    private func syncRowActionHint() {
+    func syncRowActionHint() {
         syncKeyHints()
         guard contentCoordinator.showingResults || !contentCoordinator.showingDetail else {
             commandHintBar.setReturnAction(nil)
@@ -1158,11 +1065,7 @@ final class LauncherRootController {
         hintBar.setContext(context, selectedItem: item)
     }
 
-    private func moduleDetailPresentation() -> ModuleDetailPresentation {
-        .rightColumn
-    }
-
-    private func usesColumnSplitLayout() -> Bool {
+    func usesColumnSplitLayout() -> Bool {
         currentHomeSplitState().columnSplitActive
     }
 
@@ -1182,7 +1085,7 @@ final class LauncherRootController {
         return view.isDescendant(of: listView)
     }
 
-    private func syncSplitLayout() {
+    func syncSplitLayout() {
         let splitState = currentHomeSplitState()
         let columnSplit = splitState.columnSplitActive
         let rightPane = splitState.rightPane
@@ -1198,9 +1101,10 @@ final class LauncherRootController {
 
         if columnSplit, rightPane == .guide {
             let commands = viewModel.commandRouter.registry.discoverableCommands
+                .filter { cachedEnabledModuleIDs.contains($0.module) }
             let catalogIDs = commands.map(\.id)
             if catalogIDs != lastAppliedGuideCatalogIDs {
-                homeSplitLayout.guidePane.applyCatalog(commands)
+                homeSplitLayout.guidePane.applyCatalog(commands, enabledModules: cachedEnabledModuleIDs)
                 lastAppliedGuideCatalogIDs = catalogIDs
             }
         }
@@ -1273,9 +1177,9 @@ final class LauncherRootController {
                     break
                 }
             }
-            runWithFeedback(action: action, for: item)
+            performActionThenDismiss(action: action, for: item)
         default:
-            runWithFeedback(action: action, for: item)
+            performActionThenDismiss(action: action, for: item)
         }
     }
 
@@ -1367,7 +1271,7 @@ final class LauncherRootController {
                 return
             }
             let enabled = await config.enabledModules()
-                ?? Set(ModuleRegistry.allBundles.map { $0.identifier })
+                ?? ModuleRegistry.defaultEnabledModuleIDs
             guard enabled.contains(entry.moduleID) else {
                 await MainActor.run { commandHintBar.showStatus(LauncherStatusMessages.moduleDisabledInSettings) }
                 return
@@ -1395,7 +1299,7 @@ final class LauncherRootController {
                 entry = nil
             }
             let enabled = await config.enabledModules()
-                ?? Set(ModuleRegistry.allBundles.map { $0.identifier })
+                ?? ModuleRegistry.defaultEnabledModuleIDs
             guard enabled.contains(link.entityRef.moduleID) else {
                 await MainActor.run { commandHintBar.showStatus(LauncherStatusMessages.moduleDisabledInSettings) }
                 return
@@ -1450,7 +1354,7 @@ final class LauncherRootController {
                 return
             }
             let enabled = await config.enabledModules()
-                ?? Set(ModuleRegistry.allBundles.map { $0.identifier })
+                ?? ModuleRegistry.defaultEnabledModuleIDs
             guard enabled.contains(entry.moduleID) else {
                 await MainActor.run { commandHintBar.showStatus(LauncherStatusMessages.moduleDisabledInSettings) }
                 return
@@ -1545,7 +1449,7 @@ final class LauncherRootController {
                     title: item.primaryAction.title,
                     kind: .custom(payload: payload, handler: .notes)
                 )
-                runWithFeedback(action: act, for: item)
+                performActionThenDismiss(action: act, for: item)
             }
         case .todoDraft:
             searchBar.stringValue = TodoModule.resumeQuery(forCapture: result.preview)
@@ -1598,35 +1502,35 @@ final class LauncherRootController {
     }
 
     private func runNotesOpen(path _: String, action: Action, for item: ResultItem) {
+        performActionThenDismiss(action: action, for: item)
+    }
+
+    private func performActionThenDismiss(action: Action, for item: ResultItem) {
+        if let feedback = LauncherActionFeedback.feedback(for: action) {
+            commandHintBar.showStatus(feedback.message)
+        }
         Task {
-            await MainActor.run { self.onActionDismiss() }
-            await actionExecutor.run(action, for: item)
+            let result = await actionExecutor.run(action, for: item)
+            await MainActor.run {
+                guard result.succeeded else {
+                    let message = result.userFacingMessage ?? LauncherStatusMessages.operationFailed
+                    commandHintBar.showStatus(message)
+                    return
+                }
+                if LauncherActionFeedback.shouldDelayDismiss(for: action) {
+                    Task {
+                        try? await Task.sleep(for: .milliseconds(900))
+                        await MainActor.run { self.onActionDismiss() }
+                    }
+                } else {
+                    onActionDismiss()
+                }
+            }
         }
     }
 
     private func runWithFeedback(action: Action, for item: ResultItem) {
-        if let feedback = LauncherActionFeedback.feedback(for: action) {
-            commandHintBar.showStatus(feedback.message)
-            Task {
-                let result = await actionExecutor.run(action, for: item)
-                guard result.succeeded else {
-                    await MainActor.run {
-                        let message = result.userFacingMessage ?? LauncherStatusMessages.operationFailed
-                        self.commandHintBar.showStatus(message)
-                    }
-                    return
-                }
-                if feedback.delayDismiss {
-                    try? await Task.sleep(for: .milliseconds(900))
-                    await MainActor.run { self.onActionDismiss() }
-                }
-            }
-        } else {
-            onActionDismiss()
-            Task {
-                await actionExecutor.run(action, for: item)
-            }
-        }
+        performActionThenDismiss(action: action, for: item)
     }
 
     private func saveModuleRoundTripResume(module: ModuleIdentifier, query: String? = nil) {
@@ -1704,96 +1608,45 @@ final class LauncherRootController {
     }
 
     private func handleKeyCommand(_ command: LumaSearchBar.KeyCommand) -> Bool {
-        if case .backtab = command {
-            if actionPanel.isVisible {
-                actionPanel.dismiss()
-                return true
-            }
-            return false
-        }
-        if case .commandReturn = command {
-            guard !actionPanel.isVisible, !contentCoordinator.showingDetail,
-                  let item = contentCoordinator.currentItems[safe: contentCoordinator.selectedIndex] else { return false }
-            guard let secondary = item.secondaryActions.first else {
-                commandHintBar.showStatus(LauncherStatusMessages.noAlternateActions)
-                return true
-            }
-            runAction(secondary, for: item)
-            return true
-        }
-        if actionPanel.isVisible {
-            if case .commandNumber(let number) = command {
-                actionPanel.activateIndex(number - 1)
-                return true
-            }
-            if case .up = command {
-                actionPanel.moveSelection(delta: -1)
-                return true
-            }
-            if case .down = command {
-                actionPanel.moveSelection(delta: 1)
-                return true
-            }
-            let outcome = LauncherKeyRouter.route(
-                command: command.launcherKeyCommand,
-                mode: .results,
-                itemCount: actionPanel.actionCount,
-                actionPanelVisible: true
-            )
-            if outcome == .dismissActionPanel {
-                actionPanel.dismiss()
-                return true
-            }
-            return true
-        }
-        let mode: LauncherContentMode
-        if contentCoordinator.showingDetail, !listHoldsKeyboardFocus() {
-            mode = .detail(contentCoordinator.currentDetailModuleID)
-        } else if contentCoordinator.showingResults
-            || !searchBar.stringValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            mode = .results
-        } else {
-            mode = .home
-        }
-        let outcome = LauncherKeyRouter.route(
-            command: command.launcherKeyCommand,
-            mode: mode,
+        let trimmed = searchBar.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        let detailMode: LauncherContentMode = .detail(contentCoordinator.currentDetailModuleID)
+        return LauncherKeyboardDispatcher.handle(command, context: .init(
+            actionPanelVisible: actionPanel.isVisible,
+            actionPanelActionCount: actionPanel.actionCount,
+            showingDetail: contentCoordinator.showingDetail,
+            listHoldsKeyboardFocus: listHoldsKeyboardFocus(),
+            showingResults: contentCoordinator.showingResults,
+            queryTrimmedIsEmpty: trimmed.isEmpty,
             itemCount: contentCoordinator.currentItems.count,
-            actionPanelVisible: actionPanel.isVisible
-        )
-        switch outcome {
-        case .handled: return true
-        case .openActionPanel: openActionPanel(); return true
-        case .moveSelection(let delta):
-            let next = contentCoordinator.selectedIndex + delta
-            contentCoordinator.updateSelection(to: min(max(0, next), max(0, contentCoordinator.currentItems.count - 1)))
-            return true
-        case .jumpToFlatIndex(let index):
-            contentCoordinator.updateSelection(to: index)
-            if let item = contentCoordinator.currentItems[safe: index] { handleRun(item) }
-            return true
-        case .runItem(let item): run(item: item); return true
-        case .toggleOpenAppWindows:
-            return true
-        case .dismissActionPanel:
-            actionPanel.dismiss()
-            return true
-        case .passthrough: return false
-        }
-    }
-}
-
-private extension LumaSearchBar.KeyCommand {
-    var launcherKeyCommand: LauncherKeyCommand {
-        switch self {
-        case .up: .up
-        case .down: .down
-        case .tab: .tab
-        case .backtab: .backtab
-        case .actionPanel: .actionPanel
-        case .commandReturn: .commandReturn
-        case .commandNumber(let n): .commandNumber(n)
-        }
+            selectedIndex: contentCoordinator.selectedIndex,
+            currentItem: contentCoordinator.currentItems[safe: contentCoordinator.selectedIndex],
+            contentMode: detailMode,
+            dismissActionPanel: { [weak self] in self?.actionPanel.dismiss() },
+            openActionPanel: { [weak self] in self?.openActionPanel() },
+            moveActionPanelSelection: { [weak self] delta in self?.actionPanel.moveSelection(delta: delta) },
+            activateActionPanelIndex: { [weak self] index in self?.actionPanel.activateIndex(index) },
+            moveListSelection: { [weak self] delta in
+                guard let self else { return }
+                let next = self.contentCoordinator.selectedIndex + delta
+                self.contentCoordinator.updateSelection(to: min(max(0, next), max(0, self.contentCoordinator.currentItems.count - 1)))
+            },
+            jumpToFlatIndex: { [weak self] index in
+                guard let self else { return }
+                self.contentCoordinator.updateSelection(to: index)
+                if let item = self.contentCoordinator.currentItems[safe: index] { self.handleRun(item) }
+            },
+            runItem: { [weak self] item in self?.run(item: item) },
+            runSecondaryForSelected: { [weak self] in
+                guard let self,
+                      let item = self.contentCoordinator.currentItems[safe: self.contentCoordinator.selectedIndex],
+                      let secondary = item.secondaryActions.first else { return false }
+                self.runAction(secondary, for: item)
+                return true
+            },
+            showNoAlternateActions: { [weak self] in
+                self?.commandHintBar.showStatus(LauncherStatusMessages.noAlternateActions)
+            }
+        ))
     }
 }
 

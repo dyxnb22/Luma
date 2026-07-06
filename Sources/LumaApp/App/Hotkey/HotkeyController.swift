@@ -19,6 +19,8 @@ final class HotkeyController {
     nonisolated(unsafe) private var handlerRef: EventHandlerRef?
     private let onPress: @MainActor () -> Void
 
+    private(set) var isRegistered = false
+
     init(onPress: @escaping @MainActor () -> Void) throws {
         self.onPress = onPress
         try installHandler()
@@ -43,6 +45,7 @@ final class HotkeyController {
         }
 
         hotKeyRef = ref
+        isRegistered = true
     }
 
     func unregister() {
@@ -50,6 +53,7 @@ final class HotkeyController {
             UnregisterEventHotKey(hotKeyRef)
             self.hotKeyRef = nil
         }
+        isRegistered = false
     }
 
     func simulatePressForDevelopment() {

@@ -45,6 +45,8 @@ final class LumaSearchBar: NSView {
     private let hintsPopover = NSPopover()
     private var currentPlaceholderText: String?
     var onTextChange: ((String) -> Void)?
+    /// Called when IME composition is active and the visible text changed (starts query-sync polling).
+    var onCompositionActive: (() -> Void)?
     var onEscape: (() -> Void)?
     var onReturn: (() -> Void)?
     var onKeyCommand: ((KeyCommand) -> Bool)?
@@ -167,9 +169,15 @@ final class LumaSearchBar: NSView {
     var stringValue: String {
         get { textField.stringValue }
         set {
-            textField.stringValue = newValue
+            let limited = Self.limitedQuery(newValue)
+            textField.stringValue = limited
             updateClearButtonVisibility()
         }
+    }
+
+    private static func limitedQuery(_ text: String) -> String {
+        guard text.count > LauncherQueryLimits.maxCharacters else { return text }
+        return String(text.prefix(LauncherQueryLimits.maxCharacters))
     }
 
     var queryText: String {
@@ -328,12 +336,23 @@ extension LumaSearchBar: NSTextFieldDelegate {
     func controlTextDidChange(_ obj: Notification) {
         let now = CFAbsoluteTimeGetCurrent()
         LatencyTracker.shared.markKeystroke(at: now)
+        if let editor = textField.currentEditor(), editor.string.count > LauncherQueryLimits.maxCharacters {
+            editor.string = Self.limitedQuery(editor.string)
+        }
         updateClearButtonVisibility()
+        guard LauncherQueryDispatchPolicy.shouldDispatchQuery(isComposing: isComposing) else {
+            onCompositionActive?()
+            return
+        }
         onTextChange?(queryText)
     }
 
     func controlTextDidEndEditing(_ obj: Notification) {
         commitEditingIfNeeded()
+        guard LauncherQueryDispatchPolicy.shouldDispatchQuery(isComposing: isComposing) else {
+            onCompositionActive?()
+            return
+        }
         onTextChange?(queryText)
     }
 

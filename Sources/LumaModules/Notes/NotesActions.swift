@@ -1,12 +1,13 @@
 import Foundation
 import LumaCore
 
-public enum NotesActionError: Error, Sendable {
+public enum NotesActionError: Error, Sendable, Equatable {
     case emptyName
     case nameContainsSlash
     case alreadyExists
     case rootMissing
     case templateNotFound
+    case pathOutsideRoot
 }
 
 public enum NotesDeleteError: Error, Sendable {

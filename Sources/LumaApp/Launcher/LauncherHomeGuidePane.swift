@@ -90,9 +90,9 @@ final class LauncherHomeGuidePane: NSView {
 
     /// Always shows the module entry catalog — never mirrors the left Open Apps selection title.
     @MainActor
-    func applyCatalog(_ commands: [CommandDefinition]) {
+    func applyCatalog(_ commands: [CommandDefinition], enabledModules: Set<ModuleIdentifier>) {
         footerLabel.stringValue = L10n.trZhHans("home.guide.footer")
-        rows = HomeGuideCatalog.entryRows(from: commands) { L10n.trZhHans($0) }
+        rows = HomeGuideCatalog.entryRows(from: commands, enabledModules: enabledModules) { L10n.trZhHans($0) }
         tableView.reloadData()
         layoutSubtreeIfNeeded()
         GeekUIKit.syncVerticalListDocumentFrame(in: scrollView)

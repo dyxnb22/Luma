@@ -3,6 +3,9 @@ import LumaCore
 public enum SecretsModuleBundle: ModuleBundle {
     public static var manifest: ModuleManifest { SecretsModule.manifest }
     public static var warmupTier: WarmupTier { .hotPath }
+    public static var defaultOffNote: String? {
+        "Encrypted developer secrets vault. Unlock with `sec unlock` after enabling in Settings."
+    }
 
     public static var detailMetadata: FeatureCard? {
         FeatureCard(

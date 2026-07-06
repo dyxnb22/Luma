@@ -1,7 +1,7 @@
 import Foundation
 
 public struct FSChangeEvent: Sendable, Hashable {
-    public enum Kind: Sendable { case created, removed, renamed, modified, unknown }
+    public enum Kind: Sendable { case created, removed, renamed, modified, overflow, unknown }
     public let path: String
     public let kind: Kind
 

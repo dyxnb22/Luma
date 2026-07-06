@@ -32,18 +32,40 @@ public actor AXService: AccessibilityClient {
         Self.enumerateWindows(for: pid)
     }
 
-    public func focus(windowID: UInt32, pid: Int32, title: String, axTitle: String?, bounds: WindowBounds?) async {
-        await Self.focusWindow(windowID: windowID, pid: pid, title: title, axTitle: axTitle, bounds: bounds?.rect)
+    public func focus(windowID: UInt32, pid: Int32, title: String, axTitle: String?, bounds: WindowBounds?) async throws {
+        guard Self.isProcessTrusted() else {
+            throw ModuleError.permissionRequired(.accessibility)
+        }
+        let succeeded = await Self.focusWindow(
+            windowID: windowID,
+            pid: pid,
+            title: title,
+            axTitle: axTitle,
+            bounds: bounds?.rect
+        )
+        guard succeeded else {
+            throw ModuleError.dataUnavailable
+        }
     }
 
-    public func focus(windowID: UInt32) async {
-        guard let match = Self.cgWindowRecords(for: nil).first(where: { $0.windowID == windowID }) else { return }
-        await Self.focusWindow(windowID: match.windowID, pid: match.pid, title: match.title, axTitle: nil, bounds: match.bounds)
+    public func focus(windowID: UInt32) async throws {
+        guard let match = Self.cgWindowRecords(for: nil).first(where: { $0.windowID == windowID }) else {
+            throw ModuleError.dataUnavailable
+        }
+        try await focus(
+            windowID: match.windowID,
+            pid: match.pid,
+            title: match.title,
+            axTitle: nil,
+            bounds: WindowBounds(match.bounds)
+        )
     }
 
-    public func insert(text: String) async {
+    public func insert(text: String) async throws {
         await preparePasteboard(text)
-        guard Self.isProcessTrusted() else { return }
+        guard Self.isProcessTrusted() else {
+            throw ModuleError.permissionRequired(.accessibility)
+        }
         try? await Task.sleep(for: .milliseconds(80))
         await Self.postCommandV()
     }
@@ -84,13 +106,19 @@ public actor AXService: AccessibilityClient {
         keyUp.post(tap: .cghidEventTap)
     }
 
-    public func applyWindowLayout(_ preset: String) async {
-        guard AXIsProcessTrusted() else { return }
-        guard let pid = await MainActor.run(body: { NSWorkspace.shared.frontmostApplication?.processIdentifier }) else { return }
+    public func applyWindowLayout(_ preset: String) async throws {
+        guard AXIsProcessTrusted() else {
+            throw ModuleError.permissionRequired(.accessibility)
+        }
+        guard let pid = await MainActor.run(body: { NSWorkspace.shared.frontmostApplication?.processIdentifier }) else {
+            throw ModuleError.dataUnavailable
+        }
         let appElement = AXUIElementCreateApplication(pid)
         var focused: CFTypeRef?
         guard AXUIElementCopyAttributeValue(appElement, kAXFocusedWindowAttribute as CFString, &focused) == .success,
-              let window = focused else { return }
+              let window = focused else {
+            throw ModuleError.dataUnavailable
+        }
 
         let windowFrame = Self.rawAXWindowFrame(window as! AXUIElement)
         let screen = await MainActor.run {
@@ -100,7 +128,9 @@ public actor AXService: AccessibilityClient {
         var origin = frame.origin
         var size = frame.size
         guard let positionValue = AXValueCreate(.cgPoint, &origin),
-              let sizeValue = AXValueCreate(.cgSize, &size) else { return }
+              let sizeValue = AXValueCreate(.cgSize, &size) else {
+            throw ModuleError.dataUnavailable
+        }
 
         AXUIElementSetAttributeValue(window as! AXUIElement, kAXPositionAttribute as CFString, positionValue)
         AXUIElementSetAttributeValue(window as! AXUIElement, kAXSizeAttribute as CFString, sizeValue)
@@ -174,14 +204,14 @@ public actor AXService: AccessibilityClient {
         title: String,
         axTitle: String?,
         bounds: CGRect?
-    ) async {
-        guard AXIsProcessTrusted() else { return }
+    ) async -> Bool {
+        guard AXIsProcessTrusted() else { return false }
         try? await Task.sleep(for: .milliseconds(80))
 
         let appElement = AXUIElementCreateApplication(pid)
         var windowsRef: CFTypeRef?
         guard AXUIElementCopyAttributeValue(appElement, kAXWindowsAttribute as CFString, &windowsRef) == .success,
-              let windows = windowsRef as? [AXUIElement], !windows.isEmpty else { return }
+              let windows = windowsRef as? [AXUIElement], !windows.isEmpty else { return false }
 
         let targetWindow = resolveFocusTarget(
             windows: windows,
@@ -191,7 +221,7 @@ public actor AXService: AccessibilityClient {
             axTitle: axTitle,
             bounds: bounds
         )
-        guard let window = targetWindow else { return }
+        guard let window = targetWindow else { return false }
 
         await MainActor.run {
             if let app = NSRunningApplication(processIdentifier: pid) {
@@ -205,6 +235,7 @@ public actor AXService: AccessibilityClient {
         _ = AXUIElementPerformAction(window, kAXRaiseAction as CFString)
         AXUIElementSetAttributeValue(window, kAXMainAttribute as CFString, kCFBooleanTrue)
         AXUIElementSetAttributeValue(window, kAXFocusedAttribute as CFString, kCFBooleanTrue)
+        return true
     }
 
     nonisolated private static func resolveFocusTarget(

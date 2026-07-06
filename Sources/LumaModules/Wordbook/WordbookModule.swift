@@ -6,7 +6,7 @@ public actor WordbookModule: LumaModule {
         identifier: .wordbook,
         displayName: "Wordbook",
         capabilities: [.queryable, .providesActions, .backgroundUpdater],
-        defaultEnabled: true,
+        defaultEnabled: false,
         priority: 2,
         queryTimeout: .milliseconds(40)
     )

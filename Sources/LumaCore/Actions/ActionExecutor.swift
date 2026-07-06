@@ -37,17 +37,17 @@ public actor ActionExecutor {
         do {
             switch action.kind {
             case .copyToPasteboard(let value):
-                await context.platform.pasteboard.write(value)
+                try await context.platform.pasteboard.write(value)
             case .focusWindow(let windowID, let pid, let title, let axTitle, let bounds):
-                await context.platform.accessibility.focus(windowID: windowID, pid: pid, title: title, axTitle: axTitle, bounds: bounds)
+                try await context.platform.accessibility.focus(windowID: windowID, pid: pid, title: title, axTitle: axTitle, bounds: bounds)
             case .insertText(let text):
-                await context.platform.accessibility.insert(text: text)
+                try await context.platform.accessibility.insert(text: text)
             case .applyWindowLayout(let preset):
-                await context.platform.accessibility.applyWindowLayout(preset)
+                try await context.platform.accessibility.applyWindowLayout(preset)
             case .translateText(let text):
                 do {
                     let outcome = try await context.platform.translation.translate(text)
-                    await context.platform.pasteboard.write(outcome.text)
+                    try await context.platform.pasteboard.write(outcome.text)
                 } catch {
                     await context.runtime.logger.error("Translation action failed: \(error)")
                     throw error
@@ -60,9 +60,9 @@ public actor ActionExecutor {
                     throw error
                 }
             case .openURL(let url):
-                await context.platform.workspace.openURL(url)
+                try await context.platform.workspace.openURL(url)
             case .revealInFinder(let url):
-                await context.platform.workspace.revealInFinder(url)
+                try await context.platform.workspace.revealInFinder(url)
             case .custom(_, let handler):
                 guard let module = await host.enabledModule(handler) else {
                     throw ModuleError.unsupportedAction(action.id)

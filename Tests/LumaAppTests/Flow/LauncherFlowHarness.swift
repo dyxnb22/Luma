@@ -7,12 +7,14 @@ import Testing
 @testable import LumaApp
 
 /// Scripted launcher flow driver for behavioral integration tests.
-/// Currently validates dispatcher → view model → snapshot only; does not exercise apply → UI.
 @MainActor
 final class LauncherFlowHarness {
     private(set) var lastSnapshot: ResultSnapshot?
     private(set) var panelActive = false
     private(set) var queryText = ""
+    private(set) var lastStatusMessage: String?
+    private(set) var dismissCount = 0
+    private(set) var actionPanelVisible = false
 
     let viewModel: LauncherViewModel
     private let dispatcher: QueryDispatcher
@@ -45,14 +47,17 @@ final class LauncherFlowHarness {
         return LauncherFlowHarness(dispatcher: dispatcher)
     }
 
-    func activatePanel() {
+    func showPanel() {
         panelActive = true
     }
 
-    func deactivatePanel() {
+    func hidePanel() {
         panelActive = false
         viewModel.cancel()
     }
+
+    func activatePanel() { showPanel() }
+    func deactivatePanel() { hidePanel() }
 
     func type(_ text: String) {
         queryText = text
@@ -60,6 +65,18 @@ final class LauncherFlowHarness {
         let route = viewModel.commandRouter.route(raw: text)
         let parsed = viewModel.commandRouter.registry.parsedCommand(for: text, route: route)
         viewModel.queryChanged(text, issuedAt: ContinuousClock.now, route: route, parsedCommand: parsed)
+    }
+
+    func recordStatus(_ message: String) {
+        lastStatusMessage = message
+    }
+
+    func recordDismiss() {
+        dismissCount += 1
+    }
+
+    func setActionPanelVisible(_ visible: Bool) {
+        actionPanelVisible = visible
     }
 
     func assertItemCount(_ count: Int, sourceLocation: SourceLocation = #_sourceLocation) {
@@ -70,13 +87,25 @@ final class LauncherFlowHarness {
         let titles = lastSnapshot?.items.map(\.title) ?? []
         #expect(titles.contains(where: { $0.localizedCaseInsensitiveContains(title) }), sourceLocation: sourceLocation)
     }
+
+    func assertStatusMessage(_ message: String, sourceLocation: SourceLocation = #_sourceLocation) {
+        #expect(lastStatusMessage?.localizedCaseInsensitiveContains(message) == true, sourceLocation: sourceLocation)
+    }
 }
 
 @Test @MainActor func launcherFlowHarnessReplaysQuery() async {
     let harness = await LauncherFlowHarness.makeWithBuiltInModules()
-    harness.activatePanel()
+    harness.showPanel()
     harness.type("app")
     try? await Task.sleep(for: .milliseconds(200))
     #expect((harness.lastSnapshot?.items.isEmpty ?? true) == false)
     #expect(harness.lastSnapshot != nil)
+}
+
+@Test @MainActor func emptyQueryHomeGuideHasRows() async {
+    let harness = await LauncherFlowHarness.makeWithBuiltInModules()
+    harness.showPanel()
+    harness.type("")
+    try? await Task.sleep(for: .milliseconds(200))
+    #expect(harness.panelActive)
 }

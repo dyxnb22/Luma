@@ -27,6 +27,10 @@ public enum ModuleRegistry {
         allBundles.first { $0.identifier == id }
     }
 
+    public static var defaultEnabledModuleIDs: Set<ModuleIdentifier> {
+        Set(manifestCatalog().filter(\.defaultEnabled).map(\.identifier))
+    }
+
     public static func makeCommandRegistry() -> CommandRegistry {
         var commands: [CommandDefinition] = []
         var shellCommands: [CommandDefinition] = []
@@ -37,7 +41,7 @@ public enum ModuleRegistry {
                 commands.append(contentsOf: bundle.commands)
             }
         }
-        // Shell commands register last so `quit` resolves to exit Luma, not kill-process.
+        // Shell commands register last so bare triggers like `settings` resolve before cmd-mode-only entries.
         commands.append(contentsOf: shellCommands)
         return CommandRegistry(commands)
     }
@@ -85,6 +89,18 @@ public enum ModuleRegistry {
             return BrowserTabsModuleBundle.defaultOffNote
         case .media:
             return MediaModuleBundle.defaultOffNote
+        case .menuItems:
+            return MenuItemsModuleBundle.defaultOffNote
+        case .windowLayouts:
+            return WindowLayoutsModuleBundle.defaultOffNote
+        case .wordbook:
+            return WordbookModuleBundle.defaultOffNote
+        case .secrets:
+            return SecretsModuleBundle.defaultOffNote
+        case .killProcess:
+            return KillProcessModuleBundle.defaultOffNote
+        case .projects:
+            return ProjectsModuleBundle.defaultOffNote
         default:
             return nil
         }

@@ -139,7 +139,10 @@ public actor ClipboardModule: LumaModule {
         case .copyEntry(let id, let plainTextOnly):
             try await copyEntry(id: id, pasteboard: context.platform.pasteboard, plainTextOnly: plainTextOnly)
         case .pasteEntry(let id):
-            _ = try await pasteEntry(id: id)
+            let outcome = try await pasteEntry(id: id)
+            if outcome == .permissionRequired {
+                throw ModuleError.permissionRequired(.accessibility)
+            }
         case .togglePin(let id):
             await togglePin(id)
         }
@@ -161,7 +164,7 @@ public actor ClipboardModule: LumaModule {
         guard entry.imageData == nil, entry.fileURLs?.isEmpty != false else { return .copiedOnly }
         try? await Task.sleep(for: .milliseconds(80))
         guard await accessibility.isTrusted() else { return .permissionRequired }
-        await accessibility.insert(text: entry.plainTextForCopy)
+        try await accessibility.insert(text: entry.plainTextForCopy)
         return .pasted
     }
 
@@ -229,11 +232,11 @@ public actor ClipboardModule: LumaModule {
 
     private func writeEntry(_ entry: ClipboardEntry, to pasteboard: any PasteboardClient, plainTextOnly: Bool) async throws {
         if let data = entry.imageData, let type = entry.imagePasteboardType, !plainTextOnly {
-            await pasteboard.writeImage(data: data, pasteboardType: type)
+            try await pasteboard.writeImage(data: data, pasteboardType: type)
         } else if let fileURLs = entry.fileURLs?.map({ URL(fileURLWithPath: $0) }), !fileURLs.isEmpty, !plainTextOnly {
-            await pasteboard.writeFileURLs(fileURLs)
+            try await pasteboard.writeFileURLs(fileURLs)
         } else {
-            await pasteboard.write(entry.plainTextForCopy)
+            try await pasteboard.write(entry.plainTextForCopy)
         }
         suppressedChangeCount = (await clipboardSnapshot.readSnapshot()).changeCount
     }

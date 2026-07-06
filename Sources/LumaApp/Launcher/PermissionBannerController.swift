@@ -8,11 +8,7 @@ import LumaServices
 final class PermissionBannerController {
     let bannerView = NSView()
     var onOpenSettings: (() -> Void)?
-    private static let defaultEnabledModuleIDs = Set(
-        ModuleRegistry.manifestCatalog()
-            .filter(\.defaultEnabled)
-            .map(\.identifier)
-    )
+    private static let defaultEnabledModuleIDs = ModuleRegistry.defaultEnabledModuleIDs
 
     private let config: ConfigurationStore
     private let label = NSTextField(labelWithString: "")

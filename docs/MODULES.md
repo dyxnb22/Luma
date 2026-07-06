@@ -60,6 +60,7 @@ Deferred source-retained module: **Windows** (`BuiltInModules.makeDeferred()`). 
 
 - Built-ins include Settings, reload modules, diagnostics, and quit.
 - `cmd doctor` / `commands doctor` runs the global doctor scan (AX, EventKit, config checks). Bare global `doctor` without the commands prefix does **not** run doctor checks.
+- `cmd export-diagnostics` writes redacted `~/Library/Logs/Luma/diagnostics.json` (perf counters, durations, latency p95, CrashLogBuffer breadcrumbs).
 - User scripts load from `commands.json` in Application Support.
 - Scripts execute asynchronously and do not block panel dismissal.
 - Template variables may use clipboard, selection, project, file, UUID, date/time, and related context.

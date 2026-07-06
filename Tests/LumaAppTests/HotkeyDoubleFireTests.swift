@@ -11,6 +11,16 @@ import Testing
     #expect(controller.isPanelVisible == true)
 }
 
+@Test @MainActor func carbonHotkeyWhileVisibleDoesNotBlockHide() async throws {
+    let controller = LauncherWindowController()
+    controller.showFromCarbonHotkey()
+    #expect(controller.isPanelVisible == true)
+    controller.showFromCarbonHotkey()
+    #expect(controller.isPanelVisible == true)
+    controller.hideFromVisibleHotkey()
+    #expect(controller.isPanelVisible == false)
+}
+
 @Test @MainActor func visibleHotkeyHidesOnce() async throws {
     let controller = LauncherWindowController()
     controller.showFromCarbonHotkey()

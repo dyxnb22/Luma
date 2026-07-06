@@ -12,7 +12,7 @@ public actor CommandsModule: LumaModule {
         queryTimeout: .milliseconds(20)
     )
 
-    private static let runnableBuiltIns = ["open-settings", "reload-modules", "quit"]
+    private static let runnableBuiltIns = ["open-settings", "reload-modules", "quit", "export-diagnostics"]
 
     private let store: CommandsStore
     private let notesConfigStore: NotesRootConfigStore
@@ -254,6 +254,8 @@ public actor CommandsModule: LumaModule {
             await context.host.reloadModules()
         case "quit":
             await context.host.quitHost()
+        case "export-diagnostics":
+            _ = try await context.host.exportDiagnostics()
         default:
             throw ModuleError.unsupportedAction(ActionID(module: Self.manifest.identifier, key: key))
         }
@@ -276,6 +278,7 @@ public actor CommandsModule: LumaModule {
         case "open-settings": "Open Settings"
         case "reload-modules": "Reload Modules"
         case "quit": "Quit Luma"
+        case "export-diagnostics": "Export Diagnostics"
         case "doctor": "Global Doctor"
         default: key
         }

@@ -205,14 +205,40 @@ private struct SnippetsTestAccessibility: AccessibilityClient {
     #expect(await host.openedSettings == true)
 }
 
+@Test func commandsModuleExportDiagnosticsUsesHostClient() async throws {
+    let host = RecordingHostClient()
+    let module = CommandsModule()
+    let action = Action(
+        id: ActionID(module: .commands, key: "export-diagnostics"),
+        title: "Export Diagnostics",
+        kind: .custom(payload: Data("export-diagnostics".utf8), handler: .commands)
+    )
+    try await module.perform(
+        action,
+        context: ActionContext(
+            logger: LumaLogger(category: "test"),
+            metrics: LumaMetrics(),
+            pasteboard: SnippetsTestPasteboard(),
+            accessibility: SnippetsTestAccessibility(),
+            host: host
+        )
+    )
+    #expect(await host.exportedDiagnostics == true)
+}
+
 private actor RecordingHostClient: HostClient {
     private(set) var openedSettings = false
     private(set) var reloadedModules = false
     private(set) var quitRequested = false
+    private(set) var exportedDiagnostics = false
 
     func openSettings() async { openedSettings = true }
     func reloadModules() async { reloadedModules = true }
     func quitHost() async { quitRequested = true }
+    func exportDiagnostics() async throws -> URL {
+        exportedDiagnostics = true
+        return URL(fileURLWithPath: "/tmp/diagnostics.json")
+    }
 }
 
 @Test func todoBareCommandIncludesOpenDetailRow() async {

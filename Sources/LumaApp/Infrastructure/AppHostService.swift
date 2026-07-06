@@ -1,6 +1,7 @@
 import AppKit
 import Foundation
 import LumaCore
+import LumaInfrastructure
 
 @MainActor
 final class AppHostService: HostClient {
@@ -25,5 +26,14 @@ final class AppHostService: HostClient {
 
     func quitHost() async {
         NSApp.terminate(nil)
+    }
+
+    func exportDiagnostics() async throws -> URL {
+        let breadcrumbs = await CrashLogBuffer.shared.all()
+        let latencyP95 = LatencyTelemetry.shared.currentP95()
+        return try DiagnosticsExport.exportToLogsDirectory(
+            latencyP95: latencyP95,
+            breadcrumbs: breadcrumbs
+        )
     }
 }

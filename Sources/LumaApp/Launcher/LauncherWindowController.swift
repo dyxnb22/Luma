@@ -16,6 +16,8 @@ final class LauncherWindowController {
     private var visibilitySession = LauncherPanelVisibilitySession()
     private var lastPositionedVisibleFrame: CGRect?
     private var lastToggleAt: ContinuousClock.Instant?
+    private var lastCarbonShowAt: ContinuousClock.Instant?
+    private var lastPanelHideAt: ContinuousClock.Instant?
     private var hideStart: ContinuousClock.Instant?
 
     var isPanelVisible: Bool { visibilitySession.isVisible }
@@ -139,23 +141,23 @@ final class LauncherWindowController {
 
     /// Carbon global hotkey — show only when panel is hidden.
     func showFromCarbonHotkey() {
+        guard !visibilitySession.isVisible else { return }
         let now = ContinuousClock.now
-        if let lastToggleAt, now - lastToggleAt < .milliseconds(120) {
+        if let lastCarbonShowAt, now - lastCarbonShowAt < .milliseconds(120) {
             return
         }
-        lastToggleAt = now
-        guard !visibilitySession.isVisible else { return }
+        lastCarbonShowAt = now
         show()
     }
 
     /// Visible panel ⌘Space via `LauncherPanel.performKeyEquivalent` — hide only.
     func hideFromVisibleHotkey() {
+        guard visibilitySession.isVisible else { return }
         let now = ContinuousClock.now
-        if let lastToggleAt, now - lastToggleAt < .milliseconds(120) {
+        if let lastPanelHideAt, now - lastPanelHideAt < .milliseconds(120) {
             return
         }
-        lastToggleAt = now
-        guard visibilitySession.isVisible else { return }
+        lastPanelHideAt = now
         hide()
     }
 

@@ -37,6 +37,11 @@ public enum DiagnosticsExport {
     public static let defaultDirectoryName = "Luma"
     public static let defaultFileName = "diagnostics.json"
 
+    private static let sensitiveBreadcrumbKeys: Set<String> = [
+        "query", "clipboard", "secret", "notebody", "payload",
+        "token", "password", "apikey", "accesstoken", "refreshtoken"
+    ]
+
     public static func buildPayload(
         appVersion: String? = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String,
         buildNumber: String? = Bundle.main.infoDictionary?["CFBundleVersion"] as? String,
@@ -56,7 +61,7 @@ public enum DiagnosticsExport {
         )
     }
 
-  public static func exportToLogsDirectory(
+    public static func exportToLogsDirectory(
         latencyP95: Double? = nil,
         breadcrumbs: [String] = []
     ) throws -> URL {
@@ -73,25 +78,14 @@ public enum DiagnosticsExport {
         return url
     }
 
-    /// Strips query-like, secret, and clipboard fragments from breadcrumb lines.
+    /// Redacts known sensitive `key=value` fields; preserves unrelated trailing tokens.
     public static func redactBreadcrumb(_ line: String) -> String {
-        var redacted = line
-        let patterns = [
-            #"query=.*"#,
-            #"clipboard=.*"#,
-            #"secret=.*"#,
-            #"noteBody=.*"#,
-            #"payload=.*"#
-        ]
-        for pattern in patterns {
-            if let regex = try? NSRegularExpression(pattern: pattern, options: .caseInsensitive) {
-                redacted = regex.stringByReplacingMatches(
-                    in: redacted,
-                    range: NSRange(redacted.startIndex..., in: redacted),
-                    withTemplate: ""
-                )
-            }
-        }
-        return redacted.trimmingCharacters(in: .whitespacesAndNewlines)
+        line.split(separator: " ", omittingEmptySubsequences: false).map { token -> String in
+            guard let separator = token.firstIndex(of: "=") else { return String(token) }
+            let key = String(token[token.startIndex..<separator]).lowercased()
+            guard sensitiveBreadcrumbKeys.contains(key) else { return String(token) }
+            let keyPart = token[token.startIndex..<separator]
+            return "\(keyPart)=<redacted>"
+        }.joined(separator: " ")
     }
 }

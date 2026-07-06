@@ -81,7 +81,7 @@ Show/hide generation guards (Swift 6):
 - Per-keystroke routing uses `QueryView` (event snapshot from `searchBar.stringValue`); permission banner routes from the live search field, not a stale normalized snapshot.
 - `LauncherContentMode` in `LauncherContentCoordinator` is the single source for home/results/detail presentation.
 - Notes detail tree reload uses `NotesDetailRefreshGate` generation guards; stale async refresh must not write outline UI after deactivate/hide/close.
-- Cmd+Space: Carbon hotkey shows when hidden only (`showFromCarbonHotkey`); visible panel hide is `LauncherPanel.performKeyEquivalent` → `hideFromVisibleHotkey`. Debounce is secondary protection only.
+- Cmd+Space: Carbon hotkey shows when hidden only (`showFromCarbonHotkey`); visible panel hide is `LauncherPanel.performKeyEquivalent` → `hideFromVisibleHotkey`. Show/hide use separate debounce clocks so a visible Carbon no-op cannot block hide; `toggle()` keeps its own debounce.
 - `LauncherSnapshotApplyCoalescer.cancel()` runs on hide via `cancelPendingRestore()` and `cancelActiveQueryAndSnapshotApply()`.
 - Cmd+Space: Carbon hotkey when hidden; `LauncherPanel.performKeyEquivalent` when visible (`guard isVisible`). No duplicate handlers in search field or list view.
 
@@ -159,7 +159,7 @@ Hot path rules:
 - Pooled detail views keep their view hierarchy in `detailContainer` when reopening the same module; `closeDetail` hides rather than removing pooled subviews.
 - Returning from detail paints cached home first, then revalidates Open Apps in the background.
 - Open Apps refresh is bound to panel visibility; hidden panel must not grow `openApps.refresh` counters.
-- `LauncherPerfCounters` and `LauncherDurationRecorder` in `LumaCore` track layout, session, snapshot, module warmup/handle, action perform, and panel-hide durations for tests. `DiagnosticsExport` writes redacted local JSON to `~/Library/Logs/Luma/diagnostics.json` (no query/clipboard/secret/note bodies).
+- `LauncherPerfCounters` and `LauncherDurationRecorder` in `LumaCore` track layout, session, snapshot, module warmup/handle, action perform, and panel-hide durations for tests. `DiagnosticsExport` writes redacted local JSON to `~/Library/Logs/Luma/diagnostics.json`; trigger via `cmd export-diagnostics` (`HostClient.exportDiagnostics`, includes `CrashLogBuffer` breadcrumbs + latency p95).
 - `SelectionSnapshotService` may capture the frontmost PID on MainActor; AX IPC runs off-main.
 - Browser Tabs must not await AppleScript on the keystroke path.
 - Kill Process must not do process memory sampling on MainActor.

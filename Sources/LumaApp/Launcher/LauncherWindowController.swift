@@ -16,6 +16,7 @@ final class LauncherWindowController {
     private var visibilitySession = LauncherPanelVisibilitySession()
     private var lastPositionedVisibleFrame: CGRect?
     private var lastToggleAt: ContinuousClock.Instant?
+    private var hideStart: ContinuousClock.Instant?
 
     var isPanelVisible: Bool { visibilitySession.isVisible }
 
@@ -29,7 +30,7 @@ final class LauncherWindowController {
             }
         }
         panel.onToggleHotkey = { [weak self] in
-            self?.toggle()
+            self?.hideFromVisibleHotkey()
         }
         panel.orderOut(nil)
     }
@@ -136,6 +137,28 @@ final class LauncherWindowController {
         visibilitySession.isVisible ? hide() : show()
     }
 
+    /// Carbon global hotkey — show only when panel is hidden.
+    func showFromCarbonHotkey() {
+        let now = ContinuousClock.now
+        if let lastToggleAt, now - lastToggleAt < .milliseconds(120) {
+            return
+        }
+        lastToggleAt = now
+        guard !visibilitySession.isVisible else { return }
+        show()
+    }
+
+    /// Visible panel ⌘Space via `LauncherPanel.performKeyEquivalent` — hide only.
+    func hideFromVisibleHotkey() {
+        let now = ContinuousClock.now
+        if let lastToggleAt, now - lastToggleAt < .milliseconds(120) {
+            return
+        }
+        lastToggleAt = now
+        guard visibilitySession.isVisible else { return }
+        hide()
+    }
+
     func show() {
         cancelDeferredShowWork()
         cancelPanelHideAnimation()
@@ -198,6 +221,7 @@ final class LauncherWindowController {
     func hide() {
         guard let generationAtHide = visibilitySession.beginHide() else { return }
         LauncherPerfCounters.increment(.panelHide)
+        hideStart = ContinuousClock.now
         cancelDeferredShowWork()
         rootView?.cancelActiveQueryAndSnapshotApply()
         rootView?.cancelPendingRestore()
@@ -229,6 +253,11 @@ final class LauncherWindowController {
 
     private func finishHide(generationAtHide: UInt) {
         guard visibilitySession.shouldCompleteHide(generationAtHide: generationAtHide) else { return }
+        if let hideStart {
+            let ms = LauncherDurationRecorder.durationMilliseconds(ContinuousClock.now - hideStart)
+            LauncherDurationRecorder.record(category: .panelHide, key: "panel", milliseconds: ms)
+            self.hideStart = nil
+        }
         clearMenuTarget()
         rootView?.invalidatePanelSignalsCache()
         rootView?.flushPendingSessionWrites()

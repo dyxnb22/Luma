@@ -212,8 +212,8 @@ final class AppCoordinator {
             }
         )
         do {
-            let hotkeyController = try HotkeyController {
-                self.windowController.toggle()
+            let hotkeyController = try HotkeyController { [weak self] in
+                self?.windowController.showFromCarbonHotkey()
             }
             try hotkeyController.register(HotkeyConfig.load())
             self.hotkeyController = hotkeyController

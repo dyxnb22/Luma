@@ -31,6 +31,7 @@ final class NotesDetailView: NSObject, ModuleDetailView {
     private let outlineView = NSOutlineView()
     private let dataSource = NotesOutlineDataSource()
     private var viewMode: ViewMode = .outline
+    private var refreshGate = NotesDetailRefreshGate()
     private var refreshTask: Task<Void, Never>?
     private var actions: NotesActions?
     private var savedExpansion = Set<String>()
@@ -62,23 +63,17 @@ final class NotesDetailView: NSObject, ModuleDetailView {
     }
 
     func activate() {
-        refreshTask?.cancel()
-        refreshTask = Task { [weak self] in
-            guard let self else { return }
-            await module.reloadFromConfig()
-            await refreshTree()
-            await MainActor.run { self.resizeOutlineColumn() }
-        }
+        scheduleRefreshTree(reloadConfig: true)
     }
 
     func prepareForLauncherHide() async {
+        invalidateRefreshWork()
         guard activePanel == .outline, activeChip == nil, dataSource.filterText.isEmpty else { return }
         await persistExpansionNow(captureOutlineExpansion())
     }
 
     func deactivate() {
-        refreshTask?.cancel()
-        refreshTask = nil
+        invalidateRefreshWork()
         if activePanel == .outline, activeChip == nil, dataSource.filterText.isEmpty {
             Task { await persistExpansionNow(captureOutlineExpansion()) }
         }
@@ -396,15 +391,42 @@ final class NotesDetailView: NSObject, ModuleDetailView {
         }
     }
 
-    private func refreshTree() async {
+    private func invalidateRefreshWork() {
+        refreshTask?.cancel()
+        refreshTask = nil
+        refreshGate.invalidate()
+    }
+
+    private func scheduleRefreshTree(reloadConfig: Bool = false) {
+        refreshTask?.cancel()
+        let token = refreshGate.beginRefresh()
+        refreshTask = Task { [weak self] in
+            guard let self else { return }
+            if reloadConfig {
+                await module.reloadFromConfig()
+                guard refreshGate.isCurrent(token) else { return }
+            }
+            await refreshTree(generation: token)
+            guard refreshGate.isCurrent(token) else { return }
+            resizeOutlineColumn()
+        }
+    }
+
+    private func refreshTree(generation: UInt) async {
+        guard refreshGate.isCurrent(generation) else { return }
         let config = await module.loadConfig()
+        guard refreshGate.isCurrent(generation) else { return }
         var snapshot = await module.snapshot()
+        guard refreshGate.isCurrent(generation) else { return }
         actions = NotesActions(index: await module.treeIndex())
+        guard refreshGate.isCurrent(generation) else { return }
 
         if let root = config.root {
             if snapshot == nil {
                 await module.reloadFromConfig()
+                guard refreshGate.isCurrent(generation) else { return }
                 snapshot = await module.snapshot()
+                guard refreshGate.isCurrent(generation) else { return }
             }
             rootPathLabel.stringValue = root.path
             topStrip.isHidden = false
@@ -415,10 +437,13 @@ final class NotesDetailView: NSObject, ModuleDetailView {
             emptyStateButton.isHidden = true
 
             let inboxCount = await module.inboxCount()
+            guard refreshGate.isCurrent(generation) else { return }
             chipBar.setPanelInboxCount(inboxCount)
             let dailyMissing = await module.dailyNotePath() == nil
+            guard refreshGate.isCurrent(generation) else { return }
             chipBar.setTodayHint(missing: dailyMissing)
             await reloadTypeLabels()
+            guard refreshGate.isCurrent(generation) else { return }
         } else {
             rootPathLabel.stringValue = ""
             topStrip.isHidden = true
@@ -436,6 +461,7 @@ final class NotesDetailView: NSObject, ModuleDetailView {
         } else {
             await applyPanelView(activePanel)
         }
+        guard refreshGate.isCurrent(generation) else { return }
 
         if viewMode == .mindMap {
             mindMapView.reload(root: dataSource.mindMapRootNode())
@@ -443,6 +469,12 @@ final class NotesDetailView: NSObject, ModuleDetailView {
         }
         detailView.window?.makeFirstResponder(viewMode == .outline ? outlineView : mindMapView)
         syncOutlineDocumentFrame()
+    }
+
+    private func runRefreshTree() async {
+        refreshTask?.cancel()
+        let token = refreshGate.beginRefresh()
+        await refreshTree(generation: token)
     }
 
     private func reloadOutlineData(restoreExpansion: (() -> Void)? = nil) {
@@ -544,7 +576,7 @@ final class NotesDetailView: NSObject, ModuleDetailView {
             await module.recordOpenedNote(path: url.path)
             await workspace.openURL(url)
             chipBar.setTodayHint(missing: false)
-            await refreshTree()
+            await runRefreshTree()
         } catch {
             showError(error.localizedDescription)
         }
@@ -672,7 +704,7 @@ final class NotesDetailView: NSObject, ModuleDetailView {
         }
         try? await module.saveConfig(config)
         await module.reloadFromConfig()
-        await refreshTree()
+        await runRefreshTree()
     }
 
     @objc private func showGearMenu(_ sender: NSButton) {
@@ -730,7 +762,7 @@ final class NotesDetailView: NSObject, ModuleDetailView {
                 dataSource.expandAll(in: outlineView)
             }
         } else {
-            Task { await refreshTree() }
+            scheduleRefreshTree()
         }
     }
 
@@ -959,7 +991,7 @@ final class NotesDetailView: NSObject, ModuleDetailView {
         guard let actions = await ensureActions() else { return }
         do {
             let url = try await actions.createNote(name: name, inFolder: folder)
-            await refreshTree()
+            await runRefreshTree()
             selectPath(url.path, expandParent: true)
             openNote(NotesNode(path: url.path, name: url.deletingPathExtension().lastPathComponent, kind: .note, children: []))
         } catch NotesActionError.alreadyExists {
@@ -981,7 +1013,7 @@ final class NotesDetailView: NSObject, ModuleDetailView {
         guard let actions = await ensureActions() else { return }
         do {
             let url = try await actions.createNoteFromTemplate(template: template, title: name, inFolder: folder)
-            await refreshTree()
+            await runRefreshTree()
             selectPath(url.path, expandParent: true)
             openNote(NotesNode(path: url.path, name: url.deletingPathExtension().lastPathComponent, kind: .note, children: []))
         } catch NotesActionError.alreadyExists {
@@ -999,7 +1031,7 @@ final class NotesDetailView: NSObject, ModuleDetailView {
         guard let actions = await ensureActions() else { return }
         do {
             let url = try await actions.createFolder(name: name, inFolder: folder)
-            await refreshTree()
+            await runRefreshTree()
             selectPath(url.path, expandParent: true)
         } catch NotesActionError.alreadyExists {
             showError("A folder with that name already exists.")
@@ -1024,7 +1056,7 @@ final class NotesDetailView: NSObject, ModuleDetailView {
         guard let actions else { return }
         do {
             let url = try await actions.rename(URL(fileURLWithPath: item.node.path), to: name)
-            await refreshTree()
+            await runRefreshTree()
             selectPath(url.path, expandParent: true)
         } catch NotesActionError.alreadyExists {
             showError("That name already exists.")
@@ -1059,7 +1091,7 @@ final class NotesDetailView: NSObject, ModuleDetailView {
         guard let actions else { return }
         do {
             try await actions.trash(URL(fileURLWithPath: item.node.path))
-            await refreshTree()
+            await runRefreshTree()
         } catch {
             showError(error.localizedDescription)
         }
@@ -1140,7 +1172,7 @@ final class NotesDetailView: NSObject, ModuleDetailView {
         guard let actions else { return }
         do {
             let url = try await actions.move(URL(fileURLWithPath: item.node.path), toFolder: folder)
-            await refreshTree()
+            await runRefreshTree()
             selectPath(url.path, expandParent: true)
         } catch NotesActionError.alreadyExists {
             showError("A file with that name already exists in the destination folder.")

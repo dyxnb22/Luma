@@ -75,7 +75,13 @@ Show/hide generation guards (Swift 6):
 - `finishHide(generationAtHide:)` calls `shouldCompleteHide` before `orderOut`; `hideImmediatelyForAction` uses the same guard.
 - Deferred show work (`focusSearchFieldAfterShow`, permission polling, `restoreLastSessionIfNeeded`) uses `shouldCompleteDeferredShow`.
 - `CancellationGeneration` backs `LauncherRootController.restoreGeneration`; `cancelPendingRestore()` bumps on hide; async restore apply calls `isCurrent`.
-- `cancelActiveQueryAndSnapshotApply()` runs on hide (before `cancelPendingRestore()`): cancels `LauncherViewModel` query dispatch, drops pending snapshot apply, and clears `isPanelActiveForQueryApply` so stale snapshots cannot paint after `orderOut`. Detail UI state is preserved across hide; show re-enables apply via `activatePanelForQueryApply()`.
+- `cancelActiveQueryAndSnapshotApply()` runs on hide (before `cancelPendingRestore()`): cancels `LauncherViewModel` query dispatch, drops pending snapshot apply, invalidates split cross-fade completions, and clears `isPanelActiveForQueryApply` so stale snapshots cannot paint after `orderOut`. Detail UI state is preserved across hide; show re-enables apply via `activatePanelForQueryApply()`.
+- `LauncherSnapshotApplyPolicy` gates `apply(snapshot:)` while the panel is inactive or the visible query is empty (dropped applies increment `snapshot.applyDropped`).
+- Detail search mode is owned by `LauncherSearchDetailMode` via `LumaSearchBar` (`LauncherSearchDetailModeState`); chrome exit uses `LauncherDetailExitPlanner`, typing exit uses `cancelDetailMode`.
+- Per-keystroke routing uses `QueryView` (event snapshot from `searchBar.stringValue`); permission banner routes from the live search field, not a stale normalized snapshot.
+- `LauncherContentMode` in `LauncherContentCoordinator` is the single source for home/results/detail presentation.
+- Notes detail tree reload uses `NotesDetailRefreshGate` generation guards; stale async refresh must not write outline UI after deactivate/hide/close.
+- Cmd+Space: Carbon hotkey shows when hidden only (`showFromCarbonHotkey`); visible panel hide is `LauncherPanel.performKeyEquivalent` → `hideFromVisibleHotkey`. Debounce is secondary protection only.
 - `LauncherSnapshotApplyCoalescer.cancel()` runs on hide via `cancelPendingRestore()` and `cancelActiveQueryAndSnapshotApply()`.
 - Cmd+Space: Carbon hotkey when hidden; `LauncherPanel.performKeyEquivalent` when visible (`guard isVisible`). No duplicate handlers in search field or list view.
 
@@ -101,7 +107,7 @@ Required semantics:
 
 - `manifest`: static metadata.
 - `warmup`: load indexes and caches; soft budget 1 second.
-- `handle`: answer from memory only; no disk, network, AppleScript, AX traversal, process enumeration, or large JSON parsing.
+- `handle`: answer from memory only; no disk, network, AppleScript, AX traversal, process enumeration, or large JSON parsing. Cold caches return warming/degraded/permission rows and schedule background refresh; explicit refresh/doctor commands may do heavier work.
 - `perform`: execute actions; soft budget 2 seconds via `ActionExecutor`.
 - `teardown`: cancel background work and flush state.
 
@@ -153,7 +159,7 @@ Hot path rules:
 - Pooled detail views keep their view hierarchy in `detailContainer` when reopening the same module; `closeDetail` hides rather than removing pooled subviews.
 - Returning from detail paints cached home first, then revalidates Open Apps in the background.
 - Open Apps refresh is bound to panel visibility; hidden panel must not grow `openApps.refresh` counters.
-- `LauncherPerfCounters` in `LumaInfrastructure` tracks layout, session, snapshot, and detail metrics for tests.
+- `LauncherPerfCounters` and `LauncherDurationRecorder` in `LumaCore` track layout, session, snapshot, module warmup/handle, action perform, and panel-hide durations for tests. `DiagnosticsExport` writes redacted local JSON to `~/Library/Logs/Luma/diagnostics.json` (no query/clipboard/secret/note bodies).
 - `SelectionSnapshotService` may capture the frontmost PID on MainActor; AX IPC runs off-main.
 - Browser Tabs must not await AppleScript on the keystroke path.
 - Kill Process must not do process memory sampling on MainActor.

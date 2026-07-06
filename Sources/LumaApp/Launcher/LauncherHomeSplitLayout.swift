@@ -15,6 +15,16 @@ final class LauncherHomeSplitLayout {
     private weak var contentContainer: NSView?
     private var columnSplitActive = false
     private var rightPane: LauncherSplitRightPane = .hidden
+    private var crossfadeGeneration: UInt = 0
+
+    private func applyOverlayPaneState(_ state: LauncherSplitCrossfadePaneState, guideAlpha: CGFloat?, detailAlpha: CGFloat?) {
+        if let guideAlpha { guidePane.alphaValue = guideAlpha }
+        if let detailAlpha { detailContainer.alphaValue = detailAlpha }
+        guidePane.passesHitTests = state.guide.acceptsMouseHits
+        guidePane.isHidden = state.guide.isHidden
+        detailContainer.passesHitTests = state.detail.acceptsMouseHits
+        detailContainer.isHidden = state.detail.isHidden
+    }
 
     static func install(
         in contentContainer: NSView,
@@ -142,15 +152,13 @@ final class LauncherHomeSplitLayout {
         commands: [CommandDefinition],
         completion: @escaping @MainActor () -> Void
     ) {
+        crossfadeGeneration &+= 1
+        let generation = crossfadeGeneration
         rightPane = .guide
         guidePane.applyCatalog(commands)
-        guidePane.isHidden = false
-        guidePane.alphaValue = 0
-        guidePane.passesHitTests = false
+        let during = LauncherSplitCrossfadePolicy.duringAnimation(.detailToGuide)
+        applyOverlayPaneState(during, guideAlpha: 0, detailAlpha: 1)
 
-        detailContainer.isHidden = false
-        detailContainer.alphaValue = 1
-        detailContainer.passesHitTests = false
         detailRightColumnConstraints.forEach { $0.isActive = columnSplitActive }
 
         NSAnimationContext.runAnimationGroup { context in
@@ -160,12 +168,9 @@ final class LauncherHomeSplitLayout {
             guidePane.animator().alphaValue = 1
         } completionHandler: { [weak self] in
             Task { @MainActor in
-                guard let self else { return }
-                self.detailContainer.alphaValue = 0
-                self.detailContainer.isHidden = true
-                self.detailContainer.passesHitTests = false
-                self.guidePane.alphaValue = 1
-                self.guidePane.passesHitTests = true
+                guard let self, self.crossfadeGeneration == generation else { return }
+                let after = LauncherSplitCrossfadePolicy.afterAnimation(.detailToGuide)
+                self.applyOverlayPaneState(after, guideAlpha: 1, detailAlpha: 0)
                 completion()
             }
         }
@@ -176,16 +181,13 @@ final class LauncherHomeSplitLayout {
         prepareDetail: @escaping @MainActor () -> Void,
         completion: @escaping @MainActor () -> Void
     ) {
+        crossfadeGeneration &+= 1
+        let generation = crossfadeGeneration
         rightPane = .detail
         prepareDetail()
 
-        guidePane.isHidden = false
-        guidePane.alphaValue = 1
-        guidePane.passesHitTests = false
-
-        detailContainer.isHidden = false
-        detailContainer.alphaValue = 0
-        detailContainer.passesHitTests = false
+        let during = LauncherSplitCrossfadePolicy.duringAnimation(.guideToDetail)
+        applyOverlayPaneState(during, guideAlpha: 1, detailAlpha: 0)
         detailRightColumnConstraints.forEach { $0.isActive = columnSplitActive }
 
         NSAnimationContext.runAnimationGroup { context in
@@ -195,15 +197,17 @@ final class LauncherHomeSplitLayout {
             detailContainer.animator().alphaValue = 1
         } completionHandler: { [weak self] in
             Task { @MainActor in
-                guard let self else { return }
-                self.guidePane.isHidden = true
-                self.guidePane.alphaValue = 1
-                self.guidePane.passesHitTests = true
-                self.detailContainer.alphaValue = 1
-                self.detailContainer.passesHitTests = true
+                guard let self, self.crossfadeGeneration == generation else { return }
+                let after = LauncherSplitCrossfadePolicy.afterAnimation(.guideToDetail)
+                self.applyOverlayPaneState(after, guideAlpha: 1, detailAlpha: 1)
                 completion()
             }
         }
+    }
+
+    /// Bumps crossfade generation so stale animation completions cannot mutate overlay state after hide/close.
+    func invalidateCrossfadeCompletions() {
+        crossfadeGeneration &+= 1
     }
 
     private func applyRightPaneLayout() {

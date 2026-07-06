@@ -1,9 +1,9 @@
 import Foundation
 import LumaCore
 
-/// Single-pass routing and hint state for one keystroke.
+/// Per-keystroke query snapshot — `searchBar.stringValue` is UI source; this is the routed event view.
 @MainActor
-struct NormalizedQueryState: Equatable {
+struct QueryView: Equatable {
     enum ResultsRouteKind: Equatable {
         case empty
         case workbench(WorkbenchCommandRoute)
@@ -17,6 +17,8 @@ struct NormalizedQueryState: Equatable {
     let hint: CommandHint?
     let helpTrigger: String?
     let resultsRouteKind: ResultsRouteKind
+
+    var isEmpty: Bool { trimmed.isEmpty }
 
     init(raw: String, viewModel: LauncherViewModel) {
         self.raw = raw
@@ -37,3 +39,5 @@ struct NormalizedQueryState: Equatable {
         self.helpTrigger = trimmed.split(separator: " ", maxSplits: 1).first.map(String.init)
     }
 }
+
+typealias NormalizedQueryState = QueryView

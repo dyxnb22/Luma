@@ -50,8 +50,9 @@ private struct AuthorizedRemindersClient: RemindersClient {
         menuBarTree: menuBarTree
     ))
 
+    let parsed = ParsedCommand(trigger: "cmd", payload: "doctor", module: .commands)
     let result = await module.handle(
-        Query(raw: "doctor", sequence: 1),
+        Query(raw: "cmd doctor", sequence: 1, command: parsed),
         context: QueryContext(deadline: ContinuousClock().now.advanced(by: .milliseconds(40)))
     )
 

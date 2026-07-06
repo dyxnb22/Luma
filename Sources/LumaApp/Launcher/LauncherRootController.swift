@@ -34,8 +34,8 @@ final class LauncherRootController {
     private var querySyncTimer: Timer?
     private var lastSyncedQuery = ""
     private var lastSplitLayoutState: (columnSplit: Bool, rightPane: LauncherSplitRightPane)?
-    private var lastResultsRouteKind: NormalizedQueryState.ResultsRouteKind?
-    private var lastNormalizedQueryState: NormalizedQueryState?
+    private var lastResultsRouteKind: QueryView.ResultsRouteKind?
+    private var lastQueryView: QueryView?
     private var permissionRefreshTask: Task<Void, Never>?
     private var lastAppliedGuideCatalogIDs: [String] = []
     private lazy var snapshotApplyCoalescer = LauncherSnapshotApplyCoalescer { [weak self] snapshot in
@@ -367,7 +367,7 @@ final class LauncherRootController {
         syncSplitLayout()
     }
 
-    private func shouldClearStaleResults(for kind: NormalizedQueryState.ResultsRouteKind) -> Bool {
+    private func shouldClearStaleResults(for kind: QueryView.ResultsRouteKind) -> Bool {
         guard let lastResultsRouteKind else { return false }
         return kind != lastResultsRouteKind
     }
@@ -427,6 +427,7 @@ final class LauncherRootController {
     /// Cancels in-flight query dispatch and pending snapshot UI apply on panel hide.
     func cancelActiveQueryAndSnapshotApply() {
         isPanelActiveForQueryApply = false
+        homeSplitLayout.invalidateCrossfadeCompletions()
         viewModel.cancel()
         cancelPendingSnapshotApply()
         LauncherPerfCounters.increment(.queryCancelOnHide)
@@ -780,6 +781,7 @@ final class LauncherRootController {
     }
 
     func closeDetail(animatedToGuide: Bool = false, completion: (@MainActor () -> Void)? = nil) {
+        homeSplitLayout.invalidateCrossfadeCompletions()
         guard contentCoordinator.showingDetail else {
             completion?()
             return
@@ -816,8 +818,8 @@ final class LauncherRootController {
     func handleTextChange(_ text: String) {
         guard text != lastSyncedQuery else { return }
         lastSyncedQuery = text
-        let queryState = NormalizedQueryState(raw: text, viewModel: viewModel)
-        lastNormalizedQueryState = queryState
+        let queryState = QueryView(raw: text, viewModel: viewModel)
+        lastQueryView = queryState
         launcherEnvironment.isLauncherQueryEmpty = queryState.trimmed.isEmpty
         searchBar.setPlaceholder(ModuleSearchHints.placeholder(for: text))
         commandHintBar.apply(queryState.hint, helpTrigger: queryState.helpTrigger)
@@ -911,12 +913,7 @@ final class LauncherRootController {
             return AccessibilityGuidanceContext(surface: .none)
         }
 
-        let route: CommandRoute
-        if let queryState = lastNormalizedQueryState, queryState.raw == searchBar.stringValue {
-            route = queryState.commandRoute
-        } else {
-            route = viewModel.commandRouter.route(raw: searchBar.stringValue)
-        }
+        let route = viewModel.commandRouter.route(raw: searchBar.stringValue)
         if case .targeted(let module, _, _) = route,
            AccessibilityGuidancePolicy.isGuidanceModule(module) {
             return AccessibilityGuidanceContext(surface: .targetedModule(module))
@@ -1688,7 +1685,7 @@ final class LauncherRootController {
         }
         let mode: LauncherContentMode
         if contentCoordinator.showingDetail, !listHoldsKeyboardFocus() {
-            mode = .detail
+            mode = .detail(contentCoordinator.currentDetailModuleID)
         } else if contentCoordinator.showingResults
             || !searchBar.stringValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             mode = .results

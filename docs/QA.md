@@ -102,6 +102,11 @@ Performance:
 - Repeat identical global queries paint cached results immediately, then refresh in the background without blocking keystrokes.
 - Esc from module detail returns to home in one frame when the home snapshot cache is warm (no double Open Apps rebuild).
 - Typing a new query while in module detail cancels detail mode and does not restore the suspended prefix on Esc (detail exit via Esc still restores home).
+- Notes detail: deactivate/hide during tree refresh must not apply stale outline data (generation guard).
+- Hide during split cross-fade must not let stale animation completion rewrite overlay hit-testing.
+- Carbon hotkey when panel hidden shows once; visible ⌘Space hides via panel path only (no double toggle).
+- Permission banner follows live `searchBar.stringValue`, not a stale normalized snapshot.
+- `cmd doctor` only — bare global `doctor` must not run AX/EventKit doctor checks.
 - Background cache updates do not repaint visible home.
 - Long text and large stores do not resize rows or drift layout.
 - Detail open: pooled module detail reopens without rebuilding the view (`detail.viewMade` stays flat on second open).

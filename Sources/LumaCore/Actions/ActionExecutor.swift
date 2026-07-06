@@ -29,6 +29,11 @@ public actor ActionExecutor {
 
     @discardableResult
     public func run(_ action: Action, for resultID: ResultID) async -> ActionExecutionResult {
+        let performStart = ContinuousClock.now
+        defer {
+            let ms = LauncherDurationRecorder.durationMilliseconds(ContinuousClock.now - performStart)
+            LauncherDurationRecorder.record(category: .actionPerform, key: action.id.module.rawValue, milliseconds: ms)
+        }
         do {
             switch action.kind {
             case .copyToPasteboard(let value):

@@ -138,6 +138,7 @@ public actor QueryDispatcher {
                     await self.metrics.mark("module.\(manifest.identifier.rawValue).start")
                     let deadline = ContinuousClock().now.advanced(by: manifest.queryTimeout)
                     let context = await self.host.makeQueryContext(deadline: deadline)
+                    let handleStart = ContinuousClock.now
                     let result = await Timeout.run(after: manifest.queryTimeout) {
                         await module.handle(query, context: context)
                     } ?? {
@@ -147,6 +148,12 @@ public actor QueryDispatcher {
                             diagnostic: ModuleDiagnostic(kind: .timeout, message: "Module timed out")
                         )
                     }()
+                    let handleMs = LauncherDurationRecorder.durationMilliseconds(ContinuousClock.now - handleStart)
+                    LauncherDurationRecorder.record(
+                        category: .moduleHandle,
+                        key: manifest.identifier.rawValue,
+                        milliseconds: handleMs
+                    )
                     await self.metrics.mark("module.\(manifest.identifier.rawValue).finish")
                     return (manifest.identifier, result)
                 }
@@ -198,6 +205,7 @@ public actor QueryDispatcher {
         await host.markUsed(id: moduleID)
         let deadline = ContinuousClock().now.advanced(by: manifest.queryTimeout)
         let context = await host.makeQueryContext(deadline: deadline)
+        let handleStart = ContinuousClock.now
         let result = await Timeout.run(after: manifest.queryTimeout) {
             await module.handle(query, context: context)
         } ?? {
@@ -207,6 +215,8 @@ public actor QueryDispatcher {
                 diagnostic: ModuleDiagnostic(kind: .timeout, message: "Module timed out")
             )
         }()
+        let handleMs = LauncherDurationRecorder.durationMilliseconds(ContinuousClock.now - handleStart)
+        LauncherDurationRecorder.record(category: .moduleHandle, key: moduleID.rawValue, milliseconds: handleMs)
 
         var merged: [ResultID: ScoredItem] = [:]
         Self.mergeItems(

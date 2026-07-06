@@ -15,12 +15,14 @@ final class LauncherContentCoordinator {
     private let detailTitleLabel: NSTextField
     private let contentContainer: NSView
 
-    private(set) var showingDetail = false
-    private(set) var showingResults = false
+    private(set) var mode: LauncherContentMode = .home
     private(set) var currentItems: [ResultItem] = []
     private(set) var selectedIndex = 0
     private(set) var currentDetailObject: (any ModuleDetailView)?
-    private(set) var currentDetailModuleID: ModuleIdentifier?
+    private var detailModuleIDStorage: ModuleIdentifier?
+    var showingDetail: Bool { mode.showingDetail }
+    var showingResults: Bool { mode.showingResults }
+    var currentDetailModuleID: ModuleIdentifier? { detailModuleIDStorage ?? mode.detailModuleID }
     var pendingTranslateText: String?
 
     var onSessionChanged: (() -> Void)?
@@ -55,11 +57,11 @@ final class LauncherContentCoordinator {
 
     func tearDownDetailIfNeeded() {
         guard showingDetail else { return }
-        showingDetail = false
+        mode = .home
         currentDetailObject?.deactivate()
         currentDetailObject?.detailView.removeFromSuperview()
         currentDetailObject = nil
-        currentDetailModuleID = nil
+        detailModuleIDStorage = nil
         detailContainer.isHidden = true
         detailContainer.alphaValue = 0
         detailContainer.passesHitTests = false
@@ -70,14 +72,14 @@ final class LauncherContentCoordinator {
     }
 
     func resetResults() {
-        showingResults = false
+        if !showingDetail { mode = .home }
         currentItems = []
         selectedIndex = 0
         listView.clear()
     }
 
     func showHome(_ snapshot: LauncherHomeSnapshot, preserveSelection: Bool = false) {
-        showingResults = false
+        if !showingDetail { mode = .home }
         currentItems = snapshot.flatItems
         if !preserveSelection {
             selectedIndex = 0
@@ -99,7 +101,7 @@ final class LauncherContentCoordinator {
 
         if reusingHierarchy {
             currentDetailObject = detail
-            currentDetailModuleID = moduleID
+            detailModuleIDStorage = moduleID
             contentView.isHidden = false
             detailTopBar.isHidden = !detail.usesSharedTopBar
         } else {
@@ -111,7 +113,7 @@ final class LauncherContentCoordinator {
                 subview.removeFromSuperview()
             }
             currentDetailObject = detail
-            currentDetailModuleID = moduleID
+            detailModuleIDStorage = moduleID
 
             contentView.translatesAutoresizingMaskIntoConstraints = false
             detailTopBar.isHidden = !detail.usesSharedTopBar
@@ -127,7 +129,7 @@ final class LauncherContentCoordinator {
         }
 
         detailTitleLabel.stringValue = detail.moduleTitle
-        showingDetail = true
+        mode = .detail(moduleID)
         detailContainer.isHidden = false
         detailContainer.alphaValue = stagedForCrossfade ? 0 : 1
         detailContainer.passesHitTests = !stagedForCrossfade
@@ -149,7 +151,7 @@ final class LauncherContentCoordinator {
 
     func closeDetail(presentation: ModuleDetailPresentation = .rightColumn) {
         guard showingDetail else { return }
-        showingDetail = false
+        mode = showingResults ? .results : .home
         currentDetailObject?.deactivate()
         if let pooledView = currentDetailObject?.detailView, pooledView.superview === detailContainer {
             pooledView.isHidden = true
@@ -157,7 +159,7 @@ final class LauncherContentCoordinator {
             currentDetailObject?.detailView.removeFromSuperview()
         }
         currentDetailObject = nil
-        currentDetailModuleID = nil
+        detailModuleIDStorage = nil
         detailTopBar.isHidden = false
         detailContainer.passesHitTests = false
         detailContainer.isHidden = true
@@ -174,14 +176,14 @@ final class LauncherContentCoordinator {
         let previouslySelectedID: ResultID? = currentItems[safe: selectedIndex]?.id
         currentItems = newItems
         guard !newItems.isEmpty else {
-            showingResults = true
+            mode = .results
             currentItems = []
             selectedIndex = 0
             listView.renderResults([], layout: layout)
             LauncherInPanelLayout.stabilizePanel(from: listView)
             return
         }
-        showingResults = true
+        mode = .results
         listView.renderResults(newItems, layout: layout, preserveSelectionID: previouslySelectedID)
         syncSelectionFromList()
         LauncherInPanelLayout.stabilizePanel(from: listView)
@@ -203,7 +205,7 @@ final class LauncherContentCoordinator {
     }
 
     func dismissResultsForEmptyQuery() {
-        showingResults = false
+        if !showingDetail { mode = .home }
         currentItems = []
         selectedIndex = 0
         listView.clear()
@@ -215,7 +217,7 @@ final class LauncherContentCoordinator {
             currentItems = []
             selectedIndex = 0
         }
-        showingResults = true
+        if !showingDetail { mode = .results }
     }
 
     private func syncSelectionFromList() {

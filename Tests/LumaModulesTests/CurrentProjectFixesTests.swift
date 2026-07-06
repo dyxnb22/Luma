@@ -21,8 +21,9 @@ import Testing
 
 @Test func commandsModuleDoctorQueryReturnsDiagnostics() async {
     let module = CommandsModule()
+    let parsed = ParsedCommand(trigger: "cmd", payload: "doctor", module: .commands)
     let result = await module.handle(
-        Query(raw: "doctor", sequence: 1),
+        Query(raw: "cmd doctor", sequence: 1, command: parsed),
         context: QueryContext(deadline: ContinuousClock().now.advanced(by: .milliseconds(20)))
     )
     #expect(result.items.contains { $0.id.key == "doctor.commands" })

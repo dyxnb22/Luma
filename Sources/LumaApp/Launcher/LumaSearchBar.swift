@@ -13,21 +13,21 @@ final class LumaSearchBar: NSView {
         case commandNumber(Int)
     }
 
-    private var detailSuspendedQuery: String?
+    private var detailModeState = LauncherSearchDetailModeState()
 
     /// True while module detail has disabled the query field (suspended query may still be held).
     var isDetailModeActive: Bool {
-        detailSuspendedQuery != nil || !textField.isEditable
+        detailModeState.suspendedQuery != nil || !detailModeState.isEditable
     }
 
     /// Query to persist while detail mode suspends the visible field.
     var persistedQuery: String {
-        detailSuspendedQuery ?? stringValue
+        detailModeState.suspendedQuery ?? stringValue
     }
 
     /// Suspended query snapshot for `LauncherDetailExitPlanner` (chrome Esc/back/close only).
     var detailSuspendedQueryForPlanner: String? {
-        detailSuspendedQuery
+        detailModeState.suspendedQuery
     }
 
     /// True while IME composition is in progress (marked text active).
@@ -198,7 +198,7 @@ final class LumaSearchBar: NSView {
     }
 
     func appendText(_ text: String) {
-        guard detailSuspendedQuery == nil, textField.isEditable else { return }
+        guard detailModeState.suspendedQuery == nil, textField.isEditable else { return }
         stringValue = stringValue + text
     }
 
@@ -217,11 +217,10 @@ final class LumaSearchBar: NSView {
 
     /// Clears the visible query while module detail is open; restores on `endDetailMode()`.
     func beginDetailMode(moduleTitle: String) {
-        if detailSuspendedQuery == nil {
-            detailSuspendedQuery = stringValue
-        }
+        detailModeState.visibleQuery = stringValue
+        detailModeState = LauncherSearchDetailMode.beginDetailMode(detailModeState, moduleTitle: moduleTitle)
         resetQueryText()
-        textField.isEditable = false
+        textField.isEditable = detailModeState.isEditable
         if let window, window.firstResponder === textField || window.firstResponder === textField.currentEditor() {
             window.makeFirstResponder(nil)
         }
@@ -229,28 +228,30 @@ final class LumaSearchBar: NSView {
     }
 
     func endDetailMode() -> String? {
-        textField.isEditable = true
-        let suspended = detailSuspendedQuery
-        detailSuspendedQuery = nil
+        let (next, restored) = LauncherSearchDetailMode.endDetailMode(detailModeState)
+        detailModeState = next
+        textField.isEditable = detailModeState.isEditable
         setPlaceholder(ModuleSearchHints.cheatSheet)
-        return suspended
+        return restored
     }
 
     func cancelDetailMode() {
-        detailSuspendedQuery = nil
-        textField.isEditable = true
+        detailModeState = LauncherSearchDetailMode.cancelDetailMode(detailModeState)
+        textField.isEditable = detailModeState.isEditable
         setPlaceholder(ModuleSearchHints.cheatSheet)
     }
 
     /// Re-enables clicking and typing when detail was torn down without `endDetailMode()` / `cancelDetailMode()`.
     func reEnableSearchFieldIfNeeded() {
-        guard !textField.isEditable else { return }
-        textField.isEditable = true
+        let next = LauncherSearchDetailMode.reEnableSearchFieldIfNeeded(detailModeState)
+        guard next != detailModeState else { return }
+        detailModeState = next
+        textField.isEditable = detailModeState.isEditable
     }
 
     func clearStuckDetailModeState() {
-        detailSuspendedQuery = nil
-        textField.isEditable = true
+        detailModeState = LauncherSearchDetailMode.clearStuckDetailModeState(detailModeState)
+        textField.isEditable = detailModeState.isEditable
         setPlaceholder(ModuleSearchHints.cheatSheet)
     }
 

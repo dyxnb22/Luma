@@ -10,10 +10,25 @@ public enum LauncherKeyCommand: Sendable, Equatable {
     case commandNumber(Int)
 }
 
-public enum LauncherContentMode: Sendable {
+public enum LauncherContentMode: Equatable, Sendable {
     case home
     case results
-    case detail
+    case detail(ModuleIdentifier? = nil)
+
+    public var showingDetail: Bool {
+        if case .detail = self { return true }
+        return false
+    }
+
+    public var showingResults: Bool {
+        if case .results = self { return true }
+        return false
+    }
+
+    public var detailModuleID: ModuleIdentifier? {
+        if case .detail(let id) = self { return id }
+        return nil
+    }
 }
 
 public enum LauncherKeyRouter {
@@ -45,22 +60,22 @@ public enum LauncherKeyRouter {
 
         switch command {
         case .down:
-            guard mode != .detail else { return .handled }
+            guard !mode.showingDetail else { return .handled }
             guard itemCount > 0 else { return .handled }
             return .moveSelection(delta: 1)
         case .up:
-            guard mode != .detail else { return .handled }
+            guard !mode.showingDetail else { return .handled }
             guard itemCount > 0 else { return .handled }
             return .moveSelection(delta: -1)
         case .backtab:
             return .passthrough
         case .tab, .actionPanel:
-            guard mode != .detail, itemCount > 0 else { return .handled }
+            guard !mode.showingDetail, itemCount > 0 else { return .handled }
             return .openActionPanel
         case .commandReturn:
             return .handled
         case .commandNumber(let number):
-            guard mode != .detail else { return .handled }
+            guard !mode.showingDetail else { return .handled }
             let index = number - 1
             guard itemCount > index, index >= 0 else { return .handled }
             return .jumpToFlatIndex(index)

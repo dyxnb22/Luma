@@ -34,7 +34,7 @@ This file is the source of truth for shipped user-visible module behavior. It re
 | Kill Process | `kill` | No | On | Quit/relaunch GUI apps |
 | Browser Tabs | `tab`, `tabs` | No | Off | Browser tab search |
 
-Deferred source-retained module: Windows.
+Deferred source-retained module: **Windows** (`BuiltInModules.makeDeferred()`). Not registered in active warmup/default enablement; `handle()` must not ship on the hot path until warm-cache + tests land.
 
 ## Apps / Open Apps
 
@@ -59,6 +59,7 @@ Deferred source-retained module: Windows.
 ## Commands And Scripts
 
 - Built-ins include Settings, reload modules, diagnostics, and quit.
+- `cmd doctor` / `commands doctor` runs the global doctor scan (AX, EventKit, config checks). Bare global `doctor` without the commands prefix does **not** run doctor checks.
 - User scripts load from `commands.json` in Application Support.
 - Scripts execute asynchronously and do not block panel dismissal.
 - Template variables may use clipboard, selection, project, file, UUID, date/time, and related context.

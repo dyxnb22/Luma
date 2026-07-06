@@ -99,7 +99,6 @@ public actor CommandsModule: LumaModule {
     public static func extractPayload(raw: String) -> String? {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         let lower = trimmed.lowercased()
-        if lower == "doctor" { return "doctor" }
         if runnableBuiltIns.contains(lower) || lower == "settings" || lower == "prefs" {
             return ""
         }
@@ -145,10 +144,7 @@ public actor CommandsModule: LumaModule {
         if ModuleHelp.isHelpQuery(normalized) {
             return ModuleResult(items: ModuleHelp.results(for: Self.manifest.identifier))
         }
-        if let builtIn = Self.matchBuiltInOrDoctor(normalized) {
-            if builtIn == "doctor" {
-                return await doctorResult(context: context)
-            }
+        if let builtIn = Self.matchBuiltIn(normalized) {
             return ModuleResult(items: [command(builtIn, title: Self.title(for: builtIn))])
         }
         if normalized.isEmpty {

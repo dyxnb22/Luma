@@ -29,7 +29,7 @@ public actor BrowserTabsModule: LumaModule {
         if ModuleHelp.isHelpQuery(payload) {
             return ModuleResult(items: ModuleHelp.results(for: Self.manifest.identifier))
         }
-        let tabs = await service.searchableTabs()
+        let tabs = await service.cachedTabs()
         let matches = BrowserTabsIndex.search(tabs, query: payload, limit: 8)
         if !matches.isEmpty {
             return ModuleResult(items: matches.map(row))

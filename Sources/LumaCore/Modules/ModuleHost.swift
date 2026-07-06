@@ -36,6 +36,7 @@ public actor ModuleHost {
     private var warmupStates: [ModuleIdentifier: WarmupState] = [:]
     private var warmupTasks: [ModuleIdentifier: Task<Void, Never>] = [:]
     private var warmupGenerations: [ModuleIdentifier: UInt64] = [:]
+    private var warmupStartedAt: [ModuleIdentifier: ContinuousClock.Instant] = [:]
     private var lastUsedAt: [ModuleIdentifier: ContinuousClock.Instant] = [:]
     private var pinnedIDs: Set<ModuleIdentifier> = []
     /// When set, only these module IDs participate in global (non-targeted) query dispatch.
@@ -156,6 +157,7 @@ public actor ModuleHost {
         let generation = (warmupGenerations[id] ?? 0) + 1
         warmupGenerations[id] = generation
         warmupStates[id] = .warming
+        warmupStartedAt[id] = ContinuousClock.now
         LauncherPerfCounters.increment(.moduleWarmupStarted)
         let ctx = context
 
@@ -180,10 +182,15 @@ public actor ModuleHost {
             warmupStates[id] = .warm
             lastUsedAt[id] = ContinuousClock().now
             LauncherPerfCounters.increment(.moduleWarmupFinished)
+            if let started = warmupStartedAt[id] {
+                let ms = LauncherDurationRecorder.durationMilliseconds(ContinuousClock.now - started)
+                LauncherDurationRecorder.record(category: .moduleWarmup, key: id.rawValue, milliseconds: ms)
+            }
         } else {
             warmupStates[id] = .cold
             LauncherPerfCounters.increment(.moduleWarmupTimedOut)
         }
+        warmupStartedAt[id] = nil
     }
 
     private func invalidateWarmup(id: ModuleIdentifier) {

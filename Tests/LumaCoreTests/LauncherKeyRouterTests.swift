@@ -45,7 +45,7 @@ import LumaCore
 @Test func keyRouterIgnoresTabInDetailMode() {
     let outcome = LauncherKeyRouter.route(
         command: .tab,
-        mode: .detail,
+        mode: .detail(),
         itemCount: 3,
         actionPanelVisible: false
     )
@@ -80,9 +80,9 @@ import LumaCore
 }
 
 @Test func keyRouterIgnoresArrowsInDetailMode() {
-    #expect(LauncherKeyRouter.route(command: .down, mode: .detail, itemCount: 5, actionPanelVisible: false) == .handled)
-    #expect(LauncherKeyRouter.route(command: .up, mode: .detail, itemCount: 5, actionPanelVisible: false) == .handled)
-    #expect(LauncherKeyRouter.route(command: .commandNumber(1), mode: .detail, itemCount: 5, actionPanelVisible: false) == .handled)
+    #expect(LauncherKeyRouter.route(command: .down, mode: .detail(), itemCount: 5, actionPanelVisible: false) == .handled)
+    #expect(LauncherKeyRouter.route(command: .up, mode: .detail(), itemCount: 5, actionPanelVisible: false) == .handled)
+    #expect(LauncherKeyRouter.route(command: .commandNumber(1), mode: .detail(), itemCount: 5, actionPanelVisible: false) == .handled)
 }
 
 @Test func keyRouterCommandReturnIsDefined() {

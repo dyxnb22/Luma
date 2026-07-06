@@ -12,7 +12,7 @@ final class LauncherHomeGuidePane: NSView {
     private let footerLabel = NSTextField(labelWithString: "")
     private let scrollView = NSScrollView()
     private let tableView = NSTableView()
-    private var rows: [HomeGuideEntryRow] = []
+    nonisolated(unsafe) private var rows: [HomeGuideEntryRow] = []
 
     /// When false, mouse events pass through (used during detail ↔ guide cross-fade).
     nonisolated(unsafe) var passesHitTests = true

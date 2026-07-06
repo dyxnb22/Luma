@@ -61,28 +61,53 @@ if rg -U -n --type swift "@MainActor\s*\n\s*(nonisolated\s+)?override\s+(func|va
 fi
 
 echo "== 7. @MainActor NSObject target/action entrypoints (warn-only) =="
-for f in $(rg -l --type swift '@MainActor' Sources/LumaApp/Launcher Sources/LumaApp/Settings 2>/dev/null || true); do
-  if ! rg -q '@MainActor\s+(?:final\s+)?class' "$f"; then
-    continue
-  fi
-  while IFS= read -r line; do
-    lineno="${line%%:*}"
-    rest="${line#*:}"
-    if echo "$rest" | rg -q 'nonisolated'; then
-      continue
-    fi
-    if echo "$rest" | rg -q '@objc nonisolated'; then
-      continue
-    fi
-    prevline=""
-    if [ "$lineno" -gt 1 ]; then
-      prevline=$(sed -n "$((lineno - 1))p" "$f")
-    fi
-    if echo "$prevline" | rg -q 'nonisolated'; then
-      continue
-    fi
-    echo "WARN: $f:$lineno: @objc target/action inside @MainActor type should be nonisolated: $rest"
-  done < <(rg -n --type swift '@objc\s+(private\s+)?func' "$f" || true)
+MAINACTOR_OBJC_AWK='function count_braces(line,    t, opens, closes) {
+  t = line
+  opens = gsub(/{/, "{", t)
+  t = line
+  closes = gsub(/}/, "}", t)
+  return opens - closes
+}
+function is_class_line(line) {
+  return line ~ /^[[:space:]]*(private[[:space:]]+|public[[:space:]]+|internal[[:space:]]+|fileprivate[[:space:]]+)?(final[[:space:]]+)?(class|actor)[[:space:]]+/
+}
+function is_single_line_mainactor_class(line) {
+  return line ~ /^[[:space:]]*@MainActor[[:space:]]+(private[[:space:]]+|public[[:space:]]+|internal[[:space:]]+|fileprivate[[:space:]]+)?(final[[:space:]]+)?(class|actor)[[:space:]]+/
+}
+function is_pending_mainactor_line(line) {
+  return line ~ /^[[:space:]]*@MainActor[[:space:]]*$/
+}
+function is_objc_func(line) {
+  return line ~ /@objc[[:space:]]+(private[[:space:]]+)?func[[:space:]]+/
+}
+function is_bridged_objc(line, prev) {
+  if (line ~ /nonisolated/) return 1
+  if (line ~ /@objc[[:space:]]+nonisolated/) return 1
+  if (prev ~ /nonisolated[[:space:]]*$/) return 1
+  return 0
+}
+{
+  line = $0
+  if (is_single_line_mainactor_class(line) || (pending_mainactor && is_class_line(line))) {
+    in_mainactor = 1
+    mainactor_close_depth = depth
+    pending_mainactor = 0
+  } else if (is_pending_mainactor_line(line)) {
+    pending_mainactor = 1
+  } else if (pending_mainactor) {
+    pending_mainactor = 0
+  }
+  if (in_mainactor && is_objc_func(line) && !is_bridged_objc(line, prev_line)) {
+    printf "WARN: %s:%d: @objc target/action inside @MainActor type should be nonisolated: %s\n", FILENAME, NR, line
+  }
+  depth += count_braces(line)
+  if (in_mainactor && depth <= mainactor_close_depth) {
+    in_mainactor = 0
+  }
+  prev_line = line
+}'
+for f in $(rg -l --type swift '.' Sources/LumaApp/Launcher Sources/LumaApp/Settings 2>/dev/null || true); do
+  awk -v FILENAME="$f" "$MAINACTOR_OBJC_AWK" "$f"
 done
 
 echo "== 4. MainActor.assumeIsolated =="

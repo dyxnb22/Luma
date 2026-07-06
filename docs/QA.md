@@ -35,13 +35,21 @@ swift test --filter CancellationGeneration
 
 After executor-boundary changes, clear `~/Library/Logs/DiagnosticReports/Luma-*.ips`, then verify:
 
+- Signed app starts and stays running; the menu bar icon is present.
 - Cmd+Space show/hide ×20 without crash
 - Cmd+Space rapid toggle ×50 without panel stuck hidden
 - Esc from home, search results, detail, and action panel
-- Translate detail: Accessibility Inspector focus traversal
 - System light/dark toggle with panel open
 - Notes detail + home list scroll without crash
-- Each MVP module bare prefix + Return opens detail without crash: Apps (`a`), Clipboard (`c`), Notes (`n`), Todo (`t`), Translate, Wordbook (`w`), Quicklinks, Projects (`proj`), Window Layouts, Snippets, Media, Secrets
+- Menu bar Show opens the panel when the hotkey path is unavailable.
+- Launcher input accepts text, shows the empty-query home, and executes Return on a selected row.
+- Apps P0 smoke: `app safari` returns a row and Return opens or focuses Safari.
+- Clipboard P0 smoke: `clip` searches history and Return copies the selected item.
+- Notes P0 smoke: bare `n` opens Notes detail/onboarding; `n new` creates through the configured root.
+- Settings P0 smoke: menu bar Settings opens; saving a non-destructive setting persists after restart.
+- Diagnostics P0 smoke: Doctor/export is reachable outside Commands default-off gating (menu bar or Settings recovery entry); export writes diagnostics; no new `Luma-*.ips` appears.
+
+Parked/deferred and non-P0 modules are extended QA only. Media, Wordbook, Secrets, WindowLayouts, MenuItems, KillProcess, BrowserTabs, Windows, complex Workbench/Capture, Commands user scripts, plus Core P1/conditional modules such as Snippets, Quicklinks, Translate, and Todo, must not be used as a P0 smoke gate unless they crash or corrupt the default P0 path.
 
 See `docs/swift6-appkit-boundaries.md` for the full contract.
 
@@ -149,7 +157,7 @@ Permissions:
 
 ## Module Manual Smoke
 
-For every module in `docs/MODULES.md`:
+Extended/non-MVP QA for every module in `docs/MODULES.md`. These checks are valuable for release readiness, but parked/default-off modules and Core P1/conditional modules are not P0 gates unless they regress the default P0 path.
 
 - Bare command matches documented behavior.
 - Prefix search returns expected rows.
@@ -252,7 +260,7 @@ Release checklist:
 - `./scripts/build_app.sh --no-restart` passes.
 - Release DMG builds and verifies.
 - Fresh-machine launch passes Gatekeeper.
-- Hotkey, permissions, Browser Tabs Automation, Todo/EventKit, and AX-dependent modules are manually checked.
+- Hotkey and P0 permissions are manually checked. Browser Tabs Automation, Todo/EventKit, and AX-dependent parked/Core P1 surfaces are extended/non-MVP checks and do not gate Phase 9 P0 unless they regress the default P0 path.
 - VoiceOver spot check covers search, list rows, detail exit, and Settings.
 - Update release notes or tag notes with known limitations.
 

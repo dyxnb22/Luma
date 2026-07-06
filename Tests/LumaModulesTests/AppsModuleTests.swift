@@ -41,8 +41,8 @@ private func moduleContext(runningApplications: any RunningApplicationsClient) -
 }
 
 @Test func appsModuleHandleUsesCachedRunningApplicationsClient() async {
-    let runningClient = CountingRunningApplicationsClient()
     let module = AppsModule()
+    let runningClient = CountingRunningApplicationsClient()
     let context = moduleContext(runningApplications: runningClient)
     await module.warmup(context)
 
@@ -53,18 +53,20 @@ private func moduleContext(runningApplications: any RunningApplicationsClient) -
     let countAfterWarmup = await runningClient.runningBundleIDsCallCount
     _ = await module.handle(query, context: QueryContext(deadline: .now + .seconds(1), platform: QueryPlatformClients(runningApplications: runningClient)))
     #expect(await runningClient.runningBundleIDsCallCount == countAfterWarmup)
+    await module.teardown()
 }
 
 @Test func appsModuleWarmupStartsRunningApplicationsMonitoring() async {
-    let runningClient = CountingRunningApplicationsClient()
     let module = AppsModule()
+    let runningClient = CountingRunningApplicationsClient()
     await module.warmup(moduleContext(runningApplications: runningClient))
     #expect(await runningClient.startMonitoringCallCount == 1)
+    await module.teardown()
 }
 
 @Test func appsModuleMarksRunningAppsInSubtitle() async {
-    let runningClient = CountingRunningApplicationsClient(bundleIDs: ["com.apple.Safari"])
     let module = AppsModule()
+    let runningClient = CountingRunningApplicationsClient(bundleIDs: ["com.apple.Safari"])
     let context = moduleContext(runningApplications: runningClient)
     await module.warmup(context)
 
@@ -74,13 +76,14 @@ private func moduleContext(runningApplications: any RunningApplicationsClient) -
 
     let safariRow = result.items.first { $0.id.key == "com.apple.Safari" }
     #expect(safariRow?.subtitle?.contains("Running") == true)
+    await module.teardown()
 }
 
 @Test func appsMemoryTopDoesNotReturnWarmingOnlyAfterTTLWhenCacheExists() async throws {
+    let module = AppsModule()
     let memoryClient = MutableProcessMemoryClient(samples: [
         RunningApplicationMemory(bundleID: "com.apple.Safari", name: "Safari", residentBytes: 50_000_000)
     ])
-    let module = AppsModule()
     let context = ModuleContext(
         logger: LumaLogger(),
         metrics: LumaMetrics(),
@@ -103,6 +106,7 @@ private func moduleContext(runningApplications: any RunningApplicationsClient) -
     let expired = await module.handle(Query(raw: "app top", sequence: 2), context: queryContext)
     #expect(expired.items.isEmpty == false)
     #expect(expired.diagnostic?.message != "Memory usage cache warming")
+    await module.teardown()
 }
 
 private actor MutableProcessMemoryClient: ProcessMemoryClient {

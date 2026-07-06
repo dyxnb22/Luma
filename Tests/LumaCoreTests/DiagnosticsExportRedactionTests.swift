@@ -27,6 +27,13 @@ struct DiagnosticsExportRedactionTests {
         #expect(redacted.contains("/Users/<redacted>"))
     }
 
+    @Test func diagnosticsExportRedactsTildePathsWithSpaces() {
+        let input = "saved ~/My Documents/secret/file.swift"
+        let redacted = DiagnosticsExport.redactBreadcrumb(input)
+        #expect(redacted == "saved ~/<redacted>")
+        #expect(!redacted.contains("Documents"))
+    }
+
     @Test func diagnosticsPayloadBuildsWithoutSensitiveKeys() {
         LauncherPerfCounters.reset()
         LauncherDurationRecorder.reset()

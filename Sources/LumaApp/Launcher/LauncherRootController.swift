@@ -483,11 +483,6 @@ final class LauncherRootController {
         LauncherPerfCounters.increment(.queryCancelOnHide)
     }
 
-    /// Hide-path alias; prefer `cancelActiveQueryAndSnapshotApply()` for new call sites.
-    func cancelAllLauncherWork() {
-        cancelActiveQueryAndSnapshotApply()
-    }
-
     func handleModulesDisabled(removed: Set<ModuleIdentifier>) {
         cancelLauncherAsyncWork()
         viewModel.invalidateSnapshotCache()

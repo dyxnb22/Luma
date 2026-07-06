@@ -156,8 +156,6 @@ final class LauncherRootView: NSView {
     @MainActor
     func cancelLauncherAsyncWork() { controller.cancelLauncherAsyncWork() }
     @MainActor
-    func cancelAllLauncherWork() { controller.cancelAllLauncherWork() }
-    @MainActor
     func handleModulesDisabled(removed: Set<ModuleIdentifier>) { controller.handleModulesDisabled(removed: removed) }
     @MainActor
     func restoreLastSessionIfNeeded() { controller.restoreLastSessionIfNeeded() }

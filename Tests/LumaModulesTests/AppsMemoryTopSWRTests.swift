@@ -36,10 +36,10 @@ private func appsModuleContext(
 }
 
 @Test func appsMemoryTopReturnsStaleAfterTTLExpires() async throws {
+    let module = AppsModule()
     let memoryClient = MutableProcessMemoryClient(samples: [
         RunningApplicationMemory(bundleID: "com.apple.Safari", name: "Safari", residentBytes: 100_000_000)
     ])
-    let module = AppsModule()
     let context = appsModuleContext(processMemory: memoryClient)
     await module.warmup(context)
 
@@ -52,4 +52,5 @@ private func appsModuleContext(
     let stale = await module.handle(Query(raw: "app top", sequence: 2), context: queryContext)
     #expect(stale.items.contains(where: { $0.title == "Safari" }))
     #expect(stale.diagnostic == nil)
+    await module.teardown()
 }

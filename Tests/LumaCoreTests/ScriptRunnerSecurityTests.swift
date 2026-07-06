@@ -52,3 +52,20 @@ import Testing
         try ScriptRunnerSecurityPolicy.validateExecutable(link.path)
     }
 }
+
+@Test func scriptRunnerSecurityAllowsScriptInsideSymlinkedCommandsDir() throws {
+    let home = FileManager.default.homeDirectoryForCurrentUser
+    let realDir = home.appendingPathComponent(".luma/commands-real-\(UUID().uuidString)", isDirectory: true)
+    let linkDir = home.appendingPathComponent(".luma/commands-link-\(UUID().uuidString)", isDirectory: true)
+    try FileManager.default.createDirectory(at: realDir, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: realDir) }
+    defer { try? FileManager.default.removeItem(at: linkDir) }
+    try FileManager.default.createSymbolicLink(at: linkDir, withDestinationURL: realDir)
+    let script = realDir.appendingPathComponent("deploy.sh")
+    FileManager.default.createFile(atPath: script.path, contents: Data())
+    defer { try? FileManager.default.removeItem(at: script) }
+    try ScriptRunnerSecurityPolicy.validateExecutable(
+        script.path,
+        allowedDirectories: [linkDir]
+    )
+}

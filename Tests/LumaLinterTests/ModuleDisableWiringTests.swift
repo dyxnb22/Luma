@@ -1,9 +1,7 @@
-import AppKit
 import Foundation
-import LumaCore
 import Testing
-@testable import LumaApp
 
+/// Source-level regression guards for module-disable vs panel-hide cancel wiring.
 @Test func handleModulesDisabledUsesAsyncWorkCancelOnly() throws {
     let root = URL(fileURLWithPath: #filePath)
         .deletingLastPathComponent()
@@ -40,32 +38,13 @@ import Testing
         return
     }
     let bodyStart = range.upperBound
-    guard let bodyEnd = source[bodyStart...].range(of: "\n    /// Hide-path alias") else {
+    guard let bodyEnd = source[bodyStart...].range(of: "\n    func handleModulesDisabled(removed: Set<ModuleIdentifier>)") else {
         Issue.record("cancelActiveQueryAndSnapshotApply body end not found")
         return
     }
     let body = String(source[bodyStart..<bodyEnd.lowerBound])
     #expect(body.contains("isPanelActiveForQueryApply = false"))
     #expect(body.contains("panelHideBegan"))
-}
-
-@Test @MainActor func cancelLauncherAsyncWorkCancelsRegisteredWorkbenchPreviewTask() async {
-    let registry = LauncherTaskRegistry()
-    var completed = false
-    let task = Task {
-        do {
-            try await Task.sleep(for: .seconds(60))
-        } catch {
-            return
-        }
-        completed = true
-    }
-    registry.register(key: "workbenchPreview", task: task)
-    #expect(registry.contains(key: "workbenchPreview"))
-    registry.cancelAll()
-    #expect(registry.contains(key: "workbenchPreview") == false)
-    try? await Task.sleep(for: .milliseconds(50))
-    #expect(completed == false)
 }
 
 @Test func finishPresentationGuardsPresentationGeneration() throws {

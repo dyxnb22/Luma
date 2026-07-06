@@ -33,7 +33,9 @@ public enum ScriptRunnerSecurityPolicy {
         let url = URL(fileURLWithPath: expanded).standardizedFileURL
         let resolved = url.resolvingSymlinksInPath().standardizedFileURL
         guard resolved.isFileURL else { throw ValidationError.pathNotAllowed(expanded) }
-        let allowed = allowedDirectories.map { $0.standardizedFileURL }
+        let allowed = allowedDirectories.map {
+            $0.standardizedFileURL.resolvingSymlinksInPath().standardizedFileURL
+        }
         let isAllowed = allowed.contains { dir in
             resolved.path == dir.path || resolved.path.hasPrefix(dir.path + "/")
         }

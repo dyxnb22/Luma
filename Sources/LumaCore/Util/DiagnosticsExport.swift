@@ -81,8 +81,9 @@ public enum DiagnosticsExport {
 
     /// Redacts known sensitive `key=value` fields and home-directory path fragments.
     public static func redactBreadcrumb(_ line: String) -> String {
-        line.split(separator: " ", omittingEmptySubsequences: false).map { token -> String in
-            redactPathHeuristics(in: redactSensitiveToken(String(token)))
+        let pathRedacted = redactPathHeuristics(in: line)
+        return pathRedacted.split(separator: " ", omittingEmptySubsequences: false).map { token -> String in
+            redactSensitiveToken(String(token))
         }.joined(separator: " ")
     }
 
@@ -94,18 +95,19 @@ public enum DiagnosticsExport {
         return "\(keyPart)=<redacted>"
     }
 
-    private static func redactPathHeuristics(in token: String) -> String {
-        var result = token
+    private static func redactPathHeuristics(in text: String) -> String {
+        var result = text
+        let pathContinuation = #"(?:\s+[^\s"]*\/[^\s"]*)*"#
         if result.contains("~/") {
             result = result.replacingOccurrences(
-                of: #"~/[^ \t"]+"#,
+                of: #"~/[^\s"]+"# + pathContinuation,
                 with: "~/<redacted>",
                 options: .regularExpression
             )
         }
         if result.contains("/Users/") {
             result = result.replacingOccurrences(
-                of: #"/Users/[^ \t"]+"#,
+                of: #"/Users/[^\s"]+"# + pathContinuation,
                 with: "/Users/<redacted>",
                 options: .regularExpression
             )

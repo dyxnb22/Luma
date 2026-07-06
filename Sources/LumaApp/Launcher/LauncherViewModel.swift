@@ -172,6 +172,11 @@ final class LauncherViewModel {
         task = nil
         issuedAtBySequence.removeAll()
         sequence &+= 1
+        Task { await dispatcher.cancelRevalidation() }
+    }
+
+    func invalidateSnapshotCache() {
+        Task { await dispatcher.invalidateSnapshotCache() }
     }
 
     private func p95(of samples: [Double]) -> Double {

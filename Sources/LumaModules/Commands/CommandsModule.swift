@@ -71,6 +71,12 @@ public actor CommandsModule: LumaModule {
                     workingDirectory: cwd,
                     timeoutSeconds: command.timeoutSec
                 )
+                do {
+                    try ScriptRunnerSecurityPolicy.validateExecutable(command.exec)
+                } catch {
+                    CrashLogRecording.record("commands.run rejected executable=\(URL(fileURLWithPath: command.exec).lastPathComponent)")
+                    throw ModuleError.dataUnavailable
+                }
                 let runner = scriptRunner
                 Task {
                     _ = await runner.run(request)
@@ -79,7 +85,10 @@ public actor CommandsModule: LumaModule {
                 let url = await store.configFileURL()
                 await context.platform.workspace.revealInFinder(url)
             case .doctor:
-                break
+                _ = await doctorResult(context: QueryContext(
+                    deadline: ContinuousClock().now.advanced(by: .seconds(1)),
+                    platform: QueryPlatformClients(accessibility: context.platform.accessibility)
+                ))
             }
             return
         }
@@ -119,9 +128,6 @@ public actor CommandsModule: LumaModule {
 
     private func handlePayload(_ payload: String, parsedCommand: ParsedCommand?, context: QueryContext) async -> ModuleResult {
         if let parsedCommand, let builtIn = Self.matchBuiltIn(parsedCommand.trigger) {
-            if builtIn == "doctor" {
-                return await doctorResult(context: context)
-            }
             return ModuleResult(items: [self.command(builtIn, title: Self.title(for: builtIn))])
         }
         let trimmed = payload.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -132,9 +138,6 @@ public actor CommandsModule: LumaModule {
             return listCommands(fallbackBuiltIn: "open-settings")
         }
         if let builtIn = Self.matchBuiltInOrDoctor(trimmed) {
-            if builtIn == "doctor" {
-                return await doctorResult(context: context)
-            }
             return ModuleResult(items: [command(builtIn, title: Self.title(for: builtIn))])
         }
         return listCommands(filter: trimmed)

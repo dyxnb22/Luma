@@ -67,6 +67,6 @@ import Testing
         .deletingLastPathComponent()
     let path = root.appending(path: "Sources/LumaApp/Launcher/LauncherRootController.swift")
     let source = try String(contentsOf: path, encoding: .utf8)
-    #expect(source.contains("LauncherSnapshotApplyPolicy.decision"))
-    #expect(source.contains("cancelActiveQueryAndSnapshotApply()"))
+    #expect(source.contains("LauncherSnapshotApplyPipeline"))
+    #expect(source.contains("cancelAllLauncherWork()"))
 }

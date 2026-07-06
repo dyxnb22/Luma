@@ -3,6 +3,17 @@ import LumaCore
 import LumaModules
 import Testing
 
+private func allowedCommandsScript(name: String, body: String) throws -> String {
+    let dir = FileManager.default.homeDirectoryForCurrentUser
+        .appendingPathComponent(".luma/commands", isDirectory: true)
+    try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+    let url = dir.appendingPathComponent(name)
+    try Data(body.utf8).write(to: url)
+    try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: url.path)
+    defer { }
+    return url.path
+}
+
 private actor RecordingScriptRunnerClient: ScriptRunnerClient {
     private(set) var requests: [ScriptRunRequest] = []
     private var storedResult = ScriptRunResult(exitCode: 0, stdoutTail: "ok", stderrTail: "", timedOut: false)
@@ -28,15 +39,20 @@ private actor RecordingScriptRunnerClient: ScriptRunnerClient {
     try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
     defer { try? FileManager.default.removeItem(at: tempDir) }
 
+    let echoPath = try allowedCommandsScript(
+        name: "echo-test-\(UUID().uuidString).sh",
+        body: "#!/bin/sh\necho hello\n"
+    )
+    defer { try? FileManager.default.removeItem(atPath: echoPath) }
+
     let configURL = tempDir.appendingPathComponent("commands.json")
     let config = CommandsConfig(commands: [
         ScriptCommand(
             id: "echo-test",
             title: "Echo Test",
             trigger: "echo-test",
-            exec: "/bin/echo",
-            args: ["hello"],
-            cwd: nil,
+            exec: echoPath,
+            args: [],
             timeoutSec: 5
         )
     ])
@@ -87,13 +103,19 @@ private actor RecordingScriptRunnerClient: ScriptRunnerClient {
     try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
     defer { try? FileManager.default.removeItem(at: tempDir) }
 
+    let failPath = try allowedCommandsScript(
+        name: "fail-test-\(UUID().uuidString).sh",
+        body: "#!/bin/sh\nexit 1\n"
+    )
+    defer { try? FileManager.default.removeItem(atPath: failPath) }
+
     let configURL = tempDir.appendingPathComponent("commands.json")
     let config = CommandsConfig(commands: [
         ScriptCommand(
             id: "fail-test",
             title: "Fail Test",
             trigger: "fail-test",
-            exec: "/bin/false",
+            exec: failPath,
             args: [],
             cwd: nil,
             timeoutSec: 5

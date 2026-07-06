@@ -37,6 +37,10 @@ public actor QuerySnapshotCache {
         }
     }
 
+    public func invalidateAll() {
+        entries.removeAll(keepingCapacity: false)
+    }
+
     private func cacheKey(normalizedQuery: String, moduleGeneration: UInt64) -> String {
         "\(moduleGeneration)|\(normalizedQuery)"
     }

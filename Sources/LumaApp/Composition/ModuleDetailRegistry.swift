@@ -67,6 +67,13 @@ final class ModuleDetailRegistry {
         detail.activate(generation: generation)
     }
 
+    func evict(_ ids: Set<ModuleIdentifier>) {
+        for id in ids {
+            detailPool.removeValue(forKey: id)
+            lastActivatedGeneration.removeValue(forKey: id)
+        }
+    }
+
     static func makeDefault() -> ModuleDetailRegistry {
         let registry = ModuleDetailRegistry()
         registry.register(.translate) { ctx in

@@ -1,4 +1,5 @@
 import Foundation
+import LumaCore
 
 /// Local ring buffer for recent crash/error messages (no network telemetry).
 public actor CrashLogBuffer {
@@ -8,8 +9,9 @@ public actor CrashLogBuffer {
     private let capacity = 50
 
     public func record(_ message: String) {
+        let redacted = DiagnosticsExport.redactBreadcrumb(message)
         let stamp = ISO8601DateFormatter().string(from: Date())
-        entries.append("[\(stamp)] \(message)")
+        entries.append("[\(stamp)] \(redacted)")
         if entries.count > capacity {
             entries.removeFirst(entries.count - capacity)
         }

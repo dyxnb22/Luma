@@ -189,4 +189,13 @@ public actor ConfigurationStore: ConfigurationClient {
     public func setWarmupPolicy(_ policy: WarmupPolicy) {
         defaults.set(policy.rawValue, forKey: warmupPolicyKey)
     }
+
+    private static let schemaVersionKey = "configSchemaVersion"
+    private static let currentSchemaVersion = 1
+
+    public func migrateIfNeeded() async {
+        let version = defaults.integer(forKey: Self.schemaVersionKey)
+        guard version < Self.currentSchemaVersion else { return }
+        defaults.set(Self.currentSchemaVersion, forKey: Self.schemaVersionKey)
+    }
 }

@@ -1,5 +1,6 @@
 import Foundation
 import LumaCore
+import LumaInfrastructure
 import LumaServices
 import Testing
 @testable import LumaModules
@@ -17,13 +18,31 @@ import Testing
     #expect(ax.trustedCallCount == 0)
 }
 
-@Test func commandsExplicitDoctorPayloadRunsDoctorChecks() async {
+@Test func commandsExplicitDoctorPayloadRunsDoctorChecks() async throws {
     let ax = CountingAccessibilityClient()
     let module = CommandsModule()
-    let parsed = ParsedCommand(trigger: "cmd", payload: "doctor", module: .commands)
-    let query = Query(raw: "cmd doctor", sequence: 1, command: parsed)
-    let context = QueryContext(deadline: .now + .seconds(1), platform: QueryPlatformClients(accessibility: ax))
-    _ = await module.handle(query, context: context)
+    await module.warmup(ModuleContext(
+        logger: LumaLogger(),
+        metrics: LumaMetrics(),
+        database: ApplicationSupportPaths(),
+        pasteboard: NoopPasteboardClient(),
+        accessibility: ax,
+        fileSystem: NoopFileSystemClient(),
+        translation: NoopTranslationClient(),
+        config: ConfigurationStore()
+    ))
+    let payload = try ModuleActionCoding.encode(CommandsAction.doctor)
+    let action = Action(
+        id: ActionID(module: .commands, key: "doctor"),
+        title: "Global Doctor",
+        kind: .custom(payload: payload, handler: .commands)
+    )
+    try await module.perform(action, context: ActionContext(
+        logger: LumaLogger(),
+        metrics: LumaMetrics(),
+        pasteboard: NoopPasteboardClient(),
+        accessibility: ax
+    ))
     #expect(ax.trustedCallCount >= 1)
 }
 

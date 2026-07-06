@@ -61,6 +61,10 @@ let package = Package(
         .testTarget(
             name: "LumaAppTests",
             dependencies: ["LumaApp", "LumaCore", "LumaInfrastructure", "LumaModules", "LumaServices"]
+        ),
+        .testTarget(
+            name: "LumaLinterTests",
+            dependencies: ["LumaApp", "LumaCore"]
         )
     ]
 )

@@ -34,7 +34,7 @@ private struct AuthorizedRemindersClient: RemindersClient {
     func storeChanges() async -> AsyncStream<Void> { AsyncStream { $0.finish() } }
 }
 
-@Test func commandsDoctorUsesInjectedPlatformClients() async {
+@Test func commandsDoctorUsesInjectedPlatformClients() async throws {
     let menuBarTree = CountingMenuBarTreeClient(count: 7)
     let module = CommandsModule()
     await module.warmup(ModuleContext(
@@ -51,12 +51,25 @@ private struct AuthorizedRemindersClient: RemindersClient {
     ))
 
     let parsed = ParsedCommand(trigger: "cmd", payload: "doctor", module: .commands)
-    let result = await module.handle(
+    let handleResult = await module.handle(
         Query(raw: "cmd doctor", sequence: 1, command: parsed),
         context: QueryContext(deadline: ContinuousClock().now.advanced(by: .milliseconds(40)))
     )
 
-    #expect(result.items.contains { $0.id.key == "doctor.commands" })
+    #expect(handleResult.items.contains { $0.id.key == "doctor" })
+
+    let payload = (try? ModuleActionCoding.encode(CommandsAction.doctor)) ?? Data()
+    let action = Action(
+        id: ActionID(module: .commands, key: "doctor"),
+        title: "Global Doctor",
+        kind: .custom(payload: payload, handler: .commands)
+    )
+    try await module.perform(action, context: ActionContext(
+        logger: DoctorTestLogger(),
+        metrics: NoopMetricsClient(),
+        pasteboard: NoopPasteboardClient(),
+        accessibility: DoctorAccessibilityClient()
+    ))
     #expect(menuBarTree.callCount == 1)
 }
 

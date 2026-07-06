@@ -39,7 +39,8 @@ public enum DiagnosticsExport {
 
     private static let sensitiveBreadcrumbKeys: Set<String> = [
         "query", "clipboard", "secret", "notebody", "payload",
-        "token", "password", "apikey", "accesstoken", "refreshtoken"
+        "token", "password", "apikey", "accesstoken", "refreshtoken",
+        "file", "path", "url", "bundle", "title", "subtitle"
     ]
 
     public static func buildPayload(

@@ -137,13 +137,19 @@ final class AppCoordinator {
                 }
             }
         )
-        settingsWindowController = SettingsWindowController(
-            config: config,
-            usage: usage,
+        settingsWindowController = SettingsCoordinator(
             onModulesChanged: { [weak self] enabled in
                 guard let self else { return }
                 Task {
+                    let previous = await self.config.enabledModules()
+                        ?? Set(ModuleRegistry.manifestCatalog().filter(\.defaultEnabled).map(\.identifier))
                     await self.host.applyEnabledSet(enabled)
+                    let removed = previous.subtracting(enabled)
+                    await MainActor.run {
+                        if !removed.isEmpty {
+                            self.windowController.handleModulesDisabled(removed: removed)
+                        }
+                    }
                 }
             },
             onPinnedChanged: { [weak self] pinned in
@@ -175,7 +181,7 @@ final class AppCoordinator {
             onLatencyHUDChanged: { [weak self] enabled in
                 self?.windowController.setLatencyHUDEnabled(enabled)
             }
-        )
+        ).makeWindowController(config: config, usage: usage)
         activationObserver = NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.didActivateApplicationNotification,
             object: nil,
@@ -369,29 +375,18 @@ final class AppCoordinator {
                 quicklinks: quicklinksModule,
                 menuItems: menuItemsModule
             ))
-            for module in modules {
-                await host.register(module)
-            }
-            let enabled = await config.enabledModules()
-            let pinned = await config.pinnedModuleIDs()
-            let policy = await config.warmupPolicy()
-            await host.configureWarmupPolicy(pinned: pinned)
-            await host.configureGlobalSearchModuleIDs(ModuleRegistry.globalSearchModuleIDs)
-            await host.applyEnabledSet(enabled)
-
-            let startupWarm = pinned.intersection(enabled ?? Set(modules.map { type(of: $0).manifest.identifier }))
-            await host.warmupIfNeeded(ids: startupWarm, reason: .startup)
-            windowController.setModulesReady(true)
-            Task {
-                await processMemorySampler.start()
-            }
-
-            if policy == .eagerAllEnabled {
-                await host.warmupRemainingEnabled()
-            }
-            await MainActor.run {
-                self.installMemoryPressureHandler()
-            }
+            await ModuleBootstrapper.registerAndWarmup(
+                host: host,
+                config: config,
+                modules: modules,
+                processMemorySampler: processMemorySampler,
+                onModulesReady: { [weak self] in
+                    self?.windowController.setModulesReady(true)
+                },
+                onMemoryPressureReady: { [weak self] in
+                    self?.installMemoryPressureHandler()
+                }
+            )
         }
     }
 

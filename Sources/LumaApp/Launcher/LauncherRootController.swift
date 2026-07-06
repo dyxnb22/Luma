@@ -31,6 +31,7 @@ final class LauncherRootController {
 
     private var modulesReady = false
     private var homeRefreshTask: Task<Void, Never>?
+    private var workbenchPreviewTask: Task<Void, Never>?
     private var querySyncTimer: Timer?
     private var lastSyncedQuery = ""
     private var lastSplitLayoutState: (columnSplit: Bool, rightPane: LauncherSplitRightPane)?
@@ -38,9 +39,27 @@ final class LauncherRootController {
     private var lastQueryView: QueryView?
     private var permissionRefreshTask: Task<Void, Never>?
     private var lastAppliedGuideCatalogIDs: [String] = []
-    private lazy var snapshotApplyCoalescer = LauncherSnapshotApplyCoalescer { [weak self] snapshot in
-        self?.apply(snapshot: snapshot)
-    }
+    private let taskRegistry = LauncherTaskRegistry()
+    private var homeRefreshGeneration = CancellationGeneration()
+    private var detailPresentationGeneration = CancellationGeneration()
+    private var sessionState = LauncherSessionState()
+    private lazy var snapshotPipeline = LauncherSnapshotApplyPipeline(
+        contentCoordinator: contentCoordinator,
+        isPanelActive: { [weak self] in self?.isPanelActiveForQueryApply ?? false },
+        isQueryEmpty: { [weak self] in self?.launcherEnvironment.isLauncherQueryEmpty ?? true },
+        onApplied: { [weak self] in
+            self?.onSnapshotApplied()
+        }
+    )
+    private lazy var detailLifecycle = LauncherDetailLifecycleController(
+        contentCoordinator: contentCoordinator,
+        homeSplitLayout: homeSplitLayout,
+        searchBar: searchBar,
+        usesColumnSplitLayout: { [weak self] in self?.usesColumnSplitLayout() ?? false },
+        discoverableCommands: { [weak self] in
+            self?.viewModel.commandRouter.registry.discoverableCommands ?? []
+        }
+    )
     private var restoreGeneration = CancellationGeneration()
     private var querySyncGraceUntil: ContinuousClock.Instant?
     private var isPanelActiveForQueryApply = false
@@ -141,9 +160,11 @@ final class LauncherRootController {
             querySequence: 0,
             context: context
         )
-        await MainActor.run {
-            contentCoordinator.apply(snapshot: ResultSnapshot(querySequence: 0, items: items))
-            syncRowActionHint()
+        let snapshot = ResultSnapshot(querySequence: 0, items: items)
+        await MainActor.run { [weak self] in
+            guard let self, self.isPanelActiveForQueryApply else { return }
+            guard !Task.isCancelled else { return }
+            self.enqueueSnapshotApply(snapshot)
         }
     }
 
@@ -159,7 +180,7 @@ final class LauncherRootController {
             showStatus(message)
             contentCoordinator.beginShowingResults()
             listView.isHidden = false
-            contentCoordinator.apply(snapshot: ResultSnapshot(querySequence: 0, items: []))
+            enqueueSnapshotApply(ResultSnapshot(querySequence: 0, items: []))
             return true
         case .openDetail(let moduleID, let payload):
             openModuleDetail(for: moduleID, payload: payload)
@@ -294,17 +315,20 @@ final class LauncherRootController {
 
     func refreshHome(preserveListSelection: Bool = false, force: Bool = false) {
         homeRefreshTask?.cancel()
-        homeRefreshTask = Task {
+        let generation = homeRefreshGeneration.current
+        homeRefreshTask = Task { [weak self] in
+            guard let self else { return }
             if !force {
-                let generation = await homeCoordinator.currentSnapshotGeneration()
-                if generation == self.lastRenderedHomeGeneration,
-                   await homeCoordinator.cachedSnapshotIfAvailable() != nil {
+                let homeGen = await self.homeCoordinator.currentSnapshotGeneration()
+                if homeGen == self.lastRenderedHomeGeneration,
+                   await self.homeCoordinator.cachedSnapshotIfAvailable() != nil {
                     return
                 }
             }
-            let snapshot = await homeCoordinator.snapshot()
+            let snapshot = await self.homeCoordinator.snapshot()
             guard !Task.isCancelled else { return }
             await MainActor.run {
+                guard self.homeRefreshGeneration.isCurrent(generation) else { return }
                 let trimmed = self.searchBar.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
                 guard trimmed.isEmpty else { return }
                 if self.contentCoordinator.showingDetail {
@@ -323,6 +347,9 @@ final class LauncherRootController {
                 _ = HomeLatencyTracker.markHomeRendered()
             }
             self.lastRenderedHomeGeneration = await homeCoordinator.currentSnapshotGeneration()
+        }
+        if let homeRefreshTask {
+            taskRegistry.register(key: "homeRefresh", task: homeRefreshTask)
         }
     }
 
@@ -421,22 +448,66 @@ final class LauncherRootController {
 
     func cancelPendingRestore() {
         restoreGeneration.bump()
-        snapshotApplyCoalescer.cancel()
+        snapshotPipeline.cancelPending()
     }
 
-    /// Cancels in-flight query dispatch and pending snapshot UI apply on panel hide.
-    func cancelActiveQueryAndSnapshotApply() {
+    /// Cancels in-flight query dispatch, snapshot apply, home refresh, permission refresh,
+    /// workbench preview, and action panel on panel hide or module disable.
+    func cancelAllLauncherWork() {
         isPanelActiveForQueryApply = false
-        homeSplitLayout.invalidateCrossfadeCompletions()
+        _ = sessionState.apply(.panelHideBegan)
+        let shouldTearDownDetailClose = detailLifecycle.consumeDetailCloseCrossfadeInFlight()
+        detailLifecycle.invalidateCrossfadeCompletions()
+        if shouldTearDownDetailClose {
+            detailLifecycle.tearDownAfterGuideCrossfadeIfNeeded()
+        }
+        detailLifecycle.cancelPendingPresentation()
+        detailPresentationGeneration.bump()
+        homeRefreshGeneration.bump()
         viewModel.cancel()
-        cancelPendingSnapshotApply()
+        snapshotPipeline.cancelPending()
+        homeRefreshTask?.cancel()
+        homeRefreshTask = nil
+        permissionRefreshTask?.cancel()
+        permissionRefreshTask = nil
+        workbenchPreviewTask?.cancel()
+        workbenchPreviewTask = nil
+        taskRegistry.cancelAll()
+        actionPanel.dismiss()
         LauncherPerfCounters.increment(.queryCancelOnHide)
         syncKeyHints()
         syncPerformanceStripVisibility()
     }
 
+    /// Cancels in-flight query dispatch and pending snapshot UI apply on panel hide.
+    func cancelActiveQueryAndSnapshotApply() {
+        cancelAllLauncherWork()
+    }
+
+    func handleModulesDisabled(removed: Set<ModuleIdentifier>) {
+        cancelAllLauncherWork()
+        viewModel.invalidateSnapshotCache()
+        if let current = contentCoordinator.currentDetailModuleID, removed.contains(current) {
+            exitDetailFromChrome()
+        }
+        launcherEnvironment.evictDetailModules(removed)
+        invalidatePanelSignalsCache()
+    }
+
     func activatePanelForQueryApply() {
         isPanelActiveForQueryApply = true
+        _ = sessionState.apply(.panelShowCompleted)
+    }
+
+    private func onSnapshotApplied() {
+        preferBareOpenDetailRowSelection()
+        syncPerformanceStripVisibility()
+        syncRowActionHint()
+        if let paintMs = LatencyTracker.shared.markFirstPaint() {
+            LatencyTelemetry.report(p95Milliseconds: paintMs)
+        }
+        stabilizePanelContentLayout()
+        refreshPermissionBannerCoalesced()
     }
 
     func restoreLastSessionIfNeeded() {
@@ -611,13 +682,23 @@ final class LauncherRootController {
     }
 
     private func presentModuleDetail(for moduleID: ModuleIdentifier) {
-        Task { @MainActor in
+        detailPresentationGeneration.bump()
+        let generation = detailPresentationGeneration.current
+        let task = Task { @MainActor [weak self] in
+            guard let self else { return }
             sessionStore.flushPendingWrites()
             await launcherEnvironment.warmModuleForDetail(moduleID)
+            guard self.detailPresentationGeneration.isCurrent(generation) else { return }
+            guard await isModuleEnabledForDetail(moduleID) else {
+                showStatus(LauncherStatusMessages.moduleDisabledInSettings)
+                return
+            }
+            guard self.isPanelActiveForQueryApply || self.contentCoordinator.showingDetail else { return }
             guard let detail = launcherEnvironment.makeDetailView(for: moduleID) else {
                 showHome(focusSearch: true, persist: false)
                 return
             }
+            _ = sessionState.apply(.detailOpened(moduleID, suspendedQuery: searchBar.persistedQuery))
             let presentation = moduleDetailPresentation()
             if let cached = await homeCoordinator.cachedSnapshotIfAvailable() {
                 contentCoordinator.showHome(cached, preserveSelection: true)
@@ -669,6 +750,7 @@ final class LauncherRootController {
                 LauncherPerfCounters.increment(.detailOpen)
             }
         }
+        taskRegistry.register(key: "presentModuleDetail", task: task)
     }
 
     private func applyModuleDetailPayload(moduleID: ModuleIdentifier, payload: Data?) {
@@ -781,34 +863,24 @@ final class LauncherRootController {
     }
 
     func closeDetail(animatedToGuide: Bool = false, completion: (@MainActor () -> Void)? = nil) {
-        homeSplitLayout.invalidateCrossfadeCompletions()
-        guard contentCoordinator.showingDetail else {
-            completion?()
-            return
-        }
         Task { await launcherEnvironment.reserveDetailModule(nil) }
-
         if animatedToGuide, usesColumnSplitLayout() {
-            let commands = viewModel.commandRouter.registry.discoverableCommands
-            lastAppliedGuideCatalogIDs = commands.map(\.id)
-            homeSplitLayout.crossfadeFromDetailToGuide(commands: commands) { [weak self] in
-                self?.tearDownDetailAfterGuideCrossfade()
-                completion?()
-            }
-        } else {
-            syncSplitLayout()
-            tearDownDetailAfterGuideCrossfade()
-            completion?()
+            lastAppliedGuideCatalogIDs = viewModel.commandRouter.registry.discoverableCommands.map(\.id)
         }
+        detailLifecycle.onTearDown = { [weak self] in
+            guard let self else { return }
+            self.syncSplitLayout()
+            self.lastSplitLayoutState = (self.usesColumnSplitLayout(), .guide)
+            self.syncKeyHints()
+            self.syncPerformanceStripVisibility()
+            self.refreshPermissionBanner()
+            _ = self.sessionState.apply(.detailClosed)
+        }
+        detailLifecycle.closeDetail(animatedToGuide: animatedToGuide, completion: completion)
     }
 
     private func tearDownDetailAfterGuideCrossfade() {
-        contentCoordinator.closeDetail(presentation: .rightColumn)
-        lastSplitLayoutState = (usesColumnSplitLayout(), .guide)
-        syncKeyHints()
-        syncPerformanceStripVisibility()
-        searchBar.clearStuckDetailModeState()
-        refreshPermissionBanner()
+        detailLifecycle.tearDownAfterGuideCrossfadeIfNeeded()
     }
 
     func showStatus(_ message: String) {
@@ -851,8 +923,13 @@ final class LauncherRootController {
         syncKeyHints()
         syncPerformanceStripVisibility()
         if queryState.workbenchRoute != .none {
-            Task {
+            workbenchPreviewTask?.cancel()
+            workbenchPreviewTask = Task { [weak self] in
+                guard let self else { return }
                 await self.previewWorkbenchCommand(route: queryState.workbenchRoute, queryText: text)
+            }
+            if let workbenchPreviewTask {
+                taskRegistry.register(key: "workbenchPreview", task: workbenchPreviewTask)
             }
             return
         }
@@ -882,6 +959,9 @@ final class LauncherRootController {
         permissionRefreshTask = Task { @MainActor [weak self] in
             await self?.refreshPermissionBannerNow()
         }
+        if let permissionRefreshTask {
+            taskRegistry.register(key: "permissionRefresh", task: permissionRefreshTask)
+        }
     }
 
     private func refreshPermissionBannerCoalesced() {
@@ -890,6 +970,9 @@ final class LauncherRootController {
             try? await Task.sleep(for: .milliseconds(16))
             guard !Task.isCancelled else { return }
             await self?.refreshPermissionBannerNow()
+        }
+        if let permissionRefreshTask {
+            taskRegistry.register(key: "permissionRefresh", task: permissionRefreshTask)
         }
     }
 
@@ -946,34 +1029,15 @@ final class LauncherRootController {
     }
 
     private func apply(snapshot: ResultSnapshot) {
-        let policy = LauncherSnapshotApplyPolicy.decision(
-            isPanelActive: isPanelActiveForQueryApply,
-            isQueryEmpty: launcherEnvironment.isLauncherQueryEmpty
-        )
-        guard policy.apply else {
-            if policy.recordDroppedCounter {
-                LauncherPerfCounters.increment(.snapshotApplyDropped)
-            }
-            return
-        }
-        LauncherPerfCounters.increment(.snapshotApply)
-        contentCoordinator.apply(snapshot: snapshot)
-        preferBareOpenDetailRowSelection()
-        syncPerformanceStripVisibility()
-        syncRowActionHint()
-        if let paintMs = LatencyTracker.shared.markFirstPaint() {
-            LatencyTelemetry.report(p95Milliseconds: paintMs)
-        }
-        stabilizePanelContentLayout()
-        refreshPermissionBannerCoalesced()
+        snapshotPipeline.apply(snapshot: snapshot)
     }
 
     private func enqueueSnapshotApply(_ snapshot: ResultSnapshot) {
-        snapshotApplyCoalescer.enqueue(snapshot)
+        snapshotPipeline.enqueue(snapshot)
     }
 
     private func cancelPendingSnapshotApply() {
-        snapshotApplyCoalescer.cancel()
+        snapshotPipeline.cancelPending()
     }
 
     private func syncPerformanceStripVisibility() {

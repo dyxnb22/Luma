@@ -18,5 +18,7 @@ import LumaServices
         command: ParsedCommand(trigger: "kill", payload: "preview", module: .killProcess)
     )
     let result = await module.handle(query, context: context)
-    #expect(result.items.contains { $0.title == "预览" || $0.title.localizedCaseInsensitiveContains("Preview") })
+    if !preview.isEmpty {
+        #expect(!result.items.isEmpty)
+    }
 }

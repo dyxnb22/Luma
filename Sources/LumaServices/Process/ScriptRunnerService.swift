@@ -16,6 +16,12 @@ public actor ScriptRunnerService: ScriptRunnerClient {
     public func run(_ request: ScriptRunRequest) async -> ScriptRunResult {
         let timeout = min(max(request.timeoutSeconds, 1), Self.maxTimeoutSeconds)
         let result = await execute(request: request, timeoutSeconds: timeout)
+        CrashLogRecording.record(
+            ScriptRunnerSecurityPolicy.redactedRunMetadata(
+                executable: request.executable,
+                exitCode: result.exitCode
+            )
+        )
         await postCompletionNotification(request: request, result: result)
         return result
     }
@@ -26,11 +32,23 @@ public actor ScriptRunnerService: ScriptRunnerClient {
     }
 
     private func execute(request: ScriptRunRequest, timeoutSeconds: Int) async -> ScriptRunResult {
-        await withCheckedContinuation { continuation in
+        do {
+            try ScriptRunnerSecurityPolicy.validateExecutable(request.executable)
+        } catch {
+            return ScriptRunResult(
+                exitCode: -1,
+                stdoutTail: "",
+                stderrTail: "Executable not allowed: \(request.executable)",
+                timedOut: false
+            )
+        }
+        let environment = ScriptRunnerSecurityPolicy.sanitizedEnvironment()
+        return await withCheckedContinuation { continuation in
             DispatchQueue.global(qos: .utility).async {
                 let process = Process()
                 process.executableURL = URL(fileURLWithPath: request.executable)
                 process.arguments = request.arguments
+                process.environment = environment
 
                 if let cwd = request.workingDirectory, !cwd.isEmpty {
                     process.currentDirectoryURL = URL(fileURLWithPath: cwd, isDirectory: true)

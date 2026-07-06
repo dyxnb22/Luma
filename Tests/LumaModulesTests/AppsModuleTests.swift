@@ -50,7 +50,9 @@ private func moduleContext(runningApplications: any RunningApplicationsClient) -
     let result = await module.handle(query, context: QueryContext(deadline: .now + .seconds(1), platform: QueryPlatformClients(runningApplications: runningClient)))
 
     #expect(!result.items.isEmpty)
-    #expect(await runningClient.runningBundleIDsCallCount == 1)
+    let countAfterWarmup = await runningClient.runningBundleIDsCallCount
+    _ = await module.handle(query, context: QueryContext(deadline: .now + .seconds(1), platform: QueryPlatformClients(runningApplications: runningClient)))
+    #expect(await runningClient.runningBundleIDsCallCount == countAfterWarmup)
 }
 
 @Test func appsModuleWarmupStartsRunningApplicationsMonitoring() async {

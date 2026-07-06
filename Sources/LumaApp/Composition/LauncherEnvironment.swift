@@ -116,6 +116,10 @@ final class LauncherEnvironment {
         detailRegistry.hasFactory(for: id)
     }
 
+    func evictDetailModules(_ ids: Set<ModuleIdentifier>) {
+        detailRegistry.evict(ids)
+    }
+
     private var uiContext: ModuleUIContext {
         ModuleUIContext(
             detailReloadRouter: detailReloadRouter,

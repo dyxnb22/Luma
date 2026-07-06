@@ -231,6 +231,15 @@ public actor QueryDispatcher {
         await metrics.mark("query.dispatch.targeted.finish")
     }
 
+    public func cancelRevalidation() {
+        revalidateTask?.cancel()
+        revalidateTask = nil
+    }
+
+    public func invalidateSnapshotCache() async {
+        await snapshotCache.invalidateAll()
+    }
+
     private static func snapshot(from merged: [ResultID: ScoredItem], sequence: UInt64) -> ResultSnapshot {
         let items = merged.values
             .filter { $0.score > -.infinity }

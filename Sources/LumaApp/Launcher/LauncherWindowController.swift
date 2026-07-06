@@ -110,6 +110,10 @@ final class LauncherWindowController {
         rootView?.exitDetailFromChrome()
     }
 
+    func handleModulesDisabled(removed: Set<ModuleIdentifier>) {
+        rootView?.handleModulesDisabled(removed: removed)
+    }
+
     func exitDetailFromChromeIfShowing() {
         rootView?.exitDetailFromChrome()
     }

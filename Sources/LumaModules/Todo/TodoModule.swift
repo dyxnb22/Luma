@@ -71,17 +71,21 @@ public actor TodoModule: LumaModule {
         cachedAt = nil
     }
 
-    internal func configureRemindersForTesting(_ client: any RemindersClient) {
+    internal func configureRemindersForTesting(_ client: any RemindersClient) async {
         reminders = client
+        cachedAuthorization = await client.authorization()
     }
 
     internal func isDueCachePopulatedForTesting() -> Bool {
         cachedDue != nil && cachedAt != nil
     }
 
+    private var cachedAuthorization: RemindersAuthorization = .notDetermined
+
     public func warmup(_ context: ModuleContext) async {
         reminders = context.platform.reminders
-        if await reminders.authorization() == .authorized {
+        cachedAuthorization = await reminders.authorization()
+        if cachedAuthorization == .authorized {
             _ = try? await refreshDueCache(force: true)
         }
         startStoreChangesListener()
@@ -108,7 +112,7 @@ public actor TodoModule: LumaModule {
         let trimmed = payload.trimmingCharacters(in: .whitespacesAndNewlines)
 
         // Permission gate: surface a single result to grant access if not yet authorized.
-        let authorization = await reminders.authorization()
+        let authorization = cachedAuthorization
         if authorization == .denied {
             return ModuleResult(items: [permissionRow(authorization: authorization)])
         }

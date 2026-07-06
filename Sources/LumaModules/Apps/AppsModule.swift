@@ -17,6 +17,8 @@ public actor AppsModule: LumaModule {
     private var searchCacheOrder: [String] = []
     private var cachedTopResult: ModuleResult?
     private var cachedTopAt: ContinuousClock.Instant?
+    private var cachedRunningBundleIDs: Set<String> = []
+    private var indexRefreshTask: Task<Void, Never>?
     private static let topResultTTL: Duration = .seconds(2)
 
     public init() {}
@@ -29,10 +31,14 @@ public actor AppsModule: LumaModule {
         }
         runningApplications = context.platform.runningApplications
         await runningApplications.startMonitoring()
+        await refreshRunningBundleIDs()
+        await refreshMemoryTopCache(context: context)
 
         if cached != nil {
-            Task {
+            indexRefreshTask?.cancel()
+            indexRefreshTask = Task {
                 await self.refreshIndexFromDisk(cacheURL: cacheURL)
+                await self.refreshRunningBundleIDs()
             }
         } else {
             await refreshIndexFromDisk(cacheURL: cacheURL)
@@ -40,7 +46,29 @@ public actor AppsModule: LumaModule {
     }
 
     public func teardown() async {
+        indexRefreshTask?.cancel()
+        indexRefreshTask = nil
         await runningApplications.stopMonitoring()
+    }
+
+    private func refreshRunningBundleIDs() async {
+        cachedRunningBundleIDs = Set(await runningApplications.runningBundleIDs())
+    }
+
+    private func refreshMemoryTopCache(context: ModuleContext) async {
+        let samples = await context.platform.processMemory.topApplications(limit: 8)
+        if samples.isEmpty {
+            cachedTopResult = ModuleResult(
+                items: [],
+                diagnostic: ModuleDiagnostic(
+                    kind: .degraded,
+                    message: "Could not read memory usage for running apps"
+                )
+            )
+        } else {
+            cachedTopResult = ModuleResult(items: samples.map(memoryRow))
+        }
+        cachedTopAt = .now
     }
 
     private func refreshIndexFromDisk(cacheURL: URL) async {
@@ -77,7 +105,7 @@ public actor AppsModule: LumaModule {
         if let payload = query.command?.payload ?? Self.extractPayload(raw: query.raw) {
             return await handlePayload(payload, context: context)
         }
-        let running = await context.platform.runningApplications.runningBundleIDs()
+        let running = cachedRunningBundleIDs
         let matches = cachedSearch(query.raw).map { result(for: $0, isRunning: running.contains($0.bundleID)) }
         return ModuleResult(items: matches)
     }
@@ -117,7 +145,7 @@ public actor AppsModule: LumaModule {
             return await memoryTopResult(context: context)
         }
         let searchText = trimmed
-        let running = await context.platform.runningApplications.runningBundleIDs()
+        let running = cachedRunningBundleIDs
         let matches = cachedSearch(searchText).map { result(for: $0, isRunning: running.contains($0.bundleID)) }
         return ModuleResult(items: matches)
     }
@@ -128,23 +156,10 @@ public actor AppsModule: LumaModule {
            ContinuousClock.now - cachedTopAt <= Self.topResultTTL {
             return cachedTopResult
         }
-        let samples = await context.platform.processMemory.topApplications(limit: 8)
-        if samples.isEmpty {
-            let empty = ModuleResult(
-                items: [],
-                diagnostic: ModuleDiagnostic(
-                    kind: .degraded,
-                    message: "Could not read memory usage for running apps"
-                )
-            )
-            cachedTopResult = empty
-            cachedTopAt = .now
-            return empty
-        }
-        let result = ModuleResult(items: samples.map(memoryRow))
-        cachedTopResult = result
-        cachedTopAt = .now
-        return result
+        return cachedTopResult ?? ModuleResult(
+            items: [],
+            diagnostic: ModuleDiagnostic(kind: .degraded, message: "Memory usage cache warming")
+        )
     }
 
     private func memoryRow(_ sample: RunningApplicationMemory) -> ResultItem {

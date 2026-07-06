@@ -24,7 +24,7 @@ public actor TranslateModule: LumaModule {
         }
 
         if payload.isEmpty {
-            return ModuleResult(items: [])
+            return ModuleResult(items: [openDetailStarterRow()])
         }
 
         let id = ResultID(module: Self.manifest.identifier, key: Self.resultKey(for: payload))
@@ -62,5 +62,21 @@ public actor TranslateModule: LumaModule {
     static func resultKey(for text: String) -> String {
         let digest = SHA256.hash(data: Data(text.utf8))
         return digest.prefix(8).map { String(format: "%02x", $0) }.joined()
+    }
+
+    private func openDetailStarterRow() -> ResultItem {
+        ResultItem(
+            id: ResultID(module: Self.manifest.identifier, key: "open-detail"),
+            title: "Open Translate",
+            titleAttributed: AttributedString("Open Translate"),
+            subtitle: "Translate text in the launcher panel",
+            icon: .symbol("character.bubble"),
+            primaryAction: Action(
+                id: ActionID(module: Self.manifest.identifier, key: "open-detail"),
+                title: "Open Translate",
+                kind: .openModuleDetail(Self.manifest.identifier, payload: nil)
+            ),
+            rankingHints: RankingHints(basePriority: Self.manifest.priority)
+        )
     }
 }

@@ -26,6 +26,12 @@ public enum LauncherListRows {
                 flatIndex += 1
             }
         }
+        if result.isEmpty,
+           let openApps = snapshot.sections.first(where: { $0.kind == .openApps }) {
+            result.append(.init(kind: .sectionHeader(title: openApps.kind.title, shortcutIndex: nil)))
+            result.append(.init(kind: .placeholder(L10n.tr("module.warming"))))
+            return result
+        }
         if result.isEmpty {
             result.append(.init(kind: .placeholder("Type to search apps, clipboard, translate…")))
         }

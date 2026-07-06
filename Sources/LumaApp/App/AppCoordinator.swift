@@ -485,6 +485,17 @@ final class AppCoordinator {
                             )
                         }
                     }
+                    if ProcessInfo.processInfo.environment["LUMA_QA_CLIPBOARD"] == "1" {
+                        Task { [weak self] in
+                            guard let self else { return }
+                            await ClipboardProductionSmoke.run(
+                                viewModel: self.viewModel,
+                                clipboardModule: self.clipboardModule,
+                                pasteboard: self.pasteboard,
+                                accessibility: self.accessibility
+                            )
+                        }
+                    }
                 },
                 onMemoryPressureReady: { [weak self] in
                     self?.installMemoryPressureHandler()

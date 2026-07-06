@@ -367,13 +367,25 @@ final class ClipboardDetailView: NSObject, ModuleDetailView {
 
     @objc private func copySelected() {
         guard let entry = selectedEntry() else { return }
-        Task { try? await module.copyEntry(id: entry.id) }
+        copyEntry(id: entry.id)
     }
 
     @objc private func copySelectedPlainText() {
         guard let entry = selectedEntry() else { return }
         guard entry.imageData == nil, entry.fileURLs?.isEmpty != false else { return }
-        Task { try? await module.copyEntry(id: entry.id, plainTextOnly: true) }
+        copyEntry(id: entry.id, plainTextOnly: true)
+    }
+
+    private func copyEntry(id: UUID, plainTextOnly: Bool = false) {
+        Task {
+            do {
+                try await module.copyEntry(id: id, plainTextOnly: plainTextOnly)
+                LauncherEnvironment.current?.showStatus(LauncherStatusMessages.copiedToClipboard)
+            } catch {
+                let mapped = ActionExecutionFailureMapper.message(for: error)
+                LauncherEnvironment.current?.showStatus(mapped.message ?? LauncherStatusMessages.operationFailed)
+            }
+        }
     }
 
     @objc private func doubleClickRow() {
@@ -389,8 +401,13 @@ final class ClipboardDetailView: NSObject, ModuleDetailView {
     private func pasteEntry(_ entry: ClipboardEntry) {
         onHideLauncher?()
         Task {
-            let outcome = (try? await module.pasteEntry(id: entry.id)) ?? .copiedOnly
-            LauncherEnvironment.current?.showStatus(LauncherStatusMessages.message(for: outcome))
+            do {
+                let outcome = try await module.pasteEntry(id: entry.id)
+                LauncherEnvironment.current?.showStatus(LauncherStatusMessages.message(for: outcome))
+            } catch {
+                let mapped = ActionExecutionFailureMapper.message(for: error)
+                LauncherEnvironment.current?.showStatus(mapped.message ?? LauncherStatusMessages.operationFailed)
+            }
         }
     }
 
@@ -531,8 +548,7 @@ extension ClipboardDetailView: NSTableViewDataSource, NSTableViewDelegate {
                 showsPinnedSection: false,
                 imageLayout: currentFilter == .image,
                 onCopy: { [weak self] in
-                    guard let self else { return }
-                    Task { try? await self.module.copyEntry(id: entry.id) }
+                    self?.copyEntry(id: entry.id)
                 },
                 onPin: { [weak self] in self?.togglePin(at: entryRow) },
                 onDelete: { [weak self] in self?.deleteEntry(at: entryRow) },

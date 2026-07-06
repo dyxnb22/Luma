@@ -100,9 +100,9 @@ final class LauncherHomeGuidePane: NSView {
 }
 
 extension LauncherHomeGuidePane: NSTableViewDataSource, NSTableViewDelegate {
-    func numberOfRows(in tableView: NSTableView) -> Int { rows.count }
+    nonisolated func numberOfRows(in tableView: NSTableView) -> Int { rows.count }
 
-    func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
+    nonisolated func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
         guard rows.indices.contains(row), let tableColumn else { return nil }
         let entry = rows[row]
         let columnID = tableColumn.identifier.rawValue
@@ -112,29 +112,47 @@ extension LauncherHomeGuidePane: NSTableViewDataSource, NSTableViewDelegate {
         switch Column(rawValue: columnID) {
         case .module:
             text = entry.moduleName
-            font = TypographyTokens.caption(weight: .semibold)
+            font = .systemFont(ofSize: 12, weight: .semibold)
             color = .labelColor
         case .trigger:
             text = entry.trigger
-            font = TypographyTokens.monoCaption(weight: .semibold)
+            font = .monospacedSystemFont(ofSize: 12, weight: .semibold)
             color = .secondaryLabelColor.withAlphaComponent(0.88)
         case .summary:
             text = entry.summary
-            font = TypographyTokens.caption()
+            font = .systemFont(ofSize: 12)
             color = .labelColor.withAlphaComponent(0.82)
         case .none:
             return nil
         }
-        return GeekUIKit.makeDetailTableCell(text: text, font: font, color: color)
+        return makeGuideTableCell(text: text, font: font, color: color)
     }
 
-    func tableView(_ tableView: NSTableView, shouldSelectRow row: Int) -> Bool { false }
+    nonisolated func tableView(_ tableView: NSTableView, shouldSelectRow row: Int) -> Bool { false }
 
-    func tableView(_ tableView: NSTableView, rowViewForRow row: Int) -> NSTableRowView? {
+    nonisolated func tableView(_ tableView: NSTableView, rowViewForRow row: Int) -> NSTableRowView? {
         let rowView = GuideTableRowView()
         rowView.rowIndex = row
         return rowView
     }
+}
+
+private nonisolated func makeGuideTableCell(text: String, font: NSFont, color: NSColor) -> NSTableCellView {
+    let cell = NSTableCellView()
+    let label = NSTextField(labelWithString: text)
+    label.font = font
+    label.textColor = color
+    label.lineBreakMode = .byTruncatingTail
+    label.maximumNumberOfLines = 1
+    label.translatesAutoresizingMaskIntoConstraints = false
+    label.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+    cell.addSubview(label)
+    NSLayoutConstraint.activate([
+        label.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: 4),
+        label.trailingAnchor.constraint(equalTo: cell.trailingAnchor, constant: -4),
+        label.centerYAnchor.constraint(equalTo: cell.centerYAnchor)
+    ])
+    return cell
 }
 
 private final class GuideTableRowView: NSTableRowView {

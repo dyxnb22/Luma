@@ -193,6 +193,7 @@ public actor ConfigurationStore: ConfigurationClient {
     private static let schemaVersionKey = "configSchemaVersion"
     private static let currentSchemaVersion = 1
 
+    /// Bumps `configSchemaVersion` when defaults change. Add migration steps here as schema evolves.
     public func migrateIfNeeded() async {
         let version = defaults.integer(forKey: Self.schemaVersionKey)
         guard version < Self.currentSchemaVersion else { return }

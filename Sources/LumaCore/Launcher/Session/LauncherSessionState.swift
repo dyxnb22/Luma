@@ -2,6 +2,13 @@ import Foundation
 
 // MARK: - Panel
 
+/// Shadow session reducer for launcher axes (panel / content / detail).
+///
+/// `LauncherRootController` is still the authority for UI side effects; events recorded here
+/// are observability and guard rails only — returned `LauncherSessionEffect` values are not
+/// routed to an effect executor yet. Illegal transitions are no-ops until a later pass
+/// centralizes session driving.
+
 public enum LauncherPanelPhase: Equatable, Sendable {
     case hidden
     case showing

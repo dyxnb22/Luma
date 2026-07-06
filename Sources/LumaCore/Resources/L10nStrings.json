@@ -55,6 +55,10 @@
     "en": "OPEN APPS",
     "zh-Hans": "打开应用"
   },
+  "home.openApps.empty": {
+    "en": "No running apps",
+    "zh-Hans": "没有正在运行的应用"
+  },
   "home.guide.title": {
     "en": "Module entries",
     "zh-Hans": "模块入口"

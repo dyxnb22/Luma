@@ -7,6 +7,7 @@ import Testing
 @testable import LumaApp
 
 /// Scripted launcher flow driver for behavioral integration tests.
+/// Currently validates dispatcher → view model → snapshot only; does not exercise apply → UI.
 @MainActor
 final class LauncherFlowHarness {
     private(set) var lastSnapshot: ResultSnapshot?
@@ -76,6 +77,6 @@ final class LauncherFlowHarness {
     harness.activatePanel()
     harness.type("app")
     try? await Task.sleep(for: .milliseconds(200))
-    harness.assertItemCount(harness.lastSnapshot?.items.count ?? 0)
+    #expect((harness.lastSnapshot?.items.isEmpty ?? true) == false)
     #expect(harness.lastSnapshot != nil)
 }

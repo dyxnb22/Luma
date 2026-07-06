@@ -159,6 +159,46 @@ private actor RecordingScriptRunnerClient: ScriptRunnerClient {
     #expect(result.exitCode == 1)
     #expect(result.stderrTail == "boom")
 }
+
+@Test func commandsModulePerformMissingCommandThrowsDataUnavailable() async throws {
+    let module = CommandsModule()
+    await module.warmup(ModuleContext(
+        logger: NoopLoggingClient(),
+        metrics: NoopMetricsClient(),
+        database: NoopDatabaseClient(),
+        pasteboard: NoopPasteboardClient(),
+        accessibility: NoopAccessibilityClient(),
+        fileSystem: NoopFileSystemClient(),
+        translation: NoopTranslationClient(),
+        config: NoopConfigurationClient()
+    ))
+
+    let payload = try ModuleActionCoding.encode(CommandsAction.run(id: "missing-command"))
+    let action = Action(
+        id: ActionID(module: .commands, key: "run.missing"),
+        title: "Run",
+        kind: .custom(payload: payload, handler: CommandsModule.manifest.identifier)
+    )
+    let context = ActionContext(
+        logger: NoopLoggingClient(),
+        metrics: NoopMetricsClient(),
+        pasteboard: NoopPasteboardClient(),
+        accessibility: NoopAccessibilityClient()
+    )
+
+    do {
+        try await module.perform(action, context: context)
+        Issue.record("Expected dataUnavailable")
+    } catch let error as ModuleError {
+        if case .dataUnavailable = error {
+            #expect(Bool(true))
+        } else {
+            Issue.record("Expected dataUnavailable, got \(error)")
+        }
+    } catch {
+        Issue.record("Unexpected error: \(error)")
+    }
+}
 private struct NoopLoggingClient: LoggingClient {
     func debug(_ message: String) async {}
     func error(_ message: String) async {}

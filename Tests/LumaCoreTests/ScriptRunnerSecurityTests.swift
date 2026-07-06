@@ -36,3 +36,19 @@ import Testing
     #expect(line.contains("deploy.sh"))
     #expect(!line.contains("/Users/me"))
 }
+
+@Test func scriptRunnerSecurityRejectsSymlinkToSystemBinary() throws {
+    let home = FileManager.default.homeDirectoryForCurrentUser
+    let commandsDir = home.appendingPathComponent(".luma/commands", isDirectory: true)
+    try FileManager.default.createDirectory(at: commandsDir, withIntermediateDirectories: true)
+    let link = commandsDir.appendingPathComponent("escape.sh")
+    try? FileManager.default.removeItem(at: link)
+    try FileManager.default.createSymbolicLink(
+        at: link,
+        withDestinationURL: URL(fileURLWithPath: "/usr/bin/id")
+    )
+    defer { try? FileManager.default.removeItem(at: link) }
+    #expect(throws: ScriptRunnerSecurityPolicy.ValidationError.self) {
+        try ScriptRunnerSecurityPolicy.validateExecutable(link.path)
+    }
+}

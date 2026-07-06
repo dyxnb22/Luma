@@ -92,6 +92,10 @@ actor OpenAppsHomeProvider: LauncherHomeProvider {
         return await buildItems(from: cachedSnapshots)
     }
 
+    func isWarming() async -> Bool {
+        isActive && cachedSnapshots.isEmpty && skeletonRefreshTask != nil
+    }
+
     private func refreshLoop() async {
         if cachedSnapshots.isEmpty {
             await refreshOnce()

@@ -4,8 +4,10 @@ import LumaCore
 
 private struct StubHomeProvider: LauncherHomeProvider {
     let rows: [ResultItem]
+    var warming: Bool = false
 
     func items() async -> [ResultItem] { rows }
+    func isWarming() async -> Bool { warming }
 }
 
 @Test func homeAggregatorMergesProvidersAndFiltersEmptySections() async {
@@ -26,6 +28,23 @@ private struct StubHomeProvider: LauncherHomeProvider {
     #expect(snapshot.sections.count == 1)
     #expect(snapshot.sections[0].kind == .openApps)
     #expect(snapshot.sections[0].items.count == 1)
+}
+
+@Test func homeAggregatorKeepsOpenAppsSectionWhenEmpty() async {
+    let openApps = StubHomeProvider(rows: [])
+    let aggregator = LauncherHomeAggregator(openApps: openApps)
+    let snapshot = await aggregator.snapshot()
+    #expect(snapshot.sections.count == 1)
+    #expect(snapshot.sections[0].kind == .openApps)
+    #expect(snapshot.sections[0].items.isEmpty)
+    #expect(snapshot.sections[0].isWarming == false)
+}
+
+@Test func homeAggregatorMarksWarmingWhenProviderReportsWarming() async {
+    let openApps = StubHomeProvider(rows: [], warming: true)
+    let aggregator = LauncherHomeAggregator(openApps: openApps)
+    let snapshot = await aggregator.snapshot()
+    #expect(snapshot.sections[0].isWarming == true)
 }
 
 @Test func homeSnapshotFlatItemsPreservesSectionOrder() async {

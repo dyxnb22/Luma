@@ -32,12 +32,22 @@ struct ProcessMetadata: Sendable, Hashable {
 
 public struct RunningProcessService: Sendable {
     private let sampleDelay: Duration
+    private let fixedRecords: [RunningProcessRecord]?
 
     public init(sampleDelay: Duration = .zero) {
         self.sampleDelay = sampleDelay
+        self.fixedRecords = nil
+    }
+
+    public init(fixedRecords: [RunningProcessRecord]) {
+        self.sampleDelay = .zero
+        self.fixedRecords = fixedRecords
     }
 
     public func runningGUIApplications() async -> [RunningProcessRecord] {
+        if let fixedRecords {
+            return fixedRecords
+        }
         let metadata = await MainActor.run { Self.collectGUIMetadata() }
         return await enrichWithMemory(metadata)
     }

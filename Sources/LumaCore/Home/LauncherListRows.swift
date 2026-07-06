@@ -29,7 +29,10 @@ public enum LauncherListRows {
         if result.isEmpty,
            let openApps = snapshot.sections.first(where: { $0.kind == .openApps }) {
             result.append(.init(kind: .sectionHeader(title: openApps.kind.title, shortcutIndex: nil)))
-            result.append(.init(kind: .placeholder(L10n.tr("module.warming"))))
+            let message = openApps.isWarming
+                ? L10n.tr("module.warming")
+                : L10n.tr("home.openApps.empty")
+            result.append(.init(kind: .placeholder(message)))
             return result
         }
         if result.isEmpty {

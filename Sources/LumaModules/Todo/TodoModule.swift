@@ -310,6 +310,7 @@ public actor TodoModule: LumaModule {
         let stream = await reminders.storeChanges()
         for await _ in stream {
             if Task.isCancelled { break }
+            cachedAuthorization = await reminders.authorization()
             invalidateDueCache()
         }
     }

@@ -75,3 +75,44 @@ private func moduleContext(runningApplications: any RunningApplicationsClient) -
     let safariRow = result.items.first { $0.id.key == "com.apple.Safari" }
     #expect(safariRow?.subtitle?.contains("Running") == true)
 }
+
+@Test func appsMemoryTopDoesNotReturnWarmingOnlyAfterTTLWhenCacheExists() async throws {
+    let memoryClient = MutableProcessMemoryClient(samples: [
+        RunningApplicationMemory(bundleID: "com.apple.Safari", name: "Safari", residentBytes: 50_000_000)
+    ])
+    let module = AppsModule()
+    let context = ModuleContext(
+        logger: LumaLogger(),
+        metrics: LumaMetrics(),
+        database: ApplicationSupportPaths(),
+        pasteboard: NoopPasteboardClient(),
+        accessibility: NoopAccessibilityClient(),
+        fileSystem: NoopFileSystemClient(),
+        translation: NoopTranslationClient(),
+        config: ConfigurationStore(),
+        processMemory: memoryClient
+    )
+    await module.warmup(context)
+
+    let queryContext = QueryContext(
+        deadline: .now + .seconds(5),
+        platform: QueryPlatformClients(processMemory: memoryClient)
+    )
+    _ = await module.handle(Query(raw: "app top", sequence: 1), context: queryContext)
+    try await Task.sleep(for: .milliseconds(2100))
+    let expired = await module.handle(Query(raw: "app top", sequence: 2), context: queryContext)
+    #expect(expired.items.isEmpty == false)
+    #expect(expired.diagnostic?.message != "Memory usage cache warming")
+}
+
+private actor MutableProcessMemoryClient: ProcessMemoryClient {
+    var samples: [RunningApplicationMemory]
+
+    init(samples: [RunningApplicationMemory]) {
+        self.samples = samples
+    }
+
+    func topApplications(limit: Int) async -> [RunningApplicationMemory] {
+        Array(samples.prefix(limit))
+    }
+}

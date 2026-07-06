@@ -31,10 +31,11 @@ public enum ScriptRunnerSecurityPolicy {
         guard !trimmed.isEmpty else { throw ValidationError.emptyExecutable }
         let expanded = (trimmed as NSString).expandingTildeInPath
         let url = URL(fileURLWithPath: expanded).standardizedFileURL
-        guard url.isFileURL else { throw ValidationError.pathNotAllowed(expanded) }
+        let resolved = url.resolvingSymlinksInPath().standardizedFileURL
+        guard resolved.isFileURL else { throw ValidationError.pathNotAllowed(expanded) }
         let allowed = allowedDirectories.map { $0.standardizedFileURL }
         let isAllowed = allowed.contains { dir in
-            url.path == dir.path || url.path.hasPrefix(dir.path + "/")
+            resolved.path == dir.path || resolved.path.hasPrefix(dir.path + "/")
         }
         guard isAllowed else { throw ValidationError.pathNotAllowed(expanded) }
     }

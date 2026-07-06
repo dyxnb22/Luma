@@ -19,7 +19,11 @@ public actor AppsModule: LumaModule {
     private var cachedTopAt: ContinuousClock.Instant?
     private var cachedRunningBundleIDs: Set<String> = []
     private var indexRefreshTask: Task<Void, Never>?
+    private var runningRefreshTask: Task<Void, Never>?
+    private var memoryTopRefreshTask: Task<Void, Never>?
+    private var processMemory: any ProcessMemoryClient = NoopProcessMemoryClient()
     private static let topResultTTL: Duration = .seconds(2)
+    private static let runningRefreshInterval: Duration = .seconds(2)
 
     public init() {}
 
@@ -30,9 +34,11 @@ public actor AppsModule: LumaModule {
             index = AppIndex(apps: cached)
         }
         runningApplications = context.platform.runningApplications
+        processMemory = context.platform.processMemory
         await runningApplications.startMonitoring()
         await refreshRunningBundleIDs()
-        await refreshMemoryTopCache(context: context)
+        await refreshMemoryTopCache()
+        startRunningRefreshLoop()
 
         if cached != nil {
             indexRefreshTask?.cancel()
@@ -48,15 +54,30 @@ public actor AppsModule: LumaModule {
     public func teardown() async {
         indexRefreshTask?.cancel()
         indexRefreshTask = nil
+        runningRefreshTask?.cancel()
+        runningRefreshTask = nil
+        memoryTopRefreshTask?.cancel()
+        memoryTopRefreshTask = nil
         await runningApplications.stopMonitoring()
+    }
+
+    private func startRunningRefreshLoop() {
+        runningRefreshTask?.cancel()
+        runningRefreshTask = Task {
+            while !Task.isCancelled {
+                try? await Task.sleep(for: Self.runningRefreshInterval)
+                guard !Task.isCancelled else { return }
+                await self.refreshRunningBundleIDs()
+            }
+        }
     }
 
     private func refreshRunningBundleIDs() async {
         cachedRunningBundleIDs = Set(await runningApplications.runningBundleIDs())
     }
 
-    private func refreshMemoryTopCache(context: ModuleContext) async {
-        let samples = await context.platform.processMemory.topApplications(limit: 8)
+    private func refreshMemoryTopCache() async {
+        let samples = await processMemory.topApplications(limit: 8)
         if samples.isEmpty {
             cachedTopResult = ModuleResult(
                 items: [],
@@ -156,10 +177,23 @@ public actor AppsModule: LumaModule {
            ContinuousClock.now - cachedTopAt <= Self.topResultTTL {
             return cachedTopResult
         }
-        return cachedTopResult ?? ModuleResult(
+        if let stale = cachedTopResult {
+            scheduleMemoryTopRefresh()
+            return stale
+        }
+        scheduleMemoryTopRefresh()
+        return ModuleResult(
             items: [],
             diagnostic: ModuleDiagnostic(kind: .degraded, message: "Memory usage cache warming")
         )
+    }
+
+    private func scheduleMemoryTopRefresh() {
+        guard memoryTopRefreshTask == nil else { return }
+        memoryTopRefreshTask = Task {
+            await self.refreshMemoryTopCache()
+            self.memoryTopRefreshTask = nil
+        }
     }
 
     private func memoryRow(_ sample: RunningApplicationMemory) -> ResultItem {

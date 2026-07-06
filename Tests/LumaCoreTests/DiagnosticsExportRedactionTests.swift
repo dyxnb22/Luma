@@ -18,6 +18,15 @@ struct DiagnosticsExportRedactionTests {
         #expect(redacted.contains("status=timeout"))
     }
 
+    @Test func diagnosticsExportRedactsHomeDirectoryPaths() {
+        let input = "opened ~/Projects/secret/file.swift crashed at /Users/me/code/Luma/foo.swift"
+        let redacted = DiagnosticsExport.redactBreadcrumb(input)
+        #expect(!redacted.contains("~/Projects"))
+        #expect(!redacted.contains("/Users/me"))
+        #expect(redacted.contains("~/<redacted>"))
+        #expect(redacted.contains("/Users/<redacted>"))
+    }
+
     @Test func diagnosticsPayloadBuildsWithoutSensitiveKeys() {
         LauncherPerfCounters.reset()
         LauncherDurationRecorder.reset()

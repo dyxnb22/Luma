@@ -11,3 +11,11 @@ import Testing
     #expect(!combined.contains("hidden"))
     #expect(combined.contains("<redacted>"))
 }
+
+@Test func crashLogBufferRedactsPathHeuristicsAtWrite() async {
+    await CrashLogBuffer.shared.record("note saved ~/Projects/Luma/secret.swift")
+    let entries = await CrashLogBuffer.shared.all()
+    let combined = entries.joined(separator: "\n")
+    #expect(!combined.contains("~/Projects"))
+    #expect(combined.contains("~/<redacted>"))
+}

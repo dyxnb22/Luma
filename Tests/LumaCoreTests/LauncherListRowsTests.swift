@@ -144,3 +144,29 @@ import LumaCore
         Issue.record("Expected placeholder row")
     }
 }
+
+@Test func listRowsDistinguishesOpenAppsWarmingFromEmpty() {
+    let previous = LumaLocale.choice
+    defer { LumaLocale.choice = previous }
+    LumaLocale.choice = .en
+    let warmingSnapshot = LauncherHomeSnapshot(sections: [
+        LauncherHomeSection(kind: .openApps, items: [], isWarming: true)
+    ])
+    let emptySnapshot = LauncherHomeSnapshot(sections: [
+        LauncherHomeSection(kind: .openApps, items: [], isWarming: false)
+    ])
+    let warmingRows = LauncherListRows.rows(for: warmingSnapshot)
+    let emptyRows = LauncherListRows.rows(for: emptySnapshot)
+    #expect(warmingRows.count == 2)
+    #expect(emptyRows.count == 2)
+    if case .placeholder(let warmingMessage) = warmingRows[1].kind {
+        #expect(warmingMessage == L10n.tr("module.warming"))
+    } else {
+        Issue.record("Expected warming placeholder")
+    }
+    if case .placeholder(let emptyMessage) = emptyRows[1].kind {
+        #expect(emptyMessage == L10n.tr("home.openApps.empty"))
+    } else {
+        Issue.record("Expected empty open-apps placeholder")
+    }
+}

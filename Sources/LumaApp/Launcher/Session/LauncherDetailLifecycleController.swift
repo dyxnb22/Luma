@@ -75,7 +75,12 @@ final class LauncherDetailLifecycleController {
         onAfterClose?()
     }
 
-    func beginPresentation(generation: UInt) -> Bool {
+    func nextPresentationGeneration() -> UInt {
+        detailPresentationGeneration.bump()
+        return detailPresentationGeneration.current
+    }
+
+    func isPresentationGenerationCurrent(_ generation: UInt) -> Bool {
         detailPresentationGeneration.isCurrent(generation)
     }
 

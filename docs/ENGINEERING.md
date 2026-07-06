@@ -54,6 +54,7 @@ Home:
 - The guide is read-only, not a second navigable list.
 - Do not add setup rows, recent rows, project rows, create rows, dashboard cards, or suggestion sections to home.
 - Open Apps lists regular running apps, excludes Luma itself, and may show child window rows for multi-window apps.
+- Empty Open Apps column distinguishes cache warming (`module.warming`) from a completed refresh with no running apps (`home.openApps.empty`).
 - Background Open Apps cache changes must not repaint the visible home list while the panel is open.
 - Showing the launcher must not rebuild Open Apps for the first visible frame.
 
@@ -75,7 +76,9 @@ Show/hide generation guards (Swift 6):
 - `finishHide(generationAtHide:)` calls `shouldCompleteHide` before `orderOut`; `hideImmediatelyForAction` uses the same guard.
 - Deferred show work (`focusSearchFieldAfterShow`, permission polling, `restoreLastSessionIfNeeded`) uses `shouldCompleteDeferredShow`.
 - `CancellationGeneration` backs `LauncherRootController.restoreGeneration`; `cancelPendingRestore()` bumps on hide; async restore apply calls `isCurrent`.
-- `cancelAllLauncherWork()` (alias: `cancelActiveQueryAndSnapshotApply()`) runs on hide and module disable: cancels query dispatch, snapshot apply, home refresh, permission refresh, workbench preview, action panel, detail presentation generation, and invalidates split cross-fade completions (with detail-close tearDown fallback when a guide cross-fade was in flight). Detail UI state is preserved across ordinary hide; show re-enables apply via `activatePanelForQueryApply()`.
+- `cancelLauncherAsyncWork()` cancels in-flight query dispatch, snapshot apply, home refresh, permission refresh, workbench preview, action panel, and detail presentation generation, and invalidates split cross-fade completions (with detail-close tearDown fallback when a guide cross-fade was in flight). It does **not** change `isPanelActiveForQueryApply` or emit session panel events.
+- `cancelActiveQueryAndSnapshotApply()` (panel hide only) calls `cancelLauncherAsyncWork()` then sets `isPanelActiveForQueryApply = false` and applies `panelHideBegan` when the panel is visible or showing. `cancelAllLauncherWork()` is a hide-path alias. Detail UI state is preserved across ordinary hide; show re-enables apply via `activatePanelForQueryApply()`.
+- `handleModulesDisabled(removed:)` calls `cancelLauncherAsyncWork()` only (not the hide path), then evicts detail modules and invalidates caches while the panel may remain visible and query apply stays active.
 - `LauncherSnapshotApplyPolicy` gates `apply(snapshot:)` while the panel is inactive or the visible query is empty (dropped applies increment `snapshot.applyDropped`).
 - Detail search mode is owned by `LauncherSearchDetailMode` via `LumaSearchBar` (`LauncherSearchDetailModeState`); chrome exit uses `LauncherDetailExitPlanner`, typing exit uses `cancelDetailMode`.
 - Per-keystroke routing uses `QueryView` (event snapshot from `searchBar.stringValue`); permission banner routes from the live search field, not a stale normalized snapshot.

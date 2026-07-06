@@ -41,7 +41,6 @@ final class LauncherRootController {
     private var lastAppliedGuideCatalogIDs: [String] = []
     private let taskRegistry = LauncherTaskRegistry()
     private var homeRefreshGeneration = CancellationGeneration()
-    private var detailPresentationGeneration = CancellationGeneration()
     private var sessionState = LauncherSessionState()
     private lazy var snapshotPipeline = LauncherSnapshotApplyPipeline(
         contentCoordinator: contentCoordinator,
@@ -451,18 +450,14 @@ final class LauncherRootController {
         snapshotPipeline.cancelPending()
     }
 
-    /// Cancels in-flight query dispatch, snapshot apply, home refresh, permission refresh,
-    /// workbench preview, and action panel on panel hide or module disable.
-    func cancelAllLauncherWork() {
-        isPanelActiveForQueryApply = false
-        _ = sessionState.apply(.panelHideBegan)
+    /// Cancels in-flight async launcher work without changing panel-active apply policy or session panel state.
+    func cancelLauncherAsyncWork() {
         let shouldTearDownDetailClose = detailLifecycle.consumeDetailCloseCrossfadeInFlight()
         detailLifecycle.invalidateCrossfadeCompletions()
         if shouldTearDownDetailClose {
             detailLifecycle.tearDownAfterGuideCrossfadeIfNeeded()
         }
         detailLifecycle.cancelPendingPresentation()
-        detailPresentationGeneration.bump()
         homeRefreshGeneration.bump()
         viewModel.cancel()
         snapshotPipeline.cancelPending()
@@ -474,18 +469,27 @@ final class LauncherRootController {
         workbenchPreviewTask = nil
         taskRegistry.cancelAll()
         actionPanel.dismiss()
-        LauncherPerfCounters.increment(.queryCancelOnHide)
         syncKeyHints()
         syncPerformanceStripVisibility()
     }
 
-    /// Cancels in-flight query dispatch and pending snapshot UI apply on panel hide.
+    /// Cancels async work and marks the panel inactive for snapshot apply (panel hide only).
     func cancelActiveQueryAndSnapshotApply() {
-        cancelAllLauncherWork()
+        cancelLauncherAsyncWork()
+        isPanelActiveForQueryApply = false
+        if sessionState.panel == .visible || sessionState.panel == .showing {
+            _ = sessionState.apply(.panelHideBegan)
+        }
+        LauncherPerfCounters.increment(.queryCancelOnHide)
+    }
+
+    /// Hide-path alias; prefer `cancelActiveQueryAndSnapshotApply()` for new call sites.
+    func cancelAllLauncherWork() {
+        cancelActiveQueryAndSnapshotApply()
     }
 
     func handleModulesDisabled(removed: Set<ModuleIdentifier>) {
-        cancelAllLauncherWork()
+        cancelLauncherAsyncWork()
         viewModel.invalidateSnapshotCache()
         if let current = contentCoordinator.currentDetailModuleID, removed.contains(current) {
             exitDetailFromChrome()
@@ -682,13 +686,12 @@ final class LauncherRootController {
     }
 
     private func presentModuleDetail(for moduleID: ModuleIdentifier) {
-        detailPresentationGeneration.bump()
-        let generation = detailPresentationGeneration.current
+        let generation = detailLifecycle.nextPresentationGeneration()
         let task = Task { @MainActor [weak self] in
             guard let self else { return }
             sessionStore.flushPendingWrites()
             await launcherEnvironment.warmModuleForDetail(moduleID)
-            guard self.detailPresentationGeneration.isCurrent(generation) else { return }
+            guard self.detailLifecycle.isPresentationGenerationCurrent(generation) else { return }
             guard await isModuleEnabledForDetail(moduleID) else {
                 showStatus(LauncherStatusMessages.moduleDisabledInSettings)
                 return
@@ -712,6 +715,7 @@ final class LauncherRootController {
 
             let finishPresentation = { [weak self] in
                 guard let self else { return }
+                guard self.detailLifecycle.isPresentationGenerationCurrent(generation) else { return }
                 if moduleID == .translate,
                    let translate = self.contentCoordinator.currentDetailObject as? TranslateDetailView {
                     let state = LauncherResumeStore.load()

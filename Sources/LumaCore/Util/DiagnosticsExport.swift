@@ -79,14 +79,37 @@ public enum DiagnosticsExport {
         return url
     }
 
-    /// Redacts known sensitive `key=value` fields; preserves unrelated trailing tokens.
+    /// Redacts known sensitive `key=value` fields and home-directory path fragments.
     public static func redactBreadcrumb(_ line: String) -> String {
         line.split(separator: " ", omittingEmptySubsequences: false).map { token -> String in
-            guard let separator = token.firstIndex(of: "=") else { return String(token) }
-            let key = String(token[token.startIndex..<separator]).lowercased()
-            guard sensitiveBreadcrumbKeys.contains(key) else { return String(token) }
-            let keyPart = token[token.startIndex..<separator]
-            return "\(keyPart)=<redacted>"
+            redactPathHeuristics(in: redactSensitiveToken(String(token)))
         }.joined(separator: " ")
+    }
+
+    private static func redactSensitiveToken(_ token: String) -> String {
+        guard let separator = token.firstIndex(of: "=") else { return token }
+        let key = String(token[token.startIndex..<separator]).lowercased()
+        guard sensitiveBreadcrumbKeys.contains(key) else { return token }
+        let keyPart = token[token.startIndex..<separator]
+        return "\(keyPart)=<redacted>"
+    }
+
+    private static func redactPathHeuristics(in token: String) -> String {
+        var result = token
+        if result.contains("~/") {
+            result = result.replacingOccurrences(
+                of: #"~/[^ \t"]+"#,
+                with: "~/<redacted>",
+                options: .regularExpression
+            )
+        }
+        if result.contains("/Users/") {
+            result = result.replacingOccurrences(
+                of: #"/Users/[^ \t"]+"#,
+                with: "/Users/<redacted>",
+                options: .regularExpression
+            )
+        }
+        return result
     }
 }

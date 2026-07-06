@@ -13,10 +13,12 @@ public enum LauncherHomeSectionKind: String, Sendable, Hashable {
 public struct LauncherHomeSection: Sendable, Equatable {
     public let kind: LauncherHomeSectionKind
     public let items: [ResultItem]
+    public let isWarming: Bool
 
-    public init(kind: LauncherHomeSectionKind, items: [ResultItem]) {
+    public init(kind: LauncherHomeSectionKind, items: [ResultItem], isWarming: Bool = false) {
         self.kind = kind
         self.items = items
+        self.isWarming = isWarming
     }
 }
 

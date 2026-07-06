@@ -51,3 +51,54 @@ import Testing
     #expect(effects.isEmpty)
     #expect(state.content == .detail(.notes))
 }
+
+// MARK: - Illegal transitions (I1–I7)
+
+@Test func sessionStateI1RejectsPanelShowBeganWhenVisible() {
+    var state = LauncherSessionState(panel: .visible)
+    let effects = state.apply(.panelShowBegan)
+    #expect(effects.isEmpty)
+    #expect(state.panel == .visible)
+}
+
+@Test func sessionStateI2RejectsPanelShowCompletedWhenHidden() {
+    var state = LauncherSessionState(panel: .hidden)
+    let effects = state.apply(.panelShowCompleted)
+    #expect(effects.isEmpty)
+    #expect(state.panel == .hidden)
+}
+
+@Test func sessionStateI3RejectsPanelHideBeganWhenHidden() {
+    var state = LauncherSessionState(panel: .hidden)
+    let effects = state.apply(.panelHideBegan)
+    #expect(effects.isEmpty)
+    #expect(state.panel == .hidden)
+}
+
+@Test func sessionStateI4RejectsQueryBecameEmptyWhenHome() {
+    var state = LauncherSessionState(content: .home)
+    let effects = state.apply(.queryBecameEmpty)
+    #expect(effects.isEmpty)
+    #expect(state.content == .home)
+}
+
+@Test func sessionStateI5RejectsDetailExitWhenInactive() {
+    var state = LauncherSessionState()
+    let effects = state.apply(.detailExitRequested(.returnToHome(crossfadeToGuide: false)))
+    #expect(effects.isEmpty)
+    #expect(state.detailMode == .inactive)
+}
+
+@Test func sessionStateI6RejectsUserTypedInDetailWhenInactive() {
+    var state = LauncherSessionState(content: .home)
+    let effects = state.apply(.userTypedInDetail)
+    #expect(effects.isEmpty)
+    #expect(state.content == .home)
+}
+
+@Test func sessionStateI7RejectsPanelShowCompletedWhenVisible() {
+    var state = LauncherSessionState(panel: .visible)
+    let effects = state.apply(.panelShowCompleted)
+    #expect(effects.isEmpty)
+    #expect(state.panel == .visible)
+}

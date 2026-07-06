@@ -60,6 +60,8 @@ enum RecoveryDiagnosticsCollector {
         )
         let manifests = BuiltInModules.manifestCatalog()
         let enabled = await config.enabledModules() ?? ModuleWarmupDefaults.defaultEnabledModuleIDs
+        let manifestIDs = Set(manifests.map(\.identifier))
+        let knownEnabled = enabled.intersection(manifestIDs)
         let crashLogPath = CrashLogBuffer.standardFileURL?.path
         let crashLogStatus = await CrashLogBuffer.shared.fileWriteStatus()
 
@@ -72,11 +74,11 @@ enum RecoveryDiagnosticsCollector {
                 presentationScreenName: LumaPresentationScreen.current()?.localizedName
             ),
             modules: DiagnosticsPayload.ModuleInfo(
-                enabledCount: enabled.count,
+                enabledCount: knownEnabled.count,
                 totalCount: manifests.count,
                 defaultEnabledCount: manifests.filter(\.defaultEnabled).count,
-                enabledModuleIDs: Self.enabledModuleIDs(enabled: enabled, manifests: manifests),
-                mvpCoreModuleStatus: Self.mvpCoreModuleStatus(enabled: enabled)
+                enabledModuleIDs: knownEnabled.map(\.rawValue).sorted(),
+                mvpCoreModuleStatus: Self.mvpCoreModuleStatus(enabled: knownEnabled)
             ),
             permissions: DiagnosticsPayload.PermissionsInfo(
                 accessibilityTrusted: context.accessibilityTrusted,
@@ -88,14 +90,6 @@ enum RecoveryDiagnosticsCollector {
             crashLogPath: crashLogPath,
             crashLogWriteStatus: crashLogStatus
         )
-    }
-
-    private static func enabledModuleIDs(
-        enabled: Set<ModuleIdentifier>,
-        manifests: [ModuleManifest]
-    ) -> [String] {
-        let manifestIDs = Set(manifests.map(\.identifier))
-        return enabled.intersection(manifestIDs).map(\.rawValue).sorted()
     }
 
     private static func mvpCoreModuleStatus(

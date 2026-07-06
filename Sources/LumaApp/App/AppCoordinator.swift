@@ -475,6 +475,16 @@ final class AppCoordinator {
                 processMemorySampler: processMemorySampler,
                 onModulesReady: { [weak self] in
                     self?.windowController.setModulesReady(true)
+                    if ProcessInfo.processInfo.environment["LUMA_QA_APPS"] == "1" {
+                        Task { [weak self] in
+                            guard let self else { return }
+                            await AppsProductionSmoke.run(
+                                viewModel: self.viewModel,
+                                dispatcher: self.dispatcher,
+                                actionExecutor: self.actionExecutor
+                            )
+                        }
+                    }
                 },
                 onMemoryPressureReady: { [weak self] in
                     self?.installMemoryPressureHandler()

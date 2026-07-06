@@ -94,23 +94,38 @@ final class LauncherContentCoordinator {
         prefillTranslateText: String? = nil,
         stagedForCrossfade: Bool = false
     ) {
-        currentDetailObject?.deactivate()
-        currentDetailObject?.detailView.removeFromSuperview()
-        currentDetailObject = detail
-        currentDetailModuleID = moduleID
-
         let contentView = detail.detailView
-        contentView.translatesAutoresizingMaskIntoConstraints = false
-        detailTopBar.isHidden = !detail.usesSharedTopBar
-        detailContainer.addSubview(contentView)
+        let reusingHierarchy = contentView.superview === detailContainer
 
-        let contentTopAnchor = detail.usesSharedTopBar ? detailTopBar.bottomAnchor : detailContainer.topAnchor
-        NSLayoutConstraint.activate([
-            contentView.topAnchor.constraint(equalTo: contentTopAnchor),
-            contentView.leadingAnchor.constraint(equalTo: detailContainer.leadingAnchor),
-            contentView.trailingAnchor.constraint(equalTo: detailContainer.trailingAnchor),
-            contentView.bottomAnchor.constraint(equalTo: detailContainer.bottomAnchor)
-        ])
+        if reusingHierarchy {
+            currentDetailObject = detail
+            currentDetailModuleID = moduleID
+            contentView.isHidden = false
+            detailTopBar.isHidden = !detail.usesSharedTopBar
+        } else {
+            if currentDetailObject !== detail {
+                currentDetailObject?.deactivate()
+                currentDetailObject?.detailView.removeFromSuperview()
+            }
+            for subview in detailContainer.subviews where subview !== contentView {
+                subview.removeFromSuperview()
+            }
+            currentDetailObject = detail
+            currentDetailModuleID = moduleID
+
+            contentView.translatesAutoresizingMaskIntoConstraints = false
+            detailTopBar.isHidden = !detail.usesSharedTopBar
+            detailContainer.addSubview(contentView)
+
+            let contentTopAnchor = detail.usesSharedTopBar ? detailTopBar.bottomAnchor : detailContainer.topAnchor
+            NSLayoutConstraint.activate([
+                contentView.topAnchor.constraint(equalTo: contentTopAnchor),
+                contentView.leadingAnchor.constraint(equalTo: detailContainer.leadingAnchor),
+                contentView.trailingAnchor.constraint(equalTo: detailContainer.trailingAnchor),
+                contentView.bottomAnchor.constraint(equalTo: detailContainer.bottomAnchor)
+            ])
+        }
+
         detailTitleLabel.stringValue = detail.moduleTitle
         showingDetail = true
         detailContainer.isHidden = false
@@ -119,7 +134,6 @@ final class LauncherContentCoordinator {
         listView.isHidden = false
         listView.alphaValue = 1
         listView.passesHitTests = true
-        detail.activate()
         LauncherInPanelLayout.stabilizePanel(from: detailContainer)
 
         if moduleID == .translate, let text = prefillTranslateText ?? pendingTranslateText {
@@ -128,14 +142,20 @@ final class LauncherContentCoordinator {
                 translate.prefill(text: text, autoTranslate: true)
             }
         }
-        onSessionChanged?()
+        if !reusingHierarchy {
+            onSessionChanged?()
+        }
     }
 
     func closeDetail(presentation: ModuleDetailPresentation = .rightColumn) {
         guard showingDetail else { return }
         showingDetail = false
         currentDetailObject?.deactivate()
-        currentDetailObject?.detailView.removeFromSuperview()
+        if let pooledView = currentDetailObject?.detailView, pooledView.superview === detailContainer {
+            pooledView.isHidden = true
+        } else {
+            currentDetailObject?.detailView.removeFromSuperview()
+        }
         currentDetailObject = nil
         currentDetailModuleID = nil
         detailTopBar.isHidden = false

@@ -156,6 +156,12 @@ final class LauncherRootView: NSView {
 
     @objc private func closeDetailAction() { controller.exitDetailFromChrome() }
     func prepareDetailForHide() async { await contentCoordinator.currentDetailObject?.prepareForLauncherHide() }
+    func flushPendingSessionWrites() { controller.flushPendingSessionWrites() }
+
+    func invalidatePanelSignalsCache() { controller.invalidatePanelSignalsCache() }
+
+    func invalidatePermissionModuleCache() { controller.invalidatePermissionModuleCache() }
+
     func refreshPermissionStatus() { controller.refreshPermissionBanner() }
     func startPermissionPollingIfNeeded() { controller.permissionController.startPollingIfNeeded() }
     func stopPermissionPolling() { controller.permissionController.stopPolling() }

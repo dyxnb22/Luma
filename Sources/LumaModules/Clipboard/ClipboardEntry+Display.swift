@@ -49,7 +49,13 @@ extension ClipboardEntry {
         return text
     }
 
-    public func searchHaystack() -> String {
+    public static func buildSearchHaystack(
+        text: String,
+        sourceAppName: String?,
+        detectedKind: ClipboardEntryKind,
+        colorHex: String?,
+        fileURLs: [String]?
+    ) -> String {
         var parts = [
             text,
             sourceAppName ?? "",
@@ -60,6 +66,17 @@ extension ClipboardEntry {
             parts.append(contentsOf: fileURLs.map { URL(fileURLWithPath: $0).lastPathComponent })
         }
         return parts.joined(separator: " ").lowercased()
+    }
+
+    public func searchHaystack() -> String {
+        if !cachedSearchHaystack.isEmpty { return cachedSearchHaystack }
+        return Self.buildSearchHaystack(
+            text: text,
+            sourceAppName: sourceAppName,
+            detectedKind: detectedKind,
+            colorHex: colorHex,
+            fileURLs: fileURLs
+        )
     }
 
     /// Collapsed preview for launcher result rows (newlines flattened).

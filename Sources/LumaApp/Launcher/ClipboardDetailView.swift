@@ -27,6 +27,13 @@ final class ClipboardDetailView: NSObject, ModuleDetailView {
     private var currentFilter: ClipboardListFilter = .all
     private var onOpenSettings: (() -> Void)?
     private var onHideLauncher: (() -> Void)?
+    private var cachedDetailContentGeneration: UInt64 = 0
+
+    var detailContentGeneration: UInt64 { cachedDetailContentGeneration }
+
+    func refreshDetailContentGeneration() async {
+        cachedDetailContentGeneration = await module.detailContentRevision()
+    }
 
     init(module: ClipboardModule, onOpenSettings: (() -> Void)? = nil, onHideLauncher: (() -> Void)? = nil) {
         self.module = module
@@ -39,10 +46,11 @@ final class ClipboardDetailView: NSObject, ModuleDetailView {
     }
 
     func activate() {
-        refresh()
-        DispatchQueue.main.async { [weak self] in
-            self?.resizeTableColumn()
-            self?.tableView.window?.makeFirstResponder(self?.tableView)
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            self.refresh()
+            self.resizeTableColumn()
+            self.tableView.window?.makeFirstResponder(self.tableView)
         }
     }
 

@@ -34,7 +34,14 @@ final class LauncherRootController {
     private var querySyncTimer: Timer?
     private var lastSyncedQuery = ""
     private var lastSplitLayoutState: (columnSplit: Bool, rightPane: LauncherSplitRightPane)?
+    private var lastResultsRouteKind: NormalizedQueryState.ResultsRouteKind?
+    private var lastNormalizedQueryState: NormalizedQueryState?
+    private var permissionRefreshTask: Task<Void, Never>?
     private var lastAppliedGuideCatalogIDs: [String] = []
+    private lazy var snapshotApplyCoalescer = LauncherSnapshotApplyCoalescer { [weak self] snapshot in
+        self?.apply(snapshot: snapshot)
+    }
+    private var querySyncGraceUntil: ContinuousClock.Instant?
 
     init(
         viewModel: LauncherViewModel,
@@ -100,7 +107,10 @@ final class LauncherRootController {
         searchBar.onInterceptKeyDown = { [weak self] event in
             self?.actionPanel.handleKeyDown(event) ?? false
         }
-        searchBar.onTextChange = { [weak self] text in self?.handleTextChange(text) }
+        searchBar.onTextChange = { [weak self] text in
+            self?.noteSearchTextChangedForQuerySync()
+            self?.handleTextChange(text)
+        }
         searchBar.onKeyCommand = { [weak self] command in self?.handleKeyCommand(command) ?? false }
         searchBar.onOpenSettings = onOpenSettings
         searchBar.onDetailKey = { [weak self] event in
@@ -112,11 +122,18 @@ final class LauncherRootController {
             return self.contentCoordinator.currentDetailObject?.handleKeyDown(event) ?? false
         }
 
-        viewModel.onSnapshot = { [weak self] snapshot in self?.apply(snapshot: snapshot) }
+        viewModel.onSnapshot = { [weak self] snapshot in self?.enqueueSnapshotApply(snapshot) }
     }
 
     private func previewWorkbenchCommand(route: WorkbenchCommandRoute, queryText: String) async {
-        let context = await panelSignalsLoader.loadWorkbenchContext()
+        let needsSelection: Bool
+        switch route {
+        case .attachSelection, .capture, .projectCapture:
+            needsSelection = true
+        default:
+            needsSelection = false
+        }
+        let context = await panelSignalsLoader.loadWorkbenchContext(includeSelection: needsSelection)
         let items = WorkbenchCommandResults.previewRows(
             route: route,
             querySequence: 0,
@@ -202,19 +219,43 @@ final class LauncherRootController {
     func startQuerySync() {
         stopQuerySync()
         lastSyncedQuery = searchBar.queryText
-        querySyncTimer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { [weak self] _ in
+        querySyncGraceUntil = ContinuousClock.now.advanced(by: .seconds(1))
+        ensureQuerySyncTimerIfNeeded()
+    }
+
+    func stopQuerySync() {
+        querySyncTimer?.invalidate()
+        querySyncTimer = nil
+        querySyncGraceUntil = nil
+    }
+
+    func noteSearchTextChangedForQuerySync() {
+        if searchBar.isComposing {
+            ensureQuerySyncTimerIfNeeded()
+        }
+    }
+
+    private func ensureQuerySyncTimerIfNeeded() {
+        guard querySyncTimer == nil else { return }
+        guard needsQuerySyncPolling else { return }
+        querySyncTimer = Timer.scheduledTimer(withTimeInterval: 0.2, repeats: true) { [weak self] _ in
             Task { @MainActor [weak self] in
                 self?.syncQueryIfNeeded()
             }
         }
     }
 
-    func stopQuerySync() {
-        querySyncTimer?.invalidate()
-        querySyncTimer = nil
+    private var needsQuerySyncPolling: Bool {
+        if searchBar.isComposing { return true }
+        if let grace = querySyncGraceUntil, ContinuousClock.now < grace { return true }
+        return false
     }
 
     private func syncQueryIfNeeded() {
+        if !needsQuerySyncPolling {
+            stopQuerySync()
+            return
+        }
         let text = searchBar.queryText
         guard text != lastSyncedQuery else { return }
         handleTextChange(text)
@@ -223,6 +264,7 @@ final class LauncherRootController {
     func showHome(focusSearch: Bool = true, persist: Bool = true) {
         homeRefreshTask?.cancel()
         viewModel.cancel()
+        cancelPendingSnapshotApply()
         searchBar.cancelDetailMode()
         searchBar.resetQueryText()
         searchBar.setPlaceholder(ModuleSearchHints.cheatSheet)
@@ -246,9 +288,18 @@ final class LauncherRootController {
         }
     }
 
-    func refreshHome(preserveListSelection: Bool = false) {
+    private var lastRenderedHomeGeneration: UInt64 = 0
+
+    func refreshHome(preserveListSelection: Bool = false, force: Bool = false) {
         homeRefreshTask?.cancel()
         homeRefreshTask = Task {
+            if !force {
+                let generation = await homeCoordinator.currentSnapshotGeneration()
+                if generation == self.lastRenderedHomeGeneration,
+                   await homeCoordinator.cachedSnapshotIfAvailable() != nil {
+                    return
+                }
+            }
             let snapshot = await homeCoordinator.snapshot()
             guard !Task.isCancelled else { return }
             await MainActor.run {
@@ -269,6 +320,7 @@ final class LauncherRootController {
                 self.syncRowActionHint()
                 _ = HomeLatencyTracker.markHomeRendered()
             }
+            self.lastRenderedHomeGeneration = await homeCoordinator.currentSnapshotGeneration()
         }
     }
 
@@ -276,6 +328,7 @@ final class LauncherRootController {
     private func restoreHomeFromDetail(persist: Bool) {
         homeRefreshTask?.cancel()
         viewModel.cancel()
+        cancelPendingSnapshotApply()
         searchBar.cancelDetailMode()
         searchBar.resetQueryText()
         searchBar.setPlaceholder(ModuleSearchHints.cheatSheet)
@@ -286,12 +339,35 @@ final class LauncherRootController {
         listView.alphaValue = 1
         syncKeyHints()
         syncPerformanceStripVisibility()
-        refreshHome(preserveListSelection: true)
-        refreshPermissionBanner()
-        if persist {
-            saveHomeSession()
-            persistResumeState(translateContent: nil)
+        Task { @MainActor in
+            if let cached = await homeCoordinator.cachedSnapshotIfAvailable() {
+                contentCoordinator.showHome(cached, preserveSelection: true)
+                syncSplitLayout()
+                syncRowActionHint()
+                lastRenderedHomeGeneration = await homeCoordinator.currentSnapshotGeneration()
+                LauncherPerfCounters.increment(.backHome)
+            } else {
+                refreshHome(preserveListSelection: true, force: true)
+            }
+            refreshPermissionBannerCoalesced()
+            if persist {
+                saveHomeSession()
+                persistResumeState(translateContent: nil)
+            }
         }
+    }
+
+    private func syncSplitLayoutIfSearchLayoutMayHaveChanged() {
+        let columnSplit = usesColumnSplitLayout()
+        if !columnSplit, lastSplitLayoutState?.columnSplit == false {
+            return
+        }
+        syncSplitLayout()
+    }
+
+    private func shouldClearStaleResults(for kind: NormalizedQueryState.ResultsRouteKind) -> Bool {
+        guard let lastResultsRouteKind else { return false }
+        return kind != lastResultsRouteKind
     }
 
     func resetHomeExpansion() {
@@ -429,7 +505,19 @@ final class LauncherRootController {
             }
         }
 
-        LauncherResumeStore.save(state)
+        sessionStore.scheduleResumeSave(state)
+    }
+
+    func invalidatePanelSignalsCache() {
+        Task { await panelSignalsLoader.invalidateCache() }
+    }
+
+    func invalidatePermissionModuleCache() {
+        permissionController.invalidateEnabledModuleCache()
+    }
+
+    func flushPendingSessionWrites() {
+        sessionStore.flushPendingWrites()
     }
 
     func saveHomeSession() {
@@ -499,18 +587,21 @@ final class LauncherRootController {
 
     private func presentModuleDetail(for moduleID: ModuleIdentifier) {
         Task { @MainActor in
-            guard await isModuleEnabledForDetail(moduleID) else {
-                showStatus(LauncherStatusMessages.moduleDisabledInSettings)
-                return
-            }
+            sessionStore.flushPendingWrites()
             await launcherEnvironment.warmModuleForDetail(moduleID)
             guard let detail = launcherEnvironment.makeDetailView(for: moduleID) else {
                 showHome(focusSearch: true, persist: false)
                 return
             }
             let presentation = moduleDetailPresentation()
-            let snapshot = await homeCoordinator.snapshot()
-            contentCoordinator.showHome(snapshot, preserveSelection: true)
+            if let cached = await homeCoordinator.cachedSnapshotIfAvailable() {
+                contentCoordinator.showHome(cached, preserveSelection: true)
+                lastRenderedHomeGeneration = await homeCoordinator.currentSnapshotGeneration()
+            } else {
+                let snapshot = await homeCoordinator.snapshot()
+                contentCoordinator.showHome(snapshot, preserveSelection: true)
+                lastRenderedHomeGeneration = await homeCoordinator.currentSnapshotGeneration()
+            }
             enterDetailContext(moduleTitle: detail.moduleTitle)
 
             let finishPresentation = { [weak self] in
@@ -527,7 +618,7 @@ final class LauncherRootController {
                 self.syncRowActionHint()
                 self.syncPerformanceStripVisibility()
                 self.stabilizePanelContentLayout()
-                self.refreshPermissionBanner()
+                self.refreshPermissionBannerCoalesced()
             }
 
             if usesColumnSplitLayout() {
@@ -539,12 +630,18 @@ final class LauncherRootController {
                         presentation: presentation,
                         stagedForCrossfade: true
                     )
+                    Task { @MainActor in
+                        await self.launcherEnvironment.activateDetail(detail, for: moduleID)
+                    }
                 } completion: {
                     finishPresentation()
+                    LauncherPerfCounters.increment(.detailOpen)
                 }
             } else {
                 contentCoordinator.present(detail, moduleID: moduleID, presentation: presentation)
+                await launcherEnvironment.activateDetail(detail, for: moduleID)
                 finishPresentation()
+                LauncherPerfCounters.increment(.detailOpen)
             }
         }
     }
@@ -616,6 +713,7 @@ final class LauncherRootController {
         case .showHome:
             showHome(focusSearch: true, persist: true)
         case .dismissPanel:
+            flushPendingSessionWrites()
             onDismiss()
         }
     }
@@ -680,27 +778,26 @@ final class LauncherRootController {
     func handleTextChange(_ text: String) {
         guard text != lastSyncedQuery else { return }
         lastSyncedQuery = text
-        launcherEnvironment.isLauncherQueryEmpty = text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let queryState = NormalizedQueryState(raw: text, viewModel: viewModel)
+        lastNormalizedQueryState = queryState
+        launcherEnvironment.isLauncherQueryEmpty = queryState.trimmed.isEmpty
         searchBar.setPlaceholder(ModuleSearchHints.placeholder(for: text))
-        let helpTrigger = trimmed.split(separator: " ", maxSplits: 1).first.map(String.init)
-        let workbenchRoute = viewModel.workbenchRoute(for: text)
-        let hint = workbenchRoute != .none
-            ? viewModel.workbenchCommandHint(for: workbenchRoute, raw: text)
-            : viewModel.commandRouter.registry.hint(for: text)
-        commandHintBar.apply(hint, helpTrigger: helpTrigger)
+        commandHintBar.apply(queryState.hint, helpTrigger: queryState.helpTrigger)
+        LauncherPerfCounters.increment(.layoutHint)
         sessionStore.saveSearchQuery(text)
-        if trimmed.isEmpty {
+        if queryState.trimmed.isEmpty {
+            lastResultsRouteKind = .empty
             searchBar.cancelDetailMode()
             contentCoordinator.dismissResultsForEmptyQuery()
             viewModel.cancel()
+            cancelPendingSnapshotApply()
             syncSplitLayout()
             syncKeyHints()
             refreshHome()
-            refreshPermissionBanner()
+            refreshPermissionBannerCoalesced()
             return
         }
-        syncSplitLayout()
+        syncSplitLayoutIfSearchLayoutMayHaveChanged()
         guard modulesReady else { return }
         homeRefreshTask?.cancel()
         if contentCoordinator.showingDetail {
@@ -709,17 +806,19 @@ final class LauncherRootController {
         }
         listView.isHidden = false
         listView.alphaValue = 1
-        contentCoordinator.beginShowingResults(clearStaleContent: true)
+        let clearStale = shouldClearStaleResults(for: queryState.resultsRouteKind)
+        contentCoordinator.beginShowingResults(clearStaleContent: clearStale)
+        lastResultsRouteKind = queryState.resultsRouteKind
         syncKeyHints()
         syncPerformanceStripVisibility()
-        if workbenchRoute != .none {
+        if queryState.workbenchRoute != .none {
             Task {
-                await self.previewWorkbenchCommand(route: workbenchRoute, queryText: text)
+                await self.previewWorkbenchCommand(route: queryState.workbenchRoute, queryText: text)
             }
             return
         }
-        let route = viewModel.commandRouter.route(raw: text)
-        if case .globalSearch = route, trimmed.count < 2 {
+        let route = queryState.commandRoute
+        if case .globalSearch = route, queryState.trimmed.count < 2 {
             listView.clear()
             contentCoordinator.beginShowingResults(clearStaleContent: true)
             syncKeyHints()
@@ -731,19 +830,33 @@ final class LauncherRootController {
             )
             commandHintBar.showStatus(message)
             viewModel.cancel()
-            refreshPermissionBanner()
+            cancelPendingSnapshotApply()
+            refreshPermissionBannerCoalesced()
             return
         }
-        viewModel.queryChanged(text, issuedAt: .now)
-        stabilizePanelContentLayout()
-        refreshPermissionBanner()
+        let parsed = viewModel.commandRouter.registry.parsedCommand(for: text, route: route)
+        viewModel.queryChanged(text, issuedAt: .now, route: route, parsedCommand: parsed)
     }
 
     func refreshPermissionBanner() {
-        Task { @MainActor in
-            let context = await currentAccessibilityGuidanceContext()
-            permissionController.refresh(context: context)
+        permissionRefreshTask?.cancel()
+        permissionRefreshTask = Task { @MainActor [weak self] in
+            await self?.refreshPermissionBannerNow()
         }
+    }
+
+    private func refreshPermissionBannerCoalesced() {
+        permissionRefreshTask?.cancel()
+        permissionRefreshTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(16))
+            guard !Task.isCancelled else { return }
+            await self?.refreshPermissionBannerNow()
+        }
+    }
+
+    private func refreshPermissionBannerNow() async {
+        let context = await currentAccessibilityGuidanceContext()
+        permissionController.refresh(context: context)
     }
 
     private func currentAccessibilityGuidanceContext() async -> AccessibilityGuidanceContext {
@@ -761,7 +874,12 @@ final class LauncherRootController {
             return AccessibilityGuidanceContext(surface: .none)
         }
 
-        let route = viewModel.commandRouter.route(raw: searchBar.stringValue)
+        let route: CommandRoute
+        if let queryState = lastNormalizedQueryState, queryState.raw == searchBar.stringValue {
+            route = queryState.commandRoute
+        } else {
+            route = viewModel.commandRouter.route(raw: searchBar.stringValue)
+        }
         if case .targeted(let module, _, _) = route,
            AccessibilityGuidancePolicy.isGuidanceModule(module) {
             return AccessibilityGuidanceContext(surface: .targetedModule(module))
@@ -795,6 +913,7 @@ final class LauncherRootController {
 
     private func apply(snapshot: ResultSnapshot) {
         guard !launcherEnvironment.isLauncherQueryEmpty else { return }
+        LauncherPerfCounters.increment(.snapshotApply)
         contentCoordinator.apply(snapshot: snapshot)
         preferBareOpenDetailRowSelection()
         syncPerformanceStripVisibility()
@@ -803,7 +922,23 @@ final class LauncherRootController {
             LatencyTelemetry.report(p95Milliseconds: paintMs)
         }
         stabilizePanelContentLayout()
-        refreshPermissionBanner()
+        refreshPermissionBannerCoalesced()
+    }
+
+    private func enqueueSnapshotApply(_ snapshot: ResultSnapshot) {
+        snapshotApplyCoalescer.enqueue(snapshot)
+    }
+
+    private func flushPendingSnapshotApplyNow() {
+        snapshotApplyCoalescer.flushNow()
+    }
+
+    private func cancelPendingSnapshotApply() {
+        snapshotApplyCoalescer.cancel()
+    }
+
+    private func flushPendingSnapshotApply() {
+        snapshotApplyCoalescer.flushNow()
     }
 
     private func syncPerformanceStripVisibility() {
@@ -900,7 +1035,6 @@ final class LauncherRootController {
 
     private func syncRowActionHint() {
         syncKeyHints()
-        syncSplitLayout()
         guard contentCoordinator.showingResults || !contentCoordinator.showingDetail else {
             commandHintBar.setReturnAction(nil)
             return

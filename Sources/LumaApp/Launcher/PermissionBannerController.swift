@@ -20,6 +20,8 @@ final class PermissionBannerController {
     private var pollingTask: Task<Void, Never>?
     private var refreshTask: Task<Void, Never>?
     private var lastContext = AccessibilityGuidanceContext(surface: .none)
+    private var lastAppliedContext: AccessibilityGuidanceContext?
+    private var lastEnabledModules: Set<ModuleIdentifier>?
     private(set) var isBannerVisible = false
 
     init(config: ConfigurationStore) {
@@ -83,10 +85,12 @@ final class PermissionBannerController {
     }
 
     func refresh(context: AccessibilityGuidanceContext) {
+        if context == lastAppliedContext { return }
         lastContext = context
         refreshTask?.cancel()
+        LauncherPerfCounters.increment(.permissionRefresh)
         if context.surface == .none {
-            applyBannerVisibility(false)
+            applyBannerVisibility(false, for: context)
             return
         }
         refreshTask = Task { [weak self] in
@@ -103,21 +107,33 @@ final class PermissionBannerController {
     }
 
     private func refreshAsync(context: AccessibilityGuidanceContext) async {
-        let enabled = await resolvedEnabledModules()
+        let enabled: Set<ModuleIdentifier>
+        if let cached = lastEnabledModules {
+            enabled = cached
+        } else {
+            enabled = await resolvedEnabledModules()
+            lastEnabledModules = enabled
+        }
         let shouldShow = AccessibilityGuidancePolicy.shouldShowBanner(
             context: context,
             enabledModules: enabled
         )
-        applyBannerVisibility(shouldShow)
+        applyBannerVisibility(shouldShow, for: context)
         if shouldShow { await startPollingIfNeededAsync() }
     }
 
-    private func applyBannerVisibility(_ shouldShow: Bool) {
+    func invalidateEnabledModuleCache() {
+        lastEnabledModules = nil
+        lastAppliedContext = nil
+    }
+
+    private func applyBannerVisibility(_ shouldShow: Bool, for context: AccessibilityGuidanceContext) {
         isBannerVisible = shouldShow
         heightConstraint?.constant = shouldShow ? 36 : 0
         bannerView.isHidden = !shouldShow
         label.stringValue = shouldShow ? L10n.tr("permission.banner.inactive") : ""
         if !shouldShow { stopPolling() }
+        lastAppliedContext = context
     }
 
     private func startPollingIfNeededAsync() async {
@@ -145,6 +161,7 @@ final class PermissionBannerController {
         if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
             NSWorkspace.shared.open(url)
         }
+        lastAppliedContext = nil
         refresh(context: lastContext)
     }
 

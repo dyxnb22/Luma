@@ -24,6 +24,7 @@ This compact log replaces the individual ADR files. Older superseded route and d
 - The launcher panel is ordered out when hidden rather than recreated.
 - `ModuleHost` owns enabled modules, warmup state, teardown, and query context.
 - `QueryDispatcher` handles global and targeted query routing with timeouts and diagnostics.
+- `QuerySnapshotCache` (query-side, top-N snapshots, stale-while-revalidate) is separate from `UsageResultCache` (post-action single-row storage); only **secrets** and **snippets** are excluded from query cache (clipboard may be cached in mixed global snapshots).
 - Detail views live in `LumaApp`; module actors own data and actions.
 - Scripted commands are local JSON-backed commands, not a plugin marketplace.
 

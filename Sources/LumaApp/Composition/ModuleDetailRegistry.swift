@@ -34,13 +34,37 @@ final class ModuleDetailRegistry {
     typealias Factory = (ModuleUIContext) -> (any ModuleDetailView)?
 
     private var factories: [ModuleIdentifier: Factory] = [:]
+    private var detailPool: [ModuleIdentifier: any ModuleDetailView] = [:]
+    private var lastActivatedGeneration: [ModuleIdentifier: UInt64] = [:]
 
     func register(_ id: ModuleIdentifier, factory: @escaping Factory) {
         factories[id] = factory
     }
 
+    func hasFactory(for id: ModuleIdentifier) -> Bool {
+        factories[id] != nil
+    }
+
     func makeDetailView(for id: ModuleIdentifier, context: ModuleUIContext) -> (any ModuleDetailView)? {
-        factories[id]?(context)
+        if let cached = detailPool[id] {
+            return cached
+        }
+        guard let detail = factories[id]?(context) else { return nil }
+        detailPool[id] = detail
+        LauncherPerfCounters.increment(.detailViewMade)
+        return detail
+    }
+
+    func activateDetailView(_ detail: any ModuleDetailView, moduleID: ModuleIdentifier) async {
+        await detail.refreshDetailContentGeneration()
+        let generation = detail.detailContentGeneration
+        // Skip only when generation > 0: default protocol views (0) always activate;
+        // Clipboard/Todo/Notes at revision 0 also pay full activation until first mutation.
+        if lastActivatedGeneration[moduleID] == generation, generation > 0 {
+            return
+        }
+        lastActivatedGeneration[moduleID] = generation
+        detail.activate(generation: generation)
     }
 
     static func makeDefault() -> ModuleDetailRegistry {

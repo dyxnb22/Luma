@@ -36,6 +36,7 @@ private func moduleContext(processMemory: any ProcessMemoryClient) -> ModuleCont
 @Test func appsModuleTopTargetedQueryStaysUnderBudget() async {
     let host = ModuleHost(context: moduleContext(processMemory: StubProcessMemorySampler()))
     await host.register(AppsModule())
+    await host.warmupIfNeeded(id: .apps, reason: .query)
     let dispatcher = QueryDispatcher(host: host)
     let parsed = ParsedCommand(trigger: "app", payload: "top", module: .apps)
     let query = Query(raw: "app top", sequence: 1, command: parsed)

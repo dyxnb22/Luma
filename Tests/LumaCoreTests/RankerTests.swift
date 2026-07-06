@@ -15,7 +15,7 @@ import Testing
         rankingHints: RankingHints()
     )
     let query = Query(raw: "zzz", sequence: 1)
-    #expect(Ranker.score(item: item, query: query, usage: nil) == -.infinity)
+    #expect(Ranker.score(item: item, query: query, usage: nil).finalScore == -.infinity)
 }
 
 @Test func rankerUsesCommandPayloadForTargetedQueries() {
@@ -33,7 +33,7 @@ import Testing
         sequence: 1,
         command: ParsedCommand(trigger: "kill", payload: "preview", module: module)
     )
-    #expect(Ranker.score(item: item, query: query, usage: nil) > -.infinity)
+    #expect(Ranker.score(item: item, query: query, usage: nil).finalScore > -.infinity)
 }
 
 @Test func rankerMatchesKillProcessSubtitleBundleID() {
@@ -52,7 +52,7 @@ import Testing
         sequence: 1,
         command: ParsedCommand(trigger: "kill", payload: "preview", module: module)
     )
-    #expect(Ranker.score(item: item, query: query, usage: nil) > -.infinity)
+    #expect(Ranker.score(item: item, query: query, usage: nil).finalScore > -.infinity)
 }
 
 @Test func rankerKeepsModuleRowsForEmptyCommandPayload() {
@@ -70,7 +70,7 @@ import Testing
         sequence: 1,
         command: ParsedCommand(trigger: "proj", payload: "", module: module)
     )
-    #expect(Ranker.score(item: item, query: query, usage: nil) > -.infinity)
+    #expect(Ranker.score(item: item, query: query, usage: nil).finalScore > -.infinity)
 }
 
 @Test func rankerDropsAppTopMemoryRowsForTopPayload() {
@@ -89,7 +89,7 @@ import Testing
         sequence: 1,
         command: ParsedCommand(trigger: "app", payload: "top", module: module)
     )
-    #expect(Ranker.score(item: item, query: query, usage: nil) == -.infinity)
+    #expect(Ranker.score(item: item, query: query, usage: nil).finalScore == -.infinity)
 }
 
 @Test func rankerMatchesQuicklinkTriggerTokenInMultiWordQuery() {
@@ -103,5 +103,5 @@ import Testing
         rankingHints: RankingHints()
     )
     let query = Query(raw: "gh swift package", sequence: 1)
-    #expect(Ranker.score(item: item, query: query, usage: nil) > -.infinity)
+    #expect(Ranker.score(item: item, query: query, usage: nil).finalScore > -.infinity)
 }

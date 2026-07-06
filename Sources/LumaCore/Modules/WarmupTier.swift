@@ -43,3 +43,20 @@ public enum ModuleWarmupDefaults {
         ModuleIdentifier(rawValue: "luma.quicklinks")
     ]
 }
+
+/// Global search dispatch tiers (fast modules return before deferred hot-path modules).
+public enum GlobalSearchTiers {
+    public static let fastModuleIDs: Set<ModuleIdentifier> = [
+        ModuleIdentifier(rawValue: "luma.apps"),
+        ModuleIdentifier(rawValue: "luma.quicklinks"),
+        ModuleIdentifier(rawValue: "luma.kill-process"),
+        ModuleIdentifier(rawValue: "luma.snippets")
+    ]
+
+    /// Modules that can return rows during global (non-prefixed) search.
+    public static let contributingModuleIDs: Set<ModuleIdentifier> = [
+        ModuleIdentifier(rawValue: "luma.apps"),
+        ModuleIdentifier(rawValue: "luma.quicklinks"),
+        ModuleIdentifier(rawValue: "luma.clipboard")
+    ]
+}

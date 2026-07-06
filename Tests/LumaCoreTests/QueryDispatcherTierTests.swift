@@ -152,10 +152,20 @@ private struct TierTestDoubles {
     #expect(await onDemand.handleCount == 0)
 }
 
-@Test func moduleRegistryGlobalSearchMatchesHotPathTier() {
+@Test func moduleRegistryGlobalSearchUsesContributingModuleSet() {
     let global = ModuleRegistry.globalSearchModuleIDs
-    let hot = ModuleRegistry.hotPathModuleIDs
-    #expect(global == hot)
+    let contributing = GlobalSearchTiers.contributingModuleIDs
+    #expect(global == contributing)
+    #expect(global.count == 3)
     #expect(global.contains(ModuleIdentifier(rawValue: "luma.clipboard")))
     #expect(!global.contains(ModuleIdentifier(rawValue: "luma.notes")))
+
+    let fast = ModuleRegistry.globalSearchFastModuleIDs
+    let deferred = ModuleRegistry.globalSearchDeferredModuleIDs
+    #expect(fast == Set([
+        ModuleIdentifier(rawValue: "luma.apps"),
+        ModuleIdentifier(rawValue: "luma.quicklinks")
+    ]))
+    #expect(deferred == Set([ModuleIdentifier(rawValue: "luma.clipboard")]))
+    #expect(fast.union(deferred) == contributing)
 }

@@ -58,9 +58,19 @@ public enum ModuleRegistry {
         Set(allBundles.filter { $0.warmupTier == .onDemand }.map { $0.identifier })
     }
 
+    /// Contributing global-search modules in the fast tier (tier 1).
+    public static var globalSearchFastModuleIDs: Set<ModuleIdentifier> {
+        GlobalSearchTiers.fastModuleIDs.intersection(GlobalSearchTiers.contributingModuleIDs)
+    }
+
+    /// Contributing global-search modules dispatched after the fast tier.
+    public static var globalSearchDeferredModuleIDs: Set<ModuleIdentifier> {
+        GlobalSearchTiers.contributingModuleIDs.subtracting(globalSearchFastModuleIDs)
+    }
+
     /// Module IDs that participate in global (non-targeted) query fan-out.
     public static var globalSearchModuleIDs: Set<ModuleIdentifier> {
-        hotPathModuleIDs
+        GlobalSearchTiers.contributingModuleIDs
     }
 
     public static func presentation(for id: ModuleIdentifier) -> ModulePresentation? {

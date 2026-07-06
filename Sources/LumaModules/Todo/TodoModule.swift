@@ -53,11 +53,16 @@ public actor TodoModule: LumaModule {
     private var cachedDue: [ReminderSnapshot]?
     private var cachedAt: Date?
     private var storeChangesTask: Task<Void, Never>?
+    private var contentRevision: UInt64 = 0
 
     private static let dueListLimit = 8
 
     public init(now: @Sendable @escaping () -> Date = { Date() }) {
         self.now = now
+    }
+
+    public func detailContentRevision() async -> UInt64 {
+        contentRevision
     }
 
     public func warmup(_ context: ModuleContext) async {
@@ -255,6 +260,7 @@ public actor TodoModule: LumaModule {
     private func invalidateDueCache() {
         cachedDue = nil
         cachedAt = nil
+        contentRevision &+= 1
         TodoChangeHub.publishDataChanged()
     }
 

@@ -13,6 +13,11 @@ public actor AppsModule: LumaModule {
 
     private var index = AppIndex(apps: [])
     private var runningApplications: any RunningApplicationsClient = NoopRunningApplicationsClient()
+    private var searchCache: [String: [AppRecord]] = [:]
+    private var searchCacheOrder: [String] = []
+    private var cachedTopResult: ModuleResult?
+    private var cachedTopAt: ContinuousClock.Instant?
+    private static let topResultTTL: Duration = .seconds(2)
 
     public init() {}
 
@@ -47,7 +52,25 @@ public actor AppsModule: LumaModule {
         ]
         let apps = scanned.isEmpty ? fallback : scanned
         index = AppIndex(apps: apps)
+        searchCache.removeAll(keepingCapacity: true)
+        searchCacheOrder.removeAll(keepingCapacity: true)
         AppIndexCache.save(apps, to: cacheURL)
+    }
+
+    private func cachedSearch(_ searchText: String) -> [AppRecord] {
+        let key = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if let cached = searchCache[key] {
+            return cached
+        }
+        let results = index.search(searchText)
+        searchCache[key] = results
+        searchCacheOrder.removeAll { $0 == key }
+        searchCacheOrder.append(key)
+        if searchCacheOrder.count > 32, let evicted = searchCacheOrder.first {
+            searchCacheOrder.removeFirst()
+            searchCache.removeValue(forKey: evicted)
+        }
+        return results
     }
 
     public func handle(_ query: Query, context: QueryContext) async -> ModuleResult {
@@ -55,7 +78,7 @@ public actor AppsModule: LumaModule {
             return await handlePayload(payload, context: context)
         }
         let running = await context.platform.runningApplications.runningBundleIDs()
-        let matches = index.search(query.raw).map { result(for: $0, isRunning: running.contains($0.bundleID)) }
+        let matches = cachedSearch(query.raw).map { result(for: $0, isRunning: running.contains($0.bundleID)) }
         return ModuleResult(items: matches)
     }
 
@@ -95,27 +118,38 @@ public actor AppsModule: LumaModule {
         }
         let searchText = trimmed
         let running = await context.platform.runningApplications.runningBundleIDs()
-        let matches = index.search(searchText).map { result(for: $0, isRunning: running.contains($0.bundleID)) }
+        let matches = cachedSearch(searchText).map { result(for: $0, isRunning: running.contains($0.bundleID)) }
         return ModuleResult(items: matches)
     }
 
     private func memoryTopResult(context: QueryContext) async -> ModuleResult {
+        if let cachedTopResult,
+           let cachedTopAt,
+           ContinuousClock.now - cachedTopAt <= Self.topResultTTL {
+            return cachedTopResult
+        }
         let samples = await context.platform.processMemory.topApplications(limit: 8)
         if samples.isEmpty {
-            return ModuleResult(
+            let empty = ModuleResult(
                 items: [],
                 diagnostic: ModuleDiagnostic(
                     kind: .degraded,
                     message: "Could not read memory usage for running apps"
                 )
             )
+            cachedTopResult = empty
+            cachedTopAt = .now
+            return empty
         }
-        return ModuleResult(items: samples.map(memoryRow))
+        let result = ModuleResult(items: samples.map(memoryRow))
+        cachedTopResult = result
+        cachedTopAt = .now
+        return result
     }
 
     private func memoryRow(_ sample: RunningApplicationMemory) -> ResultItem {
         let mb = String(format: "%.0f MB", sample.residentMB)
-        let url = index.search(sample.name).first?.url
+        let url = index.record(bundleID: sample.bundleID)?.url
             ?? URL(fileURLWithPath: "/Applications")
         let quitPayload = (try? ModuleActionCoding.encode(AppsAction.quit(bundleID: sample.bundleID))) ?? Data()
         return ResultItem(

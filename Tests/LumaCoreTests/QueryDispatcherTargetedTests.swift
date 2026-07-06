@@ -185,6 +185,66 @@ private actor SnapshotCollector {
     }
 }
 
+private actor FastDelayedProbeModule: LumaModule {
+    static let manifest = ModuleManifest(
+        identifier: ModuleIdentifier(rawValue: "test.delayed-probe.fast"),
+        displayName: "Fast Delayed Probe",
+        capabilities: [.queryable],
+        defaultEnabled: true,
+        priority: 1,
+        queryTimeout: .milliseconds(200)
+    )
+
+    func handle(_ query: Query, context: QueryContext) async -> ModuleResult {
+        _ = context
+        try? await Task.sleep(for: .milliseconds(2))
+        return ModuleResult(items: [row(title: "Fast \(query.raw)", module: Self.manifest.identifier)])
+    }
+}
+
+private actor SlowDelayedProbeModule: LumaModule {
+    static let manifest = ModuleManifest(
+        identifier: ModuleIdentifier(rawValue: "test.delayed-probe.slow"),
+        displayName: "Slow Delayed Probe",
+        capabilities: [.queryable],
+        defaultEnabled: true,
+        priority: 1,
+        queryTimeout: .milliseconds(200)
+    )
+
+    func handle(_ query: Query, context: QueryContext) async -> ModuleResult {
+        _ = context
+        try? await Task.sleep(for: .milliseconds(25))
+        return ModuleResult(items: [row(title: "Slow \(query.raw)", module: Self.manifest.identifier)])
+    }
+}
+
+@Test func globalContributingModuleSetHasThreeModules() {
+    #expect(GlobalSearchTiers.contributingModuleIDs.count == 3)
+    #expect(GlobalSearchTiers.contributingModuleIDs.contains(.apps))
+    #expect(GlobalSearchTiers.contributingModuleIDs.contains(.quicklinks))
+    #expect(GlobalSearchTiers.contributingModuleIDs.contains(.clipboard))
+}
+
+@Test func globalDispatchEmitsCoalescedProgressiveSnapshots() async {
+    let host = ModuleHost(context: TestDoubles.context())
+    await host.register(FastDelayedProbeModule())
+    await host.register(SlowDelayedProbeModule())
+    let dispatcher = QueryDispatcher(host: host)
+
+    let collector = SnapshotCollector()
+    await dispatcher.dispatch(Query(raw: "probe", sequence: 99)) { snapshot in
+        await collector.append(snapshot)
+    }
+
+    let snapshots = await collector.values
+    #expect(snapshots.count >= 2)
+    #expect(snapshots.count <= 4)
+    let finalTitles = Set(snapshots.last?.items.map(\.title) ?? [])
+    #expect(finalTitles.contains("Fast probe"))
+    #expect(finalTitles.contains("Slow probe"))
+}
+
 @Test func targetedDispatchOnlyCallsSelectedModule() async {
     let host = ModuleHost(context: TestDoubles.context())
     await host.register(AlphaModule())
@@ -221,6 +281,27 @@ private actor SnapshotCollector {
     let titles = Set(snapshots.last?.items.map(\.title) ?? [])
     #expect(titles.contains("Alpha hello"))
     #expect(titles.contains("Beta hello"))
+}
+
+@Test func globalDispatchCacheHitRewrapsQuerySequence() async {
+    let host = ModuleHost(context: TestDoubles.context())
+    await host.register(AlphaModule())
+    let dispatcher = QueryDispatcher(host: host)
+
+    let warmupCollector = SnapshotCollector()
+    await dispatcher.dispatch(Query(raw: "cache-seq", sequence: 1)) { snapshot in
+        await warmupCollector.append(snapshot)
+    }
+
+    let collector = SnapshotCollector()
+    await dispatcher.dispatch(Query(raw: "cache-seq", sequence: 42)) { snapshot in
+        await collector.append(snapshot)
+    }
+
+    let snapshots = await collector.values
+    #expect(!snapshots.isEmpty)
+    #expect(snapshots[0].querySequence == 42)
+    #expect(snapshots[0].items.first?.title == "Alpha cache-seq")
 }
 
 @Test func targetedDispatchSurfacesModuleDiagnosticAsInformationalRow() async {
@@ -353,8 +434,8 @@ private actor SlowColdTargetedModule: LumaModule {
     }
 
     let snapshots = await collector.values
-    #expect(snapshots.count == 1)
-    #expect(snapshots[0].items.isEmpty)
+    #expect(snapshots.count >= 1)
+    #expect(snapshots.last?.items.isEmpty == true)
 }
 
 private struct StubProcessMemoryClient: ProcessMemoryClient {

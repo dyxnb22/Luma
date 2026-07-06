@@ -260,6 +260,10 @@ public actor NotesModule: LumaModule {
         index
     }
 
+    public func detailContentRevision() async -> UInt64 {
+        await index.contentRevision()
+    }
+
     private func startWatching(root: URL) async {
         watchRoot = root
         let stream = await fileSystem.watch(root: root, debounceMillis: 200)

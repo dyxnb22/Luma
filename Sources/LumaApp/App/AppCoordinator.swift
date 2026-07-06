@@ -184,8 +184,11 @@ final class AppCoordinator {
             Task { @MainActor in
                 await self.appActivationTracker.record(bundleID: bundleID)
                 guard bundleID != Bundle.main.bundleIdentifier else { return }
+                let wasVisible = self.windowController.isPanelVisible
                 self.windowController.hideIfShowingForExternalActivation(bundleID: bundleID)
-                self.windowController.refreshHome()
+                if wasVisible {
+                    self.windowController.refreshHome()
+                }
             }
         }
         terminationObserver = NotificationCenter.default.addObserver(
@@ -248,6 +251,8 @@ final class AppCoordinator {
             },
             reloadModules: { [weak self] in
                 guard let self else { return }
+                self.windowController.invalidatePanelSignalsCache()
+                self.windowController.invalidatePermissionModuleCache()
                 Task {
                     await self.host.warmupAll()
                     await MainActor.run {
@@ -321,8 +326,6 @@ final class AppCoordinator {
             }
         )
         launcherEnv.install()
-
-        Task { await openAppsProvider.setActive(true) }
 
         windowController.configure(
             viewModel: viewModel,

@@ -13,10 +13,15 @@ swift test
 Targeted checks:
 
 ```bash
-swift test --filter BrowserTabs
-swift test --filter KillProcess
-swift test --filter ActionExecutor
-swift test --filter Performance
+swift test --filter KeystrokeReplayPerformanceTests
+swift test --filter AppsModuleTopQueryPerformanceTests
+swift test --filter QueryDispatcher
+swift test --filter LauncherSession
+swift test --filter PanelSignals
+swift test --filter QuerySnapshot
+swift test --filter LauncherSnapshot
+swift test --filter BackHome
+swift test --filter DetailHierarchy
 ```
 
 Build local app:
@@ -73,8 +78,17 @@ Performance:
 
 - Hotkey -> interactive panel feels instant.
 - Keystroke -> first paint stays stable under normal module data.
+- Global search shows fast-tier results before deferred modules finish; snapshots do not flicker faster than one frame (~16 ms).
+- Repeat identical global queries paint cached results immediately, then refresh in the background without blocking keystrokes.
+- Esc from module detail returns to home in one frame when the home snapshot cache is warm (no double Open Apps rebuild).
+- Typing a new query while in module detail cancels detail mode and does not restore the suspended prefix on Esc (detail exit via Esc still restores home).
 - Background cache updates do not repaint visible home.
 - Long text and large stores do not resize rows or drift layout.
+- Detail open: pooled module detail reopens without rebuilding the view (`detail.viewMade` stays flat on second open).
+- Back from detail: home paints cached Open Apps immediately; background revalidate does not flash empty.
+- Workbench `proj` preview commands do not stall on selection fetch unless attach/capture is involved.
+- Panel hide with Open Apps hidden does not trigger extra Open Apps refresh work.
+- Detail open p95 budget: under 50 ms feel; back-to-home p95 budget: under 35 ms feel (manual stopwatch or perf strip).
 
 Permissions:
 

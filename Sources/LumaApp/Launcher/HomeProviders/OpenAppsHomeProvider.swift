@@ -1,6 +1,7 @@
 import AppKit
 import Foundation
 import LumaCore
+import LumaInfrastructure
 import LumaModules
 import LumaServices
 
@@ -82,7 +83,8 @@ actor OpenAppsHomeProvider: LauncherHomeProvider {
 
     func items() async -> [ResultItem] {
         if cachedSnapshots.isEmpty {
-            let metadata = await MainActor.run { Self.collectAppMetadata() }
+            // NSWorkspace.runningApplications is MainActor-isolated; AX/CGWindow IPC is offloaded in refreshOnce.
+            let metadata = await Self.collectAppMetadata()
             scheduleFullRefreshIfNeeded()
             guard !metadata.isEmpty else { return [] }
             return await buildItems(from: metadata.map(Self.skeletonSnapshot(from:)))
@@ -114,7 +116,8 @@ actor OpenAppsHomeProvider: LauncherHomeProvider {
     }
 
     private func refreshOnce() async {
-        let metadata = await MainActor.run { Self.collectAppMetadata() }
+        LauncherPerfCounters.increment(.openAppsRefresh)
+        let metadata = await Self.collectAppMetadata()
         guard !metadata.isEmpty else {
             let hadCache = !cachedSnapshots.isEmpty
             cachedSnapshots = []

@@ -36,6 +36,13 @@ final class NotesDetailView: NSObject, ModuleDetailView {
     private var savedExpansion = Set<String>()
     private var activeChip: NotesDetailChip?
     private var activePanel: NotesDetailPanel = .outline
+    private var cachedDetailContentGeneration: UInt64 = 0
+
+    var detailContentGeneration: UInt64 { cachedDetailContentGeneration }
+
+    func refreshDetailContentGeneration() async {
+        cachedDetailContentGeneration = await module.detailContentRevision()
+    }
 
     init(module: NotesModule) {
         self.module = module

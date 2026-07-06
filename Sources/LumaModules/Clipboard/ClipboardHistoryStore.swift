@@ -13,6 +13,7 @@ public struct ClipboardEntry: Identifiable, Sendable, Hashable, Codable {
     public var fileURLs: [String]?
     public var colorHex: String?
     public var contentHash: String
+    public var cachedSearchHaystack: String
 
     public init(
         id: UUID = UUID(),
@@ -48,6 +49,13 @@ public struct ClipboardEntry: Identifiable, Sendable, Hashable, Codable {
                 fileURLs: fileURLs,
                 colorHex: colorHex
             )
+        self.cachedSearchHaystack = ClipboardEntry.buildSearchHaystack(
+            text: text,
+            sourceAppName: sourceAppName,
+            detectedKind: resolvedKind,
+            colorHex: colorHex,
+            fileURLs: fileURLs
+        )
     }
 
     public var displayText: String {
@@ -98,6 +106,13 @@ public struct ClipboardEntry: Identifiable, Sendable, Hashable, Codable {
         } else {
             contentHash = decodedHash
         }
+        cachedSearchHaystack = ClipboardEntry.buildSearchHaystack(
+            text: text,
+            sourceAppName: sourceAppName,
+            detectedKind: detectedKind,
+            colorHex: colorHex,
+            fileURLs: fileURLs
+        )
     }
 }
 
@@ -149,6 +164,13 @@ public actor ClipboardHistoryStore {
     private let persistenceURL: URL?
     private var lastPruneAt = Date.distantPast
     private let pruneInterval: TimeInterval = 30
+    private var listQueryCache: [String: [ClipboardEntry]] = [:]
+    private(set) var contentRevision: UInt64 = 0
+
+    private func bumpContentRevision() {
+        contentRevision &+= 1
+        listQueryCache.removeAll(keepingCapacity: true)
+    }
 
     public init(maxEntries: Int = 500, maxAge: TimeInterval = 7 * 24 * 60 * 60, maxTextBytes: Int = 100 * 1024, persistenceURL: URL? = nil) {
         self.maxEntries = maxEntries
@@ -231,6 +253,7 @@ public actor ClipboardHistoryStore {
         )
         prune(now: now)
         persist()
+        bumpContentRevision()
     }
 
     public func search(_ query: String, limit: Int = 20) -> [ClipboardEntry] {
@@ -239,6 +262,10 @@ public actor ClipboardHistoryStore {
 
     public func list(filter: ClipboardListFilter, query: String = "", limit: Int = 50) -> [ClipboardEntry] {
         pruneIfNeeded()
+        let cacheKey = "\(filter.rawValue)|\(query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased())|\(limit)"
+        if let cached = listQueryCache[cacheKey] {
+            return cached
+        }
         var count = 0
         var results: [ClipboardEntry] = []
         results.reserveCapacity(min(limit, sortedEntries.count))
@@ -249,6 +276,7 @@ public actor ClipboardHistoryStore {
             count += 1
             if count >= limit { break }
         }
+        listQueryCache[cacheKey] = results
         return results
     }
 
@@ -272,6 +300,7 @@ public actor ClipboardHistoryStore {
         entries[index].isPinned = isPinned
         rebuildSortedEntries()
         persist()
+        bumpContentRevision()
     }
 
     @discardableResult
@@ -295,8 +324,16 @@ public actor ClipboardHistoryStore {
             fileURLs: entries[index].fileURLs,
             colorHex: entries[index].colorHex
         )
+        entries[index].cachedSearchHaystack = ClipboardEntry.buildSearchHaystack(
+            text: text,
+            sourceAppName: entries[index].sourceAppName,
+            detectedKind: detectedKind,
+            colorHex: entries[index].colorHex,
+            fileURLs: entries[index].fileURLs
+        )
         rebuildSortedEntries()
         persist()
+        bumpContentRevision()
         return true
     }
 
@@ -304,12 +341,14 @@ public actor ClipboardHistoryStore {
         entries.removeAll()
         rebuildSortedEntries()
         persist()
+        bumpContentRevision()
     }
 
     public func clearUnpinned() {
         entries.removeAll { !$0.isPinned }
         rebuildSortedEntries()
         persist()
+        bumpContentRevision()
     }
 
     public func clearRecent(window: ClipboardRecentClearWindow, now: Date = Date(), calendar: Calendar = .current) {
@@ -322,12 +361,14 @@ public actor ClipboardHistoryStore {
         }
         rebuildSortedEntries()
         persist()
+        bumpContentRevision()
     }
 
     public func removeEntry(_ id: UUID) {
         entries.removeAll { $0.id == id }
         rebuildSortedEntries()
         persist()
+        bumpContentRevision()
     }
 
     public func entry(id: UUID) -> ClipboardEntry? {
@@ -381,7 +422,7 @@ public actor ClipboardHistoryStore {
             return false
         }
         guard !parts.tokens.isEmpty else { return true }
-        let haystack = entry.searchHaystack()
+        let haystack = entry.cachedSearchHaystack.isEmpty ? entry.searchHaystack() : entry.cachedSearchHaystack
         return parts.tokens.allSatisfy { haystack.contains($0) }
     }
 
@@ -401,6 +442,7 @@ public actor ClipboardHistoryStore {
             if $0.isPinned != $1.isPinned { return $0.isPinned && !$1.isPinned }
             return $0.createdAt > $1.createdAt
         }
+        listQueryCache.removeAll(keepingCapacity: true)
     }
 
     public func persistPrunedStateIfNeeded(now: Date = Date()) {

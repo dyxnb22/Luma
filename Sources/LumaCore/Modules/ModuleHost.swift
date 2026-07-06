@@ -108,6 +108,14 @@ public actor ModuleHost {
         }
     }
 
+    public func queryCacheGeneration() -> UInt64 {
+        var hasher = Hasher()
+        for id in enabled.sorted(by: { $0.rawValue < $1.rawValue }) {
+            hasher.combine(id.rawValue)
+        }
+        return UInt64(bitPattern: Int64(truncatingIfNeeded: hasher.finalize()))
+    }
+
     public func module(_ id: ModuleIdentifier) -> (any LumaModule)? {
         modules[id]
     }

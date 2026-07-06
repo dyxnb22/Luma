@@ -1,14 +1,19 @@
 import Foundation
 
 public enum Ranker {
-    public static func score(item: ResultItem, query: Query, usage: UsageRecord?, now: Date = Date()) -> Double {
+    public struct RankedScore: Sendable {
+        public let finalScore: Double
+        public let fuzzyScore: Double
+    }
+
+    public static func score(item: ResultItem, query: Query, usage: UsageRecord?, now: Date = Date()) -> RankedScore {
         let fuzzy = fuzzyScore(
             query: query,
             target: item.title.lowercased(),
             secondary: item.subtitle?.lowercased()
         )
         if !fuzzyMatchingText(for: query).isEmpty && fuzzy <= 0 {
-            return -.infinity
+            return RankedScore(finalScore: -.infinity, fuzzyScore: fuzzy)
         }
 
         let recency: Double
@@ -28,17 +33,15 @@ public enum Ranker {
 
         let modulePriority = Double(item.rankingHints.basePriority) / 10.0
 
-        // Boost items whose title exactly matches the query so they reliably
-        // surface first (e.g. a snippet trigger typed verbatim, or an exact
-        // app name vs a fuzzy near-match from another module).
         let matchText = fuzzyMatchingText(for: query)
         let exactBoost: Double = (!matchText.isEmpty && item.title.lowercased() == matchText) ? 0.3 : 0.0
 
-        return 0.45 * fuzzy
+        let finalScore = 0.45 * fuzzy
             + 0.20 * recency
             + 0.15 * frequency
             + 0.10 * modulePriority
             + exactBoost
+        return RankedScore(finalScore: finalScore, fuzzyScore: fuzzy)
     }
 
     static func fuzzyMatchingText(for query: Query) -> String {

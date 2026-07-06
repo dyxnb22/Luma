@@ -25,6 +25,13 @@ final class TodoDetailView: NSObject, ModuleDetailView {
     private var statusResetTask: Task<Void, Never>?
     private var editSheetReminder: ReminderSnapshot?
     private var pendingTransientStatus: String?
+    private var cachedDetailContentGeneration: UInt64 = 0
+
+    var detailContentGeneration: UInt64 { cachedDetailContentGeneration }
+
+    func refreshDetailContentGeneration() async {
+        cachedDetailContentGeneration = await module.detailContentRevision()
+    }
 
     init(module: TodoModule) {
         self.module = module
@@ -35,10 +42,11 @@ final class TodoDetailView: NSObject, ModuleDetailView {
     }
 
     func activate() {
-        refresh()
-        DispatchQueue.main.async { [weak self] in
-            self?.syncListScrollDocumentFrame()
-            self?.detailView.window?.makeFirstResponder(self?.inputField)
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            self.refresh()
+            self.syncListScrollDocumentFrame()
+            self.detailView.window?.makeFirstResponder(self.inputField)
         }
     }
 

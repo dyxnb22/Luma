@@ -20,22 +20,34 @@ public actor NotesTreeIndex {
     private var rootURL: URL?
     private var tree: NotesNode?
     private let fileManager: FileManager
+    private var revision: UInt64 = 0
 
     public init(fileManager: FileManager = .default) {
         self.fileManager = fileManager
     }
 
+    public func contentRevision() -> UInt64 {
+        revision
+    }
+
+    private func bumpContentRevision() {
+        revision &+= 1
+    }
+
     public func setRoot(_ root: URL?) async {
         rootURL = root?.standardizedFileURL
         tree = nil
+        bumpContentRevision()
     }
 
     public func warmup() async {
         guard let rootURL else {
             tree = nil
+            bumpContentRevision()
             return
         }
         tree = buildTree(at: rootURL)
+        bumpContentRevision()
     }
 
     public func rebuild(after events: [FSChangeEvent]) async {
@@ -47,6 +59,8 @@ public actor NotesTreeIndex {
         let onlyModified = events.allSatisfy { $0.kind == .modified }
         if !onlyModified {
             await warmup()
+        } else {
+            bumpContentRevision()
         }
     }
 

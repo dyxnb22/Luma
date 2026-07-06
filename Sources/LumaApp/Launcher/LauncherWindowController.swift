@@ -15,6 +15,8 @@ final class LauncherWindowController {
     private var showGeneration: UInt = 0
     private var lastPositionedVisibleFrame: CGRect?
 
+    var isPanelVisible: Bool { panel.isVisible }
+
     init() {
         panel.onEscape = { [weak self] in
             guard let self else { return }
@@ -75,6 +77,14 @@ final class LauncherWindowController {
         rootView?.refreshHome()
     }
 
+    func invalidatePanelSignalsCache() {
+        rootView?.invalidatePanelSignalsCache()
+    }
+
+    func invalidatePermissionModuleCache() {
+        rootView?.invalidatePermissionModuleCache()
+    }
+
     func refreshHomeForBackgroundDataUpdate() {
         guard !panel.isVisible else { return }
         rootView?.refreshHome()
@@ -128,6 +138,8 @@ final class LauncherWindowController {
         LauncherMenuTarget.set(bundleID: previousBundleID)
         Task {
             await MenuBarTreeService.shared.setLauncherContextBundleID(previousBundleID)
+            try? await Task.sleep(for: .milliseconds(300))
+            guard !Task.isCancelled else { return }
             await MenuBarTreeService.shared.scheduleRefreshForFrontmost()
         }
 
@@ -180,6 +192,8 @@ final class LauncherWindowController {
 
     private func finishHide() {
         clearMenuTarget()
+        rootView?.invalidatePanelSignalsCache()
+        rootView?.flushPendingSessionWrites()
         rootView?.saveCurrentSession()
         rootView?.resetHomeExpansion()
         rootView?.stopPermissionPolling()
@@ -206,6 +220,8 @@ final class LauncherWindowController {
         Task { @MainActor in
             await self.rootView?.prepareDetailForHide()
             self.clearMenuTarget()
+            self.rootView?.invalidatePanelSignalsCache()
+            self.rootView?.flushPendingSessionWrites()
             self.rootView?.resetForActionDismiss()
             self.rootView?.resetHomeExpansion()
             self.rootView?.stopPermissionPolling()

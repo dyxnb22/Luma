@@ -50,6 +50,7 @@ Deferred source-retained module: Windows.
 
 - Bare `clip` opens Clipboard detail.
 - Global search returns matching in-memory entries, capped to avoid flooding results.
+- Each clipboard entry stores a precomputed `cachedSearchHaystack` for O(1) query matching; haystack is rebuilt on insert/text/kind changes.
 - Return copies the selected entry back to the pasteboard.
 - Detail supports pin, delete, clear recent/today, source filtering, and preview.
 - Privacy filters skip secret-looking values, blocked bundle IDs, oversized entries, concealed/transient types, and password-manager sources.
@@ -128,6 +129,7 @@ Deferred source-retained module: Windows.
 
 - `win` / `wl` lists layout presets for the focused window.
 - Requires Accessibility for window movement.
+- AX trust is cached for 5 s per module instance; `requestAccess` invalidates the cache.
 - Includes common halves/thirds/center/fullscreen style layouts.
 - Non-goals: persistent multi-window layout manager or daemon.
 

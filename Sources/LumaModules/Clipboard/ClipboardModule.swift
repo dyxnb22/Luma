@@ -173,6 +173,10 @@ public actor ClipboardModule: LumaModule {
         await store.list(filter: filter, query: query, limit: limit)
     }
 
+    public func detailContentRevision() async -> UInt64 {
+        await store.contentRevision
+    }
+
     public func statistics() async -> ClipboardStatistics {
         await store.statistics()
     }

@@ -11,6 +11,10 @@ public actor WindowLayoutsModule: LumaModule {
         queryTimeout: .milliseconds(40)
     )
 
+    private var cachedTrusted: Bool?
+    private var trustedCheckedAt: ContinuousClock.Instant?
+    private static let trustTTL: Duration = .seconds(5)
+
     public init() {}
 
     public func handle(_ query: Query, context: QueryContext) async -> ModuleResult {
@@ -18,7 +22,7 @@ public actor WindowLayoutsModule: LumaModule {
             return ModuleResult(items: [])
         }
 
-        if !(await context.platform.accessibility.isTrusted()) {
+        if !(await isAccessibilityTrusted(context: context)) {
             return ModuleResult(items: [permissionRow()])
         }
 
@@ -33,6 +37,7 @@ public actor WindowLayoutsModule: LumaModule {
         let decoded = try ModuleActionCoding.decode(WindowLayoutsAction.self, from: payload)
         switch decoded {
         case .requestAccess:
+            invalidateTrustCache()
             await context.platform.accessibility.requestPermission()
         case .openSettings:
             if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
@@ -98,5 +103,22 @@ public actor WindowLayoutsModule: LumaModule {
             return String(trimmed.dropFirst("wl ".count))
         }
         return nil
+    }
+
+    private func isAccessibilityTrusted(context: QueryContext) async -> Bool {
+        if let cachedTrusted = cachedTrusted,
+           let trustedCheckedAt,
+           ContinuousClock.now - trustedCheckedAt <= Self.trustTTL {
+            return cachedTrusted
+        }
+        let trusted = await context.platform.accessibility.isTrusted()
+        cachedTrusted = trusted
+        trustedCheckedAt = .now
+        return trusted
+    }
+
+    private func invalidateTrustCache() {
+        cachedTrusted = nil
+        trustedCheckedAt = nil
     }
 }

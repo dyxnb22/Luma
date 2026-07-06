@@ -108,6 +108,14 @@ final class LauncherEnvironment {
         detailRegistry.makeDetailView(for: id, context: uiContext)
     }
 
+    func activateDetail(_ detail: any ModuleDetailView, for moduleID: ModuleIdentifier) async {
+        await detailRegistry.activateDetailView(detail, moduleID: moduleID)
+    }
+
+    func canMakeDetailView(for id: ModuleIdentifier) -> Bool {
+        detailRegistry.hasFactory(for: id)
+    }
+
     private var uiContext: ModuleUIContext {
         ModuleUIContext(
             detailReloadRouter: detailReloadRouter,

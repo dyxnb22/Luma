@@ -31,18 +31,25 @@ final class LauncherViewModel {
         workbenchCommandRouter.commandHint(for: route, raw: raw)
     }
 
-    func queryChanged(_ text: String, issuedAt: ContinuousClock.Instant) {
+    func queryChanged(
+        _ text: String,
+        issuedAt: ContinuousClock.Instant,
+        route: CommandRoute? = nil,
+        parsedCommand: ParsedCommand? = nil
+    ) {
         task?.cancel()
         sequence &+= 1
         issuedAtBySequence[sequence] = issuedAt
-        let route = commandRouter.route(raw: text)
-        let parsed = commandRouter.registry.parsedCommand(for: text, route: route)
+        let resolvedRoute = route ?? commandRouter.route(raw: text)
+        let parsed = parsedCommand ?? commandRouter.registry.parsedCommand(for: text, route: resolvedRoute)
         let query = Query(raw: text, sequence: sequence, command: parsed)
         let currentSequence = sequence
         task = Task {
-            try? await Task.sleep(for: .milliseconds(12))
-            guard !Task.isCancelled else { return }
-            switch route {
+            if case .globalSearch = resolvedRoute {
+                try? await Task.sleep(for: .milliseconds(12))
+                guard !Task.isCancelled else { return }
+            }
+            switch resolvedRoute {
             case .empty:
                 break
             case .help(let moduleID):
@@ -50,7 +57,7 @@ final class LauncherViewModel {
                     await dispatcher.dispatchTargeted(query, moduleID: moduleID) { [weak self] snapshot in
                         await self?.deliver(
                             snapshot: snapshot,
-                            route: route,
+                            route: resolvedRoute,
                             sequence: currentSequence
                         )
                     }
@@ -62,7 +69,7 @@ final class LauncherViewModel {
                     )
                     await deliver(
                         snapshot: ResultSnapshot(querySequence: currentSequence, items: items),
-                        route: route,
+                        route: resolvedRoute,
                         sequence: currentSequence
                     )
                 }
@@ -70,7 +77,7 @@ final class LauncherViewModel {
                 let items = CommandEntryResults.suggestionRows(suggestions)
                 await deliver(
                     snapshot: ResultSnapshot(querySequence: currentSequence, items: items),
-                    route: route,
+                    route: resolvedRoute,
                     sequence: currentSequence
                 )
             case .unknownPrefix(let prefix, let remainder, let suggestions):
@@ -81,14 +88,14 @@ final class LauncherViewModel {
                 )
                 await deliver(
                     snapshot: ResultSnapshot(querySequence: currentSequence, items: items),
-                    route: route,
+                    route: resolvedRoute,
                     sequence: currentSequence
                 )
             case .targeted(let moduleID, _, _):
                 await dispatcher.dispatchTargeted(query, moduleID: moduleID) { [weak self] snapshot in
                     await self?.deliver(
                         snapshot: snapshot,
-                        route: route,
+                        route: resolvedRoute,
                         sequence: currentSequence
                     )
                 }
@@ -96,7 +103,7 @@ final class LauncherViewModel {
                 await dispatcher.dispatch(query) { [weak self] snapshot in
                     await self?.deliver(
                         snapshot: snapshot,
-                        route: route,
+                        route: resolvedRoute,
                         sequence: currentSequence
                     )
                 }

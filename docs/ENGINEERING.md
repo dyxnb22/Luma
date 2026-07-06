@@ -130,6 +130,19 @@ Hot path rules:
 - Hotkey show reuses the already-rendered launcher/home UI.
 - Empty persisted-session restore is a no-op for home rendering.
 - Stale-while-revalidate is the default for slow system surfaces.
+- Global search uses tiered fan-out: fast modules (apps, quicklinks, kill-process, snippets) run first; deferred modules follow after a short yield.
+- Global search fan-out is limited to **contributing** modules (`apps`, `quicklinks`, `clipboard`); other hot-path modules return empty for unprefixed queries and are not scheduled.
+- Progressive global snapshots are coalesced to at most one emit per 16 ms frame, with a forced final snapshot when dispatch completes.
+- UI snapshot apply uses the same 16 ms coalescer in `LauncherRootController` so progressive query results do not repaint faster than one frame.
+- Repeat global queries may paint from `QuerySnapshotCache` immediately (stale-while-revalidate); cache hits return cached rows then revalidate in a background task bound to the query sequence. Only **secrets** and **snippets** are excluded from query cache (clipboard may appear in cached global snapshots).
+- Session search-query persistence is debounced (~400 ms); keystrokes do not write UserDefaults synchronously.
+- Non-empty query input skips split-layout work unless home/detail/results layout state may have changed.
+- Workbench command preview reads `PanelSignalsCache` (2 s TTL); selection fetch is lazy except for attach/capture commands.
+- Detail views reuse pooled instances; `activate(generation:)` skips redundant reloads when content generation is unchanged.
+- Pooled detail views keep their view hierarchy in `detailContainer` when reopening the same module; `closeDetail` hides rather than removing pooled subviews.
+- Returning from detail paints cached home first, then revalidates Open Apps in the background.
+- Open Apps refresh is bound to panel visibility; hidden panel must not grow `openApps.refresh` counters.
+- `LauncherPerfCounters` in `LumaInfrastructure` tracks layout, session, snapshot, and detail metrics for tests.
 - `SelectionSnapshotService` may capture the frontmost PID on MainActor; AX IPC runs off-main.
 - Browser Tabs must not await AppleScript on the keystroke path.
 - Kill Process must not do process memory sampling on MainActor.

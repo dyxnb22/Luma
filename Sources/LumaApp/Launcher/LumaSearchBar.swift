@@ -26,6 +26,12 @@ final class LumaSearchBar: NSView {
         detailSuspendedQuery ?? stringValue
     }
 
+    /// True while IME composition is in progress (marked text active).
+    var isComposing: Bool {
+        guard let editor = textField.currentEditor() as? NSTextView else { return false }
+        return editor.hasMarkedText()
+    }
+
     private let surfaceView = NSView()
     private let iconView = NSImageView()
     private let textField = LumaSearchTextField()

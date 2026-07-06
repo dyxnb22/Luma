@@ -16,6 +16,7 @@ public actor WordbookModule: LumaModule {
     private var cachedDueAt: Date?
     private var cachedDueTodayCount: Int?
     private var searchIndex: [WordSearchRow] = []
+    private var searchResultCache: [String: [WordSearchRow]] = [:]
     private var dataChangeTask: Task<Void, Never>?
 
     internal private(set) var dueTodayCountQueryCount = 0
@@ -68,7 +69,13 @@ public actor WordbookModule: LumaModule {
             return ModuleResult(items: due.map(wordResult))
         }
 
+        let cacheKey = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if let cached = searchResultCache[cacheKey] {
+            return ModuleResult(items: cached.map(wordResult))
+        }
+
         let matches = Self.searchInMemory(searchIndex, query: searchText, limit: 10)
+        searchResultCache[cacheKey] = matches
         if !matches.isEmpty {
             return ModuleResult(items: matches.map(wordResult))
         }
@@ -186,6 +193,7 @@ public actor WordbookModule: LumaModule {
 
     private func reloadSearchIndex() async {
         searchIndex = (try? await store.searchCorpus(limit: 50_000)) ?? []
+        searchResultCache.removeAll(keepingCapacity: true)
     }
 
     private static func searchInMemory(_ index: [WordSearchRow], query: String, limit: Int) -> [WordSearchRow] {

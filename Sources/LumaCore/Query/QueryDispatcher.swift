@@ -4,17 +4,22 @@ public actor QueryDispatcher {
     private let host: ModuleHost
     private let usage: UsageTracking
     private let resultCache: UsageResultCache
+    private let snapshotCache: QuerySnapshotCache
     private let metrics: any MetricsClient
+    private var revalidateTask: Task<Void, Never>?
+    private static let snapshotCoalesceInterval: Duration = .milliseconds(16)
 
     public init(
         host: ModuleHost,
         usage: UsageTracking = InMemoryUsageTracker(),
         resultCache: UsageResultCache = UsageResultCache.defaultCache(),
+        snapshotCache: QuerySnapshotCache = QuerySnapshotCache(),
         metrics: any MetricsClient = NoopMetricsClient()
     ) {
         self.host = host
         self.usage = usage
         self.resultCache = resultCache
+        self.snapshotCache = snapshotCache
         self.metrics = metrics
     }
 
@@ -22,12 +27,106 @@ public actor QueryDispatcher {
         _ query: Query,
         onSnapshot: @Sendable @escaping (ResultSnapshot) async -> Void
     ) async {
+        revalidateTask?.cancel()
+        revalidateTask = nil
+
         await metrics.mark("query.dispatch.start")
-        let modules = await host.enabledQueryableModules(forGlobalSearch: true)
-        await metrics.mark("query.dispatch.fanout.\(modules.count)")
+        let moduleGeneration = await host.queryCacheGeneration()
+        if let cached = await snapshotCache.lookup(
+            normalizedQuery: query.normalized,
+            moduleGeneration: moduleGeneration
+        ) {
+            let immediate = ResultSnapshot(
+                querySequence: query.sequence,
+                items: cached.items,
+                layout: cached.layout
+            )
+            await onSnapshot(immediate)
+            let capturedQuery = query
+            revalidateTask = Task {
+                await self.performGlobalSearch(
+                    capturedQuery,
+                    moduleGeneration: moduleGeneration,
+                    onSnapshot: onSnapshot
+                )
+            }
+            return
+        }
+
+        await performGlobalSearch(
+            query,
+            moduleGeneration: moduleGeneration,
+            onSnapshot: onSnapshot
+        )
+    }
+
+    private func performGlobalSearch(
+        _ query: Query,
+        moduleGeneration: UInt64,
+        onSnapshot: @Sendable @escaping (ResultSnapshot) async -> Void
+    ) async {
+        guard !Task.isCancelled else { return }
+
+        let allModules = await host.enabledQueryableModules(forGlobalSearch: true)
+        let fastIDs = GlobalSearchTiers.fastModuleIDs
+        let fastModules = allModules.filter { fastIDs.contains(type(of: $0).manifest.identifier) }
+        let deferredModules = allModules.filter {
+            !fastIDs.contains(type(of: $0).manifest.identifier)
+        }
+        await metrics.mark("query.dispatch.fanout.\(allModules.count)")
+
         let usageRecords = await usage.snapshot()
         var merged: [ResultID: ScoredItem] = [:]
+        var lastEmit: ContinuousClock.Instant?
+        var dirty = false
 
+        func emitIfNeeded(force: Bool) async {
+            guard !Task.isCancelled else { return }
+            guard dirty || force else { return }
+            let now = ContinuousClock.now
+            if force || lastEmit == nil || now - lastEmit! >= Self.snapshotCoalesceInterval {
+                let snapshot = Self.snapshot(from: merged, sequence: query.sequence)
+                await onSnapshot(snapshot)
+                await snapshotCache.store(
+                    normalizedQuery: query.normalized,
+                    moduleGeneration: moduleGeneration,
+                    snapshot: snapshot
+                )
+                lastEmit = now
+                dirty = false
+            }
+        }
+
+        func mergeModuleResult(_ moduleID: ModuleIdentifier, _ result: ModuleResult) async {
+            guard !Task.isCancelled else { return }
+            Self.mergeItems(
+                from: result,
+                moduleID: moduleID,
+                query: query,
+                usageRecords: usageRecords,
+                keepModuleRowsWhenAllFilteredOut: false,
+                into: &merged
+            )
+            dirty = true
+            await emitIfNeeded(force: false)
+        }
+
+        await runModuleBatch(fastModules, query: query, merge: mergeModuleResult)
+        if !deferredModules.isEmpty {
+            try? await Task.sleep(for: .milliseconds(1))
+            guard !Task.isCancelled else { return }
+            await runModuleBatch(deferredModules, query: query, merge: mergeModuleResult)
+        }
+
+        await emitIfNeeded(force: true)
+        await metrics.mark("query.dispatch.finish")
+    }
+
+    private func runModuleBatch(
+        _ modules: [any LumaModule],
+        query: Query,
+        merge: @escaping (ModuleIdentifier, ModuleResult) async -> Void
+    ) async {
         await withTaskGroup(of: (ModuleIdentifier, ModuleResult).self) { group in
             for module in modules {
                 let manifest = type(of: module).manifest
@@ -50,18 +149,9 @@ public actor QueryDispatcher {
 
             for await (moduleID, result) in group {
                 guard !Task.isCancelled else { break }
-                Self.mergeItems(
-                    from: result,
-                    moduleID: moduleID,
-                    query: query,
-                    usageRecords: usageRecords,
-                    keepModuleRowsWhenAllFilteredOut: false,
-                    into: &merged
-                )
-                await onSnapshot(Self.snapshot(from: merged, sequence: query.sequence))
+                await merge(moduleID, result)
             }
         }
-        await metrics.mark("query.dispatch.finish")
     }
 
     public func dispatchTargeted(
@@ -89,7 +179,7 @@ public actor QueryDispatcher {
 
         let usageRecords = await usage.snapshot()
         let warmupState = await host.warmupState(for: moduleID)
-        if warmupState == .cold || warmupState == .warming {
+        if warmupState == .cold {
             let warmingRow = ModuleDiagnosticResults.informationalRow(
                 module: moduleID,
                 diagnostic: ModuleDiagnostic(
@@ -106,7 +196,7 @@ public actor QueryDispatcher {
         let result = await Timeout.run(after: manifest.queryTimeout) {
             await module.handle(query, context: context)
         } ?? ModuleResult.empty(
-            for: manifest.identifier,
+            for: moduleID,
             diagnostic: ModuleDiagnostic(kind: .timeout, message: "Module timed out")
         )
 
@@ -145,23 +235,15 @@ public actor QueryDispatcher {
         for item in result.items {
             let usage = usageRecords[item.id]
             var ranked = item
-            let score = Ranker.score(item: item, query: query, usage: usage)
-            ranked.rankingHints.fuzzyScore = Ranker.fuzzyScore(
-                query: query,
-                target: item.title.lowercased(),
-                secondary: item.subtitle?.lowercased()
-            )
-            ranked.rankingHints.finalScore = score
-            scored.append(ScoredItem(item: ranked, score: score))
+            let rankedScore = Ranker.score(item: item, query: query, usage: usage)
+            ranked.rankingHints.fuzzyScore = rankedScore.fuzzyScore
+            ranked.rankingHints.finalScore = rankedScore.finalScore
+            scored.append(ScoredItem(item: ranked, score: rankedScore.finalScore))
         }
 
         let surviving = scored.filter { $0.score > -.infinity }
         let rowsToMerge: [ScoredItem]
         if keepModuleRowsWhenAllFilteredOut, surviving.isEmpty, !result.items.isEmpty {
-            // Targeted modules may return command rows (e.g. app top, s new) that do not
-            // fuzzy-match the payload token. Keep module-provided rows instead of dropping all,
-            // while preserving the module's original order. Global search must not use this
-            // fallback, or non-matching rows would leak back into the hot-path result set.
             rowsToMerge = result.items.enumerated().map { index, item in
                 var ranked = item
                 ranked.rankingHints.fuzzyScore = 1.0

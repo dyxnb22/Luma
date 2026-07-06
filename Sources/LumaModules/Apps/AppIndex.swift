@@ -55,9 +55,16 @@ public struct AppRecord: Sendable, Hashable, Codable {
 
 public struct AppIndex: Sendable {
     private let apps: [AppRecord]
+    private let byBundleID: [String: AppRecord]
 
     public init(apps: [AppRecord]) {
-        self.apps = apps.sorted { $0.displayTitle.localizedCaseInsensitiveCompare($1.displayTitle) == .orderedAscending }
+        let sorted = apps.sorted { $0.displayTitle.localizedCaseInsensitiveCompare($1.displayTitle) == .orderedAscending }
+        self.apps = sorted
+        self.byBundleID = Dictionary(uniqueKeysWithValues: sorted.map { ($0.bundleID, $0) })
+    }
+
+    public func record(bundleID: String) -> AppRecord? {
+        byBundleID[bundleID]
     }
 
     public func search(_ query: String, limit: Int = 20) -> [AppRecord] {

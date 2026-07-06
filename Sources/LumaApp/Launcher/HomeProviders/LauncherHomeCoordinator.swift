@@ -1,5 +1,6 @@
 import Foundation
 import LumaCore
+import LumaInfrastructure
 import LumaModules
 import LumaServices
 
@@ -8,6 +9,8 @@ actor LauncherHomeCoordinator {
     private let aggregator: LauncherHomeAggregator
     private let openApps: OpenAppsHomeProvider
     private var collapsedAppBundleIDs = Set<String>()
+    private var cachedSnapshot: LauncherHomeSnapshot?
+    private var snapshotGeneration: UInt64 = 0
 
     init(
         openApps: OpenAppsHomeProvider,
@@ -22,12 +25,13 @@ actor LauncherHomeCoordinator {
 
     func resetExpansion() {
         collapsedAppBundleIDs.removeAll()
+        invalidateSnapshotCache()
     }
 
     func setActive(_ active: Bool) async {
         await ClipboardPasteboardCache.shared.setActive(active)
+        await openApps.setActive(active)
         if active {
-            // Panel signals are not first-frame critical; avoid competing with home render.
             Task.detached(priority: .utility) {
                 _ = await CurrentProjectService.shared.snapshot()
                 _ = await SelectionSnapshotService.shared.snapshot()
@@ -41,14 +45,38 @@ actor LauncherHomeCoordinator {
         } else {
             collapsedAppBundleIDs.insert(bundleID)
         }
+        invalidateSnapshotCache()
     }
 
     func hasToggledOpenAppWindows() -> Bool {
         !collapsedAppBundleIDs.isEmpty
     }
 
-    func snapshot() async -> LauncherHomeSnapshot {
+    func cachedSnapshotIfAvailable() -> LauncherHomeSnapshot? {
+        cachedSnapshot
+    }
+
+    func currentSnapshotGeneration() -> UInt64 {
+        snapshotGeneration
+    }
+
+    func invalidateSnapshotCache() {
+        cachedSnapshot = nil
+    }
+
+    func snapshot(forceRefresh: Bool = false) async -> LauncherHomeSnapshot {
+        if !forceRefresh, let cachedSnapshot {
+            return cachedSnapshot
+        }
+        LauncherPerfCounters.increment(.homeSnapshot)
         await openApps.configure(collapsedBundleIDs: collapsedAppBundleIDs)
-        return await aggregator.snapshot()
+        let snapshot = await aggregator.snapshot()
+        cachedSnapshot = snapshot
+        snapshotGeneration &+= 1
+        return snapshot
+    }
+
+    func revalidateSnapshotInBackground() async {
+        _ = await snapshot(forceRefresh: true)
     }
 }

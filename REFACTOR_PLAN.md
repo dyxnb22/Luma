@@ -138,6 +138,30 @@ See `PHASE12_SESSION_SHOW_GOVERNANCE_REPORT.md`.
 
 **P1 Exit:** Achieved — Launcher P1.1–P1.5 scope delivered across Phase 11–12; P1.2 session owner explicitly deferred to P2 per audit.
 
+### Phase 14 — P2 planning (2026-07-07)
+
+| Deliverable | Status |
+|-------------|--------|
+| `P2_SCOPE_AUDIT.md` | ✅ |
+| `P2_DECISION_MATRIX.md` | ✅ |
+| `P2_ROADMAP.md` | ✅ |
+
+**P2 entry:** Planning complete. **Execution starts at P2.1** (documentation / manifest hygiene only). See `P2_ROADMAP.md`.
+
+**P2 roadmap summary (execution order):**
+
+| Phase | Focus | Do not |
+|-------|-------|--------|
+| **P2.1** | `docs/PERMISSIONS.md` defaults; Windows manifest metadata; parked/deferred manifest clarity; session state test-only stamp | Enable modules; runtime default flips |
+| **P2.2** | Diagnostic taxonomy; Apps/Clipboard/Notes (+ Core P1) row consistency | Parked module polish; ranking changes |
+| **P2.3** | Lifecycle contract tests; `handle()` memory-only linter/proxy | ModuleHost rewrite |
+| **P2.4** | Core P1 AppKit `@objc` cleanup (incremental) | Bulk parked-module cleanup |
+| **P2.5** | Terminable `LUMA_QA_*` runner; partial harness align | Full AppCoordinator E2E |
+
+**P3 remains separate:** `docs/ENGINEERING.md` location fixes, full harness parity, parked AppKit warns, full `CONTRACTS.md` deviation sweep — see `P2_SCOPE_AUDIT.md` P2 vs P3 boundary.
+
+**P2 global stop:** Any P0 gate failure → revert slice, P0 triage (`P0_EXIT_SUMMARY.md`).
+
 **P1 entry conditions (mandatory):**
 
 1. **Run Phase 9.8 P0 MVP Smoke Gate** (`docs/QA.md`) before starting or merging any P1 work.
@@ -476,7 +500,62 @@ See `PHASE12_SESSION_SHOW_GOVERNANCE_REPORT.md`.
 
 ## 7. P2 — 模块治理
 
-### P2.1 Unified Module Lifecycle Contract
+> **Canonical execution order (Phase 14, 2026-07-07):** `P2_ROADMAP.md` is the source of truth for **what to do next**. Subsections below use the **same P2.1–P2.5 numbering** as Phase 14. The original Phase 7 investigation used a different order (lifecycle first, defaults as P2.3); that order is **superseded** — do not start at old "lifecycle = P2.1". Scope audit: `P2_SCOPE_AUDIT.md`. Decisions: `P2_DECISION_MATRIX.md`.
+
+### P2.1 Documentation / Manifest Hygiene
+
+**Maps to:** Phase 14 P2.1 · formerly Phase 7 **P2.3** (Default Enabled Module Slimming)
+
+**Problem / 现象** — `docs/PERMISSIONS.md`'s Default column marks Menu Items, Wordbook, WindowLayouts, Media, Projects, KillProcess, Secrets, and Workbench as "on," directly contradicting `defaultEnabled: false` in manifests and D-012's current default-on/default-off list — confirmed by direct read of `docs/PERMISSIONS.md` in this phase. `WindowsModule`'s manifest declares `defaultEnabled: true` while the module is not registered in `ModuleRegistry.allBundles` at all (only in `BuiltInModules.makeDeferred()`). Parked/deferred registration status is not consistently documented.
+
+**Evidence / 证据来源** — Direct read of `docs/PERMISSIONS.md` in this phase (Default column); `CONTRACTS.md` C-DEFAULT-004 and C-MODULE-006 and their Current Known Deviations (#1, #2 in the consolidated list); `MODULE_MATRIX.md` Code/Docs Mismatches section; `docs/MODULES.md` current D-012 default-on/default-off lists (which already agree with code); `LAUNCHER_STATE_AUDIT.md` (session state test-only decision).
+
+**Owner Area** — `docs/PERMISSIONS.md` (doc fix), `docs/MODULES.md` (registration status table), `Sources/LumaModules/Windows/` manifest (the misleading `defaultEnabled: true` flag on a deferred module).
+
+**Desired Outcome** — The default-on/off state for every module is identical across `docs/PERMISSIONS.md`, `docs/MODULES.md`, manifests, and `ModuleWarmupDefaults` — closing C-DEFAULT-004 for good, and correcting `WindowsModule`'s misleading manifest flag without registering it. Deferred/parked modules are explicitly labeled. `LauncherSessionState` remains **test-only** (no new production wiring in P2.1).
+
+**Acceptance**
+- `docs/PERMISSIONS.md`'s Default column is corrected to match current code and D-012 for every module, while explicitly distinguishing current default-on state from MVP P0 scope: Apps/Clipboard/Notes are P0 core modules; Snippets/Quicklinks/Translate are Core P1 candidates; Todo follows the `MVP_SCOPE.md` Open Decision until the user decides whether it stays default-on or moves out of the active MVP path. Commands/Media/BrowserTabs/MenuItems/WindowLayouts/Wordbook/Secrets/KillProcess/Projects remain off. This is a **documentation correction**, not a manifest/code change, per the "do not change any module's default on/off switch" boundary already set in `MVP_SCOPE.md`.
+- `docs/PERMISSIONS.md`'s module naming ("Menu Items" vs code/`docs/MODULES.md`'s "Menu Bar Search") is corrected to match.
+- `WindowsModule`'s manifest `defaultEnabled` flag is corrected to `false` (or an equivalent "deferred" marker) to stop misrepresenting a module that is not even registered — this is a P2 hygiene correction, not a Phase 9 P0 starter and not a re-entry of the module into the default path; `WindowsModule` remains unregistered in `ModuleRegistry.allBundles`.
+- After this task, `MVP_SCOPE.md`'s "Current mismatches (target ≠ current fact)" list items for `docs/PERMISSIONS.md` stale defaults and the Windows manifest flag are both resolved.
+
+**Risk** — Very low technical risk (this is primarily a documentation fix plus one manifest flag correction on an already-deferred module); the risk is scope creep into "let's also reconsider which modules should be default-on" — that is explicitly not this task (see Decision Summary #4/#11).
+
+**Dependencies** — None blocking; **must complete before P2.2–P2.5 code slices** per `P2_ROADMAP.md`.
+
+**Non-goals** — Do not change any module's actual `defaultEnabled` value in a way that changes runtime behavior (except the Windows manifest flag, which does not change runtime behavior since the module is unregistered); do not register `WindowsModule`; do not wire `LauncherSessionState` production events; do not resolve the Todo/Translate/Snippets/Quicklinks tier Open Decisions inside this governance task.
+
+---
+
+### P2.2 Unified Diagnostic Behavior
+
+**Maps to:** Phase 14 P2.2 · same topic as Phase 7 **P2.2**
+
+**Problem / 现象** — Diagnostic/failure behavior is inconsistent: non-`.queryable` targeted modules return silent empty (no diagnostic) while disabled modules return a diagnostic row; some modules emit bespoke cold-state strings while the dispatcher's generic `module.warming` row exists in parallel; "empty acceptable" vs "diagnostic required" is decided ad hoc per module in `MODULE_MATRIX.md`, not enforced by any shared mechanism.
+
+**Evidence / 证据来源** — `CONTRACTS.md` C-FAIL-005 and its Current Known Deviations; `PRODUCT_FLOWS.md` Flow 7 (targeted module search) and Flow 14 (module cold start); `MODULE_MATRIX.md` Classification Legend / Diagnostic Requirements section.
+
+**Owner Area** — `Sources/LumaCore/Results/ModuleDiagnosticResults.swift`, `PermissionResultBuilder.swift`, `Sources/LumaCore/Query/QueryDispatcher.swift` (the `module.warming` / timeout-diagnostic synthesis path).
+
+**Desired Outcome** — The MVP Core P0 modules share one documented failure taxonomy (permission-required, degraded/warming, onboarding, timeout, empty-acceptable) with no module inventing ad-hoc semantics that diverge from it; Core P1 / conditional candidates must satisfy the same taxonomy before being treated as active MVP surfaces.
+
+**Acceptance**
+- A single documented failure-behavior table exists (in `docs/ENGINEERING.md` or `docs/MODULES.md`) that each MVP Core P0 module row references, and that Core P1 / conditional candidates reference before activation — this closes the specific gap C-FAIL-005 names ("no single documented failure-behavior table").
+- For the MVP module set: disabled → diagnostic row; permission blocked → diagnostic row (C-FAIL-001); cold cache → warming/degraded row distinct from empty (C-FAIL-002); unconfigured (Notes) → onboarding row (C-FAIL-003); timeout → diagnostic, never silent (C-HOT-005). Each is verified, not assumed.
+- The "non-`.queryable` targeted module returns silent empty" behavior (C-HOT-004 Current Known Deviation) is resolved for MVP modules specifically — either give it a diagnostic or confirm the module state is unreachable in the MVP configuration.
+
+**Risk** — Modules outside the MVP set (Wordbook, Media, Secrets, WindowLayouts, MenuItems, KillProcess, BrowserTabs, Windows) share the same `ModuleDiagnosticResults`/`PermissionResultBuilder` infrastructure; changes here could affect them even though they are out of scope — test the parked modules' existing behavior is unchanged, without investing in improving it.
+
+**Dependencies** — **P2.1** complete.
+
+**Non-goals** — Do not build a new diagnostic-kind enum or taxonomy from scratch — extend/document the existing `ModuleDiagnosticResults`/`ModuleDiagnostic` kinds; do not fix diagnostic behavior for parked modules.
+
+---
+
+### P2.3 Module Lifecycle Contract Tests
+
+**Maps to:** Phase 14 P2.3 · formerly Phase 7 **P2.1** (Unified Module Lifecycle Contract)
 
 **Problem / 现象** — `warmup`/`handle`/`perform`/`teardown` responsibilities are documented as distinct (C-MODULE-002/003) but have per-module exceptions: `KillProcessModule` has no explicit `teardown` despite scheduling refresh tasks; `WordbookModule.perform` throws `unsupportedAction` because review runs in detail instead; `WindowsModule.handle` calls `CGWindowListCopyWindowInfo` directly (deferred/unregistered, must stay that way per Decision Summary #6).
 
@@ -495,85 +574,68 @@ See `PHASE12_SESSION_SHOW_GOVERNANCE_REPORT.md`.
 
 **Risk** — "Unify the contract" can silently balloon into touching every module; the acceptance criteria above scope this strictly to the P0 modules first, with Core P1 / conditional candidates gated before activation, to prevent that.
 
-**Dependencies** — P0 fully exited; P1 core-complexity work substantially done (module governance on top of an unstable core wastes effort per Section 4).
+**Dependencies** — P0 fully exited; P1 core-complexity work substantially done; **P2.1** and **P2.2** complete.
 
-**Non-goals** — Do not fix `WindowsModule`'s `CGWindowListCopyWindowInfo` violation (it is deferred and must stay deferred); do not add `teardown` to `KillProcessModule` (it is default-off/parked); do not touch `WordbookModule.perform`'s `unsupportedAction` design (parked module).
-
----
-
-### P2.2 Unified Diagnostic Behavior
-
-**Problem / 现象** — Diagnostic/failure behavior is inconsistent: non-`.queryable` targeted modules return silent empty (no diagnostic) while disabled modules return a diagnostic row; some modules emit bespoke cold-state strings while the dispatcher's generic `module.warming` row exists in parallel; "empty acceptable" vs "diagnostic required" is decided ad hoc per module in `MODULE_MATRIX.md`, not enforced by any shared mechanism.
-
-**Evidence / 证据来源** — `CONTRACTS.md` C-FAIL-005 and its Current Known Deviations; `PRODUCT_FLOWS.md` Flow 7 (targeted module search) and Flow 14 (module cold start); `MODULE_MATRIX.md` Classification Legend / Diagnostic Requirements section.
-
-**Owner Area** — `Sources/LumaCore/Results/ModuleDiagnosticResults.swift`, `PermissionResultBuilder.swift`, `Sources/LumaCore/Query/QueryDispatcher.swift` (the `module.warming` / timeout-diagnostic synthesis path).
-
-**Desired Outcome** — The MVP Core P0 modules share one documented failure taxonomy (permission-required, degraded/warming, onboarding, timeout, empty-acceptable) with no module inventing ad-hoc semantics that diverge from it; Core P1 / conditional candidates must satisfy the same taxonomy before being treated as active MVP surfaces.
-
-**Acceptance**
-- A single documented failure-behavior table exists (in `docs/ENGINEERING.md` or `docs/MODULES.md`) that each MVP Core P0 module row references, and that Core P1 / conditional candidates reference before activation — this closes the specific gap C-FAIL-005 names ("no single documented failure-behavior table").
-- For the MVP module set: disabled → diagnostic row; permission blocked → diagnostic row (C-FAIL-001); cold cache → warming/degraded row distinct from empty (C-FAIL-002); unconfigured (Notes) → onboarding row (C-FAIL-003); timeout → diagnostic, never silent (C-HOT-005). Each is verified, not assumed.
-- The "non-`.queryable` targeted module returns silent empty" behavior (C-HOT-004 Current Known Deviation) is resolved for MVP modules specifically — either give it a diagnostic or confirm the module state is unreachable in the MVP configuration.
-
-**Risk** — Modules outside the MVP set (Wordbook, Media, Secrets, WindowLayouts, MenuItems, KillProcess, BrowserTabs, Windows) share the same `ModuleDiagnosticResults`/`PermissionResultBuilder` infrastructure; changes here could affect them even though they are out of scope — test the parked modules' existing behavior is unchanged, without investing in improving it.
-
-**Dependencies** — P2.1 (lifecycle contract) should be substantially in place first, since diagnostic behavior is partly a function of lifecycle state (cold/warm/disabled).
-
-**Non-goals** — Do not build a new diagnostic-kind enum or taxonomy from scratch — extend/document the existing `ModuleDiagnosticResults`/`ModuleDiagnostic` kinds; do not fix diagnostic behavior for parked modules.
+**Non-goals** — Do not fix `WindowsModule`'s `CGWindowListCopyWindowInfo` violation (it is deferred and must stay deferred); do not add `teardown` to `KillProcessModule` (it is default-off/parked); do not touch `WordbookModule.perform`'s `unsupportedAction` design (parked module); do not rewrite `ModuleHost`.
 
 ---
 
-### P2.3 Default Enabled Module Slimming
+### P2.4 Non-MVP AppKit Warn Cleanup
 
-**Problem / 现象** — `docs/PERMISSIONS.md`'s Default column marks Menu Items, Wordbook, WindowLayouts, Media, Projects, KillProcess, Secrets, and Workbench as "on," directly contradicting `defaultEnabled: false` in manifests and D-012's current default-on/default-off list — confirmed by direct read of `docs/PERMISSIONS.md` in this phase. `WindowsModule`'s manifest declares `defaultEnabled: true` while the module is not registered in `ModuleRegistry.allBundles` at all (only in `BuiltInModules.makeDeferred()`).
+**Maps to:** Phase 14 P2.4 · extends P1.4 (Clipboard MVP only) to Core P1 detail views
 
-**Evidence / 证据来源** — Direct read of `docs/PERMISSIONS.md` in this phase (Default column); `CONTRACTS.md` C-DEFAULT-004 and C-MODULE-006 and their Current Known Deviations (#1, #2 in the consolidated list); `MODULE_MATRIX.md` Code/Docs Mismatches section; `docs/MODULES.md` current D-012 default-on/default-off lists (which already agree with code).
+**Problem / 现象** — `scripts/scan_appkit_executor_risk.sh` reports ~78 warn-only `@objc` target/action methods inside `@MainActor` AppKit subclasses across detail views (Snippets, Wordbook, Translate, Todo, Media, Secrets, etc.). Clipboard MVP paths were fixed in P1.4; parked-module bulk cleanup is out of scope.
 
-**Owner Area** — `docs/PERMISSIONS.md` (doc fix), `Sources/LumaModules/Windows/` manifest (the misleading `defaultEnabled: true` flag on a deferred module) when P2 hygiene is reached.
+**Owner Area** — Core P1 detail views: `SnippetsDetailView`, `QuicklinksDetailView`, `TranslateDetailView`, `TodoDetailView` (one file per PR).
 
-**Desired Outcome** — The default-on/off state for every module is identical across `docs/PERMISSIONS.md`, `docs/MODULES.md`, manifests, and `ModuleWarmupDefaults` — closing C-DEFAULT-004 for good, and correcting `WindowsModule`'s misleading manifest flag without registering it. This is P2 hygiene, not a Phase 9 P0 starting slice.
+**Desired Outcome** — MVP and Core P1 detail surfaces comply with `docs/swift6-appkit-boundaries.md` without a single large sweep.
 
-**Acceptance**
-- `docs/PERMISSIONS.md`'s Default column is corrected to match current code and D-012 for every module, while explicitly distinguishing current default-on state from MVP P0 scope: Apps/Clipboard/Notes are P0 core modules; Snippets/Quicklinks/Translate are Core P1 candidates; Todo follows the `MVP_SCOPE.md` Open Decision until the user decides whether it stays default-on or moves out of the active MVP path. Commands/Media/BrowserTabs/MenuItems/WindowLayouts/Wordbook/Secrets/KillProcess/Projects remain off. This is a **documentation correction**, not a manifest/code change, per the "do not change any module's default on/off switch" boundary already set in `MVP_SCOPE.md`.
-- `docs/PERMISSIONS.md`'s module naming ("Menu Items" vs code/`docs/MODULES.md`'s "Menu Bar Search") is corrected to match.
-- `WindowsModule`'s manifest `defaultEnabled` flag is corrected to `false` (or an equivalent "deferred" marker) to stop misrepresenting a module that is not even registered — this is a P2 hygiene correction, not a Phase 9 P0 starter and not a re-entry of the module into the default path; `WindowsModule` remains unregistered in `ModuleRegistry.allBundles`.
-- After this task, `MVP_SCOPE.md`'s "Current mismatches (target ≠ current fact)" list items for `docs/PERMISSIONS.md` stale defaults and the Windows manifest flag are both resolved.
+**Acceptance** — Touched file: zero scanner warns for that file; `swift build`; targeted module smoke if available.
 
-**Risk** — Very low technical risk (this is primarily a documentation fix plus one manifest flag correction on an already-deferred module); the risk is scope creep into "let's also reconsider which modules should be default-on" — that is explicitly not this task (see Decision Summary #4/#11).
+**Dependencies** — P2.1–P2.3 substantially complete (avoid mixing with lifecycle/diagnostic refactors in same PR).
 
-**Dependencies** — None blocking; can run any time after P0, but sits in P2 because it is module governance, not runtime recovery. It must not displace Phase 9's P0 implementation slices.
+**Non-goals** — Parked modules (Wordbook, Media, Secrets, Projects); scanner rule changes; `docs/swift6-appkit-boundaries.md` rewrite.
 
-**Non-goals** — Do not change any module's actual `defaultEnabled` value in a way that changes runtime behavior (except the Windows manifest flag, which does not change runtime behavior since the module is unregistered); do not register `WindowsModule`; do not resolve the Todo/Translate/Snippets/Quicklinks tier Open Decisions inside this governance task.
+*Full slice spec: `P2_ROADMAP.md` § P2.4.*
 
 ---
 
-### P2.4 Module Detail View Layering
+### P2.5 QA Harness / Smoke Runner
 
-**Problem / 现象** — Whether any no-detail module's open-detail path is reachable via normal user flow is unconfirmed (C-DETAIL-005 deviation); `Apps`, `Commands`, `MenuItems`, `KillProcess`, `BrowserTabs`, `WindowLayouts`, and `Windows` have no registered detail view per `MODULE_MATRIX.md`'s Summary Matrix, and whether their `bareBehavior`/actions ever advertise an unreachable "open detail" affordance has not been directly verified.
+**Maps to:** Phase 14 P2.5 · partial overlap with P3.2/P3.4
 
-**Evidence / 证据来源** — `CONTRACTS.md` C-DETAIL-005 and its Current Known Deviation; `MODULE_MATRIX.md` Summary Matrix "Detail View" column; `PRODUCT_FLOWS.md` Flow 10 (`makeDetailView` returns `nil` when no factory registered).
+**Problem / 现象** — `LUMA_QA_*` smokes write JSON but do not terminate the app; `LauncherFlowHarness` diverges from production wiring (C-TEST-004).
 
-**Owner Area** — `Sources/LumaApp/Composition/ModuleDetailRegistry.swift` (`makeDefault()` registrations), each no-detail module's `bareBehavior`/action declarations.
+**Owner Area** — `scripts/run_p0_smokes.sh` (new), optional auto-exit in `*ProductionSmoke.swift`, `LauncherFlowHarness.swift`.
 
-**Desired Outcome** — Confirmed, verified mapping between "has a registered detail" and "advertises an open-detail affordance" for every module, closing the C-DETAIL-005 unconfirmed-reachability gap.
+**Desired Outcome** — Single terminable P0 smoke command; harness documents or achieves production router parity.
 
-**Acceptance**
-- For each of Apps, Commands, MenuItems, KillProcess, BrowserTabs, WindowLayouts (the currently no-detail modules per `MODULE_MATRIX.md`), a direct check confirms their `bareBehavior` does not advertise `.openDetail`, or if one does, either a detail is added or the affordance is removed.
-- `ModuleDetailRegistry.makeDefault()`'s registration list is cross-checked against `docs/MODULES.md`'s "Primary Surface" column for every MVP Core P0 module and any Core P1 / conditional candidate before activation — mismatches are fixed (either register the missing detail factory or correct the docs).
-- Detail views for the MVP set (Clipboard, Notes, Todo, Translate, Snippets, Quicklinks) do not trigger heavyweight module lifecycle (warmup/teardown) beyond what the module's own contract allows when the detail is opened/closed repeatedly (ties to P1.3/C-DETAIL-001).
+**Acceptance** — `./scripts/run_p0_smokes.sh` exits 0/1 with JSON artifacts; `docs/QA.md` references script.
 
-**Risk** — Low risk for the no-detail modules (Apps/Commands/etc. are simple confirm-and-document work); slightly higher risk if a mismatch is found requiring an actual detail-view addition, which would be new UI work beyond this plan's "no new feature surface" boundary — if found, register it as a backlog item rather than building it under P2.
+**Dependencies** — P2.1–P2.4 slices stable; P0 gate green.
 
-**Dependencies** — P1.3 (Detail Lifecycle) should be documented first so this task has a clear layering model to check against.
+**Non-goals** — Full AppCoordinator E2E framework; CI macOS runner requirement in first slice.
 
-**Non-goals** — Do not build new detail views for currently no-detail modules; do not change `bareBehavior` design for parked modules.
+*Full slice spec: `P2_ROADMAP.md` § P2.5.*
 
+---
+
+### Legacy backlog — Module Detail View Layering (Phase 7 P2.4)
+
+> **Superseded for P2 execution order.** Not part of Phase 14 P2.1–P2.5. Defer to **P3** or product backlog unless C-DETAIL-005 becomes a P0 regression.
+
+**Problem / 现象** — Whether any no-detail module's open-detail path is reachable via normal user flow is unconfirmed (C-DETAIL-005 deviation); `Apps`, `Commands`, `MenuItems`, `KillProcess`, `BrowserTabs`, `WindowLayouts`, and `Windows` have no registered detail view per `MODULE_MATRIX.md`'s Summary Matrix.
+
+**Dependencies** — P1.3 (Detail Lifecycle) documented.
+
+**Non-goals** — Do not build new detail views for currently no-detail modules under P2.
+
+---
 ## 8. P3 — 文档和测试对齐
 
 ### P3.1 Remove / Rewrite Stale Docs
 
-**Problem / 现象** — Beyond the `docs/PERMISSIONS.md` default-column staleness (P2.3), other doc/code mismatches exist: `LauncherContentMode`'s documented location (`docs/ENGINEERING.md` says "in `LauncherContentCoordinator`") vs actual location (`LauncherKeyRouter.swift`); diagnostics ownership documented as `LumaInfrastructure` while `DiagnosticsPayload`/`DiagnosticsExport`/`CrashLogRecording` actually live in `LumaCore/Util`; `crash-log.txt`'s actual path undocumented anywhere.
+**Problem / 现象** — Beyond the `docs/PERMISSIONS.md` default-column staleness (P2.1), other doc/code mismatches exist: `LauncherContentMode`'s documented location (`docs/ENGINEERING.md` says "in `LauncherContentCoordinator`") vs actual location (`LauncherKeyRouter.swift`); diagnostics ownership documented as `LumaInfrastructure` while `DiagnosticsPayload`/`DiagnosticsExport`/`CrashLogRecording` actually live in `LumaCore/Util`; `crash-log.txt`'s actual path undocumented anywhere.
 
 **Evidence / 证据来源** — `CONTRACTS.md` Current Known Deviations #5, #17; `ARCHITECTURE_MAP.md` layer cross-check section; `MODULE_MATRIX.md` Code/Docs Mismatches section.
 
@@ -590,7 +652,7 @@ See `PHASE12_SESSION_SHOW_GOVERNANCE_REPORT.md`.
 
 **Risk** — Low technical risk; the main risk is doing this before P1.2's `LauncherContentMode` decision lands, which would mean redoing this doc fix twice — sequence after P1.2.
 
-**Dependencies** — P1.2 (content-mode location decision), P0.8 (diagnostics path facts must be settled), P2.3 (defaults doc fix, closely related).
+**Dependencies** — P1.2 (content-mode location decision), P0.8 (diagnostics path facts must be settled), P2.1 (defaults doc fix, closely related).
 
 **Non-goals** — Do not rewrite `docs/ENGINEERING.md`/`docs/MODULES.md` wholesale; do not delete `docs/DECISIONS.md` history; do not add new documentation files beyond correcting existing ones.
 
@@ -675,9 +737,9 @@ See `PHASE12_SESSION_SHOW_GOVERNANCE_REPORT.md`.
 - **P1.4** (Task/MainActor cleanup) should follow P1.1 to reduce merge conflict risk, but can run in parallel with P1.3 (Detail Lifecycle).
 - **P1.5** (Cache/repaint separation) depends on P0.2's hotkey fix landing first, since P0.2 may already resolve most of the underlying cause.
 - **P2** (module governance) must not precede MVP core stabilization (P0 exit + substantial P1 progress) — governing modules on top of an unstable or overly complex core wastes the governance work.
-- **P2.1** (lifecycle contract) precedes **P2.2** (diagnostic behavior), since diagnostic state is partly a function of lifecycle state.
-- **P2.3** (default slimming, mostly a docs/manifest-flag fix) has no hard blocking dependency and can run any time after P0, but is placed in P2 because it is module governance in nature.
-- **P2.4** (detail view layering) depends on P1.3's documented layering model.
+- **P2.1** (documentation / manifest hygiene) is the **first** P2 execution slice — complete before P2.2–P2.5 per `P2_ROADMAP.md`.
+- **P2.2** (diagnostic behavior) follows P2.1; **P2.3** (lifecycle contract tests) follows P2.2.
+- **P2.4** (AppKit warn cleanup) and **P2.5** (QA harness) follow P2.1–P2.3; detail-view layering is **legacy backlog** (Phase 7 P2.4), not part of Phase 14 P2.1–P2.5.
 - **P3** (docs/tests alignment) depends on P0-P2 being substantially settled, since it documents and locks in their outcome; doing P3 early would require rework.
 - **P3.1** (stale docs) depends on P1.2's content-mode decision and P0.8's diagnostics-path facts.
 - **P3.4** (real smoke test) depends on P0's exit criteria being defined and stable, since the smoke test's entire purpose is verifying those criteria.

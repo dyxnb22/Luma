@@ -2,8 +2,7 @@
 
 **Date:** 2026-07-07  
 **P0 baseline commit:** `889ebd35` — *Add QA smoke hooks and config corruption tracking*  
-**P1 work commit:** `c53fb635` — *Refine launcher session and show-entry governance* (Phase 11–12)  
-**Phase 13 commit readiness:** `LauncherWindowController` policy consistency fix (pending commit)  
+**P1 commit:** `bc966c29` — *Refine launcher show-entry and session governance* (includes Phase 13)  
 **P1 Exit verdict:** **Go** ✅
 
 ---
@@ -14,7 +13,7 @@
 |-----------|--------|-------|
 | P0 code + smoke hooks | `889ebd35` | Frozen MVP functional baseline |
 | P0 exit docs | `803b0672` | `docs/QA.md` smoke gate |
-| P1 Launcher reduction | `c53fb635` | Phase 11–12 combined |
+| P1 Launcher reduction | `bc966c29` | Phase 11–13 combined |
 
 ---
 

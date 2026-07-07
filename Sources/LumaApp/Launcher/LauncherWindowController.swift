@@ -123,8 +123,8 @@ final class LauncherWindowController {
     }
 
     func refreshHomeForBackgroundDataUpdate() {
-        guard !panel.isVisible else { return }
-        rootView?.refreshHome()
+        guard !visibilitySession.isVisible else { return }
+        rootView?.refreshHome(intent: .backgroundCacheWarm)
     }
 
     func setLatencyHUDEnabled(_ enabled: Bool) {
@@ -174,12 +174,26 @@ final class LauncherWindowController {
 
     /// Carbon global hotkey — show only when panel is hidden.
     func showFromCarbonHotkey() {
-        guard !visibilitySession.isVisible else { return }
-        let now = ContinuousClock.now
-        if let lastCarbonShowAt, now - lastCarbonShowAt < .milliseconds(120) {
+        show(reason: .carbonHotkey)
+    }
+
+    /// Menu bar Show — may re-front/refocus when already visible (intentional; see `LAUNCHER_SHOW_ENTRY_CONTRACT.md`).
+    func showFromMenuBar() {
+        show(reason: .menuBar)
+    }
+
+    func show(reason: LauncherShowReason) {
+        if visibilitySession.isVisible,
+           !LauncherShowEntryPolicy.shouldBeginShowWhenAlreadyVisible(reason: reason) {
             return
         }
-        lastCarbonShowAt = now
+        if reason == .carbonHotkey {
+            let now = ContinuousClock.now
+            if let lastCarbonShowAt, now - lastCarbonShowAt < .milliseconds(120) {
+                return
+            }
+            lastCarbonShowAt = now
+        }
         show()
     }
 
@@ -282,6 +296,19 @@ final class LauncherWindowController {
         }
     }
 
+    private func finalizePanelHidden() {
+        clearMenuTarget()
+        rootView?.invalidatePanelSignalsCache()
+        rootView?.flushPendingSessionWrites()
+        rootView?.resetHomeExpansion()
+        rootView?.stopPermissionPolling()
+        rootView?.stopPerformanceSampling()
+        rootView?.setPanelSignalsActive(false)
+        panel.orderOut(nil)
+        panel.alphaValue = 1
+        onDidHide?()
+    }
+
     private func clearMenuTarget() {
         LauncherMenuTarget.clear()
         Task {
@@ -296,17 +323,8 @@ final class LauncherWindowController {
             LauncherDurationRecorder.record(category: .panelHide, key: "panel", milliseconds: ms)
             self.hideStart = nil
         }
-        clearMenuTarget()
-        rootView?.invalidatePanelSignalsCache()
-        rootView?.flushPendingSessionWrites()
         rootView?.saveCurrentSession()
-        rootView?.resetHomeExpansion()
-        rootView?.stopPermissionPolling()
-        rootView?.stopPerformanceSampling()
-        rootView?.setPanelSignalsActive(false)
-        panel.orderOut(nil)
-        panel.alphaValue = 1
-        onDidHide?()
+        finalizePanelHidden()
     }
 
     func hideImmediatelyForAction() {
@@ -319,17 +337,8 @@ final class LauncherWindowController {
         Task { @MainActor in
             await self.rootView?.prepareDetailForHide()
             guard self.visibilitySession.shouldCompleteHide(generationAtHide: generationAtHide) else { return }
-            self.clearMenuTarget()
-            self.rootView?.invalidatePanelSignalsCache()
-            self.rootView?.flushPendingSessionWrites()
             self.rootView?.resetForActionDismiss()
-            self.rootView?.resetHomeExpansion()
-            self.rootView?.stopPermissionPolling()
-            self.rootView?.stopPerformanceSampling()
-            self.rootView?.setPanelSignalsActive(false)
-            self.panel.orderOut(nil)
-            self.panel.alphaValue = 1
-            self.onDidHide?()
+            self.finalizePanelHidden()
         }
     }
 

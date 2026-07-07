@@ -236,8 +236,8 @@ final class ClipboardDetailView: NSObject, ModuleDetailView {
         return toolbar
     }
 
-    @objc private func searchChanged() {
-        refresh()
+    @objc nonisolated private func searchChanged() {
+        Task { @MainActor [weak self] in self?.refresh() }
     }
 
     @objc private func resizeTableColumn() {
@@ -365,15 +365,19 @@ final class ClipboardDetailView: NSObject, ModuleDetailView {
         onOpenSettings?()
     }
 
-    @objc private func copySelected() {
-        guard let entry = selectedEntry() else { return }
-        copyEntry(id: entry.id)
+    @objc nonisolated private func copySelected() {
+        Task { @MainActor [weak self] in
+            guard let self, let entry = self.selectedEntry() else { return }
+            self.copyEntry(id: entry.id)
+        }
     }
 
-    @objc private func copySelectedPlainText() {
-        guard let entry = selectedEntry() else { return }
-        guard entry.imageData == nil, entry.fileURLs?.isEmpty != false else { return }
-        copyEntry(id: entry.id, plainTextOnly: true)
+    @objc nonisolated private func copySelectedPlainText() {
+        Task { @MainActor [weak self] in
+            guard let self, let entry = self.selectedEntry() else { return }
+            guard entry.imageData == nil, entry.fileURLs?.isEmpty != false else { return }
+            self.copyEntry(id: entry.id, plainTextOnly: true)
+        }
     }
 
     private func copyEntry(id: UUID, plainTextOnly: Bool = false) {
@@ -388,14 +392,18 @@ final class ClipboardDetailView: NSObject, ModuleDetailView {
         }
     }
 
-    @objc private func doubleClickRow() {
-        guard let entry = selectedEntry() else { return }
-        pasteEntry(entry)
+    @objc nonisolated private func doubleClickRow() {
+        Task { @MainActor [weak self] in
+            guard let self, let entry = self.selectedEntry() else { return }
+            self.pasteEntry(entry)
+        }
     }
 
-    @objc private func pasteSelected() {
-        guard let entry = selectedEntry() else { return }
-        pasteEntry(entry)
+    @objc nonisolated private func pasteSelected() {
+        Task { @MainActor [weak self] in
+            guard let self, let entry = self.selectedEntry() else { return }
+            self.pasteEntry(entry)
+        }
     }
 
     private func pasteEntry(_ entry: ClipboardEntry) {

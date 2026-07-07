@@ -136,7 +136,9 @@ final class LauncherRootView: NSView {
         Task { [homeCoordinator] in await homeCoordinator.setActive(active) }
     }
     @MainActor
-    func refreshHome() { controller.refreshHome() }
+    func refreshHome(intent: LauncherHomeRefreshIntent = .visibleRepaint) {
+        controller.refreshHome(intent: intent)
+    }
     @MainActor
     func resetHomeExpansion() { controller.resetHomeExpansion() }
     @MainActor

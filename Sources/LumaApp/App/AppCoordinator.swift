@@ -250,7 +250,7 @@ final class AppCoordinator {
             }
         }
         menuBarController = MenuBarController(
-            onShow: { self.windowController.show() },
+            onShow: { self.windowController.showFromMenuBar() },
             onSettings: { [weak self] in
                 self?.windowController.hideImmediatelyForAction()
                 self?.settingsWindowController?.show()

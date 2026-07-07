@@ -197,7 +197,7 @@ final class LauncherRootController: LauncherDetailPresenting {
             return false
         case .status(let message):
             showStatus(message)
-            contentCoordinator.beginShowingResults()
+            transitionToResultsMode(clearStaleContent: false)
             listView.isHidden = false
             enqueueSnapshotApply(ResultSnapshot(querySequence: 0, items: []))
             return true
@@ -209,7 +209,7 @@ final class LauncherRootController: LauncherDetailPresenting {
                 replaceQueryHandler(text)
             } else {
                 searchBar.stringValue = text
-                lastSyncedQuery = ""
+                resetSyncedQueryForRestore()
                 handleTextChange(text)
             }
             return true
@@ -265,7 +265,7 @@ final class LauncherRootController: LauncherDetailPresenting {
 
     func startQuerySync() {
         stopQuerySync()
-        lastSyncedQuery = searchBar.queryText
+        syncQueryBaselineFromSearchField()
         querySyncGraceUntil = ContinuousClock.now.advanced(by: .seconds(1))
         ensureQuerySyncTimerIfNeeded()
     }
@@ -315,9 +315,9 @@ final class LauncherRootController: LauncherDetailPresenting {
         searchBar.cancelDetailMode()
         searchBar.resetQueryText()
         searchBar.setPlaceholder(ModuleSearchHints.cheatSheet)
-        lastSyncedQuery = ""
+        resetSyncedQueryForRestore()
         commandHintBar.apply(nil)
-        launcherEnvironment.isLauncherQueryEmpty = true
+        recordQueryEmptyState()
         contentCoordinator.tearDownDetailIfNeeded()
         contentCoordinator.resetResults()
         listView.clear()
@@ -337,7 +337,11 @@ final class LauncherRootController: LauncherDetailPresenting {
 
     var lastRenderedHomeGeneration: UInt64 = 0
 
-    func refreshHome(preserveListSelection: Bool = false, force: Bool = false) {
+    func refreshHome(
+        preserveListSelection: Bool = false,
+        force: Bool = false,
+        intent: LauncherHomeRefreshIntent = .visibleRepaint
+    ) {
         homeRefreshTask?.cancel()
         let generation = homeRefreshGeneration.current
         homeRefreshTask = Task { [weak self] in
@@ -346,34 +350,54 @@ final class LauncherRootController: LauncherDetailPresenting {
                 let homeGen = await self.homeCoordinator.currentSnapshotGeneration()
                 if homeGen == self.lastRenderedHomeGeneration,
                    await self.homeCoordinator.cachedSnapshotIfAvailable() != nil {
-                    await MainActor.run {
-                        _ = HomeLatencyTracker.markHomeRendered()
+                    if LauncherHomeRefreshRepaintPolicy.shouldCloseHotkeyLatencyOnCacheHit(
+                        intent: intent,
+                        isPanelActiveForQueryApply: self.isPanelActiveForQueryApply
+                    ) {
+                        await MainActor.run {
+                            _ = HomeLatencyTracker.markHomeRendered()
+                        }
                     }
                     return
                 }
             }
             let snapshot = await self.homeCoordinator.snapshot()
             guard !Task.isCancelled else { return }
+            var didRepaint = false
             await MainActor.run {
                 guard self.homeRefreshGeneration.isCurrent(generation) else { return }
-                let trimmed = self.searchBar.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
-                guard trimmed.isEmpty else { return }
-                if self.contentCoordinator.showingDetail {
-                    self.contentCoordinator.showHome(snapshot, preserveSelection: true)
-                    self.syncRowActionHint()
+                let guards = LauncherHomeRefreshRepaintPolicy.VisibleRepaintGuards(
+                    queryTrimmedEmpty: self.searchBar.stringValue
+                        .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                    showingDetail: self.contentCoordinator.showingDetail,
+                    showingResults: self.contentCoordinator.showingResults,
+                    isLauncherQueryEmpty: self.launcherEnvironment.isLauncherQueryEmpty
+                )
+                guard LauncherHomeRefreshRepaintPolicy.shouldRepaintHome(intent: intent, guards: guards) else {
                     return
                 }
-                guard !self.contentCoordinator.showingResults,
-                      self.launcherEnvironment.isLauncherQueryEmpty else { return }
-                self.contentCoordinator.showHome(
-                    snapshot,
-                    preserveSelection: preserveListSelection
-                )
-                self.syncSplitLayout()
-                self.syncRowActionHint()
-                _ = HomeLatencyTracker.markHomeRendered()
+                if guards.showingDetail {
+                    self.contentCoordinator.showHome(snapshot, preserveSelection: true)
+                    self.syncRowActionHint()
+                } else {
+                    self.contentCoordinator.showHome(
+                        snapshot,
+                        preserveSelection: preserveListSelection
+                    )
+                    self.syncSplitLayout()
+                    self.syncRowActionHint()
+                    if self.isPanelActiveForQueryApply {
+                        _ = HomeLatencyTracker.markHomeRendered()
+                    }
+                }
+                didRepaint = true
             }
-            self.lastRenderedHomeGeneration = await homeCoordinator.currentSnapshotGeneration()
+            if LauncherHomeRefreshRepaintPolicy.shouldAdvanceRenderedGeneration(
+                intent: intent,
+                didRepaint: didRepaint
+            ) {
+                self.lastRenderedHomeGeneration = await homeCoordinator.currentSnapshotGeneration()
+            }
         }
         if let homeRefreshTask {
             taskRegistry.register(key: "homeRefresh", task: homeRefreshTask)
@@ -388,9 +412,9 @@ final class LauncherRootController: LauncherDetailPresenting {
         searchBar.cancelDetailMode()
         searchBar.resetQueryText()
         searchBar.setPlaceholder(ModuleSearchHints.cheatSheet)
-        lastSyncedQuery = ""
+        resetSyncedQueryForRestore()
         commandHintBar.apply(nil)
-        launcherEnvironment.isLauncherQueryEmpty = true
+        recordQueryEmptyState()
         listView.isHidden = false
         listView.alphaValue = 1
         syncKeyHints()
@@ -469,7 +493,7 @@ final class LauncherRootController: LauncherDetailPresenting {
         guard !contentCoordinator.showingDetail, !actionPanel.isVisible else { return }
         searchBar.focus()
         searchBar.appendText(text)
-        lastSyncedQuery = ""
+        resetSyncedQueryForRestore()
         handleTextChange(searchBar.stringValue)
     }
 
@@ -504,10 +528,7 @@ final class LauncherRootController: LauncherDetailPresenting {
     /// Cancels async work and marks the panel inactive for snapshot apply (panel hide only).
     func cancelActiveQueryAndSnapshotApply() {
         cancelLauncherAsyncWork()
-        isPanelActiveForQueryApply = false
-        if sessionState.panel == .visible || sessionState.panel == .showing {
-            applySessionEvent(.panelHideBegan)
-        }
+        markPanelInactiveForSnapshotApply()
         LauncherPerfCounters.increment(.queryCancelOnHide)
     }
 
@@ -529,11 +550,11 @@ final class LauncherRootController: LauncherDetailPresenting {
     }
 
     func activatePanelForQueryApply() {
-        isPanelActiveForQueryApply = true
-        applySessionEvent(.panelShowCompleted)
+        markPanelActiveForSnapshotApply()
     }
 
     func applySessionEvent(_ event: LauncherSessionEvent) {
+        // Partial production wiring — see LAUNCHER_SESSION_STATE_AUDIT.md (4/11 events).
         let effects = sessionState.apply(event)
         LauncherSessionEffectApplier.apply(effects, environment: sessionEffectEnvironment())
     }
@@ -670,12 +691,21 @@ final class LauncherRootController: LauncherDetailPresenting {
 
     func resetForActionDismiss() {
         if contentCoordinator.showingDetail {
-            saveCurrentSession()
+            persistDetailForActionDismiss()
             return
         }
+        resetLauncherStateAfterActionDismiss()
+    }
+
+    /// Detail stays mounted for session restore; action dismiss only flushes persisted session.
+    private func persistDetailForActionDismiss() {
+        saveCurrentSession()
+    }
+
+    private func resetLauncherStateAfterActionDismiss() {
         sessionStore.suppressPersistence = true
         searchBar.stringValue = ""
-        launcherEnvironment.isLauncherQueryEmpty = true
+        recordQueryEmptyState()
         contentCoordinator.resetResults()
         viewModel.cancel()
         sessionStore.suppressPersistence = false
@@ -723,21 +753,25 @@ final class LauncherRootController: LauncherDetailPresenting {
     }
 
     func exitDetailFromChrome() {
+        applyDetailExitFromChrome()
+    }
+
+    /// User typed a new query while module detail was open — discard suspended query and search.
+    private func dismissDetailForNewQuery() {
+        searchBar.cancelDetailMode()
+        closeDetail(animatedToGuide: false)
+    }
+
+    private func applyDetailExitFromChrome() {
         let outcome = LauncherDetailExitPlanner.outcome(
             showingDetail: contentCoordinator.showingDetail,
             suspendedQuery: searchBar.detailSuspendedQueryForPlanner,
             columnSplitActive: currentHomeSplitState().columnSplitActive
         )
-        executeDetailExitOutcome(outcome)
+        applyDetailExitOutcome(outcome)
     }
 
-    /// User typed a new query while module detail was open — discard suspended query and search.
-    private func exitDetailForUserTyping() {
-        searchBar.cancelDetailMode()
-        closeDetail(animatedToGuide: false)
-    }
-
-    private func executeDetailExitOutcome(_ outcome: LauncherDetailExitOutcome) {
+    private func applyDetailExitOutcome(_ outcome: LauncherDetailExitOutcome) {
         switch outcome {
         case .reenableSearchOnly:
             searchBar.reEnableSearchFieldIfNeeded()
@@ -746,7 +780,7 @@ final class LauncherRootController: LauncherDetailPresenting {
             _ = searchBar.endDetailMode()
             closeDetail(animatedToGuide: false)
             searchBar.stringValue = restored
-            lastSyncedQuery = ""
+            resetSyncedQueryForRestore()
             handleTextChange(restored)
             focusSearchField()
         case .returnToHome(let crossfadeToGuide):
@@ -793,18 +827,16 @@ final class LauncherRootController: LauncherDetailPresenting {
         ) {
             actionPanel.dismiss()
         }
-        lastSyncedQuery = text
         let queryState = QueryView(raw: text, viewModel: viewModel)
         lastQueryView = queryState
-        launcherEnvironment.isLauncherQueryEmpty = queryState.trimmed.isEmpty
+        recordQueryTextChange(text, isEmpty: queryState.trimmed.isEmpty)
         searchBar.setPlaceholder(ModuleSearchHints.placeholder(for: text))
         commandHintBar.apply(queryState.hint, helpTrigger: queryState.helpTrigger)
         LauncherPerfCounters.increment(.layoutHint)
         sessionStore.saveSearchQuery(text)
         if queryState.trimmed.isEmpty {
             lastResultsRouteKind = .empty
-            searchBar.cancelDetailMode()
-            contentCoordinator.dismissResultsForEmptyQuery()
+            transitionToEmptyQueryHome()
             viewModel.cancel()
             cancelPendingSnapshotApply()
             syncSplitLayout()
@@ -817,12 +849,12 @@ final class LauncherRootController: LauncherDetailPresenting {
         guard modulesReady else { return }
         homeRefreshTask?.cancel()
         if contentCoordinator.showingDetail {
-            exitDetailForUserTyping()
+            dismissDetailForNewQuery()
         }
         listView.isHidden = false
         listView.alphaValue = 1
         let clearStale = shouldClearStaleResults(for: queryState.resultsRouteKind)
-        contentCoordinator.beginShowingResults(clearStaleContent: clearStale)
+        transitionToResultsMode(clearStaleContent: clearStale)
         lastResultsRouteKind = queryState.resultsRouteKind
         syncKeyHints()
         syncPerformanceStripVisibility()
@@ -839,8 +871,7 @@ final class LauncherRootController: LauncherDetailPresenting {
         }
         let route = queryState.commandRoute
         if case .globalSearch = route, queryState.trimmed.count < 2 {
-            listView.clear()
-            contentCoordinator.beginShowingResults(clearStaleContent: true)
+            transitionToClearedResultsList()
             syncKeyHints()
             syncPerformanceStripVisibility()
             let message = SearchEmptyState.message(
@@ -992,7 +1023,11 @@ final class LauncherRootController: LauncherDetailPresenting {
     }
 
     private func activateSelectedOrShowNoResults() {
-        if contentCoordinator.currentItems.isEmpty {
+        switch LauncherReturnActivationPolicy.outcome(
+            itemCount: contentCoordinator.currentItems.count,
+            selectedIndex: contentCoordinator.selectedIndex
+        ) {
+        case .showEmptyQueryMessage:
             let raw = searchBar.stringValue
             let route = viewModel.commandRouter.route(raw: raw)
             let message = SearchEmptyState.message(
@@ -1001,13 +1036,11 @@ final class LauncherRootController: LauncherDetailPresenting {
                 registry: viewModel.commandRouter.registry
             )
             commandHintBar.showStatus(message)
-            return
-        }
-        if !contentCoordinator.currentItems.indices.contains(contentCoordinator.selectedIndex) {
+        case .showNoResultsYet:
             commandHintBar.showStatus(LauncherStatusMessages.noResultsYet)
-            return
+        case .activateSelected:
+            activateSelectedItem()
         }
-        activateSelectedItem()
     }
 
     @discardableResult
@@ -1232,7 +1265,7 @@ final class LauncherRootController: LauncherDetailPresenting {
             openModuleDetail(for: moduleID)
         case .replaceQuery(let text):
             searchBar.stringValue = text
-            lastSyncedQuery = ""
+            resetSyncedQueryForRestore()
             handleTextChange(text)
         case .openNotePath(let path):
             openNote(at: path, for: ResultItem(
@@ -1392,7 +1425,7 @@ final class LauncherRootController: LauncherDetailPresenting {
         case .todoCapture:
             let text = resume.todoCaptureText ?? entry.preview ?? ""
             searchBar.stringValue = TodoModule.resumeQuery(forCapture: text)
-            lastSyncedQuery = ""
+            resetSyncedQueryForRestore()
             handleTextChange(searchBar.stringValue)
         case .noteAction:
             commandHintBar.showStatus("Note capture already applied")
@@ -1413,7 +1446,7 @@ final class LauncherRootController: LauncherDetailPresenting {
             openModuleDetail(for: .quicklinks)
         case .todoCapture(let text):
             searchBar.stringValue = TodoModule.resumeQuery(forCapture: text)
-            lastSyncedQuery = ""
+            resetSyncedQueryForRestore()
             handleTextChange(searchBar.stringValue)
         case .noteReference(let path, _):
             openNote(at: path, for: nil)
@@ -1456,7 +1489,7 @@ final class LauncherRootController: LauncherDetailPresenting {
             }
         case .todoDraft:
             searchBar.stringValue = TodoModule.resumeQuery(forCapture: result.preview)
-            lastSyncedQuery = ""
+            resetSyncedQueryForRestore()
             handleTextChange(searchBar.stringValue)
         case .snippetDraft, .quicklinkDraft, .projectSnippetDraft:
             openModuleDetail(for: result.moduleID, payload: result.openDetailPayload)
@@ -1585,7 +1618,7 @@ final class LauncherRootController: LauncherDetailPresenting {
         guard let index = contentCoordinator.currentItems.firstIndex(where: {
             $0.id.module == module && $0.id.key == "open-detail"
         }) else { return }
-        contentCoordinator.updateSelection(to: index)
+        setSelectionIndex(index)
     }
 
     private func openTranslateDetail(with text: String) {
@@ -1629,13 +1662,11 @@ final class LauncherRootController: LauncherDetailPresenting {
             moveActionPanelSelection: { [weak self] delta in self?.actionPanel.moveSelection(delta: delta) },
             activateActionPanelIndex: { [weak self] index in self?.actionPanel.activateIndex(index) },
             moveListSelection: { [weak self] delta in
-                guard let self else { return }
-                let next = self.contentCoordinator.selectedIndex + delta
-                self.contentCoordinator.updateSelection(to: min(max(0, next), max(0, self.contentCoordinator.currentItems.count - 1)))
+                self?.moveSelection(by: delta)
             },
             jumpToFlatIndex: { [weak self] index in
                 guard let self else { return }
-                self.contentCoordinator.updateSelection(to: index)
+                self.setSelectionIndex(index)
                 if let item = self.contentCoordinator.currentItems[safe: index] { self.handleRun(item) }
             },
             runItem: { [weak self] item in self?.run(item: item) },
@@ -1650,6 +1681,69 @@ final class LauncherRootController: LauncherDetailPresenting {
                 self?.commandHintBar.showStatus(LauncherStatusMessages.noAlternateActions)
             }
         ))
+    }
+}
+
+// MARK: - State write gates (Phase 11.2)
+
+/// `LauncherContentCoordinator` remains the UI state store; these methods are the only
+/// `LauncherRootController` entry points that mutate query routing, selection, content mode,
+/// and panel-active snapshot apply policy. Direct coordinator/searchBar writes outside this
+/// extension should be treated as regressions.
+private extension LauncherRootController {
+
+    func recordQueryTextChange(_ text: String, isEmpty: Bool) {
+        lastSyncedQuery = text
+        launcherEnvironment.isLauncherQueryEmpty = isEmpty
+    }
+
+    func resetSyncedQueryForRestore() {
+        lastSyncedQuery = ""
+    }
+
+    func syncQueryBaselineFromSearchField() {
+        lastSyncedQuery = searchBar.queryText
+    }
+
+    func recordQueryEmptyState() {
+        launcherEnvironment.isLauncherQueryEmpty = true
+    }
+
+    func setSelectionIndex(_ index: Int) {
+        contentCoordinator.updateSelection(to: index)
+    }
+
+    func moveSelection(by delta: Int) {
+        let count = contentCoordinator.currentItems.count
+        guard count > 0 else { return }
+        let next = contentCoordinator.selectedIndex + delta
+        setSelectionIndex(min(max(0, next), count - 1))
+    }
+
+    func transitionToEmptyQueryHome() {
+        searchBar.cancelDetailMode()
+        contentCoordinator.dismissResultsForEmptyQuery()
+    }
+
+    func transitionToResultsMode(clearStaleContent: Bool) {
+        contentCoordinator.beginShowingResults(clearStaleContent: clearStaleContent)
+    }
+
+    func transitionToClearedResultsList() {
+        listView.clear()
+        contentCoordinator.beginShowingResults(clearStaleContent: true)
+    }
+
+    func markPanelInactiveForSnapshotApply() {
+        isPanelActiveForQueryApply = false
+        if sessionState.panel == .visible || sessionState.panel == .showing {
+            applySessionEvent(.panelHideBegan)
+        }
+    }
+
+    func markPanelActiveForSnapshotApply() {
+        isPanelActiveForQueryApply = true
+        applySessionEvent(.panelShowCompleted)
     }
 }
 

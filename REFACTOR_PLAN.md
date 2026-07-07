@@ -101,6 +101,31 @@ This order is forced by the evidence, not a stylistic preference:
 | 9.7 | P0.7 Settings open/save | ✅ |
 | 9.8 | P0 gate integration | ✅ **Go** |
 
+### Phase 11 — Launcher reduction (P1.1–P1.5 execution)
+
+| Slice | Maps to | Status | Notes |
+|-------|---------|--------|-------|
+| 11.1 | — | ✅ | `LAUNCHER_STATE_OWNER_MAP.md` (docs only) |
+| 11.2 | P1.1 | ✅ | RootController write gates; selection clamp fallback |
+| 11.3 | P1.3 | ✅ | Detail exit + panel hide finalization helpers |
+| 11.4 | P1.4 | ✅ | Clipboard MVP `@objc` executor boundary (partial) |
+| 11.5 | P1.5 | ✅ | `LauncherHomeRefreshIntent`; visibility-session background gate |
+
+**P1.2 (session state owner)** — **not started** in Phase 11; `LauncherSessionState` production wiring unchanged.
+
+**Phase 11 P0 gate:** `swift build` + filtered tests ✅; no new `.ips`; signed-app smokes not re-run to completion (hooks are non-terminating; Phase 9.8 baseline stands). See `PHASE11_LAUNCHER_REDUCTION_REPORT.md`.
+
+### Phase 12 — Session state audit & show entry governance
+
+| Slice | Status | Notes |
+|-------|--------|-------|
+| 12.1 | ✅ | `LAUNCHER_SESSION_STATE_AUDIT.md` — facts only; recommend keep reducer test-only |
+| 12.2 | ✅ | `LAUNCHER_SHOW_ENTRY_CONTRACT.md` |
+| 12.3 | ✅ | `show(reason:)` + `showFromMenuBar()`; menu bar behavioral tests |
+| 12.4 | ✅ | `LauncherListSelectionPreservePolicy` + `LauncherReturnActivationPolicy` + C-UI-004 tests |
+
+See `PHASE12_SESSION_SHOW_GOVERNANCE_REPORT.md`.
+
 **P1 entry conditions (mandatory):**
 
 1. **Run Phase 9.8 P0 MVP Smoke Gate** (`docs/QA.md`) before starting or merging any P1 work.

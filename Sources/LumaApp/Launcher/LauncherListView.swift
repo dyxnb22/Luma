@@ -200,15 +200,16 @@ final class LauncherListView: NSView {
     private func apply(rows newRows: [LauncherListRows.Row], preserveSelection: Bool) {
         let previousID = preserveSelection ? currentItems[safe: selectedFlatIndex]?.id : nil
         let selectable = LauncherListRows.selectableItems(from: newRows)
-        let nextSelectedFlatIndex: Int
-        if let previousID, let restored = selectable.firstIndex(where: { $0.id == previousID }) {
-            nextSelectedFlatIndex = restored
-        } else {
-            nextSelectedFlatIndex = 0
-        }
-        let clampedSelected = selectable.isEmpty
-            ? 0
-            : min(max(0, nextSelectedFlatIndex), selectable.count - 1)
+        let nextSelectedFlatIndex = LauncherListSelectionPreservePolicy.nextFlatIndex(
+            preserveSelection: preserveSelection,
+            previousFlatIndex: selectedFlatIndex,
+            previousItemID: previousID,
+            selectable: selectable
+        )
+        let clampedSelected = LauncherListSelectionPreservePolicy.clampedFlatIndex(
+            nextSelectedFlatIndex,
+            selectableCount: selectable.count
+        )
 
         if LauncherListRowReuse.canReuseRows(rows, newRows) {
             rows = newRows

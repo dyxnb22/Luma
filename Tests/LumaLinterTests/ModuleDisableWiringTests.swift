@@ -43,8 +43,7 @@ import Testing
         return
     }
     let body = String(source[bodyStart..<bodyEnd.lowerBound])
-    #expect(body.contains("isPanelActiveForQueryApply = false"))
-    #expect(body.contains("applySessionEvent(.panelHideBegan)"))
+    #expect(body.contains("markPanelInactiveForSnapshotApply()"))
 }
 
 @Test func finishPresentationGuardsPresentationGeneration() throws {

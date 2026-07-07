@@ -11,6 +11,8 @@ swift test
 scripts/scan_appkit_executor_risk.sh
 ```
 
+**SwiftPM tests alone are not sufficient for P0 release or post-P0 PRs** — signed-app smoke is required (Phase 9.8 gate; see § P0 MVP Smoke Gate below).
+
 Targeted checks:
 
 ```bash
@@ -76,6 +78,83 @@ Prepare deterministic smoke data:
 ```bash
 ./scripts/qa/prep_smoke_env.sh
 ```
+
+## P0 MVP Smoke Gate (Phase 9.8)
+
+**Baseline commit:** `889ebd35` (`P0_EXIT_SUMMARY.md`). Re-run this gate before any P1/P2/P3 merge and before release tags.
+
+### Prerequisites
+
+```bash
+swift build
+./scripts/build_app.sh --no-restart
+```
+
+Record `.ips` count before smokes:
+
+```bash
+ls ~/Library/Logs/DiagnosticReports/Luma*.ips 2>/dev/null | wc -l
+```
+
+Check latency baseline (optional but recommended):
+
+```bash
+cat ~/Library/Logs/Luma/latency-report.json
+# hotkeyP95Milliseconds must stay ≤ 1000 ms (P0 emergency ceiling)
+```
+
+### Core SwiftPM filters (P0)
+
+```bash
+swift test --filter AppsModuleTests
+swift test --filter Clipboard
+swift test --filter Notes
+swift test --filter Settings
+swift test --filter Config
+swift test --filter Persistence
+swift test --filter DiagnosticsExport
+swift test --filter LauncherActionDispatch
+```
+
+### Signed-app env-gated smokes
+
+Run **one env var at a time**; kill `Luma` between runs. Each writes JSON under `~/Library/Logs/Luma/`. **Do not** set these on normal launch.
+
+```bash
+APP=build/Luma.app/Contents/MacOS/Luma
+
+pkill -x Luma; LUMA_QA_EXPORT=1 "$APP"      # → diagnostics.json
+pkill -x Luma; LUMA_QA_APPS=1 "$APP"        # → apps-smoke.json
+pkill -x Luma; LUMA_QA_CLIPBOARD=1 "$APP"   # → clipboard-smoke.json
+pkill -x Luma; LUMA_QA_NOTES=1 "$APP"       # → notes-smoke.json
+pkill -x Luma; LUMA_QA_SETTINGS=1 "$APP"    # → settings-smoke.json
+```
+
+Wait ~12 s per run; confirm `pgrep -x Luma` shows the real app binary (not Cursor Helper).
+
+**Config restore:** `LUMA_QA_NOTES` and `LUMA_QA_SETTINGS` briefly modify config (`notes.json`, UserDefaults). Smokes restore on success; if killed mid-run, verify `notes.json` root and Settings values manually.
+
+### Gate checks (all required)
+
+| Check | Pass criteria |
+|-------|----------------|
+| `.ips` | Count unchanged after all smokes |
+| `diagnostics.json` | `platform`, `modules`, `permissions`, `breadcrumbs`, `recentErrors`, `latencyP95Milliseconds`, `crashLogPath`, `crashLogWriteStatus` present; `enabledModuleIDs` reflects real enabled set; `mvpCoreModuleStatus` lists Apps/Clipboard/Notes separately |
+| `crashLogPath` | Points to `~/Library/Application Support/Luma/crash-log.txt` |
+| Apps smoke | `launchResult: success` (or documented skip) |
+| Clipboard smoke | `copySucceeded: true`, `bareClipOpensDetail: true` |
+| Notes smoke | `createdFileExists`, `configRestored` / `diskRootMatchesBackup` |
+| Settings smoke | `latencyHUDPersisted`, `latencyHUDRestored`, `clipboardMaxEntriesRestored` |
+| Hotkey latency | `hotkeyP95Milliseconds` ≤ 1000 ms when `latency-report.json` exists |
+| Recovery outside Commands | Menu bar **Run Doctor…** and **Export Diagnostics…** work with Commands default-off |
+
+### Not P0 gate
+
+Parked/deferred modules and Core P1/conditional modules (**Snippets, Quicklinks, Translate, Todo**, Media, Wordbook, Secrets, WindowLayouts, MenuItems, KillProcess, BrowserTabs, Windows, Commands user scripts, Workbench/Capture) are extended QA only unless they crash or corrupt the default P0 path.
+
+### Manual supplement (release tag)
+
+After automated gate, manually verify: Cmd+Space show/hide ×20, menu bar Show, Esc/hide/reshow search input, menu bar Settings open.
 
 ## Review Lenses
 
@@ -257,6 +336,7 @@ LUMA_SKIP_NOTARIZATION=1 ./scripts/release/build_dmg.sh
 Release checklist:
 
 - `swift test` passes.
+- **P0 MVP Smoke Gate** (`§ P0 MVP Smoke Gate` above) passes on signed app — not SwiftPM-only.
 - `./scripts/build_app.sh --no-restart` passes.
 - Release DMG builds and verifies.
 - Fresh-machine launch passes Gatekeeper.

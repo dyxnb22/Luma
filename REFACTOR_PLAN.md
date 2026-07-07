@@ -82,7 +82,43 @@ This order is forced by the evidence, not a stylistic preference:
 - No UI polish (visual, layout, animation) while the app cannot stay running or the hotkey cannot summon it within the MVP emergency ceiling (P0.1-P0.3 open).
 - No expansion of deferred/parked modules (Media, Secrets, WindowLayouts, BrowserTabs, Windows, complex Workbench) while the Launcher main path (Apps/Clipboard/Notes/Settings) is unverified end-to-end on a signed app.
 
+## 4.5 Phase 9 / P0 Exit — Achieved (2026-07-07)
+
+**Status:** **Completed.** P0 MVP recovery slices 9.1–9.8 passed. Baseline commit: `889ebd35`.
+
+**Evidence:** `P0_EXIT_SUMMARY.md`, `PHASE9_MVP_SMOKE_REPORT.md`, env-gated signed-app smokes (`LUMA_QA_EXPORT`, `LUMA_QA_APPS`, `LUMA_QA_CLIPBOARD`, `LUMA_QA_NOTES`, `LUMA_QA_SETTINGS`), `docs/QA.md` § P0 MVP Smoke Gate.
+
+**P0 slices closed:**
+
+| Slice | Item | Status |
+|-------|------|--------|
+| 9.1 | P0.1 Signed app / AppKit crash stop | ✅ |
+| 9.2 | P0.2 Hotkey show/hide | ✅ (p95 ~28 ms; ≤ 1 s ceiling) |
+| 9.3–9.3.1 | P0.8 Diagnostics / Doctor / export | ✅ (menu bar recovery; payload semantics) |
+| 9.4 | P0.4 Apps search/open | ✅ |
+| 9.5 | P0.5 Clipboard search/copy | ✅ |
+| 9.6 | P0.6 Notes open/create | ✅ |
+| 9.7 | P0.7 Settings open/save | ✅ |
+| 9.8 | P0 gate integration | ✅ **Go** |
+
+**P1 entry conditions (mandatory):**
+
+1. **Run Phase 9.8 P0 MVP Smoke Gate** (`docs/QA.md`) before starting or merging any P1 work.
+2. **Do not reopen parked modules** (Media, Wordbook, Secrets, WindowLayouts, MenuItems, KillProcess, BrowserTabs, Windows, Workbench/Capture, Commands user scripts) as part of P1 unless they regress the P0 path.
+3. **Do not expand MVP scope** to Core P1/conditional modules (Snippets, Quicklinks, Translate, Todo) without explicit user decision per `MVP_SCOPE.md`.
+4. If gate fails (new `.ips`, hotkey p95 > 1 s, diagnostics unreachable, Apps/Clipboard/Notes/Settings path broken), **stop P1** and return to the matching P0 slice — do not refactor Launcher while P0 is red.
+
+**P1 recommended order** (unchanged from §6):
+
+1. P1.1 — `LauncherRootController` boundary
+2. P1.2 — Launcher session state owner
+3. P1.3 — Detail lifecycle
+4. P1.4 — Task / MainActor boundary cleanup
+5. P1.5 — Cache refresh vs UI repaint separation
+
 ## 5. P0 — 恢复可用
+
+> **Note (2026-07-07):** P0 items P0.1–P0.8 were executed in Phase 9 and accepted at gate 9.8. Sections below remain as historical problem statements and acceptance criteria; do not re-open P0 work except on regression (see §4.5 P1 entry conditions).
 
 ### P0.1 Signed App Runtime / Crash Stop
 
@@ -611,15 +647,16 @@ This order is forced by the evidence, not a stylistic preference:
 
 ## 10. Release Gates
 
-**P0 Exit**
+**P0 Exit** — **Achieved 2026-07-07** (`889ebd35`, Phase 9.8 Go). Re-verify via `docs/QA.md` § P0 MVP Smoke Gate on every post-P0 PR.
+
 - A signed Luma process starts from clean state and stays running unattended.
 - Cmd+Space (or documented fallback via menu bar Show) reliably shows/hides the panel within the MVP emergency ceiling.
 - Apps, Clipboard, Notes, Settings, and Diagnostics main paths are each confirmed working on the signed app, not only via SwiftPM tests.
 - No new `~/Library/Logs/DiagnosticReports/Luma-*.ips` appears during a full smoke pass.
 - A recovery entry reaches doctor/export-diagnostics on a default install, and `diagnostics.json` is populated with real field values.
-- The `docs/QA.md`-referenced smoke checklist (interim, ahead of full P3.4) passes.
+- The `docs/QA.md` P0 MVP Smoke Gate passes.
 
-**P1 Exit**
+**P1 Exit** — **Entry requires P0 gate green** (see §4.5).
 - `LauncherRootController`'s responsibility list is written down and narrower than today's implicit scope.
 - Query/selection/content-mode/visibility/detail-lifecycle each have one documented, enforced owner with the specific C-UI-001/003/004 deviations resolved.
 - MVP-path `@objc`-in-`@MainActor` scanner findings are at zero; `Task { @MainActor }` sites in the highest-traffic files are confirmed to be legitimate boundary bridges.

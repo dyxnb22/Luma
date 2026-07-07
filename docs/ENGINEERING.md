@@ -39,7 +39,7 @@ Layer ownership:
 | `LumaCore` | Protocols, models, query, ranking, actions, persistence helpers, design tokens | AppKit detail implementations |
 | `LumaModules` | Built-in module actors, module stores/indexes, module actions | Launcher view hierarchy |
 | `LumaServices` | System API wrappers for AX, CGWindow, EventKit, Keychain, AppleScript, processes | Product routing |
-| `LumaInfrastructure` | Logging, metrics, configuration | User-facing flows |
+| `LumaInfrastructure` | `CrashLogBuffer` (on-disk breadcrumbs), logging, metrics, configuration | User-facing flows; payload/export types (those live in `LumaCore/Util`) |
 
 Module detail views read shared module instances through `ModuleDetailRegistry` in `LumaApp`. Modules do not import or call the registry. Deprecated bridge APIs should not be used for new code.
 
@@ -82,7 +82,9 @@ Show/hide generation guards (Swift 6):
 - `LauncherSnapshotApplyPolicy` gates `apply(snapshot:)` while the panel is inactive or the visible query is empty (dropped applies increment `snapshot.applyDropped`).
 - Detail search mode is owned by `LauncherSearchDetailMode` via `LumaSearchBar` (`LauncherSearchDetailModeState`); chrome exit uses `LauncherDetailExitPlanner`, typing exit uses `cancelDetailMode`.
 - Per-keystroke routing uses `QueryView` (event snapshot from `searchBar.stringValue`); permission banner routes from the live search field, not a stale normalized snapshot.
-- `LauncherContentMode` in `LauncherContentCoordinator` is the single source for home/results/detail presentation.
+- `LauncherContentMode` enum lives in `Sources/LumaCore/Home/LauncherKeyRouter.swift`; `LauncherContentCoordinator` holds the runtime value and is the single owner for home/results/detail presentation (`mode`, `currentItems`, `selectedIndex`).
+- `LauncherRootController` orchestrates show/hide, query dispatch, and detail lifecycle; Phase 11/12 converged write paths — do not add parallel session/content writers.
+- `LauncherSessionState` is a **test-only** reducer with four legacy effect hooks (`LauncherSessionEffectApplier`); it is **not** production source of truth for panel/query/selection state.
 - Notes detail tree reload uses `NotesDetailRefreshGate` generation guards; stale async refresh must not write outline UI after deactivate/hide/close.
 - Cmd+Space: Carbon hotkey shows when hidden only (`showFromCarbonHotkey`); visible panel hide is `LauncherPanel.performKeyEquivalent` → `hideFromVisibleHotkey`. Show/hide use separate debounce clocks so a visible Carbon no-op cannot block hide; `toggle()` keeps its own debounce.
 - `LauncherSnapshotApplyCoalescer.cancel()` runs on hide via `cancelPendingRestore()` and `cancelActiveQueryAndSnapshotApply()`.
@@ -177,7 +179,23 @@ Hot path rules:
 - Returning from detail paints cached home first, then revalidates Open Apps in the background.
 - Open Apps refresh is bound to panel visibility; hidden panel must not grow `openApps.refresh` counters.
 - After wake from sleep (`NSWorkspace.didWakeNotification`), Open Apps refresh waits **1 s** before reloading so the window server and filesystem can settle.
-- `LauncherPerfCounters` and `LauncherDurationRecorder` in `LumaCore` track layout, session, snapshot, module warmup/handle, action perform, and panel-hide durations for tests. `DiagnosticsExport` writes redacted local JSON to `~/Library/Logs/Luma/diagnostics.json` with `platform`, `modules`, `permissions`, `recentErrors`, and `corruptConfigFiles` sections; trigger via `cmd export-diagnostics` (`HostClient.exportDiagnostics`, includes `CrashLogBuffer` breadcrumbs + latency p95).
+- `LauncherPerfCounters` and `LauncherDurationRecorder` in `LumaCore` track layout, session, snapshot, module warmup/handle, action perform, and panel-hide durations for tests.
+
+**Diagnostics and crash breadcrumbs**
+
+| Piece | Location | Role |
+| --- | --- | --- |
+| `DiagnosticsPayload`, `DiagnosticsExport`, `CrashLogRecording` | `LumaCore/Util` | Payload shape, redacted JSON write, in-process breadcrumb sink |
+| `CrashLogBuffer` | `LumaInfrastructure` | Ring buffer + on-disk `crash-log.txt` |
+| `RecoveryDiagnosticsCollector`, `AppHostService` | `LumaApp/Infrastructure` | Doctor summary + export payload assembly (outside Commands gating) |
+| Menu bar **Run Doctor…** / **Export Diagnostics…** | `MenuBarController` → `AppHostService` | Recovery entry on default install (Commands default-off) |
+
+Paths:
+
+- `diagnostics.json`: `~/Library/Logs/Luma/diagnostics.json` (`DiagnosticsExport.writePayload`)
+- `crash-log.txt`: `~/Library/Application Support/Luma/crash-log.txt` (`CrashLogBuffer.standardFileURL`)
+
+Export writes redacted local JSON with `platform`, `modules`, `permissions`, `recentErrors`, `corruptConfigFiles`, `crashLogPath`, and `crashLogWriteStatus`. `RecoveryDiagnosticsCollector.buildExportPayload` populates all declared sections at the production call site. Mirrored `cmd export-diagnostics` / `cmd doctor` exist when Commands is enabled. P0 gate: `./scripts/run_p0_smokes.sh` (`LUMA_QA_EXPORT=1`) validates `diagnostics.json` artifacts on the signed app.
 - Query text is capped at 8192 characters (`LauncherQueryLimits`); paste/truncation happens in `LumaSearchBar`.
 - Config files (`notes.json`, `commands.json`, `projects.json`, secrets metadata, `workbench-activity.json`) quarantine corrupt JSON to `*.corrupt-<ts>.json` via `JSONConfigPersistence`; `ConfigCorruptionRegistry` feeds `cmd doctor`.
 - Script commands validate executable and CWD against allowlists before launch (`ScriptRunnerSecurityPolicy`); CWD is limited to `~/.luma/commands` and Application Support `Luma/commands`.

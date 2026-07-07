@@ -73,7 +73,9 @@ Scripted smoke:
 ./scripts/run_p0_smokes.sh [path/to/Luma.app]
 ```
 
-Terminable P0 gate: runs `LUMA_QA_APPS`, `LUMA_QA_CLIPBOARD`, `LUMA_QA_NOTES`, `LUMA_QA_SETTINGS`, and `LUMA_QA_EXPORT` with `LUMA_QA_AUTO_EXIT=1`, polling `~/Library/Logs/Luma/*-smoke.json` (and `diagnostics.json`). Exits 0/1. **Validated** on signed `build/Luma.app` (Phase 15 review cleanup, 2026-07-07; see `PHASE15_P2_EXECUTION_REPORT.md`). Per-module manual commands remain below.
+Terminable P0 gate (**recommended**): runs `LUMA_QA_APPS`, `LUMA_QA_CLIPBOARD`, `LUMA_QA_NOTES`, `LUMA_QA_SETTINGS`, and `LUMA_QA_EXPORT` with `LUMA_QA_AUTO_EXIT=1`, polling `~/Library/Logs/Luma/*-smoke.json` (and `diagnostics.json`). Exits 0/1. **Validated** on signed `build/Luma.app` (Phase 15–16, 2026-07-07; see `PHASE15_P2_EXECUTION_REPORT.md`, `P2_EXIT_SUMMARY.md`). Per-module manual commands remain below as fallback.
+
+**`LUMA_QA_AUTO_EXIT=1`:** Set automatically by `run_p0_smokes.sh` (and intended for CI). Do **not** set on normal launch or manual smoke runs unless you want the app to terminate immediately after writing JSON.
 
 Screenshot / drive-based full smoke:
 
@@ -93,10 +95,15 @@ Prepare deterministic smoke data:
 
 ### Prerequisites
 
+**Recommended:** run the full terminable gate in one command after build:
+
 ```bash
 swift build
 ./scripts/build_app.sh --no-restart
+./scripts/run_p0_smokes.sh
 ```
+
+Or step through prerequisites manually:
 
 Record `.ips` count before smokes:
 
@@ -126,7 +133,7 @@ swift test --filter LauncherActionDispatch
 
 ### Signed-app env-gated smokes
 
-Run **one env var at a time**; kill `Luma` between runs. Each writes JSON under `~/Library/Logs/Luma/`. **Do not** set these on normal launch.
+Run **one env var at a time**; kill `Luma` between runs. Each writes JSON under `~/Library/Logs/Luma/`. **Do not** set these on normal launch. **Do not** set `LUMA_QA_AUTO_EXIT=1` for manual runs unless you intend the app to exit after writing JSON (the scripted runner sets it for you).
 
 ```bash
 APP=build/Luma.app/Contents/MacOS/Luma

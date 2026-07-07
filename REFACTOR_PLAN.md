@@ -146,19 +146,45 @@ See `PHASE12_SESSION_SHOW_GOVERNANCE_REPORT.md`.
 | `P2_DECISION_MATRIX.md` | ✅ |
 | `P2_ROADMAP.md` | ✅ |
 
-**P2 entry:** Planning complete. **Execution starts at P2.1** (documentation / manifest hygiene only). See `P2_ROADMAP.md`.
+**P2 entry:** Planning complete (Phase 14). **Execution complete** (Phase 15, `8539007c`). **Exit Go** (Phase 16, `P2_EXIT_SUMMARY.md`). See `P2_ROADMAP.md` for slice detail.
+
+**P2 exit:** **Achieved 2026-07-07** (`8539007c`, `P2_EXIT_SUMMARY.md`). Do not add new P2 slices without a new planning phase.
 
 **P2 roadmap summary (execution order):**
 
-| Phase | Focus | Do not |
-|-------|-------|--------|
-| **P2.1** | `docs/PERMISSIONS.md` defaults; Windows manifest metadata; parked/deferred manifest clarity; session state test-only stamp | Enable modules; runtime default flips |
-| **P2.2** | Diagnostic taxonomy; Apps/Clipboard/Notes (+ Core P1) row consistency | Parked module polish; ranking changes |
-| **P2.3** | Lifecycle contract tests; `handle()` memory-only linter/proxy | ModuleHost rewrite |
-| **P2.4** | Core P1 AppKit `@objc` cleanup (incremental) | Bulk parked-module cleanup |
-| **P2.5** | Terminable `LUMA_QA_*` runner; partial harness align | Full AppCoordinator E2E |
+| Phase | Focus | Status | Do not |
+|-------|-------|--------|--------|
+| **P2.1** | `docs/PERMISSIONS.md` defaults; Windows manifest metadata; parked/deferred manifest clarity; session state test-only stamp | ✅ `8539007c` | Enable modules; runtime default flips |
+| **P2.2** | Diagnostic taxonomy; Apps/Clipboard/Notes (+ Core P1) row consistency | ✅ `8539007c` | Parked module polish; ranking changes |
+| **P2.3** | Lifecycle contract tests; `handle()` memory-only linter/proxy | ✅ `8539007c` | ModuleHost rewrite |
+| **P2.4** | Core P1 AppKit `@objc` cleanup (incremental) | ✅ `8539007c` | Bulk parked-module cleanup |
+| **P2.5** | Terminable `LUMA_QA_*` runner; partial harness align | ✅ `8539007c` | Full AppCoordinator E2E |
 
 **P3 remains separate:** `docs/ENGINEERING.md` location fixes, full harness parity, parked AppKit warns, full `CONTRACTS.md` deviation sweep — see `P2_SCOPE_AUDIT.md` P2 vs P3 boundary.
+
+### Phase 15 — P2 execution (2026-07-07)
+
+| Slice | Status | Commit |
+|-------|--------|--------|
+| P2.1 Documentation / manifest hygiene | ✅ | `8539007c` |
+| P2.2 Module diagnostic consistency | ✅ | `8539007c` |
+| P2.3 Lifecycle contract tests + handle scanner | ✅ | `8539007c` |
+| P2.4 Core P1 AppKit cleanup | ✅ | `8539007c` |
+| P2.5 Terminable smoke runner + harness align | ✅ | `8539007c` |
+
+**Phase 15 report:** `PHASE15_P2_EXECUTION_REPORT.md`
+
+### Phase 16 — P2 exit gate (2026-07-07)
+
+| Gate | Result |
+|------|--------|
+| `swift test` | ✅ 801/801 |
+| `scan_handle_memory_only.sh` | ✅ |
+| `scan_appkit_executor_risk.sh` | ✅ (blocking) |
+| `./scripts/run_p0_smokes.sh` | ✅ |
+| New `.ips` during gate | ✅ none (30 min window) |
+
+**P2 Exit:** **Go** — see `P2_EXIT_SUMMARY.md`. **P3 entry:** docs / test organization / release hardening only.
 
 **P2 global stop:** Any P0 gate failure → revert slice, P0 triage (`P0_EXIT_SUMMARY.md`).
 
@@ -502,7 +528,7 @@ See `PHASE12_SESSION_SHOW_GOVERNANCE_REPORT.md`.
 
 > **Canonical execution order (Phase 14, 2026-07-07):** `P2_ROADMAP.md` is the source of truth for **what to do next**. Subsections below use the **same P2.1–P2.5 numbering** as Phase 14. The original Phase 7 investigation used a different order (lifecycle first, defaults as P2.3); that order is **superseded** — do not start at old "lifecycle = P2.1". Scope audit: `P2_SCOPE_AUDIT.md`. Decisions: `P2_DECISION_MATRIX.md`.
 
-### P2.1 Documentation / Manifest Hygiene
+### P2.1 Documentation / Manifest Hygiene — ✅ Complete (`8539007c`)
 
 **Maps to:** Phase 14 P2.1 · formerly Phase 7 **P2.3** (Default Enabled Module Slimming)
 
@@ -528,7 +554,7 @@ See `PHASE12_SESSION_SHOW_GOVERNANCE_REPORT.md`.
 
 ---
 
-### P2.2 Module Diagnostic Consistency
+### P2.2 Module Diagnostic Consistency — ✅ Complete (`8539007c`)
 
 **Maps to:** Phase 14 P2.2 · same topic as Phase 7 **P2.2**
 
@@ -553,7 +579,7 @@ See `PHASE12_SESSION_SHOW_GOVERNANCE_REPORT.md`.
 
 ---
 
-### P2.3 Module Lifecycle Contract Tests
+### P2.3 Module Lifecycle Contract Tests — ✅ Complete (`8539007c`)
 
 **Maps to:** Phase 14 P2.3 · formerly Phase 7 **P2.1** (Unified Module Lifecycle Contract)
 
@@ -580,7 +606,7 @@ See `PHASE12_SESSION_SHOW_GOVERNANCE_REPORT.md`.
 
 ---
 
-### P2.4 Non-MVP / Core P1 AppKit Cleanup
+### P2.4 Non-MVP / Core P1 AppKit Cleanup — ✅ Complete (`8539007c`)
 
 **Maps to:** Phase 14 P2.4 · extends P1.4 (Clipboard MVP only) to Core P1 detail views
 
@@ -600,7 +626,7 @@ See `PHASE12_SESSION_SHOW_GOVERNANCE_REPORT.md`.
 
 ---
 
-### P2.5 QA Harness / Smoke Runner
+### P2.5 QA Harness / Smoke Runner — ✅ Complete (`8539007c`)
 
 **Maps to:** Phase 14 P2.5 · partial overlap with P3.2/P3.4
 
@@ -736,10 +762,8 @@ See `PHASE12_SESSION_SHOW_GOVERNANCE_REPORT.md`.
 - **P1.1** (LauncherRootController boundary) and **P1.2** (session state owner) touch overlapping files and should be sequenced together or with P1.1 informing P1.2's target ownership model.
 - **P1.4** (Task/MainActor cleanup) should follow P1.1 to reduce merge conflict risk, but can run in parallel with P1.3 (Detail Lifecycle).
 - **P1.5** (Cache/repaint separation) depends on P0.2's hotkey fix landing first, since P0.2 may already resolve most of the underlying cause.
-- **P2** (module governance) must not precede MVP core stabilization (P0 exit + substantial P1 progress) — governing modules on top of an unstable or overly complex core wastes the governance work.
-- **P2.1** (documentation / manifest hygiene) is the **first** P2 execution slice — complete before P2.2–P2.5 per `P2_ROADMAP.md`.
-- **P2.2** (diagnostic behavior) follows P2.1; **P2.3** (lifecycle contract tests) follows P2.2.
-- **P2.4** (AppKit warn cleanup) and **P2.5** (QA harness) follow P2.1–P2.3; detail-view layering is **legacy backlog** (Phase 7 P2.4), not part of Phase 14 P2.1–P2.5.
+- **P2** (module governance) — **complete** (`8539007c`, `P2_EXIT_SUMMARY.md`). P3 (docs/tests alignment) may proceed; do not add new P2 slices without a new planning phase.
+- **P2.1–P2.5** — all delivered in Phase 15; exit gate green in Phase 16.
 - **P3** (docs/tests alignment) depends on P0-P2 being substantially settled, since it documents and locks in their outcome; doing P3 early would require rework.
 - **P3.1** (stale docs) depends on P1.2's content-mode decision and P0.8's diagnostics-path facts.
 - **P3.4** (real smoke test) depends on P0's exit criteria being defined and stable, since the smoke test's entire purpose is verifying those criteria.
@@ -761,7 +785,8 @@ See `PHASE12_SESSION_SHOW_GOVERNANCE_REPORT.md`.
 - MVP-path `@objc`-in-`@MainActor` scanner findings are at zero; `Task { @MainActor }` sites in the highest-traffic files are confirmed to be legitimate boundary bridges.
 - Cache refresh (Open Apps, per-module warm caches, `QuerySnapshotCache`) is demonstrably decoupled from UI repaint on the query hot path.
 
-**P2 Exit**
+**P2 Exit** — **Achieved 2026-07-07** (`8539007c`, `P2_EXIT_SUMMARY.md`). Re-verify via `docs/QA.md` § P0 MVP Smoke Gate + `./scripts/run_p0_smokes.sh` on release candidates.
+
 - The MVP Core P0 modules conform to one documented lifecycle contract with no undocumented exceptions; Core P1 / conditional candidates are gated by the same contract before activation.
 - Diagnostic behavior (permission/cold-cache/onboarding/timeout/empty) is consistent and documented for the MVP module set.
 - `docs/PERMISSIONS.md` defaults, `docs/MODULES.md`, manifests, and `ModuleWarmupDefaults` all agree; the Windows manifest flag no longer misrepresents an unregistered module.

@@ -25,8 +25,18 @@ Per-module permission and privacy matrix. **Default** matches manifest `defaultE
 
 ## Diagnostics
 
-- `CrashLogBuffer` redacts at write time using the same rules as diagnostics export.
-- Export path: `~/Library/Logs/Luma/diagnostics.json`
+Ownership:
+
+- `DiagnosticsPayload`, `DiagnosticsExport`, `CrashLogRecording` — `LumaCore/Util`
+- `CrashLogBuffer` — `LumaInfrastructure` (redacts at write using the same rules as export)
+- `RecoveryDiagnosticsCollector` / `AppHostService.exportDiagnostics` — `LumaApp` (populates payload outside Commands gating)
+
+Paths:
+
+- Export: `~/Library/Logs/Luma/diagnostics.json`
+- Crash breadcrumbs: `~/Library/Application Support/Luma/crash-log.txt`
+
+Recovery entry (default install, Commands off): menu bar **Run Doctor…** and **Export Diagnostics…**. When Commands is enabled, `cmd doctor` / `cmd export-diagnostics` mirror the same behavior.
 
 ## Settings toggle
 

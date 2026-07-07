@@ -371,13 +371,13 @@ See `PHASE12_SESSION_SHOW_GOVERNANCE_REPORT.md`.
 - Optional mirrored `cmd doctor` / `cmd export-diagnostics` entries may exist when Commands is enabled, but P0 acceptance does not depend on Commands being enabled.
 - `crash-log.txt`'s actual path (`~/Library/Application Support/Luma/crash-log.txt`) is what the exported diagnostics/doctor output references — no more path mismatch between code and what the user is told to look at.
 - `CrashLogBuffer.persist()` write failures are either surfaced (not purely silent `try?`) or explicitly documented as an accepted, isolated failure mode with a named reason (C-DIAG-003 is a SHOULD, not MUST — a documented decision is an acceptable outcome).
-- `ConfigCorruptionRegistry`'s in-memory-only nature and the split quarantine paths (`JSONConfigPersistence` vs `ClipboardHistoryStore` vs `JSONFileStore`) are at minimum surfaced as a known-incomplete corruption view in doctor output — full unification across all three paths is P2 scope (see P2.1/P2.2), but doctor must not claim complete coverage it does not have.
+- `ConfigCorruptionRegistry`'s in-memory-only nature and the split quarantine paths (`JSONConfigPersistence` vs `ClipboardHistoryStore` vs `JSONFileStore`) are at minimum surfaced as a known-incomplete corruption view in doctor output — full unification across all three paths is **P3** scope, but doctor must not claim complete coverage it does not have.
 
 **Risk** — The remaining implementation choice is placement within the accepted surfaces (menu bar, Settings, or both). Do not turn this into a broader Commands redesign; user scripts stay parked/default-off.
 
 **Dependencies** — P0.1-P0.3 for signed-app verification; this task itself **blocks all effective debugging of every other P0/P1/P2 task**, so it should be sequenced early within P0, not last.
 
-**Non-goals** — Do not build a general-purpose scripting/commands platform; do not unify all three quarantine paths into one persistence format (that is P2.1/P2.2 territory); do not add telemetry or remote reporting — diagnostics stay local-only per `docs/ENGINEERING.md` privacy section.
+**Non-goals** — Do not build a general-purpose scripting/commands platform; do not unify all three quarantine paths into one persistence format (that is **P3** territory); do not add telemetry or remote reporting — diagnostics stay local-only per `docs/ENGINEERING.md` privacy section.
 
 ## 6. P1 — 降低核心复杂度
 
@@ -528,7 +528,7 @@ See `PHASE12_SESSION_SHOW_GOVERNANCE_REPORT.md`.
 
 ---
 
-### P2.2 Unified Diagnostic Behavior
+### P2.2 Module Diagnostic Consistency
 
 **Maps to:** Phase 14 P2.2 · same topic as Phase 7 **P2.2**
 
@@ -580,7 +580,7 @@ See `PHASE12_SESSION_SHOW_GOVERNANCE_REPORT.md`.
 
 ---
 
-### P2.4 Non-MVP AppKit Warn Cleanup
+### P2.4 Non-MVP / Core P1 AppKit Cleanup
 
 **Maps to:** Phase 14 P2.4 · extends P1.4 (Clipboard MVP only) to Core P1 detail views
 

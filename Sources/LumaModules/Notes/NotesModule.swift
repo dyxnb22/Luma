@@ -69,6 +69,9 @@ public actor NotesModule: LumaModule {
         case .help:
             return ModuleResult(items: ModuleHelp.results(for: Self.manifest.identifier))
         case .listRecents:
+            guard cachedConfig.root != nil else {
+                return ModuleResult(items: [noRootRow()])
+            }
             let recents = await recentNotePaths()
             let items = recents.prefix(8).map { path in
                 let name = URL(fileURLWithPath: path).deletingPathExtension().lastPathComponent

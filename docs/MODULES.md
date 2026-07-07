@@ -13,6 +13,40 @@ This file is the source of truth for shipped user-visible module behavior. It re
 - `help <trigger>` or `<trigger> ?` shows module help.
 - Detail views open in the right column while Open Apps remains on the left.
 
+## Module failure taxonomy (P2.2)
+
+Shared diagnostic kinds (`ModuleDiagnostic.kind`): `permissionRequired`, `degraded` (warming/partial), `error`, `timeout`. Dispatcher may also synthesize `module.warming` before targeted warmup completes (`QueryDispatcher`).
+
+| Taxonomy | User-visible shape | When |
+| --- | --- | --- |
+| **Permission required** | Informational diagnostic row or thrown `ModuleError.permissionRequired` on perform | AX/EventKit/Automation denied on gated action |
+| **Warming / degraded** | `ModuleDiagnostic.degraded` or dispatcher `module.warming` row | Cold cache, memory-top SWR, menu tree not ready |
+| **Onboarding** | Actionable result row (open detail / Settings) | Data source not configured (Notes root unset) |
+| **Timeout** | `ModuleDiagnostic.timeout` informational row | Module `handle` exceeds `queryTimeout` |
+| **Empty acceptable** | Module-specific open-detail or no-match row; not a failure | Clipboard empty search, Apps no match |
+
+### MVP P0 modules (C-FAIL-005)
+
+| Module | Permission | Warming | Onboarding | Timeout | Empty OK |
+| --- | --- | --- | --- | --- | --- |
+| **Apps** | N/A in handle | `app top` → degraded "Memory usage cache warming" when cache cold | N/A | Via dispatcher | Global search no-match |
+| **Clipboard** | `pasteEntry` → `.permissionRequired` when AX denied | N/A (store loaded at warmup) | N/A | Via dispatcher | `clip` empty → open-detail row |
+| **Notes** | N/A in handle | Index rebuild on FSEvents | No root → "Choose a Notes root folder" | Via dispatcher | `n` search no matches |
+
+Parked modules: record behavior in `MODULE_MATRIX.md`; do not change in P2.2 unless listed above.
+
+## Lifecycle contract exceptions (P2.3)
+
+Documented deviations — **do not fix in P2** without explicit scope expansion:
+
+| Module | Exception | Status |
+| --- | --- | --- |
+| **Windows** | `handle()` calls `CGWindowListCopyWindowInfo`; deferred, not registered | Parked |
+| **Kill Process** | No explicit `teardown`; refresh tasks | Parked, default-off |
+| **Wordbook** | `perform` throws `unsupportedAction`; review in detail | Parked, default-off |
+
+P0 modules (Apps, Clipboard, Notes): `handle()` memory-only proxy tests in `ModuleHandleContractTests` + `scripts/scan_handle_memory_only.sh`.
+
 ## MVP default-on modules (fresh install)
 
 Apps, Clipboard, Snippets, Quicklinks, Todo, Translate, Notes.
@@ -23,32 +57,41 @@ Commands, Media, Browser Tabs, Menu Bar Search, Window Layouts, Wordbook, Secret
 
 Home guide (empty query, right column) lists discoverable commands for **enabled** modules only; Apps appears in the guide. Disabled modules do not show guide rows.
 
+## Registration status (P2.1)
+
+| Status | Modules | Meaning |
+| --- | --- | --- |
+| **Registered** | All Active Modules rows below except Windows | In `ModuleRegistry.allBundles`; warmup/enablement applies |
+| **Deferred** | Windows | Source in `BuiltInModules.makeDeferred()`; **not** in `ModuleRegistry.allBundles` |
+| **Parked** | Media, Secrets, Window Layouts, Menu Bar Search, Kill Process, Browser Tabs, Wordbook, Projects; complex Workbench/Capture | Registered but default-off; not MVP main path per `MVP_SCOPE.md` |
+
 ## Active Modules
 
-| Module | Triggers | Global Search | Default | Primary Surface |
-| --- | --- | --- | --- | --- |
-| Apps / Open Apps | `app`, `apps`, `open`, `top` | Yes | On | Home, app launch, app focus |
-| Clipboard | `clip`, `clipboard` | Yes, capped | On | Clipboard detail/history |
-| Commands | `cmd`, `reload`, `exit`, `settings`, scripted commands | Built-ins only | Off | Built-in and local scripts |
-| Notes | `n`, `note`, `notes` | No | On | Markdown workspace detail |
-| Todo | `todo`, `td` | No | On | EventKit reminders |
-| Translate | `tr`, `translate` | No | On | Translation detail/result |
-| Wordbook | `word`, `wb` | No | Off | Review/manage detail |
-| Snippets | `s`, `snip`, `snippet` | Exact trigger expansion only | On | Snippet copy/paste/detail |
-| Secrets | `secret`, `sec` | No values | Off | Locked Keychain-backed vault |
-| Records / Media | `m`, `rec`, `media` | No | Off | Media log/search/detail |
-| Window Layouts | `win`, `wl` | No | Off | Focused-window layouts |
-| Projects | `proj`, `p`, `project` | No | Off | Project workspace |
-| Quicklinks | `ql`, `quicklink`, configured exact triggers | Exact trigger only | On | URL template launcher/manager |
-| Menu Bar Search | `mb`, `menu` | No | Off | Active-app menu item search |
-| Kill Process | `kill`, `quit`, `k` | No | Off | Quit/relaunch GUI apps |
-| Browser Tabs | `tab`, `tabs` | No | Off | Browser tab search |
+| Module | Triggers | Global Search | Default | Reg. | Primary Surface |
+| --- | --- | --- | --- | --- | --- |
+| Apps / Open Apps | `app`, `apps`, `open`, `top` | Yes | On | registered | Home, app launch, app focus |
+| Clipboard | `clip`, `clipboard` | Yes, capped | On | registered | Clipboard detail/history |
+| Commands | `cmd`, `reload`, `exit`, `settings`, scripted commands | Built-ins only | Off | registered | Built-in and local scripts |
+| Notes | `n`, `note`, `notes` | No | On | registered | Markdown workspace detail |
+| Todo | `todo`, `td` | No | On | registered | EventKit reminders |
+| Translate | `tr`, `translate` | No | On | registered | Translation detail/result |
+| Wordbook | `word`, `wb` | No | Off | registered | Review/manage detail |
+| Snippets | `s`, `snip`, `snippet` | Exact trigger expansion only | On | registered | Snippet copy/paste/detail |
+| Secrets | `secret`, `sec` | No values | Off | registered | Locked Keychain-backed vault |
+| Records / Media | `m`, `rec`, `media` | No | Off | registered | Media log/search/detail |
+| Window Layouts | `win`, `wl` | No | Off | registered | Focused-window layouts |
+| Projects | `proj`, `p`, `project` | No | Off | registered | Project workspace |
+| Quicklinks | `ql`, `quicklink`, configured exact triggers | Exact trigger only | On | registered | URL template launcher/manager |
+| Menu Bar Search | `mb`, `menu` | No | Off | registered | Active-app menu item search |
+| Kill Process | `kill`, `quit`, `k` | No | Off | registered | Quit/relaunch GUI apps |
+| Browser Tabs | `tab`, `tabs` | No | Off | registered | Browser tab search |
+| Windows | (none registered) | No | Deferred | **deferred** | Not registered — see deferred note below |
 
 **Quit vs exit:** bare `quit` / `kill` / `k` targets Kill Process (quit frontmost GUI app). Bare `exit` exits Luma when the Commands module is enabled. `cmd quit` also exits Luma from command mode.
 
 **MVP default install:** Kill Process and Commands are **off by default**, so bare `quit`, `kill`, `k`, and `exit` do **not** respond until you enable those modules in Settings. To quit Luma without enabling Commands, use the menu bar **⌘Q** or Luma → Quit.
 
-Deferred source-retained module: **Windows** (`BuiltInModules.makeDeferred()`). Not registered in active warmup/default enablement; `handle()` must not ship on the hot path until warm-cache + tests land.
+Deferred source-retained module: **Windows** (`BuiltInModules.makeDeferred()`). Not registered in `ModuleRegistry.allBundles`; manifest `defaultEnabled: false`; `handle()` must not ship on the hot path until warm-cache + tests land.
 
 ## Snippets vs Quicklinks vs Commands
 

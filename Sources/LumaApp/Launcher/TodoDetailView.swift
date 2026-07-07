@@ -51,9 +51,14 @@ final class TodoDetailView: NSObject, ModuleDetailView {
         }
     }
 
-    @objc private func syncListScrollDocumentFrame() {
+    @objc nonisolated private func syncListScrollDocumentFrame() {
+        Task { @MainActor [weak self] in self?._syncListScrollDocumentFrameImpl() }
+    }
+
+    private func _syncListScrollDocumentFrameImpl() {
         GeekUIKit.syncVerticalListDocumentFrame(in: scrollView)
     }
+
 
     func deactivate() {
         refreshTask?.cancel()
@@ -198,18 +203,30 @@ final class TodoDetailView: NSObject, ModuleDetailView {
         refresh()
     }
 
-    @objc private func tabChanged() {
+    @objc nonisolated private func tabChanged() {
+        Task { @MainActor [weak self] in self?._tabChangedImpl() }
+    }
+
+    private func _tabChangedImpl() {
+
         currentTab = Tab(rawValue: tabControl.selectedSegment) ?? .today
         refresh()
     }
 
 
-    @objc private func addTodo() {
+
+    @objc nonisolated private func addTodo() {
+        Task { @MainActor [weak self] in self?._addTodoImpl() }
+    }
+
+    private func _addTodoImpl() {
+
         let raw = inputField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !raw.isEmpty else {
             detailView.window?.makeFirstResponder(inputField)
             return
         }
+
         let parsed = TodoTimeParser.parse(raw)
         setControlsEnabled(false)
         statusLabel.stringValue = "Adding..."
@@ -247,12 +264,22 @@ final class TodoDetailView: NSObject, ModuleDetailView {
         }
     }
 
-    @objc private func refreshTapped() { refresh() }
+    @objc nonisolated private func refreshTapped() {
+        Task { @MainActor [weak self] in self?._refreshTappedImpl() }
+    }
 
-    @objc private func openReminders() {
+    private func _refreshTappedImpl() { refresh() }
+
+    @objc nonisolated private func openReminders() {
+        Task { @MainActor [weak self] in self?._openRemindersImpl() }
+    }
+
+    private func _openRemindersImpl() {
+
         Task {
             await workspace.openApplication(bundleID: "com.apple.reminders", arguments: [])
         }
+
     }
 
     private func refresh() {
@@ -466,22 +493,40 @@ final class TodoDetailView: NSObject, ModuleDetailView {
         }
     }
 
-    @objc private func editSheetToday() {
+    @objc nonisolated private func editSheetToday() {
+        Task { @MainActor [weak self] in self?._editSheetTodayImpl() }
+    }
+
+    private func _editSheetTodayImpl() {
+
         dismissEditSheet { [weak self] reminder in
             self?.scheduleToday(reminder)
         }
+
     }
 
-    @objc private func editSheetTomorrow() {
+    @objc nonisolated private func editSheetTomorrow() {
+        Task { @MainActor [weak self] in self?._editSheetTomorrowImpl() }
+    }
+
+    private func _editSheetTomorrowImpl() {
+
         dismissEditSheet { [weak self] reminder in
             self?.scheduleTomorrow(reminder)
         }
+
     }
 
-    @objc private func editSheetClearDate() {
+    @objc nonisolated private func editSheetClearDate() {
+        Task { @MainActor [weak self] in self?._editSheetClearDateImpl() }
+    }
+
+    private func _editSheetClearDateImpl() {
+
         dismissEditSheet { [weak self] reminder in
             self?.clearDate(reminder)
         }
+
     }
 
     private func dismissEditSheet(action: (ReminderSnapshot) -> Void) {
@@ -526,14 +571,20 @@ final class TodoDetailView: NSObject, ModuleDetailView {
         stackView.addArrangedSubview(grantButton)
     }
 
-    @objc private func grantAccess() {
+    @objc nonisolated private func grantAccess() {
+        Task { @MainActor [weak self] in self?._grantAccessImpl() }
+    }
+
+    private func _grantAccessImpl() {
+
         Task { [weak self] in
             guard let self else { return }
             let result = await module.requestRemindersAccess()
             await MainActor.run {
                 if result == .authorized {
                     refresh()
-                } else {
+                }
+ else {
                     statusLabel.stringValue = "Access denied. Open System Settings > Privacy & Security > Reminders."
                 }
             }
@@ -673,15 +724,30 @@ private final class TodoReminderRow: NSView {
         ])
     }
 
-    @objc private func primaryTapped() {
+    @objc nonisolated private func primaryTapped() {
+        Task { @MainActor [weak self] in self?._primaryTappedImpl() }
+    }
+
+    private func _primaryTappedImpl() {
         onPrimary()
     }
 
-    @objc private func editTapped() {
+
+    @objc nonisolated private func editTapped() {
+        Task { @MainActor [weak self] in self?._editTappedImpl() }
+    }
+
+    private func _editTappedImpl() {
         onEdit()
     }
 
-    @objc private func scheduleTapped(_ sender: NSButton) {
+
+    @objc nonisolated private func scheduleTapped(_ sender: NSButton) {
+        Task { @MainActor [weak self] in self?._scheduleTappedImpl(sender) }
+    }
+
+    private func _scheduleTappedImpl(_ sender: NSButton) {
+
         let menu = NSMenu()
         menu.addItem(menuItem(title: "Today", action: #selector(scheduleTodayTapped)))
         menu.addItem(menuItem(title: "Tomorrow", action: #selector(scheduleTomorrowTapped)))
@@ -689,6 +755,7 @@ private final class TodoReminderRow: NSView {
             menu.addItem(.separator())
             menu.addItem(menuItem(title: "Clear Date", action: #selector(clearDateTapped)))
         }
+
         let point = NSPoint(x: 0, y: sender.bounds.height)
         menu.popUp(positioning: nil, at: point, in: sender)
     }
@@ -699,9 +766,21 @@ private final class TodoReminderRow: NSView {
         return item
     }
 
-    @objc private func scheduleTodayTapped() { onScheduleToday() }
-    @objc private func scheduleTomorrowTapped() { onScheduleTomorrow() }
-    @objc private func clearDateTapped() { onClearDate() }
+    @objc nonisolated private func scheduleTodayTapped() {
+        Task { @MainActor [weak self] in self?._scheduleTodayTappedImpl() }
+    }
+
+    private func _scheduleTodayTappedImpl() { onScheduleToday() }
+    @objc nonisolated private func scheduleTomorrowTapped() {
+        Task { @MainActor [weak self] in self?._scheduleTomorrowTappedImpl() }
+    }
+
+    private func _scheduleTomorrowTappedImpl() { onScheduleTomorrow() }
+    @objc nonisolated private func clearDateTapped() {
+        Task { @MainActor [weak self] in self?._clearDateTappedImpl() }
+    }
+
+    private func _clearDateTappedImpl() { onClearDate() }
 
     private func metadata() -> String {
         if isCompleted {

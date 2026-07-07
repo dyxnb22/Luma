@@ -88,6 +88,8 @@ Effects emitted: `cancelAllTasks`, `clearDetailModeState` → applied by `Launch
 
 **Phase 12.3+ action:** Do **not** wire remaining 7 events without a P1.2 design pass. Add comments at `applySessionEvent` call sites referencing this audit.
 
+**P2 decision (Phase 15, 2026-07-07):** `LauncherSessionState` remains **test-only specification + 4 legacy production effect hooks** through P2. No new `applySessionEvent` call sites in P2 slices. Delete-vs-promote decision deferred to P2.5+ / P3 (`P2_DECISION_MATRIX.md` §1).
+
 ---
 
 ## 7. Test coverage

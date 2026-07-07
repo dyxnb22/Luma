@@ -39,13 +39,16 @@ import Testing
     #expect(!triggers.contains("p"))
 }
 
-@Test @MainActor func harnessDefaultOffPrefixYieldsNoModuleRows() async {
+@Test @MainActor func harnessDefaultOffPrefixYieldsDisabledDiagnostic() async {
     let harness = await LauncherFlowHarness.makeWithBuiltInModules()
     harness.activatePanel()
     harness.type("mb fold")
     try? await Task.sleep(for: .milliseconds(300))
-    let modules = Set(harness.lastSnapshot?.items.map(\.id.module) ?? [])
-    #expect(!modules.contains(.menuItems))
+    let items = harness.lastSnapshot?.items ?? []
+    let menuRows = items.filter { $0.id.module == .menuItems }
+    #expect(!menuRows.isEmpty)
+    #expect(menuRows.allSatisfy { $0.rowKind == .informational })
+    #expect(menuRows.first?.title.localizedCaseInsensitiveContains("disabled") == true)
 }
 
 @Test @MainActor func harnessDeactivateClearsInFlightQuery() async {

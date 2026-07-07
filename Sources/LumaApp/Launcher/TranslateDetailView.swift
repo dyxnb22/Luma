@@ -428,11 +428,21 @@ final class TranslateDetailView: ModuleDetailView {
         actionButtonsStack.addArrangedSubview(appendToNoteButton)
     }
 
-    @objc private func translateTapped() {
+    @objc nonisolated private func translateTapped() {
+        Task { @MainActor [weak self] in self?._translateTappedImpl() }
+    }
+
+    private func _translateTappedImpl() {
         performTranslation()
     }
 
-    @objc private func quickLanguageChip(_ sender: NSButton) {
+
+    @objc nonisolated private func quickLanguageChip(_ sender: NSButton) {
+        Task { @MainActor [weak self] in self?._quickLanguageChipImpl(sender) }
+    }
+
+    private func _quickLanguageChipImpl(_ sender: NSButton) {
+
         guard let code = sender.identifier?.rawValue else { return }
         selectTargetLanguage(code)
         Task {
@@ -443,11 +453,17 @@ final class TranslateDetailView: ModuleDetailView {
                 if !inputTextView.string.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     performTranslation()
                 }
+
             }
         }
     }
 
-    @objc private func targetLanguageChanged() {
+    @objc nonisolated private func targetLanguageChanged() {
+        Task { @MainActor [weak self] in self?._targetLanguageChangedImpl() }
+    }
+
+    private func _targetLanguageChangedImpl() {
+
         guard let code = targetPopup.selectedItem?.representedObject as? String else { return }
         selectTargetLanguage(code)
         Task {
@@ -456,10 +472,16 @@ final class TranslateDetailView: ModuleDetailView {
                 TranslateDetailStatus.targetLanguageCode = code
                 updateDashboardSummary()
             }
+
         }
     }
 
-    @objc private func swapLanguages() {
+    @objc nonisolated private func swapLanguages() {
+        Task { @MainActor [weak self] in self?._swapLanguagesImpl() }
+    }
+
+    private func _swapLanguagesImpl() {
+
         guard let source = sourceLanguageCode else { return }
         guard let currentTarget = targetPopup.selectedItem?.representedObject as? String else { return }
         sourceLanguageCode = currentTarget
@@ -468,7 +490,13 @@ final class TranslateDetailView: ModuleDetailView {
         Task { await config.setTranslationTargetLanguage(source) }
     }
 
-    @objc private func inputChanged() {
+
+    @objc nonisolated private func inputChanged() {
+        Task { @MainActor [weak self] in self?._inputChangedImpl() }
+    }
+
+    private func _inputChangedImpl() {
+
         inputTextView.refreshPlaceholder()
         updateTranslateButtonState()
         notifyContentChanged()
@@ -476,6 +504,7 @@ final class TranslateDetailView: ModuleDetailView {
             hideErrorBanner()
             setState(.idle)
         }
+
     }
 
     private func updateTranslateButtonState() {
@@ -483,19 +512,31 @@ final class TranslateDetailView: ModuleDetailView {
         translateButton.isEnabled = hasText && translationState != .translating
     }
 
-    @objc private func copyResult() {
+    @objc nonisolated private func copyResult() {
+        Task { @MainActor [weak self] in self?._copyResultImpl() }
+    }
+
+    private func _copyResultImpl() {
+
         let text = outputTextView.string.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(text, forType: .string)
     }
 
-    @objc private func replaceSelectionTapped() {
+
+    @objc nonisolated private func replaceSelectionTapped() {
+        Task { @MainActor [weak self] in self?._replaceSelectionTappedImpl() }
+    }
+
+    private func _replaceSelectionTappedImpl() {
+
         let text = outputTextView.string.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else {
             LauncherEnvironment.current?.showStatus(LauncherStatusMessages.replaceSelectionEmpty)
             return
         }
+
         onHideLauncher?()
         let ax = accessibility
         Task {
@@ -515,7 +556,12 @@ final class TranslateDetailView: ModuleDetailView {
         }
     }
 
-    @objc private func clearAll() {
+    @objc nonisolated private func clearAll() {
+        Task { @MainActor [weak self] in self?._clearAllImpl() }
+    }
+
+    private func _clearAllImpl() {
+
         inputTextView.string = ""
         outputTextView.string = ""
         inputTextView.refreshPlaceholder()
@@ -532,7 +578,13 @@ final class TranslateDetailView: ModuleDetailView {
         notifyContentChanged()
     }
 
-    @objc private func pasteFromClipboard() {
+
+    @objc nonisolated private func pasteFromClipboard() {
+        Task { @MainActor [weak self] in self?._pasteFromClipboardImpl() }
+    }
+
+    private func _pasteFromClipboardImpl() {
+
         guard let text = NSPasteboard.general.string(forType: .string) else { return }
         inputTextView.string = text
         inputTextView.refreshPlaceholder()
@@ -541,13 +593,20 @@ final class TranslateDetailView: ModuleDetailView {
         performTranslation()
     }
 
-    @objc private func appendToDailyNote() {
+
+    @objc nonisolated private func appendToDailyNote() {
+        Task { @MainActor [weak self] in self?._appendToDailyNoteImpl() }
+    }
+
+    private func _appendToDailyNoteImpl() {
+
         let source = inputTextView.string.trimmingCharacters(in: .whitespacesAndNewlines)
         let output = outputTextView.string.trimmingCharacters(in: .whitespacesAndNewlines)
         let line: String
         if !output.isEmpty, !source.isEmpty {
             line = "\(source) → \(output)"
-        } else if !output.isEmpty {
+        }
+ else if !output.isEmpty {
             line = output
         } else {
             line = source
@@ -558,12 +617,18 @@ final class TranslateDetailView: ModuleDetailView {
         }
     }
 
-    @objc private func copySource() {
+    @objc nonisolated private func copySource() {
+        Task { @MainActor [weak self] in self?._copySourceImpl() }
+    }
+
+    private func _copySourceImpl() {
+
         let text = inputTextView.string.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(text, forType: .string)
     }
+
 
     private func performTranslation() {
         let text = inputTextView.string.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -752,15 +817,26 @@ final class TranslateDetailView: ModuleDetailView {
         errorBanner.isHidden = true
     }
 
-    @objc private func setupTranslationTapped() {
+    @objc nonisolated private func setupTranslationTapped() {
+        Task { @MainActor [weak self] in self?._setupTranslationTappedImpl() }
+    }
+
+    private func _setupTranslationTappedImpl() {
+
         if let url = URL(string: "shortcuts://") {
             NSWorkspace.shared.open(url)
         }
+
     }
 
-    @objc private func openTranslationSettingsTapped() {
+    @objc nonisolated private func openTranslationSettingsTapped() {
+        Task { @MainActor [weak self] in self?._openTranslationSettingsTappedImpl() }
+    }
+
+    private func _openTranslationSettingsTappedImpl() {
         onOpenTranslationSettings?()
     }
+
 }
 
 private enum TranslationUIState: Equatable {

@@ -81,6 +81,85 @@ import Testing
     #expect(deferred.contains(.windows))
 }
 
+// MARK: - P0 module handle memory-only (P2.3)
+
+@Test func appsHandleIsMemoryOnly() throws {
+    try expectHandleSectionIsMemoryOnly(modulePath: "Sources/LumaModules/Apps/AppsModule.swift")
+}
+
+@Test func clipboardHandleIsMemoryOnly() throws {
+    try expectHandleSectionIsMemoryOnly(modulePath: "Sources/LumaModules/Clipboard/ClipboardModule.swift")
+}
+
+@Test func notesHandleIsMemoryOnly() throws {
+    try expectHandleSectionIsMemoryOnly(modulePath: "Sources/LumaModules/Notes/NotesModule.swift")
+}
+
+@Test func appsTeardownCancelsRefreshLoopsInSource() throws {
+    let root = URL(fileURLWithPath: #filePath)
+        .deletingLastPathComponent()
+        .deletingLastPathComponent()
+        .deletingLastPathComponent()
+    let path = root.appending(path: "Sources/LumaModules/Apps/AppsModule.swift")
+    let source = try String(contentsOf: path, encoding: .utf8)
+    let teardownStart = source.range(of: "public func teardown()")!
+    let teardownEnd = source[teardownStart.lowerBound...].range(of: "public func handle(")!.lowerBound
+    let teardownSection = String(source[teardownStart.lowerBound..<teardownEnd])
+    #expect(teardownSection.contains("runningRefreshTask?.cancel()"))
+    #expect(teardownSection.contains("memoryTopRefreshTask?.cancel()"))
+}
+
+@Test func clipboardTeardownCancelsPollingInSource() throws {
+    let root = URL(fileURLWithPath: #filePath)
+        .deletingLastPathComponent()
+        .deletingLastPathComponent()
+        .deletingLastPathComponent()
+    let path = root.appending(path: "Sources/LumaModules/Clipboard/ClipboardModule.swift")
+    let source = try String(contentsOf: path, encoding: .utf8)
+    let teardownStart = source.range(of: "public func teardown()")!
+    let teardownEnd = source[teardownStart.lowerBound...].range(of: "public func handle(")!.lowerBound
+    let teardownSection = String(source[teardownStart.lowerBound..<teardownEnd])
+    #expect(teardownSection.contains("pollingTask?.cancel()"))
+}
+
+@Test func notesTeardownStopsWatchInSource() throws {
+    let root = URL(fileURLWithPath: #filePath)
+        .deletingLastPathComponent()
+        .deletingLastPathComponent()
+        .deletingLastPathComponent()
+    let path = root.appending(path: "Sources/LumaModules/Notes/NotesModule.swift")
+    let source = try String(contentsOf: path, encoding: .utf8)
+    let teardownStart = source.range(of: "public func teardown()")!
+    let teardownEnd = source[teardownStart.lowerBound...].range(of: "public func handle(")!.lowerBound
+    let teardownSection = String(source[teardownStart.lowerBound..<teardownEnd])
+    #expect(teardownSection.contains("watchTask?.cancel()"))
+    #expect(teardownSection.contains("stopWatching"))
+}
+
+private func expectHandleSectionIsMemoryOnly(modulePath: String) throws {
+    let root = URL(fileURLWithPath: #filePath)
+        .deletingLastPathComponent()
+        .deletingLastPathComponent()
+        .deletingLastPathComponent()
+    let path = root.appending(path: modulePath)
+    let source = try String(contentsOf: path, encoding: .utf8)
+    let handleStart = source.range(of: "public func handle(")!
+    let handleEnd = source[handleStart.lowerBound...].range(of: "public func perform(")!.lowerBound
+    let handleSection = String(source[handleStart.lowerBound..<handleEnd])
+    let forbidden = [
+        "await accessibility",
+        "accessibility.isTrusted",
+        "CGWindowListCopyWindowInfo",
+        "NSWorkspace.shared",
+        "ProcessInfo.processInfo",
+        "URLSession",
+        "FileManager.default"
+    ]
+    for token in forbidden {
+        #expect(!handleSection.contains(token), "handle() must not contain \(token) in \(modulePath)")
+    }
+}
+
 private final class CountingAccessibilityClient: AccessibilityClient, @unchecked Sendable {
     nonisolated(unsafe) var trustedCallCount = 0
 

@@ -47,9 +47,14 @@ final class QuicklinksDetailView: NSObject, ModuleDetailView {
         }
     }
 
-    @objc private func syncListScrollDocumentFrame() {
+    @objc nonisolated private func syncListScrollDocumentFrame() {
+        Task { @MainActor [weak self] in self?._syncListScrollDocumentFrameImpl() }
+    }
+
+    private func _syncListScrollDocumentFrameImpl() {
         GeekUIKit.syncVerticalListDocumentFrame(in: tableScroll)
     }
+
 
     func deactivate() {
         refreshTask?.cancel()
@@ -181,15 +186,26 @@ final class QuicklinksDetailView: NSObject, ModuleDetailView {
         }
     }
 
-    @objc private func addQuicklink() {
+    @objc nonisolated private func addQuicklink() {
+        Task { @MainActor [weak self] in self?._addQuicklinkImpl() }
+    }
+
+    private func _addQuicklinkImpl() {
+
         Task { [weak self] in
             guard let self else { return }
             let saved = try? await self.module.add(Quicklink(name: "New Quicklink", trigger: "new", urlTemplate: "https://example.com/search?q={{query}}"))
             await MainActor.run { self.refresh(select: saved?.id) }
         }
+
     }
 
-    @objc private func deleteQuicklink() {
+    @objc nonisolated private func deleteQuicklink() {
+        Task { @MainActor [weak self] in self?._deleteQuicklinkImpl() }
+    }
+
+    private func _deleteQuicklinkImpl() {
+
         let row = tableView.selectedRow
         guard quicklinks.indices.contains(row) else { return }
         let quicklink = quicklinks[row]
@@ -206,7 +222,8 @@ final class QuicklinksDetailView: NSObject, ModuleDetailView {
             do {
                 try await self.module.delete(id: id)
                 await MainActor.run { self.refresh() }
-            } catch {
+            }
+ catch {
                 await MainActor.run {
                     LauncherEnvironment.current?.showStatus(LauncherStatusMessages.deleteFailed)
                 }
@@ -214,7 +231,12 @@ final class QuicklinksDetailView: NSObject, ModuleDetailView {
         }
     }
 
-    @objc private func saveSelected() {
+    @objc nonisolated private func saveSelected() {
+        Task { @MainActor [weak self] in self?._saveSelectedImpl() }
+    }
+
+    private func _saveSelectedImpl() {
+
         let row = tableView.selectedRow
         Task { [weak self] in
             guard let self else { return }
@@ -230,6 +252,7 @@ final class QuicklinksDetailView: NSObject, ModuleDetailView {
                     if validation.contains("http") {
                         LauncherEnvironment.current?.showStatus(LauncherStatusMessages.quicklinkMissingProtocol)
                     }
+
                 }
                 return
             }
@@ -280,14 +303,25 @@ final class QuicklinksDetailView: NSObject, ModuleDetailView {
         }
     }
 
-    @objc private func selectionChanged() {
+    @objc nonisolated private func selectionChanged() {
+        Task { @MainActor [weak self] in self?._selectionChangedImpl() }
+    }
+
+    private func _selectionChangedImpl() {
         loadSelectedIntoEditor()
     }
 
-    @objc private func editorChanged() {
+
+    @objc nonisolated private func editorChanged() {
+        Task { @MainActor [weak self] in self?._editorChangedImpl() }
+    }
+
+    private func _editorChangedImpl() {
+
         updatePreview()
         updateConflictHint()
     }
+
 
     private func loadSelectedIntoEditor() {
         let row = tableView.selectedRow

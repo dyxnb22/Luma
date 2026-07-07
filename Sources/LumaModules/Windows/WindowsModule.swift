@@ -7,7 +7,7 @@ public actor WindowsModule: LumaModule {
         identifier: .windows,
         displayName: "Windows",
         capabilities: [.queryable, .providesActions],
-        defaultEnabled: true,
+        defaultEnabled: false, // Deferred: not in ModuleRegistry.allBundles; BuiltInModules.makeDeferred() only
         priority: 3,
         queryTimeout: .milliseconds(60)
     )

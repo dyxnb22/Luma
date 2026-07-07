@@ -1457,8 +1457,8 @@ Subsequent reviews MUST first determine whether a change conforms to or violates
 
 Consolidated list of currently-known facts that do not satisfy a contract. Facts only; no fix prescribed here.
 
-1. **`docs/PERMISSIONS.md` Default column is stale** — marks Menu Items, Wordbook, Window Layouts, Media, Projects, Kill Process, Secrets, Workbench "on" while manifests are `defaultEnabled: false` and D-012 agrees with code. Also names the module "Menu Items" vs code/`docs/MODULES.md` "Menu Bar Search". (C-DEFAULT-004, C-MODULE-005) — `MODULE_MATRIX.md`.
-2. **Windows manifest `defaultEnabled: true` but deferred/not registered**, and its `handle` calls `CGWindowListCopyWindowInfo` directly. (C-MODULE-006, C-HOT-001, C-LAYER-004) — `MODULE_MATRIX.md`.
+1. ~~**`docs/PERMISSIONS.md` Default column is stale**~~ — **Resolved P2.1 (2026-07-07):** Default column matches manifests + D-012; "Menu Bar Search" naming aligned. (C-DEFAULT-004)
+2. **Windows `handle` calls `CGWindowListCopyWindowInfo` directly** while deferred/not registered. Manifest `defaultEnabled: false` since P2.1; module remains in `BuiltInModules.makeDeferred()` only. (C-MODULE-006, C-HOT-001, C-LAYER-004) — `MODULE_MATRIX.md`.
 3. **Commands default-off makes `cmd doctor` / `cmd export-diagnostics` unreachable on a fresh install**, with no documented alternative diagnostics entry. (C-DEFAULT-005, C-DIAG-001) — `PRODUCT_FLOWS.md` Flow 16.
 4. **Diagnostics payload `platform`/`modules`/`permissions`/`recentErrors` are empty/`null`** at the production call site while documented as populated sections. (C-DIAG-002) — `PRODUCT_FLOWS.md` Flow 16, `MODULE_MATRIX.md`.
 5. **`crash-log.txt` path mismatch** — code writes `~/Library/Application Support/Luma/crash-log.txt`; docs/Phase 0 assumed `~/Library/Logs/Luma/`. `CrashLogBuffer.persist()` swallows full-buffer write failures via silent `try?`. (C-DIAG-003, C-DIAG-004) — `MODULE_MATRIX.md`, `PRODUCT_FLOWS.md` Flow 16, `CURRENT_STATE.md`.

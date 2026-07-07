@@ -301,6 +301,7 @@ final class AppCoordinator {
                 guard let self else { return }
                 do {
                     _ = try await self.hostClient.exportDiagnostics()
+                    ProductionSmokeSupport.finish(artifact: "diagnostics.json")
                 } catch {
                     CrashLogRecording.record("diagnostics.export.failed error=\(error.localizedDescription)")
                 }

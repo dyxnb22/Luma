@@ -50,9 +50,14 @@ final class SnippetsDetailView: NSObject, ModuleDetailView {
         }
     }
 
-    @objc private func syncListScrollDocumentFrame() {
+    @objc nonisolated private func syncListScrollDocumentFrame() {
+        Task { @MainActor [weak self] in self?._syncListScrollDocumentFrameImpl() }
+    }
+
+    private func _syncListScrollDocumentFrameImpl() {
         GeekUIKit.syncVerticalListDocumentFrame(in: tableScroll)
     }
+
 
     func deactivate() {
         detailReloadRouter.unregister(.snippets)
@@ -186,15 +191,30 @@ final class SnippetsDetailView: NSObject, ModuleDetailView {
         GeekUIKit.makeToolbarButton(title, target: self, action: action)
     }
 
-    @objc private func searchChanged() {
+    @objc nonisolated private func searchChanged() {
+        Task { @MainActor [weak self] in self?._searchChangedImpl() }
+    }
+
+    private func _searchChangedImpl() {
         refresh()
     }
 
-    @objc private func addSnippet() {
+
+    @objc nonisolated private func addSnippet() {
+        Task { @MainActor [weak self] in self?._addSnippetImpl() }
+    }
+
+    private func _addSnippetImpl() {
         presentEditor(snippet: nil, draft: nil)
     }
 
-    @objc private func useSelected() {
+
+    @objc nonisolated private func useSelected() {
+        Task { @MainActor [weak self] in self?._useSelectedImpl() }
+    }
+
+    private func _useSelectedImpl() {
+
         let row = tableView.selectedRow
         guard snippets.indices.contains(row) else { return }
         let snippet = snippets[row]
@@ -205,6 +225,7 @@ final class SnippetsDetailView: NSObject, ModuleDetailView {
             LauncherEnvironment.current?.showStatus(LauncherStatusMessages.message(for: outcome))
             await MainActor.run { self.refresh() }
         }
+
     }
 
     private func onHideLauncherIfNeeded() {
@@ -224,13 +245,24 @@ final class SnippetsDetailView: NSObject, ModuleDetailView {
         }
     }
 
-    @objc private func editSelected() {
+    @objc nonisolated private func editSelected() {
+        Task { @MainActor [weak self] in self?._editSelectedImpl() }
+    }
+
+    private func _editSelectedImpl() {
+
         let row = tableView.selectedRow
         guard snippets.indices.contains(row) else { return }
         presentEditor(snippet: snippets[row], draft: nil)
     }
 
-    @objc private func deleteSelected() {
+
+    @objc nonisolated private func deleteSelected() {
+        Task { @MainActor [weak self] in self?._deleteSelectedImpl() }
+    }
+
+    private func _deleteSelectedImpl() {
+
         let row = tableView.selectedRow
         guard snippets.indices.contains(row) else { return }
         let snippet = snippets[row]
@@ -246,9 +278,15 @@ final class SnippetsDetailView: NSObject, ModuleDetailView {
             try? await self.module.delete(id: snippet.id)
             await MainActor.run { self.refresh() }
         }
+
     }
 
-    @objc private func duplicateSelected() {
+    @objc nonisolated private func duplicateSelected() {
+        Task { @MainActor [weak self] in self?._duplicateSelectedImpl() }
+    }
+
+    private func _duplicateSelectedImpl() {
+
         let row = tableView.selectedRow
         guard snippets.indices.contains(row) else { return }
         let id = snippets[row].id
@@ -257,6 +295,7 @@ final class SnippetsDetailView: NSObject, ModuleDetailView {
             _ = try? await self.module.duplicate(id: id)
             await MainActor.run { self.refresh() }
         }
+
     }
 
     private func presentEditor(snippet: Snippet?, draft: SnippetDraft?) {

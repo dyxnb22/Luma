@@ -70,6 +70,14 @@ Build without restarting:
 Scripted smoke:
 
 ```bash
+./scripts/run_p0_smokes.sh [path/to/Luma.app]
+```
+
+Terminable P0 gate: runs `LUMA_QA_APPS`, `LUMA_QA_CLIPBOARD`, `LUMA_QA_NOTES`, `LUMA_QA_SETTINGS`, and `LUMA_QA_EXPORT` with `LUMA_QA_AUTO_EXIT=1`, polling `~/Library/Logs/Luma/*-smoke.json` (and `diagnostics.json`). Exits 0/1. **Validated** on signed `build/Luma.app` (Phase 15 review cleanup, 2026-07-07; see `PHASE15_P2_EXECUTION_REPORT.md`). Per-module manual commands remain below.
+
+Screenshot / drive-based full smoke:
+
+```bash
 ./scripts/qa/run_full_smoke.sh
 ```
 

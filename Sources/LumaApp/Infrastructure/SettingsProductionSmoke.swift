@@ -93,6 +93,7 @@ enum SettingsProductionSmoke {
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
             let url = directory.appendingPathComponent("settings-smoke.json")
             try JSONEncoder().encode(report).write(to: url, options: .atomic)
+            ProductionSmokeSupport.finish(artifact: "settings-smoke.json")
         } catch {
             CrashLogRecording.record("settings.smoke.failed error=\(error.localizedDescription)")
         }

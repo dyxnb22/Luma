@@ -168,6 +168,7 @@ enum NotesProductionSmoke {
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
             let url = directory.appendingPathComponent("notes-smoke.json")
             try JSONEncoder().encode(report).write(to: url, options: .atomic)
+            ProductionSmokeSupport.finish(artifact: "notes-smoke.json")
         } catch {
             CrashLogRecording.record("notes.smoke.failed error=\(error.localizedDescription)")
         }

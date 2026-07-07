@@ -7,6 +7,7 @@ import Testing
 @testable import LumaApp
 
 /// Scripted launcher flow driver for behavioral integration tests.
+/// Uses production `ModuleRegistry.makeCommandRegistry()` and `globalSearchModuleIDs` (C-TEST-004 partial align).
 @MainActor
 final class LauncherFlowHarness {
     private(set) var lastSnapshot: ResultSnapshot?
@@ -19,9 +20,9 @@ final class LauncherFlowHarness {
     let viewModel: LauncherViewModel
     private let dispatcher: QueryDispatcher
 
-    init(dispatcher: QueryDispatcher) {
+    init(dispatcher: QueryDispatcher, commandRouter: CommandRouter = CommandRouter()) {
         self.dispatcher = dispatcher
-        self.viewModel = LauncherViewModel(dispatcher: dispatcher)
+        self.viewModel = LauncherViewModel(dispatcher: dispatcher, commandRouter: commandRouter)
         viewModel.onSnapshot = { [weak self] snapshot in
             self?.lastSnapshot = snapshot
         }
@@ -42,9 +43,17 @@ final class LauncherFlowHarness {
         for module in BuiltInModules.makeAll() {
             await host.register(module)
         }
+        await host.configureGlobalSearchModuleIDs(ModuleRegistry.globalSearchModuleIDs)
+        await host.configureWarmupPolicy(pinned: ModuleWarmupDefaults.defaultPinnedModuleIDs)
+        await host.applyEnabledSet(ModuleWarmupDefaults.defaultEnabledModuleIDs)
         await host.warmupAll()
+        let registry = ModuleRegistry.makeCommandRegistry()
         let dispatcher = QueryDispatcher(host: host, usage: InMemoryUsageTracker())
-        return LauncherFlowHarness(dispatcher: dispatcher)
+        let harness = LauncherFlowHarness(
+            dispatcher: dispatcher,
+            commandRouter: CommandRouter(registry: registry)
+        )
+        return harness
     }
 
     func showPanel() {

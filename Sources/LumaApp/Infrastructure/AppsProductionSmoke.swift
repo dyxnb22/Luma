@@ -80,6 +80,7 @@ enum AppsProductionSmoke {
             let url = directory.appendingPathComponent("apps-smoke.json")
             let data = try JSONEncoder().encode(report)
             try data.write(to: url, options: .atomic)
+            ProductionSmokeSupport.finish(artifact: "apps-smoke.json")
         } catch {
             CrashLogRecording.record("apps.smoke.failed error=\(error.localizedDescription)")
         }

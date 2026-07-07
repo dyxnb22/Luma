@@ -121,6 +121,7 @@ enum ClipboardProductionSmoke {
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
             let url = directory.appendingPathComponent("clipboard-smoke.json")
             try JSONEncoder().encode(report).write(to: url, options: .atomic)
+            ProductionSmokeSupport.finish(artifact: "clipboard-smoke.json")
         } catch {
             CrashLogRecording.record("clipboard.smoke.failed error=\(error.localizedDescription)")
         }

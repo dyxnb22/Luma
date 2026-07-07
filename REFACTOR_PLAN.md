@@ -126,6 +126,18 @@ This order is forced by the evidence, not a stylistic preference:
 
 See `PHASE12_SESSION_SHOW_GOVERNANCE_REPORT.md`.
 
+### Phase 13 — P1 Exit / commit readiness
+
+| Task | Status | Notes |
+|------|--------|-------|
+| 13.1 Review cleanup | ✅ | `appliesCarbonShowDebounce(reason:)` in `show(reason:)` |
+| 13.2 Documentation pass | ✅ | `P1_EXIT_SUMMARY.md`; Phase 11/12 reports updated |
+| 13.3 Full regression | ✅ | `swift test` 792/792 |
+| 13.4 Signed app smokes | ✅ | Apps/Clipboard/Notes/Settings JSON smokes; EXPORT deferred |
+| 13.5 P1 Exit | ✅ **Go** | See `P1_EXIT_SUMMARY.md` |
+
+**P1 Exit:** Achieved — Launcher P1.1–P1.5 scope delivered across Phase 11–12; P1.2 session owner explicitly deferred to P2 per audit.
+
 **P1 entry conditions (mandatory):**
 
 1. **Run Phase 9.8 P0 MVP Smoke Gate** (`docs/QA.md`) before starting or merging any P1 work.

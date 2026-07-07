@@ -1,14 +1,15 @@
 # Phase 12 — Session State & Show Entry Governance Report
 
 **Date:** 2026-07-07  
-**Baseline:** `803b0672` + Phase 11–12 uncommitted work
+**Baseline:** `803b0672`  
+**P1 commit:** `c53fb635` — *Refine launcher session and show-entry governance*
 
 ---
 
 ## 改动文件列表
 
 ### 文档（12.1–12.2）
-- `LAUNCHER_SESSION_STATE_AUDIT.md` — **new**
+- `LAUNCHER_STATE_AUDIT.md` — **new** (session state audit; filename in repo)
 - `LAUNCHER_SHOW_ENTRY_CONTRACT.md` — **new**
 - `REFACTOR_PLAN.md` — Phase 12 table
 
@@ -99,3 +100,5 @@ User-visible behavior unchanged: menu bar still re-fronts when visible; carbon s
 ---
 
 *Phase 12 complete. No P0 regression observed.*
+
+**Phase 13:** `LauncherShowEntryPolicy.appliesCarbonShowDebounce` wired in `show(reason:)`; see `P1_EXIT_SUMMARY.md`.

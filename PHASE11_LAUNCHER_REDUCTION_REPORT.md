@@ -2,6 +2,7 @@
 
 **Date:** 2026-07-07  
 **Baseline commit:** `803b0672` — *Document P0 smoke gate and phase 9 exit*  
+**P1 commit:** `c53fb635` — *Refine launcher session and show-entry governance*  
 **P0 code baseline:** `889ebd35` — *Add QA smoke hooks and config corruption tracking*
 
 ---
@@ -10,7 +11,7 @@
 
 ### 1. Baseline commit
 
-`803b0672` (docs on top of P0 code `889ebd35`). Work is **uncommitted** on `main`.
+`803b0672` (docs on P0 code `889ebd35`). **Committed** in `c53fb635` on `main`.
 
 ### 2. 改动文件列表
 
@@ -24,6 +25,7 @@
 | `Sources/LumaApp/Launcher/ClipboardDetailView.swift` | C | MVP search/copy/paste `@objc` → `nonisolated` |
 | `Tests/LumaAppTests/LauncherDetailLifecycleBoundaryTests.swift` | B | **New** — wiring tests |
 | `Tests/LumaCoreTests/LauncherHomeRefreshRepaintPolicyTests.swift` | D | **New** — behavioral policy tests |
+| `Tests/LumaAppTests/LauncherHomeRefreshPolicyTests.swift` | D | Wiring + `HomeLatencyTracker` |
 | `LAUNCHER_STATE_OWNER_MAP.md` | docs | 11.2–11.5 convergence markers |
 | `REFACTOR_PLAN.md` | docs | Phase 11 status table |
 
@@ -139,5 +141,7 @@
 4. Optional: terminable `LUMA_QA_*=1` smoke runner for CI signed-app gate.
 
 ---
+
+**Phase 13 (2026-07-07):** Policy consistency fix + `P1_EXIT_SUMMARY.md`. **P1 Exit: Go.**
 
 *Phase 11 combined execution complete. Stop-on-red not triggered.*

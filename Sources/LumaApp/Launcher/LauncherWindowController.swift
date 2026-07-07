@@ -187,7 +187,7 @@ final class LauncherWindowController {
            !LauncherShowEntryPolicy.shouldBeginShowWhenAlreadyVisible(reason: reason) {
             return
         }
-        if reason == .carbonHotkey {
+        if LauncherShowEntryPolicy.appliesCarbonShowDebounce(reason: reason) {
             let now = ContinuousClock.now
             if let lastCarbonShowAt, now - lastCarbonShowAt < .milliseconds(120) {
                 return

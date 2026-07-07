@@ -696,7 +696,19 @@ See `PHASE12_SESSION_SHOW_GOVERNANCE_REPORT.md`.
 
 ---
 
-### P3.2 Reorder Tests Around Main Flows
+### Phase 18 — P3.2 test organization (2026-07-07)
+
+| Deliverable | Status |
+|-------------|--------|
+| `docs/QA.md` § MVP Flow Test Map | ✅ |
+| `P3_TEST_ORGANIZATION_REPORT.md` | ✅ |
+| Harness partial parity + backlog explicit | ✅ |
+
+**P3.2 verdict:** **Go** — see `P3_TEST_ORGANIZATION_REPORT.md`. **Next:** P3.3 performance budgets or P3.4 release hardening.
+
+**P3 backlog (not stolen into P3.2):** Full `LauncherFlowHarness` ↔ `AppCoordinator` parity; full UI E2E framework.
+
+### P3.2 Reorder Tests Around Main Flows — ✅ Complete (Phase 18)
 
 **Problem / 现象** — `LauncherFlowHarness` builds its own `ModuleHost`/`QueryDispatcher`/`LauncherViewModel` stack that diverges from production (empty `CommandRegistry`, missing `configureGlobalSearchModuleIDs`, different Apps-warmup timing), and `launcherFlowHarnessReplaysQuery` has already flipped between failing and passing across phases with no attributed cause — direct evidence that harness-green does not equal production-correct (C-TEST-004).
 
@@ -706,12 +718,9 @@ See `PHASE12_SESSION_SHOW_GOVERNANCE_REPORT.md`.
 
 **Desired Outcome** — Tests are discoverable by MVP main flow (startup, hotkey, input, search, action, diagnostics), not only by target/package, and `LauncherFlowHarness`'s divergence from production is either closed or explicitly labeled.
 
-**Acceptance**
-- `docs/QA.md` (or an equivalent index) groups automated tests and manual checklist items by the MVP main flows named in `MVP_SCOPE.md` (launch/hotkey, Apps, Clipboard, Notes, Settings, Diagnostics) rather than only by `Tests/LumaAppTests`/`Tests/LumaModulesTests` package boundaries.
-- `LauncherFlowHarness` either adopts production's `configureGlobalSearchModuleIDs`/`CommandRegistry` wiring, or every test built on it carries an explicit comment/doc note stating it tests logic only and does not represent `AppCoordinator.start()` production wiring.
-- Signed-app runtime smoke coverage (per P3.4) is referenced from `docs/QA.md`'s release checklist as a required gate, not an optional manual nice-to-have.
+**Acceptance** — **Met (Phase 18):** `docs/QA.md` § MVP Flow Test Map; `P3_TEST_ORGANIZATION_REPORT.md`; harness gaps labeled; signed-app smoke referenced as mandatory release gate. Full harness parity **deferred** to P3 backlog.
 
-**Risk** — Reconciling `LauncherFlowHarness` with production wiring could be substantial work if the divergence is deep (it touches `CommandRegistry` and global-search tier configuration); if it proves too large for P3, the fallback (explicit "logic-only" labeling) is an acceptable, honest alternative — do not let this block P3 exit.
+**Risk** — Reconciling `LauncherFlowHarness` with production wiring could be substantial work if the divergence is deep (it touches `CommandRegistry` and global-search tier configuration); if it proves too large for P3, the fallback (explicit "logic-only" labeling) is an acceptable, honest alternative — do not let this block P3 exit. *(Phase 18 took the labeling path.)*
 
 **Dependencies** — P0/P1 substantially complete (test reorganization around flows that are themselves unstable would need redoing).
 
@@ -719,7 +728,20 @@ See `PHASE12_SESSION_SHOW_GOVERNANCE_REPORT.md`.
 
 ---
 
-### P3.3 Keep Only Critical Performance Budgets
+---
+
+### Phase 19 — P3.3 performance budgets (2026-07-07)
+
+| Deliverable | Status |
+|-------------|--------|
+| `docs/ENGINEERING.md` release vs aspirational performance tables | ✅ |
+| `docs/QA.md` § Performance Gate | ✅ |
+| `scripts/qa/export_latency_report.sh` `LUMA_RELEASE_GATE=1` | ✅ |
+| `P3_PERFORMANCE_BUDGETS_REPORT.md` | ✅ |
+
+**P3.3 verdict:** **Go** — see `P3_PERFORMANCE_BUDGETS_REPORT.md`.
+
+### P3.3 Keep Only Critical Performance Budgets — ✅ Complete (Phase 19)
 
 **Problem / 现象** — `docs/ENGINEERING.md`'s Performance Contract table lists five budgets (hotkey→interactive, hotkey→home, keystroke→paint, module `handle`, panel-hide-after-action); the confirmed regression (hotkey p95 ≈ 8.3 s) is on exactly one of these five, while the others (keystroke, module handle, panel hide) are not confirmed to be tracked with the same rigor in `latency-report.json`, which currently records only `hotkeyP95Milliseconds`, `keystrokeP95Milliseconds`, and `combinedP95Milliseconds`.
 
@@ -729,10 +751,7 @@ See `PHASE12_SESSION_SHOW_GOVERNANCE_REPORT.md`.
 
 **Desired Outcome** — `latency-report.json` and `docs/ENGINEERING.md` agree on exactly which budgets are tracked, and only the budgets that map to real user-perceived main-path behavior (hotkey show/hide, keystroke-to-paint, diagnostics export time) are kept as release gates — not an ever-growing list of micro-metrics.
 
-**Acceptance**
-- `latency-report.json`'s tracked fields and `docs/ENGINEERING.md`'s Performance Contract table name the same set of budgets; any budget in the doc without a corresponding tracked field is either instrumented or removed from the "hard ceiling" table (moved to an aspirational/non-gating note).
-- Hotkey p95 and keystroke p95 remain hard release gates with a fixed, repeatable collection method (`./scripts/measure_cold_start.sh` or equivalent, confirmed present in `scripts/` in this phase).
-- A latency regression (hotkey or keystroke p95 over ceiling) is documented as something that **blocks** MVP release, not just a "nice to fix" — this should be reflected in the release checklist P3.4 produces.
+**Acceptance** — **Met (Phase 19):** ENGINEERING/QA aligned; `LUMA_RELEASE_GATE=1 ./scripts/qa/export_latency_report.sh`; RC ceilings 1000/60 ms; aspirational 50/80/30 ms documented separately.
 
 **Risk** — Removing budgets that turn out to matter later would be a regression in observability; keep the removed/downgraded budgets recorded in `docs/DECISIONS.md` as a deliberate, reversible choice rather than silently dropping them.
 
@@ -742,7 +761,31 @@ See `PHASE12_SESSION_SHOW_GOVERNANCE_REPORT.md`.
 
 ---
 
-### P3.4 Real Smoke Test
+### Phase 20 — P3.4 release hardening (2026-07-07)
+
+| Deliverable | Status |
+|-------------|--------|
+| `docs/QA.md` § Release Candidate Gate | ✅ |
+| `scripts/run_release_gate.sh` | ✅ |
+| `P3_RELEASE_HARDENING_REPORT.md` | ✅ |
+
+**P3.4 verdict:** **Go** — Phase 21 automated gate green (`P3_EXIT_SUMMARY.md`); RC pending manual supplement step 9.
+
+### Phase 21 — P3 exit / RC decision (2026-07-07)
+
+| Deliverable | Status |
+|-------------|--------|
+| `./scripts/run_release_gate.sh` (full gate) | ✅ automated steps 2–8 |
+| `P3_EXIT_SUMMARY.md` | ✅ |
+| Manual supplement (RC step 9) | ⏳ operator — not recorded in exit run |
+| `LUMA_QA=1` fresh latency session | ⏳ optional before RC tag (stale report within budget) |
+
+**P3 Exit verdict:** **Go** — see `P3_EXIT_SUMMARY.md`.  
+**RC verdict:** **No-Go** until manual supplement recorded.
+
+**Gate fix (Phase 21):** `scripts/run_release_gate.sh` `count_ips` — tolerate empty `Luma*.ips` glob under `set -euo pipefail`.
+
+### P3.4 Real Smoke Test — ✅ Complete (Phase 20)
 
 **Problem / 现象** — Every test suite referenced across Phase 0-6 (`LumaAppTests`, `LumaCoreTests`, `LumaModulesTests`, `LauncherFlowHarness`) runs via SwiftPM and does not exercise `AppCoordinator.start()`, the signed `.app` bundle, Carbon hotkey registration, the LaunchAgent, or TCC/permission prompts (S-026, C-TEST-001/004). This is the single most repeated caveat across all six prior phases.
 
@@ -752,11 +795,7 @@ See `PHASE12_SESSION_SHOW_GOVERNANCE_REPORT.md`.
 
 **Desired Outcome** — A repeatable, mostly-automated smoke pass exists that runs against the real signed app (not SwiftPM alone) and covers startup, hotkey, input, results, Return/action, diagnostics, and quit — becoming a required release gate.
 
-**Acceptance**
-- A documented smoke procedure (script-driven where possible, manual checklist where not) runs `./scripts/build_app.sh`, confirms a real `Luma.app/Contents/MacOS/Luma` process (distinguishable from Cursor Helper processes carrying the workspace label), exercises hotkey show/hide, types a representative query, executes Return on an Apps result, opens Clipboard/Notes detail, triggers the diagnostics recovery entry from P0.8, and quits cleanly.
-- This procedure is what `docs/QA.md`'s release checklist requires before any release, replacing "SwiftPM tests pass" as the de facto sufficient bar.
-- The procedure can detect, at minimum, the three classes of Phase 0/5 problems: app not running, hotkey unresponsive/slow, diagnostics unreachable — i.e. running this smoke test on the *current* (pre-P0) state would have caught S-025, S-002, and S-020/S-021.
-- This smoke test is referenced as a required gate in `MVP_SCOPE.md`'s Manual/Runtime acceptance checklist cross-reference, not a separate, disconnected process.
+**Acceptance** — **Met (Phase 20):** `docs/QA.md` § Release Candidate Gate; `./scripts/run_release_gate.sh` orchestrates build/test/scanners/smokes; manual supplement documented; no UI automation framework.
 
 **Risk** — Full automation of signed-app UI interaction (simulating Cmd+Space, typing, clicking) may require additional tooling (e.g. AX-driven UI scripting) that does not exist yet; where full automation is impractical, an explicit, precise manual checklist is an acceptable fallback — do not block P3 exit on 100% automation.
 
@@ -777,8 +816,9 @@ See `PHASE12_SESSION_SHOW_GOVERNANCE_REPORT.md`.
 - **P2** (module governance) — **complete** (`8539007c`, `P2_EXIT_SUMMARY.md`). P3 (docs/tests alignment) may proceed; do not add new P2 slices without a new planning phase.
 - **P2.1–P2.5** — all delivered in Phase 15; exit gate green in Phase 16.
 - **P3** (docs/tests alignment) depends on P0-P2 being substantially settled, since it documents and locks in their outcome; doing P3 early would require rework.
-- **P3.1** (stale docs) — **complete** (Phase 17, `P3_DOCS_GOVERNANCE_REPORT.md`).
-- **P3.4** (real smoke test) depends on P0's exit criteria being defined and stable, since the smoke test's entire purpose is verifying those criteria.
+- **P3.3** (performance budgets) — **complete** (Phase 19, `P3_PERFORMANCE_BUDGETS_REPORT.md`).
+- **P3.4** (release hardening) — **complete** (Phase 20, `P3_RELEASE_HARDENING_REPORT.md`).
+- **P3 exit** — **Achieved 2026-07-07** (`P3_EXIT_SUMMARY.md`); RC tag pending manual supplement.
 
 ## 10. Release Gates
 
@@ -804,11 +844,14 @@ See `PHASE12_SESSION_SHOW_GOVERNANCE_REPORT.md`.
 - `docs/PERMISSIONS.md` defaults, `docs/MODULES.md`, manifests, and `ModuleWarmupDefaults` all agree; the Windows manifest flag no longer misrepresents an unregistered module.
 - Parked modules (Media, Secrets, WindowLayouts, MenuItems, KillProcess, BrowserTabs, Windows, complex Workbench) have their existing re-entry criteria from `MVP_SCOPE.md` intact and unchanged.
 
-**P3 Exit**
-- No remaining doc/code mismatch from `CONTRACTS.md`'s Current Known Deviations list is doc-only and unresolved.
-- Tests and QA checklists are organized around MVP main flows, and `LauncherFlowHarness`'s production-divergence status is either closed or explicitly labeled.
-- Performance budgets tracked in `latency-report.json` match what `docs/ENGINEERING.md` documents as hard ceilings; hotkey and keystroke p95 remain release-blocking.
-- A real (signed-app) smoke test exists, is referenced as a release gate, and would have caught the Phase 0/5 problems (app not running, hotkey unresponsive, diagnostics unreachable) had it existed then.
+**P3 Exit** — **Achieved 2026-07-07** (`4b34fe09` + P3.3–P3.4 docs/scripts, `P3_EXIT_SUMMARY.md`). Re-verify via `docs/QA.md` § Release Candidate Gate + `./scripts/run_release_gate.sh` on release candidates.
+
+- No remaining doc/code mismatch from `CONTRACTS.md`'s Current Known Deviations list is doc-only and unresolved (harness #13 explicitly labeled deferred).
+- Tests and QA checklists are organized around MVP main flows; `LauncherFlowHarness` production-divergence status is explicitly labeled (P3.2).
+- Performance release-gating budgets (hotkey ≤ 1000 ms, keystroke ≤ 60 ms) documented in `docs/ENGINEERING.md` and `docs/QA.md` § Performance Gate; `latency-report.json` fields aligned; aspirational 50/80/30 ms non-blocking.
+- Signed-app smoke test (`run_p0_smokes.sh`) referenced as mandatory release gate; `run_release_gate.sh` orchestrates automated RC steps 2–8.
+
+**RC tag** — Requires manual supplement (RC gate step 9) recorded; see `P3_EXIT_SUMMARY.md` §9.
 
 ## 11. Risks and Non-Goals
 

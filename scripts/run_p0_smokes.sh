@@ -64,6 +64,12 @@ run_smoke() {
         return 0
       fi
       echo "    FAIL $env_name: process exited before $artifact" >&2
+      echo "    expected: $artifact_path" >&2
+      if pgrep -x Luma >/dev/null 2>&1; then
+        echo "    pgrep -x Luma: still running (unexpected)" >&2
+      else
+        echo "    pgrep -x Luma: empty" >&2
+      fi
       return 1
     fi
     sleep 1
@@ -72,6 +78,8 @@ run_smoke() {
 
   kill "$pid" 2>/dev/null || true
   echo "    FAIL $env_name: timeout after ${TIMEOUT_SEC}s waiting for $artifact" >&2
+  echo "    expected: $artifact_path" >&2
+  pgrep -x Luma >/dev/null 2>&1 && echo "    pgrep -x Luma: still running" >&2
   return 1
 }
 

@@ -89,6 +89,94 @@ Prepare deterministic smoke data:
 ./scripts/qa/prep_smoke_env.sh
 ```
 
+## MVP Flow Test Map
+
+Maps `PRODUCT_FLOWS.md` main paths to automated tests and signed-app smokes. **Layer key:** **Unit** = isolated logic/module actor; **Integration** = harness or multi-component SwiftPM; **Smoke** = signed `Luma.app` + `LUMA_QA_*` JSON artifact; **Manual** = human checklist only.
+
+**Release mandatory gates** (P0): `swift test` (full suite), `scripts/scan_appkit_executor_risk.sh`, `./scripts/run_p0_smokes.sh` after `./scripts/build_app.sh --no-restart`, plus § P0 MVP Smoke Gate manual supplement for hotkey/Esc.
+
+**Harness caveat:** `LauncherFlowHarness` has **partial** production parity (P2.5). It is integration evidence for query/dispatch logic only — **not** a substitute for signed-app smokes or `AppCoordinator` wiring. See `P3_TEST_ORGANIZATION_REPORT.md`.
+
+### P0 core modules
+
+| MVP surface | Flow(s) | Layer | Swift test filter (representative) | Signed-app smoke | Release gate | Gap |
+| --- | --- | --- | --- | --- | --- | --- |
+| **Apps** | 6, 7, 9 | Unit | `AppsModuleTests`, `AppsMemoryTop`, `MVPModuleDiagnostic` (`app top` warming) | `LUMA_QA_APPS=1` → `apps-smoke.json` | **Yes** (smoke + module unit) | No Carbon Return-to-launch in smoke; real app focus not asserted in SwiftPM |
+| **Clipboard** | 7, 9, 13 | Unit | `Clipboard`, `MVPModuleDiagnostic` (AX paste permission), `ClipboardPersistence` | `LUMA_QA_CLIPBOARD=1` → `clipboard-smoke.json` | **Yes** | Paste into external app not automated in smoke (copy + detail only) |
+| **Notes** | 7, 10, 13 | Unit | `Notes`, `MVPModuleDiagnostic` (onboarding row), `NotesCreateOpensLocalFile` | `LUMA_QA_NOTES=1` → `notes-smoke.json` | **Yes** | Tree/Map UI not in smoke; file create + config restore only |
+| **Settings** | 1, 15 | Unit | `ConfigurationStore`, `EnabledModulesMigration`, `Config`, `Persistence` | `LUMA_QA_SETTINGS=1` → `settings-smoke.json` | **Yes** | SwiftUI Settings window not driven in smoke; UserDefaults round-trip only |
+| **Diagnostics** | 16 | Unit | `DiagnosticsExport`, `CommandsModuleDoctor` | `LUMA_QA_EXPORT=1` → `diagnostics.json` | **Yes** | Menu bar Doctor UI not automated; export payload validated, not alert sheet |
+
+### Launcher / input / hotkey (cross-cutting)
+
+| Concern | Flow(s) | Layer | Swift test filter | Signed-app smoke | Release gate | Gap |
+| --- | --- | --- | --- | --- | --- | --- |
+| **Hotkey show/hide** | 2, 3, 12 | Unit + Integration | `HotkeyToggle`, `HotkeyDoubleFire`, `LauncherShowEntryPolicy`, `LauncherMenuBarShowEntry`, `LauncherPanelVisibilitySession` | `latency-report.json` / `diagnostics.json` `hotkeyP95Milliseconds` when present | **Partial** — manual supplement required | No `LUMA_QA_HOTKEY` env; Carbon path not in smoke runner |
+| **Keystroke → results** | 5, 6 | Unit + Integration | `KeystrokeReplayPerformance`, `QueryDispatcher`, `QueryView`, `LauncherFlowHarness`, `LauncherGoldenReplay` | — | **Partial** — SwiftPM required; signed/manual typed-query supplement required until P3.4 | Harness ≠ `LauncherRootController` query apply; no typed-query smoke env yet |
+| **Empty home** | 4 | Integration | `emptyQueryHomeGuideHasRows`, `LauncherHomeSplit`, `BackHome` | — | SwiftPM only | Open Apps column not asserted in harness |
+| **Detail enter/exit** | 10, 11 | Integration | `DetailHierarchy`, `LauncherDetailLifecycle`, `LauncherSearchDetailMode`, `DetailTypingEscape` | Notes/Clipboard smokes open detail indirectly | SwiftPM + manual | No signed-app Esc/restore smoke |
+| **Action / Return** | 8, 9 | Unit | `LauncherActionDispatch`, `ActionExecutor`, `ActionFailureFeedback` | Apps/Clipboard smokes exercise Return paths | **Partial** | External app activation not in SwiftPM |
+| **Permissions** | 13 | Unit | `MVPModuleDiagnostic`, `PermissionBanner`, `PermissionBannerContext` | Clipboard smoke (AX path) | SwiftPM + manual AX | Parked-module permission rows not gated |
+
+### Extended / non-MVP (not release gates)
+
+| Area | Swift test filter | Notes |
+| --- | --- | --- |
+| Core P1 (Snippets, Quicklinks, Translate; Todo conditional) | `Snippets`, `Quicklinks`, `Translate`, `Todo` | Default-on today / Todo open decision (`MVP_SCOPE.md`); **not** P0 smoke gate |
+| Parked / deferred | `Wordbook`, `Media`, `Secrets`, `WindowLayouts`, `MenuItems`, `KillProcess`, `BrowserTabs`, `Projects`, `Workbench` | Extended QA only; must not block P0 release |
+| Windows (deferred) | — | Unregistered; no gate |
+
+### Quick command reference
+
+```bash
+# Full P0 SwiftPM slice (see also § P0 MVP Smoke Gate)
+swift test --filter 'AppsModuleTests|Clipboard|Notes|Settings|Config|Persistence|DiagnosticsExport|LauncherActionDispatch|MVPModuleDiagnostic|ModuleHandleContract'
+
+# Integration / harness
+swift test --filter 'LauncherFlowHarness|LauncherGoldenReplay|StabilizationFlow|HotkeyToggle|HotkeyDoubleFire'
+
+# Signed-app (mandatory release)
+./scripts/build_app.sh --no-restart && ./scripts/run_p0_smokes.sh
+```
+
+## Performance Gate (P3.3)
+
+Release-blocking performance checks only. See `docs/ENGINEERING.md` § Performance Contract for aspirational targets (50/80 ms hotkey, 30 ms keystroke).
+
+| Budget | RC ceiling | Primary source | Secondary | Manual supplement |
+| --- | --- | --- | --- | --- |
+| Hotkey p95 | ≤ **1000 ms** | `latency-report.json` → `hotkeyP95Milliseconds` | `diagnostics.json` → `latencyP95Milliseconds` (combined; reference only) | Cmd+Space show/hide ×20 feel |
+| Keystroke p95 | ≤ **60 ms** | `latency-report.json` → `keystrokeP95Milliseconds` | `swift test --filter KeystrokeReplayPerformance` | Type a query; confirm first paint |
+| Diagnostics export | Payload complete | `./scripts/run_p0_smokes.sh` → `diagnostics.json` | Menu bar Export Diagnostics… | — |
+
+**Not RC blockers:** `combinedP95Milliseconds`, module `handle` timeout, panel-hide micro-metrics, `LauncherPerfCounters` test-only counters.
+
+### Collecting `latency-report.json`
+
+`./scripts/run_p0_smokes.sh` does **not** set `LUMA_QA=1` and does **not** update `latency-report.json`. Collect latency separately:
+
+```bash
+./scripts/build_app.sh --no-restart
+pkill -x Luma 2>/dev/null || true
+LUMA_QA=1 build/Luma.app/Contents/MacOS/Luma
+# Exercise: Cmd+Space show/hide several times; type queries (e.g. app, clip).
+# Quit the app (⌘Q) so markHomeRendered writes the report.
+cat ~/Library/Logs/Luma/latency-report.json
+```
+
+Check against RC ceilings (release gate mode):
+
+```bash
+LUMA_RELEASE_GATE=1 ./scripts/qa/export_latency_report.sh
+```
+
+Engineering stricter check (50/30 ms targets):
+
+```bash
+./scripts/qa/export_latency_report.sh
+# Or: LUMA_LATENCY_HOTKEY_P95_MS=50 LUMA_LATENCY_KEYSTROKE_P95_MS=30 ./scripts/qa/export_latency_report.sh
+```
+
 ## P0 MVP Smoke Gate (Phase 9.8)
 
 **Baseline commit:** `889ebd35` (`P0_EXIT_SUMMARY.md`). Re-run this gate before any P1/P2/P3 merge and before release tags.
@@ -319,6 +407,65 @@ Severity:
 - P1: common workflow broken, serious latency/stability issue, confusing failure/no feedback.
 - P2: polish, documentation drift, uncommon but real edge case.
 
+## Release Candidate Gate (P3.4)
+
+**Mandatory** before any release tag or RC build. `./scripts/run_release_gate.sh` automates steps 2–8 plus the mandatory latency check; step 9 is manual.
+
+```bash
+./scripts/run_release_gate.sh
+```
+
+Or run manually:
+
+```bash
+# 1. Clean tree (informational)
+git status && git log -1 --oneline
+
+# 2–4. Build + test + scanners
+swift build
+swift test
+bash scripts/scan_handle_memory_only.sh
+bash scripts/scan_appkit_executor_risk.sh
+
+# 5–8. Signed app + smokes + artifacts + .ips
+./scripts/build_app.sh --no-restart
+IPS_BEFORE=$(find ~/Library/Logs/DiagnosticReports -maxdepth 1 -name 'Luma*.ips' 2>/dev/null | wc -l | tr -d ' ')
+./scripts/run_p0_smokes.sh
+ls ~/Library/Logs/Luma/{apps,clipboard,notes,settings}-smoke.json diagnostics.json
+IPS_AFTER=$(find ~/Library/Logs/DiagnosticReports -maxdepth 1 -name 'Luma*.ips' 2>/dev/null | wc -l | tr -d ' ')
+test "$IPS_AFTER" -eq "$IPS_BEFORE"
+
+# Latency report (mandatory — existing file must pass RC budgets)
+# Fresh LUMA_QA=1 session recommended before RC tag; see § Performance Gate.
+LUMA_RELEASE_GATE=1 ./scripts/qa/export_latency_report.sh
+
+# 9. Manual supplement (required for RC — cannot be scripted)
+#     See checklist below.
+```
+
+### Step 9 — Manual supplement (RC required)
+
+- Cmd+Space show/hide ×20 (or menu bar **Show** if hotkey unavailable)
+- Esc / hide / reshow — search field accepts input
+- Menu bar: **Show**, **Run Doctor…**, **Export Diagnostics…**
+- Confirm no new `~/Library/Logs/DiagnosticReports/Luma-*.ips` during the session
+- **Recommended** before RC tag: fresh `LUMA_QA=1` latency session (§ Performance Gate) to refresh `latency-report.json`; the automated gate still requires an on-disk report within RC ceilings
+
+### Not RC blockers
+
+Parked/deferred modules, Core P1 (Snippets, Quicklinks, Translate), Todo (open decision per `MVP_SCOPE.md`) — extended QA only unless they corrupt the default P0 path.
+
+### Artifact paths
+
+| Artifact | Path |
+| --- | --- |
+| Apps smoke | `~/Library/Logs/Luma/apps-smoke.json` |
+| Clipboard smoke | `~/Library/Logs/Luma/clipboard-smoke.json` |
+| Notes smoke | `~/Library/Logs/Luma/notes-smoke.json` |
+| Settings smoke | `~/Library/Logs/Luma/settings-smoke.json` |
+| Diagnostics | `~/Library/Logs/Luma/diagnostics.json` |
+| Latency | `~/Library/Logs/Luma/latency-report.json` (mandatory RC check in automated gate) |
+
 ## Release
 
 Prerequisites:
@@ -348,14 +495,12 @@ Signed-only local DMG:
 LUMA_SKIP_NOTARIZATION=1 ./scripts/release/build_dmg.sh
 ```
 
-Release checklist:
+Release checklist (summary — full gate above):
 
-- `swift test` passes.
-- **P0 MVP Smoke Gate** (`§ P0 MVP Smoke Gate` above) passes on signed app — run `./scripts/run_p0_smokes.sh` after `./scripts/build_app.sh --no-restart` (not SwiftPM-only).
-- `./scripts/build_app.sh --no-restart` passes.
-- Release DMG builds and verifies.
-- Fresh-machine launch passes Gatekeeper.
-- Hotkey and P0 permissions are manually checked. Browser Tabs Automation, Todo/EventKit, and AX-dependent parked/Core P1 surfaces are extended/non-MVP checks and do not gate Phase 9 P0 unless they regress the default P0 path.
+- **Release Candidate Gate** (`§ Release Candidate Gate` + `./scripts/run_release_gate.sh`) passes (includes mandatory `latency-report.json` check).
+- Manual supplement (step 9) completed and recorded.
+- Release DMG builds and verifies (when shipping DMG).
+- Fresh-machine launch passes Gatekeeper (when shipping externally).
 - VoiceOver spot check covers search, list rows, detail exit, and Settings.
 - Update release notes or tag notes with known limitations.
 

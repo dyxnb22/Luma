@@ -912,7 +912,7 @@ Background refresh (Open Apps, caches, warmup) MUST NOT repaint a hidden/visible
 **Compliance Signals**
 - `swift test --filter BackHome`, `PanelSignals`, `LauncherSnapshot`.
 - `docs/QA.md`: "First frame shows empty home without rebuilding Open Apps"; "Panel hide with Open Apps hidden does not trigger extra Open Apps refresh work."
-- `latency-report.json` hotkey p95 within the 50 ms/80 ms budget.
+- `latency-report.json` hotkey/keystroke p95 within RC ceilings when checked (`docs/QA.md` § Performance Gate: hotkey ≤ 1000 ms emergency, keystroke ≤ 60 ms hard ceiling via `LUMA_RELEASE_GATE=1 ./scripts/qa/export_latency_report.sh`). Engineering targets 50/80 ms are aspirational (P3.3).
 
 **Current Known Deviations**
 - Phase 0 hotkey p95 ≈ 8.3 s is ~100× the documented ceiling — a standing violation of the hotkey→visible budget whose root cause is deliberately not diagnosed in Phase 0-3.

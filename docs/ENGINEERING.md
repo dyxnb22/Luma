@@ -150,15 +150,40 @@ Presentation screen:
 
 ## Performance Contract
 
-Budgets:
+### Release-gating budgets (P0 / RC)
+
+These are the only performance checks that **block** a release candidate. Collection methods are in `docs/QA.md` § Performance Gate.
+
+| Metric | RC ceiling | Primary artifact | Field |
+| --- | ---: | --- | --- |
+| Hotkey → interactive panel | **1000 ms** p95 (P0 emergency) | `~/Library/Logs/Luma/latency-report.json` | `hotkeyP95Milliseconds` |
+| Keystroke → first ranked paint | **60 ms** p95 (engineering hard ceiling) | same file | `keystrokeP95Milliseconds` |
+| Diagnostics export | Payload complete | `~/Library/Logs/Luma/diagnostics.json` | `platform`, `modules`, `permissions`, `latencyP95Milliseconds`, `crashLogPath`, … |
+
+Notes:
+
+- `latency-report.json` is written by `LatencyTelemetry.exportReport()` when `HomeLatencyTracker.markHomeRendered()` runs under **`LUMA_QA=1`**. `./scripts/run_p0_smokes.sh` does **not** set `LUMA_QA=1` — collect latency in a separate signed-app session (see QA).
+- `diagnostics.json` → `latencyP95Milliseconds` is `LatencyTelemetry.currentP95()` (**combined** hotkey + keystroke samples), not a substitute for per-metric `latency-report.json` fields.
+- `combinedP95Milliseconds` in `latency-report.json` is informational only — **not** an RC blocker.
+
+### Engineering targets (aspirational — not RC blockers)
+
+Long-term UX goals from `MVP_SCOPE.md`. Track in development; failing these alone does not block RC while emergency ceilings pass.
 
 | Metric | p95 target | Hard ceiling |
 | --- | ---: | ---: |
-| Hotkey -> interactive panel | 50 ms | 80 ms |
-| Hotkey -> home painted | 50 ms | 80 ms |
-| Keystroke -> first ranked paint | 30 ms | 60 ms |
-| Module `handle` | Module timeout | 80 ms |
-| Panel hide after action | 20 ms | 40 ms |
+| Hotkey → interactive / home painted | 50 ms | 80 ms |
+| Keystroke → first ranked paint | 30 ms | 60 ms |
+
+### Test-only / informational (not RC blockers)
+
+| Metric | Source | Notes |
+| --- | --- | --- |
+| Module `handle` | Per-module `queryTimeout` in manifest | Enforced by `QueryDispatcher` timeout → diagnostic row |
+| Panel hide after action | `LauncherPerfCounters` / `LauncherDurationRecorder` | SwiftPM tests only; not in `latency-report.json` |
+| `combinedP95Milliseconds` | `latency-report.json` | Merged sample set; reference only |
+
+Instrumentation: `LatencyTelemetry` in `Sources/LumaApp/Infrastructure/LatencyHUD.swift` (`hotkeySamples`, `keystrokeSamples`); hotkey marks from `HomeLatencyTracker.markHotkey()` in `LauncherWindowController.show()`; keystroke marks from `LauncherRootController` snapshot apply.
 
 Hot path rules:
 

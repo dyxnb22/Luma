@@ -178,8 +178,8 @@ Contracts are written to be **decidable**: each has at least one Compliance Sign
 - Review checkpoint: concrete AppKit detail views must not be placed in `LumaCore`.
 
 **Current Known Deviations**
-- `LauncherContentMode` is defined in `Sources/LumaCore/Home/LauncherKeyRouter.swift` while `docs/ENGINEERING.md` describes it as living "in `LauncherContentCoordinator`" (an app-layer type) — a doc/code location mismatch (`ARCHITECTURE_MAP.md`, `MODULE_MATRIX.md` Code/Docs Mismatches).
-- `DiagnosticsPayload`/`DiagnosticsExport`/`CrashLogRecording` live in `LumaCore/Util`, while `docs/ENGINEERING.md` attributes diagnostics/logging to `LumaInfrastructure` (`ARCHITECTURE_MAP.md` layer cross-check). The actual disk-persisting `CrashLogBuffer` is in `LumaInfrastructure`; the payload/redaction split across layers is recorded as fact.
+- ~~`LauncherContentMode` doc location~~ — **Resolved P3.1 (2026-07-07):** type in `LauncherKeyRouter.swift`; runtime owner `LauncherContentCoordinator` (`docs/ENGINEERING.md`).
+- ~~Diagnostics layer attribution stale~~ — **Resolved P3.1 (2026-07-07):** `DiagnosticsPayload`/`DiagnosticsExport`/`CrashLogRecording` in `LumaCore/Util`; `CrashLogBuffer` in `LumaInfrastructure` (`docs/ENGINEERING.md`, `docs/PERMISSIONS.md`).
 
 ### C-LAYER-003: `LumaModules` Owns Business Modules — Not AppKit Or Launcher View Hierarchy
 
@@ -244,7 +244,7 @@ Contracts are written to be **decidable**: each has at least one Compliance Sign
 - Review checkpoint on any file added under `Sources/LumaInfrastructure/**`.
 
 **Current Known Deviations**
-- Diagnostics ownership is split: `CrashLogBuffer` (persisting actor) is in `LumaInfrastructure`, but `DiagnosticsExport`/`DiagnosticsPayload`/`CrashLogRecording` are in `LumaCore/Util` (`ARCHITECTURE_MAP.md`), while docs attribute diagnostics/logging to `LumaInfrastructure`.
+- None recorded. Diagnostics split is intentional and documented (P3.1): `CrashLogBuffer` in `LumaInfrastructure`; `DiagnosticsPayload`/`DiagnosticsExport`/`CrashLogRecording` in `LumaCore/Util`; assembly in `LumaApp` (`RecoveryDiagnosticsCollector`, `AppHostService`).
 
 ### C-LAYER-006: Cross-Layer Dependency Direction Is Acyclic And Matches `Package.swift`
 
@@ -429,8 +429,7 @@ Every registered module MUST declare a manifest and bundle covering: identifier,
 - `MODULE_MATRIX.md` Summary Matrix regenerable from manifests.
 
 **Current Known Deviations**
-- `WindowsModule` manifest declares `defaultEnabled: true` but is not registered in `ModuleRegistry.allBundles` (only `BuiltInModules.makeDeferred()`), so its manifest default is misleading (`MODULE_MATRIX.md`).
-- Manifest `defaultEnabled` values conflict with `docs/PERMISSIONS.md` Default column for several modules (see C-DEFAULT-004).
+- `WindowsModule` remains deferred/unregistered; `handle` calls `CGWindowListCopyWindowInfo` directly (`MODULE_MATRIX.md`). Manifest `defaultEnabled: false` since P2.1.
 
 ### C-MODULE-002: `warmup` / `handle` / `perform` / `teardown` Responsibilities Are Distinct
 
@@ -515,7 +514,7 @@ The set of modules that warm up and answer on a fresh install MUST be small and 
 - `docs/DECISIONS.md` D-012 and `docs/MODULES.md` lists match manifests.
 
 **Current Known Deviations**
-- `docs/PERMISSIONS.md` Default column marks Menu Items, Wordbook, Window Layouts, Media, Projects, Kill Process, Secrets, Workbench as "on", conflicting with `defaultEnabled: false` and D-012 (`MODULE_MATRIX.md`).
+- None recorded for the D-012 default-off set (`docs/PERMISSIONS.md` aligned P2.1).
 
 ### C-MODULE-006: Deferred Modules Do Not Participate Until Warm-Cache + Tests + Permission Behavior Land
 
@@ -524,7 +523,7 @@ A deferred module MUST NOT be registered, warmed, or allowed to participate in q
 
 **Rationale**
 - `docs/MODULES.md`: "Deferred source-retained module: **Windows** ... Not registered in active warmup/default enablement; `handle()` must not ship on the hot path until warm-cache + tests land."
-- `MODULE_MATRIX.md` Windows section: deferred, `handle` violates memory-only, no dedicated test file, manifest `defaultEnabled: true` is misleading.
+- `MODULE_MATRIX.md` Windows section: deferred, `handle` violates memory-only, no dedicated test file. *(Phase 0 historical: manifest claimed `defaultEnabled: true` — corrected P2.1 to `false`.)*
 
 **Applies To**
 - `WindowsModule` and any future deferred module
@@ -535,7 +534,7 @@ A deferred module MUST NOT be registered, warmed, or allowed to participate in q
 - Review gate: promoting a deferred module requires memory-only `handle` + tests + permission behavior.
 
 **Current Known Deviations**
-- `WindowsModule` manifest `defaultEnabled: true` while deferred; `handle` calls `CGWindowListCopyWindowInfo`; no dedicated test (`MODULE_MATRIX.md`).
+- `WindowsModule` `handle` calls `CGWindowListCopyWindowInfo` while deferred; no dedicated test (`MODULE_MATRIX.md`). Manifest metadata `defaultEnabled: false` since P2.1.
 
 ---
 
@@ -724,8 +723,8 @@ Query text MUST flow through a single defined path: `LumaSearchBar` (UI source o
 The home/results/detail content mode MUST be owned by `LauncherContentCoordinator` as the single source (`LauncherContentMode`). No other object MUST independently decide the presentation mode.
 
 **Rationale**
-- `docs/ENGINEERING.md`: "`LauncherContentMode` in `LauncherContentCoordinator` is the single source for home/results/detail presentation."
-- `PRODUCT_FLOWS.md` Cross-Cutting State Owners: content mode owner = `LauncherContentCoordinator` (holding the enum defined in `LauncherKeyRouter.swift`).
+- `docs/ENGINEERING.md`: `LauncherContentMode` enum in `LauncherKeyRouter.swift`; `LauncherContentCoordinator` holds the runtime `mode` value and is the single owner for home/results/detail presentation.
+- `PRODUCT_FLOWS.md` Cross-Cutting State Owners: content mode owner = `LauncherContentCoordinator`.
 
 **Applies To**
 - `LauncherContentCoordinator`, `LauncherContentMode`
@@ -735,7 +734,7 @@ The home/results/detail content mode MUST be owned by `LauncherContentCoordinato
 - Review checkpoint: mode transitions route through the coordinator.
 
 **Current Known Deviations**
-- The `LauncherContentMode` enum type is defined in `LauncherKeyRouter.swift`, not in `LauncherContentCoordinator` as `docs/ENGINEERING.md` states — a doc/code location mismatch (ownership of the live value is still the coordinator) (`ARCHITECTURE_MAP.md`).
+- None recorded. Enum type location documented in `docs/ENGINEERING.md` (P3.1); runtime ownership remains `LauncherContentCoordinator`.
 
 ### C-UI-004: Selection State Has A Defined Bridge
 
@@ -1098,7 +1097,6 @@ Every persistence format MUST define and document its behavior for corruption (d
 **Current Known Deviations**
 - `cmd doctor` corrupt-file list is incomplete: it excludes `JSONFileStore` (Snippets/Media) and `ClipboardHistoryStore` corruption (`PRODUCT_FLOWS.md` Flow 15).
 - `ConfigCorruptionRegistry` is in-memory only; corruption from a prior run is not shown after restart (`PRODUCT_FLOWS.md` Flow 15).
-- `cmd doctor` is in the default-off Commands module, so it is unreachable on a fresh install (see C-DEFAULT-005).
 
 ### C-DIAG-001: Diagnostics Export Is Reachable, Stable, Redacted, Local-Only
 
@@ -1106,8 +1104,9 @@ Every persistence format MUST define and document its behavior for corruption (d
 Diagnostics export MUST be reachable by the user, produce a stable redacted local-only artifact, and never transmit off-device. Its entry point MUST NOT be fully cut off by the default configuration without a documented alternative.
 
 **Rationale**
-- `docs/ENGINEERING.md` / `docs/PERMISSIONS.md`: `DiagnosticsExport` writes redacted local JSON to `~/Library/Logs/Luma/diagnostics.json`; privacy: no telemetry server.
-- `PRODUCT_FLOWS.md` Flow 16: `cmd export-diagnostics` requires the default-off Commands module; `diagnostics.json` was missing at Phase 0 (`CURRENT_STATE.md`).
+- `docs/ENGINEERING.md` / `docs/PERMISSIONS.md`: menu bar **Run Doctor…** / **Export Diagnostics…** via `AppHostService`; `DiagnosticsExport` writes redacted JSON to `~/Library/Logs/Luma/diagnostics.json`; local-only, no telemetry.
+- `docs/QA.md` / `P2_EXIT_SUMMARY.md`: `./scripts/run_p0_smokes.sh` (`LUMA_QA_EXPORT=1`) validates export on the signed app.
+- *(Phase 0 historical evidence only: `cmd export-diagnostics` was Commands-gated and `diagnostics.json` was missing before P0.8 recovery wiring — `CURRENT_STATE.md`, `PRODUCT_FLOWS.md` Flow 16.)*
 
 **Applies To**
 - `CommandsModule` `export-diagnostics`, `AppHostService.exportDiagnostics`, `DiagnosticsExport`
@@ -1118,7 +1117,7 @@ Diagnostics export MUST be reachable by the user, produce a stable redacted loca
 - Reachability review: export entry is not fully blocked on a fresh install.
 
 **Current Known Deviations**
-- `cmd export-diagnostics` is unreachable on a fresh MVP install because Commands is default-off (`PRODUCT_FLOWS.md` Flow 16) — consistent with Phase 0's missing `diagnostics.json`.
+- ~~`cmd export-diagnostics` unreachable on fresh install~~ — **Resolved P0.8/P3.1:** menu bar **Export Diagnostics…** and `LUMA_QA_EXPORT` smoke (`P2_EXIT_SUMMARY.md`) validate `diagnostics.json` on default install. Mirrored `cmd export-diagnostics` when Commands is enabled.
 
 ### C-DIAG-002: Declared Diagnostics Fields Have Real Population Sources
 
@@ -1126,8 +1125,9 @@ Diagnostics export MUST be reachable by the user, produce a stable redacted loca
 Every field declared in the diagnostics payload / documented in the docs MUST have a real population source at the production call site. Fields MUST NOT be documented as populated while shipping empty/`null` long-term.
 
 **Rationale**
-- `docs/ENGINEERING.md`/`docs/PERMISSIONS.md`: payload has `platform`, `modules`, `permissions`, `recentErrors`, `corruptConfigFiles`.
-- `PRODUCT_FLOWS.md` Flow 16 + `MODULE_MATRIX.md`: the production call site passes only `latencyP95` + `breadcrumbs`; `platform`/`modules`/`permissions`/`recentErrors` are `nil`/`[]`; only `perfCounters`/`durationSummary`/`corruptConfigFiles` auto-populate via default parameters.
+- `docs/ENGINEERING.md` / `docs/PERMISSIONS.md`: payload sections `platform`, `modules`, `permissions`, `recentErrors`, `corruptConfigFiles`, `crashLogPath`, `crashLogWriteStatus`.
+- `RecoveryDiagnosticsCollector.buildExportPayload` (via `AppHostService.exportDiagnostics`) populates all declared sections at the production call site (P0.8/P2.5).
+- *(Phase 0 historical evidence only: pre-P0.8 call site passed only `latencyP95` + breadcrumbs — `PRODUCT_FLOWS.md` Flow 16, `MODULE_MATRIX.md`.)*
 
 **Applies To**
 - `DiagnosticsExport.buildPayload`, `AppHostService.exportDiagnostics`, `DiagnosticsPayload`
@@ -1137,7 +1137,7 @@ Every field declared in the diagnostics payload / documented in the docs MUST ha
 - Doc check: `docs/ENGINEERING.md` payload description matches actually-populated fields.
 
 **Current Known Deviations**
-- `platform`, `modules`, `permissions`, `recentErrors` are un-populated (`null`/empty) at the production call site while documented as populated sections (`PRODUCT_FLOWS.md` Flow 16, `MODULE_MATRIX.md`).
+- ~~`platform`/`modules`/`permissions`/`recentErrors` un-populated at production call site~~ — **Resolved P0.8/P2.5:** `RecoveryDiagnosticsCollector.buildExportPayload` populates all declared sections; validated by `LUMA_QA_EXPORT` in `./scripts/run_p0_smokes.sh` (`P2_EXIT_SUMMARY.md`).
 
 ### C-DIAG-003: Crash-Breadcrumb Write Failure Is Isolated But Explainable
 
@@ -1145,8 +1145,9 @@ Every field declared in the diagnostics payload / documented in the docs MUST ha
 Crash-breadcrumb writes MUST NOT affect the app's main path on failure, but a persistent write failure MUST NOT be entirely unexplainable — the failure mode MUST be documented (and ideally observable) rather than silently swallowed with no defined behavior.
 
 **Rationale**
-- `PRODUCT_FLOWS.md` Flow 16: `CrashLogBuffer.persist()` uses a silent best-effort `try?` and rewrites the entire buffer on every record; a write failure is silently swallowed with no signal.
-- Phase 3 fact: CrashLogBuffer silent write-failure; O(buffer) rewrite per breadcrumb.
+- `docs/ENGINEERING.md` / `docs/PERMISSIONS.md`: `crash-log.txt` at `~/Library/Application Support/Luma/crash-log.txt`; export includes `crashLogPath` and `crashLogWriteStatus`.
+- `CrashLogBuffer.persist()` uses `do`/`catch`, sets `lastPersistFailed`, and exposes status via diagnostics export.
+- *(Phase 0/3 historical evidence only: earlier `persist()` used silent `try?` — `PRODUCT_FLOWS.md` Flow 16.)*
 
 **Applies To**
 - `CrashLogBuffer`, `CrashLogRecording`
@@ -1156,7 +1157,7 @@ Crash-breadcrumb writes MUST NOT affect the app's main path on failure, but a pe
 - Doc check: `crash-log.txt` write-failure behavior documented in `docs/ENGINEERING.md`/`docs/PERMISSIONS.md`.
 
 **Current Known Deviations**
-- `CrashLogBuffer.persist()` swallows write failures silently (`try?`); the file could stop updating with no signal (`PRODUCT_FLOWS.md` Flow 16).
+- `CrashLogBuffer.persist()` records `lastPersistFailed` and exposes `crashLogWriteStatus` in export, but there is no in-app alert if the file stops updating and the user never exports diagnostics.
 
 ### C-DIAG-004: Diagnostics And Crash-Log Paths Are Documented And Consistent
 
@@ -1164,8 +1165,8 @@ Crash-breadcrumb writes MUST NOT affect the app's main path on failure, but a pe
 The on-disk locations of `diagnostics.json` and `crash-log.txt` MUST be documented consistently across docs, and the docs MUST match the code's actual write locations.
 
 **Rationale**
-- `docs/PERMISSIONS.md`: "Export path: `~/Library/Logs/Luma/diagnostics.json`" (correct for diagnostics) but does not document the `crash-log.txt` location.
-- `PRODUCT_FLOWS.md` Flow 16 + `MODULE_MATRIX.md`: `crash-log.txt` is written to `~/Library/Application Support/Luma/crash-log.txt`, not `~/Library/Logs/Luma/`; Phase 0 checked the wrong directory (`CURRENT_STATE.md`).
+- `docs/PERMISSIONS.md` / `docs/ENGINEERING.md`: `diagnostics.json` → `~/Library/Logs/Luma/diagnostics.json`; `crash-log.txt` → `~/Library/Application Support/Luma/crash-log.txt` (both documented P3.1).
+- *(Phase 0 historical evidence only: docs omitted `crash-log.txt` and Phase 0 checked `~/Library/Logs/Luma/` — `CURRENT_STATE.md`, `MODULE_MATRIX.md`.)*
 
 **Applies To**
 - `DiagnosticsExport.exportToLogsDirectory`, `CrashLogBuffer`, `docs/PERMISSIONS.md`, `docs/ENGINEERING.md`
@@ -1175,7 +1176,7 @@ The on-disk locations of `diagnostics.json` and `crash-log.txt` MUST be document
 - Review checkpoint on any change to diagnostics/crash-log paths.
 
 **Current Known Deviations**
-- `crash-log.txt` actual path (`~/Library/Application Support/Luma/`) is undocumented; docs and Phase 0 assumed `~/Library/Logs/Luma/` (`MODULE_MATRIX.md`, `CURRENT_STATE.md`).
+- None recorded for path documentation (P3.1). `CrashLogBuffer.persist()` sets `lastPersistFailed` without in-app alert if export is never run — see C-DIAG-003.
 
 ---
 
@@ -1198,7 +1199,7 @@ The default-on module set MUST be small and stable, matching the MVP decision. E
 - `docs/DECISIONS.md` D-012 matches manifests.
 
 **Current Known Deviations**
-- `docs/PERMISSIONS.md` Default column lists far more modules "on" than D-012 (see C-DEFAULT-004).
+- None recorded (P2.1 aligned `docs/PERMISSIONS.md` with D-012).
 
 ### C-DEFAULT-002: Default-On Modules Are Useful Without High-Sensitivity Permissions
 
@@ -1238,8 +1239,7 @@ Modules that require high-sensitivity permissions, are expert-only, carry heavy 
 - `docs/DECISIONS.md`/`docs/MODULES.md` default-off list matches manifests.
 
 **Current Known Deviations**
-- `docs/PERMISSIONS.md` marks several of these "on" (see C-DEFAULT-004).
-- `WindowsModule` manifest `defaultEnabled: true` despite being deferred (`MODULE_MATRIX.md`).
+- None recorded for the D-012 default-off set. `docs/PERMISSIONS.md` aligned P2.1.
 
 ### C-DEFAULT-004: Defaults Are Consistent Across Docs, Manifest, And Warmup Defaults
 
@@ -1247,8 +1247,8 @@ Modules that require high-sensitivity permissions, are expert-only, carry heavy 
 A module's default state MUST be identical across `docs/PERMISSIONS.md`, `docs/MODULES.md`, its manifest `defaultEnabled`, and `ModuleWarmupDefaults`. Module display names MUST also be consistent across docs.
 
 **Rationale**
-- `MODULE_MATRIX.md` Code/Docs Mismatches: `docs/PERMISSIONS.md` Default column marks Menu Items/Wordbook/Window Layouts/Media/Projects/Kill Process/Secrets/Workbench "on" while manifests are `false` and D-012 agrees with code; "Menu Items" vs "Menu Bar Search" naming differs.
-- `docs/MODULES.md` and `docs/DECISIONS.md` D-012 agree with code.
+- `docs/PERMISSIONS.md`, `docs/MODULES.md`, manifests, and `ModuleWarmupDefaults` agree post-P2.1 (C-DEFAULT-004 resolved).
+- *(Phase 0/4 historical evidence only: `MODULE_MATRIX.md` recorded PERMISSIONS Default-column staleness and "Menu Items" vs "Menu Bar Search" naming — corrected P2.1.)*
 
 **Applies To**
 - `docs/PERMISSIONS.md`, `docs/MODULES.md`, `docs/DECISIONS.md`, all manifests, `WarmupTier.swift`
@@ -1258,9 +1258,7 @@ A module's default state MUST be identical across `docs/PERMISSIONS.md`, `docs/M
 - `swift test --filter BuiltInModules` for the manifest/warmup-defaults side.
 
 **Current Known Deviations**
-- `docs/PERMISSIONS.md` Default column is stale for Menu Items, Wordbook, Window Layouts, Media, Projects, Kill Process, Secrets, Workbench (all "on" in the doc, `false`/off in code) (`MODULE_MATRIX.md`).
-- `docs/PERMISSIONS.md` names the module "Menu Items"; `docs/MODULES.md`/code use "Menu Bar Search" (`MODULE_MATRIX.md`).
-- Windows manifest `defaultEnabled: true` vs deferred non-registration.
+- None recorded (P2.1 resolved PERMISSIONS defaults and Windows manifest metadata).
 
 ### C-DEFAULT-005: Diagnostics/Recovery Entry Is Not Fully Cut Off By Default Config
 
@@ -1268,8 +1266,9 @@ A module's default state MUST be identical across `docs/PERMISSIONS.md`, `docs/M
 Diagnostic and recovery entry points (doctor, export-diagnostics) MUST NOT be entirely unreachable under the default configuration. If they are gated behind a default-off module, there MUST be a documented alternative entry or the gating MUST be recorded as an explicit, accepted fact.
 
 **Rationale**
-- `PRODUCT_FLOWS.md` Flows 7/16 + `MODULE_MATRIX.md`: Commands is default-off, so `cmd doctor` and `cmd export-diagnostics` are unreachable on a fresh install; `docs/DECISIONS.md` D-014 documents the bare-command-off consequence but not a diagnostics alternative.
-- Phase 0: `diagnostics.json` missing — consistent with the command being unreachable/never run (`CURRENT_STATE.md`).
+- `docs/ENGINEERING.md` / `docs/MODULES.md`: menu bar **Run Doctor…** / **Export Diagnostics…** reach `AppHostService` on a default install (Commands off).
+- `docs/QA.md`: P0 gate includes `LUMA_QA_EXPORT` via `./scripts/run_p0_smokes.sh`.
+- *(Phase 0 historical evidence only: bare `cmd doctor` / `cmd export-diagnostics` were Commands-gated and `diagnostics.json` was absent — `CURRENT_STATE.md`, `PRODUCT_FLOWS.md` Flow 16.)*
 
 **Applies To**
 - `CommandsModule` (doctor, export-diagnostics), Settings, menu bar
@@ -1280,7 +1279,7 @@ Diagnostic and recovery entry points (doctor, export-diagnostics) MUST NOT be en
 - `docs/QA.md` release checklist covers a diagnostics path.
 
 **Current Known Deviations**
-- On a fresh MVP install, `cmd doctor` and `cmd export-diagnostics` are unreachable until the user enables Commands; no alternative diagnostics entry is documented (`PRODUCT_FLOWS.md` Flow 16).
+- None recorded. Menu bar recovery entry satisfies the contract on default install (P0.8/P3.1).
 
 ---
 
@@ -1351,8 +1350,9 @@ Each rule in `docs/swift6-appkit-boundaries.md` MUST have a lint (`scripts/scan_
 Every end-to-end main path MUST be traceable from a test or QA checklist to a flow in `PRODUCT_FLOWS.md`, and tests that model production behavior MUST NOT silently diverge from the production wiring they claim to represent.
 
 **Rationale**
-- `PRODUCT_FLOWS.md` Flow 6: `LauncherFlowHarness` builds its own `ModuleHost`/`QueryDispatcher`/`LauncherViewModel` stack that diverges from production (empty `CommandRegistry`, no `configureGlobalSearchModuleIDs`), which weakens the harness's representativeness.
-- Phase 3 fact: harness/production divergence means flow tests do not fully represent production paths.
+- `PRODUCT_FLOWS.md` Flow 6: harness models a subset of production wiring.
+- P2.5 partial align: production `CommandRegistry`, `configureGlobalSearchModuleIDs`, `applyEnabledSet`; `launcherFlowHarnessReplaysQuery` passes (`P2_EXIT_SUMMARY.md`).
+- *(Phase 0/3 historical evidence only: harness had empty `CommandRegistry` and `launcherFlowHarnessReplaysQuery` failed — `CURRENT_STATE.md`.)*
 
 **Applies To**
 - `LauncherFlowHarness`, `LauncherGoldenReplayTests`, flow-level tests
@@ -1363,7 +1363,7 @@ Every end-to-end main path MUST be traceable from a test or QA checklist to a fl
 - `swift test` flow-harness suites pass and map to a named flow.
 
 **Current Known Deviations**
-- `LauncherFlowHarness` diverges from production wiring (empty `CommandRegistry`, missing `configureGlobalSearchModuleIDs`, async Apps warmup timing) and `launcherFlowHarnessReplaysQuery` currently fails (`PRODUCT_FLOWS.md` Flow 6, `CURRENT_STATE.md`).
+- Full `LauncherFlowHarness` ↔ `AppCoordinator` parity gap remains (P3.2). Partial align P2.5; `launcherFlowHarnessReplaysQuery` passes.
 
 ### C-REVIEW-001: Review Judges Against CONTRACTS.md Before Adding Local Rules
 
@@ -1459,9 +1459,9 @@ Consolidated list of currently-known facts that do not satisfy a contract. Facts
 
 1. ~~**`docs/PERMISSIONS.md` Default column is stale**~~ — **Resolved P2.1 (2026-07-07):** Default column matches manifests + D-012; "Menu Bar Search" naming aligned. (C-DEFAULT-004)
 2. **Windows `handle` calls `CGWindowListCopyWindowInfo` directly** while deferred/not registered. Manifest `defaultEnabled: false` since P2.1; module remains in `BuiltInModules.makeDeferred()` only. (C-MODULE-006, C-HOT-001, C-LAYER-004) — `MODULE_MATRIX.md`.
-3. **Commands default-off makes `cmd doctor` / `cmd export-diagnostics` unreachable on a fresh install**, with no documented alternative diagnostics entry. (C-DEFAULT-005, C-DIAG-001) — `PRODUCT_FLOWS.md` Flow 16.
-4. **Diagnostics payload `platform`/`modules`/`permissions`/`recentErrors` are empty/`null`** at the production call site while documented as populated sections. (C-DIAG-002) — `PRODUCT_FLOWS.md` Flow 16, `MODULE_MATRIX.md`.
-5. **`crash-log.txt` path mismatch** — code writes `~/Library/Application Support/Luma/crash-log.txt`; docs/Phase 0 assumed `~/Library/Logs/Luma/`. `CrashLogBuffer.persist()` swallows full-buffer write failures via silent `try?`. (C-DIAG-003, C-DIAG-004) — `MODULE_MATRIX.md`, `PRODUCT_FLOWS.md` Flow 16, `CURRENT_STATE.md`.
+3. ~~**Commands default-off makes `cmd doctor` / `cmd export-diagnostics` unreachable on a fresh install**~~ — **Resolved P0.8/P3.1 (2026-07-07):** menu bar **Run Doctor…** / **Export Diagnostics…** via `AppHostService`; `LUMA_QA_EXPORT` smoke validates `diagnostics.json`. (C-DEFAULT-005, C-DIAG-001)
+4. ~~**Diagnostics payload `platform`/`modules`/`permissions`/`recentErrors` are empty/`null`**~~ — **Resolved P0.8/P2.5:** `RecoveryDiagnosticsCollector.buildExportPayload` populates all sections; P2 Exit smoke gate. (C-DIAG-002)
+5. ~~**`crash-log.txt` path mismatch**~~ — **Resolved P3.1 (2026-07-07):** documented at `~/Library/Application Support/Luma/crash-log.txt`; export includes `crashLogPath`/`crashLogWriteStatus`. (C-DIAG-004). **Partial:** `CrashLogBuffer` write failure has no in-app alert unless export runs (C-DIAG-003).
 6. **`ConfigCorruptionRegistry` is purely in-memory** — does not survive restart; corruption from a prior run is not shown after relaunch. (C-PERSIST-002, C-FAIL-006) — `PRODUCT_FLOWS.md` Flow 15.
 7. **`JSONConfigPersistence` read failures (I/O/permission) are silent fallback, not quarantined/registered** — only decode failures reach the corruption registry. (C-PERSIST-001, C-FAIL-006) — `PRODUCT_FLOWS.md` Flow 15.
 8. **`JSONFileStore` (Snippets/Media) and `ClipboardHistoryStore` use separate quarantine paths**; `JSONFileStore` does not feed `ConfigCorruptionRegistry`, so their corruption is not confirmed in `cmd doctor`. (C-PERSIST-002, C-FAIL-006) — `PRODUCT_FLOWS.md` Flow 15, `MODULE_MATRIX.md`.
@@ -1469,14 +1469,15 @@ Consolidated list of currently-known facts that do not satisfy a contract. Facts
 10. **Diagnostic behavior is inconsistent across modules** — non-`.queryable` targeted modules return silent empty vs disabled modules' diagnostic row; bespoke cold strings coexist with the generic `module.warming` row; "empty acceptable" vs "diagnostic required" is decided per-module. (C-FAIL-005, C-HOT-005) — `PRODUCT_FLOWS.md` Flows 6/7, `MODULE_MATRIX.md`.
 11. **`HotkeyConfig.save()` is a no-op** (Command+Space fixed by design); if any Settings UI implies a configurable chord, it would silently no-op on save (Settings UI not confirmed). (C-UI-002 adjacent; product/UX consistency) — `PRODUCT_FLOWS.md` Flow 2.
 12. **Menu bar "Show" bypasses the Carbon show guard/debounce** by calling `show()` directly, undocumented in the two-paths description. (C-UI-001, C-UI-006) — `PRODUCT_FLOWS.md` Flow 3.
-13. **`LauncherFlowHarness` diverges from production wiring** (empty `CommandRegistry`, missing `configureGlobalSearchModuleIDs`, async Apps warmup timing) and `launcherFlowHarnessReplaysQuery` currently fails. (C-TEST-004, C-TEST-001) — `PRODUCT_FLOWS.md` Flow 6, `CURRENT_STATE.md`.
+13. **`LauncherFlowHarness` full production parity gap** — P2.5 partial align (`CommandRegistry`, `globalSearchModuleIDs`, `applyEnabledSet`; `launcherFlowHarnessReplaysQuery` passes). Full `AppCoordinator` E2E parity remains P3.2. (C-TEST-004) — `P2_EXIT_SUMMARY.md`.
 14. **Hotkey p95 ≈ 8.3 s** — ~100× the documented 50 ms p95 / 80 ms ceiling for hotkey→interactive/home. (C-HOT-002, C-ASYNC-003) — `CURRENT_STATE.md`.
 15. **Three `.ips` crashes (SIGSEGV/SIGABRT)** on 2026-07-06 in the AppKit executor-boundary risk class; the app process was not running at Phase 0 snapshot. (C-APPKIT-001, C-TEST-003) — `CURRENT_STATE.md`.
 16. **`scripts/scan_appkit_executor_risk.sh` and `LauncherListView.swift` have uncommitted edits of unknown origin** — the scanner's current pass state after its own edits is not established. (C-APPKIT-001, C-TEST-003) — `CURRENT_STATE.md`.
-17. **Layer/ownership split facts**: `LauncherContentMode` defined in `LauncherKeyRouter.swift` (not `LauncherContentCoordinator` as docs say); diagnostics types split across `LumaCore`/`LumaInfrastructure` vs docs' `LumaInfrastructure` attribution; `AppCoordinator` instantiates a `ProjectsModule` for path matching; Workbench capture split across app/module layers. (C-LAYER-001/002/005, C-UI-003) — `ARCHITECTURE_MAP.md`, `MODULE_MATRIX.md`, `PRODUCT_FLOWS.md`.
+17. ~~**Layer/ownership doc mismatches** (`LauncherContentMode` location; diagnostics types attributed only to `LumaInfrastructure`)~~ — **Resolved P3.1 (2026-07-07)** in `docs/ENGINEERING.md` / `docs/PERMISSIONS.md`. **Remaining facts:** `LauncherSessionState` is test-only (not production SoT); `AppCoordinator` instantiates `ProjectsModule` for path matching; Workbench capture split across app/module layers. (C-LAYER-001/002/005, C-UI-003)
 18. **Full `PermissionResultBuilder.row` call-site enumeration is unconfirmed** beyond Todo and Window Layouts — permission-visibility coverage across all permissioned modules is not fully verified. (C-FAIL-001) — `ARCHITECTURE_MAP.md`, `MODULE_MATRIX.md`.
 19. **Platform clients' throw-on-no-op is unverified** — the `ActionExecutor` propagation contract holds, but each `PasteboardClient`/`AccessibilityClient`/`WorkspaceClient` path was not confirmed to throw rather than silently no-op. (C-FAIL-004) — `PRODUCT_FLOWS.md` Flow 9.
 20. **Startup/hotkey-failure/idle-teardown lack located end-to-end tests**; `KillProcessModule` has no explicit teardown; show-path menu-tree Task cancellation-on-hide unconfirmed. (C-TEST-001, C-MODULE-004, C-ASYNC-001) — `PRODUCT_FLOWS.md` Flows 1/2/3/14.
+21. **`LauncherSessionState` is test-only** — reducer + four legacy effect hooks; not production source of truth for panel/query/selection (runtime owners: `LauncherRootController`, `LauncherContentCoordinator`, `LauncherPanelVisibilitySession`). Delete vs promote decision deferred. (`docs/ENGINEERING.md`, `LAUNCHER_STATE_AUDIT.md`)
 
 ---
 
@@ -1503,8 +1504,8 @@ Consolidated list of currently-known facts that do not satisfy a contract. Facts
 | C-DETAIL-001..005 | P2: detail registry; P3: Flows 10/11 presenter/exit-planner, no-detail modules |
 | C-CACHE-001/002 | P1/P2: cache TTLs, clipboard size; P3: Flow 15 corruption hidden by fallback |
 | C-PERSIST-001/002 | P3: Flow 15 three persistence paths, read vs decode failure, in-memory registry |
-| C-DIAG-001..004 | P0: diagnostics.json missing, crash-log path; P3: Flow 16 under-populated payload, silent crash-write |
-| C-DEFAULT-001..005 | P2: defaults conflict (PERMISSIONS stale, Windows); P3: Flow 16 Commands off unreachable |
+| C-DIAG-001..004 | P0/P2: export reachable + populated payload; P3.1: paths documented |
+| C-DEFAULT-001..005 | P2.1: defaults aligned; P0.8/P3.1: recovery entry documented |
 | C-TEST-001..004 | P0: failing harness test, missing tests; P3: harness/production divergence; QA gates |
 | C-REVIEW-001 | P0: "越来越乱" subjective report; Phase 4 rubric purpose |
 

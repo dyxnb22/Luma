@@ -126,10 +126,11 @@ Snippets never open URLs; Quicklinks never run shell scripts; Commands never sto
 ## Commands And Scripts
 
 - Built-ins include Settings, reload modules, diagnostics, and exit (`exit` bare or `cmd quit`).
-- `cmd doctor` / `commands doctor` runs the global doctor scan (AX, EventKit, config checks, hotkey registration, corrupt configs, latency p95). Bare global `doctor` without the commands prefix does **not** run doctor checks.
+- **Recovery (default install):** menu bar **Run Doctor…** and **Export Diagnostics…** call `AppHostService` directly — not gated by Commands.
+- `cmd doctor` / `commands doctor` runs the global doctor scan when Commands is enabled (AX, EventKit, config checks, hotkey registration, corrupt configs, latency p95). Bare global `doctor` without the commands prefix does **not** run doctor checks.
 - Notes without a configured root shows onboarding row ("Choose a Notes root folder"); configure via Settings → Notes or Notes detail.
 - Projects with no scan roots or matches shows onboarding row; configure via Settings → Projects.
-- `cmd export-diagnostics` writes redacted `~/Library/Logs/Luma/diagnostics.json` (perf counters, durations, latency p95, CrashLogBuffer breadcrumbs).
+- `cmd export-diagnostics` writes the same redacted `~/Library/Logs/Luma/diagnostics.json` as menu bar export when Commands is enabled (`RecoveryDiagnosticsCollector` + `DiagnosticsExport`).
 - User scripts load from `commands.json` in Application Support.
 - Scripts execute asynchronously and do not block panel dismissal.
 - Template variables may use clipboard, selection, project, file, UUID, date/time, and related context.

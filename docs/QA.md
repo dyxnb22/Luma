@@ -351,7 +351,7 @@ LUMA_SKIP_NOTARIZATION=1 ./scripts/release/build_dmg.sh
 Release checklist:
 
 - `swift test` passes.
-- **P0 MVP Smoke Gate** (`§ P0 MVP Smoke Gate` above) passes on signed app — not SwiftPM-only.
+- **P0 MVP Smoke Gate** (`§ P0 MVP Smoke Gate` above) passes on signed app — run `./scripts/run_p0_smokes.sh` after `./scripts/build_app.sh --no-restart` (not SwiftPM-only).
 - `./scripts/build_app.sh --no-restart` passes.
 - Release DMG builds and verifies.
 - Fresh-machine launch passes Gatekeeper.

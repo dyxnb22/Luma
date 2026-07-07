@@ -659,7 +659,19 @@ See `PHASE12_SESSION_SHOW_GOVERNANCE_REPORT.md`.
 ---
 ## 8. P3 — 文档和测试对齐
 
-### P3.1 Remove / Rewrite Stale Docs
+### Phase 17 — P3.1 docs governance (2026-07-07)
+
+| Deliverable | Status |
+|-------------|--------|
+| Diagnostics ownership + paths (`docs/ENGINEERING.md`, `docs/PERMISSIONS.md`) | ✅ |
+| `LauncherContentMode` / `LauncherSessionState` docs | ✅ |
+| Recovery entry + smoke gate docs (`docs/QA.md`, `docs/MODULES.md`) | ✅ |
+| `CONTRACTS.md` resolved deviations sweep | ✅ |
+| `P3_DOCS_GOVERNANCE_REPORT.md` | ✅ |
+
+**P3.1 verdict:** **Go** — see `P3_DOCS_GOVERNANCE_REPORT.md`. **Next:** P3.2 test organization.
+
+### P3.1 Remove / Rewrite Stale Docs — ✅ Complete (Phase 17)
 
 **Problem / 现象** — Beyond the `docs/PERMISSIONS.md` default-column staleness (P2.1), other doc/code mismatches exist: `LauncherContentMode`'s documented location (`docs/ENGINEERING.md` says "in `LauncherContentCoordinator`") vs actual location (`LauncherKeyRouter.swift`); diagnostics ownership documented as `LumaInfrastructure` while `DiagnosticsPayload`/`DiagnosticsExport`/`CrashLogRecording` actually live in `LumaCore/Util`; `crash-log.txt`'s actual path undocumented anywhere.
 
@@ -678,9 +690,9 @@ See `PHASE12_SESSION_SHOW_GOVERNANCE_REPORT.md`.
 
 **Risk** — Low technical risk; the main risk is doing this before P1.2's `LauncherContentMode` decision lands, which would mean redoing this doc fix twice — sequence after P1.2.
 
-**Dependencies** — P1.2 (content-mode location decision), P0.8 (diagnostics path facts must be settled), P2.1 (defaults doc fix, closely related).
+**Dependencies** — P1.2 (content-mode decision: docs corrected to match code, P3.1), P0.8 (diagnostics paths), P2.1 (defaults).
 
-**Non-goals** — Do not rewrite `docs/ENGINEERING.md`/`docs/MODULES.md` wholesale; do not delete `docs/DECISIONS.md` history; do not add new documentation files beyond correcting existing ones.
+**Non-goals** — Do not rewrite `docs/ENGINEERING.md`/`docs/MODULES.md` wholesale; do not delete `docs/DECISIONS.md` history; do not add new documentation files beyond correcting existing ones and `P3_DOCS_GOVERNANCE_REPORT.md`.
 
 ---
 
@@ -765,7 +777,7 @@ See `PHASE12_SESSION_SHOW_GOVERNANCE_REPORT.md`.
 - **P2** (module governance) — **complete** (`8539007c`, `P2_EXIT_SUMMARY.md`). P3 (docs/tests alignment) may proceed; do not add new P2 slices without a new planning phase.
 - **P2.1–P2.5** — all delivered in Phase 15; exit gate green in Phase 16.
 - **P3** (docs/tests alignment) depends on P0-P2 being substantially settled, since it documents and locks in their outcome; doing P3 early would require rework.
-- **P3.1** (stale docs) depends on P1.2's content-mode decision and P0.8's diagnostics-path facts.
+- **P3.1** (stale docs) — **complete** (Phase 17, `P3_DOCS_GOVERNANCE_REPORT.md`).
 - **P3.4** (real smoke test) depends on P0's exit criteria being defined and stable, since the smoke test's entire purpose is verifying those criteria.
 
 ## 10. Release Gates

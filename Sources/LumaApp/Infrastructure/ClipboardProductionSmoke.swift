@@ -61,13 +61,19 @@ enum ClipboardProductionSmoke {
 
         let pasteOutcome: String
         if let entry = sample {
-            let outcome = (try? await clipboardModule.pasteEntry(id: entry.id)) ?? .copiedOnly
-            if outcome == .permissionRequired {
-                pasteOutcome = "permissionRequired"
-            } else if outcome == .pasted {
-                pasteOutcome = "pasted"
-            } else {
-                pasteOutcome = "copiedOnly"
+            do {
+                let outcome = try await clipboardModule.pasteEntry(id: entry.id)
+                switch outcome {
+                case .permissionRequired:
+                    pasteOutcome = "permissionRequired"
+                case .pasted:
+                    pasteOutcome = "pasted"
+                case .copiedOnly:
+                    pasteOutcome = "copiedOnly"
+                }
+            } catch {
+                let mapped = ActionExecutionFailureMapper.message(for: error)
+                pasteOutcome = "failed:\(mapped.message ?? error.localizedDescription)"
             }
         } else {
             pasteOutcome = "skipped:no-history"

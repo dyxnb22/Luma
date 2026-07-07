@@ -123,6 +123,9 @@ enum RecoveryDiagnosticsCollector {
         if await commandsStore.loadWasCorrupt() {
             corruptFiles.append("commands.json")
         }
+        if await notesConfigStore.loadWasCorrupt(), !corruptFiles.contains("notes.json") {
+            corruptFiles.append("notes.json")
+        }
         let manifests = BuiltInModules.manifestCatalog()
         let enabled = await config.enabledModules() ?? ModuleWarmupDefaults.defaultEnabledModuleIDs
         let pinned = await config.pinnedModuleIDs()

@@ -200,6 +200,8 @@ struct GeneralSettingsView: View {
                 Divider()
                 HStack {
                     VStack(alignment: .leading, spacing: 4) {
+                        Text("This shortcut is fixed at ⌘ Space and cannot be changed in Luma.")
+                            .font(.caption).foregroundStyle(.tertiary)
                         Text("Disable Spotlight's ⌘Space shortcut if Luma can't register the launcher hotkey.")
                             .font(.caption).foregroundStyle(.tertiary)
                         Text("Menu bar shows a warning when registration fails.")

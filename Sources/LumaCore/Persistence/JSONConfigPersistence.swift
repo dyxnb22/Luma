@@ -24,6 +24,10 @@ public enum JSONConfigPersistence {
             return LoadResult(value: fallback)
         }
         guard let data = try? Data(contentsOf: url) else {
+            if fileManager.fileExists(atPath: url.path) {
+                ConfigCorruptionRegistry.record(fileName: url.lastPathComponent)
+                CrashLogRecording.record("config.unreadable file=\(url.lastPathComponent)")
+            }
             return LoadResult(value: fallback)
         }
         do {

@@ -496,6 +496,25 @@ final class AppCoordinator {
                             )
                         }
                     }
+                    if ProcessInfo.processInfo.environment["LUMA_QA_NOTES"] == "1" {
+                        Task { [weak self] in
+                            guard let self else { return }
+                            await NotesProductionSmoke.run(
+                                viewModel: self.viewModel,
+                                notesModule: self.notesModule,
+                                workspace: self.workspace
+                            )
+                        }
+                    }
+                    if ProcessInfo.processInfo.environment["LUMA_QA_SETTINGS"] == "1" {
+                        Task { [weak self] in
+                            guard let self, let settings = self.settingsWindowController else { return }
+                            await SettingsProductionSmoke.run(
+                                config: self.config,
+                                settingsWindowController: settings
+                            )
+                        }
+                    }
                 },
                 onMemoryPressureReady: { [weak self] in
                     self?.installMemoryPressureHandler()

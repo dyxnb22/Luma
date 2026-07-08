@@ -7,7 +7,7 @@
 **P3 gate commit (HEAD at exit):** `4b34fe09` — *Update contracts for resolved diagnostics and defaults*  
 **Branch:** `main` (uncommitted P3.3–P3.4 docs/scripts on top of HEAD)  
 **P3 Exit verdict:** **Go** ✅  
-**Release Candidate verdict:** **No-Go** (pending human manual supplement — RC gate step 9)
+**Release Candidate verdict:** **No-Go** — see [`RC_BLOCKERS.md`](RC_BLOCKERS.md) (Phase 22 usability + RC step 9 manual supplement)
 
 **Phase 21.1 (2026-07-07):** Automated gate now includes mandatory `LUMA_RELEASE_GATE=1 ./scripts/qa/export_latency_report.sh` after smoke/`.ips` checks (`run_release_gate.sh` step 9/9). Fresh `LUMA_QA=1` session remains recommended, not required for the automated pass if an on-disk report exists within RC ceilings.
 
@@ -148,11 +148,19 @@ LUMA_RELEASE_GATE=1 ./scripts/qa/export_latency_report.sh
 
 ## 9. Release Candidate verdict
 
-**No-Go** — Automated gate (including mandatory `latency-report.json` check) and P3 documentation criteria are satisfied, but **RC gate step 9 (manual supplement) was not executed and recorded in this exit run**. Before tagging a release candidate:
+**No-Go** — Canonical blocker list: [`RC_BLOCKERS.md`](RC_BLOCKERS.md).
 
-1. Complete manual supplement in `docs/QA.md` § Release Candidate Gate step 9.
-2. **Recommended:** refresh latency with `LUMA_QA=1 build/Luma.app/Contents/MacOS/Luma` → hotkey/keystroke exercise → re-run `./scripts/run_release_gate.sh`.
-3. Re-run `./scripts/run_release_gate.sh` on a clean or release branch if desired.
+| Blocker | Status |
+|---------|--------|
+| **Phase 22** launcher keyboard E2E usability | **Partial** — `run_keyboard_flows.sh` PASS; manual UR re-test pending |
+| RC gate step 9 manual supplement | **Not recorded** — `docs/QA.md` § Release Candidate Gate |
+| Automated P3 gate | **Green** (2026-07-07) |
+
+Before tagging a release candidate:
+
+1. Complete Phase 22.5 acceptance (keyboard smoke + UR-001–UR-003 manual re-test).
+2. Complete manual supplement in `docs/QA.md` § Release Candidate Gate step 9.
+3. **Recommended:** refresh latency with `LUMA_QA=1 build/Luma.app/Contents/MacOS/Luma` → re-run `./scripts/run_release_gate.sh`.
 
 **Product blockers (unchanged):** Todo default-on open decision; Core P1 default-on policy confirmation — not engineering gate failures.
 

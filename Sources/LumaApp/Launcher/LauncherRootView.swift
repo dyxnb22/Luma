@@ -168,6 +168,8 @@ final class LauncherRootView: NSView {
     @MainActor
     func openModuleDetail(for moduleID: ModuleIdentifier) { controller.openModuleDetail(for: moduleID) }
     @MainActor
+    func performQABareCommandAction(raw: String) -> Bool { controller.performQABareCommandAction(raw: raw) }
+    @MainActor
     func runWorkbenchCaptureFromDetail(source: WorkbenchCaptureSource, target: WorkbenchCaptureTarget) {
         controller.runWorkbenchCaptureFromDetail(source: source, target: target)
     }
@@ -191,6 +193,23 @@ final class LauncherRootView: NSView {
     func prepareDetailForHide() async { await contentCoordinator.currentDetailObject?.prepareForLauncherHide() }
     @MainActor
     func flushPendingSessionWrites() { controller.flushPendingSessionWrites() }
+
+    @MainActor
+    func configurePanelSnapshotContext(
+        _ provider: @escaping () -> (visibilitySessionVisible: Bool, visibilityGeneration: UInt, panelVisible: Bool)
+    ) {
+        controller.panelSnapshotContext = provider
+    }
+
+    @MainActor
+    func exportStateSnapshot(reason: String? = nil) {
+        controller.exportStateSnapshot(reason: reason)
+    }
+
+    @MainActor
+    func reconcileLauncherStateAfterShow() {
+        controller.reconcileLauncherStateAfterShow()
+    }
 
     @MainActor
     func invalidatePanelSignalsCache() { controller.invalidatePanelSignalsCache() }

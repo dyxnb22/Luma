@@ -20,6 +20,10 @@ final class LumaSearchBar: NSView {
         detailModeState.suspendedQuery != nil || !detailModeState.isEditable
     }
 
+    var isSearchFieldEditable: Bool { textField.isEditable }
+
+    var currentPlaceholderTextForSnapshot: String? { currentPlaceholderText }
+
     /// Query to persist while detail mode suspends the visible field.
     var persistedQuery: String {
         detailModeState.suspendedQuery ?? stringValue

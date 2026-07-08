@@ -34,6 +34,12 @@ final class LauncherDetailLifecycleController {
 
     var isShowingDetail: Bool { contentCoordinator.showingDetail }
 
+    func currentPresentationGenerationForSnapshot() -> UInt {
+        detailPresentationGeneration.current
+    }
+
+    var detailCloseCrossfadeInFlightForSnapshot: Bool { detailCloseCrossfadeInFlight }
+
     func invalidateCrossfadeCompletions() {
         homeSplitLayout.invalidateCrossfadeCompletions()
     }

@@ -20,6 +20,7 @@ final class LauncherWindowController {
     private var lastPanelHideAt: ContinuousClock.Instant?
     private var hideStart: ContinuousClock.Instant?
     private var notificationObservers: [NSObjectProtocol] = []
+    private var qaCommandTimer: Timer?
 
     var isPanelVisible: Bool { visibilitySession.isVisible }
 
@@ -52,6 +53,41 @@ final class LauncherWindowController {
                 }
             }
         )
+        installQACommandPollerIfNeeded()
+    }
+
+    private func installQACommandPollerIfNeeded() {
+        guard ProcessInfo.processInfo.environment["LUMA_QA"] == "1" else { return }
+        qaCommandTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.consumeQACommandIfNeeded()
+            }
+        }
+    }
+
+    private func consumeQACommandIfNeeded() {
+        guard let url = Self.qaCommandURL(),
+              FileManager.default.fileExists(atPath: url.path),
+              let data = try? Data(contentsOf: url) else { return }
+        guard let rootView else { return }
+        try? FileManager.default.removeItem(at: url)
+        guard let command = try? JSONDecoder().decode(QACommand.self, from: data) else { return }
+        switch command.command {
+        case "bareOpen":
+            _ = rootView.performQABareCommandAction(raw: command.raw)
+        default:
+            break
+        }
+    }
+
+    private static func qaCommandURL() -> URL? {
+        FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask).first?
+            .appendingPathComponent("Logs/Luma/qa-command.json")
+    }
+
+    private struct QACommand: Decodable {
+        var command: String
+        var raw: String
     }
 
     private func repositionPanelIfVisible() {
@@ -101,6 +137,14 @@ final class LauncherWindowController {
             rootView.bottomAnchor.constraint(equalTo: panelContentHost.bottomAnchor)
         ])
         self.rootView = rootView
+        rootView.configurePanelSnapshotContext { [weak self] in
+            guard let self else { return (false, 0, false) }
+            return (
+                self.visibilitySession.isVisible,
+                self.visibilitySession.generation,
+                self.panel.isVisible
+            )
+        }
         panel.onDetailKeyDown = { [weak rootView] event in
             rootView?.dispatchDetailKeyDown(event) ?? false
         }
@@ -205,6 +249,7 @@ final class LauncherWindowController {
             return
         }
         lastPanelHideAt = now
+        LauncherStateKeyboardRecorder.record("cmdSpaceHide")
         hide()
     }
 
@@ -235,8 +280,10 @@ final class LauncherWindowController {
             if ProcessInfo.processInfo.environment["LUMA_QA"] == "1" {
                 self.ensureSearchFieldFocused()
             }
+            self.rootView?.reconcileLauncherStateAfterShow()
             // Cache-warm shows do not call refreshHome(); close the hotkey sample at first interactive frame.
             _ = HomeLatencyTracker.markHomeRendered()
+            self.rootView?.exportStateSnapshot(reason: "showCompleted")
         }
 
         // Heavier panel services stay off the hotkey→visible path.
@@ -324,6 +371,7 @@ final class LauncherWindowController {
             self.hideStart = nil
         }
         rootView?.saveCurrentSession()
+        rootView?.exportStateSnapshot(reason: "hideCompleted")
         finalizePanelHidden()
     }
 

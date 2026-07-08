@@ -5,8 +5,8 @@ import Foundation
 /// Every show or hide bumps generation so stale deferred show work and in-flight hide
 /// completions are ignored after a rapid toggle.
 public struct LauncherPanelVisibilitySession: Sendable {
-    private var generation: UInt = 0
     public private(set) var isVisible = false
+    public private(set) var generation: UInt = 0
 
     public init() {}
 

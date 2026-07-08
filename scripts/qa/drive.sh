@@ -1,6 +1,6 @@
 #!/bin/zsh
 # drive.sh <action> [args...]
-# action in { hotkey, type, key, screenshot, esc, return, tab, cmd-k, clear, focus, open, close }
+# action in { hotkey, type, key, screenshot, esc, return, submit, bare-open, tab, cmd-k, clear, focus, open, close, menu-show, cmd-space, wait-state }
 set -e
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
@@ -66,6 +66,13 @@ case "$1" in
   return)
     osascript -e 'tell application "System Events" to tell process "Luma" to key code 36'
     sleep 0.2 ;;
+  submit)
+    "$SCRIPT_DIR/paste_query.swift" --submit
+    sleep 0.25 ;;
+  bare-open)
+    shift
+    "$SCRIPT_DIR/paste_query.swift" --qa-bare-open "$*"
+    sleep 0.25 ;;
   tab)
     osascript -e 'tell application "System Events" to tell process "Luma" to key code 48'
     sleep 0.1 ;;
@@ -74,9 +81,44 @@ case "$1" in
     sleep 0.1 ;;
   clear)
     set_query "" ;;
+  focus)
+    osascript -e 'tell application "System Events"
+      if not (exists process "Luma") then return
+      tell process "Luma"
+        set frontmost to true
+        try
+          click text field 1 of window 1
+        end try
+      end tell
+    end tell' 2>/dev/null || true
+    sleep 0.15 ;;
   screenshot)
     out="$2"
     mkdir -p "$(dirname "$out")"
     screencapture -x -o "$out" ;;
+  menu-show)
+    osascript -e 'tell application "System Events"
+      if not (exists process "Luma") then return
+      tell process "Luma"
+        click menu item "Show Luma" of menu 1 of menu bar item "Luma" of menu bar 1
+      end tell
+    end tell' 2>/dev/null || true
+    sleep 0.65 ;;
+  cmd-space)
+    osascript -e 'tell application "System Events" to key code 49 using {command down}'
+    sleep 0.55 ;;
+  wait-state)
+    state_file="${HOME}/Library/Logs/Luma/launcher-state.json"
+    tries=0
+    while [[ $tries -lt 60 ]]; do
+      if [[ -f "$state_file" ]]; then
+        sleep 0.35
+        exit 0
+      fi
+      sleep 0.25
+      tries=$((tries + 1))
+    done
+    echo "timeout waiting for $state_file" >&2
+    exit 1 ;;
   *) echo "unknown: $1" >&2 ; exit 2 ;;
 esac

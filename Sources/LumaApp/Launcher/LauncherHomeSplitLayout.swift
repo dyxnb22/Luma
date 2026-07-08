@@ -17,6 +17,16 @@ final class LauncherHomeSplitLayout {
     private var rightPane: LauncherSplitRightPane = .hidden
     private var crossfadeGeneration: UInt = 0
 
+    var splitLayoutStateForSnapshot: LauncherHomeSplitState {
+        LauncherHomeSplitState(columnSplitActive: columnSplitActive, rightPane: rightPane)
+    }
+
+    var crossfadeGenerationForSnapshot: UInt { crossfadeGeneration }
+
+    var detailContainerSnapshot: (isHidden: Bool, alpha: CGFloat) {
+        (detailContainer.isHidden, detailContainer.alphaValue)
+    }
+
     private func applyOverlayPaneState(_ state: LauncherSplitCrossfadePaneState, guideAlpha: CGFloat?, detailAlpha: CGFloat?) {
         if let guideAlpha { guidePane.alphaValue = guideAlpha }
         if let detailAlpha { detailContainer.alphaValue = detailAlpha }

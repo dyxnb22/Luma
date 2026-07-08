@@ -78,6 +78,9 @@ final class LauncherRootController: LauncherDetailPresenting {
     private var restoreGeneration = CancellationGeneration()
     private var querySyncGraceUntil: ContinuousClock.Instant?
     var isPanelActiveForQueryApply = false
+    var panelSnapshotContext: () -> (visibilitySessionVisible: Bool, visibilityGeneration: UInt, panelVisible: Bool) = {
+        (false, 0, false)
+    }
     private var cachedEnabledModuleIDs = ModuleRegistry.defaultEnabledModuleIDs
 
     init(
@@ -523,6 +526,68 @@ final class LauncherRootController: LauncherDetailPresenting {
         actionPanel.dismiss()
         syncKeyHints()
         syncPerformanceStripVisibility()
+        syncSplitLayout()
+    }
+
+    func collectStateSnapshot(reason: String? = nil) -> LauncherStateSnapshot {
+        let panel = panelSnapshotContext()
+        let detailChrome = homeSplitLayout.detailContainerSnapshot
+        return LauncherStateSnapshotCollector.collect(
+            .init(
+                panelVisible: panel.panelVisible,
+                visibilitySessionVisible: panel.visibilitySessionVisible,
+                visibilityGeneration: panel.visibilityGeneration,
+                window: searchBar.window,
+                searchBar: searchBar,
+                contentCoordinator: contentCoordinator,
+                homeSplitLayout: homeSplitLayout,
+                detailContainerHidden: detailChrome.isHidden,
+                detailContainerAlpha: Double(detailChrome.alpha),
+                hintContext: hintBar.currentHintContext.rawValue,
+                detailPresentationGeneration: detailLifecycle.currentPresentationGenerationForSnapshot(),
+                detailCloseCrossfadeInFlight: detailLifecycle.detailCloseCrossfadeInFlightForSnapshot,
+                reason: reason
+            )
+        )
+    }
+
+    func exportStateSnapshot(reason: String? = nil) {
+        LauncherStateSnapshotExporter.exportNow(collectStateSnapshot(reason: reason))
+    }
+
+    func scheduleStateSnapshotExport(reason: String? = nil) {
+        LauncherStateSnapshotExporter.scheduleExport { [weak self] in
+            self?.collectStateSnapshot(reason: reason) ?? LauncherStateSnapshot(
+                generatedAt: ISO8601DateFormatter().string(from: Date()),
+                reason: reason,
+                panel: .init(panelVisible: false, visibilitySessionVisible: false, visibilityGeneration: 0, isKeyWindow: false, firstResponderChain: "nil"),
+                search: .init(visibleQuery: "", persistedQuery: "", isDetailModeActive: false, isEditable: true, placeholder: nil),
+                content: .init(modeKind: .home, detailModuleID: nil, showingDetail: false, showingResults: false, selectedIndex: 0, selectedItemID: nil, currentDetailModuleID: nil),
+                chrome: .init(detailContainerHidden: true, detailContainerAlpha: 0, splitColumnActive: false, splitRightPane: .hidden, homeVisible: true, resultsVisible: false, hintContext: "home"),
+                animation: .init(detailPresentationGeneration: 0, crossfadeGeneration: 0, detailCloseCrossfadeInFlight: false),
+                lastKeyboardCommand: nil,
+                searchFieldCanBecomeFirstResponder: true
+            )
+        }
+    }
+
+    /// After panel show, clear split-brain between search detail mode and coordinator detail presentation.
+    func reconcileLauncherStateAfterShow() {
+        let detailContextActive = searchBar.isDetailModeActive
+        let showingDetail = contentCoordinator.showingDetail
+        guard detailContextActive != showingDetail else {
+            exportStateSnapshot(reason: "reconcileAfterShow")
+            return
+        }
+        if detailContextActive, !showingDetail {
+            searchBar.cancelDetailMode()
+            syncKeyHints()
+        } else if showingDetail, !detailContextActive {
+            exitDetailFromChrome()
+            return
+        }
+        syncSplitLayout()
+        exportStateSnapshot(reason: "reconcileAfterShow")
     }
 
     /// Cancels async work and marks the panel inactive for snapshot apply (panel hide only).
@@ -719,10 +784,12 @@ final class LauncherRootController: LauncherDetailPresenting {
     }
 
     func handleEscape() {
+        LauncherStateKeyboardRecorder.record("escape")
         let trimmed = searchBar.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
         switch LauncherEscapePlanner.nextStep(
             actionPanelVisible: actionPanel.isVisible,
             showingDetail: contentCoordinator.showingDetail,
+            detailContextActive: searchBar.isDetailModeActive,
             showingResults: contentCoordinator.showingResults,
             queryTrimmedIsEmpty: trimmed.isEmpty
         ) {
@@ -764,7 +831,7 @@ final class LauncherRootController: LauncherDetailPresenting {
 
     private func applyDetailExitFromChrome() {
         let outcome = LauncherDetailExitPlanner.outcome(
-            showingDetail: contentCoordinator.showingDetail,
+            showingDetail: contentCoordinator.showingDetail || searchBar.isDetailModeActive,
             suspendedQuery: searchBar.detailSuspendedQueryForPlanner,
             columnSplitActive: currentHomeSplitState().columnSplitActive
         )
@@ -789,8 +856,10 @@ final class LauncherRootController: LauncherDetailPresenting {
                 guard let self else { return }
                 self.restoreHomeFromDetail(persist: true)
                 self.focusSearchField()
+                self.exportStateSnapshot(reason: "detailExitReturnHome")
             }
         }
+        exportStateSnapshot(reason: "detailExitOutcome")
     }
 
     func closeDetail(animatedToGuide: Bool = false, completion: (@MainActor () -> Void)? = nil) {
@@ -1045,7 +1114,55 @@ final class LauncherRootController: LauncherDetailPresenting {
 
     @discardableResult
     private func performBareCommandAction() -> Bool {
-        let raw = searchBar.stringValue
+        let raw = searchBar.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !raw.isEmpty else { return false }
+        return performBareCommandAction(raw: raw)
+    }
+
+    @discardableResult
+    func performQABareCommandAction(raw: String) -> Bool {
+        guard ProcessInfo.processInfo.environment["LUMA_QA"] == "1" else { return false }
+        markPanelActiveForSnapshotApply()
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard viewModel.commandRouter.isBareOpenDetailReturn(raw: trimmed),
+              case .targeted(let module, _, _) = viewModel.commandRouter.route(raw: trimmed) else {
+            exportStateSnapshot(reason: "qaBareOpen:false")
+            return false
+        }
+        let handled = forceQAPresentModuleDetail(for: module)
+        exportStateSnapshot(reason: "qaBareOpen:\(handled)")
+        if handled {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in
+                self?.exportStateSnapshot(reason: "qaBareOpen:settled")
+            }
+        }
+        return handled
+    }
+
+    @discardableResult
+    private func forceQAPresentModuleDetail(for moduleID: ModuleIdentifier) -> Bool {
+        guard let detail = launcherEnvironment.makeDetailView(for: moduleID) else { return false }
+        viewModel.recordExecutedCommand(for: moduleID.rawValue)
+        homeSplitLayout.setColumnSplitActive(true)
+        homeSplitLayout.setRightPane(.detail)
+        contentCoordinator.present(detail, moduleID: moduleID, presentation: .rightColumn)
+        searchBar.beginDetailMode(moduleTitle: detail.moduleTitle)
+        hintBar.setContext(.detail)
+        lastSplitLayoutState = (usesColumnSplitLayout(), .detail)
+        syncSplitLayout()
+        syncRowActionHint()
+        syncPerformanceStripVisibility()
+        stabilizePanelContentLayout()
+        refreshPermissionBannerCoalesced()
+        Task { @MainActor in
+            await self.launcherEnvironment.activateDetail(detail, for: moduleID)
+        }
+        return true
+    }
+
+    @discardableResult
+    private func performBareCommandAction(raw: String) -> Bool {
+        guard !raw.isEmpty else { return false }
         guard viewModel.commandRouter.isBareOpenDetailReturn(raw: raw) else { return false }
         let route = viewModel.commandRouter.route(raw: raw)
         guard case .targeted(let module, _, let payload) = route else { return false }
@@ -1092,7 +1209,7 @@ final class LauncherRootController: LauncherDetailPresenting {
     }
 
     private func syncKeyHints() {
-        if contentCoordinator.showingDetail {
+        if contentCoordinator.showingDetail || searchBar.isDetailModeActive {
             hintBar.setContext(.detail)
             return
         }
@@ -1106,10 +1223,11 @@ final class LauncherRootController: LauncherDetailPresenting {
     }
 
     private func currentHomeSplitState() -> LauncherHomeSplitState {
-        LauncherHomeSplitPlanner.layout(
+        let detailPresentationActive = contentCoordinator.showingDetail || searchBar.isDetailModeActive
+        return LauncherHomeSplitPlanner.layout(
             queryTrimmedIsEmpty: searchBar.stringValue
                 .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-            showingDetail: contentCoordinator.showingDetail,
+            showingDetail: detailPresentationActive,
             showingResults: contentCoordinator.showingResults
         )
     }
@@ -1148,6 +1266,7 @@ final class LauncherRootController: LauncherDetailPresenting {
         if layoutChanged {
             stabilizePanelContentLayout()
         }
+        scheduleStateSnapshotExport(reason: "syncSplitLayout")
     }
 
     private func activateSelectedItem() {
@@ -1644,12 +1763,14 @@ final class LauncherRootController: LauncherDetailPresenting {
     }
 
     private func handleKeyCommand(_ command: LumaSearchBar.KeyCommand) -> Bool {
+        LauncherStateKeyboardRecorder.record("keyCommand:\(command.snapshotLabel)")
         let trimmed = searchBar.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        let detailPresentationActive = contentCoordinator.showingDetail || searchBar.isDetailModeActive
         let detailMode: LauncherContentMode = .detail(contentCoordinator.currentDetailModuleID)
         return LauncherKeyboardDispatcher.handle(command, context: .init(
             actionPanelVisible: actionPanel.isVisible,
             actionPanelActionCount: actionPanel.actionCount,
-            showingDetail: contentCoordinator.showingDetail,
+            showingDetail: detailPresentationActive,
             listHoldsKeyboardFocus: listHoldsKeyboardFocus(),
             showingResults: contentCoordinator.showingResults,
             queryTrimmedIsEmpty: trimmed.isEmpty,
@@ -1744,6 +1865,20 @@ private extension LauncherRootController {
     func markPanelActiveForSnapshotApply() {
         isPanelActiveForQueryApply = true
         applySessionEvent(.panelShowCompleted)
+    }
+}
+
+private extension LumaSearchBar.KeyCommand {
+    var snapshotLabel: String {
+        switch self {
+        case .up: "up"
+        case .down: "down"
+        case .tab: "tab"
+        case .backtab: "backtab"
+        case .actionPanel: "actionPanel"
+        case .commandReturn: "commandReturn"
+        case .commandNumber(let n): "commandNumber\(n)"
+        }
     }
 }
 

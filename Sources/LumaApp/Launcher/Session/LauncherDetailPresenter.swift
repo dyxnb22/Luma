@@ -124,8 +124,6 @@ final class LauncherDetailPresenter {
                 host.showHome(focusSearch: true, persist: false)
                 return
             }
-            host.applySessionEvent(.detailOpened(moduleID, suspendedQuery: searchBar.persistedQuery))
-            let presentation = moduleDetailPresentation()
             if let cached = await homeCoordinator.cachedSnapshotIfAvailable() {
                 contentCoordinator.showHome(cached, preserveSelection: true)
                 host.lastRenderedHomeGeneration = await homeCoordinator.currentSnapshotGeneration()
@@ -134,11 +132,12 @@ final class LauncherDetailPresenter {
                 contentCoordinator.showHome(snapshot, preserveSelection: true)
                 host.lastRenderedHomeGeneration = await homeCoordinator.currentSnapshotGeneration()
             }
-            enterDetailContext(moduleTitle: detail.moduleTitle)
+            let presentation = moduleDetailPresentation()
 
             let finishPresentation = { [weak self] in
                 guard let self, let host = self.host else { return }
                 guard detailLifecycle.isPresentationGenerationCurrent(generation) else { return }
+                host.applySessionEvent(.detailOpened(moduleID, suspendedQuery: searchBar.persistedQuery))
                 if moduleID == .translate,
                    let translate = contentCoordinator.currentDetailObject as? TranslateDetailView {
                     let state = LauncherResumeStore.load()
@@ -154,6 +153,11 @@ final class LauncherDetailPresenter {
                 host.refreshPermissionBannerCoalesced()
             }
 
+            let stageDetailContext = { [weak self] in
+                guard let self else { return }
+                self.enterDetailContext(moduleTitle: detail.moduleTitle)
+            }
+
             if host.usesColumnSplitLayout() {
                 homeSplitLayout.crossfadeFromGuideToDetail { [weak self] in
                     guard let self else { return }
@@ -163,6 +167,7 @@ final class LauncherDetailPresenter {
                         presentation: presentation,
                         stagedForCrossfade: true
                     )
+                    stageDetailContext()
                     Task { @MainActor in
                         await self.launcherEnvironment.activateDetail(detail, for: moduleID)
                     }
@@ -172,6 +177,7 @@ final class LauncherDetailPresenter {
                 }
             } else {
                 contentCoordinator.present(detail, moduleID: moduleID, presentation: presentation)
+                stageDetailContext()
                 await launcherEnvironment.activateDetail(detail, for: moduleID)
                 finishPresentation()
                 LauncherPerfCounters.increment(.detailOpen)

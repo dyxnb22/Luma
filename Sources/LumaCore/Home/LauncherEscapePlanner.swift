@@ -14,13 +14,14 @@ public enum LauncherEscapePlanner {
     public static func nextStep(
         actionPanelVisible: Bool,
         showingDetail: Bool,
+        detailContextActive: Bool = false,
         showingResults: Bool,
         queryTrimmedIsEmpty: Bool
     ) -> LauncherEscapeStep {
         if actionPanelVisible {
             return .dismissActionPanel
         }
-        if showingDetail {
+        if showingDetail || detailContextActive {
             return .detailEscapeOrExit
         }
         if showingResults || !queryTrimmedIsEmpty {

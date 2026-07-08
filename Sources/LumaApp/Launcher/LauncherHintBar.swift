@@ -1,7 +1,7 @@
 @preconcurrency import AppKit
 import LumaCore
 
-enum LauncherHintContext {
+enum LauncherHintContext: String {
     case home
     case results
     case detail
@@ -11,6 +11,7 @@ enum LauncherHintContext {
 final class LauncherHintBar: NSView {
     private let leftLabel = NSTextField(labelWithString: "")
     private let statusLabel = NSTextField(labelWithString: "")
+    private(set) var currentHintContext: LauncherHintContext = .home
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -67,6 +68,7 @@ final class LauncherHintBar: NSView {
 
     @MainActor
     func setContext(_ context: LauncherHintContext, selectedItem: ResultItem? = nil) {
+        currentHintContext = context
         switch context {
         case .home, .results:
             leftLabel.stringValue = keyHints(for: context, selectedItem: selectedItem)

@@ -111,10 +111,10 @@ Maps `PRODUCT_FLOWS.md` main paths to automated tests and signed-app smokes. **L
 
 | Concern | Flow(s) | Layer | Swift test filter | Signed-app smoke | Release gate | Gap |
 | --- | --- | --- | --- | --- | --- | --- |
-| **Hotkey show/hide** | 2, 3, 12 | Unit + Integration | `HotkeyToggle`, `HotkeyDoubleFire`, `LauncherShowEntryPolicy`, `LauncherMenuBarShowEntry`, `LauncherPanelVisibilitySession` | `latency-report.json` / `diagnostics.json` `hotkeyP95Milliseconds` when present | **Partial** — manual supplement required | No `LUMA_QA_HOTKEY` env; Carbon path not in smoke runner |
+| **Hotkey show/hide** | 2, 3, 12 | Unit + Integration | `HotkeyToggle`, `HotkeyDoubleFire`, `LauncherShowEntryPolicy`, `LauncherMenuBarShowEntry`, `LauncherPanelVisibilitySession` | `latency-report.json` / `diagnostics.json` `hotkeyP95Milliseconds` when present; **`run_keyboard_flows.sh` KF-01/KF-04** | **Partial** — manual supplement required | Carbon path partially covered by keyboard smoke |
 | **Keystroke → results** | 5, 6 | Unit + Integration | `KeystrokeReplayPerformance`, `QueryDispatcher`, `QueryView`, `LauncherFlowHarness`, `LauncherGoldenReplay` | — | **Partial** — SwiftPM required; signed/manual typed-query supplement required until P3.4 | Harness ≠ `LauncherRootController` query apply; no typed-query smoke env yet |
 | **Empty home** | 4 | Integration | `emptyQueryHomeGuideHasRows`, `LauncherHomeSplit`, `BackHome` | — | SwiftPM only | Open Apps column not asserted in harness |
-| **Detail enter/exit** | 10, 11 | Integration | `DetailHierarchy`, `LauncherDetailLifecycle`, `LauncherSearchDetailMode`, `DetailTypingEscape` | Notes/Clipboard smokes open detail indirectly | SwiftPM + manual | No signed-app Esc/restore smoke |
+| **Detail enter/exit** | 10, 11 | Integration | `DetailHierarchy`, `LauncherDetailLifecycle`, `LauncherSearchDetailMode`, `DetailTypingEscape`, `LauncherStateInvariant` | Notes/Clipboard smokes open detail indirectly | SwiftPM + **`run_keyboard_flows.sh`** | Signed-app Esc/restore via KF-02–KF-04 |
 | **Action / Return** | 8, 9 | Unit | `LauncherActionDispatch`, `ActionExecutor`, `ActionFailureFeedback` | Apps/Clipboard smokes exercise Return paths | **Partial** | External app activation not in SwiftPM |
 | **Permissions** | 13 | Unit | `MVPModuleDiagnostic`, `PermissionBanner`, `PermissionBannerContext` | Clipboard smoke (AX path) | SwiftPM + manual AX | Parked-module permission rows not gated |
 
@@ -137,6 +137,9 @@ swift test --filter 'LauncherFlowHarness|LauncherGoldenReplay|StabilizationFlow|
 
 # Signed-app (mandatory release)
 ./scripts/build_app.sh --no-restart && ./scripts/run_p0_smokes.sh
+
+# Phase 22 keyboard E2E (LUMA_QA=1 + launcher-state.json)
+./scripts/build_app.sh --no-restart && ./scripts/qa/run_keyboard_flows.sh
 ```
 
 ## Performance Gate (P3.3)

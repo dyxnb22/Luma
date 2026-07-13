@@ -1,0 +1,22 @@
+[package]
+name = "luma-platform-macos"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "macOS system adapters (apps, pasteboard, …). Unsafe FFI only here if needed."
+
+[dependencies]
+async-trait = { workspace = true }
+luma-storage = { workspace = true }
+notify = "7.0"
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+tokio-util = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+tokio = { workspace = true, features = ["test-util"] }

@@ -1,0 +1,23 @@
+[package]
+name = "luma-modules"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "Luma module implementations (ports only; no direct Keychain/AppleScript)"
+
+[dependencies]
+luma-application = { workspace = true }
+luma-domain = { workspace = true }
+luma-protocol = { workspace = true }
+luma-platform-macos = { workspace = true }
+luma-storage = { workspace = true }
+async-trait = { workspace = true }
+tokio = { workspace = true }
+tokio-util = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["test-util"] }
+tempfile = { workspace = true }

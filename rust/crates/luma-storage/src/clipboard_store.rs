@@ -1,0 +1,200 @@
+//! Clipboard history under LumaNext (SQLite).
+
+use crate::paths::{ensure_luma_next_dirs, luma_next_support_dir, PathsError};
+use rusqlite::{params, Connection};
+use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
+use thiserror::Error;
+
+#[derive(Debug, Error)]
+pub enum ClipboardStoreError {
+    #[error(transparent)]
+    Paths(#[from] PathsError),
+    #[error("sqlite: {0}")]
+    Sqlite(#[from] rusqlite::Error),
+    #[error("io: {0}")]
+    Io(#[from] std::io::Error),
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ClipboardRow {
+    pub id: i64,
+    pub text: String,
+    pub pinned: bool,
+    pub created_at: i64,
+}
+
+pub struct ClipboardStore {
+    path: PathBuf,
+}
+
+impl ClipboardStore {
+    pub fn path(&self) -> &std::path::Path {
+        &self.path
+    }
+
+    pub fn luma_next_default() -> Result<Self, ClipboardStoreError> {
+        ensure_luma_next_dirs()?;
+        let path = luma_next_support_dir()?.join("clipboard.sqlite");
+        let store = Self { path };
+        store.init()?;
+        Ok(store)
+    }
+
+    pub fn with_path(path: PathBuf) -> Result<Self, ClipboardStoreError> {
+        let store = Self { path };
+        store.init()?;
+        Ok(store)
+    }
+
+    fn connect(&self) -> Result<Connection, ClipboardStoreError> {
+        Ok(Connection::open(&self.path)?)
+    }
+
+    fn init(&self) -> Result<(), ClipboardStoreError> {
+        if let Some(parent) = self.path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        let conn = self.connect()?;
+        conn.execute_batch(
+            r#"
+            CREATE TABLE IF NOT EXISTS clipboard_entries (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                text TEXT NOT NULL,
+                pinned INTEGER NOT NULL DEFAULT 0,
+                created_at INTEGER NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_clipboard_created ON clipboard_entries(created_at DESC);
+            "#,
+        )?;
+        Ok(())
+    }
+
+    pub fn insert(&self, text: &str, pinned: bool) -> Result<i64, ClipboardStoreError> {
+        let conn = self.connect()?;
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs() as i64)
+            .unwrap_or(0);
+        conn.execute(
+            "INSERT INTO clipboard_entries (text, pinned, created_at) VALUES (?1, ?2, ?3)",
+            params![text, pinned as i64, now],
+        )?;
+        Ok(conn.last_insert_rowid())
+    }
+
+    pub fn search(
+        &self,
+        needle: &str,
+        limit: usize,
+    ) -> Result<Vec<ClipboardRow>, ClipboardStoreError> {
+        let conn = self.connect()?;
+        let mut stmt = conn.prepare(
+            "SELECT id, text, pinned, created_at FROM clipboard_entries
+             WHERE text LIKE ?1
+             ORDER BY pinned DESC, created_at DESC
+             LIMIT ?2",
+        )?;
+        let pattern = format!("%{needle}%");
+        let rows = stmt
+            .query_map(params![pattern, limit as i64], |row| {
+                Ok(ClipboardRow {
+                    id: row.get(0)?,
+                    text: row.get(1)?,
+                    pinned: row.get::<_, i64>(2)? != 0,
+                    created_at: row.get(3)?,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(rows)
+    }
+
+    pub fn list_page(
+        &self,
+        offset: usize,
+        limit: usize,
+    ) -> Result<Vec<ClipboardRow>, ClipboardStoreError> {
+        let conn = self.connect()?;
+        let mut stmt = conn.prepare(
+            "SELECT id, text, pinned, created_at FROM clipboard_entries
+             ORDER BY pinned DESC, created_at DESC
+             LIMIT ?1 OFFSET ?2",
+        )?;
+        let rows = stmt
+            .query_map(params![limit as i64, offset as i64], |row| {
+                Ok(ClipboardRow {
+                    id: row.get(0)?,
+                    text: row.get(1)?,
+                    pinned: row.get::<_, i64>(2)? != 0,
+                    created_at: row.get(3)?,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(rows)
+    }
+
+    pub fn count(&self) -> Result<usize, ClipboardStoreError> {
+        let conn = self.connect()?;
+        let n: i64 = conn.query_row("SELECT COUNT(*) FROM clipboard_entries", [], |r| r.get(0))?;
+        Ok(n as usize)
+    }
+
+    pub fn get(&self, id: i64) -> Result<Option<ClipboardRow>, ClipboardStoreError> {
+        let conn = self.connect()?;
+        let mut stmt = conn
+            .prepare("SELECT id, text, pinned, created_at FROM clipboard_entries WHERE id = ?1")?;
+        let mut rows = stmt.query_map(params![id], |row| {
+            Ok(ClipboardRow {
+                id: row.get(0)?,
+                text: row.get(1)?,
+                pinned: row.get::<_, i64>(2)? != 0,
+                created_at: row.get(3)?,
+            })
+        })?;
+        Ok(rows.next().transpose()?)
+    }
+
+    pub fn delete(&self, id: i64) -> Result<(), ClipboardStoreError> {
+        let conn = self.connect()?;
+        conn.execute("DELETE FROM clipboard_entries WHERE id = ?1", params![id])?;
+        Ok(())
+    }
+
+    pub fn set_pinned(&self, id: i64, pinned: bool) -> Result<(), ClipboardStoreError> {
+        let conn = self.connect()?;
+        conn.execute(
+            "UPDATE clipboard_entries SET pinned = ?1 WHERE id = ?2",
+            params![pinned as i64, id],
+        )?;
+        Ok(())
+    }
+}
+
+/// Privacy filter shared with the Clipboard module.
+pub fn looks_secret(text: &str) -> bool {
+    let lower = text.to_lowercase();
+    lower.contains("password")
+        || lower.contains("secret")
+        || lower.contains("api_key")
+        || lower.contains("-----begin ")
+        || text.len() > 20_000
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::tempdir;
+
+    #[test]
+    fn insert_search_page() {
+        let dir = tempdir().unwrap();
+        let store = ClipboardStore::with_path(dir.path().join("c.sqlite")).unwrap();
+        let id = store.insert("invoice 42", false).unwrap();
+        assert!(id > 0);
+        let hits = store.search("invoice", 10).unwrap();
+        assert_eq!(hits.len(), 1);
+        assert_eq!(store.count().unwrap(), 1);
+        assert!(looks_secret("password=x"));
+        assert!(!looks_secret("hello"));
+    }
+}

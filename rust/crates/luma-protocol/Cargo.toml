@@ -1,0 +1,12 @@
+[package]
+name = "luma-protocol"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "Command/Event JSON DTOs and protocol version"
+
+[dependencies]
+luma-domain = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }

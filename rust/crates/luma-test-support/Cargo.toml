@@ -1,0 +1,11 @@
+[package]
+name = "luma-test-support"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "Fixtures and helpers for Luma Rust tests"
+
+[dependencies]
+luma-domain = { workspace = true }
+luma-protocol = { workspace = true }

@@ -1,0 +1,352 @@
+//! Semantic color tokens and ASCII-safe symbols for the launcher TUI.
+
+use ratatui::style::{Color, Modifier, Style};
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum ThemeMode {
+    #[default]
+    Dark,
+    Light,
+    /// Prefer light when `COLORFGBG` background looks bright.
+    Auto,
+}
+
+/// Visual tokens for a compact Raycast-style launcher.
+#[derive(Clone, Copy, Debug)]
+pub struct Theme {
+    pub accent: Color,
+    pub muted: Color,
+    pub text: Color,
+    pub border: Color,
+    pub border_focused: Color,
+    pub selected_bg: Color,
+    pub selected_fg: Color,
+    pub success: Color,
+    pub warning: Color,
+    pub error: Color,
+    pub destructive: Color,
+    pub permission: Color,
+    pub overlay_dim: Color,
+}
+
+impl Theme {
+    pub fn resolve(mode: ThemeMode) -> Self {
+        match mode {
+            ThemeMode::Dark => Self::dark(),
+            ThemeMode::Light => Self::light(),
+            ThemeMode::Auto => Self::detect(),
+        }
+    }
+
+    /// Default dark terminal palette — restrained, not neon.
+    pub fn dark() -> Self {
+        Self {
+            accent: Color::Cyan,
+            muted: Color::DarkGray,
+            text: Color::Gray,
+            border: Color::DarkGray,
+            border_focused: Color::Cyan,
+            selected_bg: Color::Indexed(236),
+            selected_fg: Color::White,
+            success: Color::Green,
+            warning: Color::Yellow,
+            error: Color::Red,
+            destructive: Color::LightRed,
+            permission: Color::Magenta,
+            overlay_dim: Color::Indexed(234),
+        }
+    }
+
+    /// Light terminal palette for bright backgrounds.
+    pub fn light() -> Self {
+        Self {
+            accent: Color::Blue,
+            muted: Color::Gray,
+            text: Color::Black,
+            border: Color::Gray,
+            border_focused: Color::Blue,
+            selected_bg: Color::Indexed(255),
+            selected_fg: Color::Black,
+            success: Color::Green,
+            warning: Color::Rgb(180, 110, 0),
+            error: Color::Red,
+            destructive: Color::Red,
+            permission: Color::Magenta,
+            overlay_dim: Color::Indexed(254),
+        }
+    }
+
+    pub fn detect() -> Self {
+        if let Ok(cfg) = std::env::var("COLORFGBG") {
+            if let Some(bg) = cfg.split(';').nth(1) {
+                if let Ok(n) = bg.parse::<u16>() {
+                    // Common convention: bg >= 7 means light-ish palette.
+                    if n >= 7 {
+                        return Self::light();
+                    }
+                }
+            }
+        }
+        Self::dark()
+    }
+
+    pub fn title(&self) -> Style {
+        Style::default()
+            .fg(self.accent)
+            .add_modifier(Modifier::BOLD)
+    }
+
+    pub fn border(&self, focused: bool) -> Style {
+        Style::default().fg(if focused {
+            self.border_focused
+        } else {
+            self.border
+        })
+    }
+
+    pub fn text(&self) -> Style {
+        Style::default().fg(self.text)
+    }
+
+    pub fn muted(&self) -> Style {
+        Style::default().fg(self.muted)
+    }
+
+    pub fn accent(&self) -> Style {
+        Style::default().fg(self.accent)
+    }
+
+    pub fn selected_row(&self) -> Style {
+        Style::default()
+            .fg(self.selected_fg)
+            .bg(self.selected_bg)
+            .add_modifier(Modifier::BOLD)
+    }
+
+    pub fn row(&self) -> Style {
+        Style::default().fg(self.text)
+    }
+
+    pub fn module_badge(&self) -> Style {
+        Style::default().fg(self.muted)
+    }
+
+    pub fn action_hint(&self) -> Style {
+        Style::default().fg(self.accent)
+    }
+
+    pub fn success(&self) -> Style {
+        Style::default().fg(self.success)
+    }
+
+    pub fn warning(&self) -> Style {
+        Style::default().fg(self.warning)
+    }
+
+    pub fn error(&self) -> Style {
+        Style::default().fg(self.error)
+    }
+
+    pub fn destructive(&self) -> Style {
+        Style::default()
+            .fg(self.destructive)
+            .add_modifier(Modifier::BOLD)
+    }
+
+    pub fn permission(&self) -> Style {
+        Style::default().fg(self.permission)
+    }
+
+    pub fn key_hint(&self) -> Style {
+        Style::default().fg(self.muted)
+    }
+
+    pub fn match_highlight(&self, selected: bool) -> Style {
+        if selected {
+            Style::default()
+                .fg(self.accent)
+                .bg(self.selected_bg)
+                .add_modifier(Modifier::BOLD | Modifier::UNDERLINED)
+        } else {
+            Style::default()
+                .fg(self.accent)
+                .add_modifier(Modifier::BOLD)
+        }
+    }
+
+    pub fn kind_style(&self, kind: ResultKindVisual, selected: bool) -> Style {
+        let fg = match kind {
+            ResultKindVisual::Normal => self.text,
+            ResultKindVisual::Warming => self.muted,
+            ResultKindVisual::Permission => self.permission,
+            ResultKindVisual::Unavailable => self.warning,
+            ResultKindVisual::NotConfigured => self.warning,
+        };
+        if selected {
+            Style::default()
+                .fg(if kind == ResultKindVisual::Normal {
+                    self.selected_fg
+                } else {
+                    fg
+                })
+                .bg(self.selected_bg)
+                .add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(fg)
+        }
+    }
+}
+
+impl Default for Theme {
+    fn default() -> Self {
+        Self::dark()
+    }
+}
+
+/// Decorative glyphs with a pure-ASCII fallback (no Nerd Font required).
+#[derive(Clone, Copy, Debug)]
+pub struct Symbols {
+    pub selected: &'static str,
+    pub enter: &'static str,
+    pub cursor: &'static str,
+    pub up: &'static str,
+    pub down: &'static str,
+    pub ellipsis: &'static str,
+    pub sep: &'static str,
+}
+
+impl Symbols {
+    pub fn unicode() -> Self {
+        Self {
+            selected: "›",
+            enter: "↵",
+            cursor: "▌",
+            up: "↑",
+            down: "↓",
+            ellipsis: "…",
+            sep: "·",
+        }
+    }
+
+    pub fn ascii() -> Self {
+        Self {
+            selected: ">",
+            enter: "Ret",
+            cursor: "|",
+            up: "^",
+            down: "v",
+            ellipsis: "...",
+            sep: "|",
+        }
+    }
+
+    /// `LUMA_TUI_ASCII=1` forces ASCII; otherwise Unicode (module glyphs stay ASCII either way).
+    pub fn detect() -> Self {
+        match std::env::var("LUMA_TUI_ASCII") {
+            Ok(v) if matches!(v.as_str(), "1" | "true" | "TRUE" | "yes" | "YES") => Self::ascii(),
+            _ => Self::unicode(),
+        }
+    }
+}
+
+/// Visual treatment derived from `SearchItem.kind`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ResultKindVisual {
+    Normal,
+    Warming,
+    Permission,
+    Unavailable,
+    NotConfigured,
+}
+
+impl ResultKindVisual {
+    pub fn from_kind(kind: &str) -> Self {
+        match kind {
+            "warming" => Self::Warming,
+            "permission" => Self::Permission,
+            "unavailable" => Self::Unavailable,
+            "not_configured" | "not-configured" | "onboarding" => Self::NotConfigured,
+            _ => Self::Normal,
+        }
+    }
+
+    pub fn badge(self) -> Option<&'static str> {
+        match self {
+            Self::Normal => None,
+            Self::Warming => Some("warming"),
+            Self::Permission => Some("permission"),
+            Self::Unavailable => Some("unavailable"),
+            Self::NotConfigured => Some("not configured"),
+        }
+    }
+}
+
+fn module_key(module_id: &str) -> &str {
+    module_id
+        .strip_prefix("luma.")
+        .unwrap_or(module_id)
+        .split('.')
+        .next()
+        .unwrap_or(module_id)
+}
+
+/// ASCII-safe module glyph (no Nerd Font dependency).
+pub fn module_glyph(module_id: &str) -> &'static str {
+    match module_key(module_id) {
+        "apps" => "A",
+        "clipboard" | "clip" | "cb" => "C",
+        "notes" | "note" | "n" => "N",
+        "quicklinks" | "ql" => "Q",
+        "snippets" | "snip" | "s" => "S",
+        "todo" | "t" => "T",
+        "projects" | "proj" => "P",
+        "kill" | "kill-process" => "K",
+        "media" => "M",
+        "translate" | "tr" => "R",
+        "secrets" => "X",
+        "wordbook" | "word" => "W",
+        "fake" | "mock" => ".",
+        "window-layouts" | "menu-bar" | "browser-tabs" => "!",
+        _ => ".",
+    }
+}
+
+/// Friendly module label for the right column.
+pub fn module_label(module_id: &str) -> &str {
+    match module_key(module_id) {
+        "apps" => "Apps",
+        "clipboard" | "clip" | "cb" => "Clipboard",
+        "notes" | "note" | "n" => "Notes",
+        "quicklinks" | "ql" => "Quicklinks",
+        "snippets" | "snip" | "s" => "Snippets",
+        "todo" | "t" => "Todo",
+        "projects" | "proj" => "Projects",
+        "kill" | "kill-process" => "Kill",
+        "media" => "Media",
+        "translate" | "tr" => "Translate",
+        "secrets" => "Secrets",
+        "wordbook" | "word" => "Wordbook",
+        "fake" => "Fake",
+        "mock" => "Mock",
+        "window-layouts" => "Windows",
+        "menu-bar" => "Menu Bar",
+        "browser-tabs" => "Tabs",
+        other => other,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn module_labels_strip_luma_prefix() {
+        assert_eq!(module_label("luma.apps"), "Apps");
+        assert_eq!(module_glyph("luma.kill-process"), "K");
+    }
+
+    #[test]
+    fn light_and_dark_differ() {
+        assert_ne!(Theme::dark().accent, Theme::light().accent);
+    }
+}

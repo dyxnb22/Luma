@@ -66,7 +66,7 @@ pub async fn run_tui_with_engine(engine: Arc<dyn EnginePort>) -> std::io::Result
 fn map_key(code: KeyCode, modifiers: KeyModifiers, state: &AppState) -> Msg {
     if modifiers.contains(KeyModifiers::CONTROL) {
         return match code {
-            KeyCode::Char('c') => Msg::Cancel,
+            KeyCode::Char('c') => Msg::Quit,
             KeyCode::Char('l') => Msg::Redraw,
             KeyCode::Char('p') => Msg::SelectPrev,
             KeyCode::Char('n') => Msg::SelectNext,

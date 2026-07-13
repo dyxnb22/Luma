@@ -1,6 +1,8 @@
 use crate::effect::Effect;
 use crate::msg::Msg;
-use crate::view_model::{ActionsIntent, AppState, AwaitingActions, PendingAction, Route};
+use crate::view_model::{
+    ActionsIntent, AppState, AwaitingActions, PendingAction, Route, StatusTone,
+};
 use luma_protocol::{ActionDescriptorDto, Event};
 
 /// Pure synchronous reducer. Must not perform I/O.
@@ -10,7 +12,11 @@ pub fn update(state: &mut AppState, msg: Msg) -> Vec<Effect> {
         Msg::KeyChar(c) => {
             if matches!(
                 state.route,
-                Route::ConfirmAction | Route::ActionPicker | Route::Help | Route::Doctor
+                Route::ConfirmAction
+                    | Route::ActionPicker
+                    | Route::Help
+                    | Route::Doctor
+                    | Route::QuitConfirm
             ) {
                 // Typing leaves modal routes and resumes search.
                 clear_action_ui(state);
@@ -20,7 +26,10 @@ pub fn update(state: &mut AppState, msg: Msg) -> Vec<Effect> {
             begin_search(state)
         }
         Msg::Backspace => {
-            if matches!(state.route, Route::ConfirmAction | Route::ActionPicker) {
+            if matches!(
+                state.route,
+                Route::ConfirmAction | Route::ActionPicker | Route::QuitConfirm
+            ) {
                 return vec![Effect::None];
             }
             state.prompt.pop();
@@ -29,17 +38,21 @@ pub fn update(state: &mut AppState, msg: Msg) -> Vec<Effect> {
         Msg::Submit => match state.route {
             Route::ConfirmAction => confirm_pending(state),
             Route::ActionPicker => submit_picker_selection(state),
-            Route::Search | Route::Help | Route::Doctor | Route::QuitConfirm => {
+            Route::QuitConfirm => {
+                state.should_quit = true;
+                cancel_active(state)
+            }
+            Route::Search | Route::Help | Route::Doctor => {
                 if state.prompt.trim() == ":doctor" {
                     state.prompt.clear();
                     state.route = Route::Doctor;
-                    state.status.text = "doctor".into();
+                    state.status.set("doctor", StatusTone::Neutral);
                     return vec![Effect::RunDoctor];
                 }
                 if state.prompt.trim() == ":help" || state.prompt.trim() == "?" {
                     state.prompt.clear();
                     state.route = Route::Help;
-                    state.status.text = "help".into();
+                    state.status.set("help", StatusTone::Neutral);
                     return vec![Effect::None];
                 }
                 request_primary_actions(state)
@@ -67,17 +80,24 @@ pub fn update(state: &mut AppState, msg: Msg) -> Vec<Effect> {
         }
         Msg::OpenHelp => {
             state.route = Route::Help;
-            state.status.text = "help".into();
+            state.status.set("help", StatusTone::Neutral);
             vec![Effect::None]
         }
         Msg::OpenDoctor => {
             state.route = Route::Doctor;
-            state.status.text = "doctor".into();
+            state.status.set("doctor", StatusTone::Neutral);
             vec![Effect::RunDoctor]
         }
         Msg::Quit => {
-            state.should_quit = true;
-            cancel_active(state)
+            if state.route == Route::QuitConfirm {
+                state.should_quit = true;
+                cancel_active(state)
+            } else {
+                clear_action_ui(state);
+                state.route = Route::QuitConfirm;
+                state.status.set("Quit Luma?", StatusTone::Warning);
+                vec![Effect::None]
+            }
         }
         Msg::Cancel => cancel_msg(state),
         Msg::Redraw | Msg::Resize | Msg::Tick => vec![Effect::None],
@@ -95,14 +115,14 @@ fn clear_action_ui(state: &mut AppState) {
 
 fn request_primary_actions(state: &mut AppState) -> Vec<Effect> {
     let Some(result_id) = state.results.selected_id.clone() else {
-        state.status.text = "no result selected".into();
+        state.status.set("no result selected", StatusTone::Warning);
         return vec![Effect::None];
     };
     state.awaiting_actions = Some(AwaitingActions {
         intent: ActionsIntent::Primary,
         result_id: result_id.clone(),
     });
-    state.status.text = "resolving actions…".into();
+    state.status.set("resolving actions…", StatusTone::Progress);
     vec![Effect::ListActions { result_id }]
 }
 
@@ -111,14 +131,14 @@ fn request_action_picker(state: &mut AppState) -> Vec<Effect> {
         return vec![Effect::None];
     }
     let Some(result_id) = state.results.selected_id.clone() else {
-        state.status.text = "no result selected".into();
+        state.status.set("no result selected", StatusTone::Warning);
         return vec![Effect::None];
     };
     state.awaiting_actions = Some(AwaitingActions {
         intent: ActionsIntent::Picker,
         result_id: result_id.clone(),
     });
-    state.status.text = "loading actions…".into();
+    state.status.set("loading actions…", StatusTone::Progress);
     vec![Effect::ListActions { result_id }]
 }
 
@@ -150,7 +170,10 @@ fn submit_picker_selection(state: &mut AppState) -> Vec<Effect> {
             action: action.clone(),
         });
         state.route = Route::ConfirmAction;
-        state.status.text = format!("confirm {}? Enter=yes Esc=no", action.label);
+        state.status.set(
+            format!("confirm {}? Enter=yes Esc=no", action.label),
+            StatusTone::Warning,
+        );
         vec![Effect::None]
     } else {
         state.route = Route::Search;
@@ -167,7 +190,9 @@ fn execute_action(
     state.search_generation = state.search_generation.saturating_add(1);
     let operation_id = format!("op-{}", state.search_generation);
     state.active_operation = Some(operation_id.clone());
-    state.status.text = format!("running {}", action.label);
+    state
+        .status
+        .set(format!("running {}", action.label), StatusTone::Progress);
     vec![Effect::ExecuteAction {
         operation_id,
         result_id,
@@ -192,7 +217,9 @@ fn begin_primary_or_confirm(
         .and_then(|id| actions.iter().find(|a| &a.id == id).cloned())
         .or_else(|| actions.into_iter().next());
     let Some(action) = action else {
-        state.status.text = "no actions available".into();
+        state
+            .status
+            .set("no actions available", StatusTone::Warning);
         return vec![Effect::None];
     };
     if action.needs_confirmation() {
@@ -201,7 +228,10 @@ fn begin_primary_or_confirm(
             action: action.clone(),
         });
         state.route = Route::ConfirmAction;
-        state.status.text = format!("confirm {}? Enter=yes Esc=no", action.label);
+        state.status.set(
+            format!("confirm {}? Enter=yes Esc=no", action.label),
+            StatusTone::Warning,
+        );
         vec![Effect::None]
     } else {
         execute_action(state, result_id, action, false)
@@ -212,7 +242,7 @@ fn cancel_msg(state: &mut AppState) -> Vec<Effect> {
     if matches!(state.route, Route::ConfirmAction | Route::ActionPicker) {
         clear_action_ui(state);
         state.route = Route::Search;
-        state.status.text = "cancelled".into();
+        state.status.set("cancelled", StatusTone::Warning);
         return vec![Effect::None];
     }
     if state.route != Route::Search {
@@ -220,12 +250,12 @@ fn cancel_msg(state: &mut AppState) -> Vec<Effect> {
         return vec![Effect::None];
     }
     if let Some(operation_id) = state.active_operation.clone() {
-        state.status.text = "cancelling action…".into();
+        state.status.set("cancelling action…", StatusTone::Progress);
         return vec![Effect::CancelOperation { operation_id }];
     }
     if state.active_request.is_some() {
         let effects = cancel_active(state);
-        state.status.text = "cancelled".into();
+        state.status.set("cancelled", StatusTone::Warning);
         effects
     } else if !state.prompt.is_empty() {
         state.prompt.clear();
@@ -242,7 +272,10 @@ fn cancel_msg(state: &mut AppState) -> Vec<Effect> {
 fn apply_engine(state: &mut AppState, event: Event) -> Vec<Effect> {
     if let Event::ActionsAvailable { result_id, actions } = event {
         let Some(pending) = state.awaiting_actions.take() else {
-            state.status.text = format!("{result_id}: {} actions", actions.len());
+            state.status.set(
+                format!("{result_id}: {} actions", actions.len()),
+                StatusTone::Neutral,
+            );
             return vec![Effect::None];
         };
         if pending.result_id != result_id {
@@ -256,14 +289,18 @@ fn apply_engine(state: &mut AppState, event: Event) -> Vec<Effect> {
             }
             ActionsIntent::Picker => {
                 if actions.is_empty() {
-                    state.status.text = "no actions available".into();
+                    state
+                        .status
+                        .set("no actions available", StatusTone::Warning);
                     return vec![Effect::None];
                 }
                 state.action_result_id = Some(result_id);
                 state.action_choices = actions;
                 state.action_selected = 0;
                 state.route = Route::ActionPicker;
-                state.status.text = "pick action · Enter run · Esc back".into();
+                state
+                    .status
+                    .set("pick action · Enter run · Esc back", StatusTone::Neutral);
                 return vec![Effect::None];
             }
         }
@@ -278,7 +315,7 @@ fn begin_search(state: &mut AppState) -> Vec<Effect> {
     if state.prompt.is_empty() {
         state.results.items.clear();
         state.results.selected_id = None;
-        state.status.text = "ready".into();
+        state.status.set("Ready", StatusTone::Success);
         return effects;
     }
     let request_id = next_request_id(state);
@@ -621,5 +658,67 @@ mod tests {
             state.pending_action.as_ref().map(|p| p.result_id.as_str()),
             Some("A")
         );
+    }
+
+    #[test]
+    fn search_finished_clears_active_request_so_esc_clears_immediately() {
+        let mut state = AppState::default();
+        let _ = update(&mut state, Msg::KeyChar('a'));
+        let request_id = state.active_request.clone().expect("active request");
+        let applied = state.apply_engine_event(Event::SearchFinished {
+            request_id,
+            total: 1,
+            elapsed_ms: 3,
+        });
+        assert!(applied);
+        assert!(state.active_request.is_none());
+        state.results.items.push(SearchItem {
+            id: ResultId::new("1"),
+            module_id: ModuleId::new("mock"),
+            title: "One".into(),
+            subtitle: None,
+            kind: "mock".into(),
+            score: 1.0,
+            primary_action: ActionDescriptor {
+                id: ActionId::new("open"),
+                label: "Open".into(),
+                risk: ActionRisk::Safe,
+                confirmation: false,
+            },
+            secondary_actions: vec![],
+        });
+        state.prompt = "a".into();
+        let effects = update(&mut state, Msg::Cancel);
+        assert_eq!(effects, vec![Effect::None]);
+        assert!(state.prompt.is_empty());
+        assert!(state.results.items.is_empty());
+        assert!(!state.should_quit);
+    }
+
+    #[test]
+    fn quit_opens_confirm_then_enter_exits() {
+        let mut state = AppState::default();
+        let effects = update(&mut state, Msg::Quit);
+        assert_eq!(effects, vec![Effect::None]);
+        assert_eq!(state.route, Route::QuitConfirm);
+        assert!(!state.should_quit);
+
+        let effects = update(&mut state, Msg::Submit);
+        assert!(state.should_quit);
+        assert!(
+            effects.is_empty()
+                || effects
+                    .iter()
+                    .all(|e| matches!(e, Effect::None | Effect::CancelSearch { .. }))
+        );
+    }
+
+    #[test]
+    fn quit_confirm_esc_returns_to_search() {
+        let mut state = AppState::default();
+        let _ = update(&mut state, Msg::Quit);
+        let _ = update(&mut state, Msg::Cancel);
+        assert_eq!(state.route, Route::Search);
+        assert!(!state.should_quit);
     }
 }

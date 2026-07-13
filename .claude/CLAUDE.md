@@ -1,33 +1,16 @@
 # Claude Instructions for Luma
 
-Product, UX, and architecture reviewer for Luma.
+Review the **Rust CLI/TUI** under `rust/`.
 
-## Read First
+## Read first
 
-1. **`docs/ENGINEERING.md`** — product shape, architecture, launcher contract, performance, privacy, non-goals.
-2. **`docs/MODULES.md`** — user-visible module behavior.
-3. **`docs/DECISIONS.md`** — compact active and historical decision log.
-4. **`docs/QA.md`** — automated gates, manual smoke, recorded review, release checklist.
+1. `rust/README.md`
+2. `rust/docs/MODULES.md`
+3. `rust/docs/adr/`
 
-Historical dashboard/card routes are archaeology only. Do not plan against them unless the user explicitly asks.
+## Focus
 
-## Reviewer Focus
-
-- Route C alignment and handbook compliance.
-- Finish quality over new surface area: permissions, empty states, cross-module flows, keyboard-first correctness.
-- Push back on scope creep.
-
-## Review Checklist
-
-- Route C / handbook alignment
-- Architecture boundary discipline (`LumaCore` UI-free; services in `LumaServices`)
-- Hot-path safety (no disk/network I/O per keystroke; AX IPC off MainActor)
-- Permission UX, persistence safety, secret/privacy handling
-- Keyboard-only usability and visual consistency
-- `LauncherEnvironment.showStatus` is non-optional `let` — inject at init
-- Filesystem-heavy modules (Notes, Projects, MenuItems, Media) stay `onDemand`; not in `fastModuleIDs`
-- Snippet trigger expansion only in global search; not on `s`/`snip` prefix queries
-
-## Planning Output
-
-For major planning requests, return: product judgment, current-focus recommendation, P0/P1/P2 priorities, risks, acceptance criteria, verification plan, docs to update.
+- Engine / CLI / TUI contracts and crate boundaries.
+- LumaNext data isolation; honest unavailable / permission / not-configured states.
+- No silent fallbacks; no foreground automation in tests/soak.
+- Finish quality over new modules.

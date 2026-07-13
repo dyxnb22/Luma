@@ -2,5 +2,5 @@
   "composer.fastMode": false,
   "cursor.composer.fastMode": false,
   "project.name": "Luma",
-  "project.instructions": "Use Composer in normal mode only. Follow .cursor/rules.md. Active route is Route C: command-first unified list. Current priority is wiring together existing features, fixing rough edges, and improving consistency, not expanding scope."
+  "project.instructions": "Use Composer in normal mode only. Follow .cursor/rules.md. Luma is a Rust CLI/TUI under rust/. Prefer wiring existing modules, honest unavailable/deny states, and consistency over new surface area."
 }

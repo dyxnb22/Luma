@@ -1,10 +1,7 @@
 .DS_Store
-.build/
-build/
-DerivedData/
-*.xcuserdata/
-*.xcuserstate
-*.xcodeproj/project.xcworkspace/xcuserdata/
-*.xcodeproj/xcuserdata/
 *.log
 .agent-runs/
+rust/target/
+.claude/worktrees/
+.qa-artifacts/
+.qa-circ/

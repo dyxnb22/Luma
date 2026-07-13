@@ -1,27 +1,34 @@
 use async_trait::async_trait;
 use luma_application::{
-    ActionOutcome, ActionRequest, LumaModule, ModuleManifest, ModuleState, SearchMode, SearchSink,
-    WarmupContext,
+    ActionOutcome, ActionRequest, KeychainPort, LumaModule, ModuleManifest, ModuleState,
+    PasteboardPort, SearchMode, SearchSink, WarmupContext,
 };
 use luma_domain::{
     ActionDescriptor, ActionId, ActionRisk, FailureKind, ModuleId, Query, SearchItem,
 };
-use luma_platform_macos::{Keychain, Pasteboard};
 use luma_protocol::{Event, SearchItemDto};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::time::Duration;
 use tokio_util::sync::CancellationToken;
+
+use crate::clipboard_privacy::ClipboardSuppression;
 
 /// Secrets is last / default-off. Values never enter search results.
 pub struct SecretsModule {
     manifest: ModuleManifest,
     unlocked: AtomicBool,
-    keychain: Arc<dyn Keychain>,
-    pasteboard: Arc<dyn Pasteboard>,
+    keychain: Arc<dyn KeychainPort>,
+    pasteboard: Arc<dyn PasteboardPort>,
+    suppression: Arc<ClipboardSuppression>,
 }
 
 impl SecretsModule {
-    pub fn with_deps(keychain: Arc<dyn Keychain>, pasteboard: Arc<dyn Pasteboard>) -> Self {
+    pub fn with_deps(
+        keychain: Arc<dyn KeychainPort>,
+        pasteboard: Arc<dyn PasteboardPort>,
+        suppression: Arc<ClipboardSuppression>,
+    ) -> Self {
         Self {
             manifest: ModuleManifest {
                 id: ModuleId::new("luma.secrets"),
@@ -34,6 +41,7 @@ impl SecretsModule {
             unlocked: AtomicBool::new(false),
             keychain,
             pasteboard,
+            suppression,
         }
     }
 }
@@ -163,17 +171,22 @@ impl LumaModule for SecretsModule {
                     };
                 };
                 match self.keychain.copy_password(account).await {
-                    Ok(secret) => match self.pasteboard.write_text(&secret).await {
-                        Ok(()) => ActionOutcome::Success {
-                            message: Some("copied (clears from history via privacy filter)".into()),
-                        },
-                        Err(err) => ActionOutcome::Failed {
-                            kind: FailureKind::Unavailable {
-                                reason: err.to_string(),
-                                retryable: true,
+                    Ok(secret) => {
+                        // Lease exact value so clipboard history never stores it, even
+                        // when heuristic `looks_secret` would miss a plain token.
+                        self.suppression.suppress(&secret, Duration::from_secs(45));
+                        match self.pasteboard.write_text(&secret).await {
+                            Ok(()) => ActionOutcome::Success {
+                                message: Some("copied (suppressed from clipboard history)".into()),
                             },
-                        },
-                    },
+                            Err(err) => ActionOutcome::Failed {
+                                kind: FailureKind::Unavailable {
+                                    reason: err.to_string(),
+                                    retryable: true,
+                                },
+                            },
+                        }
+                    }
                     Err(err) => ActionOutcome::Failed {
                         kind: FailureKind::Unavailable {
                             reason: err.to_string(),
@@ -197,14 +210,14 @@ impl LumaModule for SecretsModule {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use luma_platform_macos::{FakeKeychain, PasteboardError};
+    use luma_application::{FakeKeychain, PasteboardError};
     use tokio::sync::mpsc;
     use tokio::sync::Mutex as TokioMutex;
 
     struct MemPb(TokioMutex<Option<String>>);
 
     #[async_trait]
-    impl Pasteboard for MemPb {
+    impl PasteboardPort for MemPb {
         async fn read_text(&self) -> Result<Option<String>, PasteboardError> {
             Ok(self.0.lock().await.clone())
         }
@@ -224,7 +237,11 @@ mod tests {
                     .collect(),
             ),
         });
-        let m = SecretsModule::with_deps(kc, Arc::new(MemPb(TokioMutex::new(None))));
+        let m = SecretsModule::with_deps(
+            kc,
+            Arc::new(MemPb(TokioMutex::new(None))),
+            Arc::new(ClipboardSuppression::new()),
+        );
         m.unlocked.store(true, Ordering::SeqCst);
         let (tx, mut rx) = mpsc::channel(4);
         m.search(Query::parse("sec api", 10), tx, CancellationToken::new())

@@ -123,6 +123,7 @@ fn render_results(
                 &query,
                 theme,
                 symbols,
+                &state.module_labels,
             ));
         }
     }
@@ -193,10 +194,11 @@ fn result_row(
     query: &str,
     theme: &Theme,
     symbols: &Symbols,
+    module_labels: &std::collections::HashMap<String, String>,
 ) -> ListItem<'static> {
     let kind = ResultKindVisual::from_kind(&item.kind);
     let glyph = module_glyph(item.module_id.as_str());
-    let module = module_label(item.module_id.as_str()).to_string();
+    let module = module_label(item.module_id.as_str(), module_labels);
     let action = match kind {
         ResultKindVisual::Warming => format!("{} Wait", symbols.ellipsis),
         _ => format!("{} {}", symbols.enter, item.primary_action.label),
@@ -308,17 +310,22 @@ fn highlight_query(prompt: &str) -> String {
         "note",
         "notes",
         "ql",
+        "quicklinks",
         "s",
         "snip",
-        "tr",
-        "translate",
         "t",
         "todo",
         "proj",
+        "project",
         "kill",
-        "media",
-        "word",
-        "wordbook",
+        "quit",
+        "k",
+        "sec",
+        "secret",
+        "secrets",
+        "fake",
+        "echo",
+        "p",
     ];
     let tokens: Vec<&str> = prompt.split_whitespace().collect();
     if tokens.is_empty() {
@@ -416,7 +423,7 @@ fn render_status(
     } else {
         let mut seen = Vec::new();
         for item in &state.results.items {
-            let label = module_label(item.module_id.as_str());
+            let label = module_label(item.module_id.as_str(), &state.module_labels);
             if !seen.contains(&label) {
                 seen.push(label);
             }
@@ -917,10 +924,10 @@ mod tests {
             results: ResultsView {
                 items: vec![sample_kind(
                     "u",
-                    "Wordbook is unavailable",
-                    "luma.wordbook",
+                    "Feature is unavailable",
+                    "luma.example",
                     "unavailable",
-                    "Storage pending",
+                    "Not available locally",
                     "Details",
                 )],
                 selected_id: Some("u".into()),

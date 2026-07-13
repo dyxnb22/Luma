@@ -1,6 +1,7 @@
 use crate::theme::{Symbols, Theme, ThemeMode};
 use luma_domain::{FailureKind, SearchItem};
-use luma_protocol::{ActionDescriptorDto, ActionOutcomeDto, Event};
+use luma_protocol::{ActionDescriptorDto, ActionOutcomeDto, Event, ModuleInfoDto};
+use std::collections::HashMap;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Route {
@@ -148,6 +149,10 @@ pub struct AppState {
     /// Resolved at init / by tests — render must not re-read the environment.
     pub theme: Theme,
     pub symbols: Symbols,
+    /// Module id → display_name from SessionReady catalog.
+    pub module_labels: HashMap<String, String>,
+    /// When set, `FlushSearch` should fire after this Instant.
+    pub search_debounce_deadline: Option<std::time::Instant>,
 }
 
 impl Default for AppState {
@@ -171,6 +176,8 @@ impl Default for AppState {
             active_operation: None,
             theme: Theme::resolve(ThemeMode::Auto),
             symbols: Symbols::detect(),
+            module_labels: HashMap::new(),
+            search_debounce_deadline: None,
         }
     }
 }
@@ -178,7 +185,15 @@ impl Default for AppState {
 impl AppState {
     pub fn apply_engine_event(&mut self, event: Event) -> bool {
         match event {
-            Event::SessionReady => {
+            Event::SessionReady { modules } => {
+                self.module_labels = modules
+                    .into_iter()
+                    .map(
+                        |ModuleInfoDto {
+                             id, display_name, ..
+                         }| (id, display_name),
+                    )
+                    .collect();
                 self.status.set("Session ready", StatusTone::Success);
                 true
             }

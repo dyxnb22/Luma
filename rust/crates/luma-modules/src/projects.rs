@@ -1,13 +1,12 @@
 use async_trait::async_trait;
 use luma_application::{
-    ActionOutcome, ActionRequest, LumaModule, ModuleManifest, ModuleState, SearchMode, SearchSink,
-    WarmupContext,
+    ActionOutcome, ActionRequest, LumaModule, ModuleManifest, ModuleState, OpenPathPort,
+    SearchMode, SearchSink, WarmupContext,
 };
 use luma_domain::{
     ActionDescriptor, ActionId, ActionRisk, FailureKind, ModuleId, Query, SearchItem,
 };
 use luma_protocol::{Event, SearchItemDto};
-use luma_storage::ConfigStore;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -23,25 +22,11 @@ pub struct ProjectsModule {
     manifest: ModuleManifest,
     roots: Arc<RwLock<Vec<PathBuf>>>,
     index: Arc<RwLock<Vec<Project>>>,
+    opener: Arc<dyn OpenPathPort>,
 }
 
 impl ProjectsModule {
-    pub fn new() -> Self {
-        let roots = ConfigStore::luma_next_default()
-            .ok()
-            .and_then(|s| s.load_or_default().ok())
-            .map(|settings| {
-                settings
-                    .projects_roots
-                    .into_iter()
-                    .map(PathBuf::from)
-                    .collect::<Vec<_>>()
-            })
-            .unwrap_or_default();
-        Self::with_roots(roots)
-    }
-
-    pub fn with_roots(roots: Vec<PathBuf>) -> Self {
+    pub fn with_roots(roots: Vec<PathBuf>, opener: Arc<dyn OpenPathPort>) -> Self {
         Self {
             manifest: ModuleManifest {
                 id: ModuleId::new("luma.projects"),
@@ -53,26 +38,8 @@ impl ProjectsModule {
             },
             roots: Arc::new(RwLock::new(roots)),
             index: Arc::new(RwLock::new(Vec::new())),
+            opener,
         }
-    }
-
-    async fn load_roots_from_settings(&self) {
-        if let Ok(store) = ConfigStore::luma_next_default() {
-            if let Ok(settings) = store.load_or_default() {
-                let roots: Vec<PathBuf> = settings
-                    .projects_roots
-                    .into_iter()
-                    .map(PathBuf::from)
-                    .collect();
-                *self.roots.write().await = roots;
-            }
-        }
-    }
-}
-
-impl Default for ProjectsModule {
-    fn default() -> Self {
-        Self::new()
     }
 }
 
@@ -107,7 +74,6 @@ impl LumaModule for ProjectsModule {
     }
 
     async fn warmup(&self, ctx: WarmupContext) -> ModuleState {
-        self.load_roots_from_settings().await;
         if ctx.cancel.is_cancelled() {
             return ModuleState::Cold;
         }
@@ -182,7 +148,15 @@ impl LumaModule for ProjectsModule {
         }
     }
 
-    async fn actions(&self, _result: &SearchItem) -> Vec<ActionDescriptor> {
+    async fn actions(&self, result: &SearchItem) -> Vec<ActionDescriptor> {
+        if result.id.as_str() == "proj:configure" {
+            return vec![ActionDescriptor {
+                id: ActionId::new("configure"),
+                label: "Configure".into(),
+                risk: ActionRisk::Safe,
+                confirmation: false,
+            }];
+        }
         vec![ActionDescriptor {
             id: ActionId::new("open"),
             label: "Open".into(),
@@ -226,23 +200,14 @@ impl LumaModule for ProjectsModule {
                         },
                     };
                 }
-                match tokio::process::Command::new("open")
-                    .arg(&path)
-                    .status()
-                    .await
-                {
-                    Ok(s) if s.success() => ActionOutcome::Success {
+                match self.opener.open(&path).await {
+                    Ok(()) => ActionOutcome::Success {
                         message: Some("opened".into()),
                     },
-                    Ok(s) => ActionOutcome::Failed {
-                        kind: FailureKind::Unavailable {
-                            reason: format!("open exited {s}"),
-                            retryable: true,
-                        },
-                    },
                     Err(e) => ActionOutcome::Failed {
-                        kind: FailureKind::Io {
-                            context: e.to_string(),
+                        kind: FailureKind::Unavailable {
+                            reason: e.to_string(),
+                            retryable: true,
                         },
                     },
                 }

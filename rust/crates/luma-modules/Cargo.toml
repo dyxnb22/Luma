@@ -10,8 +10,6 @@ description = "Luma module implementations (ports only; no direct Keychain/Apple
 luma-application = { workspace = true }
 luma-domain = { workspace = true }
 luma-protocol = { workspace = true }
-luma-platform-macos = { workspace = true }
-luma-storage = { workspace = true }
 async-trait = { workspace = true }
 tokio = { workspace = true }
 tokio-util = { workspace = true }
@@ -20,3 +18,4 @@ serde_json = { workspace = true }
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util"] }
 tempfile = { workspace = true }
+luma-test-support = { workspace = true }

@@ -2,6 +2,7 @@
 //! Prefer `notify` (FSEvents on macOS). Polling remains as a fallback helper.
 
 use notify::{EventKind, RecommendedWatcher, RecursiveMode, Watcher};
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc;
 use std::time::SystemTime;
@@ -17,26 +18,45 @@ impl DirFingerprint {
     pub fn scan(root: &Path) -> Self {
         let mut file_count = 0u64;
         let mut latest = 0u64;
-        let mut stack = vec![root.to_path_buf()];
+        let Ok(root_canon) = root.canonicalize() else {
+            return Self::default();
+        };
+        let mut visited = HashSet::new();
+        let mut stack = vec![root_canon.clone()];
         while let Some(dir) = stack.pop() {
+            if !visited.insert(dir.clone()) {
+                continue;
+            }
+            if !dir.starts_with(&root_canon) {
+                continue;
+            }
             let Ok(rd) = std::fs::read_dir(&dir) else {
                 continue;
             };
             for entry in rd.flatten() {
                 let path = entry.path();
-                if path.is_dir() {
-                    stack.push(path);
+                let Ok(meta) = std::fs::symlink_metadata(&path) else {
+                    continue;
+                };
+                if meta.file_type().is_symlink() {
+                    // Never follow symlinks (avoids escaping root / cycles).
+                    continue;
+                }
+                if meta.is_dir() {
+                    if let Ok(canon) = path.canonicalize() {
+                        if canon.starts_with(&root_canon) {
+                            stack.push(canon);
+                        }
+                    }
                     continue;
                 }
                 if path.extension().and_then(|e| e.to_str()) != Some("md") {
                     continue;
                 }
                 file_count += 1;
-                if let Ok(meta) = path.metadata() {
-                    if let Ok(modified) = meta.modified() {
-                        if let Ok(dur) = modified.duration_since(SystemTime::UNIX_EPOCH) {
-                            latest = latest.max(dur.as_secs());
-                        }
+                if let Ok(modified) = meta.modified() {
+                    if let Ok(dur) = modified.duration_since(SystemTime::UNIX_EPOCH) {
+                        latest = latest.max(dur.as_secs());
                     }
                 }
             }
@@ -150,5 +170,23 @@ mod tests {
         let b = DirFingerprint::scan(dir.path());
         assert_eq!(a.file_count, 0);
         assert_eq!(b.file_count, 1);
+    }
+
+    #[test]
+    fn fingerprint_skips_symlink_to_parent() {
+        let dir = tempdir().unwrap();
+        let nested = dir.path().join("notes");
+        fs::create_dir_all(&nested).unwrap();
+        fs::write(nested.join("inside.md"), "x").unwrap();
+        let outside = dir.path().join("outside.md");
+        fs::write(&outside, "y").unwrap();
+        // Symlink that would escape if followed.
+        #[cfg(unix)]
+        {
+            std::os::unix::fs::symlink(dir.path(), nested.join("escape")).unwrap();
+            std::os::unix::fs::symlink(&outside, nested.join("file_link.md")).unwrap();
+        }
+        let fp = DirFingerprint::scan(&nested);
+        assert_eq!(fp.file_count, 1);
     }
 }

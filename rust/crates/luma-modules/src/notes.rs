@@ -1,17 +1,16 @@
 use crate::cancel::await_unless_cancelled;
 use async_trait::async_trait;
 use luma_application::{
-    ActionOutcome, ActionRequest, LumaModule, ModuleManifest, ModuleState, SearchMode, SearchSink,
-    WarmupContext,
+    ActionOutcome, ActionRequest, ClockPort, FixedClock, LumaModule, MarkdownWatchPort,
+    ModuleManifest, ModuleState, OpenPathPort, SearchMode, SearchSink, SystemClock, WarmupContext,
 };
 use luma_domain::{
     ActionDescriptor, ActionId, ActionRisk, FailureKind, ModuleId, Query, SearchItem,
 };
-use luma_platform_macos::{watch_markdown_root, FakeOpenPath, OpenPath};
 use luma_protocol::{Event, SearchItemDto};
 use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
-use tokio::sync::{Mutex, RwLock};
+use tokio::sync::{mpsc, Mutex, RwLock};
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
@@ -22,6 +21,16 @@ struct NoteEntry {
     path: PathBuf,
 }
 
+/// No-op watcher for tests: waits on cancel without emitting change events.
+pub(crate) struct NullMarkdownWatcher;
+
+#[async_trait]
+impl MarkdownWatchPort for NullMarkdownWatcher {
+    async fn watch(&self, _root: PathBuf, cancel: CancellationToken, _tx: mpsc::Sender<()>) {
+        cancel.cancelled().await;
+    }
+}
+
 pub struct NotesModule {
     manifest: ModuleManifest,
     root: Arc<RwLock<Option<PathBuf>>>,
@@ -30,21 +39,27 @@ pub struct NotesModule {
     index_generation: Arc<RwLock<u64>>,
     watch_cancel: Mutex<Option<CancellationToken>>,
     watch_handle: Mutex<Option<JoinHandle<()>>>,
-    opener: Arc<dyn OpenPath>,
+    opener: Arc<dyn OpenPathPort>,
+    watcher: Arc<dyn MarkdownWatchPort>,
+    clock: Arc<dyn ClockPort>,
 }
 
 impl NotesModule {
     /// Production constructor used by the composition root.
-    pub fn with_root(root: Option<PathBuf>, opener: Arc<dyn OpenPath>) -> Self {
-        Self::with_root_and_opener(root, opener)
+    pub fn with_root(
+        root: Option<PathBuf>,
+        opener: Arc<dyn OpenPathPort>,
+        watcher: Arc<dyn MarkdownWatchPort>,
+    ) -> Self {
+        Self::with_root_clock(root, opener, watcher, Arc::new(SystemClock))
     }
 
-    /// Test-only: Fake opener that never opens paths but reports success.
-    pub fn with_root_for_tests(root: Option<PathBuf>) -> Self {
-        Self::with_root_and_opener(root, Arc::new(FakeOpenPath::new()))
-    }
-
-    pub fn with_root_and_opener(root: Option<PathBuf>, opener: Arc<dyn OpenPath>) -> Self {
+    pub fn with_root_clock(
+        root: Option<PathBuf>,
+        opener: Arc<dyn OpenPathPort>,
+        watcher: Arc<dyn MarkdownWatchPort>,
+        clock: Arc<dyn ClockPort>,
+    ) -> Self {
         Self {
             manifest: ModuleManifest {
                 id: ModuleId::new("luma.notes"),
@@ -60,7 +75,27 @@ impl NotesModule {
             watch_cancel: Mutex::new(None),
             watch_handle: Mutex::new(None),
             opener,
+            watcher,
+            clock,
         }
+    }
+
+    /// Test-only: Fake opener that never opens paths but reports success.
+    pub fn with_root_for_tests(root: Option<PathBuf>) -> Self {
+        use luma_application::FakeOpenPath;
+        Self::with_root_and_opener(root, Arc::new(FakeOpenPath::new()))
+    }
+
+    /// Test helper: real opener mock + no-op markdown watcher.
+    pub fn with_root_and_opener(root: Option<PathBuf>, opener: Arc<dyn OpenPathPort>) -> Self {
+        Self::with_root_clock(
+            root,
+            opener,
+            Arc::new(NullMarkdownWatcher),
+            Arc::new(FixedClock {
+                ymd: "2026-07-13".into(),
+            }),
+        )
     }
 
     pub async fn set_root_for_tests(&self, root: PathBuf) {
@@ -88,33 +123,36 @@ impl NotesModule {
         let module_root = self.root.clone();
         let index = self.index.clone();
         let generation = self.index_generation.clone();
+        let (tx, mut rx) = mpsc::channel(8);
+        let watcher = self.watcher.clone();
         let handle = tokio::spawn(async move {
-            watch_markdown_root(root.clone(), token, || {
-                let module_root = module_root.clone();
-                let index = index.clone();
-                let generation = generation.clone();
-                let root = root.clone();
-                async move {
-                    let current = module_root.read().await.clone();
-                    if current.as_ref() != Some(&root) {
-                        return;
+            let watch_fut = watcher.watch(root.clone(), token.clone(), tx);
+            tokio::pin!(watch_fut);
+            loop {
+                tokio::select! {
+                    _ = token.cancelled() => break,
+                    _ = &mut watch_fut => break,
+                    Some(()) = rx.recv() => {
+                        let current = module_root.read().await.clone();
+                        if current.as_ref() != Some(&root) {
+                            continue;
+                        }
+                        let gen_before = *generation.read().await;
+                        let notes = tokio::task::spawn_blocking({
+                            let root = root.clone();
+                            move || scan_md_tree(&root)
+                        })
+                        .await
+                        .unwrap_or_default();
+                        let mut gen = generation.write().await;
+                        if *gen != gen_before {
+                            continue;
+                        }
+                        *gen = gen.saturating_add(1);
+                        *index.write().await = notes;
                     }
-                    let gen_before = *generation.read().await;
-                    let notes = tokio::task::spawn_blocking({
-                        let root = root.clone();
-                        move || scan_md_tree(&root)
-                    })
-                    .await
-                    .unwrap_or_default();
-                    let mut gen = generation.write().await;
-                    if *gen != gen_before {
-                        return;
-                    }
-                    *gen = gen.saturating_add(1);
-                    *index.write().await = notes;
                 }
-            })
-            .await;
+            }
         });
         *self.watch_cancel.lock().await = Some(cancel);
         *self.watch_handle.lock().await = Some(handle);
@@ -219,25 +257,132 @@ impl NotesModule {
         Ok(resolved)
     }
 
-    /// Create parent directories only after containment is proven.
-    pub(crate) fn create_with_containment(
+    /// Create parents and the new file via descriptor-relative `openat` / `mkdirat`
+    /// with `O_NOFOLLOW` on every step so a swapped parent symlink cannot be followed.
+    pub(crate) fn create_new_contained(
         root: &Path,
         candidate: &Path,
-    ) -> Result<PathBuf, String> {
+    ) -> Result<(PathBuf, std::fs::File), String> {
         let path = Self::resolve_under_root(root, candidate)?;
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent).map_err(|e| format!("create_dir_all: {e}"))?;
-            let parent_canon = parent
-                .canonicalize()
-                .map_err(|e| format!("parent canonicalize: {e}"))?;
-            let root_canon = root
-                .canonicalize()
-                .map_err(|e| format!("root canonicalize: {e}"))?;
-            if !parent_canon.starts_with(&root_canon) {
-                return Err("parent escaped notes root after create".into());
-            }
+        let root_canon = root
+            .canonicalize()
+            .map_err(|e| format!("root canonicalize: {e}"))?;
+        let rel = path
+            .strip_prefix(&root_canon)
+            .map_err(|_| "path not under notes root".to_string())?;
+        let comps: Vec<_> = rel
+            .components()
+            .filter_map(|c| match c {
+                Component::Normal(s) => Some(s.to_os_string()),
+                _ => None,
+            })
+            .collect();
+        if comps.is_empty() {
+            return Err("refusing to overwrite notes root itself".into());
         }
-        Ok(path)
+
+        #[cfg(unix)]
+        {
+            use std::ffi::CString;
+            use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
+            use std::os::unix::ffi::OsStrExt;
+
+            #[cfg(target_os = "macos")]
+            const O_DIRECTORY: i32 = 0x0010_0000;
+            #[cfg(target_os = "macos")]
+            const O_NOFOLLOW: i32 = 0x0100;
+            #[cfg(target_os = "macos")]
+            const O_CREAT: i32 = 0x0200;
+            #[cfg(target_os = "macos")]
+            const O_EXCL: i32 = 0x0800;
+            #[cfg(all(unix, not(target_os = "macos")))]
+            const O_DIRECTORY: i32 = 0o200000;
+            #[cfg(all(unix, not(target_os = "macos")))]
+            const O_NOFOLLOW: i32 = 0o400000;
+            #[cfg(all(unix, not(target_os = "macos")))]
+            const O_CREAT: i32 = 0o100;
+            #[cfg(all(unix, not(target_os = "macos")))]
+            const O_EXCL: i32 = 0o200;
+            const O_RDONLY: i32 = 0;
+            const O_WRONLY: i32 = 1;
+
+            extern "C" {
+                fn open(path: *const i8, oflag: i32, ...) -> i32;
+                fn openat(dirfd: i32, path: *const i8, oflag: i32, ...) -> i32;
+                fn mkdirat(dirfd: i32, path: *const i8, mode: u32) -> i32;
+            }
+
+            let root_c = CString::new(root_canon.as_os_str().as_bytes())
+                .map_err(|_| "root path contains NUL".to_string())?;
+            let root_fd = unsafe { open(root_c.as_ptr(), O_RDONLY | O_DIRECTORY | O_NOFOLLOW) };
+            if root_fd < 0 {
+                return Err(format!("open root: {}", std::io::Error::last_os_error()));
+            }
+            let mut dir_fd = unsafe { OwnedFd::from_raw_fd(root_fd) };
+
+            for name in &comps[..comps.len() - 1] {
+                let cname = CString::new(name.as_bytes())
+                    .map_err(|_| "path component contains NUL".to_string())?;
+                let mut child = unsafe {
+                    openat(
+                        dir_fd.as_raw_fd(),
+                        cname.as_ptr(),
+                        O_RDONLY | O_DIRECTORY | O_NOFOLLOW,
+                    )
+                };
+                if child < 0 {
+                    let err = std::io::Error::last_os_error();
+                    if err.kind() == std::io::ErrorKind::NotFound {
+                        let mk = unsafe { mkdirat(dir_fd.as_raw_fd(), cname.as_ptr(), 0o755) };
+                        if mk != 0 {
+                            return Err(format!("mkdirat: {}", std::io::Error::last_os_error()));
+                        }
+                        child = unsafe {
+                            openat(
+                                dir_fd.as_raw_fd(),
+                                cname.as_ptr(),
+                                O_RDONLY | O_DIRECTORY | O_NOFOLLOW,
+                            )
+                        };
+                        if child < 0 {
+                            return Err(format!(
+                                "openat after mkdir: {}",
+                                std::io::Error::last_os_error()
+                            ));
+                        }
+                    } else {
+                        return Err(format!("openat parent: {err}"));
+                    }
+                }
+                dir_fd = unsafe { OwnedFd::from_raw_fd(child) };
+            }
+
+            let file_name = &comps[comps.len() - 1];
+            let cfile = CString::new(file_name.as_bytes())
+                .map_err(|_| "filename contains NUL".to_string())?;
+            let file_fd = unsafe {
+                openat(
+                    dir_fd.as_raw_fd(),
+                    cfile.as_ptr(),
+                    O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW,
+                    0o644,
+                )
+            };
+            if file_fd < 0 {
+                return Err(format!(
+                    "openat create: {}",
+                    std::io::Error::last_os_error()
+                ));
+            }
+            let file = unsafe { std::fs::File::from_raw_fd(file_fd) };
+            Ok((path, file))
+        }
+
+        #[cfg(not(unix))]
+        {
+            let _ = comps;
+            Err("contained create requires Unix openat".into())
+        }
     }
 }
 
@@ -331,20 +476,14 @@ impl LumaModule for NotesModule {
             return;
         };
 
-        let rest = query
-            .normalized
-            .split_once(|c: char| c.is_whitespace())
-            .map(|(_, rest)| rest.trim().to_string())
-            .unwrap_or_default();
+        let rest = query.rest_normalized();
 
         if rest == "new" {
-            let path = root.join("Inbox").join(format!(
-                "note-{}.md",
-                std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .map(|d| d.as_secs())
-                    .unwrap_or(0)
-            ));
+            let stamp = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0);
+            let path = root.join("Inbox").join(format!("note-{stamp}.md"));
             let _ = sink
                 .send(Event::ResultsChunk {
                     request_id: String::new(),
@@ -358,6 +497,70 @@ impl LumaModule for NotesModule {
                         score: 100.0,
                         primary_action_id: "create".into(),
                         primary_action_label: "Create".into(),
+                        ..Default::default()
+                    }],
+                    removed_ids: vec![],
+                })
+                .await;
+            return;
+        }
+
+        if rest == "daily" || rest == "today" {
+            let date = match self.clock.today_ymd() {
+                Ok(d) => d,
+                Err(err) => {
+                    let _ = sink
+                        .send(Event::ResultsChunk {
+                            request_id: String::new(),
+                            sequence: 1,
+                            upserts: vec![SearchItemDto {
+                                id: "note:clock-error".into(),
+                                module_id: "luma.notes".into(),
+                                title: "Daily note unavailable".into(),
+                                subtitle: Some(err.to_string()),
+                                kind: "unavailable".into(),
+                                score: 0.0,
+                                primary_action_id: "noop".into(),
+                                primary_action_label: "Unavailable".into(),
+                                ..Default::default()
+                            }],
+                            removed_ids: vec![],
+                        })
+                        .await;
+                    return;
+                }
+            };
+            let path = root.join("Daily").join(format!("{date}.md"));
+            let exists = path.exists();
+            let _ = sink
+                .send(Event::ResultsChunk {
+                    request_id: String::new(),
+                    sequence: 1,
+                    upserts: vec![SearchItemDto {
+                        id: format!("note:{}", path.display()),
+                        module_id: "luma.notes".into(),
+                        title: if exists {
+                            format!("Open daily note ({date})")
+                        } else {
+                            format!("Create daily note ({date})")
+                        },
+                        subtitle: Some(path.display().to_string()),
+                        kind: if exists {
+                            "note".into()
+                        } else {
+                            "create".into()
+                        },
+                        score: 100.0,
+                        primary_action_id: if exists {
+                            "open".into()
+                        } else {
+                            "create".into()
+                        },
+                        primary_action_label: if exists {
+                            "Open".into()
+                        } else {
+                            "Create".into()
+                        },
                         ..Default::default()
                     }],
                     removed_ids: vec![],
@@ -428,7 +631,23 @@ impl LumaModule for NotesModule {
         }
     }
 
-    async fn actions(&self, _result: &SearchItem) -> Vec<ActionDescriptor> {
+    async fn actions(&self, result: &SearchItem) -> Vec<ActionDescriptor> {
+        if result.id.as_str() == "notes:configure" {
+            return vec![ActionDescriptor {
+                id: ActionId::new("configure"),
+                label: "Configure".into(),
+                risk: ActionRisk::Safe,
+                confirmation: false,
+            }];
+        }
+        if result.kind == "create" || result.primary_action.id.as_str() == "create" {
+            return vec![ActionDescriptor {
+                id: ActionId::new("create"),
+                label: "Create".into(),
+                risk: ActionRisk::Safe,
+                confirmation: false,
+            }];
+        }
         vec![ActionDescriptor {
             id: ActionId::new("open"),
             label: "Open".into(),
@@ -463,22 +682,32 @@ impl LumaModule for NotesModule {
                     .strip_prefix("note:")
                     .map(PathBuf::from)
                     .unwrap_or_else(|| PathBuf::from("Inbox/new.md"));
-                let path = match Self::create_with_containment(&root, &raw) {
-                    Ok(p) => p,
+                let (path, mut file) = match Self::create_new_contained(&root, &raw) {
+                    Ok(v) => v,
                     Err(reason) => {
                         return ActionOutcome::Failed {
                             kind: FailureKind::SecurityDenied { reason },
                         };
                     }
                 };
-                if let Err(err) = std::fs::write(&path, "# New note\n") {
+                if let Err(err) = {
+                    use std::io::Write;
+                    let body = if path.to_string_lossy().contains("/Daily/") {
+                        let date = path.file_stem().and_then(|s| s.to_str()).unwrap_or("today");
+                        format!("# {date}\n\n")
+                    } else {
+                        "# New note\n".into()
+                    };
+                    file.write_all(body.as_bytes())
+                } {
+                    let _ = std::fs::remove_file(&path);
                     return ActionOutcome::Failed {
                         kind: FailureKind::Io {
                             context: format!("write note: {err}"),
                         },
                     };
                 }
-                // Re-check containment after write (TOCTOU / symlink swap).
+                // Re-check containment after write (defense in depth).
                 if !Self::contained(&root, &path) {
                     let _ = std::fs::remove_file(&path);
                     return ActionOutcome::Failed {
@@ -488,9 +717,11 @@ impl LumaModule for NotesModule {
                     };
                 }
                 self.rebuild_index(&root).await;
-                // Create success is independent of open. Best-effort open; failure is reported.
+                // Durable create committed — do not report Cancelled after this point.
                 match await_unless_cancelled(&cancel, self.opener.open(&path)).await {
-                    None => ActionOutcome::Cancelled,
+                    None => ActionOutcome::Success {
+                        message: Some(format!("created {}; open cancelled", path.display())),
+                    },
                     Some(Ok(())) => ActionOutcome::Success {
                         message: Some(format!("created {}", path.display())),
                     },
@@ -580,6 +811,7 @@ impl LumaModule for NotesModule {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use luma_application::FakeOpenPath;
     use luma_domain::{ActionDescriptor, ActionId, ActionRisk, ResultId, SearchItem};
     use std::fs;
     use std::os::unix::fs::symlink;

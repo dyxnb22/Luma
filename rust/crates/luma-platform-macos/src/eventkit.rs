@@ -3,39 +3,8 @@
 //! This adapter probes what a bare CLI can do and returns structured status.
 
 use async_trait::async_trait;
-use thiserror::Error;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum RemindersAuth {
-    /// CLI cannot determine / prompt without bundle host.
-    NotDetermined,
-    Denied,
-    Authorized,
-}
-
-#[derive(Debug, Error)]
-pub enum EventKitError {
-    #[error("reminders not authorized")]
-    NotAuthorized,
-    #[error("eventkit unavailable: {0}")]
-    Unavailable(String),
-}
-
-#[derive(Clone, Debug)]
-pub struct ReminderItem {
-    pub id: String,
-    pub title: String,
-    pub completed: bool,
-}
-
-#[async_trait]
-pub trait EventKit: Send + Sync {
-    async fn auth_status(&self) -> RemindersAuth;
-    async fn request_access(&self) -> Result<RemindersAuth, EventKitError>;
-    async fn list_incomplete(&self) -> Result<Vec<ReminderItem>, EventKitError>;
-    async fn create(&self, title: &str) -> Result<ReminderItem, EventKitError>;
-    async fn complete(&self, id: &str) -> Result<(), EventKitError>;
-}
+pub use luma_application::{EventKitError, EventKitPort as EventKit, ReminderItem, RemindersAuth};
 
 /// Live probe: bare CLI cannot prompt EventKit; reports NotDetermined unless overridden.
 pub struct MacEventKit;
@@ -43,9 +12,6 @@ pub struct MacEventKit;
 #[async_trait]
 impl EventKit for MacEventKit {
     async fn auth_status(&self) -> RemindersAuth {
-        // Without linking EventKit + NSBundle usage description, TCC will not grant
-        // a Terminal-launched unsigned binary. Surface NotDetermined so modules show
-        // PermissionRequired rather than empty results.
         RemindersAuth::NotDetermined
     }
 
@@ -102,7 +68,7 @@ impl EventKit for FakeEventKit {
             return Err(EventKitError::NotAuthorized);
         }
         let item = ReminderItem {
-            id: format!("fake:{}", title),
+            id: format!("fake:{title}"),
             title: title.to_string(),
             completed: false,
         };

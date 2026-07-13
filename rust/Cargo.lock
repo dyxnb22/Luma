@@ -708,9 +708,8 @@ dependencies = [
  "async-trait",
  "luma-application",
  "luma-domain",
- "luma-platform-macos",
  "luma-protocol",
- "luma-storage",
+ "luma-test-support",
  "serde_json",
  "tempfile",
  "tokio",
@@ -722,6 +721,7 @@ name = "luma-platform-macos"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "luma-application",
  "luma-storage",
  "notify",
  "serde",
@@ -762,8 +762,11 @@ dependencies = [
 name = "luma-test-support"
 version = "0.1.0"
 dependencies = [
+ "luma-application",
  "luma-domain",
  "luma-protocol",
+ "tokio",
+ "tokio-util",
 ]
 
 [[package]]

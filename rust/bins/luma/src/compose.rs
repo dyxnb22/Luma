@@ -1,90 +1,107 @@
 //! Sole composition root helpers: wire settings, stores, and platform adapters into a registry.
 
-use luma_application::ModuleRegistry;
+use luma_application::{
+    ModuleRegistry, RegistryError as ModuleRegistryError, SettingsRepository,
+    SqliteClipboardHistory, SqliteQuicklinksRepository, SqliteSnippetsRepository,
+    TomlSettingsRepository,
+};
 use luma_modules::{
-    AppsModule, BrowserTabsModule, ClipboardModule, FakeEchoModule, KillProcessModule, MediaModule,
-    MenuItemsModule, NotesModule, ProjectsModule, QuicklinksModule, SecretsModule, SnippetsModule,
-    TodoModule, TranslateModule, WindowLayoutsModule, WordbookModule,
+    AppsModule, ClipboardModule, ClipboardSuppression, FakeEchoModule, KillProcessModule,
+    NotesModule, ProjectsModule, QuicklinksModule, SecretsModule, SnippetsModule, TodoModule,
 };
 use luma_platform_macos::{
-    FilesystemAppsCatalog, MacAccessibility, MacEventKit, MacKeychain, MacOpenPath, MacPasteboard,
-    MacProcessCatalog,
+    FilesystemAppsCatalog, MacAccessibility, MacEventKit, MacKeychain, MacMarkdownWatcher,
+    MacOpenPath, MacPasteboard, MacProcessCatalog,
 };
 use luma_storage::{
-    ClipboardStore, ClipboardStoreError, ConfigError, ConfigStore, LumaSettings, QuicklinksStore,
-    QuicklinksStoreError, SnippetsStore, SnippetsStoreError,
+    ClipboardStore, ConfigError, ConfigStore, LumaSettings, QuicklinksStore, SnippetsStore,
 };
 use std::path::PathBuf;
 use std::sync::Arc;
 use thiserror::Error;
+use tracing::warn;
 
 #[derive(Debug, Error)]
 pub enum RegistryError {
     #[error(transparent)]
     Config(#[from] ConfigError),
     #[error(transparent)]
-    Clipboard(#[from] ClipboardStoreError),
-    #[error(transparent)]
-    Quicklinks(#[from] QuicklinksStoreError),
-    #[error(transparent)]
-    Snippets(#[from] SnippetsStoreError),
+    Module(#[from] ModuleRegistryError),
 }
 
-/// Build registry from settings + already-opened stores (no silent fallback).
-/// All production adapters/stores are injected here — modules do not self-wire.
+/// Build registry from settings + optionally opened stores.
+/// Missing stores skip the corresponding module instead of failing the launcher.
 pub fn registry_from_settings(
     settings: &LumaSettings,
-    clipboard: Arc<ClipboardStore>,
-    quicklinks: Arc<QuicklinksStore>,
-    snippets: Arc<SnippetsStore>,
-) -> ModuleRegistry {
+    clipboard: Option<Arc<ClipboardStore>>,
+    quicklinks: Option<Arc<QuicklinksStore>>,
+    snippets: Option<Arc<SnippetsStore>>,
+) -> Result<ModuleRegistry, ModuleRegistryError> {
     let notes_root = settings.notes_root.as_ref().map(PathBuf::from);
     let project_roots: Vec<PathBuf> = settings.projects_roots.iter().map(PathBuf::from).collect();
 
     let opener = Arc::new(MacOpenPath);
     let pasteboard = Arc::new(MacPasteboard);
     let accessibility = Arc::new(MacAccessibility);
+    let clipboard_suppression = Arc::new(ClipboardSuppression::new());
 
     let mut reg = ModuleRegistry::new();
-    reg.register(Arc::new(AppsModule::new(Arc::new(
-        FilesystemAppsCatalog::system_default(),
-    ))));
-    reg.register(Arc::new(ClipboardModule::with_deps(
-        clipboard,
+    reg.register(Arc::new(AppsModule::new(
+        Arc::new(FilesystemAppsCatalog::system_default()),
         pasteboard.clone(),
-        accessibility.clone(),
-    )));
-    reg.register(Arc::new(NotesModule::with_root(notes_root, opener.clone())));
-    reg.register(Arc::new(QuicklinksModule::with_deps(
-        quicklinks,
+    )))?;
+    if let Some(clipboard) = clipboard {
+        reg.register(Arc::new(ClipboardModule::with_deps(
+            Arc::new(SqliteClipboardHistory::new(clipboard)),
+            pasteboard.clone(),
+            accessibility.clone(),
+            clipboard_suppression.clone(),
+        )))?;
+    } else {
+        warn!("clipboard store unavailable — Clipboard module not registered");
+    }
+    reg.register(Arc::new(NotesModule::with_root(
+        notes_root,
         opener.clone(),
-    )));
-    reg.register(Arc::new(SnippetsModule::with_store(
-        snippets,
-        pasteboard.clone(),
-        accessibility,
-    )));
-    reg.register(Arc::new(TranslateModule::new()));
-    reg.register(Arc::new(TodoModule::with_eventkit(Arc::new(MacEventKit))));
-    reg.register(Arc::new(ProjectsModule::with_roots(project_roots)));
+        Arc::new(MacMarkdownWatcher),
+    )))?;
+    if let Some(quicklinks) = quicklinks {
+        reg.register(Arc::new(QuicklinksModule::with_deps(
+            Arc::new(SqliteQuicklinksRepository::new(quicklinks)),
+            opener.clone(),
+            pasteboard.clone(),
+        )))?;
+    } else {
+        warn!("quicklinks store unavailable — Quicklinks module not registered");
+    }
+    if let Some(snippets) = snippets {
+        reg.register(Arc::new(SnippetsModule::with_store(
+            Arc::new(SqliteSnippetsRepository::new(snippets)),
+            pasteboard.clone(),
+            accessibility,
+        )))?;
+    } else {
+        warn!("snippets store unavailable — Snippets module not registered");
+    }
+    reg.register(Arc::new(TodoModule::with_eventkit(Arc::new(MacEventKit))))?;
+    reg.register(Arc::new(ProjectsModule::with_roots(
+        project_roots,
+        opener.clone(),
+    )))?;
     reg.register(Arc::new(KillProcessModule::with_catalog(Arc::new(
         MacProcessCatalog,
-    ))));
-    reg.register(Arc::new(MediaModule::new()));
-    reg.register(Arc::new(WordbookModule::new()));
-    reg.register(Arc::new(WindowLayoutsModule::new()));
-    reg.register(Arc::new(MenuItemsModule::new()));
-    reg.register(Arc::new(BrowserTabsModule::new()));
+    ))))?;
     reg.register(Arc::new(SecretsModule::with_deps(
         Arc::new(MacKeychain::luma_next()),
         pasteboard,
-    )));
-    reg.register(Arc::new(FakeEchoModule::new()));
+        clipboard_suppression,
+    )))?;
+    // Test/demo only — kept off unless explicitly enabled.
+    reg.register(Arc::new(FakeEchoModule::new()))?;
 
     for (id, enabled) in &settings.enabled_modules {
         let _ = reg.set_enabled(id, *enabled);
     }
-    // Fake stays off unless explicitly enabled in settings (tests / soak).
     if !settings
         .enabled_modules
         .get("luma.fake")
@@ -93,17 +110,42 @@ pub fn registry_from_settings(
     {
         let _ = reg.set_enabled("luma.fake", false);
     }
-    reg
+    Ok(reg)
 }
 
 /// Load LumaNext settings + stores. Corrupt config is not replaced with defaults.
+/// Individual store open failures are logged and skip that module — Apps/shell still start.
 pub fn load_registry() -> Result<ModuleRegistry, RegistryError> {
-    let store = ConfigStore::luma_next_default()?;
+    Ok(load_registry_with_settings()?.0)
+}
+
+/// Same as [`load_registry`], plus a settings repository for the engine.
+pub fn load_registry_with_settings(
+) -> Result<(ModuleRegistry, Arc<dyn SettingsRepository>), RegistryError> {
+    let store = Arc::new(ConfigStore::luma_next_default()?);
     let settings = store.load_or_default()?;
-    let clipboard = Arc::new(ClipboardStore::luma_next_default()?);
-    let quicklinks = Arc::new(QuicklinksStore::luma_next_default()?);
-    let snippets = Arc::new(SnippetsStore::luma_next_default()?);
-    Ok(registry_from_settings(
-        &settings, clipboard, quicklinks, snippets,
-    ))
+    let clipboard = match ClipboardStore::luma_next_default() {
+        Ok(s) => Some(Arc::new(s)),
+        Err(err) => {
+            warn!(%err, "failed to open clipboard store");
+            None
+        }
+    };
+    let quicklinks = match QuicklinksStore::luma_next_default() {
+        Ok(s) => Some(Arc::new(s)),
+        Err(err) => {
+            warn!(%err, "failed to open quicklinks store");
+            None
+        }
+    };
+    let snippets = match SnippetsStore::luma_next_default() {
+        Ok(s) => Some(Arc::new(s)),
+        Err(err) => {
+            warn!(%err, "failed to open snippets store");
+            None
+        }
+    };
+    let registry = registry_from_settings(&settings, clipboard, quicklinks, snippets)?;
+    let settings_repo: Arc<dyn SettingsRepository> = Arc::new(TomlSettingsRepository::new(store));
+    Ok((registry, settings_repo))
 }

@@ -16,4 +16,6 @@ pub enum Msg {
     Engine(Event),
     Resize,
     Tick,
+    /// Fire after input debounce quiet period.
+    FlushSearch,
 }

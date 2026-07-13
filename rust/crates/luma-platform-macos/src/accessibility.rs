@@ -3,23 +3,10 @@
 
 use async_trait::async_trait;
 use std::ffi::c_void;
-use thiserror::Error;
 
-#[derive(Debug, Error)]
-pub enum AccessibilityError {
-    #[error("accessibility not trusted")]
-    NotTrusted,
-    #[error("paste synthesis failed: {0}")]
-    PasteFailed(String),
-}
-
-#[async_trait]
-pub trait Accessibility: Send + Sync {
-    fn is_trusted(&self) -> bool;
-    /// Paste whatever is currently on the pasteboard via Cmd+V.
-    /// Must not report success when trust is missing.
-    async fn paste_clipboard(&self) -> Result<(), AccessibilityError>;
-}
+pub use luma_application::{
+    AccessibilityError, AccessibilityPort as Accessibility, FakeAccessibility,
+};
 
 /// Live macOS adapter using ApplicationServices + CoreGraphics.
 pub struct MacAccessibility;
@@ -93,35 +80,10 @@ impl Accessibility for MacAccessibility {
         if !self.is_trusted() {
             return Err(AccessibilityError::NotTrusted);
         }
-        // Brief yield so focus can settle after write_text callers.
         tokio::time::sleep(std::time::Duration::from_millis(30)).await;
         tokio::task::spawn_blocking(Self::synthesize_cmd_v)
             .await
             .map_err(|e| AccessibilityError::PasteFailed(e.to_string()))?
-    }
-}
-
-/// Deterministic fake for module tests.
-pub struct FakeAccessibility {
-    pub trusted: bool,
-    pub paste_ok: bool,
-}
-
-#[async_trait]
-impl Accessibility for FakeAccessibility {
-    fn is_trusted(&self) -> bool {
-        self.trusted
-    }
-
-    async fn paste_clipboard(&self) -> Result<(), AccessibilityError> {
-        if !self.trusted {
-            return Err(AccessibilityError::NotTrusted);
-        }
-        if self.paste_ok {
-            Ok(())
-        } else {
-            Err(AccessibilityError::PasteFailed("fake deny".into()))
-        }
     }
 }
 

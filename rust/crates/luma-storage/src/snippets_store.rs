@@ -87,4 +87,10 @@ impl SnippetsStore {
         )?;
         Ok(())
     }
+
+    pub fn delete(&self, trigger: &str) -> Result<(), SnippetsStoreError> {
+        self.connect()?
+            .execute("DELETE FROM snippets WHERE trigger = ?1", params![trigger])?;
+        Ok(())
+    }
 }

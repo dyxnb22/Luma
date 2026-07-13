@@ -1,7 +1,7 @@
 mod compose;
 
 use clap::{Parser, Subcommand};
-use compose::load_registry;
+use compose::{load_registry, load_registry_with_settings};
 use luma_application::{list_modules_json, run_action, run_doctor, run_query, Engine};
 use luma_storage::{
     dry_run_legacy_dir, import_clipboard_fixture_with_ledger,
@@ -172,8 +172,18 @@ async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
     match cli.command {
         None | Some(Commands::Tui) => {
-            let registry = load_registry().map_err(|e| anyhow::anyhow!("registry: {e}"))?;
-            let engine: Arc<dyn luma_application::EnginePort> = Arc::new(Engine::new(registry));
+            let (registry, settings) =
+                load_registry_with_settings().map_err(|e| anyhow::anyhow!("registry: {e}"))?;
+            let diagnostics = luma_application::FsDiagnosticsSink::luma_next_default()
+                .ok()
+                .map(|s| Arc::new(s) as Arc<dyn luma_application::DiagnosticsSink>);
+            let engine: Arc<dyn luma_application::EnginePort> = Arc::new(Engine::with_options(
+                registry,
+                luma_application::EngineOptions {
+                    settings: Some(settings),
+                    diagnostics,
+                },
+            ));
             run_tui_with_engine(engine).await?;
         }
         Some(Commands::Query { query, json }) => {

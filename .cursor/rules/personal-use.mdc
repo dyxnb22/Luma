@@ -1,0 +1,40 @@
+---
+description: Luma is a personal workbench — no public release or AI-agent scope
+alwaysApply: true
+---
+
+# Personal use only
+
+Luma is a **personal daily-driver** Rust CLI/TUI: a keyboard-first workbench for local modules and
+personal information. Do **not** optimize for public release, distribution, notarization,
+multi-user product, or marketing.
+
+Codex and Claude Code are references for TUI ergonomics only — prompt editing, keyboard
+discoverability, previews, command surfaces, and clear feedback. Luma is **not an AI-agent
+product**: do not adopt conversational chat, LLM integration, autonomous planning/execution, or
+tool-orchestration workflows.
+
+## Do
+
+- Keep Apps / Clipboard / Notes / Quicklinks / Snippets solid for local use.
+- Prefer small fixes for real friction over roadmap/checklist completion.
+- Persist only under LumaNext (`LUMA_NEXT_*` in tests).
+- Use structured unavailable / permission / not-configured outcomes (no silent fake success).
+
+## Do not
+
+- Add CI release gates, cargo-deny-as-policy, long soak/PTY evidence packs, or notarization/TCC matrices “for release”.
+- Build Web / native GUI / Tauri / Electron / agent daemon / plugin ABI.
+- Add AI/LLM chat, autonomous agents, task planners, tool-execution loops, or background and
+  multi-session agent orchestration unless the user explicitly changes the product boundary.
+- Expand stub modules (Media, Wordbook, Window layouts, Menu search, Browser tabs) or signed-host Translate.
+- Treat architecture purity (adapter moves, crate splits) as mandatory unless it unblocks personal use.
+
+## Verify (enough for personal)
+
+```bash
+cd rust
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets --all-features -- -D warnings
+cargo test --workspace --all-features
+```

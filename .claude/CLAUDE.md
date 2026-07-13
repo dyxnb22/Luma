@@ -1,6 +1,6 @@
 # Claude Instructions for Luma
 
-Review the **Rust CLI/TUI** under `rust/`.
+**Personal-use only** — not a public product. Review/implement the Rust CLI/TUI under `rust/`.
 
 ## Read first
 
@@ -10,7 +10,8 @@ Review the **Rust CLI/TUI** under `rust/`.
 
 ## Focus
 
+- Daily-driver quality for Apps / Clipboard / Notes / Quicklinks / Snippets.
 - Engine / CLI / TUI contracts and crate boundaries.
 - LumaNext data isolation; honest unavailable / permission / not-configured states.
-- No silent fallbacks; no foreground automation in tests/soak.
-- Finish quality over new modules.
+- No silent fallbacks; no foreground automation in tests.
+- Do **not** prioritize release gates, soak evidence packs, notarization, or stub-module expansion.

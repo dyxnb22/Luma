@@ -1,31 +1,34 @@
 use crate::cancel::await_unless_cancelled;
 use async_trait::async_trait;
 use luma_application::{
-    ActionOutcome, ActionRequest, LumaModule, ModuleManifest, ModuleState, SearchMode, SearchSink,
-    WarmupContext,
+    ActionOutcome, ActionRequest, LumaModule, ModuleManifest, ModuleState, OpenPathPort,
+    PasteboardPort, QuicklinkEntry, QuicklinksRepository, SearchMode, SearchSink, WarmupContext,
 };
 use luma_domain::{
     ActionDescriptor, ActionId, ActionRisk, FailureKind, ModuleId, Query, SearchItem,
 };
-use luma_platform_macos::OpenPath;
 use luma_protocol::{Event, SearchItemDto};
-use luma_storage::{QuicklinkRow, QuicklinksStore};
 use std::path::Path;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tokio_util::sync::CancellationToken;
 
-type Link = QuicklinkRow;
+type Link = QuicklinkEntry;
 
 pub struct QuicklinksModule {
     manifest: ModuleManifest,
-    store: Arc<QuicklinksStore>,
+    store: Arc<dyn QuicklinksRepository>,
     index: RwLock<Vec<Link>>,
-    opener: Arc<dyn OpenPath>,
+    opener: Arc<dyn OpenPathPort>,
+    pasteboard: Arc<dyn PasteboardPort>,
 }
 
 impl QuicklinksModule {
-    pub fn with_deps(store: Arc<QuicklinksStore>, opener: Arc<dyn OpenPath>) -> Self {
+    pub fn with_deps(
+        store: Arc<dyn QuicklinksRepository>,
+        opener: Arc<dyn OpenPathPort>,
+        pasteboard: Arc<dyn PasteboardPort>,
+    ) -> Self {
         Self {
             manifest: ModuleManifest {
                 id: ModuleId::new("luma.quicklinks"),
@@ -38,6 +41,7 @@ impl QuicklinksModule {
             store,
             index: RwLock::new(Vec::new()),
             opener,
+            pasteboard,
         }
     }
 
@@ -79,16 +83,19 @@ impl LumaModule for QuicklinksModule {
             return;
         }
         let token = query.normalized.split_whitespace().next().unwrap_or("");
-        let rest = query
-            .normalized
-            .split_once(|c: char| c.is_whitespace())
-            .map(|(_, r)| r.trim().to_string())
-            .unwrap_or_default();
+        let rest = query.rest_normalized();
+        let rest_raw = query.rest_raw();
 
         if rest.starts_with("add ") {
-            let parts: Vec<_> = rest.trim_start_matches("add ").split_whitespace().collect();
+            let body_raw = rest_raw
+                .strip_prefix("add ")
+                .or_else(|| rest_raw.strip_prefix("Add "))
+                .or_else(|| rest_raw.strip_prefix("ADD "))
+                .unwrap_or(rest_raw)
+                .trim();
+            let parts: Vec<_> = body_raw.split_whitespace().collect();
             if parts.len() >= 2 {
-                let trigger = parts[0];
+                let trigger = parts[0].to_lowercase();
                 let url = parts[1..].join(" ");
                 let exists = self
                     .index
@@ -214,12 +221,20 @@ impl LumaModule for QuicklinksModule {
                 confirmation: exists,
             }];
         }
-        let mut actions = vec![ActionDescriptor {
-            id: ActionId::new("open"),
-            label: "Open".into(),
-            risk: ActionRisk::Safe,
-            confirmation: false,
-        }];
+        let mut actions = vec![
+            ActionDescriptor {
+                id: ActionId::new("open"),
+                label: "Open".into(),
+                risk: ActionRisk::Safe,
+                confirmation: false,
+            },
+            ActionDescriptor {
+                id: ActionId::new("copy"),
+                label: "Copy URL".into(),
+                risk: ActionRisk::Safe,
+                confirmation: false,
+            },
+        ];
         if result.id.as_str().starts_with("ql:") && result.id.as_str() != "ql:manage" {
             actions.push(ActionDescriptor {
                 id: ActionId::new("delete"),
@@ -276,19 +291,13 @@ impl LumaModule for QuicklinksModule {
                     return ActionOutcome::Cancelled;
                 }
                 match self.upsert(trigger, &url).await {
-                    Ok(()) => {
-                        if cancel.is_cancelled() {
-                            ActionOutcome::Cancelled
+                    Ok(()) => ActionOutcome::Success {
+                        message: Some(if exists {
+                            format!("updated {trigger}")
                         } else {
-                            ActionOutcome::Success {
-                                message: Some(if exists {
-                                    format!("updated {trigger}")
-                                } else {
-                                    format!("added {trigger}")
-                                }),
-                            }
-                        }
-                    }
+                            format!("added {trigger}")
+                        }),
+                    },
                     Err(err) => ActionOutcome::Failed {
                         kind: FailureKind::Io { context: err },
                     },
@@ -353,6 +362,27 @@ impl LumaModule for QuicklinksModule {
                     },
                 }
             }
+            "copy" => {
+                let Some(url) = action.result.subtitle.clone() else {
+                    return ActionOutcome::Failed {
+                        kind: FailureKind::InvalidInput {
+                            field: "url".into(),
+                            message: "missing url".into(),
+                        },
+                    };
+                };
+                match self.pasteboard.write_text(&url).await {
+                    Ok(()) => ActionOutcome::Success {
+                        message: Some("copied url".into()),
+                    },
+                    Err(err) => ActionOutcome::Failed {
+                        kind: FailureKind::Unavailable {
+                            reason: err.to_string(),
+                            retryable: true,
+                        },
+                    },
+                }
+            }
             other => ActionOutcome::Failed {
                 kind: FailureKind::NotFound {
                     entity: format!("action:{other}"),
@@ -366,27 +396,46 @@ impl LumaModule for QuicklinksModule {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::tempdir;
+    use async_trait::async_trait;
+    use luma_application::{MemoryQuicklinksRepository, PasteboardError};
+    use tokio::sync::Mutex as TokioMutex;
+
+    #[derive(Default)]
+    struct MemPb(TokioMutex<Option<String>>);
+
+    #[async_trait]
+    impl PasteboardPort for MemPb {
+        async fn read_text(&self) -> Result<Option<String>, PasteboardError> {
+            Ok(self.0.lock().await.clone())
+        }
+        async fn write_text(&self, text: &str) -> Result<(), PasteboardError> {
+            *self.0.lock().await = Some(text.into());
+            Ok(())
+        }
+    }
 
     #[tokio::test]
     async fn upsert_and_search_index() {
-        let dir = tempdir().unwrap();
-        let store = Arc::new(QuicklinksStore::with_path(dir.path().join("ql.sqlite")).unwrap());
+        let store = Arc::new(MemoryQuicklinksRepository::new());
         let m = QuicklinksModule::with_deps(
             store.clone(),
-            Arc::new(luma_platform_macos::FakeOpenPath::new()),
+            Arc::new(luma_application::FakeOpenPath::new()),
+            Arc::new(MemPb::default()),
         );
         m.upsert("docs", "https://example.com").await.unwrap();
-        std::fs::remove_file(dir.path().join("ql.sqlite")).unwrap();
+        // Index is independent of the backing store after upsert.
+        store.delete("docs").unwrap();
         assert!(m.index.read().await.iter().any(|l| l.trigger == "docs"));
     }
 
     #[tokio::test]
     async fn overwrite_requires_confirmation() {
-        let dir = tempdir().unwrap();
-        let store = Arc::new(QuicklinksStore::with_path(dir.path().join("ql.sqlite")).unwrap());
-        let m =
-            QuicklinksModule::with_deps(store, Arc::new(luma_platform_macos::FakeOpenPath::new()));
+        let store = Arc::new(MemoryQuicklinksRepository::new());
+        let m = QuicklinksModule::with_deps(
+            store,
+            Arc::new(luma_application::FakeOpenPath::new()),
+            Arc::new(MemPb::default()),
+        );
         m.upsert("docs", "https://example.com").await.unwrap();
         let actions = m
             .actions(&SearchItem {

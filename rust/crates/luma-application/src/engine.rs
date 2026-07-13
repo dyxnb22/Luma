@@ -6,14 +6,22 @@ use luma_domain::{Query, QueryScope};
 use luma_protocol::{Command, Event, SearchItemDto};
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::sync::{broadcast, mpsc, Mutex};
-use tokio::task::JoinHandle;
+use tokio::task::{JoinHandle, JoinSet};
 use tokio_util::sync::CancellationToken;
 use tracing::warn;
+
+const SEARCH_CANCEL_BOUND: Duration = Duration::from_millis(750);
+
+fn is_meta_prefix(token: &str) -> bool {
+    matches!(token, "doctor" | "help")
+}
 
 struct SearchTask {
     cancel: CancellationToken,
     module_cancels: HashMap<String, CancellationToken>,
+    /// Owns module search tasks + result collector; cancel awaits this with a bound.
     handle: JoinHandle<()>,
 }
 
@@ -29,8 +37,19 @@ struct EngineInner {
     event_broadcast_tx: broadcast::Sender<Event>,
     session_cancel: CancellationToken,
     searches: HashMap<String, SearchTask>,
+    /// Cancel arrived before Search registered — Search must abort on start.
+    cancel_intents: HashMap<String, ()>,
+    /// Search registered under lifecycle but not yet promoted to `searches`.
+    pending_searches: HashMap<String, CancellationToken>,
     operations: HashMap<String, OperationTask>,
     results_by_id: HashMap<String, luma_domain::SearchItem>,
+}
+
+/// Optional infrastructure injected at composition time.
+#[derive(Default)]
+pub struct EngineOptions {
+    pub settings: Option<Arc<dyn crate::ports::SettingsRepository>>,
+    pub diagnostics: Option<Arc<dyn crate::ports::DiagnosticsSink>>,
 }
 
 /// In-process engine: owns modules, searches, and operations.
@@ -38,18 +57,31 @@ pub struct Engine {
     inner: Arc<Mutex<EngineInner>>,
     event_rx_slot: Mutex<Option<mpsc::Receiver<Event>>>,
     event_broadcast_tx: broadcast::Sender<Event>,
-    config: Option<Arc<luma_storage::ConfigStore>>,
+    settings: Option<Arc<dyn crate::ports::SettingsRepository>>,
+    diagnostics: Option<Arc<dyn crate::ports::DiagnosticsSink>>,
+    /// Serializes search setup so cancel→clear→register cannot interleave.
+    search_lifecycle: Mutex<()>,
 }
 
 impl Engine {
     pub fn new(registry: ModuleRegistry) -> Self {
-        Self::with_config(registry, None)
+        Self::with_options(registry, EngineOptions::default())
     }
 
-    pub fn with_config(
+    pub fn with_settings(
         registry: ModuleRegistry,
-        config: Option<Arc<luma_storage::ConfigStore>>,
+        settings: Option<Arc<dyn crate::ports::SettingsRepository>>,
     ) -> Self {
+        Self::with_options(
+            registry,
+            EngineOptions {
+                settings,
+                diagnostics: None,
+            },
+        )
+    }
+
+    pub fn with_options(registry: ModuleRegistry, options: EngineOptions) -> Self {
         let (event_tx, event_rx) = mpsc::channel(256);
         let (event_broadcast_tx, _) = broadcast::channel(256);
         Self {
@@ -59,13 +91,31 @@ impl Engine {
                 event_broadcast_tx: event_broadcast_tx.clone(),
                 session_cancel: CancellationToken::new(),
                 searches: HashMap::new(),
+                cancel_intents: HashMap::new(),
+                pending_searches: HashMap::new(),
                 operations: HashMap::new(),
                 results_by_id: HashMap::new(),
             })),
             event_rx_slot: Mutex::new(Some(event_rx)),
             event_broadcast_tx,
-            config,
+            settings: options.settings,
+            diagnostics: options.diagnostics,
+            search_lifecycle: Mutex::new(()),
         }
+    }
+
+    /// Backward-compatible alias used by older call sites/tests.
+    pub fn with_config(
+        registry: ModuleRegistry,
+        config: Option<Arc<luma_storage::ConfigStore>>,
+    ) -> Self {
+        Self::with_settings(
+            registry,
+            config.map(|store| {
+                Arc::new(crate::adapters::TomlSettingsRepository::new(store))
+                    as Arc<dyn crate::ports::SettingsRepository>
+            }),
+        )
     }
 
     /// Take the unique event receiver (once). Used by TUI and one-shot CLI helpers.
@@ -94,30 +144,56 @@ impl Engine {
                 })
                 .await;
         }
+
+        let mut set = tokio::task::JoinSet::new();
         for module in enabled {
             let cancel = {
                 let g = self.inner.lock().await;
                 g.session_cancel.child_token()
             };
-            let state = module
-                .warmup(WarmupContext {
-                    cancel: cancel.clone(),
-                })
-                .await;
-            let id = module.manifest().id.as_str().to_string();
-            let _ = self
-                .emit(Event::ModuleStateChanged {
-                    module_id: id,
-                    state: match state {
-                        ModuleState::Ready => "ready".into(),
-                        ModuleState::Cold => "cold".into(),
-                        ModuleState::Disabled => "disabled".into(),
-                        ModuleState::Failed(msg) => format!("failed:{msg}"),
-                    },
-                })
-                .await;
+            set.spawn(async move {
+                let id = module.manifest().id.as_str().to_string();
+                let state = module
+                    .warmup(WarmupContext {
+                        cancel: cancel.clone(),
+                    })
+                    .await;
+                (id, state)
+            });
         }
-        let _ = self.emit(Event::SessionReady).await;
+        while let Some(joined) = set.join_next().await {
+            match joined {
+                Ok((id, state)) => {
+                    let _ = self
+                        .emit(Event::ModuleStateChanged {
+                            module_id: id,
+                            state: match state {
+                                ModuleState::Ready => "ready".into(),
+                                ModuleState::Cold => "cold".into(),
+                                ModuleState::Disabled => "disabled".into(),
+                                ModuleState::Failed(msg) => format!("failed:{msg}"),
+                            },
+                        })
+                        .await;
+                }
+                Err(err) => {
+                    warn!(?err, "module warmup task panicked");
+                }
+            }
+        }
+        let modules = {
+            let g = self.inner.lock().await;
+            g.registry
+                .list()
+                .into_iter()
+                .map(|(id, enabled, display_name)| luma_protocol::ModuleInfoDto {
+                    id,
+                    display_name,
+                    enabled,
+                })
+                .collect()
+        };
+        let _ = self.emit(Event::SessionReady { modules }).await;
     }
 
     /// Cancel in-flight search/action work for a module, await operation termination, then teardown or warmup.
@@ -193,23 +269,130 @@ impl Engine {
         tx.send(event).await.map_err(|e| e.to_string())
     }
 
-    fn cancel_search_locked(inner: &mut EngineInner, request_id: &str) {
-        if let Some(task) = inner.searches.remove(request_id) {
-            task.cancel.cancel();
-            // Do not await join here while holding lock long; abort is enough for Phase 2.
-            task.handle.abort();
+    /// Signal cancel, then bounded-await the search supervisor (modules + collector).
+    async fn cancel_search_task(task: SearchTask) {
+        task.cancel.cancel();
+        let abort = task.handle.abort_handle();
+        match tokio::time::timeout(SEARCH_CANCEL_BOUND, task.handle).await {
+            Ok(Ok(())) => {}
+            Ok(Err(err)) => {
+                if !err.is_cancelled() {
+                    warn!(?err, "search supervisor ended with error during cancel");
+                }
+            }
+            Err(_) => {
+                abort.abort();
+            }
+        }
+    }
+
+    /// Cancel one search under `search_lifecycle`. Emits `SearchCancelled` exactly once when
+    /// the request was known (running, pending, or pre-registered intent).
+    async fn cancel_search(&self, request_id: &str) {
+        let _lifecycle = self.search_lifecycle.lock().await;
+        self.cancel_search_locked(request_id).await;
+    }
+
+    async fn cancel_search_locked(&self, request_id: &str) {
+        if let Some(cancel) = {
+            let mut g = self.inner.lock().await;
+            g.pending_searches.remove(request_id)
+        } {
+            cancel.cancel();
+            let _ = self
+                .emit(Event::SearchCancelled {
+                    request_id: request_id.to_string(),
+                })
+                .await;
+            return;
+        }
+
+        let task = {
+            let mut g = self.inner.lock().await;
+            g.searches.remove(request_id)
+        };
+        if let Some(task) = task {
+            Self::cancel_search_task(task).await;
+            let _ = self
+                .emit(Event::SearchCancelled {
+                    request_id: request_id.to_string(),
+                })
+                .await;
+            return;
+        }
+
+        // Search not registered yet — remember so a racing handle_search aborts,
+        // and emit now so clients are not left without a terminal event.
+        {
+            let mut g = self.inner.lock().await;
+            g.cancel_intents.insert(request_id.to_string(), ());
+        }
+        let _ = self
+            .emit(Event::SearchCancelled {
+                request_id: request_id.to_string(),
+            })
+            .await;
+    }
+
+    /// Cancel every running search and emit one `SearchCancelled` per request.
+    /// Caller must hold `search_lifecycle`.
+    async fn cancel_all_searches_locked(&self) {
+        let tasks = {
+            let mut g = self.inner.lock().await;
+            g.searches.drain().collect::<Vec<_>>()
+        };
+        for (request_id, task) in tasks {
+            Self::cancel_search_task(task).await;
+            let _ = self
+                .emit(Event::SearchCancelled {
+                    request_id: request_id.clone(),
+                })
+                .await;
+        }
+        let pending = {
+            let mut g = self.inner.lock().await;
+            g.pending_searches.drain().collect::<Vec<_>>()
+        };
+        for (request_id, cancel) in pending {
+            cancel.cancel();
+            let _ = self.emit(Event::SearchCancelled { request_id }).await;
         }
     }
 
     async fn handle_search(&self, request_id: String, query_raw: String) {
+        let _lifecycle = self.search_lifecycle.lock().await;
+
+        // Cancel-before-registration: honor intent (SearchCancelled already emitted).
+        let pre_cancelled = {
+            let mut g = self.inner.lock().await;
+            g.cancel_intents.remove(&request_id).is_some()
+        };
+        if pre_cancelled {
+            return;
+        }
+
+        self.cancel_all_searches_locked().await;
         {
             let mut g = self.inner.lock().await;
-            // New search cancels all previous in-flight searches for simplicity in Phase 2.
-            let ids: Vec<String> = g.searches.keys().cloned().collect();
-            for id in ids {
-                Self::cancel_search_locked(&mut g, &id);
-            }
             g.results_by_id.clear();
+        }
+
+        let cancel = {
+            let g = self.inner.lock().await;
+            g.session_cancel.child_token()
+        };
+        {
+            let mut g = self.inner.lock().await;
+            g.pending_searches
+                .insert(request_id.clone(), cancel.clone());
+        }
+
+        // Intent recorded while we held lifecycle is impossible; token cancel means
+        // cancel_search_locked already emitted for this pending id.
+        if cancel.is_cancelled() {
+            let mut g = self.inner.lock().await;
+            g.pending_searches.remove(&request_id);
+            return;
         }
 
         let _ = self
@@ -223,7 +406,13 @@ impl Engine {
             })
             .await;
 
-        let query = Query::parse(query_raw, 50);
+        let query = {
+            let g = self.inner.lock().await;
+            let triggers = g.registry.all_triggers();
+            Query::parse_with_prefixes(query_raw, 50, |token| {
+                is_meta_prefix(token) || triggers.iter().any(|t| t == token)
+            })
+        };
         let modules: Vec<Arc<dyn LumaModule>> = {
             let g = self.inner.lock().await;
             match &query.scope {
@@ -235,6 +424,10 @@ impl Engine {
         };
 
         if modules.is_empty() {
+            {
+                let mut g = self.inner.lock().await;
+                g.pending_searches.remove(&request_id);
+            }
             let _ = self
                 .emit(Event::SearchFinished {
                     request_id,
@@ -245,39 +438,43 @@ impl Engine {
             return;
         }
 
-        let cancel = {
-            let g = self.inner.lock().await;
-            g.session_cancel.child_token()
-        };
+        if cancel.is_cancelled() {
+            {
+                let mut g = self.inner.lock().await;
+                g.pending_searches.remove(&request_id);
+            }
+            // cancel_search_locked already emitted SearchCancelled for pending.
+            return;
+        }
+
         let (chunk_tx, mut chunk_rx) = mpsc::channel::<Event>(64);
         let engine = self.clone_inner();
         let request_for_task = request_id.clone();
         let cancel_for_task = cancel.clone();
 
         let mut module_cancels = HashMap::new();
-        let handles: Vec<_> = modules
-            .into_iter()
-            .map(|module| {
-                let q = query.clone();
-                let sink = chunk_tx.clone();
-                let module_id = module.manifest().id.as_str().to_string();
-                let token = cancel_for_task.child_token();
-                module_cancels.insert(module_id, token.clone());
-                tokio::spawn(async move {
-                    module.search(q, sink, token).await;
-                })
-            })
-            .collect();
+        let mut set = JoinSet::new();
+        for module in modules {
+            let q = query.clone();
+            let sink = chunk_tx.clone();
+            let module_id = module.manifest().id.as_str().to_string();
+            let token = cancel_for_task.child_token();
+            module_cancels.insert(module_id, token.clone());
+            set.spawn(async move {
+                module.search(q, sink, token).await;
+            });
+        }
         drop(chunk_tx);
 
-        let collect = tokio::spawn({
+        set.spawn({
             let request_id = request_id.clone();
             let engine = engine.clone();
+            let cancel_for_collect = cancel_for_task.clone();
             async move {
                 let mut sequence = 0u64;
                 let mut total = 0usize;
                 while let Some(ev) = chunk_rx.recv().await {
-                    if cancel_for_task.is_cancelled() {
+                    if cancel_for_collect.is_cancelled() {
                         break;
                     }
                     if let Event::ResultsChunk {
@@ -309,15 +506,9 @@ impl Engine {
                         let _ = tx.send(event).await;
                     }
                 }
-                if cancel_for_task.is_cancelled() {
-                    let (tx, broadcast_tx) = {
-                        let g = engine.lock().await;
-                        (g.event_tx.clone(), g.event_broadcast_tx.clone())
-                    };
-                    let event = Event::SearchCancelled { request_id };
-                    let _ = broadcast_tx.send(event.clone());
-                    let _ = tx.send(event).await;
-                } else {
+                // Terminal cancel is emitted by cancel_search_* (exactly once).
+                // Collector only emits SearchFinished on clean completion.
+                if !cancel_for_collect.is_cancelled() {
                     let (tx, broadcast_tx) = {
                         let g = engine.lock().await;
                         (g.event_tx.clone(), g.event_broadcast_tx.clone())
@@ -333,24 +524,43 @@ impl Engine {
             }
         });
 
+        // Aborting this supervisor drops JoinSet, which aborts every owned child.
+        // Also abort_all on cancel so non-cooperative modules cannot outlive cancel.
+        let supervisor = tokio::spawn(async move {
+            tokio::select! {
+                _ = cancel_for_task.cancelled() => {
+                    set.abort_all();
+                    while let Some(joined) = set.join_next().await {
+                        if let Err(err) = joined {
+                            if !err.is_cancelled() {
+                                warn!(?err, "search JoinSet task ended with error after abort");
+                            }
+                        }
+                    }
+                }
+                _ = async {
+                    while let Some(joined) = set.join_next().await {
+                        if let Err(err) = joined {
+                            if !err.is_cancelled() {
+                                warn!(?err, "search JoinSet task ended with error");
+                            }
+                        }
+                    }
+                } => {}
+            }
+        });
+
         {
             let mut g = self.inner.lock().await;
+            g.pending_searches.remove(&request_for_task);
             g.searches.insert(
                 request_for_task,
                 SearchTask {
                     cancel,
                     module_cancels,
-                    handle: collect,
+                    handle: supervisor,
                 },
             );
-        }
-
-        for h in handles {
-            if let Err(err) = h.await {
-                if !err.is_cancelled() {
-                    warn!(?err, "module search task ended with error");
-                }
-            }
         }
     }
 
@@ -365,32 +575,59 @@ impl Engine {
                 self.handle_search(request_id, query).await;
             }
             Command::CancelSearch { request_id } => {
-                let mut g = self.inner.lock().await;
-                Self::cancel_search_locked(&mut g, &request_id);
-                drop(g);
-                let _ = self.emit(Event::SearchCancelled { request_id }).await;
+                self.cancel_search(&request_id).await;
             }
             Command::RunDoctor => {
-                let rows = {
+                let (rows, settings_snapshot) = {
                     let g = self.inner.lock().await;
-                    g.registry.list()
+                    let rows = g.registry.list();
+                    let settings_snapshot = self
+                        .settings
+                        .as_ref()
+                        .and_then(|s| s.load_or_default().ok());
+                    (rows, settings_snapshot)
                 };
+                let modules = rows
+                    .iter()
+                    .map(|(id, enabled, name)| {
+                        serde_json::json!({
+                            "id": id,
+                            "enabled": enabled,
+                            "name": name,
+                            "state": if *enabled { "enabled" } else { "disabled" },
+                        })
+                    })
+                    .collect::<Vec<_>>();
                 let diagnostic = serde_json::json!({
                     "doctor": true,
-                    "modules": rows.iter().map(|(id, enabled, name)| {
-                        serde_json::json!({"id": id, "enabled": enabled, "name": name})
-                    }).collect::<Vec<_>>(),
+                    "modules": modules,
+                    "settings": {
+                        "configured": settings_snapshot.is_some(),
+                        "settings_version": settings_snapshot.as_ref().map(|s| s.settings_version),
+                        "notes_root_configured": settings_snapshot.as_ref().and_then(|s| s.notes_root.as_ref()).is_some(),
+                        "projects_roots": settings_snapshot.as_ref().map(|s| s.projects_roots.len()).unwrap_or(0),
+                        "clipboard_retention_days": settings_snapshot.as_ref().map(|s| s.clipboard_retention_days),
+                    },
+                    "stores": {
+                        "settings": if settings_snapshot.is_some() { "ok" } else { "missing" },
+                        "diagnostics": if self.diagnostics.is_some() { "ok" } else { "missing" },
+                    },
+                    "remediation": [
+                        "Use `luma config set --notes-root <path>` if Notes is NotConfigured",
+                        "Grant Accessibility if paste/snippets paste fails",
+                        "Re-open a failed module store (clipboard/quicklinks/snippets) after repairing disk permissions"
+                    ],
                 });
                 let _ = self.emit(Event::DiagnosticRaised { diagnostic }).await;
             }
             Command::ShutdownSession => {
+                {
+                    let _lifecycle = self.search_lifecycle.lock().await;
+                    self.cancel_all_searches_locked().await;
+                }
                 let (modules, op_handles) = {
                     let mut g = self.inner.lock().await;
                     g.session_cancel.cancel();
-                    let ids: Vec<String> = g.searches.keys().cloned().collect();
-                    for id in ids {
-                        Self::cancel_search_locked(&mut g, &id);
-                    }
                     let mut op_handles = Vec::new();
                     for op in g.operations.values_mut() {
                         op.cancel.cancel();
@@ -398,6 +635,7 @@ impl Engine {
                             op_handles.push(handle);
                         }
                     }
+                    g.operations.clear();
                     (g.registry.all_modules(), op_handles)
                 };
                 for handle in op_handles {
@@ -566,16 +804,16 @@ impl Engine {
                 patch,
                 expected_version,
             } => {
-                let Some(config) = &self.config else {
+                let Some(settings_repo) = &self.settings else {
                     let _ = self.emit(Event::DiagnosticRaised {
                         diagnostic: serde_json::json!({
                             "settings_update": "failed",
-                            "message": "no ConfigStore configured; refusing non-persistent update"
+                            "message": "no SettingsRepository configured; refusing non-persistent update"
                         }),
                     }).await;
                     return;
                 };
-                let current = match config.load_or_default() {
+                let current = match settings_repo.load_or_default() {
                     Ok(value) => value,
                     Err(err) => {
                         let _ = self.emit(Event::DiagnosticRaised {
@@ -592,7 +830,7 @@ impl Engine {
                         }
                     }
                 }
-                let saved = match config.update_cas(expected_version, next) {
+                let saved = match settings_repo.update_cas(expected_version, next) {
                     Ok(value) => value,
                     Err(err) => {
                         let _ = self
@@ -680,7 +918,7 @@ impl Engine {
                     let g = self.inner.lock().await;
                     (
                         g.registry.list(),
-                        self.config.as_ref().and_then(|c| {
+                        self.settings.as_ref().and_then(|c| {
                             c.load_or_default()
                                 .ok()
                                 .map(|settings| settings.settings_version)
@@ -698,22 +936,22 @@ impl Engine {
                         "id": id, "enabled": enabled, "name": name
                     })).collect::<Vec<_>>(),
                 });
-                let diagnostic = match luma_storage::luma_next_logs_dir().and_then(|dir| {
-                    std::fs::create_dir_all(&dir).map_err(luma_storage::PathsError::from)?;
-                    let path = dir.join(format!("diagnostics-{now}.json"));
-                    std::fs::write(
-                        &path,
-                        serde_json::to_vec_pretty(&diagnostic).unwrap_or_default(),
-                    )
-                    .map_err(luma_storage::PathsError::from)?;
-                    Ok((path, diagnostic))
+                let diagnostic = match self.diagnostics.as_ref().map(|sink| {
+                    let body = serde_json::to_vec_pretty(&diagnostic).unwrap_or_default();
+                    sink.write_export(&format!("diagnostics-{now}.json"), &body)
+                        .map(|path| (path, diagnostic.clone()))
                 }) {
-                    Ok((path, mut diagnostic)) => {
+                    Some(Ok((path, mut diagnostic))) => {
                         diagnostic["path"] = path.display().to_string().into();
                         diagnostic
                     }
-                    Err(err) => serde_json::json!({
+                    Some(Err(err)) => serde_json::json!({
                         "export": false, "redacted": true, "message": err.to_string()
+                    }),
+                    None => serde_json::json!({
+                        "export": false,
+                        "redacted": true,
+                        "message": "no DiagnosticsSink configured"
                     }),
                 };
                 let _ = self.emit(Event::DiagnosticRaised { diagnostic }).await;
@@ -986,6 +1224,61 @@ mod tests {
         async fn teardown(&self) {}
     }
 
+    struct StickySearchModule {
+        manifest: ModuleManifest,
+        ran_after_sleep: Arc<std::sync::atomic::AtomicBool>,
+    }
+
+    #[async_trait]
+    impl LumaModule for StickySearchModule {
+        fn manifest(&self) -> &ModuleManifest {
+            &self.manifest
+        }
+
+        async fn warmup(&self, _ctx: WarmupContext) -> ModuleState {
+            ModuleState::Ready
+        }
+
+        async fn search(&self, _query: Query, sink: SearchSink, _cancel: CancellationToken) {
+            // Deliberately ignore cancellation; only JoinSet abort should stop us.
+            tokio::time::sleep(std::time::Duration::from_millis(400)).await;
+            self.ran_after_sleep
+                .store(true, std::sync::atomic::Ordering::SeqCst);
+            let _ = sink
+                .send(Event::ResultsChunk {
+                    request_id: String::new(),
+                    sequence: 1,
+                    upserts: vec![SearchItemDto {
+                        id: "sticky".into(),
+                        module_id: "luma.sticky".into(),
+                        title: "late".into(),
+                        subtitle: None,
+                        kind: "sticky".into(),
+                        score: 1.0,
+                        primary_action_id: "noop".into(),
+                        primary_action_label: "Noop".into(),
+                        ..Default::default()
+                    }],
+                    removed_ids: vec![],
+                })
+                .await;
+        }
+
+        async fn actions(&self, _result: &SearchItem) -> Vec<ActionDescriptor> {
+            Vec::new()
+        }
+
+        async fn perform(
+            &self,
+            _action: ActionRequest,
+            _cancel: CancellationToken,
+        ) -> ActionOutcome {
+            ActionOutcome::Success { message: None }
+        }
+
+        async fn teardown(&self) {}
+    }
+
     fn fake_registry() -> ModuleRegistry {
         let mut reg = ModuleRegistry::new();
         reg.register(Arc::new(FakeModule {
@@ -998,8 +1291,161 @@ mod tests {
                 required_capabilities: vec![],
             },
             wait_for_cancel: false,
-        }));
+        }))
+        .expect("register fake");
         reg
+    }
+
+    #[tokio::test]
+    async fn search_cancel_aborts_noncooperative_module_task() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        let ran = Arc::new(AtomicBool::new(false));
+        let mut registry = ModuleRegistry::new();
+        registry
+            .register(Arc::new(StickySearchModule {
+                manifest: ModuleManifest {
+                    id: ModuleId::new("luma.sticky"),
+                    display_name: "Sticky".into(),
+                    triggers: vec!["sticky".into()],
+                    default_enabled: true,
+                    search_mode: SearchMode::GlobalContributing,
+                    required_capabilities: vec![],
+                },
+                ran_after_sleep: ran.clone(),
+            }))
+            .unwrap();
+        let engine = Arc::new(Engine::new(registry));
+        let mut events = engine.take_event_receiver().await.unwrap();
+        engine.start_session().await;
+        engine
+            .handle_command(Command::Search {
+                request_id: "sticky-1".into(),
+                query: "hello".into(),
+            })
+            .await;
+        while !matches!(events.recv().await, Some(Event::SearchStarted { .. })) {}
+        engine
+            .handle_command(Command::CancelSearch {
+                request_id: "sticky-1".into(),
+            })
+            .await;
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+        assert!(
+            !ran.load(Ordering::SeqCst),
+            "aborted search task must not resume after cancel"
+        );
+    }
+
+    #[tokio::test]
+    async fn cancel_before_registration_is_honored() {
+        let engine = Arc::new(Engine::new(fake_registry()));
+        let mut events = engine.take_event_receiver().await.unwrap();
+        engine.start_session().await;
+        while !matches!(events.recv().await, Some(Event::SessionReady { .. })) {}
+        // Cancel arrives before Search for the same request id.
+        engine
+            .handle_command(Command::CancelSearch {
+                request_id: "early".into(),
+            })
+            .await;
+        assert!(matches!(
+            events.recv().await,
+            Some(Event::SearchCancelled { request_id }) if request_id == "early"
+        ));
+        engine
+            .handle_command(Command::Search {
+                request_id: "early".into(),
+                query: "hello".into(),
+            })
+            .await;
+        // Must not start a live search for a pre-cancelled request.
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        while let Ok(ev) = events.try_recv() {
+            assert!(
+                !matches!(
+                    ev,
+                    Event::SearchStarted { .. } | Event::SearchFinished { .. }
+                ),
+                "pre-cancelled search must not start: {ev:?}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn cancel_new_search_while_previous_is_tearing_down() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        let ran = Arc::new(AtomicBool::new(false));
+        let mut registry = ModuleRegistry::new();
+        registry
+            .register(Arc::new(StickySearchModule {
+                manifest: ModuleManifest {
+                    id: ModuleId::new("luma.sticky"),
+                    display_name: "Sticky".into(),
+                    triggers: vec!["sticky".into()],
+                    default_enabled: true,
+                    search_mode: SearchMode::GlobalContributing,
+                    required_capabilities: vec![],
+                },
+                ran_after_sleep: ran.clone(),
+            }))
+            .unwrap();
+        let engine = Arc::new(Engine::new(registry));
+        let mut events = engine.take_event_receiver().await.unwrap();
+        engine.start_session().await;
+
+        engine
+            .handle_command(Command::Search {
+                request_id: "old".into(),
+                query: "hello".into(),
+            })
+            .await;
+        while !matches!(events.recv().await, Some(Event::SearchStarted { .. })) {}
+
+        let engine_b = engine.clone();
+        let search_new = tokio::spawn(async move {
+            engine_b
+                .handle_command(Command::Search {
+                    request_id: "new".into(),
+                    query: "hello".into(),
+                })
+                .await;
+        });
+        // Let the new search acquire lifecycle and begin cancelling the old one.
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        engine
+            .handle_command(Command::CancelSearch {
+                request_id: "new".into(),
+            })
+            .await;
+
+        let mut saw_new_cancelled = false;
+        let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(2);
+        while tokio::time::Instant::now() < deadline {
+            tokio::select! {
+                ev = events.recv() => {
+                    match ev {
+                        Some(Event::SearchCancelled { request_id }) if request_id == "new" => {
+                            saw_new_cancelled = true;
+                            break;
+                        }
+                        Some(Event::SearchFinished { request_id, .. }) if request_id == "new" => {
+                            panic!("new search must not finish after cancel");
+                        }
+                        _ => {}
+                    }
+                }
+                _ = tokio::time::sleep(std::time::Duration::from_millis(50)) => {}
+            }
+        }
+        assert!(
+            saw_new_cancelled,
+            "expected SearchCancelled for new request"
+        );
+        search_new.await.unwrap();
+        assert!(
+            !ran.load(Ordering::SeqCst),
+            "sticky work from cancelled searches must not complete"
+        );
     }
 
     #[tokio::test]
@@ -1054,23 +1500,28 @@ mod tests {
             events.recv().await,
             Ok(Event::ModuleStateChanged { .. })
         ));
-        assert!(matches!(events.recv().await, Ok(Event::SessionReady)));
+        assert!(matches!(
+            events.recv().await,
+            Ok(Event::SessionReady { .. })
+        ));
     }
 
     #[tokio::test]
     async fn cancel_operation_cancels_in_flight_perform() {
         let mut registry = fake_registry();
-        registry.register(Arc::new(FakeModule {
-            manifest: ModuleManifest {
-                id: ModuleId::new("luma.wait"),
-                display_name: "Wait".into(),
-                triggers: vec!["wait".into()],
-                default_enabled: true,
-                search_mode: SearchMode::GlobalContributing,
-                required_capabilities: vec![],
-            },
-            wait_for_cancel: true,
-        }));
+        registry
+            .register(Arc::new(FakeModule {
+                manifest: ModuleManifest {
+                    id: ModuleId::new("luma.wait"),
+                    display_name: "Wait".into(),
+                    triggers: vec!["wait".into()],
+                    default_enabled: true,
+                    search_mode: SearchMode::GlobalContributing,
+                    required_capabilities: vec![],
+                },
+                wait_for_cancel: true,
+            }))
+            .unwrap();
         let engine = Arc::new(Engine::new(registry));
         let mut events = engine.take_event_receiver().await.unwrap();
         engine.start_session().await;
@@ -1115,17 +1566,19 @@ mod tests {
     #[tokio::test]
     async fn disable_module_cancels_in_flight_perform() {
         let mut registry = fake_registry();
-        registry.register(Arc::new(FakeModule {
-            manifest: ModuleManifest {
-                id: ModuleId::new("luma.wait"),
-                display_name: "Wait".into(),
-                triggers: vec!["wait".into()],
-                default_enabled: true,
-                search_mode: SearchMode::GlobalContributing,
-                required_capabilities: vec![],
-            },
-            wait_for_cancel: true,
-        }));
+        registry
+            .register(Arc::new(FakeModule {
+                manifest: ModuleManifest {
+                    id: ModuleId::new("luma.wait"),
+                    display_name: "Wait".into(),
+                    triggers: vec!["wait".into()],
+                    default_enabled: true,
+                    search_mode: SearchMode::GlobalContributing,
+                    required_capabilities: vec![],
+                },
+                wait_for_cancel: true,
+            }))
+            .unwrap();
         let engine = Arc::new(Engine::new(registry));
         let mut events = engine.take_event_receiver().await.unwrap();
         engine.start_session().await;
@@ -1181,7 +1634,10 @@ mod tests {
             Event::ModuleStateChanged { ref module_id, ref state }
                 if module_id == "luma.fake" && state == "disabled"
         ));
-        assert!(matches!(events.recv().await, Ok(Event::SessionReady)));
+        assert!(matches!(
+            events.recv().await,
+            Ok(Event::SessionReady { .. })
+        ));
     }
 
     #[tokio::test]
@@ -1190,7 +1646,8 @@ mod tests {
         let store = Arc::new(luma_storage::ConfigStore::with_path(
             dir.path().join("settings.toml"),
         ));
-        let engine = Engine::with_config(fake_registry(), Some(store.clone()));
+        let settings = Arc::new(crate::TomlSettingsRepository::new(store.clone()));
+        let engine = Engine::with_settings(fake_registry(), Some(settings));
         let mut events = engine.take_event_receiver().await.unwrap();
         engine
             .handle_command(Command::UpdateSettings {
@@ -1211,8 +1668,14 @@ mod tests {
     #[tokio::test]
     async fn export_diagnostics_creates_redacted_file() {
         let dir = tempfile::tempdir().unwrap();
-        std::env::set_var("LUMA_NEXT_LOGS_DIR", dir.path());
-        let engine = Engine::new(fake_registry());
+        let sink = Arc::new(crate::FsDiagnosticsSink::new(dir.path()));
+        let engine = Engine::with_options(
+            fake_registry(),
+            EngineOptions {
+                settings: None,
+                diagnostics: Some(sink),
+            },
+        );
         let mut events = engine.take_event_receiver().await.unwrap();
         engine.handle_command(Command::ExportDiagnostics).await;
         let path = loop {
@@ -1223,6 +1686,5 @@ mod tests {
         let body = std::fs::read_to_string(path).unwrap();
         assert!(body.contains("\"redacted\": true"));
         assert!(!body.contains("clipboard_text"));
-        std::env::remove_var("LUMA_NEXT_LOGS_DIR");
     }
 }

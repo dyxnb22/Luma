@@ -290,59 +290,57 @@ fn module_key(module_id: &str) -> &str {
         .unwrap_or(module_id)
 }
 
-/// ASCII-safe module glyph (no Nerd Font dependency).
-pub fn module_glyph(module_id: &str) -> &'static str {
-    match module_key(module_id) {
-        "apps" => "A",
-        "clipboard" | "clip" | "cb" => "C",
-        "notes" | "note" | "n" => "N",
-        "quicklinks" | "ql" => "Q",
-        "snippets" | "snip" | "s" => "S",
-        "todo" | "t" => "T",
-        "projects" | "proj" => "P",
-        "kill" | "kill-process" => "K",
-        "media" => "M",
-        "translate" | "tr" => "R",
-        "secrets" => "X",
-        "wordbook" | "word" => "W",
-        "fake" | "mock" => ".",
-        "window-layouts" | "menu-bar" | "browser-tabs" => "!",
-        _ => ".",
-    }
+fn humanize_key(key: &str) -> String {
+    key.split(['-', '_'])
+        .filter(|p| !p.is_empty())
+        .map(|part| {
+            let mut chars = part.chars();
+            match chars.next() {
+                Some(c) => format!("{}{}", c.to_uppercase(), chars.as_str()),
+                None => String::new(),
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
-/// Friendly module label for the right column.
-pub fn module_label(module_id: &str) -> &str {
-    match module_key(module_id) {
-        "apps" => "Apps",
-        "clipboard" | "clip" | "cb" => "Clipboard",
-        "notes" | "note" | "n" => "Notes",
-        "quicklinks" | "ql" => "Quicklinks",
-        "snippets" | "snip" | "s" => "Snippets",
-        "todo" | "t" => "Todo",
-        "projects" | "proj" => "Projects",
-        "kill" | "kill-process" => "Kill",
-        "media" => "Media",
-        "translate" | "tr" => "Translate",
-        "secrets" => "Secrets",
-        "wordbook" | "word" => "Wordbook",
-        "fake" => "Fake",
-        "mock" => "Mock",
-        "window-layouts" => "Windows",
-        "menu-bar" => "Menu Bar",
-        "browser-tabs" => "Tabs",
-        other => other,
-    }
+/// ASCII-safe module glyph derived from module id (no hardcoded module table).
+pub fn module_glyph(module_id: &str) -> String {
+    let key = module_key(module_id);
+    key.chars()
+        .next()
+        .map(|c| c.to_ascii_uppercase().to_string())
+        .unwrap_or_else(|| ".".into())
+}
+
+/// Friendly module label: prefer registry display_name, else derive from id.
+pub fn module_label(
+    module_id: &str,
+    catalog: &std::collections::HashMap<String, String>,
+) -> String {
+    catalog
+        .get(module_id)
+        .cloned()
+        .unwrap_or_else(|| humanize_key(module_key(module_id)))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::HashMap;
 
     #[test]
-    fn module_labels_strip_luma_prefix() {
-        assert_eq!(module_label("luma.apps"), "Apps");
+    fn module_labels_prefer_catalog_then_derive() {
+        let mut catalog = HashMap::new();
+        catalog.insert("luma.media".into(), "Records".into());
+        assert_eq!(module_label("luma.media", &catalog), "Records");
+        assert_eq!(module_label("luma.apps", &catalog), "Apps");
         assert_eq!(module_glyph("luma.kill-process"), "K");
+        assert_eq!(module_label("luma.kill-process", &catalog), "Kill Process");
+        assert_eq!(
+            module_label("luma.custom-module", &catalog),
+            "Custom Module"
+        );
     }
 
     #[test]

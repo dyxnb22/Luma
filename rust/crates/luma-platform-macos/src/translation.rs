@@ -1,33 +1,10 @@
-//! System Translation capability port.
-//! Apple's Translation framework is ObjC/framework-hosted and typically needs an app host.
-//! CLI adapter reports structured Unavailable; FakeTranslation enables module tests.
+//! Compatibility-only translator adapters (no production module registered).
+//! System Translation typically needs an app host; CLI reports Unavailable.
+//! Kept for port/adapter tests — not wired in `bins/luma` compose.
 
 use async_trait::async_trait;
-use thiserror::Error;
 
-#[derive(Debug, Error)]
-pub enum TranslationError {
-    #[error("translation unavailable: {0}")]
-    Unavailable(String),
-    #[error("empty input")]
-    EmptyInput,
-}
-
-#[derive(Clone, Debug)]
-pub struct TranslationResult {
-    pub source_text: String,
-    pub translated_text: String,
-    pub target_language: String,
-}
-
-#[async_trait]
-pub trait Translator: Send + Sync {
-    async fn translate(
-        &self,
-        text: &str,
-        target_language: &str,
-    ) -> Result<TranslationResult, TranslationError>;
-}
+pub use luma_application::{TranslationError, TranslationResult, TranslatorPort as Translator};
 
 pub struct MacTranslator;
 

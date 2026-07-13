@@ -1,34 +1,32 @@
 use crate::cancel::await_unless_cancelled;
 use async_trait::async_trait;
 use luma_application::{
-    ActionOutcome, ActionRequest, LumaModule, ModuleManifest, ModuleState, SearchMode, SearchSink,
-    WarmupContext,
+    AccessibilityPort, ActionOutcome, ActionRequest, LumaModule, ModuleManifest, ModuleState,
+    PasteboardPort, SearchMode, SearchSink, SnippetEntry, SnippetsRepository, WarmupContext,
 };
 use luma_domain::{
     ActionDescriptor, ActionId, ActionRisk, FailureKind, ModuleId, Query, SearchItem,
 };
-use luma_platform_macos::{Accessibility, Pasteboard};
 use luma_protocol::{Event, SearchItemDto};
-use luma_storage::{SnippetRow, SnippetsStore};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tokio_util::sync::CancellationToken;
 
-type Snippet = SnippetRow;
+type Snippet = SnippetEntry;
 
 pub struct SnippetsModule {
     manifest: ModuleManifest,
-    store: Arc<SnippetsStore>,
+    store: Arc<dyn SnippetsRepository>,
     index: RwLock<Vec<Snippet>>,
-    pasteboard: Arc<dyn Pasteboard>,
-    accessibility: Arc<dyn Accessibility>,
+    pasteboard: Arc<dyn PasteboardPort>,
+    accessibility: Arc<dyn AccessibilityPort>,
 }
 
 impl SnippetsModule {
     pub fn with_store(
-        store: Arc<SnippetsStore>,
-        pasteboard: Arc<dyn Pasteboard>,
-        accessibility: Arc<dyn Accessibility>,
+        store: Arc<dyn SnippetsRepository>,
+        pasteboard: Arc<dyn PasteboardPort>,
+        accessibility: Arc<dyn AccessibilityPort>,
     ) -> Self {
         Self {
             manifest: ModuleManifest {
@@ -59,6 +57,18 @@ impl SnippetsModule {
             .find(|snippet| snippet.trigger == trigger)
             .map(|snippet| snippet.body.clone())
     }
+
+    async fn upsert(&self, trigger: &str, body: &str) -> Result<(), String> {
+        self.store
+            .upsert(trigger, body)
+            .map_err(|e| e.to_string())?;
+        self.refresh_index().await
+    }
+
+    async fn delete(&self, trigger: &str) -> Result<(), String> {
+        self.store.delete(trigger).map_err(|e| e.to_string())?;
+        self.refresh_index().await
+    }
 }
 
 #[async_trait]
@@ -73,11 +83,60 @@ impl LumaModule for SnippetsModule {
         }
     }
     async fn search(&self, query: Query, sink: SearchSink, cancel: CancellationToken) {
-        let needle = query
-            .normalized
-            .split_once(|c: char| c.is_whitespace())
-            .map(|(_, r)| r.trim().to_string())
-            .unwrap_or_default();
+        // snip add <trigger> <body…>
+        let rest_for_add = query.rest_raw();
+        if let Some(payload) = rest_for_add
+            .strip_prefix("add ")
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+        {
+            if let Some((trigger, body)) = payload.split_once(char::is_whitespace) {
+                let trigger = trigger.trim();
+                let body = body.trim();
+                if !trigger.is_empty() && !body.is_empty() {
+                    let exists = self.index.read().await.iter().any(|s| s.trigger == trigger);
+                    let _ = sink
+                        .send(Event::ResultsChunk {
+                            request_id: String::new(),
+                            sequence: 1,
+                            upserts: vec![SearchItemDto {
+                                id: format!("snip:add:{trigger}"),
+                                module_id: "luma.snippets".into(),
+                                title: if exists {
+                                    format!("Overwrite snippet {trigger}")
+                                } else {
+                                    format!("Add snippet {trigger}")
+                                },
+                                subtitle: Some(body.to_string()),
+                                kind: if exists {
+                                    "update".into()
+                                } else {
+                                    "create".into()
+                                },
+                                score: 100.0,
+                                primary_action_id: "add".into(),
+                                primary_action_label: if exists {
+                                    "Overwrite".into()
+                                } else {
+                                    "Add".into()
+                                },
+                                primary_action_risk: if exists {
+                                    ActionRisk::Confirm
+                                } else {
+                                    ActionRisk::Safe
+                                },
+                                primary_action_confirmation: exists,
+                                ..Default::default()
+                            }],
+                            removed_ids: vec![],
+                        })
+                        .await;
+                    return;
+                }
+            }
+        }
+
+        let needle = query.rest_normalized();
         let snippets = self.index.read().await.clone();
         let mut upserts = Vec::new();
         for snip in snippets {
@@ -112,7 +171,24 @@ impl LumaModule for SnippetsModule {
                 .await;
         }
     }
-    async fn actions(&self, _result: &SearchItem) -> Vec<ActionDescriptor> {
+    async fn actions(&self, result: &SearchItem) -> Vec<ActionDescriptor> {
+        if result.id.as_str().starts_with("snip:add:") {
+            let exists = result.kind == "update";
+            return vec![ActionDescriptor {
+                id: ActionId::new("add"),
+                label: if exists {
+                    "Overwrite".into()
+                } else {
+                    "Add".into()
+                },
+                risk: if exists {
+                    ActionRisk::Confirm
+                } else {
+                    ActionRisk::Safe
+                },
+                confirmation: exists,
+            }];
+        }
         vec![
             ActionDescriptor {
                 id: ActionId::new("copy"),
@@ -126,42 +202,121 @@ impl LumaModule for SnippetsModule {
                 risk: ActionRisk::Confirm,
                 confirmation: false,
             },
+            ActionDescriptor {
+                id: ActionId::new("delete"),
+                label: "Delete".into(),
+                risk: ActionRisk::Destructive,
+                confirmation: true,
+            },
         ]
     }
     async fn perform(&self, action: ActionRequest, cancel: CancellationToken) -> ActionOutcome {
         if cancel.is_cancelled() {
             return ActionOutcome::Cancelled;
         }
-        let Some(trigger) = action.result.id.as_str().strip_prefix("snip:") else {
-            return ActionOutcome::Failed {
-                kind: FailureKind::NotFound {
-                    entity: action.result.id.as_str().into(),
-                },
-            };
-        };
-        let Some(body) = self.body_for(trigger).await else {
-            return ActionOutcome::Failed {
-                kind: FailureKind::NotFound {
-                    entity: action.result.id.as_str().into(),
-                },
-            };
-        };
         match action.action.id.as_str() {
-            "copy" => {
-                match await_unless_cancelled(&cancel, self.pasteboard.write_text(&body)).await {
-                    None => ActionOutcome::Cancelled,
-                    Some(Ok(())) => ActionOutcome::Success {
-                        message: Some("copied".into()),
-                    },
-                    Some(Err(err)) => ActionOutcome::Failed {
-                        kind: FailureKind::Unavailable {
-                            reason: err.to_string(),
-                            retryable: true,
+            "add" => {
+                let Some(trigger) = action.result.id.as_str().strip_prefix("snip:add:") else {
+                    return ActionOutcome::Failed {
+                        kind: FailureKind::InvalidInput {
+                            field: "result_id".into(),
+                            message: "expected snip:add:<trigger>".into(),
                         },
+                    };
+                };
+                let Some(body) = action.result.subtitle.clone() else {
+                    return ActionOutcome::Failed {
+                        kind: FailureKind::InvalidInput {
+                            field: "body".into(),
+                            message: "missing body".into(),
+                        },
+                    };
+                };
+                let exists = self.index.read().await.iter().any(|s| s.trigger == trigger);
+                if exists && !action.confirmation {
+                    return ActionOutcome::Failed {
+                        kind: FailureKind::SecurityDenied {
+                            reason: "confirmation required to overwrite snippet".into(),
+                        },
+                    };
+                }
+                match self.upsert(trigger, &body).await {
+                    Ok(()) => ActionOutcome::Success {
+                        message: Some(if exists {
+                            format!("updated {trigger}")
+                        } else {
+                            format!("added {trigger}")
+                        }),
+                    },
+                    Err(err) => ActionOutcome::Failed {
+                        kind: FailureKind::Io { context: err },
                     },
                 }
             }
-            "paste" => {
+            "delete" => {
+                if action.action.confirmation && !action.confirmation {
+                    return ActionOutcome::Failed {
+                        kind: FailureKind::SecurityDenied {
+                            reason: "confirmation required".into(),
+                        },
+                    };
+                }
+                let Some(trigger) = action.result.id.as_str().strip_prefix("snip:") else {
+                    return ActionOutcome::Failed {
+                        kind: FailureKind::InvalidInput {
+                            field: "result_id".into(),
+                            message: "expected snip:<trigger>".into(),
+                        },
+                    };
+                };
+                if trigger.starts_with("add:") {
+                    return ActionOutcome::Failed {
+                        kind: FailureKind::InvalidInput {
+                            field: "result_id".into(),
+                            message: "cannot delete add row".into(),
+                        },
+                    };
+                }
+                match self.delete(trigger).await {
+                    Ok(()) => ActionOutcome::Success {
+                        message: Some(format!("deleted {trigger}")),
+                    },
+                    Err(err) => ActionOutcome::Failed {
+                        kind: FailureKind::Io { context: err },
+                    },
+                }
+            }
+            "copy" | "paste" => {
+                let Some(trigger) = action.result.id.as_str().strip_prefix("snip:") else {
+                    return ActionOutcome::Failed {
+                        kind: FailureKind::NotFound {
+                            entity: action.result.id.as_str().into(),
+                        },
+                    };
+                };
+                let Some(body) = self.body_for(trigger).await else {
+                    return ActionOutcome::Failed {
+                        kind: FailureKind::NotFound {
+                            entity: action.result.id.as_str().into(),
+                        },
+                    };
+                };
+                if action.action.id.as_str() == "copy" {
+                    return match await_unless_cancelled(&cancel, self.pasteboard.write_text(&body))
+                        .await
+                    {
+                        None => ActionOutcome::Cancelled,
+                        Some(Ok(())) => ActionOutcome::Success {
+                            message: Some("copied".into()),
+                        },
+                        Some(Err(err)) => ActionOutcome::Failed {
+                            kind: FailureKind::Unavailable {
+                                reason: err.to_string(),
+                                retryable: true,
+                            },
+                        },
+                    };
+                }
                 if !self.accessibility.is_trusted() {
                     return ActionOutcome::Failed {
                         kind: FailureKind::PermissionRequired {
@@ -173,9 +328,6 @@ impl LumaModule for SnippetsModule {
                 match await_unless_cancelled(&cancel, self.pasteboard.write_text(&body)).await {
                     None => ActionOutcome::Cancelled,
                     Some(Ok(())) => {
-                        if cancel.is_cancelled() {
-                            return ActionOutcome::Cancelled;
-                        }
                         match await_unless_cancelled(&cancel, self.accessibility.paste_clipboard())
                             .await
                         {

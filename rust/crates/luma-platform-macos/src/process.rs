@@ -1,29 +1,73 @@
 use async_trait::async_trait;
-use serde::{Deserialize, Serialize};
-use thiserror::Error;
 use tokio::process::Command;
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct ProcessEntry {
-    pub pid: u32,
-    pub name: String,
-}
-
-#[derive(Debug, Error)]
-pub enum ProcessError {
-    #[error("unavailable: {0}")]
-    Unavailable(String),
-    #[error("io: {0}")]
-    Io(#[from] std::io::Error),
-}
-
-#[async_trait]
-pub trait ProcessCatalog: Send + Sync {
-    async fn list_gui_ish(&self) -> Result<Vec<ProcessEntry>, ProcessError>;
-    async fn quit(&self, pid: u32, force: bool) -> Result<(), ProcessError>;
-}
+pub use luma_application::{ProcessCatalogPort as ProcessCatalog, ProcessEntry, ProcessError};
 
 pub struct MacProcessCatalog;
+
+#[cfg(target_os = "macos")]
+fn process_start_unix(pid: u32) -> Option<i64> {
+    // proc_bsdinfo.pbi_start_tvsec — stable birth time, not (now − etimes).
+    #[repr(C)]
+    struct ProcBsdInfo {
+        _pbi_flags: u32,
+        _pbi_status: u32,
+        _pbi_xstatus: u32,
+        _pbi_pid: u32,
+        _pbi_ppid: u32,
+        _pbi_uid: u32,
+        _pbi_gid: u32,
+        _pbi_ruid: u32,
+        _pbi_rgid: u32,
+        _pbi_svuid: u32,
+        _pbi_svgid: u32,
+        _rfu_1: u32,
+        _pbi_comm: [u8; 16],
+        _pbi_name: [u8; 32],
+        _pbi_nfiles: u32,
+        _pbi_pgid: u32,
+        _pbi_pjobc: u32,
+        _e_tdev: u32,
+        _e_tpgid: u32,
+        _pbi_nice: i32,
+        pbi_start_tvsec: u64,
+        _pbi_start_tvusec: u64,
+    }
+
+    const PROC_PIDTBSDINFO: i32 = 3;
+
+    extern "C" {
+        fn proc_pidinfo(
+            pid: i32,
+            flavor: i32,
+            arg: u64,
+            buffer: *mut core::ffi::c_void,
+            buffersize: i32,
+        ) -> i32;
+    }
+
+    let mut info = std::mem::MaybeUninit::<ProcBsdInfo>::uninit();
+    let size = std::mem::size_of::<ProcBsdInfo>() as i32;
+    let got = unsafe {
+        proc_pidinfo(
+            pid as i32,
+            PROC_PIDTBSDINFO,
+            0,
+            info.as_mut_ptr().cast(),
+            size,
+        )
+    };
+    if got != size {
+        return None;
+    }
+    let info = unsafe { info.assume_init() };
+    Some(info.pbi_start_tvsec as i64)
+}
+
+#[cfg(not(target_os = "macos"))]
+fn process_start_unix(_pid: u32) -> Option<i64> {
+    None
+}
 
 #[async_trait]
 impl ProcessCatalog for MacProcessCatalog {
@@ -47,14 +91,26 @@ impl ProcessCatalog for MacProcessCatalog {
             let Ok(pid) = pid_s.parse::<u32>() else {
                 continue;
             };
-            let name = parts.collect::<Vec<_>>().join(" ");
-            if name.is_empty() {
+            let executable = parts.collect::<Vec<_>>().join(" ");
+            if executable.is_empty() {
                 continue;
             }
-            // Prefer app-like names; keep bounded.
-            if name.contains(".app/") || !name.starts_with('/') {
-                let short = name.rsplit('/').next().unwrap_or(&name).trim().to_string();
-                entries.push(ProcessEntry { pid, name: short });
+            if executable.contains(".app/") || !executable.starts_with('/') {
+                let Some(start_unix) = process_start_unix(pid) else {
+                    continue;
+                };
+                let name = executable
+                    .rsplit('/')
+                    .next()
+                    .unwrap_or(&executable)
+                    .trim()
+                    .to_string();
+                entries.push(ProcessEntry {
+                    pid,
+                    name,
+                    executable,
+                    start_unix,
+                });
             }
             if entries.len() >= 200 {
                 break;

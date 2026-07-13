@@ -1,32 +1,9 @@
 use async_trait::async_trait;
-use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
-use thiserror::Error;
 use tokio::process::Command;
 use tracing::debug;
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct AppEntry {
-    pub name: String,
-    pub path: PathBuf,
-    pub bundle_id: Option<String>,
-}
-
-#[derive(Debug, Error)]
-pub enum AppLaunchError {
-    #[error("app not found: {0}")]
-    NotFound(String),
-    #[error("launch failed: {0}")]
-    LaunchFailed(String),
-}
-
-/// Port consumed by Apps module. Implementations live here or in tests.
-#[async_trait]
-pub trait AppsCatalog: Send + Sync {
-    async fn list_installed(&self) -> Result<Vec<AppEntry>, String>;
-    async fn launch(&self, path: &Path) -> Result<(), AppLaunchError>;
-    async fn reveal(&self, path: &Path) -> Result<(), AppLaunchError>;
-}
+pub use luma_application::{AppEntry, AppLaunchError, AppsCatalogPort as AppsCatalog};
 
 /// Scans standard Applications directories. Search path never re-scans; warmup caches.
 pub struct FilesystemAppsCatalog {

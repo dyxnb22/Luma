@@ -1,0 +1,39 @@
+//! Injected infrastructure ports. Adapters live in platform/storage; modules only see these.
+
+mod accessibility;
+mod apps;
+mod clipboard_repo;
+mod clock;
+mod diagnostics;
+mod eventkit;
+mod keychain;
+mod markdown_watch;
+mod memory_repos;
+mod open_path;
+mod pasteboard;
+mod process;
+mod quicklinks_repo;
+mod settings;
+mod snippets_repo;
+mod translator;
+
+pub use accessibility::{AccessibilityError, AccessibilityPort, FakeAccessibility};
+pub use apps::{AppEntry, AppLaunchError, AppsCatalogPort};
+pub use clipboard_repo::{
+    looks_secret, ClipboardEntry, ClipboardHistoryRepository, ClipboardRepoError,
+};
+pub use clock::{ClockError, ClockPort, FixedClock, SystemClock};
+pub use diagnostics::{DiagnosticsError, DiagnosticsSink};
+pub use eventkit::{EventKitError, EventKitPort, ReminderItem, RemindersAuth};
+pub use keychain::{FakeKeychain, KeychainError, KeychainPort, SecretLabel};
+pub use markdown_watch::MarkdownWatchPort;
+pub use memory_repos::{
+    MemoryClipboardHistory, MemoryQuicklinksRepository, MemorySnippetsRepository,
+};
+pub use open_path::{FakeOpenPath, OpenPathError, OpenPathPort};
+pub use pasteboard::{PasteboardError, PasteboardPort};
+pub use process::{ProcessCatalogPort, ProcessEntry, ProcessError};
+pub use quicklinks_repo::{QuicklinkEntry, QuicklinksRepoError, QuicklinksRepository};
+pub use settings::{AppSettings, SettingsError, SettingsRepository};
+pub use snippets_repo::{SnippetEntry, SnippetsRepoError, SnippetsRepository};
+pub use translator::{TranslationError, TranslationResult, TranslatorPort};

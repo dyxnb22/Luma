@@ -133,6 +133,40 @@ impl ClipboardStore {
         Ok(rows)
     }
 
+    /// Newest row by insert time, ignoring pin order (for pasteboard change dedupe).
+    pub fn latest_by_created(&self) -> Result<Option<ClipboardRow>, ClipboardStoreError> {
+        let conn = self.connect()?;
+        let mut stmt = conn.prepare(
+            "SELECT id, text, pinned, created_at FROM clipboard_entries
+             ORDER BY created_at DESC, id DESC
+             LIMIT 1",
+        )?;
+        let mut rows = stmt.query_map([], |row| {
+            Ok(ClipboardRow {
+                id: row.get(0)?,
+                text: row.get(1)?,
+                pinned: row.get::<_, i64>(2)? != 0,
+                created_at: row.get(3)?,
+            })
+        })?;
+        Ok(rows.next().transpose()?)
+    }
+
+    /// Delete unpinned rows older than `days`. Pinned rows are retained.
+    pub fn purge_older_than_days(&self, days: u32) -> Result<usize, ClipboardStoreError> {
+        let conn = self.connect()?;
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs() as i64)
+            .unwrap_or(0);
+        let cutoff = now.saturating_sub(i64::from(days).saturating_mul(86_400));
+        let n = conn.execute(
+            "DELETE FROM clipboard_entries WHERE pinned = 0 AND created_at < ?1",
+            params![cutoff],
+        )?;
+        Ok(n)
+    }
+
     pub fn count(&self) -> Result<usize, ClipboardStoreError> {
         let conn = self.connect()?;
         let n: i64 = conn.query_row("SELECT COUNT(*) FROM clipboard_entries", [], |r| r.get(0))?;
@@ -168,6 +202,13 @@ impl ClipboardStore {
         )?;
         Ok(())
     }
+
+    /// Single-statement delete of every unpinned row.
+    pub fn clear_unpinned(&self) -> Result<usize, ClipboardStoreError> {
+        let conn = self.connect()?;
+        let n = conn.execute("DELETE FROM clipboard_entries WHERE pinned = 0", [])?;
+        Ok(n)
+    }
 }
 
 /// Privacy filter shared with the Clipboard module.
@@ -196,5 +237,51 @@ mod tests {
         assert_eq!(store.count().unwrap(), 1);
         assert!(looks_secret("password=x"));
         assert!(!looks_secret("hello"));
+    }
+
+    #[test]
+    fn latest_by_created_ignores_pin_order() {
+        let dir = tempdir().unwrap();
+        let store = ClipboardStore::with_path(dir.path().join("c.sqlite")).unwrap();
+        let conn = rusqlite::Connection::open(store.path()).unwrap();
+        conn.execute(
+            "INSERT INTO clipboard_entries (text, pinned, created_at) VALUES ('old', 0, 10)",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO clipboard_entries (text, pinned, created_at) VALUES ('pinned', 1, 20)",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO clipboard_entries (text, pinned, created_at) VALUES ('newest', 0, 30)",
+            [],
+        )
+        .unwrap();
+        let latest = store.latest_by_created().unwrap().unwrap();
+        assert_eq!(latest.text, "newest");
+        let page = store.list_page(0, 1).unwrap();
+        assert_eq!(page[0].text, "pinned");
+    }
+
+    #[test]
+    fn purge_keeps_pinned() {
+        let dir = tempdir().unwrap();
+        let store = ClipboardStore::with_path(dir.path().join("c.sqlite")).unwrap();
+        let conn = rusqlite::Connection::open(store.path()).unwrap();
+        conn.execute(
+            "INSERT INTO clipboard_entries (text, pinned, created_at) VALUES ('old', 0, 1)",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO clipboard_entries (text, pinned, created_at) VALUES ('keep', 1, 1)",
+            [],
+        )
+        .unwrap();
+        assert_eq!(store.purge_older_than_days(1).unwrap(), 1);
+        assert_eq!(store.count().unwrap(), 1);
+        assert_eq!(store.list_page(0, 10).unwrap()[0].text, "keep");
     }
 }

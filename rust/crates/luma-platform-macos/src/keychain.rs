@@ -5,31 +5,9 @@ use async_trait::async_trait;
 use luma_storage::luma_next_support_dir;
 use serde::{Deserialize, Serialize};
 use std::process::Stdio;
-use thiserror::Error;
 use tokio::process::Command;
 
-#[derive(Debug, Error)]
-pub enum KeychainError {
-    #[error("keychain unavailable: {0}")]
-    Unavailable(String),
-    #[error("not found: {0}")]
-    NotFound(String),
-    #[error("io: {0}")]
-    Io(#[from] std::io::Error),
-}
-
-#[derive(Clone, Debug)]
-pub struct SecretLabel {
-    pub account: String,
-}
-
-#[async_trait]
-pub trait Keychain: Send + Sync {
-    async fn list_labels(&self) -> Result<Vec<SecretLabel>, KeychainError>;
-    async fn copy_password(&self, account: &str) -> Result<String, KeychainError>;
-    async fn set_password(&self, account: &str, password: &str) -> Result<(), KeychainError>;
-    async fn delete(&self, account: &str) -> Result<(), KeychainError>;
-}
+pub use luma_application::{FakeKeychain, KeychainError, KeychainPort as Keychain, SecretLabel};
 
 const DEFAULT_SERVICE: &str = "com.luma.next.secrets";
 
@@ -163,57 +141,6 @@ impl Keychain for MacKeychain {
             let mut labels = Self::read_labels()?;
             labels.labels.retain(|label| label != account);
             Self::write_labels(&labels)?;
-            Ok(())
-        } else {
-            Err(KeychainError::NotFound(account.into()))
-        }
-    }
-}
-
-pub struct FakeKeychain {
-    pub unlocked: bool,
-    pub entries: tokio::sync::Mutex<std::collections::BTreeMap<String, String>>,
-}
-
-#[async_trait]
-impl Keychain for FakeKeychain {
-    async fn list_labels(&self) -> Result<Vec<SecretLabel>, KeychainError> {
-        if !self.unlocked {
-            return Ok(Vec::new());
-        }
-        Ok(self
-            .entries
-            .lock()
-            .await
-            .keys()
-            .map(|account| SecretLabel {
-                account: account.clone(),
-            })
-            .collect())
-    }
-
-    async fn copy_password(&self, account: &str) -> Result<String, KeychainError> {
-        if !self.unlocked {
-            return Err(KeychainError::Unavailable("locked".into()));
-        }
-        self.entries
-            .lock()
-            .await
-            .get(account)
-            .cloned()
-            .ok_or_else(|| KeychainError::NotFound(account.into()))
-    }
-
-    async fn set_password(&self, account: &str, password: &str) -> Result<(), KeychainError> {
-        self.entries
-            .lock()
-            .await
-            .insert(account.to_string(), password.to_string());
-        Ok(())
-    }
-
-    async fn delete(&self, account: &str) -> Result<(), KeychainError> {
-        if self.entries.lock().await.remove(account).is_some() {
             Ok(())
         } else {
             Err(KeychainError::NotFound(account.into()))

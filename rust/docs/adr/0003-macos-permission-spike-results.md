@@ -20,13 +20,14 @@ Evidence for Pasteboard, Accessibility, Automation, EventKit, Translation, and K
 
 ## Decisions
 
-1. Product UI stays CLI/TUI; thin signed app host is optional later for EventKit/Automation/Translation prompts.
+1. Product UI stays CLI/TUI for personal use; no signed app host in scope.
 2. Modules use ports and prefer permission-denied / unavailable taxonomy over empty results.
 3. Secrets remain default-off; Keychain namespace is LumaNext-only (`com.luma.next.secrets`).
 4. Optional migrate importers are dry-run by default and never write the source tree.
 
 ## Consequences
 
-- Todo / Browser Tabs / Translate remain permission- or host-gated until a signed host exists.
+- Todo remains EventKit-gated until Reminders auth is granted to the Terminal/`luma` process (or a future personal host if you add one).
 - Clipboard / Snippets paste works when Accessibility is granted to the Terminal/`luma` process.
 - Notes watch uses `notify` (FSEvents on macOS) with polling fallback.
+- Translation / Automation-heavy stubs are not shipped in the personal module set.

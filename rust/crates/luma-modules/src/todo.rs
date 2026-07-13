@@ -1,29 +1,28 @@
 use async_trait::async_trait;
 use luma_application::{
-    ActionOutcome, ActionRequest, LumaModule, ModuleManifest, ModuleState, SearchMode, SearchSink,
-    WarmupContext,
+    ActionOutcome, ActionRequest, EventKitPort, LumaModule, ModuleManifest, ModuleState,
+    RemindersAuth, SearchMode, SearchSink, WarmupContext,
 };
 use luma_domain::{
     ActionDescriptor, ActionId, ActionRisk, FailureKind, ModuleId, Query, SearchItem,
 };
-use luma_platform_macos::{EventKit, RemindersAuth};
 use luma_protocol::{Event, SearchItemDto};
 use std::sync::Arc;
 use tokio_util::sync::CancellationToken;
 
 pub struct TodoModule {
     manifest: ModuleManifest,
-    eventkit: Arc<dyn EventKit>,
+    eventkit: Arc<dyn EventKitPort>,
 }
 
 impl TodoModule {
-    pub fn with_eventkit(eventkit: Arc<dyn EventKit>) -> Self {
+    pub fn with_eventkit(eventkit: Arc<dyn EventKitPort>) -> Self {
         Self {
             manifest: ModuleManifest {
                 id: ModuleId::new("luma.todo"),
                 display_name: "Todo".into(),
                 triggers: vec!["t".into(), "todo".into()],
-                default_enabled: true,
+                default_enabled: false,
                 search_mode: SearchMode::TargetedOnly,
                 required_capabilities: vec!["eventkit".into()],
             },
@@ -38,7 +37,10 @@ impl LumaModule for TodoModule {
         &self.manifest
     }
     async fn warmup(&self, _ctx: WarmupContext) -> ModuleState {
-        ModuleState::Ready
+        match self.eventkit.auth_status().await {
+            RemindersAuth::Authorized => ModuleState::Ready,
+            _ => ModuleState::Cold,
+        }
     }
     async fn search(&self, query: Query, sink: SearchSink, cancel: CancellationToken) {
         if cancel.is_cancelled() {
@@ -53,8 +55,11 @@ impl LumaModule for TodoModule {
                     upserts: vec![SearchItemDto {
                         id: "todo:permission".into(),
                         module_id: "luma.todo".into(),
-                        title: "Reminders permission required".into(),
-                        subtitle: Some("Open System Settings → Privacy → Reminders".into()),
+                        title: "Reminders gated / unavailable".into(),
+                        subtitle: Some(
+                            "Needs EventKit auth via a signed host — stub cannot complete access"
+                                .into(),
+                        ),
                         kind: "permission".into(),
                         score: 0.0,
                         primary_action_id: "request_permission".into(),
@@ -67,15 +72,14 @@ impl LumaModule for TodoModule {
             return;
         }
 
-        let rest = query
-            .normalized
-            .split_once(|c: char| c.is_whitespace())
-            .map(|(_, r)| r.trim().to_string())
-            .unwrap_or_default();
+        let rest_raw = query.rest_raw().to_string();
+        let rest = query.rest_normalized();
 
         if rest.starts_with("add ") || rest.starts_with('+') {
-            let title = rest
+            let title = rest_raw
                 .trim_start_matches("add ")
+                .trim_start_matches("Add ")
+                .trim_start_matches("ADD ")
                 .trim_start_matches('+')
                 .trim();
             if !title.is_empty() {

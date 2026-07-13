@@ -1,5 +1,9 @@
 //! Shared test helpers. No production I/O.
 
+mod contract;
+
+pub use contract::{assert_primary_actions_resolvable, collect_search_items};
+
 use luma_domain::{ActionDescriptor, ActionId, ActionRisk, ModuleId, ResultId, SearchItem};
 use luma_protocol::SearchItemDto;
 

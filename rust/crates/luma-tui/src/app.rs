@@ -15,9 +15,20 @@ pub async fn run_tui_with_engine(engine: Arc<dyn EnginePort>) -> std::io::Result
     install_panic_hook();
     let mut guard = TerminalGuard::enter()?;
     let mut state = AppState::default();
+    state
+        .status
+        .set("Starting…", crate::view_model::StatusTone::Progress);
+    state.dirty = true;
+
+    // Paint once before warmup so the shell is interactive while modules warm.
+    guard.terminal_mut().draw(|f| render(f, &state))?;
+    state.dirty = false;
 
     let mut engine_rx = engine.subscribe();
-    let _ = engine.submit(Command::StartSession).await;
+    let engine_start = engine.clone();
+    tokio::spawn(async move {
+        let _ = engine_start.submit(Command::StartSession).await;
+    });
 
     loop {
         if state.dirty {
@@ -30,6 +41,12 @@ pub async fn run_tui_with_engine(engine: Arc<dyn EnginePort>) -> std::io::Result
 
         while let Ok(ev) = engine_rx.try_recv() {
             msgs.push(Msg::Engine(ev));
+        }
+
+        if let Some(deadline) = state.search_debounce_deadline {
+            if std::time::Instant::now() >= deadline {
+                msgs.push(Msg::FlushSearch);
+            }
         }
 
         if event::poll(poll_timeout)? {

@@ -99,6 +99,29 @@ impl ModuleRegistry {
         rows
     }
 
+    pub fn list_module_info(&self) -> Vec<luma_protocol::ModuleInfoDto> {
+        let mut rows: Vec<_> = self
+            .modules
+            .values()
+            .map(|m| {
+                let man = m.manifest();
+                let id = man.id.as_str().to_string();
+                luma_protocol::ModuleInfoDto {
+                    id: id.clone(),
+                    display_name: man.display_name.clone(),
+                    enabled: self.is_enabled(&id),
+                    glyph: man.workbench.glyph.clone(),
+                    suggested_query: man.workbench.suggested_query.clone(),
+                    empty_hint: man.workbench.empty_hint.clone(),
+                    supports_browse: man.workbench.supports_browse,
+                    triggers: man.triggers.clone(),
+                }
+            })
+            .collect();
+        rows.sort_by(|a, b| a.id.cmp(&b.id));
+        rows
+    }
+
     pub fn resolve_trigger(&self, token: &str) -> Option<Arc<dyn LumaModule>> {
         let token = token.to_lowercase();
         let module_id = self.triggers.get(&token)?;
@@ -188,6 +211,7 @@ mod tests {
                 default_enabled: true,
                 search_mode: SearchMode::TargetedOnly,
                 required_capabilities: vec![],
+                workbench: Default::default(),
             },
         })
     }

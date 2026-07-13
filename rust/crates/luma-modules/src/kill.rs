@@ -40,6 +40,7 @@ impl KillProcessModule {
                 default_enabled: false,
                 search_mode: SearchMode::TargetedOnly,
                 required_capabilities: vec![],
+                workbench: Default::default(),
             },
             catalog,
             cache: Arc::new(RwLock::new(Vec::new())),

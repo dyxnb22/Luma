@@ -6,4 +6,6 @@ mod event;
 
 pub use command::Command;
 pub use envelope::{Envelope, PROTOCOL_VERSION};
-pub use event::{ActionDescriptorDto, ActionOutcomeDto, Event, ModuleInfoDto, SearchItemDto};
+pub use event::{
+    ActionDescriptorDto, ActionOutcomeDto, Event, HubPinDto, ModuleInfoDto, SearchItemDto,
+};

@@ -12,6 +12,22 @@ pub enum SearchMode {
     GlobalContributing,
 }
 
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct WorkbenchMeta {
+    /// Optional single-glyph override for the TUI (else derived from module id).
+    #[serde(default)]
+    pub glyph: Option<String>,
+    /// Query inserted from the Hub (e.g. `"app "`).
+    #[serde(default)]
+    pub suggested_query: Option<String>,
+    /// Empty-state hint for this module.
+    #[serde(default)]
+    pub empty_hint: Option<String>,
+    /// Module participates in browse / drill-down queries.
+    #[serde(default)]
+    pub supports_browse: bool,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ModuleManifest {
     pub id: ModuleId,
@@ -20,6 +36,8 @@ pub struct ModuleManifest {
     pub default_enabled: bool,
     pub search_mode: SearchMode,
     pub required_capabilities: Vec<String>,
+    #[serde(default)]
+    pub workbench: WorkbenchMeta,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -60,6 +78,19 @@ pub trait LumaModule: Send + Sync {
     async fn search(&self, query: Query, sink: SearchSink, cancel: CancellationToken);
 
     async fn actions(&self, result: &SearchItem) -> Vec<ActionDescriptor>;
+
+    /// Optional detail body for the workbench preview pane.
+    async fn preview(&self, result: &SearchItem) -> Option<String> {
+        result
+            .subtitle
+            .clone()
+            .or_else(|| Some(result.title.clone()))
+    }
+
+    /// Pinned / favorite rows for the empty-state Hub (id, title).
+    async fn hub_pins(&self) -> Vec<(String, String)> {
+        Vec::new()
+    }
 
     async fn perform(&self, action: ActionRequest, cancel: CancellationToken) -> ActionOutcome;
 

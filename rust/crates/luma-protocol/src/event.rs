@@ -156,6 +156,23 @@ pub struct ModuleInfoDto {
     pub id: String,
     pub display_name: String,
     pub enabled: bool,
+    #[serde(default)]
+    pub glyph: Option<String>,
+    #[serde(default)]
+    pub suggested_query: Option<String>,
+    #[serde(default)]
+    pub empty_hint: Option<String>,
+    #[serde(default)]
+    pub supports_browse: bool,
+    #[serde(default)]
+    pub triggers: Vec<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HubPinDto {
+    pub id: String,
+    pub title: String,
+    pub module_id: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -163,6 +180,9 @@ pub struct ModuleInfoDto {
 pub enum Event {
     SessionReady {
         modules: Vec<ModuleInfoDto>,
+    },
+    HubLoaded {
+        pins: Vec<HubPinDto>,
     },
     SearchStarted {
         request_id: String,
@@ -212,6 +232,11 @@ pub enum Event {
     SettingsChanged {
         version: u64,
         settings: serde_json::Value,
+    },
+    PreviewLoaded {
+        result_id: String,
+        preview_id: u64,
+        body: String,
     },
     ModuleStateChanged {
         module_id: String,

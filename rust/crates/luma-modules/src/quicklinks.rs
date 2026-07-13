@@ -37,6 +37,7 @@ impl QuicklinksModule {
                 default_enabled: true,
                 search_mode: SearchMode::GlobalContributing,
                 required_capabilities: vec![],
+                workbench: Default::default(),
             },
             store,
             index: RwLock::new(Vec::new()),

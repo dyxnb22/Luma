@@ -21,6 +21,7 @@ impl FakeEchoModule {
                 default_enabled: false,
                 search_mode: SearchMode::GlobalContributing,
                 required_capabilities: vec![],
+                workbench: Default::default(),
             },
         }
     }

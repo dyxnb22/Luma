@@ -68,6 +68,12 @@ impl NotesModule {
                 default_enabled: true,
                 search_mode: SearchMode::TargetedOnly,
                 required_capabilities: vec![],
+                workbench: luma_application::WorkbenchMeta {
+                    glyph: Some("N".into()),
+                    suggested_query: Some("n ".into()),
+                    empty_hint: Some("n · n browse · n daily · n new".into()),
+                    supports_browse: true,
+                },
             },
             root: Arc::new(RwLock::new(root)),
             index: Arc::new(RwLock::new(Vec::new())),
@@ -180,7 +186,28 @@ impl NotesModule {
 
     /// Resolve a create/open target under `root` without allowing escape via `..`,
     /// absolute paths outside the root, or symlink redirection. Call **before** any write.
+    /// Rejects the notes root itself (create/write must not overwrite the workspace root).
     pub(crate) fn resolve_under_root(root: &Path, candidate: &Path) -> Result<PathBuf, String> {
+        let resolved = Self::resolve_under_root_inner(root, candidate)?;
+        let root_canon = root
+            .canonicalize()
+            .map_err(|e| format!("notes root not accessible: {e}"))?;
+        if resolved == root_canon {
+            return Err("refusing to overwrite notes root itself".into());
+        }
+        Ok(resolved)
+    }
+
+    /// Like [`resolve_under_root`], but allows `candidate` to resolve to the notes root
+    /// itself (needed for `n browse` / `n browse <root>`).
+    pub(crate) fn resolve_under_root_for_browse(
+        root: &Path,
+        candidate: &Path,
+    ) -> Result<PathBuf, String> {
+        Self::resolve_under_root_inner(root, candidate)
+    }
+
+    fn resolve_under_root_inner(root: &Path, candidate: &Path) -> Result<PathBuf, String> {
         let root_canon = root
             .canonicalize()
             .map_err(|e| format!("notes root not accessible: {e}"))?;
@@ -247,9 +274,6 @@ impl NotesModule {
                 // Lexical push stayed under root_canon as Path prefix (both absolute).
                 return Err("path escapes notes root".into());
             }
-        }
-        if resolved == root_canon {
-            return Err("refusing to overwrite notes root itself".into());
         }
         if !resolved.starts_with(&root_canon) {
             return Err("path escapes notes root".into());
@@ -569,25 +593,162 @@ impl LumaModule for NotesModule {
             return;
         }
 
+        let rest_raw = query.rest_raw();
+        let rest_check = rest_raw.trim().to_lowercase();
+        if rest_check == "browse"
+            || rest_check.starts_with("browse ")
+            || rest_check.starts_with("ls ")
+        {
+            let path_arg = rest_raw
+                .trim()
+                .strip_prefix("browse")
+                .or_else(|| rest_raw.trim().strip_prefix("Browse"))
+                .or_else(|| rest_raw.trim().strip_prefix("ls"))
+                .or_else(|| rest_raw.trim().strip_prefix("LS"))
+                .unwrap_or("")
+                .trim();
+            let dir = if path_arg.is_empty() {
+                root.clone()
+            } else {
+                let candidate = PathBuf::from(path_arg);
+                match NotesModule::resolve_under_root_for_browse(&root, &candidate) {
+                    Ok(p) => p,
+                    Err(err) => {
+                        let _ = sink
+                            .send(Event::ResultsChunk {
+                                request_id: String::new(),
+                                sequence: 1,
+                                upserts: vec![SearchItemDto {
+                                    id: "notes:browse-denied".into(),
+                                    module_id: "luma.notes".into(),
+                                    title: "Path outside notes root".into(),
+                                    subtitle: Some(err),
+                                    kind: "unavailable".into(),
+                                    score: 0.0,
+                                    primary_action_id: "noop".into(),
+                                    primary_action_label: "Unavailable".into(),
+                                    ..Default::default()
+                                }],
+                                removed_ids: vec![],
+                            })
+                            .await;
+                        return;
+                    }
+                }
+            };
+            let Ok(rd) = std::fs::read_dir(&dir) else {
+                return;
+            };
+            let mut upserts = Vec::new();
+            let mut entries: Vec<_> = rd.flatten().collect();
+            entries.sort_by_key(|e| e.file_name());
+            for entry in entries {
+                if cancel.is_cancelled() {
+                    return;
+                }
+                let path = entry.path();
+                let Ok(meta) = std::fs::symlink_metadata(&path) else {
+                    continue;
+                };
+                // Never follow or enumerate symlinks during browse.
+                if meta.file_type().is_symlink() {
+                    continue;
+                }
+                let name = path
+                    .file_name()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("?")
+                    .to_string();
+                if name.starts_with('.') {
+                    continue;
+                }
+                if meta.file_type().is_dir() {
+                    upserts.push(SearchItemDto {
+                        id: format!("browse:n:{}", path.display()),
+                        module_id: "luma.notes".into(),
+                        title: format!("{name}/"),
+                        subtitle: Some(path.display().to_string()),
+                        kind: "directory".into(),
+                        score: 85.0,
+                        primary_action_id: "browse".into(),
+                        primary_action_label: "Browse".into(),
+                        ..Default::default()
+                    });
+                } else if meta.file_type().is_file() && name.ends_with(".md") {
+                    upserts.push(SearchItemDto {
+                        id: format!("note:{}", path.display()),
+                        module_id: "luma.notes".into(),
+                        title: name.trim_end_matches(".md").to_string(),
+                        subtitle: Some(path.display().to_string()),
+                        kind: "note".into(),
+                        score: 75.0,
+                        primary_action_id: "open".into(),
+                        primary_action_label: "Open".into(),
+                        ..Default::default()
+                    });
+                }
+            }
+            if !upserts.is_empty() {
+                let _ = sink
+                    .send(Event::ResultsChunk {
+                        request_id: String::new(),
+                        sequence: 1,
+                        upserts,
+                        removed_ids: vec![],
+                    })
+                    .await;
+            }
+            return;
+        }
+
         let needle = rest;
         let index = self.index.read().await.clone();
         if needle.is_empty() {
-            let row = SearchItemDto {
-                id: "notes:open".into(),
-                module_id: "luma.notes".into(),
-                title: "Notes workspace".into(),
-                subtitle: Some(root.display().to_string()),
-                kind: "open".into(),
-                score: 1.0,
-                primary_action_id: "open".into(),
-                primary_action_label: "Open".into(),
-                ..Default::default()
-            };
+            let mut upserts = vec![
+                SearchItemDto {
+                    id: format!("browse:n:{}", root.display()),
+                    module_id: "luma.notes".into(),
+                    title: "Browse notes folders".into(),
+                    subtitle: Some(root.display().to_string()),
+                    kind: "directory".into(),
+                    score: 95.0,
+                    primary_action_id: "browse".into(),
+                    primary_action_label: "Browse".into(),
+                    ..Default::default()
+                },
+                SearchItemDto {
+                    id: "notes:open".into(),
+                    module_id: "luma.notes".into(),
+                    title: "Notes workspace".into(),
+                    subtitle: Some(root.display().to_string()),
+                    kind: "open".into(),
+                    score: 1.0,
+                    primary_action_id: "open".into(),
+                    primary_action_label: "Open".into(),
+                    ..Default::default()
+                },
+            ];
+            for name in ["Inbox", "Daily"] {
+                let path = root.join(name);
+                if path.is_dir() {
+                    upserts.push(SearchItemDto {
+                        id: format!("browse:n:{}", path.display()),
+                        module_id: "luma.notes".into(),
+                        title: format!("{name}/"),
+                        subtitle: Some(path.display().to_string()),
+                        kind: "directory".into(),
+                        score: 90.0,
+                        primary_action_id: "browse".into(),
+                        primary_action_label: "Browse".into(),
+                        ..Default::default()
+                    });
+                }
+            }
             let _ = sink
                 .send(Event::ResultsChunk {
                     request_id: String::new(),
                     sequence: 1,
-                    upserts: vec![row],
+                    upserts,
                     removed_ids: vec![],
                 })
                 .await;
@@ -640,6 +801,14 @@ impl LumaModule for NotesModule {
                 confirmation: false,
             }];
         }
+        if result.kind == "directory" || result.primary_action.id.as_str() == "browse" {
+            return vec![ActionDescriptor {
+                id: ActionId::new("browse"),
+                label: "Browse".into(),
+                risk: ActionRisk::Safe,
+                confirmation: false,
+            }];
+        }
         if result.kind == "create" || result.primary_action.id.as_str() == "create" {
             return vec![ActionDescriptor {
                 id: ActionId::new("create"),
@@ -656,6 +825,26 @@ impl LumaModule for NotesModule {
         }]
     }
 
+    async fn preview(&self, result: &SearchItem) -> Option<String> {
+        let root = self.root.read().await.clone()?;
+        let raw = result.subtitle.as_deref().map(PathBuf::from)?;
+        let path = Self::resolve_under_root(&root, &raw).ok()?;
+        let Ok(meta) = std::fs::symlink_metadata(&path) else {
+            return result.subtitle.clone();
+        };
+        if meta.file_type().is_symlink() || !meta.file_type().is_file() {
+            return result.subtitle.clone();
+        }
+        let Ok(raw) = std::fs::read_to_string(&path) else {
+            return result.subtitle.clone();
+        };
+        let mut body = raw.chars().take(4000).collect::<String>();
+        if raw.chars().count() > 4000 {
+            body.push_str("\n…");
+        }
+        Some(body)
+    }
+
     async fn perform(&self, action: ActionRequest, cancel: CancellationToken) -> ActionOutcome {
         if cancel.is_cancelled() {
             return ActionOutcome::Cancelled;
@@ -665,6 +854,12 @@ impl LumaModule for NotesModule {
             "configure" => ActionOutcome::Failed {
                 kind: FailureKind::NotConfigured {
                     remediation: "Set notes_root in LumaNext settings.toml".into(),
+                },
+            },
+            "browse" => ActionOutcome::Failed {
+                kind: FailureKind::InvalidInput {
+                    field: "action".into(),
+                    message: "browse is search-driven; use `n browse <path>`".into(),
                 },
             },
             "create" => {
@@ -1052,5 +1247,131 @@ mod tests {
         assert!(matches!(out, ActionOutcome::Success { .. }), "{out:?}");
         assert!(dir.path().join("Inbox/hello.md").exists());
         let _ = path;
+    }
+
+    #[test]
+    fn browse_resolve_allows_notes_root() {
+        let dir = tempdir().unwrap();
+        let resolved = NotesModule::resolve_under_root_for_browse(dir.path(), dir.path()).unwrap();
+        assert_eq!(resolved, dir.path().canonicalize().unwrap());
+        let err = NotesModule::resolve_under_root(dir.path(), dir.path()).unwrap_err();
+        assert!(err.contains("overwrite") || err.contains("root"), "{err}");
+    }
+
+    #[tokio::test]
+    async fn browse_root_lists_children() {
+        let dir = tempdir().unwrap();
+        fs::create_dir(dir.path().join("Inbox")).unwrap();
+        fs::write(dir.path().join("root-note.md"), "# root").unwrap();
+        let m = NotesModule::with_root_for_tests(Some(dir.path().to_path_buf()));
+        let (tx, mut rx) = mpsc::channel(4);
+        let q = Query::parse(&format!("n browse {}", dir.path().display()), 20);
+        m.search(q, tx, CancellationToken::new()).await;
+        let ev = rx.recv().await.expect("chunk");
+        let Event::ResultsChunk { upserts, .. } = ev else {
+            panic!("expected chunk");
+        };
+        assert!(upserts.iter().any(|u| u.title == "Inbox/"), "{upserts:?}");
+        assert!(
+            upserts.iter().any(|u| u.title == "root-note"),
+            "{upserts:?}"
+        );
+        assert!(upserts.iter().all(|u| u.id != "notes:browse-denied"));
+    }
+
+    #[tokio::test]
+    async fn browse_skips_symlink_escape() {
+        let dir = tempdir().unwrap();
+        let outside = tempdir().unwrap();
+        fs::write(outside.path().join("secret.md"), "LEAK").unwrap();
+        symlink(
+            outside.path().join("secret.md"),
+            dir.path().join("secret.md"),
+        )
+        .unwrap();
+        fs::write(dir.path().join("safe.md"), "ok").unwrap();
+        let m = NotesModule::with_root_for_tests(Some(dir.path().to_path_buf()));
+        let (tx, mut rx) = mpsc::channel(4);
+        m.search(Query::parse("n browse", 20), tx, CancellationToken::new())
+            .await;
+        let ev = rx.recv().await.expect("chunk");
+        let Event::ResultsChunk { upserts, .. } = ev else {
+            panic!("expected chunk");
+        };
+        assert!(
+            upserts.iter().all(|u| !u.title.contains("secret")),
+            "symlink must not appear in browse: {upserts:?}"
+        );
+        assert!(upserts.iter().any(|u| u.title == "safe"));
+    }
+
+    #[tokio::test]
+    async fn preview_does_not_leak_symlink_outside() {
+        let dir = tempdir().unwrap();
+        let outside = tempdir().unwrap();
+        let secret = outside.path().join("secret.md");
+        fs::write(&secret, "TOPSECRET").unwrap();
+        let link = dir.path().join("secret.md");
+        symlink(&secret, &link).unwrap();
+        let m = NotesModule::with_root_for_tests(Some(dir.path().to_path_buf()));
+        let item = SearchItem {
+            id: ResultId::new(format!("note:{}", link.display())),
+            module_id: ModuleId::new("luma.notes"),
+            title: "secret".into(),
+            subtitle: Some(link.display().to_string()),
+            kind: "note".into(),
+            score: 1.0,
+            primary_action: ActionDescriptor {
+                id: ActionId::new("open"),
+                label: "Open".into(),
+                risk: ActionRisk::Safe,
+                confirmation: false,
+            },
+            secondary_actions: vec![],
+        };
+        let preview = m.preview(&item).await;
+        assert!(
+            preview
+                .as_deref()
+                .map(|p| !p.contains("TOPSECRET"))
+                .unwrap_or(true),
+            "preview must not leak symlink target: {preview:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn perform_browse_is_not_success() {
+        let dir = tempdir().unwrap();
+        let m = NotesModule::with_root_for_tests(Some(dir.path().to_path_buf()));
+        let out = m
+            .perform(
+                ActionRequest {
+                    result: SearchItem {
+                        id: ResultId::new(format!("browse:n:{}", dir.path().display())),
+                        module_id: ModuleId::new("luma.notes"),
+                        title: "Browse".into(),
+                        subtitle: Some(dir.path().display().to_string()),
+                        kind: "directory".into(),
+                        score: 1.0,
+                        primary_action: ActionDescriptor {
+                            id: ActionId::new("browse"),
+                            label: "Browse".into(),
+                            risk: ActionRisk::Safe,
+                            confirmation: false,
+                        },
+                        secondary_actions: vec![],
+                    },
+                    action: ActionDescriptor {
+                        id: ActionId::new("browse"),
+                        label: "Browse".into(),
+                        risk: ActionRisk::Safe,
+                        confirmation: false,
+                    },
+                    confirmation: false,
+                },
+                CancellationToken::new(),
+            )
+            .await;
+        assert!(matches!(out, ActionOutcome::Failed { .. }), "{out:?}");
     }
 }

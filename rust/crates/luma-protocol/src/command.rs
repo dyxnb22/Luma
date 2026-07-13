@@ -37,5 +37,10 @@ pub enum Command {
     },
     RunDoctor,
     ExportDiagnostics,
+    LoadPreview {
+        result_id: String,
+        preview_id: u64,
+    },
+    LoadHub,
     ShutdownSession,
 }

@@ -14,7 +14,7 @@ pub use adapters::{
 pub use engine::{list_modules_json, run_action, run_doctor, run_query, Engine, EngineOptions};
 pub use module::{
     ActionOutcome, ActionRequest, LumaModule, ModuleManifest, ModuleState, SearchMode, SearchSink,
-    WarmupContext,
+    WarmupContext, WorkbenchMeta,
 };
 pub use port::EnginePort;
 pub use ports::{

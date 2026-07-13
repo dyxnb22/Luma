@@ -37,6 +37,7 @@ impl SecretsModule {
                 default_enabled: false,
                 search_mode: SearchMode::TargetedOnly,
                 required_capabilities: vec!["keychain".into()],
+                workbench: Default::default(),
             },
             unlocked: AtomicBool::new(false),
             keychain,

@@ -15,6 +15,11 @@ pub async fn run_tui_with_engine(engine: Arc<dyn EnginePort>) -> std::io::Result
     install_panic_hook();
     let mut guard = TerminalGuard::enter()?;
     let mut state = AppState::default();
+    if let Ok((width, height)) = crossterm::terminal::size() {
+        state.term_width = width;
+        state.term_height = height;
+        state.sync_results_viewport();
+    }
     state
         .status
         .set("Starting…", crate::view_model::StatusTone::Progress);
@@ -54,7 +59,7 @@ pub async fn run_tui_with_engine(engine: Arc<dyn EnginePort>) -> std::io::Result
                 CEvent::Key(key) if key.kind == KeyEventKind::Press => {
                     msgs.push(map_key(key.code, key.modifiers, &state));
                 }
-                CEvent::Resize(_, _) => msgs.push(Msg::Resize),
+                CEvent::Resize(width, height) => msgs.push(Msg::Resize { width, height }),
                 CEvent::Paste(s) => {
                     for ch in s.chars() {
                         msgs.push(Msg::KeyChar(ch));
@@ -81,26 +86,63 @@ pub async fn run_tui_with_engine(engine: Arc<dyn EnginePort>) -> std::io::Result
 }
 
 fn map_key(code: KeyCode, modifiers: KeyModifiers, state: &AppState) -> Msg {
+    use crate::view_model::FocusZone;
+
     if modifiers.contains(KeyModifiers::CONTROL) {
         return match code {
             KeyCode::Char('c') => Msg::Quit,
             KeyCode::Char('l') => Msg::Redraw,
-            KeyCode::Char('p') => Msg::SelectPrev,
-            KeyCode::Char('n') => Msg::SelectNext,
+            KeyCode::Char('k') if matches!(state.route, Route::Search) => Msg::OpenActions,
+            // Many terminals encode Ctrl-/ as the ASCII unit separator, which
+            // crossterm reports as Ctrl-_. Accept both spellings.
+            KeyCode::Char('/') | KeyCode::Char('_') if matches!(state.route, Route::Search) => {
+                Msg::OpenCommands
+            }
+            KeyCode::Char('p') => {
+                if state.focus == FocusZone::Prompt {
+                    Msg::HistoryOlder
+                } else {
+                    Msg::SelectPrev
+                }
+            }
+            KeyCode::Char('n') => {
+                if state.focus == FocusZone::Prompt {
+                    Msg::HistoryNewer
+                } else {
+                    Msg::SelectNext
+                }
+            }
+            KeyCode::Char('u') => Msg::ClearToStart,
+            KeyCode::Char('w') => Msg::DeleteWordBack,
+            KeyCode::Char('a') => Msg::CursorHome,
+            KeyCode::Char('e') => Msg::CursorEnd,
             _ => Msg::Tick,
         };
     }
     match code {
-        KeyCode::Tab if matches!(state.route, Route::Search) => Msg::OpenActions,
+        KeyCode::Tab if matches!(state.route, Route::Search) => Msg::FocusNext,
         KeyCode::Char('?') if matches!(state.route, Route::Search) => Msg::OpenHelp,
+        KeyCode::Char(c)
+            if matches!(state.route, Route::ActionPicker) && c.is_ascii_digit() && c != '0' =>
+        {
+            Msg::PickActionDigit(c.to_digit(10).unwrap_or(0) as usize)
+        }
+        KeyCode::Char(' ') if matches!(state.route, Route::Settings) => Msg::ToggleSetting,
         KeyCode::Char(c) if matches!(state.route, Route::Search | Route::Help | Route::Doctor) => {
             Msg::KeyChar(c)
         }
         KeyCode::Char(_) => Msg::Tick,
         KeyCode::Backspace => Msg::Backspace,
+        KeyCode::Delete => Msg::DeleteForward,
         KeyCode::Enter => Msg::Submit,
+        KeyCode::Left => Msg::CursorLeft,
+        KeyCode::Right => Msg::CursorRight,
+        KeyCode::Home => Msg::CursorHome,
+        KeyCode::End => Msg::CursorEnd,
         KeyCode::Up => Msg::SelectPrev,
         KeyCode::Down => Msg::SelectNext,
+        KeyCode::PageUp => Msg::SelectPageUp,
+        KeyCode::PageDown => Msg::SelectPageDown,
         KeyCode::Esc => Msg::Cancel,
         _ => Msg::Tick,
     }
@@ -126,6 +168,24 @@ fn dispatch_effect(engine: Arc<dyn EnginePort>, effect: Effect) {
         Effect::ExportDiagnostics => {
             tokio::spawn(async move {
                 let _ = engine.submit(Command::ExportDiagnostics).await;
+            });
+        }
+        Effect::LoadHub => {
+            tokio::spawn(async move {
+                let _ = engine.submit(Command::LoadHub).await;
+            });
+        }
+        Effect::LoadPreview {
+            result_id,
+            preview_id,
+        } => {
+            tokio::spawn(async move {
+                let _ = engine
+                    .submit(Command::LoadPreview {
+                        result_id,
+                        preview_id,
+                    })
+                    .await;
             });
         }
         Effect::ListActions { result_id } => {
@@ -157,9 +217,42 @@ fn dispatch_effect(engine: Arc<dyn EnginePort>, effect: Effect) {
                     .await;
             });
         }
+        Effect::GetSettings => {
+            tokio::spawn(async move {
+                let _ = engine.submit(Command::GetSettings).await;
+            });
+        }
+        Effect::UpdateSettings {
+            module_id,
+            enabled,
+            expected_version,
+        } => {
+            tokio::spawn(async move {
+                let _ = engine
+                    .submit(Command::UpdateSettings {
+                        patch: serde_json::json!({
+                            "enabled_modules": { module_id: enabled }
+                        }),
+                        expected_version,
+                    })
+                    .await;
+            });
+        }
         Effect::None => {}
     }
 }
 
 #[allow(dead_code)]
 fn _event_ty(_: Event) {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ctrl_underscore_encoding_opens_commands() {
+        let state = AppState::default();
+        let msg = map_key(KeyCode::Char('_'), KeyModifiers::CONTROL, &state);
+        assert!(matches!(msg, Msg::OpenCommands));
+    }
+}

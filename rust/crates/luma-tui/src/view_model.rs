@@ -1,6 +1,6 @@
 use crate::theme::{Symbols, Theme, ThemeMode};
 use luma_domain::{FailureKind, SearchItem};
-use luma_protocol::{ActionDescriptorDto, ActionOutcomeDto, Event, ModuleInfoDto};
+use luma_protocol::{ActionDescriptorDto, ActionOutcomeDto, Event};
 use std::collections::HashMap;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -8,6 +8,8 @@ pub enum Route {
     Search,
     Help,
     Doctor,
+    Settings,
+    Commands,
     QuitConfirm,
     ConfirmAction,
     ActionPicker,
@@ -17,7 +19,7 @@ pub enum Route {
 pub enum ActionsIntent {
     /// Enter: resolve primary (or first) action, then confirm/execute.
     Primary,
-    /// Tab: show full action picker.
+    /// Tab / Ctrl-k: show full action picker.
     Picker,
 }
 
@@ -33,37 +35,77 @@ pub struct PendingAction {
     pub action: ActionDescriptorDto,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum FocusZone {
+    #[default]
+    Prompt,
+    List,
+    Preview,
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct ResultsView {
     pub items: Vec<SearchItem>,
     pub selected_id: Option<String>,
+    /// First visible result index (persisted; render must not invent scroll alone).
+    pub scroll: usize,
+    /// How many result *rows* fit in the list pane (each result uses 2 terminal lines).
+    pub viewport_rows: usize,
 }
 
 impl ResultsView {
-    pub fn select_next(&mut self) {
+    pub fn selected_index(&self) -> Option<usize> {
+        self.selected_id
+            .as_ref()
+            .and_then(|id| self.items.iter().position(|i| i.id.as_str() == id))
+    }
+
+    pub fn select_at(&mut self, idx: usize) {
         if self.items.is_empty() {
             return;
         }
-        let idx = self
-            .selected_id
-            .as_ref()
-            .and_then(|id| self.items.iter().position(|i| i.id.as_str() == id))
-            .unwrap_or(0);
-        let next = (idx + 1).min(self.items.len() - 1);
-        self.selected_id = Some(self.items[next].id.as_str().to_string());
+        let idx = idx.min(self.items.len() - 1);
+        self.selected_id = Some(self.items[idx].id.as_str().to_string());
+        self.ensure_selection_visible();
+    }
+
+    pub fn select_offset(&mut self, delta: isize) {
+        if self.items.is_empty() {
+            return;
+        }
+        let idx = self.selected_index().unwrap_or(0) as isize;
+        let next = (idx + delta).clamp(0, (self.items.len() - 1) as isize) as usize;
+        self.select_at(next);
+    }
+
+    pub fn select_next(&mut self) {
+        self.select_offset(1);
     }
 
     pub fn select_prev(&mut self) {
-        if self.items.is_empty() {
+        self.select_offset(-1);
+    }
+
+    pub fn ensure_selection_visible(&mut self) {
+        let Some(sel) = self.selected_index() else {
+            self.scroll = 0;
             return;
+        };
+        let rows = self.viewport_rows.max(1);
+        if sel < self.scroll {
+            self.scroll = sel;
+        } else if sel >= self.scroll + rows {
+            self.scroll = sel + 1 - rows;
         }
-        let idx = self
-            .selected_id
-            .as_ref()
-            .and_then(|id| self.items.iter().position(|i| i.id.as_str() == id))
-            .unwrap_or(0);
-        let prev = idx.saturating_sub(1);
-        self.selected_id = Some(self.items[prev].id.as_str().to_string());
+        let max_scroll = self.items.len().saturating_sub(rows);
+        if self.scroll > max_scroll {
+            self.scroll = max_scroll;
+        }
+    }
+
+    pub fn set_viewport_rows(&mut self, rows: usize) {
+        self.viewport_rows = rows.max(1);
+        self.ensure_selection_visible();
     }
 
     pub fn apply_chunk(&mut self, upserts: Vec<SearchItem>, removed_ids: &[String]) {
@@ -89,6 +131,7 @@ impl ResultsView {
                 self.selected_id = self.items.first().map(|i| i.id.as_str().to_string());
             }
         }
+        self.ensure_selection_visible();
     }
 }
 
@@ -131,6 +174,8 @@ impl Default for StatusLine {
 pub struct AppState {
     pub route: Route,
     pub prompt: String,
+    /// Cursor as a Unicode scalar index into `prompt` (0..=char_count).
+    pub prompt_cursor: usize,
     pub active_request: Option<String>,
     pub request_seq_seen: u64,
     pub search_generation: u64,
@@ -151,15 +196,75 @@ pub struct AppState {
     pub symbols: Symbols,
     /// Module id → display_name from SessionReady catalog.
     pub module_labels: HashMap<String, String>,
+    /// Full module catalog from SessionReady (workbench metadata).
+    pub module_catalog: Vec<ModuleCatalogEntry>,
+    /// Pinned Hub rows (clipboard favorites, etc.).
+    pub hub_pins: Vec<HubPinRow>,
     /// When set, `FlushSearch` should fire after this Instant.
     pub search_debounce_deadline: Option<std::time::Instant>,
+    pub focus: FocusZone,
+    /// Newest-first query strings submitted / flushed for search.
+    pub query_history: Vec<String>,
+    /// When browsing history with Ctrl-p/n; `None` means “live” prompt.
+    pub history_browse: Option<usize>,
+    /// Selected row in empty-state module Hub.
+    pub hub_selected: usize,
+    /// Settings route: selected row in module list.
+    pub settings_selected: usize,
+    pub settings_version: u64,
+    pub settings_modules: Vec<SettingsModuleRow>,
+    /// Doctor overlay scroll (line offset).
+    pub doctor_scroll: usize,
+    /// Command palette selection.
+    pub commands_selected: usize,
+    /// Async preview body for the selected result (`LoadPreview`).
+    pub preview_result_id: Option<String>,
+    pub preview_body: Option<String>,
+    /// Monotonic preview request counter (correlated with `PreviewLoaded.preview_id`).
+    pub preview_generation: u64,
+    /// In-flight preview request id; `None` when idle.
+    pub pending_preview_id: Option<u64>,
+    /// After Hub pin Enter, select this result id once search results arrive.
+    pub hub_pending_select_id: Option<String>,
+    /// First visible Hub row index.
+    pub hub_scroll: usize,
+    /// Last known terminal size — used to size the results viewport.
+    pub term_width: u16,
+    pub term_height: u16,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SettingsModuleRow {
+    pub id: String,
+    pub name: String,
+    pub enabled: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ModuleCatalogEntry {
+    pub id: String,
+    pub display_name: String,
+    pub enabled: bool,
+    pub glyph: Option<String>,
+    pub suggested_query: Option<String>,
+    pub empty_hint: Option<String>,
+    pub supports_browse: bool,
+    pub triggers: Vec<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct HubPinRow {
+    pub id: String,
+    pub title: String,
+    pub module_id: String,
 }
 
 impl Default for AppState {
     fn default() -> Self {
-        Self {
+        let mut state = Self {
             route: Route::Search,
             prompt: String::new(),
+            prompt_cursor: 0,
             active_request: None,
             request_seq_seen: 0,
             search_generation: 0,
@@ -177,24 +282,317 @@ impl Default for AppState {
             theme: Theme::resolve(ThemeMode::Auto),
             symbols: Symbols::detect(),
             module_labels: HashMap::new(),
+            module_catalog: Vec::new(),
+            hub_pins: Vec::new(),
             search_debounce_deadline: None,
-        }
+            focus: FocusZone::Prompt,
+            query_history: Vec::new(),
+            history_browse: None,
+            hub_selected: 0,
+            settings_selected: 0,
+            settings_version: 0,
+            settings_modules: Vec::new(),
+            doctor_scroll: 0,
+            commands_selected: 0,
+            preview_result_id: None,
+            preview_body: None,
+            preview_generation: 0,
+            pending_preview_id: None,
+            hub_pending_select_id: None,
+            hub_scroll: 0,
+            term_width: 80,
+            term_height: 24,
+        };
+        state.sync_results_viewport();
+        state
     }
 }
 
 impl AppState {
+    pub fn prompt_char_len(&self) -> usize {
+        self.prompt.chars().count()
+    }
+
+    pub fn clamp_prompt_cursor(&mut self) {
+        let len = self.prompt_char_len();
+        if self.prompt_cursor > len {
+            self.prompt_cursor = len;
+        }
+    }
+
+    fn prompt_byte_index(&self, char_idx: usize) -> usize {
+        self.prompt
+            .char_indices()
+            .nth(char_idx)
+            .map(|(i, _)| i)
+            .unwrap_or(self.prompt.len())
+    }
+
+    pub fn insert_prompt_char(&mut self, c: char) {
+        self.clamp_prompt_cursor();
+        let byte = self.prompt_byte_index(self.prompt_cursor);
+        self.prompt.insert(byte, c);
+        self.prompt_cursor += 1;
+    }
+
+    pub fn backspace_prompt(&mut self) {
+        self.clamp_prompt_cursor();
+        if self.prompt_cursor == 0 {
+            return;
+        }
+        let del_at = self.prompt_cursor - 1;
+        let start = self.prompt_byte_index(del_at);
+        let end = self.prompt_byte_index(self.prompt_cursor);
+        self.prompt.replace_range(start..end, "");
+        self.prompt_cursor = del_at;
+    }
+
+    pub fn delete_forward_prompt(&mut self) {
+        self.clamp_prompt_cursor();
+        if self.prompt_cursor >= self.prompt_char_len() {
+            return;
+        }
+        let start = self.prompt_byte_index(self.prompt_cursor);
+        let end = self.prompt_byte_index(self.prompt_cursor + 1);
+        self.prompt.replace_range(start..end, "");
+    }
+
+    pub fn clear_prompt(&mut self) {
+        self.prompt.clear();
+        self.prompt_cursor = 0;
+    }
+
+    /// Readline-style Ctrl-u: delete from start through character before cursor.
+    pub fn clear_prompt_to_start(&mut self) {
+        self.clamp_prompt_cursor();
+        let end = self.prompt_byte_index(self.prompt_cursor);
+        self.prompt.replace_range(0..end, "");
+        self.prompt_cursor = 0;
+    }
+
+    /// Readline-style Ctrl-w: delete the word before the cursor.
+    pub fn delete_prompt_word_back(&mut self) {
+        self.clamp_prompt_cursor();
+        if self.prompt_cursor == 0 {
+            return;
+        }
+        let chars: Vec<char> = self.prompt.chars().collect();
+        let mut i = self.prompt_cursor;
+        while i > 0 && chars[i - 1].is_whitespace() {
+            i -= 1;
+        }
+        while i > 0 && !chars[i - 1].is_whitespace() {
+            i -= 1;
+        }
+        let start = self.prompt_byte_index(i);
+        let end = self.prompt_byte_index(self.prompt_cursor);
+        self.prompt.replace_range(start..end, "");
+        self.prompt_cursor = i;
+    }
+
+    pub fn preview_visible(&self) -> bool {
+        self.term_width >= 100 && !self.results.items.is_empty()
+    }
+
+    pub fn sync_results_viewport(&mut self) {
+        // Vertical chrome: prompt(3) + status(3); list borders(2); each row = 2 lines.
+        let body = self.term_height.saturating_sub(6) as usize;
+        let list_inner = body.saturating_sub(2);
+        let rows = (list_inner / 2).max(1);
+        self.results.set_viewport_rows(rows);
+        self.ensure_hub_selection_visible();
+    }
+
+    pub fn ensure_hub_selection_visible(&mut self) {
+        let len = self.hub_rows().len();
+        if len == 0 {
+            self.hub_scroll = 0;
+            self.hub_selected = 0;
+            return;
+        }
+        if self.hub_selected >= len {
+            self.hub_selected = len - 1;
+        }
+        let rows = self.results.viewport_rows.max(1);
+        if self.hub_selected < self.hub_scroll {
+            self.hub_scroll = self.hub_selected;
+        } else if self.hub_selected >= self.hub_scroll + rows {
+            self.hub_scroll = self.hub_selected + 1 - rows;
+        }
+        let max_scroll = len.saturating_sub(rows);
+        if self.hub_scroll > max_scroll {
+            self.hub_scroll = max_scroll;
+        }
+    }
+
+    pub fn cycle_focus(&mut self) {
+        self.focus = match self.focus {
+            FocusZone::Prompt => FocusZone::List,
+            FocusZone::List if self.preview_visible() => FocusZone::Preview,
+            FocusZone::List => FocusZone::Prompt,
+            FocusZone::Preview => FocusZone::Prompt,
+        };
+    }
+
+    pub fn push_query_history(&mut self, query: &str) {
+        let q = query.trim();
+        if q.is_empty() {
+            return;
+        }
+        self.query_history.retain(|h| h != q);
+        self.query_history.insert(0, q.to_string());
+        self.query_history.truncate(50);
+        self.history_browse = None;
+    }
+
+    pub fn history_older(&mut self) {
+        if self.query_history.is_empty() {
+            return;
+        }
+        let next = match self.history_browse {
+            None => 0,
+            Some(i) => (i + 1).min(self.query_history.len() - 1),
+        };
+        self.history_browse = Some(next);
+        self.prompt = self.query_history[next].clone();
+        self.prompt_cursor = self.prompt_char_len();
+    }
+
+    pub fn history_newer(&mut self) {
+        let Some(i) = self.history_browse else {
+            return;
+        };
+        if i == 0 {
+            self.history_browse = None;
+            self.clear_prompt();
+            return;
+        }
+        let next = i - 1;
+        self.history_browse = Some(next);
+        self.prompt = self.query_history[next].clone();
+        self.prompt_cursor = self.prompt_char_len();
+    }
+
+    /// Sorted hub rows: modules then metadata-driven suggested queries.
+    /// Returns (kind, id, title, query_or_empty) where kind is "pin" | "module".
+    pub fn hub_rows(&self) -> Vec<(String, String, String, String)> {
+        let mut rows = Vec::new();
+        for pin in &self.hub_pins {
+            rows.push((
+                "pin".into(),
+                pin.id.clone(),
+                pin.title.clone(),
+                String::new(),
+            ));
+        }
+        let mut modules: Vec<_> = self
+            .module_catalog
+            .iter()
+            .filter(|m| m.enabled)
+            .cloned()
+            .collect();
+        if modules.is_empty() {
+            // Fallback while SessionReady catalog is empty.
+            modules = self
+                .module_labels
+                .iter()
+                .map(|(id, name)| ModuleCatalogEntry {
+                    id: id.clone(),
+                    display_name: name.clone(),
+                    enabled: true,
+                    glyph: None,
+                    suggested_query: None,
+                    empty_hint: None,
+                    supports_browse: false,
+                    triggers: vec![],
+                })
+                .collect();
+        }
+        modules.sort_by(|a, b| {
+            a.display_name
+                .to_lowercase()
+                .cmp(&b.display_name.to_lowercase())
+        });
+        for m in modules {
+            let query = m.suggested_query.clone().unwrap_or_else(|| {
+                let key =
+                    m.id.strip_prefix("luma.")
+                        .unwrap_or(m.id.as_str())
+                        .split('.')
+                        .next()
+                        .unwrap_or(m.id.as_str());
+                let trigger = match key {
+                    "apps" => "app",
+                    "clipboard" => "clip",
+                    "notes" => "n",
+                    "quicklinks" => "ql",
+                    "snippets" => "s",
+                    "todo" => "t",
+                    "projects" => "proj",
+                    other => other,
+                };
+                format!("{trigger} ")
+            });
+            rows.push(("module".into(), m.id.clone(), m.display_name.clone(), query));
+        }
+        rows
+    }
+
+    fn try_select_hub_pending(&mut self) {
+        let Some(want) = self.hub_pending_select_id.clone() else {
+            return;
+        };
+        if self.results.items.iter().any(|i| i.id.as_str() == want) {
+            self.results.selected_id = Some(want);
+            self.results.ensure_selection_visible();
+            self.hub_pending_select_id = None;
+            self.preview_body = None;
+            self.preview_result_id = None;
+            self.pending_preview_id = None;
+        }
+    }
+
+    /// Sorted hub rows: (module_id, display_name, suggested_query).
+    pub fn hub_entries(&self) -> Vec<(String, String, String)> {
+        self.hub_rows()
+            .into_iter()
+            .filter(|(kind, _, _, _)| kind == "module")
+            .map(|(_, id, name, query)| (id, name, query))
+            .collect()
+    }
+
     pub fn apply_engine_event(&mut self, event: Event) -> bool {
         match event {
             Event::SessionReady { modules } => {
+                self.module_catalog = modules
+                    .iter()
+                    .map(|m| ModuleCatalogEntry {
+                        id: m.id.clone(),
+                        display_name: m.display_name.clone(),
+                        enabled: m.enabled,
+                        glyph: m.glyph.clone(),
+                        suggested_query: m.suggested_query.clone(),
+                        empty_hint: m.empty_hint.clone(),
+                        supports_browse: m.supports_browse,
+                        triggers: m.triggers.clone(),
+                    })
+                    .collect();
                 self.module_labels = modules
                     .into_iter()
-                    .map(
-                        |ModuleInfoDto {
-                             id, display_name, ..
-                         }| (id, display_name),
-                    )
+                    .map(|m| (m.id, m.display_name))
                     .collect();
                 self.status.set("Session ready", StatusTone::Success);
+                true
+            }
+            Event::HubLoaded { pins } => {
+                self.hub_pins = pins
+                    .into_iter()
+                    .map(|p| HubPinRow {
+                        id: p.id,
+                        title: p.title,
+                        module_id: p.module_id,
+                    })
+                    .collect();
                 true
             }
             Event::SearchStarted { request_id } => {
@@ -230,6 +628,7 @@ impl AppState {
                 self.request_seq_seen = sequence;
                 let items: Vec<_> = upserts.into_iter().map(|d| d.into_domain()).collect();
                 self.results.apply_chunk(items, &removed_ids);
+                self.try_select_hub_pending();
                 true
             }
             Event::SearchFinished {
@@ -240,6 +639,7 @@ impl AppState {
                 if self.active_request.as_deref() == Some(request_id.as_str()) {
                     // End the active request so Esc Clear works on the first press.
                     self.active_request = None;
+                    self.try_select_hub_pending();
                     let (text, tone) = if total == 0 {
                         ("No results".into(), StatusTone::Neutral)
                     } else if total == 1 {
@@ -290,12 +690,68 @@ impl AppState {
                 self.status
                     .set(format!("doctor: {diagnostic}"), StatusTone::Neutral);
                 self.doctor_diagnostic = Some(diagnostic);
-                self.route = Route::Doctor;
+                self.doctor_scroll = 0;
+                if !matches!(self.route, Route::Settings | Route::Commands) {
+                    self.route = Route::Doctor;
+                }
                 true
             }
-            Event::SettingsChanged { version, .. } => {
+            Event::SettingsChanged { version, settings } => {
+                self.settings_version = version;
+                self.settings_modules.clear();
+                if let Some(modules) = settings.get("modules").and_then(|v| v.as_array()) {
+                    for row in modules {
+                        let id = row
+                            .get("id")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("")
+                            .to_string();
+                        if id.is_empty() {
+                            continue;
+                        }
+                        let name = row
+                            .get("name")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or(id.as_str())
+                            .to_string();
+                        let enabled = row.get("enabled").and_then(|v| v.as_bool()).unwrap_or(true);
+                        self.settings_modules
+                            .push(SettingsModuleRow { id, name, enabled });
+                    }
+                }
+                if self.settings_selected >= self.settings_modules.len()
+                    && !self.settings_modules.is_empty()
+                {
+                    self.settings_selected = self.settings_modules.len() - 1;
+                }
+                self.module_labels = self
+                    .settings_modules
+                    .iter()
+                    .map(|m| (m.id.clone(), m.name.clone()))
+                    .collect();
+                for row in &self.settings_modules {
+                    if let Some(entry) = self.module_catalog.iter_mut().find(|m| m.id == row.id) {
+                        entry.enabled = row.enabled;
+                    }
+                }
                 self.status
                     .set(format!("settings v{version}"), StatusTone::Neutral);
+                true
+            }
+            Event::PreviewLoaded {
+                result_id,
+                preview_id,
+                body,
+            } => {
+                if self.pending_preview_id != Some(preview_id) {
+                    return false;
+                }
+                if self.results.selected_id.as_deref() != Some(result_id.as_str()) {
+                    return false;
+                }
+                self.pending_preview_id = None;
+                self.preview_result_id = Some(result_id);
+                self.preview_body = Some(body);
                 true
             }
             Event::ActionsAvailable { result_id, actions } => {

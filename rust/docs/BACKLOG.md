@@ -56,69 +56,56 @@ Items that fight these rules (destructive defaults, silent failures) must not be
 
 ## Now
 
-TUI workbench foundation (daily-driver friction first):
+Architecture / quality (promoted):
 
-- [ ] Prompt editing model: `cursor` + Left/Right/Home/End, mid-string insert/delete, `Ctrl-u` / `Ctrl-w`
-- [ ] List navigation: `PgUp` / `PgDn`; ActionPicker digit keys `1`–`9`
-- [ ] Quit consistency: empty-prompt `Esc` and `Ctrl-C` both go through `QuitConfirm`
-- [ ] Route-aware footer hints (include ↑↓ Enter primary path)
+- [ ] Module depth polish and architecture / quality items in Tracks
+- [ ] Parallel warmup / fallible module factory (Architecture track)
 
 ## Next
 
-Depends on solid selection / scroll:
-
-- [ ] Persist list scroll in `ResultsView`; keep selection in viewport
-- [ ] Adaptive preview pane (auto-hide when narrow): v1 projects title / subtitle / actions / risk only; Notes / Clipboard get `LoadPreview` later
-- [ ] Move Actions off `Tab` to `Ctrl-k`; then introduce focus zones (prompt / list / preview)
-- [ ] Empty-state Hub: module entry points + pinned; then query history (`Ctrl-p`/`Ctrl-n` for history while prompt focused; ↑↓ always move the list)
+_(Promote from Tracks when Now has room.)_
 
 ## Later
 
-- [ ] Settings route (wire existing `GetSettings` / `UpdateSettings`)
-- [ ] Scrollable Doctor panel (not a fixed-height JSON dump overlay)
-- [ ] Command palette (`:` / command mode coexisting with type-to-search)
-- [ ] Projects / Notes browse drill-down
-- [ ] Manifest workbench display metadata: icon override, empty copy, suggested queries, preview / browse capability
-- [ ] Module depth and architecture / quality items below (promote when Now/Next have room)
+_(Park new ideas here before promoting.)_
 
 ## Tracks (detail)
 
 ### TUI workbench
 
-**Foundation (Now)**
+**Foundation (Now)** — done 2026-07-13
 
-- [ ] Prompt: store cursor index; map keys in `luma-tui` (`app.rs` → `Msg` → `reducer.rs`); render caret in `render.rs`
-- [ ] `PgUp` / `PgDn` for results; ActionPicker `1`–`9` runs / selects corresponding action
-- [ ] Empty-prompt `Esc` → `QuitConfirm` (same as `Ctrl-C`); do not set `should_quit` immediately
-- [ ] Footer hints per `Route` include navigation + primary action + quit
+- [x] Prompt: store cursor index; map keys in `luma-tui` (`app.rs` → `Msg` → `reducer.rs`); render caret in `render.rs`
+- [x] `PgUp` / `PgDn` for results; ActionPicker `1`–`9` runs / selects corresponding action
+- [x] Empty-prompt `Esc` → `QuitConfirm` (same as `Ctrl-C`); do not set `should_quit` immediately
+- [x] Footer hints per `Route` include navigation + primary action + quit
 
-**Workbench shell (Next)**
+**Workbench shell (Now)** — done 2026-07-13
 
-- [ ] `ResultsView` owns scroll offset; selection changes adjust scroll; render reads state (no divergent scroll math only in render)
-- [ ] Preview pane beside results when width allows; v1 content from existing `SearchItem` fields only
-- [ ] Protocol/effect path for `LoadPreview(result_id)` when Notes / Clipboard need body text (avoid stuffing large bodies into search chunks)
-- [ ] Remap Actions: `Ctrl-k` opens action list; free `Tab` (or later use for focus cycling)
-- [ ] Focus zones: prompt / list / preview; hints and key routing respect focus
-- [ ] Hub empty state: module triggers + pinned rows; not only “Type to search” tips
-- [ ] Query history: `Ctrl-p` / `Ctrl-n` while prompt focused; ↑↓ remain list selection
+- [x] `ResultsView` owns scroll offset; selection changes adjust scroll; render reads state
+- [x] Preview pane beside results when width ≥ 100; v1 content from existing `SearchItem` fields
+- [x] Remap Actions: `Ctrl-k` opens action list; `Tab` cycles focus
+- [x] Focus zones: prompt / list / preview
+- [x] Hub empty state: module triggers (pinned deferred — needs pin projection)
+- [x] Query history: `Ctrl-p` / `Ctrl-n` while prompt focused; ↑↓ remain list selection
 
-**Workbench depth (Later)**
+**Workbench depth (Now)** — partial 2026-07-13
 
-- [ ] `Route::Settings` + TUI editing for module enable and key settings
-- [ ] Doctor: dedicated scrollable surface + structured summary, not raw `to_string()` only
-- [ ] Command palette entry for doctor / settings / modules / theme
-- [ ] Browse / drill-down UX for Projects and Notes
-- [ ] Extend `ModuleManifest` (or projection DTO) with workbench display fields; stop hardcoding empty-state copy in render
-
-**Primary code (when implementing):** `rust/crates/luma-tui/src/{app,msg,reducer,view_model,render,theme}.rs`; preview loading later touches `luma-protocol` / `luma-domain` / application ports.
+- [x] `Route::Settings` + GetSettings / Space toggle via UpdateSettings (persisted)
+- [x] Scrollable Doctor panel (↑↓ / PgUp/Dn, pretty JSON)
+- [x] Command palette (`Ctrl-/`, `:commands`, `:settings`)
+- [x] Protocol/effect `LoadPreview(result_id, preview_id)` for Notes / Clipboard bodies
+- [x] Browse / drill-down UX for Projects and Notes (`proj browse`, `n browse`, Enter on directory)
+- [x] Extend `ModuleManifest.workbench` + `ModuleInfoDto` display fields; Hub uses suggested_query
+- [x] Hub pinned rows via `LoadHub` + ClipboardModule::hub_pins
 
 ### Modules depth
 
 Prefer high-frequency daily modules; keep gated modules honest.
 
-- [ ] **Notes** — on-demand body preview; Hub discoverability for Inbox / daily / today
-- [ ] **Clipboard** — full-text preview; pins visible from Hub; keep sensitive-suppression messaging honest
-- [ ] **Projects** — shallow → drill-down browse (not only open)
+- [x] **Notes** — on-demand body preview; Hub discoverability for Inbox / daily / today
+- [x] **Clipboard** — full-text preview; pins visible from Hub; keep sensitive-suppression messaging honest
+- [x] **Projects** — shallow → drill-down browse (not only open)
 - [ ] **Apps / Snippets / Quicklinks** — richer detail surface + empty-state suggested queries
 - [ ] **Todo / Secrets / Kill** — permission / gated guidance; never look “finished” when unavailable
 
@@ -144,4 +131,10 @@ Easy to use also means predictable and testable.
 
 Recent completions land here (roll or trim as needed). Newest first.
 
-_None yet for this backlog file — start checking boxes in **Now**._
+- [x] 2026-07-13 — Review fixes: path containment, preview generation, settings persist, hub pin select
+- [x] 2026-07-13 — Projects/Notes browse drill-down; WorkbenchMeta + Hub pins (LoadHub / clipboard pins)
+- [x] 2026-07-13 — `LoadPreview` protocol + Notes file body / Clipboard text in preview pane
+- [x] 2026-07-13 — Settings route, scrollable Doctor, command palette (Ctrl-/ / :settings / :commands)
+- [x] 2026-07-13 — Workbench shell: persisted scroll, adaptive preview (≥100 cols), Ctrl-k actions, Tab focus zones, module Hub, query history Ctrl-p/n
+- [x] 2026-07-13 — TUI foundation: prompt cursor editing (`Ctrl-u`/`Ctrl-w`, arrows/Home/End), `PgUp`/`PgDn`, ActionPicker `1`–`9`, empty `Esc` → `QuitConfirm`, route-aware footer hints
+- [x] 2026-07-13 — Living backlog doc + MODULES cross-link

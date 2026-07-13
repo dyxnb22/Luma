@@ -8,6 +8,18 @@ pub enum Effect {
     RunDoctor,
     /// Request a redacted diagnostics export.
     ExportDiagnostics,
+    /// Load settings projection for the Settings route.
+    GetSettings,
+    /// Toggle a module via engine registry + persistence when available.
+    UpdateSettings {
+        module_id: String,
+        enabled: bool,
+        expected_version: u64,
+    },
+    /// Load detail body for the preview pane.
+    LoadPreview { result_id: String, preview_id: u64 },
+    /// Refresh Hub pins (clipboard favorites, etc.).
+    LoadHub,
     /// Ask the engine for primary + secondary actions for a result.
     ListActions { result_id: String },
     /// Execute an action, optionally with confirmation.

@@ -1,9 +1,11 @@
 use crate::effect::Effect;
 use crate::msg::Msg;
 use crate::view_model::{
-    ActionsIntent, AppState, AwaitingActions, PendingAction, Route, StatusTone,
+    ActionsIntent, AppState, AwaitingActions, FocusZone, PendingAction, Route, StatusTone,
 };
 use luma_protocol::{ActionDescriptorDto, Event};
+
+const PAGE_SIZE: usize = 5;
 
 /// Pure synchronous reducer. Must not perform I/O.
 pub fn update(state: &mut AppState, msg: Msg) -> Vec<Effect> {
@@ -16,23 +18,84 @@ pub fn update(state: &mut AppState, msg: Msg) -> Vec<Effect> {
                     | Route::ActionPicker
                     | Route::Help
                     | Route::Doctor
+                    | Route::Settings
+                    | Route::Commands
                     | Route::QuitConfirm
             ) {
-                // Typing leaves modal routes and resumes search.
                 clear_action_ui(state);
                 state.route = Route::Search;
             }
-            state.prompt.push(c);
+            state.focus = FocusZone::Prompt;
+            state.history_browse = None;
+            state.insert_prompt_char(c);
             schedule_search(state)
         }
         Msg::Backspace => {
-            if matches!(
-                state.route,
-                Route::ConfirmAction | Route::ActionPicker | Route::QuitConfirm
-            ) {
+            if !matches!(state.route, Route::Search | Route::Help | Route::Doctor) {
                 return vec![Effect::None];
             }
-            state.prompt.pop();
+            state.focus = FocusZone::Prompt;
+            state.history_browse = None;
+            state.backspace_prompt();
+            schedule_search(state)
+        }
+        Msg::DeleteForward => {
+            if !matches!(state.route, Route::Search | Route::Help | Route::Doctor) {
+                return vec![Effect::None];
+            }
+            state.focus = FocusZone::Prompt;
+            state.history_browse = None;
+            state.delete_forward_prompt();
+            schedule_search(state)
+        }
+        Msg::CursorLeft => {
+            if matches!(state.route, Route::Search | Route::Help | Route::Doctor) {
+                state.focus = FocusZone::Prompt;
+                state.clamp_prompt_cursor();
+                state.prompt_cursor = state.prompt_cursor.saturating_sub(1);
+            }
+            vec![Effect::None]
+        }
+        Msg::CursorRight => {
+            if matches!(state.route, Route::Search | Route::Help | Route::Doctor) {
+                state.focus = FocusZone::Prompt;
+                state.clamp_prompt_cursor();
+                if state.prompt_cursor < state.prompt_char_len() {
+                    state.prompt_cursor += 1;
+                }
+            }
+            vec![Effect::None]
+        }
+        Msg::CursorHome => {
+            if matches!(state.route, Route::Search | Route::Help | Route::Doctor) {
+                state.focus = FocusZone::Prompt;
+                state.prompt_cursor = 0;
+            }
+            vec![Effect::None]
+        }
+        Msg::CursorEnd => {
+            if matches!(state.route, Route::Search | Route::Help | Route::Doctor) {
+                state.focus = FocusZone::Prompt;
+                state.prompt_cursor = state.prompt_char_len();
+            }
+            vec![Effect::None]
+        }
+        Msg::ClearToStart => {
+            if !matches!(state.route, Route::Search | Route::Help | Route::Doctor) {
+                return vec![Effect::None];
+            }
+            state.focus = FocusZone::Prompt;
+            state.history_browse = None;
+            state.clear_prompt_to_start();
+            schedule_search(state)
+        }
+        Msg::DeleteWordBack => {
+            if !matches!(state.route, Route::Search | Route::Help | Route::Doctor) {
+                return vec![Effect::None];
+            }
+            state.focus = FocusZone::Prompt;
+            state.history_browse = None;
+            state.delete_prompt_word_back();
             schedule_search(state)
         }
         Msg::Submit => match state.route {
@@ -43,23 +106,46 @@ pub fn update(state: &mut AppState, msg: Msg) -> Vec<Effect> {
                 cancel_active(state)
             }
             Route::Search | Route::Help | Route::Doctor => {
-                if let Some(effects) = flush_pending_search_or_continue(state) {
-                    return effects;
+                if state.prompt.trim().is_empty()
+                    && matches!(state.route, Route::Search)
+                    && state.results.items.is_empty()
+                {
+                    return apply_hub_selection(state);
                 }
+                // Meta commands are local navigation. They must win over a pending
+                // search debounce so one Enter opens the requested surface.
                 if state.prompt.trim() == ":doctor" {
-                    state.prompt.clear();
+                    state.clear_prompt();
+                    state.search_debounce_deadline = None;
                     state.route = Route::Doctor;
+                    state.doctor_scroll = 0;
                     state.status.set("doctor", StatusTone::Neutral);
                     return vec![Effect::RunDoctor];
                 }
+                if state.prompt.trim() == ":settings" {
+                    state.clear_prompt();
+                    state.search_debounce_deadline = None;
+                    return open_settings(state);
+                }
                 if state.prompt.trim() == ":help" || state.prompt.trim() == "?" {
-                    state.prompt.clear();
+                    state.clear_prompt();
+                    state.search_debounce_deadline = None;
                     state.route = Route::Help;
                     state.status.set("help", StatusTone::Neutral);
                     return vec![Effect::None];
                 }
+                if state.prompt.trim() == ":commands" {
+                    state.clear_prompt();
+                    state.search_debounce_deadline = None;
+                    return open_commands(state);
+                }
+                if let Some(effects) = flush_pending_search_or_continue(state) {
+                    return effects;
+                }
                 request_primary_actions(state)
             }
+            Route::Settings => toggle_setting(state),
+            Route::Commands => run_command_selection(state),
         },
         Msg::OpenActions => {
             if let Some(effects) = flush_pending_search_or_continue(state) {
@@ -67,24 +153,117 @@ pub fn update(state: &mut AppState, msg: Msg) -> Vec<Effect> {
             }
             request_action_picker(state)
         }
-        Msg::SelectNext => {
+        Msg::OpenSettings => open_settings(state),
+        Msg::OpenCommands => open_commands(state),
+        Msg::ToggleSetting => toggle_setting(state),
+        Msg::FocusNext => {
+            if state.route == Route::Search {
+                state.cycle_focus();
+            }
+            vec![Effect::None]
+        }
+        Msg::HistoryOlder => {
+            if state.route == Route::Search {
+                state.focus = FocusZone::Prompt;
+                state.history_older();
+                schedule_search(state)
+            } else {
+                vec![Effect::None]
+            }
+        }
+        Msg::HistoryNewer => {
+            if state.route == Route::Search {
+                state.focus = FocusZone::Prompt;
+                state.history_newer();
+                schedule_search(state)
+            } else {
+                vec![Effect::None]
+            }
+        }
+        Msg::SelectNext => select_next_msg(state),
+        Msg::SelectPrev => select_prev_msg(state),
+        Msg::SelectPageUp => {
+            if state.route == Route::ActionPicker {
+                state.action_selected = state.action_selected.saturating_sub(PAGE_SIZE);
+                return vec![Effect::None];
+            }
+            if state.route == Route::Doctor {
+                state.doctor_scroll = state.doctor_scroll.saturating_sub(PAGE_SIZE);
+                return vec![Effect::None];
+            }
+            if state.route == Route::Settings {
+                state.settings_selected = state.settings_selected.saturating_sub(PAGE_SIZE);
+                return vec![Effect::None];
+            }
+            if state.route == Route::Commands {
+                state.commands_selected = state.commands_selected.saturating_sub(PAGE_SIZE);
+                return vec![Effect::None];
+            }
+            if matches!(state.route, Route::Search) {
+                if state.prompt.is_empty() && state.results.items.is_empty() {
+                    state.hub_selected = state.hub_selected.saturating_sub(PAGE_SIZE);
+                    state.ensure_hub_selection_visible();
+                } else {
+                    state.focus = FocusZone::List;
+                    state.results.select_offset(-(PAGE_SIZE as isize));
+                    state.preview_body = None;
+                    state.preview_result_id = None;
+                    state.pending_preview_id = None;
+                    return preview_effect(state);
+                }
+            }
+            vec![Effect::None]
+        }
+        Msg::SelectPageDown => {
             if state.route == Route::ActionPicker {
                 if !state.action_choices.is_empty() {
                     state.action_selected =
-                        (state.action_selected + 1).min(state.action_choices.len() - 1);
+                        (state.action_selected + PAGE_SIZE).min(state.action_choices.len() - 1);
                 }
                 return vec![Effect::None];
             }
-            state.results.select_next();
-            vec![Effect::None]
-        }
-        Msg::SelectPrev => {
-            if state.route == Route::ActionPicker {
-                state.action_selected = state.action_selected.saturating_sub(1);
+            if state.route == Route::Doctor {
+                state.doctor_scroll = state.doctor_scroll.saturating_add(PAGE_SIZE);
                 return vec![Effect::None];
             }
-            state.results.select_prev();
+            if state.route == Route::Settings {
+                if !state.settings_modules.is_empty() {
+                    state.settings_selected =
+                        (state.settings_selected + PAGE_SIZE).min(state.settings_modules.len() - 1);
+                }
+                return vec![Effect::None];
+            }
+            if state.route == Route::Commands {
+                state.commands_selected =
+                    (state.commands_selected + PAGE_SIZE).min(COMMANDS.len() - 1);
+                return vec![Effect::None];
+            }
+            if matches!(state.route, Route::Search) {
+                if state.prompt.is_empty() && state.results.items.is_empty() {
+                    let max = state.hub_rows().len().saturating_sub(1);
+                    state.hub_selected = (state.hub_selected + PAGE_SIZE).min(max);
+                    state.ensure_hub_selection_visible();
+                } else {
+                    state.focus = FocusZone::List;
+                    state.results.select_offset(PAGE_SIZE as isize);
+                    state.preview_body = None;
+                    state.preview_result_id = None;
+                    state.pending_preview_id = None;
+                    return preview_effect(state);
+                }
+            }
             vec![Effect::None]
+        }
+        Msg::PickActionDigit(digit) => {
+            if state.route != Route::ActionPicker || digit == 0 {
+                return vec![Effect::None];
+            }
+            let idx = digit - 1;
+            if idx >= state.action_choices.len() {
+                return vec![Effect::None];
+            }
+            state.action_selected = idx;
+            submit_picker_selection(state)
         }
         Msg::OpenHelp => {
             state.route = Route::Help;
@@ -93,6 +272,7 @@ pub fn update(state: &mut AppState, msg: Msg) -> Vec<Effect> {
         }
         Msg::OpenDoctor => {
             state.route = Route::Doctor;
+            state.doctor_scroll = 0;
             state.status.set("doctor", StatusTone::Neutral);
             vec![Effect::RunDoctor]
         }
@@ -112,9 +292,220 @@ pub fn update(state: &mut AppState, msg: Msg) -> Vec<Effect> {
             state.search_debounce_deadline = None;
             begin_search(state)
         }
-        Msg::Redraw | Msg::Resize | Msg::Tick => vec![Effect::None],
+        Msg::Resize { width, height } => {
+            state.term_width = width;
+            state.term_height = height;
+            state.sync_results_viewport();
+            if !state.preview_visible() && state.focus == FocusZone::Preview {
+                state.focus = FocusZone::List;
+            }
+            vec![Effect::None]
+        }
+        Msg::Redraw | Msg::Tick => vec![Effect::None],
         Msg::Engine(event) => apply_engine(state, event),
     }
+}
+
+fn preview_effect(state: &mut AppState) -> Vec<Effect> {
+    let Some(result_id) = state.results.selected_id.clone() else {
+        state.pending_preview_id = None;
+        return vec![Effect::None];
+    };
+    // Already have body for this selection.
+    if state.preview_result_id.as_deref() == Some(result_id.as_str())
+        && state.preview_body.is_some()
+    {
+        return vec![Effect::None];
+    }
+    // In-flight request for this selection — don't spam.
+    if state.pending_preview_id.is_some()
+        && state.preview_result_id.as_deref() == Some(result_id.as_str())
+    {
+        return vec![Effect::None];
+    }
+    state.preview_generation = state.preview_generation.saturating_add(1);
+    let preview_id = state.preview_generation;
+    state.pending_preview_id = Some(preview_id);
+    state.preview_result_id = Some(result_id.clone());
+    state.preview_body = None;
+    vec![Effect::LoadPreview {
+        result_id,
+        preview_id,
+    }]
+}
+
+fn select_next_msg(state: &mut AppState) -> Vec<Effect> {
+    if state.route == Route::ActionPicker {
+        if !state.action_choices.is_empty() {
+            state.action_selected = (state.action_selected + 1).min(state.action_choices.len() - 1);
+        }
+        return vec![Effect::None];
+    }
+    if state.route == Route::Settings {
+        if !state.settings_modules.is_empty() {
+            state.settings_selected =
+                (state.settings_selected + 1).min(state.settings_modules.len() - 1);
+        }
+        return vec![Effect::None];
+    }
+    if state.route == Route::Commands {
+        state.commands_selected = (state.commands_selected + 1).min(COMMANDS.len() - 1);
+        return vec![Effect::None];
+    }
+    if state.route == Route::Doctor {
+        state.doctor_scroll = state.doctor_scroll.saturating_add(1);
+        return vec![Effect::None];
+    }
+    if state.route == Route::Search && state.prompt.is_empty() && state.results.items.is_empty() {
+        let max = state.hub_rows().len().saturating_sub(1);
+        state.hub_selected = (state.hub_selected + 1).min(max);
+        state.ensure_hub_selection_visible();
+        return vec![Effect::None];
+    }
+    if matches!(state.route, Route::Search) {
+        state.focus = FocusZone::List;
+        state.results.select_next();
+        state.preview_body = None;
+        state.preview_result_id = None;
+        state.pending_preview_id = None;
+        return preview_effect(state);
+    }
+    vec![Effect::None]
+}
+
+fn select_prev_msg(state: &mut AppState) -> Vec<Effect> {
+    if state.route == Route::ActionPicker {
+        state.action_selected = state.action_selected.saturating_sub(1);
+        return vec![Effect::None];
+    }
+    if state.route == Route::Settings {
+        state.settings_selected = state.settings_selected.saturating_sub(1);
+        return vec![Effect::None];
+    }
+    if state.route == Route::Commands {
+        state.commands_selected = state.commands_selected.saturating_sub(1);
+        return vec![Effect::None];
+    }
+    if state.route == Route::Doctor {
+        state.doctor_scroll = state.doctor_scroll.saturating_sub(1);
+        return vec![Effect::None];
+    }
+    if state.route == Route::Search && state.prompt.is_empty() && state.results.items.is_empty() {
+        state.hub_selected = state.hub_selected.saturating_sub(1);
+        state.ensure_hub_selection_visible();
+        return vec![Effect::None];
+    }
+    if matches!(state.route, Route::Search) {
+        state.focus = FocusZone::List;
+        state.results.select_prev();
+        state.preview_body = None;
+        state.preview_result_id = None;
+        state.pending_preview_id = None;
+        return preview_effect(state);
+    }
+    vec![Effect::None]
+}
+
+const COMMANDS: &[(&str, &str)] = &[
+    ("settings", "Open module settings"),
+    ("doctor", "Run diagnostics"),
+    ("help", "Keyboard help"),
+    ("quit", "Quit Luma"),
+];
+
+fn open_settings(state: &mut AppState) -> Vec<Effect> {
+    clear_action_ui(state);
+    state.route = Route::Settings;
+    state.settings_selected = 0;
+    state
+        .status
+        .set("settings · Space toggle · Esc back", StatusTone::Neutral);
+    vec![Effect::GetSettings]
+}
+
+fn open_commands(state: &mut AppState) -> Vec<Effect> {
+    clear_action_ui(state);
+    state.route = Route::Commands;
+    state.commands_selected = 0;
+    state
+        .status
+        .set("commands · Enter run · Esc back", StatusTone::Neutral);
+    vec![Effect::None]
+}
+
+fn run_command_selection(state: &mut AppState) -> Vec<Effect> {
+    let idx = state.commands_selected.min(COMMANDS.len() - 1);
+    match COMMANDS[idx].0 {
+        "settings" => open_settings(state),
+        "doctor" => {
+            state.route = Route::Doctor;
+            state.doctor_scroll = 0;
+            state.status.set("doctor", StatusTone::Neutral);
+            vec![Effect::RunDoctor]
+        }
+        "help" => {
+            state.route = Route::Help;
+            state.status.set("help", StatusTone::Neutral);
+            vec![Effect::None]
+        }
+        "quit" => {
+            state.route = Route::QuitConfirm;
+            state.status.set("Quit Luma?", StatusTone::Warning);
+            vec![Effect::None]
+        }
+        _ => vec![Effect::None],
+    }
+}
+
+fn toggle_setting(state: &mut AppState) -> Vec<Effect> {
+    if state.route != Route::Settings || state.settings_modules.is_empty() {
+        return vec![Effect::None];
+    }
+    let idx = state
+        .settings_selected
+        .min(state.settings_modules.len() - 1);
+    let row = &state.settings_modules[idx];
+    let module_id = row.id.clone();
+    let enabled = !row.enabled;
+    state.status.set(
+        format!("{} → {}", module_id, if enabled { "on" } else { "off" }),
+        StatusTone::Progress,
+    );
+    vec![Effect::UpdateSettings {
+        module_id,
+        enabled,
+        expected_version: state.settings_version,
+    }]
+}
+
+fn apply_hub_selection(state: &mut AppState) -> Vec<Effect> {
+    let entries = state.hub_rows();
+    if entries.is_empty() {
+        state
+            .status
+            .set("waiting for modules…", StatusTone::Progress);
+        return vec![Effect::LoadHub];
+    }
+    let idx = state.hub_selected.min(entries.len() - 1);
+    let (kind, id, _title, query) = &entries[idx];
+    if kind == "pin" {
+        // Search clipboard history, then select the exact pin id when results arrive.
+        state.hub_pending_select_id = Some(id.clone());
+        state.prompt = "clip ".into();
+        state.prompt_cursor = state.prompt_char_len();
+        state.focus = FocusZone::Prompt;
+        state.history_browse = None;
+        state
+            .status
+            .set(format!("opening pin {id}"), StatusTone::Neutral);
+        return begin_search(state);
+    }
+    state.hub_pending_select_id = None;
+    state.prompt = query.clone();
+    state.prompt_cursor = state.prompt_char_len();
+    state.focus = FocusZone::Prompt;
+    state.history_browse = None;
+    schedule_search(state)
 }
 
 fn clear_action_ui(state: &mut AppState) {
@@ -126,16 +517,61 @@ fn clear_action_ui(state: &mut AppState) {
 }
 
 fn request_primary_actions(state: &mut AppState) -> Vec<Effect> {
-    let Some(result_id) = state.results.selected_id.clone() else {
+    let Some(item) = state
+        .results
+        .selected_id
+        .as_ref()
+        .and_then(|id| {
+            state
+                .results
+                .items
+                .iter()
+                .find(|i| i.id.as_str() == id.as_str())
+        })
+        .cloned()
+    else {
         state.status.set("no result selected", StatusTone::Warning);
         return vec![Effect::None];
     };
+    if item.kind == "directory" || item.primary_action.id.as_str() == "browse" {
+        return drill_into_browse(state, &item);
+    }
+    let result_id = item.id.as_str().to_string();
     state.awaiting_actions = Some(AwaitingActions {
         intent: ActionsIntent::Primary,
         result_id: result_id.clone(),
     });
     state.status.set("resolving actions…", StatusTone::Progress);
     vec![Effect::ListActions { result_id }]
+}
+
+fn drill_into_browse(state: &mut AppState, item: &luma_domain::SearchItem) -> Vec<Effect> {
+    let path = item
+        .subtitle
+        .clone()
+        .or_else(|| {
+            item.id
+                .as_str()
+                .strip_prefix("browse:proj:")
+                .or_else(|| item.id.as_str().strip_prefix("browse:n:"))
+                .map(str::to_string)
+        })
+        .or_else(|| item.id.as_str().strip_prefix("proj:").map(str::to_string));
+    let trigger = if item.module_id.as_str().contains("notes") {
+        "n"
+    } else {
+        "proj"
+    };
+    let query = match path {
+        Some(p) if !p.is_empty() => format!("{trigger} browse {p}"),
+        _ => format!("{trigger} browse"),
+    };
+    state.prompt = query;
+    state.prompt_cursor = state.prompt_char_len();
+    state.focus = FocusZone::Prompt;
+    state.history_browse = None;
+    state.status.set("browsing…", StatusTone::Progress);
+    begin_search(state)
 }
 
 fn request_action_picker(state: &mut AppState) -> Vec<Effect> {
@@ -176,6 +612,19 @@ fn submit_picker_selection(state: &mut AppState) -> Vec<Effect> {
     };
     state.action_choices.clear();
     state.action_selected = 0;
+    if action.id == "browse" {
+        state.route = Route::Search;
+        if let Some(item) = state
+            .results
+            .items
+            .iter()
+            .find(|i| i.id.as_str() == result_id.as_str())
+            .cloned()
+        {
+            return drill_into_browse(state, &item);
+        }
+        return vec![Effect::None];
+    }
     if action.needs_confirmation() {
         state.pending_action = Some(PendingAction {
             result_id,
@@ -271,13 +720,16 @@ fn cancel_msg(state: &mut AppState) -> Vec<Effect> {
         state.status.set("cancelled", StatusTone::Warning);
         effects
     } else if !state.prompt.is_empty() {
-        state.prompt.clear();
+        state.clear_prompt();
         state.results.items.clear();
         state.results.selected_id = None;
         state.active_request = None;
         vec![Effect::None]
     } else {
-        state.should_quit = true;
+        // Same path as Ctrl-C — confirm before leaving the workbench.
+        clear_action_ui(state);
+        state.route = Route::QuitConfirm;
+        state.status.set("Quit Luma?", StatusTone::Warning);
         vec![Effect::None]
     }
 }
@@ -318,7 +770,28 @@ fn apply_engine(state: &mut AppState, event: Event) -> Vec<Effect> {
             }
         }
     }
+    let ready = matches!(event, Event::SessionReady { .. });
+    let settings_changed = matches!(event, Event::SettingsChanged { .. });
     let _ = state.apply_engine_event(event);
+    if ready {
+        let mut effects = vec![Effect::LoadHub];
+        if state.results.selected_id.is_some() {
+            effects.extend(preview_effect(state));
+        }
+        return effects;
+    }
+    if settings_changed {
+        return vec![Effect::LoadHub];
+    }
+    if let Some(sel) = state.results.selected_id.as_deref() {
+        let have_body =
+            state.preview_result_id.as_deref() == Some(sel) && state.preview_body.is_some();
+        let in_flight =
+            state.pending_preview_id.is_some() && state.preview_result_id.as_deref() == Some(sel);
+        if !have_body && !in_flight {
+            return preview_effect(state);
+        }
+    }
     vec![Effect::None]
 }
 
@@ -329,6 +802,9 @@ fn schedule_search(state: &mut AppState) -> Vec<Effect> {
     // Stale results must not remain actionable during debounce.
     state.results.items.clear();
     state.results.selected_id = None;
+    state.preview_body = None;
+    state.preview_result_id = None;
+    state.pending_preview_id = None;
     clear_action_ui(state);
     if state.prompt.is_empty() {
         state.search_debounce_deadline = None;
@@ -356,9 +832,11 @@ fn begin_search(state: &mut AppState) -> Vec<Effect> {
     if state.prompt.is_empty() {
         state.results.items.clear();
         state.results.selected_id = None;
+        state.results.scroll = 0;
         state.status.set("Ready", StatusTone::Success);
         return effects;
     }
+    state.push_query_history(&state.prompt.clone());
     let request_id = next_request_id(state);
     state.active_request = Some(request_id.clone());
     state.request_seq_seen = 0;
@@ -552,10 +1030,91 @@ mod tests {
     }
 
     #[test]
-    fn cancel_quits_from_empty_search() {
+    fn meta_command_does_not_require_enter_to_flush_debounce() {
+        let mut state = AppState::default();
+        for c in ":commands".chars() {
+            let _ = update(&mut state, Msg::KeyChar(c));
+        }
+        assert!(state.search_debounce_deadline.is_some());
+
+        let effects = update(&mut state, Msg::Submit);
+
+        assert_eq!(effects, vec![Effect::None]);
+        assert_eq!(state.route, Route::Commands);
+        assert!(state.prompt.is_empty());
+        assert!(state.search_debounce_deadline.is_none());
+    }
+
+    #[test]
+    fn cancel_opens_quit_confirm_from_empty_search() {
         let mut state = AppState::default();
         let _ = update(&mut state, Msg::Cancel);
-        assert!(state.should_quit);
+        assert_eq!(state.route, Route::QuitConfirm);
+        assert!(!state.should_quit);
+    }
+
+    #[test]
+    fn prompt_cursor_inserts_in_middle() {
+        let mut state = AppState::default();
+        let _ = update(&mut state, Msg::KeyChar('a'));
+        let _ = update(&mut state, Msg::KeyChar('c'));
+        let _ = update(&mut state, Msg::CursorLeft);
+        let _ = update(&mut state, Msg::KeyChar('b'));
+        assert_eq!(state.prompt, "abc");
+        assert_eq!(state.prompt_cursor, 2);
+    }
+
+    #[test]
+    fn page_down_moves_selection() {
+        let mut state = AppState::default();
+        for i in 0..12 {
+            state.results.items.push(SearchItem {
+                id: ResultId::new(format!("{i}")),
+                module_id: ModuleId::new("mock"),
+                title: format!("Item {i}"),
+                subtitle: None,
+                kind: "mock".into(),
+                score: (12 - i) as f64,
+                primary_action: ActionDescriptor {
+                    id: ActionId::new("open"),
+                    label: "Open".into(),
+                    risk: ActionRisk::Safe,
+                    confirmation: false,
+                },
+                secondary_actions: vec![],
+            });
+        }
+        state.results.selected_id = Some("0".into());
+        let _ = update(&mut state, Msg::SelectPageDown);
+        assert_eq!(state.results.selected_id.as_deref(), Some("5"));
+    }
+
+    #[test]
+    fn action_picker_digit_runs_action() {
+        let mut state = AppState::default();
+        state.route = Route::ActionPicker;
+        state.action_result_id = Some("r1".into());
+        state.action_choices = vec![
+            ActionDescriptorDto {
+                id: "a".into(),
+                label: "A".into(),
+                risk: luma_domain::ActionRisk::Safe,
+                confirmation: false,
+            },
+            ActionDescriptorDto {
+                id: "b".into(),
+                label: "B".into(),
+                risk: luma_domain::ActionRisk::Safe,
+                confirmation: false,
+            },
+        ];
+        let effects = update(&mut state, Msg::PickActionDigit(2));
+        assert!(
+            effects
+                .iter()
+                .any(|e| matches!(e, Effect::ExecuteAction { action_id, .. } if action_id == "b")),
+            "{effects:?}"
+        );
     }
 
     #[test]
@@ -858,5 +1417,119 @@ mod tests {
         let _ = update(&mut state, Msg::Cancel);
         assert_eq!(state.route, Route::Search);
         assert!(!state.should_quit);
+    }
+
+    #[test]
+    fn settings_ctrl_u_does_not_edit_prompt() {
+        let mut state = AppState::default();
+        state.prompt = "keep me".into();
+        state.prompt_cursor = state.prompt_char_len();
+        state.route = Route::Settings;
+        state.settings_modules = vec![crate::view_model::SettingsModuleRow {
+            id: "luma.fake".into(),
+            name: "Fake".into(),
+            enabled: true,
+        }];
+        let effects = update(&mut state, Msg::ClearToStart);
+        assert_eq!(effects, vec![Effect::None]);
+        assert_eq!(state.prompt, "keep me");
+        assert!(state.search_debounce_deadline.is_none());
+    }
+
+    #[test]
+    fn stale_preview_loaded_is_ignored() {
+        let mut state = AppState::default();
+        state.results.items.push(luma_domain::SearchItem {
+            id: luma_domain::ResultId::new("note:a"),
+            module_id: luma_domain::ModuleId::new("luma.notes"),
+            title: "a".into(),
+            subtitle: None,
+            kind: "note".into(),
+            score: 1.0,
+            primary_action: luma_domain::ActionDescriptor {
+                id: luma_domain::ActionId::new("open"),
+                label: "Open".into(),
+                risk: luma_domain::ActionRisk::Safe,
+                confirmation: false,
+            },
+            secondary_actions: vec![],
+        });
+        state.results.selected_id = Some("note:a".into());
+        let effects = preview_effect(&mut state);
+        let Effect::LoadPreview {
+            preview_id: first_id,
+            ..
+        } = &effects[0]
+        else {
+            panic!("{effects:?}");
+        };
+        let first_id = *first_id;
+
+        // New request for same selection after bump (simulate re-select).
+        state.pending_preview_id = None;
+        state.preview_body = None;
+        let effects2 = preview_effect(&mut state);
+        let Effect::LoadPreview {
+            preview_id: second_id,
+            ..
+        } = &effects2[0]
+        else {
+            panic!("{effects2:?}");
+        };
+        assert_ne!(first_id, *second_id);
+
+        let applied = state.apply_engine_event(Event::PreviewLoaded {
+            result_id: "note:a".into(),
+            preview_id: first_id,
+            body: "STALE".into(),
+        });
+        assert!(!applied);
+        assert_ne!(state.preview_body.as_deref(), Some("STALE"));
+
+        let applied = state.apply_engine_event(Event::PreviewLoaded {
+            result_id: "note:a".into(),
+            preview_id: *second_id,
+            body: "FRESH".into(),
+        });
+        assert!(applied);
+        assert_eq!(state.preview_body.as_deref(), Some("FRESH"));
+    }
+
+    #[test]
+    fn toggle_setting_uses_update_settings_cas() {
+        let mut state = AppState::default();
+        state.route = Route::Settings;
+        state.settings_version = 3;
+        state.settings_modules = vec![crate::view_model::SettingsModuleRow {
+            id: "luma.fake".into(),
+            name: "Fake".into(),
+            enabled: true,
+        }];
+        let effects = update(&mut state, Msg::ToggleSetting);
+        assert_eq!(
+            effects,
+            vec![Effect::UpdateSettings {
+                module_id: "luma.fake".into(),
+                enabled: false,
+                expected_version: 3,
+            }]
+        );
+        // No optimistic flip — wait for SettingsChanged.
+        assert!(state.settings_modules[0].enabled);
+    }
+
+    #[test]
+    fn hub_pin_enter_sets_pending_select() {
+        let mut state = AppState::default();
+        state.hub_pins = vec![crate::view_model::HubPinRow {
+            id: "clip:9".into(),
+            title: "pinned text".into(),
+            module_id: "luma.clipboard".into(),
+        }];
+        state.hub_selected = 0;
+        let effects = update(&mut state, Msg::Submit);
+        assert_eq!(state.hub_pending_select_id.as_deref(), Some("clip:9"));
+        assert_eq!(state.prompt, "clip ");
+        assert!(effects.iter().any(|e| matches!(e, Effect::Search { .. })));
     }
 }

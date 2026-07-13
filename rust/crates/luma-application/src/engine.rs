@@ -183,15 +183,7 @@ impl Engine {
         }
         let modules = {
             let g = self.inner.lock().await;
-            g.registry
-                .list()
-                .into_iter()
-                .map(|(id, enabled, display_name)| luma_protocol::ModuleInfoDto {
-                    id,
-                    display_name,
-                    enabled,
-                })
-                .collect()
+            g.registry.list_module_info().into_iter().collect()
         };
         let _ = self.emit(Event::SessionReady { modules }).await;
     }
@@ -491,6 +483,9 @@ impl Engine {
                                 g.results_by_id
                                     .insert(u.id.clone(), u.clone().into_domain());
                             }
+                            for id in &removed_ids {
+                                g.results_by_id.remove(id);
+                            }
                         }
                         let (tx, broadcast_tx) = {
                             let g = engine.lock().await;
@@ -645,6 +640,7 @@ impl Engine {
                     m.teardown().await;
                 }
             }
+            // Runtime-only enable flip (no settings.toml write). Settings UI uses UpdateSettings.
             Command::SetModuleEnabled { module_id, enabled } => {
                 let _ = self.apply_module_enabled(&module_id, enabled).await;
             }
@@ -782,22 +778,75 @@ impl Engine {
                     .emit(Event::ActionsAvailable { result_id, actions })
                     .await;
             }
-            Command::GetSettings => {
-                let rows = {
+            Command::LoadPreview {
+                result_id,
+                preview_id,
+            } => {
+                let (item, module) = {
                     let g = self.inner.lock().await;
-                    g.registry.list()
+                    let item = g.results_by_id.get(&result_id).cloned();
+                    let module = item
+                        .as_ref()
+                        .and_then(|i| g.registry.get(i.module_id.as_str()));
+                    (item, module)
+                };
+                let body = match (item, module) {
+                    (Some(result), Some(module)) => module
+                        .preview(&result)
+                        .await
+                        .unwrap_or_else(|| result.title.clone()),
+                    (Some(result), None) => result
+                        .subtitle
+                        .clone()
+                        .unwrap_or_else(|| result.title.clone()),
+                    _ => String::new(),
+                };
+                let _ = self
+                    .emit(Event::PreviewLoaded {
+                        result_id,
+                        preview_id,
+                        body,
+                    })
+                    .await;
+            }
+            Command::LoadHub => {
+                let modules = {
+                    let g = self.inner.lock().await;
+                    g.registry.enabled_modules()
+                };
+                let mut pins = Vec::new();
+                for module in modules {
+                    let id = module.manifest().id.as_str().to_string();
+                    for (pin_id, title) in module.hub_pins().await {
+                        pins.push(luma_protocol::HubPinDto {
+                            id: pin_id,
+                            title,
+                            module_id: id.clone(),
+                        });
+                    }
+                }
+                let _ = self.emit(Event::HubLoaded { pins }).await;
+            }
+            Command::GetSettings => {
+                let (rows, version) = {
+                    let g = self.inner.lock().await;
+                    let rows = g.registry.list();
+                    let version = self
+                        .settings
+                        .as_ref()
+                        .and_then(|repo| repo.load_or_default().ok())
+                        .map(|s| s.settings_version)
+                        .unwrap_or(0);
+                    (rows, version)
                 };
                 let settings = serde_json::json!({
-                    "source": "engine_registry",
+                    "source": if self.settings.is_some() { "config_store" } else { "engine_registry" },
                     "modules": rows.iter().map(|(id, enabled, name)| {
                         serde_json::json!({"id": id, "enabled": enabled, "name": name})
                     }).collect::<Vec<_>>(),
                 });
                 let _ = self
-                    .emit(Event::SettingsChanged {
-                        version: 0,
-                        settings,
-                    })
+                    .emit(Event::SettingsChanged { version, settings })
                     .await;
             }
             Command::UpdateSettings {
@@ -857,12 +906,18 @@ impl Engine {
                 for (id, enabled) in changes {
                     let _ = self.apply_module_enabled(&id, enabled).await;
                 }
+                let rows = {
+                    let g = self.inner.lock().await;
+                    g.registry.list()
+                };
                 let _ = self
                     .emit(Event::SettingsChanged {
                         version: saved.settings_version,
                         settings: serde_json::json!({
                             "source": "config_store",
-                            "modules": saved.enabled_modules,
+                            "modules": rows.iter().map(|(id, enabled, name)| {
+                                serde_json::json!({"id": id, "enabled": enabled, "name": name})
+                            }).collect::<Vec<_>>(),
                         }),
                     })
                     .await;
@@ -1289,6 +1344,7 @@ mod tests {
                 default_enabled: true,
                 search_mode: SearchMode::GlobalContributing,
                 required_capabilities: vec![],
+                workbench: Default::default(),
             },
             wait_for_cancel: false,
         }))
@@ -1310,6 +1366,7 @@ mod tests {
                     default_enabled: true,
                     search_mode: SearchMode::GlobalContributing,
                     required_capabilities: vec![],
+                    workbench: Default::default(),
                 },
                 ran_after_sleep: ran.clone(),
             }))
@@ -1385,6 +1442,7 @@ mod tests {
                     default_enabled: true,
                     search_mode: SearchMode::GlobalContributing,
                     required_capabilities: vec![],
+                    workbench: Default::default(),
                 },
                 ran_after_sleep: ran.clone(),
             }))
@@ -1518,6 +1576,7 @@ mod tests {
                     default_enabled: true,
                     search_mode: SearchMode::GlobalContributing,
                     required_capabilities: vec![],
+                    workbench: Default::default(),
                 },
                 wait_for_cancel: true,
             }))
@@ -1575,6 +1634,7 @@ mod tests {
                     default_enabled: true,
                     search_mode: SearchMode::GlobalContributing,
                     required_capabilities: vec![],
+                    workbench: Default::default(),
                 },
                 wait_for_cancel: true,
             }))
@@ -1661,8 +1721,148 @@ mod tests {
             }
         };
         assert_eq!(event.0, 2);
-        assert_eq!(event.1["modules"]["luma.fake"], false);
+        let modules = event.1["modules"].as_array().expect("modules array");
+        assert!(
+            modules
+                .iter()
+                .any(|m| m["id"] == "luma.fake" && m["enabled"] == false),
+            "{modules:?}"
+        );
         assert!(!store.load_or_default().unwrap().enabled_modules["luma.fake"]);
+    }
+
+    #[tokio::test]
+    async fn removed_ids_evict_results_by_id() {
+        struct RemoveModule {
+            manifest: ModuleManifest,
+        }
+
+        #[async_trait]
+        impl LumaModule for RemoveModule {
+            fn manifest(&self) -> &ModuleManifest {
+                &self.manifest
+            }
+
+            async fn warmup(&self, _ctx: WarmupContext) -> ModuleState {
+                ModuleState::Ready
+            }
+
+            async fn search(&self, _query: Query, sink: SearchSink, cancel: CancellationToken) {
+                if cancel.is_cancelled() {
+                    return;
+                }
+                let item = SearchItemDto {
+                    id: "ephemeral-1".into(),
+                    module_id: self.manifest.id.as_str().to_string(),
+                    title: "Ephemeral".into(),
+                    subtitle: None,
+                    kind: "fake".into(),
+                    score: 1.0,
+                    primary_action_id: "open".into(),
+                    primary_action_label: "Open".into(),
+                    ..Default::default()
+                };
+                let _ = sink
+                    .send(Event::ResultsChunk {
+                        request_id: String::new(),
+                        sequence: 1,
+                        upserts: vec![item],
+                        removed_ids: vec![],
+                    })
+                    .await;
+                if cancel.is_cancelled() {
+                    return;
+                }
+                let _ = sink
+                    .send(Event::ResultsChunk {
+                        request_id: String::new(),
+                        sequence: 2,
+                        upserts: vec![],
+                        removed_ids: vec!["ephemeral-1".into()],
+                    })
+                    .await;
+            }
+
+            async fn actions(&self, _result: &SearchItem) -> Vec<ActionDescriptor> {
+                vec![ActionDescriptor {
+                    id: ActionId::new("open"),
+                    label: "Open".into(),
+                    risk: ActionRisk::Safe,
+                    confirmation: false,
+                }]
+            }
+
+            async fn perform(
+                &self,
+                _action: ActionRequest,
+                _cancel: CancellationToken,
+            ) -> ActionOutcome {
+                ActionOutcome::Success {
+                    message: Some("ok".into()),
+                }
+            }
+
+            async fn teardown(&self) {}
+        }
+
+        let mut registry = ModuleRegistry::new();
+        registry
+            .register(Arc::new(RemoveModule {
+                manifest: ModuleManifest {
+                    id: ModuleId::new("luma.remove"),
+                    display_name: "Remove".into(),
+                    triggers: vec!["rm".into()],
+                    default_enabled: true,
+                    search_mode: SearchMode::TargetedOnly,
+                    required_capabilities: vec![],
+                    workbench: Default::default(),
+                },
+            }))
+            .unwrap();
+        let engine = Arc::new(Engine::new(registry));
+        let mut events = engine.take_event_receiver().await.unwrap();
+        engine.start_session().await;
+        while !matches!(events.recv().await, Some(Event::SessionReady { .. })) {}
+        engine
+            .handle_command(Command::Search {
+                request_id: "r-rm".into(),
+                query: "rm x".into(),
+            })
+            .await;
+        while !matches!(events.recv().await, Some(Event::SearchFinished { .. })) {}
+
+        engine
+            .handle_command(Command::ListActions {
+                result_id: "ephemeral-1".into(),
+            })
+            .await;
+        let actions = loop {
+            if let Some(Event::ActionsAvailable { actions, .. }) = events.recv().await {
+                break actions;
+            }
+        };
+        assert!(
+            actions.is_empty(),
+            "removed id must not resolve actions: {actions:?}"
+        );
+
+        engine
+            .handle_command(Command::ExecuteAction {
+                operation_id: "op-rm".into(),
+                result_id: "ephemeral-1".into(),
+                action_id: "open".into(),
+                confirmation: false,
+            })
+            .await;
+        let outcome = loop {
+            if let Some(Event::ActionFinished { outcome, .. }) = events.recv().await {
+                break outcome;
+            }
+        };
+        assert!(
+            matches!(outcome, luma_protocol::ActionOutcomeDto::Failed { .. }),
+            "removed id must not execute: {outcome:?}"
+        );
     }
 
     #[tokio::test]

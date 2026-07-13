@@ -25,6 +25,7 @@ impl TodoModule {
                 default_enabled: false,
                 search_mode: SearchMode::TargetedOnly,
                 required_capabilities: vec!["eventkit".into()],
+                workbench: Default::default(),
             },
             eventkit,
         }

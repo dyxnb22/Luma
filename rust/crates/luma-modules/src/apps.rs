@@ -36,6 +36,12 @@ impl AppsModule {
                 default_enabled: true,
                 search_mode: SearchMode::GlobalContributing,
                 required_capabilities: vec![],
+                workbench: luma_application::WorkbenchMeta {
+                    glyph: Some("A".into()),
+                    suggested_query: Some("app ".into()),
+                    empty_hint: Some("app safari".into()),
+                    supports_browse: false,
+                },
             },
             catalog,
             pasteboard,

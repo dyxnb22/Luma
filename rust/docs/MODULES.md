@@ -11,7 +11,7 @@ Personal daily-driver status. Prefer honest `unavailable` / `permission_required
 | Area | Status | Notes |
 | --- | --- | --- |
 | Doctor / diagnostics | Available | `luma doctor --json`, TUI `:doctor` |
-| Config | Partial | Versioned settings; `luma config get/set` (no TUI settings route) |
+| Config | Available | Versioned settings; `luma config get/set`; TUI Settings (`:settings` / Ctrl-/ → settings); Space toggle persists via `UpdateSettings` CAS |
 | Module registry | Available | Manifest + enable/disable; warmup for enabled modules |
 
 ## Modules
@@ -19,12 +19,12 @@ Personal daily-driver status. Prefer honest `unavailable` / `permission_required
 | Module | Triggers | Status | Default |
 | --- | --- | --- | --- |
 | Apps | `app` / `apps` | Available — fuzzy + session MRU; launch / reveal / copy path | on |
-| Clipboard | `clip` / `cb` | Available — history, pin/unpin, `clip clear`, paste needs AX | on |
-| Notes | `n` / `note` / `notes` | Available — search/open; `n new` Inbox; `n daily` / `today` | on |
+| Clipboard | `clip` / `cb` | Available — history, pin/unpin, `clip clear`, paste needs AX; Hub pins | on |
+| Notes | `n` / `note` / `notes` | Available — search/open; `n new` / `n daily`; `n browse` folders | on |
 | Quicklinks | `ql` | Available — add/overwrite, open, copy URL, delete | on |
 | Snippets | `s` / `snip` | Available — search; add/overwrite; copy/paste; delete | on |
 | Todo | `t` / `todo` | Gated — EventKit; permission row when denied | **off** |
-| Projects | `proj` | Shallow scan + open | **off** |
+| Projects | `proj` | Available — scan/open; `proj browse [path]` drill-down | **off** |
 | Kill | `kill` | Process list; quit/force confirm | **off** |
 | Secrets | — | Labels only; Keychain namespace `com.luma.next.secrets` | **off** |
 | Fake | — | Test/demo | **off** |

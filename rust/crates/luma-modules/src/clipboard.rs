@@ -45,6 +45,12 @@ impl ClipboardModule {
                 default_enabled: true,
                 search_mode: SearchMode::GlobalContributing,
                 required_capabilities: vec![],
+                workbench: luma_application::WorkbenchMeta {
+                    glyph: Some("C".into()),
+                    suggested_query: Some("clip ".into()),
+                    empty_hint: Some("clip · pinned items appear in Hub".into()),
+                    supports_browse: false,
+                },
             },
             store,
             pasteboard,
@@ -305,6 +311,29 @@ impl LumaModule for ClipboardModule {
                 confirmation: true,
             },
         ]
+    }
+
+    async fn preview(&self, result: &SearchItem) -> Option<String> {
+        // Clipboard row title holds the captured text.
+        Some(result.title.clone())
+    }
+
+    async fn hub_pins(&self) -> Vec<(String, String)> {
+        let Ok(page) = self.store.list_page(0, 40) else {
+            return Vec::new();
+        };
+        page.into_iter()
+            .filter(|e| e.pinned)
+            .take(8)
+            .map(|e| {
+                let title = if e.text.chars().count() > 48 {
+                    format!("{}…", e.text.chars().take(48).collect::<String>())
+                } else {
+                    e.text
+                };
+                (format!("clip:{}", e.id), title)
+            })
+            .collect()
     }
 
     async fn perform(&self, action: ActionRequest, cancel: CancellationToken) -> ActionOutcome {

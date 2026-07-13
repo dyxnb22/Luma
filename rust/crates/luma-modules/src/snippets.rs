@@ -36,6 +36,7 @@ impl SnippetsModule {
                 default_enabled: true,
                 search_mode: SearchMode::TargetedOnly,
                 required_capabilities: vec![],
+                workbench: Default::default(),
             },
             store,
             index: RwLock::new(Vec::new()),

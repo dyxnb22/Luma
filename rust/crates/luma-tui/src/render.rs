@@ -24,21 +24,29 @@ fn render_with(frame: &mut Frame<'_>, state: &AppState, theme: &Theme, symbols: 
         ])
         .split(area);
 
-    render_prompt(
-        frame,
-        chunks[0],
-        state,
-        theme,
-        symbols,
-        matches!(state.route, Route::Search),
-    );
-    render_results(frame, chunks[1], state, theme, symbols);
+    let prompt_focused = matches!(state.focus, crate::view_model::FocusZone::Prompt)
+        && matches!(state.route, Route::Search);
+    render_prompt(frame, chunks[0], state, theme, symbols, prompt_focused);
+
+    let body = chunks[1];
+    if state.preview_visible() {
+        let cols = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([Constraint::Percentage(58), Constraint::Percentage(42)])
+            .split(body);
+        render_results(frame, cols[0], state, theme, symbols);
+        render_preview(frame, cols[1], state, theme, symbols);
+    } else {
+        render_results(frame, body, state, theme, symbols);
+    }
     render_status(frame, chunks[2], state, theme, symbols);
 
     match state.route {
         Route::Search => {}
         Route::Help => render_overlay_help(frame, area, theme, symbols),
         Route::Doctor => render_overlay_doctor(frame, area, state, theme, symbols),
+        Route::Settings => render_overlay_settings(frame, area, state, theme, symbols),
+        Route::Commands => render_overlay_commands(frame, area, state, theme, symbols),
         Route::QuitConfirm => render_overlay_quit(frame, area, theme, symbols),
         Route::ConfirmAction => render_overlay_confirm(frame, area, state, theme, symbols),
         Route::ActionPicker => render_overlay_action_picker(frame, area, state, theme, symbols),
@@ -54,10 +62,14 @@ fn render_prompt(
     focused: bool,
 ) {
     let cursor = if focused { symbols.cursor } else { " " };
+    let mut chars = state.prompt.chars();
+    let before: String = chars.by_ref().take(state.prompt_cursor).collect();
+    let after: String = chars.collect();
     let line = Line::from(vec![
         Span::styled("  ", theme.muted()),
-        Span::styled(state.prompt.as_str(), theme.text()),
+        Span::styled(before, theme.text()),
         Span::styled(cursor, theme.accent()),
+        Span::styled(after, theme.text()),
     ]);
     let widget = Paragraph::new(line).block(
         Block::default()
@@ -75,39 +87,38 @@ fn render_results(
     theme: &Theme,
     symbols: &Symbols,
 ) {
+    use crate::view_model::FocusZone;
+
+    let list_focused =
+        matches!(state.focus, FocusZone::List) && matches!(state.route, Route::Search);
     let inner_height = area.height.saturating_sub(2) as usize;
     let inner_width = area.width.saturating_sub(2);
-    let selected_idx = state
-        .results
-        .selected_id
-        .as_ref()
-        .and_then(|id| {
-            state
-                .results
-                .items
-                .iter()
-                .position(|i| i.id.as_str() == id.as_str())
-        })
-        .unwrap_or(0);
-
-    let rows_capacity = inner_height / 2;
+    let rows_capacity = (inner_height / 2).max(1);
     let total = state.results.items.len();
-    let scroll = if rows_capacity == 0 || total == 0 {
+    let scroll = if total == 0 {
         0
     } else {
-        selected_idx.saturating_sub(rows_capacity.saturating_sub(1))
+        state
+            .results
+            .scroll
+            .min(total.saturating_sub(rows_capacity.min(total)))
     };
+    let selected_idx = state.results.selected_index().unwrap_or(0);
     let visible_count = if total == 0 {
         0
     } else {
-        rows_capacity.max(1).min(total.saturating_sub(scroll))
+        rows_capacity.min(total.saturating_sub(scroll))
     };
     let has_above = scroll > 0;
     let has_below = scroll + visible_count < total;
 
     let mut items: Vec<ListItem> = Vec::new();
     if state.results.items.is_empty() {
-        items.push(empty_state_item(state, theme, symbols));
+        if state.prompt.trim().is_empty() {
+            items.extend(hub_list_items(state, theme, symbols));
+        } else {
+            items.push(empty_state_item(state, theme, symbols));
+        }
     } else {
         let query = highlight_query(&state.prompt);
         for item in state.results.items.iter().skip(scroll).take(visible_count) {
@@ -129,7 +140,11 @@ fn render_results(
     }
 
     let title = if state.results.items.is_empty() {
-        " results ".to_string()
+        if state.prompt.trim().is_empty() {
+            " hub ".to_string()
+        } else {
+            " results ".to_string()
+        }
     } else {
         let mut scroll_marks = String::new();
         if has_above {
@@ -154,10 +169,172 @@ fn render_results(
     let list = List::new(items).block(
         Block::default()
             .borders(Borders::ALL)
-            .border_style(theme.border(matches!(state.route, Route::Search)))
+            .border_style(theme.border(list_focused))
             .title(Span::styled(title, theme.muted())),
     );
     frame.render_widget(list, area);
+}
+
+fn hub_list_items(state: &AppState, theme: &Theme, symbols: &Symbols) -> Vec<ListItem<'static>> {
+    let rows = state.hub_rows();
+    if rows.is_empty() {
+        return vec![ListItem::new(vec![
+            Line::from(Span::styled("  Waiting for modules…", theme.muted())),
+            Line::from(Span::styled(
+                "  Session warms in the background",
+                theme.key_hint(),
+            )),
+        ])];
+    }
+    let mut out = Vec::new();
+    let mut shown_pins = false;
+    let mut shown_modules = false;
+    let viewport = state.results.viewport_rows.max(1);
+    let end = (state.hub_scroll + viewport).min(rows.len());
+    let window = &rows[state.hub_scroll..end];
+    for (idx, (kind, _id, title, query)) in window
+        .iter()
+        .enumerate()
+        .map(|(i, r)| (state.hub_scroll + i, r))
+    {
+        if kind == "pin" && !shown_pins && state.hub_scroll == 0 {
+            shown_pins = true;
+            out.push(ListItem::new(vec![
+                Line::from(Span::styled("  Pinned", theme.title())),
+                Line::from(Span::styled(
+                    "  Enter selects pin in clipboard · ↑↓ move",
+                    theme.key_hint(),
+                )),
+            ]));
+        }
+        if kind == "module" && !shown_modules {
+            shown_modules = true;
+            out.push(ListItem::new(vec![
+                Line::from(Span::styled("  Modules", theme.title())),
+                Line::from(Span::styled(
+                    "  Enter opens trigger · ↑↓ move",
+                    theme.key_hint(),
+                )),
+            ]));
+        }
+        let selected = idx == state.hub_selected;
+        let prefix = if selected { symbols.selected } else { " " };
+        let style = if selected {
+            theme.selected_row()
+        } else {
+            theme.text()
+        };
+        let muted = if selected {
+            theme.selected_row()
+        } else {
+            theme.muted()
+        };
+        let right = if kind == "pin" {
+            "pin".to_string()
+        } else {
+            query.clone()
+        };
+        out.push(ListItem::new(vec![
+            Line::from(vec![
+                Span::styled(format!(" {prefix} {title}"), style),
+                Span::styled(format!("  {right}"), muted),
+            ]),
+            Line::from(""),
+        ]));
+    }
+    out
+}
+
+fn render_preview(
+    frame: &mut Frame<'_>,
+    area: Rect,
+    state: &AppState,
+    theme: &Theme,
+    symbols: &Symbols,
+) {
+    use crate::view_model::FocusZone;
+
+    let focused = matches!(state.focus, FocusZone::Preview) && matches!(state.route, Route::Search);
+    let Some(item) = state
+        .results
+        .selected_id
+        .as_ref()
+        .and_then(|id| state.results.items.iter().find(|i| i.id.as_str() == id))
+    else {
+        let widget = Paragraph::new(Span::styled("  No selection", theme.muted())).block(
+            Block::default()
+                .borders(Borders::ALL)
+                .border_style(theme.border(focused))
+                .title(Span::styled(" preview ", theme.muted())),
+        );
+        frame.render_widget(widget, area);
+        return;
+    };
+
+    let module = module_label(item.module_id.as_str(), &state.module_labels);
+    let kind = ResultKindVisual::from_kind(&item.kind);
+    let risk = match item.primary_action.risk {
+        ActionRisk::Safe => "safe",
+        ActionRisk::Confirm => "confirm",
+        ActionRisk::Destructive => "destructive",
+    };
+    let mut lines = vec![
+        Line::from(Span::styled(format!("  {}", item.title), theme.title())),
+        Line::from(Span::styled(
+            format!(
+                "  {} {} {}",
+                module,
+                symbols.sep,
+                kind.badge().unwrap_or(item.kind.as_str())
+            ),
+            theme.muted(),
+        )),
+    ];
+    if let Some(sub) = &item.subtitle {
+        lines.push(Line::from(""));
+        lines.push(Line::from(Span::styled(format!("  {sub}"), theme.text())));
+    }
+    lines.push(Line::from(""));
+    if state.preview_result_id.as_deref() == Some(item.id.as_str()) {
+        if let Some(body) = &state.preview_body {
+            for line in body.lines().take(24) {
+                lines.push(Line::from(Span::styled(format!("  {line}"), theme.text())));
+            }
+        }
+    } else {
+        lines.push(Line::from(Span::styled(
+            format!("  Loading preview{}", symbols.ellipsis),
+            theme.muted(),
+        )));
+    }
+    lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled("  Actions", theme.muted())));
+    lines.push(Line::from(Span::styled(
+        format!(
+            "  {} {} ({})",
+            symbols.enter, item.primary_action.label, risk
+        ),
+        theme.action_hint(),
+    )));
+    for sec in &item.secondary_actions {
+        lines.push(Line::from(Span::styled(
+            format!("  · {}", sec.label),
+            theme.key_hint(),
+        )));
+    }
+    lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled(
+        "  Ctrl-k more actions",
+        theme.key_hint(),
+    )));
+
+    let widget = Paragraph::new(lines).wrap(Wrap { trim: false }).block(
+        Block::default()
+            .borders(Borders::ALL)
+            .border_style(theme.border(focused))
+            .title(Span::styled(" preview ", theme.muted())),
+    );
+    frame.render_widget(widget, area);
 }
 
 fn empty_state_item(state: &AppState, theme: &Theme, symbols: &Symbols) -> ListItem<'static> {
@@ -409,14 +586,32 @@ fn render_status(
     let status_style = status_style(state.status.tone, theme);
     let hints = match state.route {
         Route::Search => format!(
-            "Tab Actions {} Esc Clear {} ? Help",
-            symbols.sep, symbols.sep
+            "{}{} PgUp/Dn {} Enter {} Ctrl-k Actions {} Tab Focus {} Esc {} ? Help",
+            symbols.up,
+            symbols.down,
+            symbols.sep,
+            symbols.sep,
+            symbols.sep,
+            symbols.sep,
+            symbols.sep
         ),
-        Route::ActionPicker => format!("Enter Run {} Esc Back", symbols.sep),
+        Route::ActionPicker => format!(
+            "{}{} 1-9 {} Enter Run {} Esc Back",
+            symbols.up, symbols.down, symbols.sep, symbols.sep
+        ),
+        Route::Settings => format!(
+            "{}{} Space Toggle {} Esc Back",
+            symbols.up, symbols.down, symbols.sep
+        ),
+        Route::Commands => format!("Enter Run {} Esc Back", symbols.sep),
         Route::ConfirmAction | Route::QuitConfirm => {
             format!("Enter Confirm {} Esc Cancel", symbols.sep)
         }
-        Route::Help | Route::Doctor => "Esc Back".to_string(),
+        Route::Help => "Esc Back · type to search".to_string(),
+        Route::Doctor => format!(
+            "{}{} scroll {} Esc Back",
+            symbols.up, symbols.down, symbols.sep
+        ),
     };
     let count = if state.results.items.is_empty() {
         String::new()
@@ -613,17 +808,19 @@ fn render_overlay_action_picker(
 
 fn render_overlay_help(frame: &mut Frame<'_>, area: Rect, theme: &Theme, symbols: &Symbols) {
     dim_backdrop(frame, area, theme);
-    let overlay = overlay_area(area, 14);
+    let overlay = overlay_area(area, 18);
     frame.render_widget(Clear, overlay);
     let text = [
-        "Type to search".to_string(),
-        format!("{}{}  move selection", symbols.up, symbols.down),
-        "Enter  primary action".to_string(),
-        "Tab  action list".to_string(),
-        "Esc  cancel / back / clear".to_string(),
-        "?  help".to_string(),
-        ":doctor  diagnostics".to_string(),
-        "Ctrl-C  quit prompt · Enter confirm".to_string(),
+        "Type to search · Left/Right/Home/End move cursor".to_string(),
+        "Ctrl-u clear to start · Ctrl-w delete word".to_string(),
+        "Ctrl-p/n query history (prompt focused)".to_string(),
+        format!("{}{} / PgUp PgDn  move selection", symbols.up, symbols.down),
+        "Enter  primary action · empty Enter opens Hub trigger".to_string(),
+        "Ctrl-k  action list · Ctrl-/ command palette".to_string(),
+        "Tab  cycle focus (prompt / list / preview)".to_string(),
+        "Esc  cancel / back / clear · empty Esc quit confirm".to_string(),
+        "?  help · :doctor / :settings / :commands".to_string(),
+        "Ctrl-C  quit confirm · Enter exits".to_string(),
         String::new(),
         "Confirm / Destructive actions always ask first.".to_string(),
     ]
@@ -645,19 +842,133 @@ fn render_overlay_doctor(
     symbols: &Symbols,
 ) {
     dim_backdrop(frame, area, theme);
-    let overlay = overlay_area(area, 12);
+    let overlay = overlay_area(area, (area.height.saturating_sub(4)).max(8).min(20));
     frame.render_widget(Clear, overlay);
-    let text = state.doctor_diagnostic.as_ref().map_or_else(
+    let full = state.doctor_diagnostic.as_ref().map_or_else(
         || format!("Waiting for engine diagnostics{}", symbols.ellipsis),
-        |diagnostic| diagnostic.to_string(),
+        |diagnostic| {
+            serde_json::to_string_pretty(diagnostic).unwrap_or_else(|_| diagnostic.to_string())
+        },
     );
-    let widget = Paragraph::new(text).wrap(Wrap { trim: false }).block(
+    let lines: Vec<&str> = full.lines().collect();
+    let inner_h = overlay.height.saturating_sub(2) as usize;
+    let max_scroll = lines.len().saturating_sub(inner_h.max(1));
+    let scroll = state.doctor_scroll.min(max_scroll);
+    let visible: String = lines
+        .iter()
+        .skip(scroll)
+        .take(inner_h.max(1))
+        .cloned()
+        .collect::<Vec<_>>()
+        .join("\n");
+    let title = if max_scroll > 0 {
+        format!(
+            " doctor {} {}/{} ",
+            symbols.sep,
+            scroll + 1,
+            lines.len().max(1)
+        )
+    } else {
+        " doctor ".to_string()
+    };
+    let widget = Paragraph::new(visible).wrap(Wrap { trim: false }).block(
         Block::default()
             .borders(Borders::ALL)
             .border_style(theme.border(true))
-            .title(Span::styled(" doctor ", theme.title())),
+            .title(Span::styled(title, theme.title())),
     );
     frame.render_widget(widget, overlay);
+}
+
+fn render_overlay_settings(
+    frame: &mut Frame<'_>,
+    area: Rect,
+    state: &AppState,
+    theme: &Theme,
+    symbols: &Symbols,
+) {
+    dim_backdrop(frame, area, theme);
+    let overlay = overlay_area(area, 16);
+    frame.render_widget(Clear, overlay);
+    let mut items = Vec::new();
+    if state.settings_modules.is_empty() {
+        items.push(ListItem::new(Span::styled(
+            "  Loading modules…",
+            theme.muted(),
+        )));
+    } else {
+        for (idx, row) in state.settings_modules.iter().enumerate() {
+            let selected = idx == state.settings_selected;
+            let prefix = if selected { symbols.selected } else { " " };
+            let mark = if row.enabled { "[on] " } else { "[off]" };
+            let style = if selected {
+                theme.selected_row()
+            } else {
+                theme.text()
+            };
+            items.push(ListItem::new(Span::styled(
+                format!(" {prefix} {mark} {}  ({})", row.name, row.id),
+                style,
+            )));
+        }
+    }
+    let list = List::new(items).block(
+        Block::default()
+            .borders(Borders::ALL)
+            .border_style(theme.border(true))
+            .title(Span::styled(
+                format!(" settings v{} ", state.settings_version),
+                theme.title(),
+            )),
+    );
+    frame.render_widget(list, overlay);
+}
+
+fn render_overlay_commands(
+    frame: &mut Frame<'_>,
+    area: Rect,
+    state: &AppState,
+    theme: &Theme,
+    symbols: &Symbols,
+) {
+    dim_backdrop(frame, area, theme);
+    let overlay = overlay_area(area, 10);
+    frame.render_widget(Clear, overlay);
+    let commands = [
+        ("settings", "Open module settings"),
+        ("doctor", "Run diagnostics"),
+        ("help", "Keyboard help"),
+        ("quit", "Quit Luma"),
+    ];
+    let items: Vec<ListItem> = commands
+        .iter()
+        .enumerate()
+        .map(|(idx, (name, desc))| {
+            let selected = idx == state.commands_selected;
+            let prefix = if selected { symbols.selected } else { " " };
+            let style = if selected {
+                theme.selected_row()
+            } else {
+                theme.text()
+            };
+            let muted = if selected {
+                theme.selected_row()
+            } else {
+                theme.muted()
+            };
+            ListItem::new(Line::from(vec![
+                Span::styled(format!(" {prefix} :{name}  "), style),
+                Span::styled((*desc).to_string(), muted),
+            ]))
+        })
+        .collect();
+    let list = List::new(items).block(
+        Block::default()
+            .borders(Borders::ALL)
+            .border_style(theme.border(true))
+            .title(Span::styled(" commands ", theme.title())),
+    );
+    frame.render_widget(list, overlay);
 }
 
 fn render_overlay_quit(frame: &mut Frame<'_>, area: Rect, theme: &Theme, symbols: &Symbols) {
@@ -794,6 +1105,7 @@ mod tests {
                     ),
                 ],
                 selected_id: Some("1".into()),
+                ..Default::default()
             },
             ..AppState::default()
         }
@@ -884,6 +1196,7 @@ mod tests {
                     "Open Settings",
                 )],
                 selected_id: Some("p".into()),
+                ..Default::default()
             },
             ..AppState::default()
         };
@@ -909,6 +1222,7 @@ mod tests {
                     "Wait",
                 )],
                 selected_id: Some("w".into()),
+                ..Default::default()
             },
             ..AppState::default()
         };
@@ -931,6 +1245,7 @@ mod tests {
                     "Details",
                 )],
                 selected_id: Some("u".into()),
+                ..Default::default()
             },
             ..AppState::default()
         };
@@ -956,6 +1271,7 @@ mod tests {
                     "Configure",
                 )],
                 selected_id: Some("c".into()),
+                ..Default::default()
             },
             ..AppState::default()
         };
@@ -977,16 +1293,21 @@ mod tests {
                 "/Applications/Extra.app",
             ));
         }
-        let state = AppState {
+        let mut state = AppState {
             theme: Theme::dark(),
             symbols: Symbols::unicode(),
             prompt: "app saf".into(),
+            term_width: 120,
+            term_height: 40,
             results: ResultsView {
                 selected_id: Some("extra-20".into()),
                 items,
+                ..Default::default()
             },
             ..AppState::default()
         };
+        state.sync_results_viewport();
+        state.results.ensure_selection_visible();
         let (flat, _) = draw(&state, 120, 40);
         assert!(
             flat.contains('↑') || flat.contains('↓'),

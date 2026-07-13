@@ -6,7 +6,7 @@ use luma_application::{
 use luma_domain::{
     ActionDescriptor, ActionId, ActionRisk, FailureKind, ModuleId, Query, SearchItem,
 };
-use luma_platform_macos::{EventKit, MacEventKit, RemindersAuth};
+use luma_platform_macos::{EventKit, RemindersAuth};
 use luma_protocol::{Event, SearchItemDto};
 use std::sync::Arc;
 use tokio_util::sync::CancellationToken;
@@ -17,10 +17,6 @@ pub struct TodoModule {
 }
 
 impl TodoModule {
-    pub fn new() -> Self {
-        Self::with_eventkit(Arc::new(MacEventKit))
-    }
-
     pub fn with_eventkit(eventkit: Arc<dyn EventKit>) -> Self {
         Self {
             manifest: ModuleManifest {
@@ -33,12 +29,6 @@ impl TodoModule {
             },
             eventkit,
         }
-    }
-}
-
-impl Default for TodoModule {
-    fn default() -> Self {
-        Self::new()
     }
 }
 
@@ -69,6 +59,7 @@ impl LumaModule for TodoModule {
                         score: 0.0,
                         primary_action_id: "request_permission".into(),
                         primary_action_label: "Request".into(),
+                        ..Default::default()
                     }],
                     removed_ids: vec![],
                 })
@@ -101,6 +92,7 @@ impl LumaModule for TodoModule {
                             score: 90.0,
                             primary_action_id: "create".into(),
                             primary_action_label: "Create".into(),
+                            ..Default::default()
                         }],
                         removed_ids: vec![],
                     })
@@ -127,6 +119,7 @@ impl LumaModule for TodoModule {
                             score: 50.0,
                             primary_action_id: "complete".into(),
                             primary_action_label: "Complete".into(),
+                            ..Default::default()
                         });
                     }
                     if upserts.len() >= query.limit {
@@ -158,6 +151,7 @@ impl LumaModule for TodoModule {
                             score: 0.0,
                             primary_action_id: "request_permission".into(),
                             primary_action_label: "Request".into(),
+                            ..Default::default()
                         }],
                         removed_ids: vec![],
                     })

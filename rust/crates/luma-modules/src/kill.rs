@@ -1,3 +1,4 @@
+use crate::cancel::await_unless_cancelled;
 use async_trait::async_trait;
 use luma_application::{
     ActionOutcome, ActionRequest, LumaModule, ModuleManifest, ModuleState, SearchMode, SearchSink,
@@ -6,7 +7,7 @@ use luma_application::{
 use luma_domain::{
     ActionDescriptor, ActionId, ActionRisk, FailureKind, ModuleId, Query, SearchItem,
 };
-use luma_platform_macos::{MacProcessCatalog, ProcessCatalog, ProcessEntry};
+use luma_platform_macos::{ProcessCatalog, ProcessEntry};
 use luma_protocol::{Event, SearchItemDto};
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -19,10 +20,6 @@ pub struct KillProcessModule {
 }
 
 impl KillProcessModule {
-    pub fn new() -> Self {
-        Self::with_catalog(Arc::new(MacProcessCatalog))
-    }
-
     pub fn with_catalog(catalog: Arc<dyn ProcessCatalog>) -> Self {
         Self {
             manifest: ModuleManifest {
@@ -36,12 +33,6 @@ impl KillProcessModule {
             catalog,
             cache: Arc::new(RwLock::new(Vec::new())),
         }
-    }
-}
-
-impl Default for KillProcessModule {
-    fn default() -> Self {
-        Self::new()
     }
 }
 
@@ -80,6 +71,7 @@ impl LumaModule for KillProcessModule {
                 score: 0.0,
                 primary_action_id: "refresh".into(),
                 primary_action_label: "Refresh".into(),
+                ..Default::default()
             };
             let _ = sink
                 .send(Event::ResultsChunk {
@@ -111,6 +103,7 @@ impl LumaModule for KillProcessModule {
                     score: 50.0,
                     primary_action_id: "quit".into(),
                     primary_action_label: "Quit".into(),
+                    ..Default::default()
                 });
             }
             if upserts.len() >= query.limit {
@@ -135,7 +128,7 @@ impl LumaModule for KillProcessModule {
                 id: ActionId::new("quit"),
                 label: "Quit".into(),
                 risk: ActionRisk::Confirm,
-                confirmation: false,
+                confirmation: true,
             },
             ActionDescriptor {
                 id: ActionId::new("force"),
@@ -188,11 +181,13 @@ impl LumaModule for KillProcessModule {
             };
         };
         let force = action.action.id.as_str() == "force";
-        match self.catalog.quit(pid, force).await {
-            Ok(()) => ActionOutcome::Success {
+        // Cancel boundary: once quit/kill is issued, the signal is committed.
+        match await_unless_cancelled(&cancel, self.catalog.quit(pid, force)).await {
+            None => ActionOutcome::Cancelled,
+            Some(Ok(())) => ActionOutcome::Success {
                 message: Some(format!("{} {pid}", if force { "killed" } else { "quit" })),
             },
-            Err(err) => ActionOutcome::Failed {
+            Some(Err(err)) => ActionOutcome::Failed {
                 kind: FailureKind::Unavailable {
                     reason: err.to_string(),
                     retryable: true,

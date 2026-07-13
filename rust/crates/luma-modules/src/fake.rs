@@ -64,6 +64,7 @@ impl LumaModule for FakeEchoModule {
             score: 50.0,
             primary_action_id: "open".into(),
             primary_action_label: "Open".into(),
+            ..Default::default()
         };
         let _ = sink
             .send(Event::ResultsChunk {

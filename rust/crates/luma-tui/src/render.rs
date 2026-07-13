@@ -23,6 +23,8 @@ pub fn render(frame: &mut Frame<'_>, state: &AppState) {
         Route::Help => render_help(frame, chunks[1]),
         Route::Doctor => render_doctor(frame, chunks[1], state),
         Route::QuitConfirm => render_help(frame, chunks[1]),
+        Route::ConfirmAction => render_confirm(frame, chunks[1], state),
+        Route::ActionPicker => render_action_picker(frame, chunks[1], state),
     }
     render_status(frame, chunks[2], state);
 }
@@ -63,8 +65,52 @@ fn render_results(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
     frame.render_widget(list, area);
 }
 
+fn render_confirm(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
+    let label = state
+        .pending_action
+        .as_ref()
+        .map(|p| p.action.label.as_str())
+        .unwrap_or("action");
+    let text = format!("Confirm {label}?\n\nEnter = yes with confirmation\nEsc = cancel");
+    let widget =
+        Paragraph::new(text).block(Block::default().borders(Borders::ALL).title("confirm"));
+    frame.render_widget(widget, area);
+}
+
+fn render_action_picker(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
+    let items: Vec<ListItem> = state
+        .action_choices
+        .iter()
+        .enumerate()
+        .map(|(idx, action)| {
+            let selected = idx == state.action_selected;
+            let prefix = if selected { ">" } else { " " };
+            let risk = format!("{:?}", action.risk).to_lowercase();
+            let confirm = if action.confirmation {
+                " · confirm"
+            } else {
+                ""
+            };
+            let line = Line::from(vec![
+                Span::raw(format!("{prefix} ")),
+                Span::styled(
+                    format!("{} ({risk}{confirm})", action.label),
+                    if selected {
+                        Style::default().add_modifier(Modifier::BOLD)
+                    } else {
+                        Style::default()
+                    },
+                ),
+            ]);
+            ListItem::new(line)
+        })
+        .collect();
+    let list = List::new(items).block(Block::default().borders(Borders::ALL).title("actions"));
+    frame.render_widget(list, area);
+}
+
 fn render_help(frame: &mut Frame<'_>, area: Rect) {
-    let text = "Keys: type to search | Up/Down select | Enter primary action | Esc cancel/back | ? help | :doctor Enter | Ctrl-C quit\nEngine: real modules (Apps, Clipboard, Notes, …).";
+    let text = "Keys: type to search | Up/Down select | Enter primary action | Tab action list | Esc cancel/back | ? help | :doctor Enter | Ctrl-C quit\nConfirm/Destructive actions ask before running.";
     let widget = Paragraph::new(text).block(Block::default().borders(Borders::ALL).title("help"));
     frame.render_widget(widget, area);
 }

@@ -13,7 +13,14 @@ use tracing::warn;
 
 struct SearchTask {
     cancel: CancellationToken,
+    module_cancels: HashMap<String, CancellationToken>,
     handle: JoinHandle<()>,
+}
+
+struct OperationTask {
+    cancel: CancellationToken,
+    module_id: String,
+    handle: Option<JoinHandle<()>>,
 }
 
 struct EngineInner {
@@ -22,7 +29,7 @@ struct EngineInner {
     event_broadcast_tx: broadcast::Sender<Event>,
     session_cancel: CancellationToken,
     searches: HashMap<String, SearchTask>,
-    operations: HashMap<String, CancellationToken>,
+    operations: HashMap<String, OperationTask>,
     results_by_id: HashMap<String, luma_domain::SearchItem>,
 }
 
@@ -67,11 +74,27 @@ impl Engine {
     }
 
     pub async fn start_session(&self) {
-        let modules = {
+        let (enabled, disabled_ids) = {
             let g = self.inner.lock().await;
-            g.registry.all_modules()
+            let enabled = g.registry.enabled_modules();
+            let disabled_ids: Vec<String> = g
+                .registry
+                .list()
+                .into_iter()
+                .filter(|(_, enabled, _)| !*enabled)
+                .map(|(id, _, _)| id)
+                .collect();
+            (enabled, disabled_ids)
         };
-        for module in modules {
+        for id in disabled_ids {
+            let _ = self
+                .emit(Event::ModuleStateChanged {
+                    module_id: id,
+                    state: "disabled".into(),
+                })
+                .await;
+        }
+        for module in enabled {
             let cancel = {
                 let g = self.inner.lock().await;
                 g.session_cancel.child_token()
@@ -95,6 +118,70 @@ impl Engine {
                 .await;
         }
         let _ = self.emit(Event::SessionReady).await;
+    }
+
+    /// Cancel in-flight search/action work for a module, await operation termination, then teardown or warmup.
+    async fn apply_module_enabled(&self, module_id: &str, enabled: bool) -> bool {
+        let (module, op_handles) = {
+            let mut g = self.inner.lock().await;
+            if !g.registry.set_enabled(module_id, enabled) {
+                return false;
+            }
+            let mut op_handles = Vec::new();
+            if !enabled {
+                for task in g.searches.values() {
+                    if let Some(token) = task.module_cancels.get(module_id) {
+                        token.cancel();
+                    }
+                }
+                for op in g.operations.values_mut() {
+                    if op.module_id == module_id {
+                        op.cancel.cancel();
+                        if let Some(handle) = op.handle.take() {
+                            op_handles.push(handle);
+                        }
+                    }
+                }
+            }
+            (g.registry.get(module_id), op_handles)
+        };
+        for handle in op_handles {
+            let _ = handle.await;
+        }
+        let Some(module) = module else {
+            return false;
+        };
+        if enabled {
+            let cancel = {
+                let g = self.inner.lock().await;
+                g.session_cancel.child_token()
+            };
+            let state = module
+                .warmup(WarmupContext {
+                    cancel: cancel.clone(),
+                })
+                .await;
+            let _ = self
+                .emit(Event::ModuleStateChanged {
+                    module_id: module_id.to_string(),
+                    state: match state {
+                        ModuleState::Ready => "ready".into(),
+                        ModuleState::Cold => "cold".into(),
+                        ModuleState::Disabled => "disabled".into(),
+                        ModuleState::Failed(msg) => format!("failed:{msg}"),
+                    },
+                })
+                .await;
+        } else {
+            module.teardown().await;
+            let _ = self
+                .emit(Event::ModuleStateChanged {
+                    module_id: module_id.to_string(),
+                    state: "disabled".into(),
+                })
+                .await;
+        }
+        true
     }
 
     async fn emit(&self, event: Event) -> Result<(), String> {
@@ -167,12 +254,15 @@ impl Engine {
         let request_for_task = request_id.clone();
         let cancel_for_task = cancel.clone();
 
+        let mut module_cancels = HashMap::new();
         let handles: Vec<_> = modules
             .into_iter()
             .map(|module| {
                 let q = query.clone();
                 let sink = chunk_tx.clone();
-                let token = cancel_for_task.clone();
+                let module_id = module.manifest().id.as_str().to_string();
+                let token = cancel_for_task.child_token();
+                module_cancels.insert(module_id, token.clone());
                 tokio::spawn(async move {
                     module.search(q, sink, token).await;
                 })
@@ -249,6 +339,7 @@ impl Engine {
                 request_for_task,
                 SearchTask {
                     cancel,
+                    module_cancels,
                     handle: collect,
                 },
             );
@@ -293,37 +384,31 @@ impl Engine {
                 let _ = self.emit(Event::DiagnosticRaised { diagnostic }).await;
             }
             Command::ShutdownSession => {
-                let mut g = self.inner.lock().await;
-                g.session_cancel.cancel();
-                let ids: Vec<String> = g.searches.keys().cloned().collect();
-                for id in ids {
-                    Self::cancel_search_locked(&mut g, &id);
+                let (modules, op_handles) = {
+                    let mut g = self.inner.lock().await;
+                    g.session_cancel.cancel();
+                    let ids: Vec<String> = g.searches.keys().cloned().collect();
+                    for id in ids {
+                        Self::cancel_search_locked(&mut g, &id);
+                    }
+                    let mut op_handles = Vec::new();
+                    for op in g.operations.values_mut() {
+                        op.cancel.cancel();
+                        if let Some(handle) = op.handle.take() {
+                            op_handles.push(handle);
+                        }
+                    }
+                    (g.registry.all_modules(), op_handles)
+                };
+                for handle in op_handles {
+                    let _ = handle.await;
                 }
-                for cancel in g.operations.values() {
-                    cancel.cancel();
-                }
-                let modules = g.registry.all_modules();
-                drop(g);
                 for m in modules {
                     m.teardown().await;
                 }
             }
             Command::SetModuleEnabled { module_id, enabled } => {
-                let mut g = self.inner.lock().await;
-                let ok = g.registry.set_enabled(&module_id, enabled);
-                drop(g);
-                if ok {
-                    let _ = self
-                        .emit(Event::ModuleStateChanged {
-                            module_id,
-                            state: if enabled {
-                                "enabled".into()
-                            } else {
-                                "disabled".into()
-                            },
-                        })
-                        .await;
-                }
+                let _ = self.apply_module_enabled(&module_id, enabled).await;
             }
             Command::ExecuteAction {
                 operation_id,
@@ -331,17 +416,6 @@ impl Engine {
                 action_id,
                 confirmation,
             } => {
-                let cancel = {
-                    let mut g = self.inner.lock().await;
-                    let cancel = g.session_cancel.child_token();
-                    g.operations.insert(operation_id.clone(), cancel.clone());
-                    cancel
-                };
-                let _ = self
-                    .emit(Event::ActionStarted {
-                        operation_id: operation_id.clone(),
-                    })
-                    .await;
                 let (item, module) = {
                     let g = self.inner.lock().await;
                     let item = g.results_by_id.get(&result_id).cloned();
@@ -350,58 +424,102 @@ impl Engine {
                         .and_then(|i| g.registry.get(i.module_id.as_str()));
                     (item, module)
                 };
-                let outcome = match (item, module) {
-                    (Some(result), Some(module)) => {
-                        let actions = module.actions(&result).await;
-                        if let Some(action) =
-                            actions.into_iter().find(|a| a.id.as_str() == action_id)
-                        {
-                            if action.confirmation && !confirmation {
-                                luma_protocol::ActionOutcomeDto::Failed {
-                                    message: "confirmation required".into(),
-                                }
-                            } else {
-                                let out = module
-                                    .perform(
-                                        crate::module::ActionRequest {
-                                            result,
-                                            action,
-                                            confirmation,
+                let cancel = {
+                    let mut g = self.inner.lock().await;
+                    let cancel = g.session_cancel.child_token();
+                    let module_id = item
+                        .as_ref()
+                        .map(|i| i.module_id.as_str().to_string())
+                        .unwrap_or_default();
+                    g.operations.insert(
+                        operation_id.clone(),
+                        OperationTask {
+                            cancel: cancel.clone(),
+                            module_id,
+                            handle: None,
+                        },
+                    );
+                    cancel
+                };
+                let engine = self.clone_inner();
+                let op_id = operation_id.clone();
+                let handle = tokio::spawn(async move {
+                    let (tx, broadcast_tx) = {
+                        let g = engine.lock().await;
+                        (g.event_tx.clone(), g.event_broadcast_tx.clone())
+                    };
+                    let started = Event::ActionStarted {
+                        operation_id: op_id.clone(),
+                    };
+                    let _ = broadcast_tx.send(started.clone());
+                    let _ = tx.send(started).await;
+
+                    let outcome = match (item, module) {
+                        (Some(result), Some(module)) => {
+                            let actions = module.actions(&result).await;
+                            if let Some(action) =
+                                actions.into_iter().find(|a| a.id.as_str() == action_id)
+                            {
+                                let needs_confirm = action.confirmation
+                                    || !matches!(action.risk, luma_domain::ActionRisk::Safe);
+                                if needs_confirm && !confirmation {
+                                    luma_protocol::ActionOutcomeDto::failed(
+                                        luma_domain::FailureKind::SecurityDenied {
+                                            reason: "confirmation required".into(),
                                         },
-                                        cancel,
                                     )
-                                    .await;
-                                match out {
-                                    crate::module::ActionOutcome::Success { message } => {
-                                        luma_protocol::ActionOutcomeDto::Success { message }
-                                    }
-                                    crate::module::ActionOutcome::Cancelled => {
-                                        luma_protocol::ActionOutcomeDto::Cancelled
-                                    }
-                                    crate::module::ActionOutcome::Failed { kind } => {
-                                        luma_protocol::ActionOutcomeDto::Failed {
-                                            message: format!("{kind:?}"),
+                                } else {
+                                    let out = module
+                                        .perform(
+                                            crate::module::ActionRequest {
+                                                result,
+                                                action,
+                                                confirmation,
+                                            },
+                                            cancel,
+                                        )
+                                        .await;
+                                    match out {
+                                        crate::module::ActionOutcome::Success { message } => {
+                                            luma_protocol::ActionOutcomeDto::Success { message }
+                                        }
+                                        crate::module::ActionOutcome::Cancelled => {
+                                            luma_protocol::ActionOutcomeDto::Cancelled
+                                        }
+                                        crate::module::ActionOutcome::Failed { kind } => {
+                                            luma_protocol::ActionOutcomeDto::failed(kind)
                                         }
                                     }
                                 }
-                            }
-                        } else {
-                            luma_protocol::ActionOutcomeDto::Failed {
-                                message: "action not found".into(),
+                            } else {
+                                luma_protocol::ActionOutcomeDto::failed(
+                                    luma_domain::FailureKind::NotFound {
+                                        entity: format!("action:{action_id}"),
+                                    },
+                                )
                             }
                         }
-                    }
-                    _ => luma_protocol::ActionOutcomeDto::Failed {
-                        message: "result not found in engine".into(),
-                    },
-                };
-                let _ = self
-                    .emit(Event::ActionFinished {
-                        operation_id: operation_id.clone(),
+                        _ => luma_protocol::ActionOutcomeDto::failed(
+                            luma_domain::FailureKind::NotFound {
+                                entity: format!("result:{result_id}"),
+                            },
+                        ),
+                    };
+                    let (tx, broadcast_tx) = {
+                        let g = engine.lock().await;
+                        (g.event_tx.clone(), g.event_broadcast_tx.clone())
+                    };
+                    let finished = Event::ActionFinished {
+                        operation_id: op_id.clone(),
                         outcome,
-                    })
-                    .await;
-                self.inner.lock().await.operations.remove(&operation_id);
+                    };
+                    let _ = broadcast_tx.send(finished.clone());
+                    let _ = tx.send(finished).await;
+                    engine.lock().await.operations.remove(&op_id);
+                });
+                if let Some(op) = self.inner.lock().await.operations.get_mut(&operation_id) {
+                    op.handle = Some(handle);
+                }
             }
             Command::ListActions { result_id } => {
                 let (item, module) = {
@@ -417,14 +535,7 @@ impl Engine {
                         let descriptors = module.actions(&result).await;
                         descriptors
                             .into_iter()
-                            .map(|a| {
-                                serde_json::json!({
-                                    "id": a.id.as_str(),
-                                    "label": a.label,
-                                    "risk": format!("{:?}", a.risk),
-                                    "confirmation": a.confirmation,
-                                })
-                            })
+                            .map(|a| luma_protocol::ActionDescriptorDto::from(&a))
                             .collect::<Vec<_>>()
                     }
                     _ => Vec::new(),
@@ -496,11 +607,17 @@ impl Engine {
                         return;
                     }
                 };
-                {
-                    let mut g = self.inner.lock().await;
-                    for (id, enabled) in &saved.enabled_modules {
-                        let _ = g.registry.set_enabled(id, *enabled);
-                    }
+                let changes: Vec<(String, bool)> = {
+                    let g = self.inner.lock().await;
+                    saved
+                        .enabled_modules
+                        .iter()
+                        .filter(|(id, enabled)| g.registry.is_enabled(id) != **enabled)
+                        .map(|(id, enabled)| (id.clone(), *enabled))
+                        .collect()
+                };
+                for (id, enabled) in changes {
+                    let _ = self.apply_module_enabled(&id, enabled).await;
                 }
                 let _ = self
                     .emit(Event::SettingsChanged {
@@ -530,25 +647,32 @@ impl Engine {
                     .await;
             }
             Command::CancelOperation { operation_id } => {
-                let cancel = self
-                    .inner
-                    .lock()
-                    .await
-                    .operations
-                    .get(&operation_id)
-                    .cloned();
-                match cancel {
-                    Some(cancel) => cancel.cancel(),
-                    None => {
-                        let _ = self
-                            .emit(Event::ActionFinished {
-                                operation_id,
-                                outcome: luma_protocol::ActionOutcomeDto::Failed {
-                                    message: "operation not found or already finished".into(),
-                                },
-                            })
-                            .await;
+                let handle = {
+                    let mut g = self.inner.lock().await;
+                    match g.operations.get_mut(&operation_id) {
+                        Some(op) => {
+                            op.cancel.cancel();
+                            op.handle.take()
+                        }
+                        None => {
+                            drop(g);
+                            let _ = self
+                                .emit(Event::ActionFinished {
+                                    operation_id,
+                                    outcome: luma_protocol::ActionOutcomeDto::failed(
+                                        luma_domain::FailureKind::NotFound {
+                                            entity: "operation".into(),
+                                        },
+                                    ),
+                                })
+                                .await;
+                            return;
+                        }
                     }
+                };
+                // Await terminal state so cancel is real for the caller.
+                if let Some(handle) = handle {
+                    let _ = handle.await;
                 }
             }
             Command::ExportDiagnostics => {
@@ -821,6 +945,7 @@ mod tests {
                 score: 42.0,
                 primary_action_id: "open".into(),
                 primary_action_label: "Open".into(),
+                ..Default::default()
             };
             let _ = sink
                 .send(Event::ResultsChunk {
@@ -985,6 +1110,78 @@ mod tests {
             luma_protocol::ActionOutcomeDto::Cancelled
         ));
         execute.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn disable_module_cancels_in_flight_perform() {
+        let mut registry = fake_registry();
+        registry.register(Arc::new(FakeModule {
+            manifest: ModuleManifest {
+                id: ModuleId::new("luma.wait"),
+                display_name: "Wait".into(),
+                triggers: vec!["wait".into()],
+                default_enabled: true,
+                search_mode: SearchMode::GlobalContributing,
+                required_capabilities: vec![],
+            },
+            wait_for_cancel: true,
+        }));
+        let engine = Arc::new(Engine::new(registry));
+        let mut events = engine.take_event_receiver().await.unwrap();
+        engine.start_session().await;
+        engine
+            .handle_command(Command::Search {
+                request_id: "r1".into(),
+                query: "wait hello".into(),
+            })
+            .await;
+        while !matches!(events.recv().await, Some(Event::SearchFinished { .. })) {}
+        let execute = {
+            let engine = engine.clone();
+            tokio::spawn(async move {
+                engine
+                    .handle_command(Command::ExecuteAction {
+                        operation_id: "op-disable".into(),
+                        result_id: "wait-1".into(),
+                        action_id: "open".into(),
+                        confirmation: false,
+                    })
+                    .await;
+            })
+        };
+        while !matches!(events.recv().await, Some(Event::ActionStarted { .. })) {}
+        engine
+            .handle_command(Command::SetModuleEnabled {
+                module_id: "luma.wait".into(),
+                enabled: false,
+            })
+            .await;
+        let outcome = loop {
+            if let Some(Event::ActionFinished { outcome, .. }) = events.recv().await {
+                break outcome;
+            }
+        };
+        assert!(matches!(
+            outcome,
+            luma_protocol::ActionOutcomeDto::Cancelled
+        ));
+        execute.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn start_session_skips_warmup_for_disabled_modules() {
+        let mut registry = fake_registry();
+        let _ = registry.set_enabled("luma.fake", false);
+        let engine = Engine::new(registry);
+        let mut events = engine.subscribe();
+        engine.start_session().await;
+        let first = events.recv().await.unwrap();
+        assert!(matches!(
+            first,
+            Event::ModuleStateChanged { ref module_id, ref state }
+                if module_id == "luma.fake" && state == "disabled"
+        ));
+        assert!(matches!(events.recv().await, Ok(Event::SessionReady)));
     }
 
     #[tokio::test]

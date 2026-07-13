@@ -71,6 +71,7 @@ impl MockEngine {
                             score: 100.0 - seq as f64,
                             primary_action_id: "open".into(),
                             primary_action_label: "Open".into(),
+                            ..Default::default()
                         }],
                         removed_ids: vec![],
                     })

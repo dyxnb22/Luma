@@ -71,6 +71,7 @@ impl LumaModule for MediaModule {
                         score: 1.0,
                         primary_action_id: "open".into(),
                         primary_action_label: "Open".into(),
+                        ..Default::default()
                     }],
                     removed_ids: vec![],
                 })
@@ -92,6 +93,7 @@ impl LumaModule for MediaModule {
                     score: 45.0,
                     primary_action_id: "open".into(),
                     primary_action_label: "Open".into(),
+                    ..Default::default()
                 });
             }
         }

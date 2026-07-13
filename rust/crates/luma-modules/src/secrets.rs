@@ -6,7 +6,7 @@ use luma_application::{
 use luma_domain::{
     ActionDescriptor, ActionId, ActionRisk, FailureKind, ModuleId, Query, SearchItem,
 };
-use luma_platform_macos::{Keychain, MacKeychain, MacPasteboard, Pasteboard};
+use luma_platform_macos::{Keychain, Pasteboard};
 use luma_protocol::{Event, SearchItemDto};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -21,10 +21,6 @@ pub struct SecretsModule {
 }
 
 impl SecretsModule {
-    pub fn new() -> Self {
-        Self::with_deps(Arc::new(MacKeychain::luma_next()), Arc::new(MacPasteboard))
-    }
-
     pub fn with_deps(keychain: Arc<dyn Keychain>, pasteboard: Arc<dyn Pasteboard>) -> Self {
         Self {
             manifest: ModuleManifest {
@@ -39,12 +35,6 @@ impl SecretsModule {
             keychain,
             pasteboard,
         }
-    }
-}
-
-impl Default for SecretsModule {
-    fn default() -> Self {
-        Self::new()
     }
 }
 
@@ -74,6 +64,7 @@ impl LumaModule for SecretsModule {
             score: 1.0,
             primary_action_id: if unlocked { "lock" } else { "unlock" }.into(),
             primary_action_label: if unlocked { "Lock" } else { "Unlock" }.into(),
+            ..Default::default()
         }];
 
         if unlocked {
@@ -98,6 +89,7 @@ impl LumaModule for SecretsModule {
                             score: 40.0,
                             primary_action_id: "copy".into(),
                             primary_action_label: "Copy".into(),
+                            ..Default::default()
                         });
                     }
                 }

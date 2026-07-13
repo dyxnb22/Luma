@@ -87,4 +87,13 @@ impl ModuleRegistry {
     pub fn all_modules(&self) -> Vec<Arc<dyn LumaModule>> {
         self.modules.values().cloned().collect()
     }
+
+    /// Enabled modules only (for session warmup / active work).
+    pub fn enabled_modules(&self) -> Vec<Arc<dyn LumaModule>> {
+        self.modules
+            .values()
+            .filter(|m| self.is_enabled(m.manifest().id.as_str()))
+            .cloned()
+            .collect()
+    }
 }

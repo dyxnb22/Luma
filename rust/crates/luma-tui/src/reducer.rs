@@ -1,43 +1,67 @@
 use crate::effect::Effect;
 use crate::msg::Msg;
-use crate::view_model::{AppState, Route};
+use crate::view_model::{ActionsIntent, AppState, AwaitingActions, PendingAction, Route};
+use luma_protocol::{ActionDescriptorDto, Event};
 
 /// Pure synchronous reducer. Must not perform I/O.
 pub fn update(state: &mut AppState, msg: Msg) -> Vec<Effect> {
     state.dirty = true;
     match msg {
         Msg::KeyChar(c) => {
-            if state.route != Route::Search {
+            if matches!(
+                state.route,
+                Route::ConfirmAction | Route::ActionPicker | Route::Help | Route::Doctor
+            ) {
+                // Typing leaves modal routes and resumes search.
+                clear_action_ui(state);
                 state.route = Route::Search;
             }
             state.prompt.push(c);
             begin_search(state)
         }
         Msg::Backspace => {
+            if matches!(state.route, Route::ConfirmAction | Route::ActionPicker) {
+                return vec![Effect::None];
+            }
             state.prompt.pop();
             begin_search(state)
         }
-        Msg::Submit => {
-            if state.prompt.trim() == ":doctor" {
-                state.prompt.clear();
-                state.route = Route::Doctor;
-                state.status.text = "doctor".into();
-                return vec![Effect::RunDoctor];
+        Msg::Submit => match state.route {
+            Route::ConfirmAction => confirm_pending(state),
+            Route::ActionPicker => submit_picker_selection(state),
+            Route::Search | Route::Help | Route::Doctor | Route::QuitConfirm => {
+                if state.prompt.trim() == ":doctor" {
+                    state.prompt.clear();
+                    state.route = Route::Doctor;
+                    state.status.text = "doctor".into();
+                    return vec![Effect::RunDoctor];
+                }
+                if state.prompt.trim() == ":help" || state.prompt.trim() == "?" {
+                    state.prompt.clear();
+                    state.route = Route::Help;
+                    state.status.text = "help".into();
+                    return vec![Effect::None];
+                }
+                request_primary_actions(state)
             }
-            if state.prompt.trim() == ":help" || state.prompt.trim() == "?" {
-                state.prompt.clear();
-                state.route = Route::Help;
-                state.status.text = "help".into();
+        },
+        Msg::OpenActions => request_action_picker(state),
+        Msg::SelectNext => {
+            if state.route == Route::ActionPicker {
+                if !state.action_choices.is_empty() {
+                    state.action_selected =
+                        (state.action_selected + 1).min(state.action_choices.len() - 1);
+                }
                 return vec![Effect::None];
             }
-            state.status.text = "running primary action".into();
-            vec![Effect::None]
-        }
-        Msg::SelectNext => {
             state.results.select_next();
             vec![Effect::None]
         }
         Msg::SelectPrev => {
+            if state.route == Route::ActionPicker {
+                state.action_selected = state.action_selected.saturating_sub(1);
+                return vec![Effect::None];
+            }
             state.results.select_prev();
             vec![Effect::None]
         }
@@ -55,35 +79,201 @@ pub fn update(state: &mut AppState, msg: Msg) -> Vec<Effect> {
             state.should_quit = true;
             cancel_active(state)
         }
-        Msg::Cancel => {
-            if state.route != Route::Search {
-                state.route = Route::Search;
-                return vec![Effect::None];
-            }
-            if state.active_request.is_some() {
-                let effects = cancel_active(state);
-                state.status.text = "cancelled".into();
-                effects
-            } else if !state.prompt.is_empty() {
-                state.prompt.clear();
-                state.results.items.clear();
-                state.results.selected_id = None;
-                state.active_request = None;
-                vec![Effect::None]
-            } else {
-                state.should_quit = true;
-                vec![Effect::None]
-            }
-        }
+        Msg::Cancel => cancel_msg(state),
         Msg::Redraw | Msg::Resize | Msg::Tick => vec![Effect::None],
-        Msg::Engine(event) => {
-            let _ = state.apply_engine_event(event);
-            vec![Effect::None]
-        }
+        Msg::Engine(event) => apply_engine(state, event),
     }
 }
 
+fn clear_action_ui(state: &mut AppState) {
+    state.awaiting_actions = None;
+    state.pending_action = None;
+    state.action_choices.clear();
+    state.action_result_id = None;
+    state.action_selected = 0;
+}
+
+fn request_primary_actions(state: &mut AppState) -> Vec<Effect> {
+    let Some(result_id) = state.results.selected_id.clone() else {
+        state.status.text = "no result selected".into();
+        return vec![Effect::None];
+    };
+    state.awaiting_actions = Some(AwaitingActions {
+        intent: ActionsIntent::Primary,
+        result_id: result_id.clone(),
+    });
+    state.status.text = "resolving actions…".into();
+    vec![Effect::ListActions { result_id }]
+}
+
+fn request_action_picker(state: &mut AppState) -> Vec<Effect> {
+    if state.route != Route::Search {
+        return vec![Effect::None];
+    }
+    let Some(result_id) = state.results.selected_id.clone() else {
+        state.status.text = "no result selected".into();
+        return vec![Effect::None];
+    };
+    state.awaiting_actions = Some(AwaitingActions {
+        intent: ActionsIntent::Picker,
+        result_id: result_id.clone(),
+    });
+    state.status.text = "loading actions…".into();
+    vec![Effect::ListActions { result_id }]
+}
+
+fn confirm_pending(state: &mut AppState) -> Vec<Effect> {
+    let Some(pending) = state.pending_action.take() else {
+        state.route = Route::Search;
+        return vec![Effect::None];
+    };
+    state.route = Route::Search;
+    execute_action(state, pending.result_id, pending.action, true)
+}
+
+fn submit_picker_selection(state: &mut AppState) -> Vec<Effect> {
+    let Some(result_id) = state.action_result_id.take() else {
+        state.route = Route::Search;
+        clear_action_ui(state);
+        return vec![Effect::None];
+    };
+    let Some(action) = state.action_choices.get(state.action_selected).cloned() else {
+        state.route = Route::Search;
+        clear_action_ui(state);
+        return vec![Effect::None];
+    };
+    state.action_choices.clear();
+    state.action_selected = 0;
+    if action.needs_confirmation() {
+        state.pending_action = Some(PendingAction {
+            result_id,
+            action: action.clone(),
+        });
+        state.route = Route::ConfirmAction;
+        state.status.text = format!("confirm {}? Enter=yes Esc=no", action.label);
+        vec![Effect::None]
+    } else {
+        state.route = Route::Search;
+        execute_action(state, result_id, action, false)
+    }
+}
+
+fn execute_action(
+    state: &mut AppState,
+    result_id: String,
+    action: ActionDescriptorDto,
+    confirmation: bool,
+) -> Vec<Effect> {
+    state.search_generation = state.search_generation.saturating_add(1);
+    let operation_id = format!("op-{}", state.search_generation);
+    state.active_operation = Some(operation_id.clone());
+    state.status.text = format!("running {}", action.label);
+    vec![Effect::ExecuteAction {
+        operation_id,
+        result_id,
+        action_id: action.id,
+        confirmation,
+    }]
+}
+
+fn begin_primary_or_confirm(
+    state: &mut AppState,
+    result_id: String,
+    actions: Vec<ActionDescriptorDto>,
+) -> Vec<Effect> {
+    let primary_id = state
+        .results
+        .items
+        .iter()
+        .find(|i| i.id.as_str() == result_id)
+        .map(|i| i.primary_action.id.as_str().to_string());
+    let action = primary_id
+        .as_ref()
+        .and_then(|id| actions.iter().find(|a| &a.id == id).cloned())
+        .or_else(|| actions.into_iter().next());
+    let Some(action) = action else {
+        state.status.text = "no actions available".into();
+        return vec![Effect::None];
+    };
+    if action.needs_confirmation() {
+        state.pending_action = Some(PendingAction {
+            result_id,
+            action: action.clone(),
+        });
+        state.route = Route::ConfirmAction;
+        state.status.text = format!("confirm {}? Enter=yes Esc=no", action.label);
+        vec![Effect::None]
+    } else {
+        execute_action(state, result_id, action, false)
+    }
+}
+
+fn cancel_msg(state: &mut AppState) -> Vec<Effect> {
+    if matches!(state.route, Route::ConfirmAction | Route::ActionPicker) {
+        clear_action_ui(state);
+        state.route = Route::Search;
+        state.status.text = "cancelled".into();
+        return vec![Effect::None];
+    }
+    if state.route != Route::Search {
+        state.route = Route::Search;
+        return vec![Effect::None];
+    }
+    if let Some(operation_id) = state.active_operation.clone() {
+        state.status.text = "cancelling action…".into();
+        return vec![Effect::CancelOperation { operation_id }];
+    }
+    if state.active_request.is_some() {
+        let effects = cancel_active(state);
+        state.status.text = "cancelled".into();
+        effects
+    } else if !state.prompt.is_empty() {
+        state.prompt.clear();
+        state.results.items.clear();
+        state.results.selected_id = None;
+        state.active_request = None;
+        vec![Effect::None]
+    } else {
+        state.should_quit = true;
+        vec![Effect::None]
+    }
+}
+
+fn apply_engine(state: &mut AppState, event: Event) -> Vec<Effect> {
+    if let Event::ActionsAvailable { result_id, actions } = event {
+        let Some(pending) = state.awaiting_actions.take() else {
+            state.status.text = format!("{result_id}: {} actions", actions.len());
+            return vec![Effect::None];
+        };
+        if pending.result_id != result_id {
+            // Stale / mismatched response for a different result — keep waiting.
+            state.awaiting_actions = Some(pending);
+            return vec![Effect::None];
+        }
+        match pending.intent {
+            ActionsIntent::Primary => {
+                return begin_primary_or_confirm(state, result_id, actions);
+            }
+            ActionsIntent::Picker => {
+                if actions.is_empty() {
+                    state.status.text = "no actions available".into();
+                    return vec![Effect::None];
+                }
+                state.action_result_id = Some(result_id);
+                state.action_choices = actions;
+                state.action_selected = 0;
+                state.route = Route::ActionPicker;
+                state.status.text = "pick action · Enter run · Esc back".into();
+                return vec![Effect::None];
+            }
+        }
+    }
+    let _ = state.apply_engine_event(event);
+    vec![Effect::None]
+}
+
 fn begin_search(state: &mut AppState) -> Vec<Effect> {
+    clear_action_ui(state);
     let mut effects = cancel_active(state);
     if state.prompt.is_empty() {
         state.results.items.clear();
@@ -120,7 +310,8 @@ fn next_request_id(state: &mut AppState) -> String {
 #[allow(clippy::field_reassign_with_default)]
 mod tests {
     use super::*;
-    use luma_protocol::{Event, SearchItemDto};
+    use luma_domain::{ActionDescriptor, ActionId, ActionRisk, ModuleId, ResultId, SearchItem};
+    use luma_protocol::{ActionDescriptorDto, Event, SearchItemDto};
 
     #[test]
     fn typing_starts_new_search_and_cancels_old() {
@@ -142,7 +333,6 @@ mod tests {
         let _ = update(&mut state, Msg::KeyChar('a'));
         let active = state.active_request.clone().unwrap();
 
-        // Simulate superseding search
         let _ = update(&mut state, Msg::KeyChar('b'));
         let new_active = state.active_request.clone().unwrap();
         assert_ne!(active, new_active);
@@ -159,6 +349,7 @@ mod tests {
                 score: 1.0,
                 primary_action_id: "open".into(),
                 primary_action_label: "Open".into(),
+                ..Default::default()
             }],
             removed_ids: vec![],
         });
@@ -183,6 +374,7 @@ mod tests {
                 score: 10.0,
                 primary_action_id: "open".into(),
                 primary_action_label: "Open".into(),
+                ..Default::default()
             }],
             removed_ids: vec![],
         });
@@ -193,9 +385,7 @@ mod tests {
 
     #[test]
     fn doctor_meta_emits_run_doctor_not_primary() {
-        use luma_domain::{ActionDescriptor, ActionId, ActionRisk, ModuleId, ResultId, SearchItem};
         let mut state = AppState::default();
-        // Seed a selected result that must NOT be actioned by :doctor.
         state.results.items.push(SearchItem {
             id: ResultId::new("danger"),
             module_id: ModuleId::new("mock"),
@@ -217,7 +407,6 @@ mod tests {
         assert_eq!(effects, vec![Effect::RunDoctor]);
         assert_eq!(state.route, Route::Doctor);
         assert_eq!(state.status.text, "doctor");
-        assert_ne!(state.status.text, "running primary action");
     }
 
     #[test]
@@ -235,5 +424,202 @@ mod tests {
         let mut state = AppState::default();
         let _ = update(&mut state, Msg::Cancel);
         assert!(state.should_quit);
+    }
+
+    #[test]
+    fn submit_lists_actions_for_selected_result() {
+        let mut state = AppState::default();
+        state.results.items.push(SearchItem {
+            id: ResultId::new("1"),
+            module_id: ModuleId::new("mock"),
+            title: "One".into(),
+            subtitle: None,
+            kind: "mock".into(),
+            score: 1.0,
+            primary_action: ActionDescriptor {
+                id: ActionId::new("open"),
+                label: "Open".into(),
+                risk: ActionRisk::Safe,
+                confirmation: false,
+            },
+            secondary_actions: vec![],
+        });
+        state.results.selected_id = Some("1".into());
+        let effects = update(&mut state, Msg::Submit);
+        assert_eq!(
+            effects,
+            vec![Effect::ListActions {
+                result_id: "1".into()
+            }]
+        );
+        assert_eq!(
+            state.awaiting_actions,
+            Some(AwaitingActions {
+                intent: ActionsIntent::Primary,
+                result_id: "1".into(),
+            })
+        );
+    }
+
+    #[test]
+    fn actions_available_enters_confirm_for_destructive() {
+        let mut state = AppState::default();
+        state.results.items.push(SearchItem {
+            id: ResultId::new("1"),
+            module_id: ModuleId::new("mock"),
+            title: "One".into(),
+            subtitle: None,
+            kind: "mock".into(),
+            score: 1.0,
+            primary_action: ActionDescriptor {
+                id: ActionId::new("force"),
+                label: "Force".into(),
+                risk: ActionRisk::Destructive,
+                confirmation: true,
+            },
+            secondary_actions: vec![],
+        });
+        state.results.selected_id = Some("1".into());
+        state.awaiting_actions = Some(AwaitingActions {
+            intent: ActionsIntent::Primary,
+            result_id: "1".into(),
+        });
+        let effects = update(
+            &mut state,
+            Msg::Engine(Event::ActionsAvailable {
+                result_id: "1".into(),
+                actions: vec![ActionDescriptorDto {
+                    id: "force".into(),
+                    label: "Force".into(),
+                    risk: ActionRisk::Destructive,
+                    confirmation: true,
+                }],
+            }),
+        );
+        assert_eq!(effects, vec![Effect::None]);
+        assert_eq!(state.route, Route::ConfirmAction);
+        assert!(state.pending_action.is_some());
+    }
+
+    #[test]
+    fn confirm_submit_executes_with_confirmation_true() {
+        let mut state = AppState::default();
+        state.route = Route::ConfirmAction;
+        state.pending_action = Some(PendingAction {
+            result_id: "1".into(),
+            action: ActionDescriptorDto {
+                id: "force".into(),
+                label: "Force".into(),
+                risk: ActionRisk::Destructive,
+                confirmation: true,
+            },
+        });
+        let effects = update(&mut state, Msg::Submit);
+        assert!(matches!(
+            effects.as_slice(),
+            [Effect::ExecuteAction {
+                action_id,
+                confirmation: true,
+                ..
+            }] if action_id == "force"
+        ));
+        assert_eq!(state.route, Route::Search);
+    }
+
+    #[test]
+    fn tab_opens_action_picker() {
+        let mut state = AppState::default();
+        state.results.selected_id = Some("1".into());
+        let effects = update(&mut state, Msg::OpenActions);
+        assert_eq!(
+            effects,
+            vec![Effect::ListActions {
+                result_id: "1".into()
+            }]
+        );
+        assert_eq!(
+            state.awaiting_actions,
+            Some(AwaitingActions {
+                intent: ActionsIntent::Picker,
+                result_id: "1".into(),
+            })
+        );
+        let effects = update(
+            &mut state,
+            Msg::Engine(Event::ActionsAvailable {
+                result_id: "1".into(),
+                actions: vec![
+                    ActionDescriptorDto {
+                        id: "open".into(),
+                        label: "Open".into(),
+                        risk: ActionRisk::Safe,
+                        confirmation: false,
+                    },
+                    ActionDescriptorDto {
+                        id: "delete".into(),
+                        label: "Delete".into(),
+                        risk: ActionRisk::Destructive,
+                        confirmation: true,
+                    },
+                ],
+            }),
+        );
+        assert_eq!(effects, vec![Effect::None]);
+        assert_eq!(state.route, Route::ActionPicker);
+        assert_eq!(state.action_choices.len(), 2);
+        assert_eq!(state.action_result_id.as_deref(), Some("1"));
+    }
+
+    #[test]
+    fn mismatched_actions_available_is_ignored() {
+        let mut state = AppState::default();
+        state.awaiting_actions = Some(AwaitingActions {
+            intent: ActionsIntent::Picker,
+            result_id: "A".into(),
+        });
+        let effects = update(
+            &mut state,
+            Msg::Engine(Event::ActionsAvailable {
+                result_id: "B".into(),
+                actions: vec![ActionDescriptorDto {
+                    id: "delete".into(),
+                    label: "Delete".into(),
+                    risk: ActionRisk::Destructive,
+                    confirmation: true,
+                }],
+            }),
+        );
+        assert_eq!(effects, vec![Effect::None]);
+        assert_eq!(state.route, Route::Search);
+        assert!(state.action_choices.is_empty());
+        assert_eq!(
+            state
+                .awaiting_actions
+                .as_ref()
+                .map(|a| a.result_id.as_str()),
+            Some("A")
+        );
+    }
+
+    #[test]
+    fn picker_submit_uses_pinned_result_id_not_selection() {
+        let mut state = AppState::default();
+        state.route = Route::ActionPicker;
+        state.action_result_id = Some("A".into());
+        state.results.selected_id = Some("B".into());
+        state.action_choices = vec![ActionDescriptorDto {
+            id: "delete".into(),
+            label: "Delete".into(),
+            risk: ActionRisk::Destructive,
+            confirmation: true,
+        }];
+        state.action_selected = 0;
+        let effects = update(&mut state, Msg::Submit);
+        assert_eq!(effects, vec![Effect::None]);
+        assert_eq!(state.route, Route::ConfirmAction);
+        assert_eq!(
+            state.pending_action.as_ref().map(|p| p.result_id.as_str()),
+            Some("A")
+        );
     }
 }

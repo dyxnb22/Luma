@@ -62,6 +62,7 @@ macro_rules! ax_denied_module {
                             score: 0.0,
                             primary_action_id: "request".into(),
                             primary_action_label: "Request".into(),
+                            ..Default::default()
                         }],
                         removed_ids: vec![],
                     })
@@ -158,6 +159,7 @@ impl LumaModule for BrowserTabsModule {
                     score: 0.0,
                     primary_action_id: "request".into(),
                     primary_action_label: "Request".into(),
+                    ..Default::default()
                 }],
                 removed_ids: vec![],
             })

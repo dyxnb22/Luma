@@ -1,3 +1,4 @@
+use crate::cancel::await_unless_cancelled;
 use async_trait::async_trait;
 use luma_application::{
     ActionOutcome, ActionRequest, LumaModule, ModuleManifest, ModuleState, SearchMode, SearchSink,
@@ -6,7 +7,7 @@ use luma_application::{
 use luma_domain::{
     ActionDescriptor, ActionId, ActionRisk, FailureKind, ModuleId, Query, SearchItem,
 };
-use luma_platform_macos::{MacOpenPath, OpenPath};
+use luma_platform_macos::OpenPath;
 use luma_protocol::{Event, SearchItemDto};
 use luma_storage::{QuicklinkRow, QuicklinksStore};
 use std::path::Path;
@@ -24,12 +25,6 @@ pub struct QuicklinksModule {
 }
 
 impl QuicklinksModule {
-    pub fn new() -> Self {
-        let store = QuicklinksStore::luma_next_default()
-            .expect("QuicklinksModule::new requires writable LumaNext");
-        Self::with_deps(Arc::new(store), Arc::new(MacOpenPath))
-    }
-
     pub fn with_deps(store: Arc<QuicklinksStore>, opener: Arc<dyn OpenPath>) -> Self {
         Self {
             manifest: ModuleManifest {
@@ -64,12 +59,6 @@ impl QuicklinksModule {
     }
 }
 
-impl Default for QuicklinksModule {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 fn allowed_scheme(url: &str) -> bool {
     url.starts_with("http://") || url.starts_with("https://") || url.starts_with("mailto:")
 }
@@ -101,6 +90,29 @@ impl LumaModule for QuicklinksModule {
             if parts.len() >= 2 {
                 let trigger = parts[0];
                 let url = parts[1..].join(" ");
+                let exists = self
+                    .index
+                    .read()
+                    .await
+                    .iter()
+                    .any(|link| link.trigger == trigger);
+                let (title, action_id, action_label, risk, confirmation) = if exists {
+                    (
+                        format!("Overwrite {trigger}"),
+                        "add",
+                        "Overwrite",
+                        ActionRisk::Confirm,
+                        true,
+                    )
+                } else {
+                    (
+                        format!("Add {trigger}"),
+                        "add",
+                        "Add",
+                        ActionRisk::Safe,
+                        false,
+                    )
+                };
                 let _ = sink
                     .send(Event::ResultsChunk {
                         request_id: String::new(),
@@ -108,12 +120,19 @@ impl LumaModule for QuicklinksModule {
                         upserts: vec![SearchItemDto {
                             id: format!("ql:add:{trigger}"),
                             module_id: "luma.quicklinks".into(),
-                            title: format!("Add {trigger}"),
+                            title,
                             subtitle: Some(url),
-                            kind: "create".into(),
+                            kind: if exists {
+                                "update".into()
+                            } else {
+                                "create".into()
+                            },
                             score: 95.0,
-                            primary_action_id: "add".into(),
-                            primary_action_label: "Add".into(),
+                            primary_action_id: action_id.into(),
+                            primary_action_label: action_label.into(),
+                            primary_action_risk: risk,
+                            primary_action_confirmation: confirmation,
+                            secondary_actions: vec![],
                         }],
                         removed_ids: vec![],
                     })
@@ -144,6 +163,7 @@ impl LumaModule for QuicklinksModule {
                     score: if link.trigger == token { 90.0 } else { 70.0 },
                     primary_action_id: "open".into(),
                     primary_action_label: "Open".into(),
+                    ..Default::default()
                 });
             }
         }
@@ -157,6 +177,7 @@ impl LumaModule for QuicklinksModule {
                 score: 1.0,
                 primary_action_id: "open".into(),
                 primary_action_label: "Open".into(),
+                ..Default::default()
             });
         }
         if !upserts.is_empty() {
@@ -171,12 +192,26 @@ impl LumaModule for QuicklinksModule {
         }
     }
     async fn actions(&self, result: &SearchItem) -> Vec<ActionDescriptor> {
-        if result.id.as_str().starts_with("ql:add:") {
+        if let Some(trigger) = result.id.as_str().strip_prefix("ql:add:") {
+            let exists = self
+                .index
+                .read()
+                .await
+                .iter()
+                .any(|link| link.trigger == trigger);
             return vec![ActionDescriptor {
                 id: ActionId::new("add"),
-                label: "Add".into(),
-                risk: ActionRisk::Safe,
-                confirmation: false,
+                label: if exists {
+                    "Overwrite".into()
+                } else {
+                    "Add".into()
+                },
+                risk: if exists {
+                    ActionRisk::Confirm
+                } else {
+                    ActionRisk::Safe
+                },
+                confirmation: exists,
             }];
         }
         let mut actions = vec![ActionDescriptor {
@@ -224,10 +259,36 @@ impl LumaModule for QuicklinksModule {
                         },
                     };
                 }
+                let exists = self
+                    .index
+                    .read()
+                    .await
+                    .iter()
+                    .any(|link| link.trigger == trigger);
+                if exists && !action.confirmation {
+                    return ActionOutcome::Failed {
+                        kind: FailureKind::SecurityDenied {
+                            reason: "confirmation required to overwrite existing quicklink".into(),
+                        },
+                    };
+                }
+                if cancel.is_cancelled() {
+                    return ActionOutcome::Cancelled;
+                }
                 match self.upsert(trigger, &url).await {
-                    Ok(()) => ActionOutcome::Success {
-                        message: Some(format!("added {trigger}")),
-                    },
+                    Ok(()) => {
+                        if cancel.is_cancelled() {
+                            ActionOutcome::Cancelled
+                        } else {
+                            ActionOutcome::Success {
+                                message: Some(if exists {
+                                    format!("updated {trigger}")
+                                } else {
+                                    format!("added {trigger}")
+                                }),
+                            }
+                        }
+                    }
                     Err(err) => ActionOutcome::Failed {
                         kind: FailureKind::Io { context: err },
                     },
@@ -279,11 +340,12 @@ impl LumaModule for QuicklinksModule {
                         },
                     };
                 }
-                match self.opener.open(Path::new(&url)).await {
-                    Ok(()) => ActionOutcome::Success {
+                match await_unless_cancelled(&cancel, self.opener.open(Path::new(&url))).await {
+                    None => ActionOutcome::Cancelled,
+                    Some(Ok(())) => ActionOutcome::Success {
                         message: Some(format!("opened {url}")),
                     },
-                    Err(err) => ActionOutcome::Failed {
+                    Some(Err(err)) => ActionOutcome::Failed {
                         kind: FailureKind::Unavailable {
                             reason: err.to_string(),
                             retryable: true,
@@ -317,5 +379,91 @@ mod tests {
         m.upsert("docs", "https://example.com").await.unwrap();
         std::fs::remove_file(dir.path().join("ql.sqlite")).unwrap();
         assert!(m.index.read().await.iter().any(|l| l.trigger == "docs"));
+    }
+
+    #[tokio::test]
+    async fn overwrite_requires_confirmation() {
+        let dir = tempdir().unwrap();
+        let store = Arc::new(QuicklinksStore::with_path(dir.path().join("ql.sqlite")).unwrap());
+        let m =
+            QuicklinksModule::with_deps(store, Arc::new(luma_platform_macos::FakeOpenPath::new()));
+        m.upsert("docs", "https://example.com").await.unwrap();
+        let actions = m
+            .actions(&SearchItem {
+                id: luma_domain::ResultId::new("ql:add:docs"),
+                module_id: ModuleId::new("luma.quicklinks"),
+                title: "Overwrite docs".into(),
+                subtitle: Some("https://other.example".into()),
+                kind: "update".into(),
+                score: 1.0,
+                primary_action: ActionDescriptor {
+                    id: ActionId::new("add"),
+                    label: "Overwrite".into(),
+                    risk: ActionRisk::Confirm,
+                    confirmation: true,
+                },
+                secondary_actions: vec![],
+            })
+            .await;
+        assert_eq!(actions.len(), 1);
+        assert!(actions[0].confirmation);
+        assert_eq!(actions[0].risk, ActionRisk::Confirm);
+
+        let denied = m
+            .perform(
+                ActionRequest {
+                    result: SearchItem {
+                        id: luma_domain::ResultId::new("ql:add:docs"),
+                        module_id: ModuleId::new("luma.quicklinks"),
+                        title: "Overwrite docs".into(),
+                        subtitle: Some("https://other.example".into()),
+                        kind: "update".into(),
+                        score: 1.0,
+                        primary_action: actions[0].clone(),
+                        secondary_actions: vec![],
+                    },
+                    action: actions[0].clone(),
+                    confirmation: false,
+                },
+                CancellationToken::new(),
+            )
+            .await;
+        assert!(matches!(
+            denied,
+            ActionOutcome::Failed {
+                kind: FailureKind::SecurityDenied { .. }
+            }
+        ));
+
+        let ok = m
+            .perform(
+                ActionRequest {
+                    result: SearchItem {
+                        id: luma_domain::ResultId::new("ql:add:docs"),
+                        module_id: ModuleId::new("luma.quicklinks"),
+                        title: "Overwrite docs".into(),
+                        subtitle: Some("https://other.example".into()),
+                        kind: "update".into(),
+                        score: 1.0,
+                        primary_action: actions[0].clone(),
+                        secondary_actions: vec![],
+                    },
+                    action: actions[0].clone(),
+                    confirmation: true,
+                },
+                CancellationToken::new(),
+            )
+            .await;
+        assert!(matches!(ok, ActionOutcome::Success { .. }));
+        assert_eq!(
+            m.index
+                .read()
+                .await
+                .iter()
+                .find(|l| l.trigger == "docs")
+                .unwrap()
+                .url,
+            "https://other.example"
+        );
     }
 }

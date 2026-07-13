@@ -668,6 +668,7 @@ dependencies = [
  "luma-tui",
  "serde_json",
  "tempfile",
+ "thiserror",
  "tokio",
  "tracing",
  "tracing-subscriber",
@@ -712,7 +713,6 @@ dependencies = [
  "luma-storage",
  "serde_json",
  "tempfile",
- "thiserror",
  "tokio",
  "tokio-util",
 ]
@@ -773,7 +773,6 @@ dependencies = [
  "crossterm",
  "luma-application",
  "luma-domain",
- "luma-modules",
  "luma-protocol",
  "luma-test-support",
  "ratatui",

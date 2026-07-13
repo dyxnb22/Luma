@@ -79,6 +79,7 @@ impl LumaModule for TranslateModule {
                     score: 40.0,
                     primary_action_id: "translate".into(),
                     primary_action_label: "Translate".into(),
+                    ..Default::default()
                 }],
                 removed_ids: vec![],
             })

@@ -49,6 +49,38 @@ impl FailureKind {
     pub fn is_error(&self) -> bool {
         !matches!(self, FailureKind::Cancelled | FailureKind::Warming { .. })
     }
+
+    /// Stable human-readable summary for status lines / logs.
+    pub fn display_message(&self) -> String {
+        match self {
+            FailureKind::PermissionRequired {
+                capability,
+                guidance,
+            } => format!("permission_required ({capability}): {guidance}"),
+            FailureKind::NotConfigured { remediation } => {
+                format!("not_configured: {remediation}")
+            }
+            FailureKind::Warming { progress } => match progress {
+                Some(p) => format!("warming: {p}"),
+                None => "warming".into(),
+            },
+            FailureKind::Unavailable { reason, retryable } => {
+                format!("unavailable (retryable={retryable}): {reason}")
+            }
+            FailureKind::Timeout { operation } => format!("timeout: {operation}"),
+            FailureKind::Cancelled => "cancelled".into(),
+            FailureKind::InvalidInput { field, message } => {
+                format!("invalid_input ({field}): {message}")
+            }
+            FailureKind::NotFound { entity } => format!("not_found: {entity}"),
+            FailureKind::Conflict { reason } => format!("conflict: {reason}"),
+            FailureKind::SecurityDenied { reason } => format!("security_denied: {reason}"),
+            FailureKind::Io { context } => format!("io: {context}"),
+            FailureKind::Internal { correlation_id } => {
+                format!("internal [{correlation_id}]")
+            }
+        }
+    }
 }
 
 #[derive(Clone, Debug, Error, PartialEq, Eq)]

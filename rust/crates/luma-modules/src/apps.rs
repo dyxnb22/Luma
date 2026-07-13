@@ -1,3 +1,4 @@
+use crate::cancel::await_unless_cancelled;
 use async_trait::async_trait;
 use luma_application::{
     ActionOutcome, ActionRequest, LumaModule, ModuleManifest, ModuleState, SearchMode, SearchSink,
@@ -109,6 +110,7 @@ impl LumaModule for AppsModule {
                     score: 0.0,
                     primary_action_id: "noop".into(),
                     primary_action_label: "Wait".into(),
+                    ..Default::default()
                 };
                 let _ = sink
                     .send(Event::ResultsChunk {
@@ -152,6 +154,33 @@ impl LumaModule for AppsModule {
         };
 
         if needle.is_empty() {
+            let mut upserts = Vec::new();
+            for app in apps.into_iter().take(query.limit) {
+                if cancel.is_cancelled() {
+                    return;
+                }
+                upserts.push(SearchItemDto {
+                    id: format!("app:{}", app.path.to_string_lossy()),
+                    module_id: "luma.apps".into(),
+                    title: app.name,
+                    subtitle: Some(app.path.display().to_string()),
+                    kind: "app".into(),
+                    score: 60.0,
+                    primary_action_id: "launch".into(),
+                    primary_action_label: "Launch".into(),
+                    ..Default::default()
+                });
+            }
+            if !upserts.is_empty() {
+                let _ = sink
+                    .send(Event::ResultsChunk {
+                        request_id: String::new(),
+                        sequence: 1,
+                        upserts,
+                        removed_ids: vec![],
+                    })
+                    .await;
+            }
             return;
         }
 
@@ -173,6 +202,7 @@ impl LumaModule for AppsModule {
                 score: 80.0,
                 primary_action_id: "launch".into(),
                 primary_action_label: "Launch".into(),
+                ..Default::default()
             });
             if upserts.len() >= query.limit {
                 break;
@@ -234,31 +264,38 @@ impl LumaModule for AppsModule {
         };
 
         match action.action.id.as_str() {
-            "launch" => match self.catalog.launch(&path).await {
-                Ok(()) => ActionOutcome::Success {
+            "launch" => match await_unless_cancelled(&cancel, self.catalog.launch(&path)).await {
+                None => ActionOutcome::Cancelled,
+                Some(Ok(())) => ActionOutcome::Success {
                     message: Some(format!("launched {}", path.display())),
                 },
-                Err(err) => ActionOutcome::Failed {
+                Some(Err(err)) => ActionOutcome::Failed {
                     kind: FailureKind::Unavailable {
                         reason: err.to_string(),
                         retryable: true,
                     },
                 },
             },
-            "reveal" => match self.catalog.reveal(&path).await {
-                Ok(()) => ActionOutcome::Success {
+            "reveal" => match await_unless_cancelled(&cancel, self.catalog.reveal(&path)).await {
+                None => ActionOutcome::Cancelled,
+                Some(Ok(())) => ActionOutcome::Success {
                     message: Some("revealed".into()),
                 },
-                Err(err) => ActionOutcome::Failed {
+                Some(Err(err)) => ActionOutcome::Failed {
                     kind: FailureKind::Unavailable {
                         reason: err.to_string(),
                         retryable: true,
                     },
                 },
             },
-            "copy_path" => ActionOutcome::Success {
-                message: Some(path.display().to_string()),
-            },
+            "copy_path" => {
+                if cancel.is_cancelled() {
+                    return ActionOutcome::Cancelled;
+                }
+                ActionOutcome::Success {
+                    message: Some(path.display().to_string()),
+                }
+            }
             "noop" => ActionOutcome::Success { message: None },
             other => ActionOutcome::Failed {
                 kind: FailureKind::NotFound {
@@ -327,6 +364,35 @@ mod tests {
                 assert!(upserts[0].id.starts_with("app:"));
             }
             other => panic!("{other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn exact_trigger_lists_cached_apps() {
+        let catalog = Arc::new(FakeCatalog {
+            apps: vec![AppEntry {
+                name: "Safari".into(),
+                path: PathBuf::from("/Applications/Safari.app"),
+                bundle_id: None,
+            }],
+        });
+        let module = AppsModule::new(catalog);
+        module
+            .warmup(WarmupContext {
+                cancel: CancellationToken::new(),
+            })
+            .await;
+        let (tx, mut rx) = mpsc::channel(4);
+        module
+            .search(Query::parse("app", 10), tx, CancellationToken::new())
+            .await;
+        let ev = rx.recv().await.unwrap();
+        match ev {
+            Event::ResultsChunk { upserts, .. } => {
+                assert_eq!(upserts.len(), 1);
+                assert_eq!(upserts[0].title, "Safari");
+            }
+            other => panic!("expected apps for exact trigger, got {other:?}"),
         }
     }
 }

@@ -10,7 +10,6 @@ description = "Single AppState TUI: update/render/effects (no business I/O)"
 luma-domain = { workspace = true }
 luma-protocol = { workspace = true }
 luma-application = { workspace = true }
-luma-modules = { workspace = true }
 crossterm = { workspace = true }
 ratatui = { workspace = true }
 tokio = { workspace = true }

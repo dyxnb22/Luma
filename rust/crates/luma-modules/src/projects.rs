@@ -138,6 +138,7 @@ impl LumaModule for ProjectsModule {
                         score: 0.0,
                         primary_action_id: "configure".into(),
                         primary_action_label: "Configure".into(),
+                        ..Default::default()
                     }],
                     removed_ids: vec![],
                 })
@@ -165,6 +166,7 @@ impl LumaModule for ProjectsModule {
                     score: 65.0,
                     primary_action_id: "open".into(),
                     primary_action_label: "Open".into(),
+                    ..Default::default()
                 });
             }
         }

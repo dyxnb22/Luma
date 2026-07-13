@@ -5,26 +5,19 @@ use crate::render::render;
 use crate::terminal::{install_panic_hook, TerminalGuard};
 use crate::view_model::{AppState, Route};
 use crossterm::event::{self, Event as CEvent, KeyCode, KeyEventKind, KeyModifiers};
-use luma_application::{Engine, EnginePort, ModuleRegistry};
-use luma_modules::load_registry;
+use luma_application::EnginePort;
 use luma_protocol::{Command, Event};
 use std::sync::Arc;
 use std::time::Duration;
 
-pub async fn run_tui() -> std::io::Result<()> {
-    let registry = load_registry()
-        .map_err(|e| std::io::Error::other(format!("failed to load LumaNext registry: {e}")))?;
-    run_tui_with_registry(registry).await
-}
-
-pub async fn run_tui_with_registry(registry: ModuleRegistry) -> std::io::Result<()> {
+/// Interactive TUI entry. Composition root (`bins/luma`) supplies the engine port.
+pub async fn run_tui_with_engine(engine: Arc<dyn EnginePort>) -> std::io::Result<()> {
     install_panic_hook();
     let mut guard = TerminalGuard::enter()?;
     let mut state = AppState::default();
 
-    let engine = Arc::new(Engine::new(registry));
     let mut engine_rx = engine.subscribe();
-    engine.start_session().await;
+    let _ = engine.submit(Command::StartSession).await;
 
     loop {
         if state.dirty {
@@ -42,7 +35,7 @@ pub async fn run_tui_with_registry(registry: ModuleRegistry) -> std::io::Result<
         if event::poll(poll_timeout)? {
             match event::read()? {
                 CEvent::Key(key) if key.kind == KeyEventKind::Press => {
-                    msgs.push(map_key(key.code, key.modifiers));
+                    msgs.push(map_key(key.code, key.modifiers, &state));
                 }
                 CEvent::Resize(_, _) => msgs.push(Msg::Resize),
                 CEvent::Paste(s) => {
@@ -55,44 +48,14 @@ pub async fn run_tui_with_registry(registry: ModuleRegistry) -> std::io::Result<
         }
 
         for msg in msgs {
-            let is_submit = matches!(msg, Msg::Submit);
             let effects = update(&mut state, msg);
             for effect in effects {
                 dispatch_effect(engine.clone(), effect);
             }
-            if is_submit {
-                // Meta-commands (:doctor / :help) must not run the selected primary action.
-                let meta = matches!(state.route, Route::Doctor | Route::Help)
-                    || state.status.text == "doctor"
-                    || state.status.text == "help";
-                if !meta {
-                    if let Some(result_id) = state.results.selected_id.clone() {
-                        if let Some(item) = state
-                            .results
-                            .items
-                            .iter()
-                            .find(|i| i.id.as_str() == result_id)
-                        {
-                            let action_id = item.primary_action.id.as_str().to_string();
-                            let eng = engine.clone();
-                            let operation_id = format!("op-{}", state.search_generation);
-                            tokio::spawn(async move {
-                                eng.handle_command(Command::ExecuteAction {
-                                    operation_id,
-                                    result_id,
-                                    action_id,
-                                    confirmation: false,
-                                })
-                                .await;
-                            });
-                        }
-                    }
-                }
-            }
         }
 
         if state.should_quit {
-            engine.handle_command(Command::ShutdownSession).await;
+            let _ = engine.submit(Command::ShutdownSession).await;
             break;
         }
     }
@@ -100,7 +63,7 @@ pub async fn run_tui_with_registry(registry: ModuleRegistry) -> std::io::Result<
     Ok(())
 }
 
-fn map_key(code: KeyCode, modifiers: KeyModifiers) -> Msg {
+fn map_key(code: KeyCode, modifiers: KeyModifiers, state: &AppState) -> Msg {
     if modifiers.contains(KeyModifiers::CONTROL) {
         return match code {
             KeyCode::Char('c') => Msg::Cancel,
@@ -111,8 +74,12 @@ fn map_key(code: KeyCode, modifiers: KeyModifiers) -> Msg {
         };
     }
     match code {
-        KeyCode::Char('?') => Msg::OpenHelp,
-        KeyCode::Char(c) => Msg::KeyChar(c),
+        KeyCode::Tab if matches!(state.route, Route::Search) => Msg::OpenActions,
+        KeyCode::Char('?') if matches!(state.route, Route::Search) => Msg::OpenHelp,
+        KeyCode::Char(c) if matches!(state.route, Route::Search | Route::Help | Route::Doctor) => {
+            Msg::KeyChar(c)
+        }
+        KeyCode::Char(_) => Msg::Tick,
         KeyCode::Backspace => Msg::Backspace,
         KeyCode::Enter => Msg::Submit,
         KeyCode::Up => Msg::SelectPrev,
@@ -122,30 +89,55 @@ fn map_key(code: KeyCode, modifiers: KeyModifiers) -> Msg {
     }
 }
 
-fn dispatch_effect(engine: Arc<Engine>, effect: Effect) {
+fn dispatch_effect(engine: Arc<dyn EnginePort>, effect: Effect) {
     match effect {
         Effect::Search { request_id, query } => {
             tokio::spawn(async move {
-                engine
-                    .handle_command(Command::Search { request_id, query })
-                    .await;
+                let _ = engine.submit(Command::Search { request_id, query }).await;
             });
         }
         Effect::CancelSearch { request_id } => {
             tokio::spawn(async move {
-                engine
-                    .handle_command(Command::CancelSearch { request_id })
-                    .await;
+                let _ = engine.submit(Command::CancelSearch { request_id }).await;
             });
         }
         Effect::RunDoctor => {
             tokio::spawn(async move {
-                engine.handle_command(Command::RunDoctor).await;
+                let _ = engine.submit(Command::RunDoctor).await;
             });
         }
         Effect::ExportDiagnostics => {
             tokio::spawn(async move {
-                engine.handle_command(Command::ExportDiagnostics).await;
+                let _ = engine.submit(Command::ExportDiagnostics).await;
+            });
+        }
+        Effect::ListActions { result_id } => {
+            tokio::spawn(async move {
+                let _ = engine.submit(Command::ListActions { result_id }).await;
+            });
+        }
+        Effect::ExecuteAction {
+            operation_id,
+            result_id,
+            action_id,
+            confirmation,
+        } => {
+            tokio::spawn(async move {
+                let _ = engine
+                    .submit(Command::ExecuteAction {
+                        operation_id,
+                        result_id,
+                        action_id,
+                        confirmation,
+                    })
+                    .await;
+            });
+        }
+        Effect::CancelOperation { operation_id } => {
+            tokio::spawn(async move {
+                let _ = engine
+                    .submit(Command::CancelOperation { operation_id })
+                    .await;
             });
         }
         Effect::None => {}

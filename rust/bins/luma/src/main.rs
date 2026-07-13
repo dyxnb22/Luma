@@ -1,13 +1,16 @@
+mod compose;
+
 use clap::{Parser, Subcommand};
-use luma_application::{list_modules_json, run_action, run_doctor, run_query};
-use luma_modules::load_registry;
+use compose::load_registry;
+use luma_application::{list_modules_json, run_action, run_doctor, run_query, Engine};
 use luma_storage::{
     dry_run_legacy_dir, import_clipboard_fixture_with_ledger,
     import_notes_config_fixture_with_ledger, list_migrations, rollback_migration, ClipboardStore,
     ConfigStore, LumaSettings,
 };
-use luma_tui::run_tui_with_registry;
+use luma_tui::run_tui_with_engine;
 use std::path::PathBuf;
+use std::sync::Arc;
 
 #[derive(Debug, Parser)]
 #[command(name = "luma", version, about = "Luma interactive CLI/TUI")]
@@ -170,7 +173,8 @@ async fn main() -> anyhow::Result<()> {
     match cli.command {
         None | Some(Commands::Tui) => {
             let registry = load_registry().map_err(|e| anyhow::anyhow!("registry: {e}"))?;
-            run_tui_with_registry(registry).await?;
+            let engine: Arc<dyn luma_application::EnginePort> = Arc::new(Engine::new(registry));
+            run_tui_with_engine(engine).await?;
         }
         Some(Commands::Query { query, json }) => {
             let registry = load_registry().map_err(|e| anyhow::anyhow!("registry: {e}"))?;

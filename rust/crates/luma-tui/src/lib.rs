@@ -9,7 +9,7 @@ mod render;
 mod terminal;
 mod view_model;
 
-pub use app::{run_tui, run_tui_with_registry};
+pub use app::run_tui_with_engine;
 pub use effect::Effect;
 pub use mock_engine::MockEngine;
 pub use msg::Msg;

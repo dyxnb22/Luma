@@ -1,3 +1,4 @@
+use crate::cancel::await_unless_cancelled;
 use async_trait::async_trait;
 use luma_application::{
     ActionOutcome, ActionRequest, LumaModule, ModuleManifest, ModuleState, SearchMode, SearchSink,
@@ -6,7 +7,7 @@ use luma_application::{
 use luma_domain::{
     ActionDescriptor, ActionId, ActionRisk, FailureKind, ModuleId, Query, SearchItem,
 };
-use luma_platform_macos::{Accessibility, MacAccessibility, MacPasteboard, Pasteboard};
+use luma_platform_macos::{Accessibility, Pasteboard};
 use luma_protocol::{Event, SearchItemDto};
 use luma_storage::{SnippetRow, SnippetsStore};
 use std::sync::Arc;
@@ -24,19 +25,6 @@ pub struct SnippetsModule {
 }
 
 impl SnippetsModule {
-    pub fn new() -> Self {
-        Self::with_deps(Arc::new(MacPasteboard), Arc::new(MacAccessibility))
-    }
-
-    pub fn with_deps(
-        pasteboard: Arc<dyn Pasteboard>,
-        accessibility: Arc<dyn Accessibility>,
-    ) -> Self {
-        let store = SnippetsStore::luma_next_default()
-            .expect("SnippetsModule::new requires writable LumaNext");
-        Self::with_store(Arc::new(store), pasteboard, accessibility)
-    }
-
     pub fn with_store(
         store: Arc<SnippetsStore>,
         pasteboard: Arc<dyn Pasteboard>,
@@ -70,12 +58,6 @@ impl SnippetsModule {
             .iter()
             .find(|snippet| snippet.trigger == trigger)
             .map(|snippet| snippet.body.clone())
-    }
-}
-
-impl Default for SnippetsModule {
-    fn default() -> Self {
-        Self::new()
     }
 }
 
@@ -115,6 +97,7 @@ impl LumaModule for SnippetsModule {
                     score: 55.0,
                     primary_action_id: "copy".into(),
                     primary_action_label: "Copy".into(),
+                    ..Default::default()
                 });
             }
         }
@@ -164,17 +147,20 @@ impl LumaModule for SnippetsModule {
             };
         };
         match action.action.id.as_str() {
-            "copy" => match self.pasteboard.write_text(&body).await {
-                Ok(()) => ActionOutcome::Success {
-                    message: Some("copied".into()),
-                },
-                Err(err) => ActionOutcome::Failed {
-                    kind: FailureKind::Unavailable {
-                        reason: err.to_string(),
-                        retryable: true,
+            "copy" => {
+                match await_unless_cancelled(&cancel, self.pasteboard.write_text(&body)).await {
+                    None => ActionOutcome::Cancelled,
+                    Some(Ok(())) => ActionOutcome::Success {
+                        message: Some("copied".into()),
                     },
-                },
-            },
+                    Some(Err(err)) => ActionOutcome::Failed {
+                        kind: FailureKind::Unavailable {
+                            reason: err.to_string(),
+                            retryable: true,
+                        },
+                    },
+                }
+            }
             "paste" => {
                 if !self.accessibility.is_trusted() {
                     return ActionOutcome::Failed {
@@ -184,19 +170,28 @@ impl LumaModule for SnippetsModule {
                         },
                     };
                 }
-                match self.pasteboard.write_text(&body).await {
-                    Ok(()) => match self.accessibility.paste_clipboard().await {
-                        Ok(()) => ActionOutcome::Success {
-                            message: Some("pasted".into()),
-                        },
-                        Err(_) => ActionOutcome::Failed {
-                            kind: FailureKind::PermissionRequired {
-                                capability: "accessibility".into(),
-                                guidance: "Grant Accessibility to paste".into(),
+                match await_unless_cancelled(&cancel, self.pasteboard.write_text(&body)).await {
+                    None => ActionOutcome::Cancelled,
+                    Some(Ok(())) => {
+                        if cancel.is_cancelled() {
+                            return ActionOutcome::Cancelled;
+                        }
+                        match await_unless_cancelled(&cancel, self.accessibility.paste_clipboard())
+                            .await
+                        {
+                            None => ActionOutcome::Cancelled,
+                            Some(Ok(())) => ActionOutcome::Success {
+                                message: Some("pasted".into()),
                             },
-                        },
-                    },
-                    Err(err) => ActionOutcome::Failed {
+                            Some(Err(_)) => ActionOutcome::Failed {
+                                kind: FailureKind::PermissionRequired {
+                                    capability: "accessibility".into(),
+                                    guidance: "Grant Accessibility to paste".into(),
+                                },
+                            },
+                        }
+                    }
+                    Some(Err(err)) => ActionOutcome::Failed {
                         kind: FailureKind::Unavailable {
                             reason: err.to_string(),
                             retryable: true,

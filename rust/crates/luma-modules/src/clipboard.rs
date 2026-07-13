@@ -166,6 +166,7 @@ impl LumaModule for ClipboardModule {
                 score: 1.0,
                 primary_action_id: "open".into(),
                 primary_action_label: "Open".into(),
+                ..Default::default()
             };
             let _ = sink
                 .send(Event::ResultsChunk {
@@ -209,6 +210,7 @@ impl LumaModule for ClipboardModule {
                 score: 60.0,
                 primary_action_id: "copy".into(),
                 primary_action_label: "Copy".into(),
+                ..Default::default()
             });
         }
         if !upserts.is_empty() {

@@ -1,5 +1,5 @@
 use luma_domain::SearchItem;
-use luma_protocol::Event;
+use luma_protocol::{ActionDescriptorDto, Event};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Route {
@@ -7,6 +7,28 @@ pub enum Route {
     Help,
     Doctor,
     QuitConfirm,
+    ConfirmAction,
+    ActionPicker,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ActionsIntent {
+    /// Enter: resolve primary (or first) action, then confirm/execute.
+    Primary,
+    /// Tab: show full action picker.
+    Picker,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AwaitingActions {
+    pub intent: ActionsIntent,
+    pub result_id: String,
+}
+
+#[derive(Clone, Debug)]
+pub struct PendingAction {
+    pub result_id: String,
+    pub action: ActionDescriptorDto,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -94,6 +116,13 @@ pub struct AppState {
     pub doctor_diagnostic: Option<serde_json::Value>,
     pub should_quit: bool,
     pub dirty: bool,
+    pub awaiting_actions: Option<AwaitingActions>,
+    pub pending_action: Option<PendingAction>,
+    pub action_choices: Vec<ActionDescriptorDto>,
+    /// Result id that produced `action_choices` — never re-read selection on submit.
+    pub action_result_id: Option<String>,
+    pub action_selected: usize,
+    pub active_operation: Option<String>,
 }
 
 impl Default for AppState {
@@ -109,6 +138,12 @@ impl Default for AppState {
             doctor_diagnostic: None,
             should_quit: false,
             dirty: true,
+            awaiting_actions: None,
+            pending_action: None,
+            action_choices: Vec::new(),
+            action_result_id: None,
+            action_selected: 0,
+            active_operation: None,
         }
     }
 }
@@ -183,6 +218,7 @@ impl AppState {
                 true
             }
             Event::ActionStarted { operation_id } => {
+                self.active_operation = Some(operation_id.clone());
                 self.status.text = format!("action {operation_id}…");
                 true
             }
@@ -190,17 +226,10 @@ impl AppState {
                 operation_id,
                 outcome,
             } => {
-                self.status.text = match outcome {
-                    luma_protocol::ActionOutcomeDto::Success { message } => {
-                        message.unwrap_or_else(|| format!("ok {operation_id}"))
-                    }
-                    luma_protocol::ActionOutcomeDto::Failed { message } => {
-                        format!("failed: {message}")
-                    }
-                    luma_protocol::ActionOutcomeDto::Cancelled => {
-                        format!("cancelled {operation_id}")
-                    }
-                };
+                if self.active_operation.as_deref() == Some(operation_id.as_str()) {
+                    self.active_operation = None;
+                }
+                self.status.text = outcome.display_message();
                 true
             }
             Event::DiagnosticRaised { diagnostic } => {
@@ -214,6 +243,11 @@ impl AppState {
                 true
             }
             Event::ActionsAvailable { result_id, actions } => {
+                if self.awaiting_actions.is_none() {
+                    self.status.text = format!("{result_id}: {} actions", actions.len());
+                    return true;
+                }
+                // Handled by reducer via Msg::Engine so effects can be returned.
                 self.status.text = format!("{result_id}: {} actions", actions.len());
                 true
             }

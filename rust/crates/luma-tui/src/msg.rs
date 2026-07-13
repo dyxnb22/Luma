@@ -9,6 +9,7 @@ pub enum Msg {
     SelectPrev,
     OpenHelp,
     OpenDoctor,
+    OpenActions,
     Quit,
     Cancel,
     Redraw,

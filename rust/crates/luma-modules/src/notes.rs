@@ -1,3 +1,4 @@
+use crate::cancel::await_unless_cancelled;
 use async_trait::async_trait;
 use luma_application::{
     ActionOutcome, ActionRequest, LumaModule, ModuleManifest, ModuleState, SearchMode, SearchSink,
@@ -6,9 +7,8 @@ use luma_application::{
 use luma_domain::{
     ActionDescriptor, ActionId, ActionRisk, FailureKind, ModuleId, Query, SearchItem,
 };
-use luma_platform_macos::{watch_markdown_root, FakeOpenPath, MacOpenPath, OpenPath};
+use luma_platform_macos::{watch_markdown_root, FakeOpenPath, OpenPath};
 use luma_protocol::{Event, SearchItemDto};
-use luma_storage::ConfigStore;
 use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
 use tokio::sync::{Mutex, RwLock};
@@ -34,15 +34,13 @@ pub struct NotesModule {
 }
 
 impl NotesModule {
-    pub fn new() -> Self {
-        let root = ConfigStore::luma_next_default()
-            .ok()
-            .and_then(|s| s.load_or_default().ok())
-            .and_then(|settings| settings.notes_root.map(PathBuf::from));
-        Self::with_root_and_opener(root, Arc::new(MacOpenPath))
+    /// Production constructor used by the composition root.
+    pub fn with_root(root: Option<PathBuf>, opener: Arc<dyn OpenPath>) -> Self {
+        Self::with_root_and_opener(root, opener)
     }
 
-    pub fn with_root(root: Option<PathBuf>) -> Self {
+    /// Test-only: Fake opener that never opens paths but reports success.
+    pub fn with_root_for_tests(root: Option<PathBuf>) -> Self {
         Self::with_root_and_opener(root, Arc::new(FakeOpenPath::new()))
     }
 
@@ -246,13 +244,26 @@ impl NotesModule {
 fn scan_md_tree(root: &Path) -> Vec<NoteEntry> {
     let mut notes = Vec::new();
     let mut stack = vec![root.to_path_buf()];
+    let root_canon = root.canonicalize().unwrap_or_else(|_| root.to_path_buf());
     while let Some(dir) = stack.pop() {
         let Ok(rd) = std::fs::read_dir(&dir) else {
             continue;
         };
         for entry in rd.flatten() {
             let path = entry.path();
-            if path.is_dir() {
+            let Ok(meta) = std::fs::symlink_metadata(&path) else {
+                continue;
+            };
+            if meta.file_type().is_symlink() {
+                // Never follow directory (or file) symlinks during indexing.
+                continue;
+            }
+            if meta.is_dir() {
+                if let Ok(canon) = path.canonicalize() {
+                    if !canon.starts_with(&root_canon) {
+                        continue;
+                    }
+                }
                 stack.push(path);
                 continue;
             }
@@ -274,12 +285,6 @@ fn scan_md_tree(root: &Path) -> Vec<NoteEntry> {
         }
     }
     notes
-}
-
-impl Default for NotesModule {
-    fn default() -> Self {
-        Self::new()
-    }
 }
 
 #[async_trait]
@@ -313,6 +318,7 @@ impl LumaModule for NotesModule {
                 score: 0.0,
                 primary_action_id: "configure".into(),
                 primary_action_label: "Configure".into(),
+                ..Default::default()
             };
             let _ = sink
                 .send(Event::ResultsChunk {
@@ -352,6 +358,7 @@ impl LumaModule for NotesModule {
                         score: 100.0,
                         primary_action_id: "create".into(),
                         primary_action_label: "Create".into(),
+                        ..Default::default()
                     }],
                     removed_ids: vec![],
                 })
@@ -371,6 +378,7 @@ impl LumaModule for NotesModule {
                 score: 1.0,
                 primary_action_id: "open".into(),
                 primary_action_label: "Open".into(),
+                ..Default::default()
             };
             let _ = sink
                 .send(Event::ResultsChunk {
@@ -401,6 +409,7 @@ impl LumaModule for NotesModule {
                     score: 70.0,
                     primary_action_id: "open".into(),
                     primary_action_label: "Open".into(),
+                    ..Default::default()
                 });
             }
             if upserts.len() >= query.limit {
@@ -480,11 +489,12 @@ impl LumaModule for NotesModule {
                 }
                 self.rebuild_index(&root).await;
                 // Create success is independent of open. Best-effort open; failure is reported.
-                match self.opener.open(&path).await {
-                    Ok(()) => ActionOutcome::Success {
+                match await_unless_cancelled(&cancel, self.opener.open(&path)).await {
+                    None => ActionOutcome::Cancelled,
+                    Some(Ok(())) => ActionOutcome::Success {
                         message: Some(format!("created {}", path.display())),
                     },
-                    Err(err) => ActionOutcome::Success {
+                    Some(Err(err)) => ActionOutcome::Success {
                         message: Some(format!("created {}; open failed: {err}", path.display())),
                     },
                 }
@@ -505,11 +515,12 @@ impl LumaModule for NotesModule {
                     .map(PathBuf::from)
                 else {
                     // Opening workspace root directory.
-                    return match self.opener.open(&root).await {
-                        Ok(()) => ActionOutcome::Success {
+                    return match await_unless_cancelled(&cancel, self.opener.open(&root)).await {
+                        None => ActionOutcome::Cancelled,
+                        Some(Ok(())) => ActionOutcome::Success {
                             message: Some("opened notes workspace".into()),
                         },
-                        Err(err) => ActionOutcome::Failed {
+                        Some(Err(err)) => ActionOutcome::Failed {
                             kind: FailureKind::Unavailable {
                                 reason: format!("open failed: {err}"),
                                 retryable: true,
@@ -539,11 +550,12 @@ impl LumaModule for NotesModule {
                         },
                     };
                 }
-                match self.opener.open(&path).await {
-                    Ok(()) => ActionOutcome::Success {
+                match await_unless_cancelled(&cancel, self.opener.open(&path)).await {
+                    None => ActionOutcome::Cancelled,
+                    Some(Ok(())) => ActionOutcome::Success {
                         message: Some("opened".into()),
                     },
-                    Err(err) => ActionOutcome::Failed {
+                    Some(Err(err)) => ActionOutcome::Failed {
                         kind: FailureKind::Unavailable {
                             reason: format!("open failed: {err}"),
                             retryable: true,
@@ -611,7 +623,7 @@ mod tests {
 
     #[tokio::test]
     async fn not_configured_is_not_empty() {
-        let m = NotesModule::with_root(None);
+        let m = NotesModule::with_root_for_tests(None);
         let (tx, mut rx) = mpsc::channel(2);
         m.search(Query::parse("n", 10), tx, CancellationToken::new())
             .await;
@@ -628,7 +640,7 @@ mod tests {
     async fn search_memory_index() {
         let dir = tempdir().unwrap();
         fs::write(dir.path().join("hello.md"), "# hi").unwrap();
-        let m = NotesModule::with_root(None);
+        let m = NotesModule::with_root_for_tests(None);
         m.set_root_for_tests(dir.path().to_path_buf()).await;
         let (tx, mut rx) = mpsc::channel(2);
         m.search(Query::parse("n hello", 10), tx, CancellationToken::new())
@@ -680,6 +692,25 @@ mod tests {
         symlink(outside.path(), &link).unwrap();
         let err = NotesModule::resolve_under_root(dir.path(), &link.join("secret.md")).unwrap_err();
         assert!(err.contains("escape") || err.contains("symlink"), "{err}");
+    }
+
+    #[test]
+    fn scan_skips_directory_symlink_outside_root() {
+        let dir = tempdir().unwrap();
+        let outside = tempdir().unwrap();
+        fs::write(outside.path().join("secret.md"), "nope").unwrap();
+        fs::write(dir.path().join("safe.md"), "ok").unwrap();
+        let link = dir.path().join("escape-link");
+        symlink(outside.path(), &link).unwrap();
+        let notes = scan_md_tree(dir.path());
+        assert!(
+            notes.iter().any(|n| n.title == "safe"),
+            "expected in-root note"
+        );
+        assert!(
+            notes.iter().all(|n| n.title != "secret"),
+            "directory symlink must not index outside root: {notes:?}"
+        );
     }
 
     #[tokio::test]

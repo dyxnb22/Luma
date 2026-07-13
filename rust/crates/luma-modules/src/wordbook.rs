@@ -61,6 +61,7 @@ impl LumaModule for WordbookModule {
                     score: 1.0,
                     primary_action_id: "open".into(),
                     primary_action_label: "Details".into(),
+                    ..Default::default()
                 }],
                 removed_ids: vec![],
             })

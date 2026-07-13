@@ -1,71 +1,42 @@
 # Luma
 
-Personal macOS launcher built for native speed, keyboard-first workflows, and local-first command execution.
+Personal keyboard-first launcher. **Product entry is the Rust CLI/TUI** under `rust/`.
 
-Swift 6 · AppKit launcher · SwiftUI for Settings/About only · macOS 14+.
+The Swift AppKit tree (`Sources/`, `Tests/`, `Package.swift`) was removed after explicit approval on 2026-07-13. Recover it from tag `swift-legacy-final-20260713`.
 
 ## Status
 
-**Route C** is the active product surface: command-first unified list, with empty-query home showing Open Apps left and guide/detail right. Current phase: **integration and polish** — wire existing flows, tighten trust and keyboard behavior; no new surface area.
+Active surface: interactive CLI/TUI (`luma`). Legacy Swift AppKit launcher is retired from the default tree.
 
-**For development:** start with [Engineering Handbook](docs/ENGINEERING.md).
+Migration / decommission docs:
 
-## Commands
+- [SWIFT_DECOMMISSION_PLAN.md](SWIFT_DECOMMISSION_PLAN.md)
+- [rust/docs/SWIFT_DELETION_READINESS.md](rust/docs/SWIFT_DELETION_READINESS.md)
+- [rust/docs/DECOMMISSION_PROGRESS.md](rust/docs/DECOMMISSION_PROGRESS.md)
+- [rust/docs/LEGACY_SWIFT.md](rust/docs/LEGACY_SWIFT.md)
+
+## Commands (Rust)
 
 ```bash
+cd rust
+cargo run -p luma                 # interactive TUI
+cargo run -p luma -- query "app" --json
+cargo run -p luma -- doctor --json
+cargo test --workspace --all-features
+```
+
+Data roots: `~/Library/Application Support/LumaNext/` and `~/Library/Logs/LumaNext/` (override with `LUMA_NEXT_SUPPORT_DIR` / `LUMA_NEXT_LOGS_DIR` for tests).
+
+Legacy Swift Application Support (`…/Luma`) is read-only via explicit `luma migrate …` importers.
+
+## Rollback to Swift
+
+```bash
+git checkout swift-legacy-final-20260713
 swift build
-swift test
-./scripts/run_recorded_review.sh
+./scripts/build_app.sh   # if present on that tag
 ```
 
-## Build & Run
+## Historical documents
 
-Install a stable local code-signing identity once:
-
-```bash
-./scripts/install_local_codesign_cert.sh
-```
-
-Then build and restart Luma:
-
-```bash
-./scripts/build_app.sh
-```
-
-`build_app.sh` stops any old Luma process, builds and signs the app, then opens the new build so Command+Space is registered again. Use `./scripts/build_app.sh --no-restart` only when you intentionally want to build without running Luma.
-
-Building a `.app` bundle keeps a stable bundle identifier (`app.luma`). Signing with `Luma Local Development`, Apple Development, or Developer ID keeps Accessibility trust more stable across rebuilds than ad-hoc signing.
-
-If Accessibility still appears enabled in System Settings but Luma shows the permission banner, reset the stale TCC record and re-enable Luma:
-
-```bash
-./scripts/repair_accessibility_permission.sh
-```
-
-## Run on Login
-
-After building the app bundle:
-
-```bash
-./scripts/install_launchd.sh   # install LaunchAgent
-./scripts/uninstall_launchd.sh # remove LaunchAgent
-```
-
-The LaunchAgent points at `build/Luma.app/Contents/MacOS/Luma` and restarts Luma after crashes while allowing normal Quit. Re-run `build_app.sh` after code changes.
-
-## Key Documents
-
-| Doc | Role |
-| --- | --- |
-| [Engineering Handbook](docs/ENGINEERING.md) | Product shape, architecture, launcher contract, performance, privacy, non-goals |
-| [Module Handbook](docs/MODULES.md) | User-visible behavior for every built-in module |
-| [Decision Log](docs/DECISIONS.md) | Compact active and historical ADR record |
-| [QA, Testing, And Release](docs/QA.md) | Automated gates, manual smoke, recorded review, release checklist |
-
-## Quick Review
-
-```bash
-./scripts/run_recorded_review.sh
-```
-
-Builds Luma, prepares the QA environment, runs the scripted smoke pass, then leaves you at the recorded walkthrough stage.
+Engineering / module / QA handbooks under `docs/` and root phase reports describe the former AppKit product and remain as behavior/migration reference unless separately retired.

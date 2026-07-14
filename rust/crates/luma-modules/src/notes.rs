@@ -79,10 +79,10 @@ impl NotesModule {
                 required_capabilities: vec![],
                 workbench: luma_application::WorkbenchMeta {
                     glyph: Some("N".into()),
+                    // Directory-first: Hub / `n ` open the notes tree; `n recent` for flat recent.
                     suggested_query: Some("n ".into()),
                     empty_hint: Some(
-                        "n · n browse · n recent · n daily · n new · n status · n issues · n check · n reindex"
-                            .into(),
+                        "n ␠ browse tree · n <query> search · n recent · n issues".into(),
                     ),
                     supports_browse: true,
                 },
@@ -517,7 +517,7 @@ impl LumaModule for NotesModule {
                 module_id: "luma.notes".into(),
                 title: "Choose a Notes root folder".into(),
                 subtitle: Some("NotConfigured — run: luma config set --notes-root ~/Notes".into()),
-                kind: "onboarding".into(),
+                kind: "not_configured".into(),
                 score: 0.0,
                 primary_action_id: "configure".into(),
                 primary_action_label: "Configure".into(),
@@ -630,13 +630,9 @@ impl LumaModule for NotesModule {
         let rest_raw = query.rest_raw();
         let rest_check = rest_raw.trim().to_lowercase();
 
-        if rest_check.is_empty() || rest_check == "recent" {
+        if rest_check == "recent" {
             let index = self.index.clone();
-            let limit = if rest_check == "recent" {
-                20
-            } else {
-                query.limit.min(20)
-            };
+            let limit = 20;
             let handle = tokio::task::spawn_blocking(move || index.list_recent(limit));
             let abort = handle.abort_handle();
             let hits = tokio::select! {
@@ -790,16 +786,22 @@ impl LumaModule for NotesModule {
             let upserts: Vec<_> = issues
                 .into_iter()
                 .take(query.limit)
-                .map(|i| SearchItemDto {
-                    id: format!("notes:issue:{}:{}", i.scan_id, i.relative_path),
-                    module_id: "luma.notes".into(),
-                    title: format!("{} — {}", i.issue_type, i.relative_path),
-                    subtitle: Some(i.message),
-                    kind: "issue".into(),
-                    score: 50.0,
-                    primary_action_id: "noop".into(),
-                    primary_action_label: "Issue".into(),
-                    ..Default::default()
+                .filter_map(|i| {
+                    let abs = root.join(&i.relative_path);
+                    if NotesModule::resolve_under_root(&root, &abs).is_err() {
+                        return None;
+                    }
+                    Some(SearchItemDto {
+                        id: format!("note:{}", abs.display()),
+                        module_id: "luma.notes".into(),
+                        title: format!("{} — {}", i.issue_type, i.relative_path),
+                        subtitle: Some(format!("{} — {}", abs.display(), i.message)),
+                        kind: "issue".into(),
+                        score: 50.0,
+                        primary_action_id: "open".into(),
+                        primary_action_label: "Open".into(),
+                        ..Default::default()
+                    })
                 })
                 .collect();
             let _ = sink
@@ -877,18 +879,24 @@ impl LumaModule for NotesModule {
             return;
         }
 
-        if rest_check == "browse"
+        // Empty rest (`n `) and explicit browse both open the notes directory tree.
+        if rest_check.is_empty()
+            || rest_check == "browse"
             || rest_check.starts_with("browse ")
             || rest_check.starts_with("ls ")
         {
-            let path_arg = rest_raw
-                .trim()
-                .strip_prefix("browse")
-                .or_else(|| rest_raw.trim().strip_prefix("Browse"))
-                .or_else(|| rest_raw.trim().strip_prefix("ls"))
-                .or_else(|| rest_raw.trim().strip_prefix("LS"))
-                .unwrap_or("")
-                .trim();
+            let path_arg = if rest_check.is_empty() {
+                ""
+            } else {
+                rest_raw
+                    .trim()
+                    .strip_prefix("browse")
+                    .or_else(|| rest_raw.trim().strip_prefix("Browse"))
+                    .or_else(|| rest_raw.trim().strip_prefix("ls"))
+                    .or_else(|| rest_raw.trim().strip_prefix("LS"))
+                    .unwrap_or("")
+                    .trim()
+            };
             let dir = if path_arg.is_empty() {
                 root.clone()
             } else {
@@ -933,6 +941,16 @@ impl LumaModule for NotesModule {
                 return;
             };
             let mut upserts = Vec::new();
+            // Surface index problems on the default Notes surface (browse / `n `).
+            let status = self.index.scan_status();
+            let show_status = match &status {
+                NotesScanStatusView::Running { .. } | NotesScanStatusView::Failed { .. } => true,
+                NotesScanStatusView::Completed { errors, .. } => *errors > 0,
+                NotesScanStatusView::Idle => false,
+            };
+            if show_status {
+                upserts.push(status_row(&status));
+            }
             let mut entries: Vec<_> = rd.flatten().collect();
             entries.sort_by_key(|e| e.file_name());
             for entry in entries {
@@ -1101,7 +1119,10 @@ impl LumaModule for NotesModule {
     }
 
     async fn actions(&self, result: &SearchItem) -> Vec<ActionDescriptor> {
-        if result.id.as_str() == "notes:configure" {
+        if result.id.as_str() == "notes:configure"
+            || result.kind == "not_configured"
+            || result.primary_action.id.as_str() == "configure"
+        {
             return vec![ActionDescriptor {
                 id: ActionId::new("configure"),
                 label: "Configure".into(),
@@ -1125,11 +1146,15 @@ impl LumaModule for NotesModule {
                 confirmation: false,
             }];
         }
-        if result.kind == "status"
-            || result.kind == "issue"
-            || result.kind == "onboarding"
-            || result.kind == "unavailable"
-        {
+        if result.kind == "status" || result.kind == "onboarding" || result.kind == "unavailable" {
+            if result.primary_action.id.as_str() == "list_issues" {
+                return vec![ActionDescriptor {
+                    id: ActionId::new("list_issues"),
+                    label: "View issues".into(),
+                    risk: ActionRisk::Safe,
+                    confirmation: false,
+                }];
+            }
             return vec![ActionDescriptor {
                 id: ActionId::new("noop"),
                 label: "OK".into(),
@@ -1234,6 +1259,12 @@ impl LumaModule for NotesModule {
                 kind: FailureKind::InvalidInput {
                     field: "action".into(),
                     message: "browse is search-driven; use `n browse <path>`".into(),
+                },
+            },
+            "list_issues" => ActionOutcome::Failed {
+                kind: FailureKind::InvalidInput {
+                    field: "action".into(),
+                    message: "list_issues is search-driven; use `n issues`".into(),
                 },
             },
             "create" => {
@@ -1525,28 +1556,50 @@ fn unavailable_row(title: impl Into<String>, detail: impl Into<String>) -> Searc
 }
 
 fn status_row(status: &NotesScanStatusView) -> SearchItemDto {
-    let (title, subtitle) = match status {
-        NotesScanStatusView::Idle => ("Index idle".into(), "Ready".into()),
+    let (title, subtitle, score, action_id, action_label) = match status {
+        NotesScanStatusView::Idle => ("Index idle".into(), "Ready".into(), 10.0, "noop", "Status"),
         NotesScanStatusView::Running {
             mode,
             processed,
             total,
-        } => (format!("Indexing ({mode})"), format!("{processed}/{total}")),
-        NotesScanStatusView::Failed { message } => ("Index failed".into(), message.clone()),
+        } => (
+            format!("Indexing ({mode})"),
+            format!("{processed}/{total}"),
+            95.0,
+            "noop",
+            "Status",
+        ),
+        NotesScanStatusView::Failed { message } => (
+            "Index failed".into(),
+            message.clone(),
+            95.0,
+            "noop",
+            "Status",
+        ),
         NotesScanStatusView::Completed {
             mode,
             processed,
             total,
             errors,
-        } => (
-            format!("Index {mode}"),
-            format!("{processed}/{total}, errors {errors}"),
-        ),
-    };
-    // Only elevate while indexing or failed so real notes stay selectable by default.
-    let score = match status {
-        NotesScanStatusView::Running { .. } | NotesScanStatusView::Failed { .. } => 95.0,
-        NotesScanStatusView::Idle | NotesScanStatusView::Completed { .. } => 10.0,
+        } => {
+            if *errors > 0 {
+                (
+                    format!("Index {mode}"),
+                    format!("{processed}/{total}, errors {errors} · Enter details"),
+                    90.0,
+                    "list_issues",
+                    "View issues",
+                )
+            } else {
+                (
+                    format!("Index {mode}"),
+                    format!("{processed}/{total}, errors {errors}"),
+                    10.0,
+                    "noop",
+                    "Status",
+                )
+            }
+        }
     };
     SearchItemDto {
         id: "notes:index-status".into(),
@@ -1555,8 +1608,8 @@ fn status_row(status: &NotesScanStatusView) -> SearchItemDto {
         subtitle: Some(subtitle),
         kind: "status".into(),
         score,
-        primary_action_id: "noop".into(),
-        primary_action_label: "Status".into(),
+        primary_action_id: action_id.into(),
+        primary_action_label: action_label.into(),
         ..Default::default()
     }
 }
@@ -1610,12 +1663,13 @@ mod tests {
     async fn not_configured_is_not_empty() {
         let m = NotesModule::with_root_for_tests(None);
         let (tx, mut rx) = mpsc::channel(2);
-        m.search(Query::parse("n", 10), tx, CancellationToken::new())
+        m.search(Query::parse("n ", 10), tx, CancellationToken::new())
             .await;
         let ev = rx.recv().await.unwrap();
         match ev {
             Event::ResultsChunk { upserts, .. } => {
-                assert_eq!(upserts[0].kind, "onboarding");
+                assert_eq!(upserts[0].kind, "not_configured");
+                assert_eq!(upserts[0].primary_action_id, "configure");
             }
             other => panic!("{other:?}"),
         }

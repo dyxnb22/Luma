@@ -61,12 +61,19 @@ pub async fn run_tui_with_engine(engine: Arc<dyn EnginePort>) -> std::io::Result
             }
         }
 
+        if let Some(deadline) = state.hub_refresh_deadline {
+            if std::time::Instant::now() >= deadline {
+                msgs.push(Msg::RefreshHub);
+            }
+        }
+
         if event::poll(poll_timeout)? {
             match event::read()? {
                 CEvent::Key(key) if key.kind == KeyEventKind::Press => {
                     msgs.push(map_key(key.code, key.modifiers, &state));
                 }
                 CEvent::Resize(width, height) => msgs.push(Msg::Resize { width, height }),
+                CEvent::FocusGained => msgs.push(Msg::FocusGained),
                 CEvent::Paste(s) => {
                     for ch in s.chars() {
                         msgs.push(Msg::KeyChar(ch));

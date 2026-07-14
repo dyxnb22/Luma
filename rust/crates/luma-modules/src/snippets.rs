@@ -205,11 +205,11 @@ impl LumaModule for SnippetsModule {
                 id: "snip:empty".into(),
                 module_id: "luma.snippets".into(),
                 title: "No snippets yet".into(),
-                subtitle: Some("Add with: snip add <trigger> <body>".into()),
+                subtitle: Some("Enter to type: snip add <trigger> <body>".into()),
                 kind: "onboarding".into(),
-                score: 0.0,
-                primary_action_id: "noop".into(),
-                primary_action_label: "OK".into(),
+                score: 90.0,
+                primary_action_id: "seed_add".into(),
+                primary_action_label: "Add".into(),
                 ..Default::default()
             });
         } else if upserts.is_empty() {
@@ -217,11 +217,11 @@ impl LumaModule for SnippetsModule {
                 id: "snip:no-matches".into(),
                 module_id: "luma.snippets".into(),
                 title: format!("No snippets matching \"{needle}\""),
-                subtitle: Some("Add with: snip add <trigger> <body>".into()),
+                subtitle: Some("Enter to type: snip add <trigger> <body>".into()),
                 kind: "status".into(),
-                score: 0.0,
-                primary_action_id: "noop".into(),
-                primary_action_label: "OK".into(),
+                score: 5.0,
+                primary_action_id: "seed_add".into(),
+                primary_action_label: "Add".into(),
                 ..Default::default()
             });
         }
@@ -239,9 +239,17 @@ impl LumaModule for SnippetsModule {
     async fn actions(&self, result: &SearchItem) -> Vec<ActionDescriptor> {
         if result.id.as_str() == "snip:empty"
             || result.id.as_str() == "snip:no-matches"
+            || result.primary_action.id.as_str() == "seed_add"
             || result.kind == "onboarding"
-            || result.kind == "status"
         {
+            return vec![ActionDescriptor {
+                id: ActionId::new("seed_add"),
+                label: "Add".into(),
+                risk: ActionRisk::Safe,
+                confirmation: false,
+            }];
+        }
+        if result.kind == "status" {
             return vec![ActionDescriptor {
                 id: ActionId::new("noop"),
                 label: "OK".into(),
@@ -293,6 +301,12 @@ impl LumaModule for SnippetsModule {
         }
         match action.action.id.as_str() {
             "noop" => ActionOutcome::Success { message: None },
+            "seed_add" => ActionOutcome::Failed {
+                kind: FailureKind::InvalidInput {
+                    field: "action".into(),
+                    message: "seed_add is search-driven; use `snip add <trigger> <body>`".into(),
+                },
+            },
             "add" => {
                 let Some(trigger) = action.result.id.as_str().strip_prefix("snip:add:") else {
                     return ActionOutcome::Failed {

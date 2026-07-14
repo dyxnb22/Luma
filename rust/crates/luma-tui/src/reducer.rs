@@ -120,6 +120,7 @@ pub fn update(state: &mut AppState, msg: Msg) -> Vec<Effect> {
                 // Meta commands are local navigation. They must win over a pending
                 // search debounce so one Enter opens the requested surface.
                 if state.prompt.trim() == ":doctor" {
+                    state.overlay_restore_prompt = Some(state.prompt.clone());
                     state.clear_prompt();
                     state.search_debounce_deadline = None;
                     state.route = Route::Doctor;
@@ -128,18 +129,22 @@ pub fn update(state: &mut AppState, msg: Msg) -> Vec<Effect> {
                     return vec![Effect::RunDoctor];
                 }
                 if state.prompt.trim() == ":settings" {
+                    state.overlay_restore_prompt = Some(state.prompt.clone());
                     state.clear_prompt();
                     state.search_debounce_deadline = None;
                     return open_settings(state);
                 }
                 if state.prompt.trim() == ":help" || state.prompt.trim() == "?" {
+                    state.overlay_restore_prompt = Some(state.prompt.clone());
                     state.clear_prompt();
                     state.search_debounce_deadline = None;
                     state.route = Route::Help;
+                    state.help_scroll = 0;
                     state.status.set("help", StatusTone::Neutral);
                     return vec![Effect::None];
                 }
                 if state.prompt.trim() == ":commands" {
+                    state.overlay_restore_prompt = Some(state.prompt.clone());
                     state.clear_prompt();
                     state.search_debounce_deadline = None;
                     return open_commands(state);
@@ -196,6 +201,10 @@ pub fn update(state: &mut AppState, msg: Msg) -> Vec<Effect> {
                 state.doctor_scroll = state.doctor_scroll.saturating_sub(PAGE_SIZE);
                 return vec![Effect::None];
             }
+            if state.route == Route::Help {
+                state.help_scroll = state.help_scroll.saturating_sub(PAGE_SIZE);
+                return vec![Effect::None];
+            }
             if state.route == Route::Settings {
                 state.settings_selected = state.settings_selected.saturating_sub(PAGE_SIZE);
                 return vec![Effect::None];
@@ -234,6 +243,10 @@ pub fn update(state: &mut AppState, msg: Msg) -> Vec<Effect> {
             }
             if state.route == Route::Doctor {
                 state.doctor_scroll = state.doctor_scroll.saturating_add(PAGE_SIZE);
+                return vec![Effect::None];
+            }
+            if state.route == Route::Help {
+                state.help_scroll = state.help_scroll.saturating_add(PAGE_SIZE);
                 return vec![Effect::None];
             }
             if state.route == Route::Settings {
@@ -282,6 +295,7 @@ pub fn update(state: &mut AppState, msg: Msg) -> Vec<Effect> {
         }
         Msg::OpenHelp => {
             state.route = Route::Help;
+            state.help_scroll = 0;
             state.status.set("help", StatusTone::Neutral);
             vec![Effect::None]
         }
@@ -317,6 +331,24 @@ pub fn update(state: &mut AppState, msg: Msg) -> Vec<Effect> {
             vec![Effect::None]
         }
         Msg::Redraw | Msg::Tick => vec![Effect::None],
+        Msg::RefreshHub => {
+            // Soft refresh must not flash the whole UI every interval.
+            state.dirty = false;
+            if !state.showing_hub() {
+                state.hub_refresh_deadline = None;
+                return vec![Effect::None];
+            }
+            state.schedule_hub_refresh();
+            vec![Effect::LoadHub]
+        }
+        Msg::FocusGained => {
+            if state.showing_hub() {
+                state.schedule_hub_refresh();
+                vec![Effect::LoadHub]
+            } else {
+                vec![Effect::None]
+            }
+        }
         Msg::Engine(event) => apply_engine(state, event),
     }
 }
@@ -371,6 +403,10 @@ fn select_next_msg(state: &mut AppState) -> Vec<Effect> {
         state.doctor_scroll = state.doctor_scroll.saturating_add(1);
         return vec![Effect::None];
     }
+    if state.route == Route::Help {
+        state.help_scroll = state.help_scroll.saturating_add(1);
+        return vec![Effect::None];
+    }
     if state.route == Route::Search && state.focus == FocusZone::Preview && state.preview_visible()
     {
         state.preview_scroll = state.preview_scroll.saturating_add(1);
@@ -378,6 +414,7 @@ fn select_next_msg(state: &mut AppState) -> Vec<Effect> {
     }
     if state.route == Route::Search && state.prompt.is_empty() && state.results.items.is_empty() {
         let max = state.hub_rows().len().saturating_sub(1);
+        state.focus = FocusZone::List;
         state.hub_selected = (state.hub_selected + 1).min(max);
         state.ensure_hub_selection_visible();
         return vec![Effect::None];
@@ -411,12 +448,17 @@ fn select_prev_msg(state: &mut AppState) -> Vec<Effect> {
         state.doctor_scroll = state.doctor_scroll.saturating_sub(1);
         return vec![Effect::None];
     }
+    if state.route == Route::Help {
+        state.help_scroll = state.help_scroll.saturating_sub(1);
+        return vec![Effect::None];
+    }
     if state.route == Route::Search && state.focus == FocusZone::Preview && state.preview_visible()
     {
         state.preview_scroll = state.preview_scroll.saturating_sub(1);
         return vec![Effect::None];
     }
     if state.route == Route::Search && state.prompt.is_empty() && state.results.items.is_empty() {
+        state.focus = FocusZone::List;
         state.hub_selected = state.hub_selected.saturating_sub(1);
         state.ensure_hub_selection_visible();
         return vec![Effect::None];
@@ -472,6 +514,7 @@ fn run_command_selection(state: &mut AppState) -> Vec<Effect> {
         }
         "help" => {
             state.route = Route::Help;
+            state.help_scroll = 0;
             state.status.set("help", StatusTone::Neutral);
             vec![Effect::None]
         }
@@ -511,6 +554,7 @@ fn apply_hub_selection(state: &mut AppState) -> Vec<Effect> {
         state
             .status
             .set("waiting for modules…", StatusTone::Progress);
+        state.schedule_hub_refresh();
         return vec![Effect::LoadHub];
     }
     let idx = state.hub_selected.min(entries.len() - 1);
@@ -579,6 +623,12 @@ fn request_primary_actions(state: &mut AppState) -> Vec<Effect> {
     if item.kind == "directory" || item.primary_action.id.as_str() == "browse" {
         return drill_into_browse(state, &item);
     }
+    if item.primary_action.id.as_str() == "list_issues" {
+        return open_notes_issues(state);
+    }
+    if item.primary_action.id.as_str() == "seed_add" {
+        return seed_module_add(state, &item);
+    }
     let result_id = item.id.as_str().to_string();
     state.awaiting_actions = Some(AwaitingActions {
         intent: ActionsIntent::Primary,
@@ -622,6 +672,43 @@ fn drill_into_browse(state: &mut AppState, item: &luma_domain::SearchItem) -> Ve
     state.history_browse = None;
     state.status.set("browsing…", StatusTone::Progress);
     begin_search(state)
+}
+
+fn open_notes_issues(state: &mut AppState) -> Vec<Effect> {
+    state.browse_nav_stack.clear();
+    state.prompt = "n issues".into();
+    state.prompt_cursor = state.prompt_char_len();
+    state.focus = FocusZone::Prompt;
+    state.history_browse = None;
+    state.results.items.clear();
+    state.results.selected_id = None;
+    state.status.set("notes issues…", StatusTone::Progress);
+    begin_search(state)
+}
+
+fn seed_module_add(state: &mut AppState, item: &luma_domain::SearchItem) -> Vec<Effect> {
+    let prompt = if item.module_id.as_str().contains("quicklinks") {
+        "ql add "
+    } else if item.module_id.as_str().contains("snippets") {
+        "snip add "
+    } else {
+        return vec![Effect::None];
+    };
+    state.browse_nav_stack.clear();
+    state.prompt = prompt.into();
+    state.prompt_cursor = state.prompt_char_len();
+    state.focus = FocusZone::Prompt;
+    state.history_browse = None;
+    state.results.items.clear();
+    state.results.selected_id = None;
+    state.status.set(
+        "type trigger and payload · Enter when ready",
+        StatusTone::Neutral,
+    );
+    // Keep debounce quiet so the user can finish typing the add line.
+    state.search_debounce_deadline = None;
+    state.hub_refresh_deadline = None;
+    vec![Effect::None]
 }
 
 fn request_action_picker(state: &mut AppState) -> Vec<Effect> {
@@ -672,6 +759,23 @@ fn submit_picker_selection(state: &mut AppState) -> Vec<Effect> {
             .cloned()
         {
             return drill_into_browse(state, &item);
+        }
+        return vec![Effect::None];
+    }
+    if action.id == "list_issues" {
+        state.route = Route::Search;
+        return open_notes_issues(state);
+    }
+    if action.id == "seed_add" {
+        state.route = Route::Search;
+        if let Some(item) = state
+            .results
+            .items
+            .iter()
+            .find(|i| i.id.as_str() == result_id.as_str())
+            .cloned()
+        {
+            return seed_module_add(state, &item);
         }
         return vec![Effect::None];
     }
@@ -766,6 +870,17 @@ fn cancel_msg(state: &mut AppState) -> Vec<Effect> {
     }
     if state.route != Route::Search {
         state.route = Route::Search;
+        if let Some(prompt) = state.overlay_restore_prompt.take() {
+            state.prompt = prompt;
+            state.prompt_cursor = state.prompt_char_len();
+            state.focus = FocusZone::Prompt;
+            state.status.set("Ready", StatusTone::Neutral);
+            return vec![Effect::None];
+        }
+        if state.showing_hub() {
+            state.schedule_hub_refresh();
+            return vec![Effect::LoadHub];
+        }
         return vec![Effect::None];
     }
     if let Some(operation_id) = state.active_operation.clone() {
@@ -798,6 +913,7 @@ fn cancel_msg(state: &mut AppState) -> Vec<Effect> {
         state.results.selected_id = None;
         state.active_request = None;
         state.status.set("Ready", StatusTone::Success);
+        state.schedule_hub_refresh();
         vec![Effect::LoadHub]
     } else {
         // Same path as Ctrl-C — confirm before leaving the workbench.
@@ -896,6 +1012,7 @@ fn apply_engine(state: &mut AppState, event: Event) -> Vec<Effect> {
     let _ = state.apply_engine_event(event);
     if ready {
         let mut effects = vec![Effect::LoadHub];
+        state.schedule_hub_refresh();
         if state.results.selected_id.is_some() {
             effects.extend(preview_effect(state));
         }
@@ -910,6 +1027,7 @@ fn apply_engine(state: &mut AppState, event: Event) -> Vec<Effect> {
         state.pending_preview_id = None;
         clear_action_ui(state);
         let mut effects = vec![Effect::LoadHub];
+        state.schedule_hub_refresh();
         if !state.prompt.is_empty() {
             effects.extend(begin_search(state));
         }
@@ -931,19 +1049,21 @@ fn schedule_search(state: &mut AppState) -> Vec<Effect> {
     // Cancel in-flight work immediately so typing stays responsive, but delay the
     // new Search until the quiet period so bursts don't thrash modules.
     let mut effects = cancel_active(state);
-    // Stale results must not remain actionable during debounce.
-    state.results.items.clear();
-    state.results.selected_id = None;
-    state.preview_body = None;
-    state.preview_result_id = None;
-    state.pending_preview_id = None;
+    // Keep prior results visible during debounce (clear only in begin_search).
     clear_action_ui(state);
     if state.prompt.is_empty() {
         state.search_debounce_deadline = None;
+        state.results.items.clear();
+        state.results.selected_id = None;
+        state.preview_body = None;
+        state.preview_result_id = None;
+        state.pending_preview_id = None;
         state.status.set("Ready", StatusTone::Success);
+        state.schedule_hub_refresh();
         effects.push(Effect::LoadHub);
         return effects;
     }
+    state.hub_refresh_deadline = None;
     state.search_debounce_deadline =
         Some(std::time::Instant::now() + std::time::Duration::from_millis(80));
     state.status.set("Typing…", StatusTone::Progress);
@@ -967,9 +1087,11 @@ fn begin_search(state: &mut AppState) -> Vec<Effect> {
         state.results.selected_id = None;
         state.results.scroll = 0;
         state.status.set("Ready", StatusTone::Success);
+        state.schedule_hub_refresh();
         effects.push(Effect::LoadHub);
         return effects;
     }
+    state.hub_refresh_deadline = None;
     state.push_query_history(&state.prompt.clone());
     let request_id = next_request_id(state);
     state.active_request = Some(request_id.clone());
@@ -1084,7 +1206,7 @@ mod tests {
     }
 
     #[test]
-    fn typing_clears_stale_results_and_submit_flushes_search_only() {
+    fn typing_keeps_results_during_debounce_submit_flushes_search() {
         let mut state = AppState::default();
         state.prompt = "old".into();
         let _ = update(&mut state, Msg::FlushSearch);
@@ -1108,17 +1230,19 @@ mod tests {
         assert_eq!(state.results.items.len(), 1);
         state.results.selected_id = Some("stale".into());
 
-        // One more character — debounce pending, old selection must be cleared.
+        // One more character — debounce pending; keep prior rows to avoid empty flash.
         let _ = update(&mut state, Msg::KeyChar('x'));
         assert!(state.search_debounce_deadline.is_some());
-        assert!(state.results.items.is_empty());
-        assert!(state.results.selected_id.is_none());
+        assert_eq!(state.results.items.len(), 1);
+        assert_eq!(state.status.text, "Typing…");
 
         let effects = update(&mut state, Msg::Submit);
         assert!(
             effects.iter().any(|e| matches!(e, Effect::Search { .. })),
             "Submit while debounce pending should flush a new search"
         );
+        assert!(state.results.items.is_empty());
+        assert!(state.search_debounce_deadline.is_none());
         assert!(
             !effects
                 .iter()
@@ -1176,7 +1300,23 @@ mod tests {
         assert_eq!(effects, vec![Effect::None]);
         assert_eq!(state.route, Route::Commands);
         assert!(state.prompt.is_empty());
+        assert_eq!(state.overlay_restore_prompt.as_deref(), Some(":commands"));
         assert!(state.search_debounce_deadline.is_none());
+    }
+
+    #[test]
+    fn esc_from_commands_restores_meta_prompt() {
+        let mut state = AppState::default();
+        state.prompt = ":commands".into();
+        state.prompt_cursor = state.prompt_char_len();
+        let _ = update(&mut state, Msg::Submit);
+        assert_eq!(state.route, Route::Commands);
+        assert!(state.prompt.is_empty());
+
+        let _ = update(&mut state, Msg::Cancel);
+        assert_eq!(state.route, Route::Search);
+        assert_eq!(state.prompt, ":commands");
+        assert!(state.overlay_restore_prompt.is_none());
     }
 
     #[test]
@@ -1944,5 +2084,32 @@ mod tests {
         });
         assert!(state.hub_selected < state.hub_rows().len());
         assert!(state.hub_scroll <= state.hub_selected);
+    }
+
+    #[test]
+    fn refresh_hub_loads_when_showing_hub() {
+        let mut state = AppState::default();
+        assert!(state.showing_hub());
+        let effects = update(&mut state, Msg::RefreshHub);
+        assert!(effects.iter().any(|e| matches!(e, Effect::LoadHub)));
+        assert!(state.hub_refresh_deadline.is_some());
+        assert!(!state.dirty);
+    }
+
+    #[test]
+    fn focus_gained_reloads_hub() {
+        let mut state = AppState::default();
+        let effects = update(&mut state, Msg::FocusGained);
+        assert!(effects.iter().any(|e| matches!(e, Effect::LoadHub)));
+    }
+
+    #[test]
+    fn refresh_hub_skips_when_not_on_hub() {
+        let mut state = AppState::default();
+        state.prompt = "app ".into();
+        state.hub_refresh_deadline = Some(std::time::Instant::now());
+        let effects = update(&mut state, Msg::RefreshHub);
+        assert!(!effects.iter().any(|e| matches!(e, Effect::LoadHub)));
+        assert!(state.hub_refresh_deadline.is_none());
     }
 }

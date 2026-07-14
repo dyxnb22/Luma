@@ -27,6 +27,10 @@ impl MacWindowCatalog {
 
     fn is_ignored_app(name: &str) -> bool {
         let lower = name.to_lowercase();
+        // Localized Terminal.app name on zh-Hans macOS is 「终端」 (not "Terminal").
+        if name == "终端" || name == "終端機" || name == "ターミナル" {
+            return true;
+        }
         matches!(
             lower.as_str(),
             "terminal"
@@ -53,6 +57,8 @@ impl MacWindowCatalog {
                 | "spotlight"
         ) || lower.contains("terminal")
             || lower.contains("iterm")
+            || lower.contains("ghostty")
+            || lower.contains("alacritty")
     }
 
     fn list_windows_blocking() -> Result<Vec<WindowEntry>, WindowError> {

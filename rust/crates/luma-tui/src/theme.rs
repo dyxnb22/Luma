@@ -27,6 +27,13 @@ pub struct Theme {
     pub destructive: Color,
     pub permission: Color,
     pub overlay_dim: Color,
+    /// Filled background for centered overlay panels (must not use terminal default Clear).
+    pub panel_bg: Color,
+    /// Full-screen wash behind quit confirm (light — covers the dark hub).
+    pub quit_backdrop_bg: Color,
+    /// Quit confirm panel — slightly distinct from [`quit_backdrop_bg`].
+    pub quit_panel_bg: Color,
+    pub quit_panel_fg: Color,
 }
 
 impl Theme {
@@ -54,6 +61,11 @@ impl Theme {
             destructive: Color::LightRed,
             permission: Color::Magenta,
             overlay_dim: Color::Indexed(234),
+            panel_bg: Color::Indexed(236),
+            // Soft light wash + slightly brighter panel (still readable distinction).
+            quit_backdrop_bg: Color::Indexed(252),
+            quit_panel_bg: Color::Indexed(255),
+            quit_panel_fg: Color::Black,
         }
     }
 
@@ -73,6 +85,10 @@ impl Theme {
             destructive: Color::Red,
             permission: Color::Magenta,
             overlay_dim: Color::Indexed(254),
+            panel_bg: Color::Indexed(255),
+            quit_backdrop_bg: Color::Indexed(254),
+            quit_panel_bg: Color::Indexed(255),
+            quit_panel_fg: Color::Black,
         }
     }
 
@@ -265,7 +281,8 @@ impl ResultKindVisual {
             "warming" => Self::Warming,
             "permission" => Self::Permission,
             "unavailable" => Self::Unavailable,
-            "not_configured" | "not-configured" | "onboarding" => Self::NotConfigured,
+            // Empty-store onboarding is actionable — do not badge as "not configured".
+            "not_configured" | "not-configured" => Self::NotConfigured,
             _ => Self::Normal,
         }
     }

@@ -9,8 +9,12 @@ use luma_domain::{
 };
 use luma_protocol::{Event, SearchItemDto};
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 use tokio::sync::RwLock;
 use tokio_util::sync::CancellationToken;
+
+/// Soft TTL so `kill ` does not serve a stale process list after warmup.
+const KILL_CACHE_TTL: Duration = Duration::from_secs(2);
 
 #[derive(Clone, Debug)]
 struct ProcessIdentity {
@@ -24,6 +28,7 @@ pub struct KillProcessModule {
     manifest: ModuleManifest,
     catalog: Arc<dyn ProcessCatalogPort>,
     cache: Arc<RwLock<Vec<ProcessEntry>>>,
+    cache_at: Arc<RwLock<Option<Instant>>>,
     self_pid: u32,
     parent_pid: Option<u32>,
 }
@@ -49,6 +54,7 @@ impl KillProcessModule {
             },
             catalog,
             cache: Arc::new(RwLock::new(Vec::new())),
+            cache_at: Arc::new(RwLock::new(None)),
             self_pid,
             parent_pid: Some(parent_pid),
         }
@@ -118,6 +124,7 @@ impl LumaModule for KillProcessModule {
         match self.catalog.list_gui_ish().await {
             Ok(list) => {
                 *self.cache.write().await = list;
+                *self.cache_at.write().await = Some(Instant::now());
                 ModuleState::Ready
             }
             Err(err) => ModuleState::Failed(err.to_string()),
@@ -127,7 +134,11 @@ impl LumaModule for KillProcessModule {
     async fn search(&self, query: Query, sink: SearchSink, cancel: CancellationToken) {
         let needle = query.rest_normalized();
         let mut list = self.cache.read().await.clone();
-        if list.is_empty() {
+        let stale = match *self.cache_at.read().await {
+            Some(at) => at.elapsed() >= KILL_CACHE_TTL || list.is_empty(),
+            None => true,
+        };
+        if stale {
             let row = SearchItemDto {
                 id: "kill:warming".into(),
                 module_id: "luma.kill-process".into(),
@@ -139,14 +150,16 @@ impl LumaModule for KillProcessModule {
                 primary_action_label: "Refresh".into(),
                 ..Default::default()
             };
-            let _ = sink
-                .send(Event::ResultsChunk {
-                    request_id: String::new(),
-                    sequence: 1,
-                    upserts: vec![row],
-                    removed_ids: vec![],
-                })
-                .await;
+            if list.is_empty() {
+                let _ = sink
+                    .send(Event::ResultsChunk {
+                        request_id: String::new(),
+                        sequence: 1,
+                        upserts: vec![row],
+                        removed_ids: vec![],
+                    })
+                    .await;
+            }
             let listed = tokio::select! {
                 _ = cancel.cancelled() => return,
                 result = self.catalog.list_gui_ish() => result,
@@ -154,28 +167,31 @@ impl LumaModule for KillProcessModule {
             match listed {
                 Ok(fresh) => {
                     *self.cache.write().await = fresh;
+                    *self.cache_at.write().await = Some(Instant::now());
                     list = self.cache.read().await.clone();
                 }
                 Err(_) => {
-                    let _ = sink
-                        .send(Event::ResultsChunk {
-                            request_id: String::new(),
-                            sequence: 2,
-                            upserts: vec![SearchItemDto {
-                                id: "kill:unavailable".into(),
-                                module_id: "luma.kill-process".into(),
-                                title: "Process list unavailable".into(),
-                                subtitle: Some("Could not refresh processes".into()),
-                                kind: "unavailable".into(),
-                                score: 0.0,
-                                primary_action_id: "noop".into(),
-                                primary_action_label: "Unavailable".into(),
-                                ..Default::default()
-                            }],
-                            removed_ids: vec!["kill:warming".into()],
-                        })
-                        .await;
-                    return;
+                    if list.is_empty() {
+                        let _ = sink
+                            .send(Event::ResultsChunk {
+                                request_id: String::new(),
+                                sequence: 2,
+                                upserts: vec![SearchItemDto {
+                                    id: "kill:unavailable".into(),
+                                    module_id: "luma.kill-process".into(),
+                                    title: "Process list unavailable".into(),
+                                    subtitle: Some("Could not refresh processes".into()),
+                                    kind: "unavailable".into(),
+                                    score: 0.0,
+                                    primary_action_id: "noop".into(),
+                                    primary_action_label: "Unavailable".into(),
+                                    ..Default::default()
+                                }],
+                                removed_ids: vec!["kill:warming".into()],
+                            })
+                            .await;
+                        return;
+                    }
                 }
             }
         }
@@ -294,6 +310,7 @@ impl LumaModule for KillProcessModule {
             return match self.catalog.list_gui_ish().await {
                 Ok(list) => {
                     *self.cache.write().await = list;
+                    *self.cache_at.write().await = Some(Instant::now());
                     ActionOutcome::Success {
                         message: Some("refreshed".into()),
                     }
@@ -384,6 +401,7 @@ impl LumaModule for KillProcessModule {
 
     async fn teardown(&self) {
         self.cache.write().await.clear();
+        *self.cache_at.write().await = None;
     }
 }
 
@@ -446,7 +464,7 @@ mod tests {
         })
         .await;
         let (tx, mut rx) = mpsc::channel(4);
-        m.search(Query::parse("kill", 20), tx, CancellationToken::new())
+        m.search(Query::parse("kill ", 20), tx, CancellationToken::new())
             .await;
         let ev = rx.recv().await.unwrap();
         let Event::ResultsChunk { upserts, .. } = ev else {

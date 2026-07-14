@@ -198,10 +198,12 @@ pub struct AppState {
     pub module_labels: HashMap<String, String>,
     /// Full module catalog from SessionReady (workbench metadata).
     pub module_catalog: Vec<ModuleCatalogEntry>,
-    /// Hub windows slice (previous-frontmost app).
+    /// Hub windows slice (all visible apps; titles as `title · app`).
     pub hub_windows: Option<HubWindowsState>,
     /// When set, `FlushSearch` should fire after this Instant.
     pub search_debounce_deadline: Option<std::time::Instant>,
+    /// Soft Hub windows refresh while the empty Hub is visible.
+    pub hub_refresh_deadline: Option<std::time::Instant>,
     pub focus: FocusZone,
     /// Newest-first query strings submitted / flushed for search.
     pub query_history: Vec<String>,
@@ -218,6 +220,10 @@ pub struct AppState {
     pub settings_modules: Vec<SettingsModuleRow>,
     /// Doctor overlay scroll (line offset).
     pub doctor_scroll: usize,
+    /// Help overlay scroll (line offset).
+    pub help_scroll: usize,
+    /// Prompt to restore when leaving Commands / Settings / Help / Doctor overlays.
+    pub overlay_restore_prompt: Option<String>,
     /// Command palette selection.
     pub commands_selected: usize,
     /// Async preview body for the selected result (`LoadPreview`).
@@ -297,6 +303,7 @@ impl Default for AppState {
             module_catalog: Vec::new(),
             hub_windows: None,
             search_debounce_deadline: None,
+            hub_refresh_deadline: None,
             focus: FocusZone::Prompt,
             query_history: Vec::new(),
             history_browse: None,
@@ -306,6 +313,8 @@ impl Default for AppState {
             settings_version: 0,
             settings_modules: Vec::new(),
             doctor_scroll: 0,
+            help_scroll: 0,
+            overlay_restore_prompt: None,
             commands_selected: 0,
             preview_result_id: None,
             preview_body: None,
@@ -322,6 +331,25 @@ impl Default for AppState {
 }
 
 impl AppState {
+    /// Empty Search route showing the module / windows Hub (not a result list).
+    pub fn showing_hub(&self) -> bool {
+        matches!(self.route, Route::Search)
+            && self.prompt.is_empty()
+            && self.results.items.is_empty()
+    }
+
+    /// Soft Hub windows refresh interval while Hub is visible.
+    pub const HUB_REFRESH_INTERVAL: std::time::Duration = std::time::Duration::from_secs(2);
+
+    pub fn schedule_hub_refresh(&mut self) {
+        if self.showing_hub() {
+            self.hub_refresh_deadline =
+                Some(std::time::Instant::now() + Self::HUB_REFRESH_INTERVAL);
+        } else {
+            self.hub_refresh_deadline = None;
+        }
+    }
+
     pub fn prompt_char_len(&self) -> usize {
         self.prompt.chars().count()
     }
@@ -637,6 +665,7 @@ impl AppState {
                     status_subtitle: w.status.and_then(|s| s.subtitle),
                 });
                 self.ensure_hub_selection_visible();
+                self.schedule_hub_refresh();
                 true
             }
             Event::SearchStarted { request_id } => {
@@ -691,8 +720,20 @@ impl AppState {
                 if self.active_request.as_deref() == Some(request_id.as_str()) {
                     // End the active request so Esc Clear works on the first press.
                     self.active_request = None;
-                    // Leave the numeric count to the status bar (items.len()); avoid duplicate.
-                    let (text, tone) = if total == 0 {
+                    let incomplete = {
+                        let raw = self.prompt.as_str();
+                        let trimmed = raw.trim();
+                        !trimmed.is_empty()
+                            && !raw.ends_with(|c: char| c.is_whitespace())
+                            && !trimmed.chars().any(|c| c.is_whitespace())
+                            && self.module_catalog.iter().any(|m| {
+                                m.enabled
+                                    && m.triggers.iter().any(|t| t.eq_ignore_ascii_case(trimmed))
+                            })
+                    };
+                    let (text, tone) = if incomplete {
+                        ("Add space to search".into(), StatusTone::Neutral)
+                    } else if total == 0 {
                         ("No results".into(), StatusTone::Neutral)
                     } else {
                         (format!("{elapsed_ms}ms"), StatusTone::Success)

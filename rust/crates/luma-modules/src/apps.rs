@@ -662,7 +662,7 @@ mod tests {
             .await;
         let (tx, mut rx) = mpsc::channel(4);
         module
-            .search(Query::parse("app", 10), tx, CancellationToken::new())
+            .search(Query::parse("app ", 10), tx, CancellationToken::new())
             .await;
         let ev = rx.recv().await.unwrap();
         match ev {
@@ -751,7 +751,7 @@ mod tests {
             .await;
         let (tx, mut rx) = mpsc::channel(4);
         module
-            .search(Query::parse("app", 10), tx, CancellationToken::new())
+            .search(Query::parse("app ", 10), tx, CancellationToken::new())
             .await;
         let ev = rx.recv().await.unwrap();
         match ev {

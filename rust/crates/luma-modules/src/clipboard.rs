@@ -921,7 +921,7 @@ mod tests {
         assert!(matches!(state, ModuleState::Failed(_)), "{state:?}");
 
         let (tx, mut rx) = tokio::sync::mpsc::channel(8);
-        m.search(Query::parse("clip", 50), tx, CancellationToken::new())
+        m.search(Query::parse("clip ", 50), tx, CancellationToken::new())
             .await;
         let ev = rx.recv().await.expect("chunk");
         match ev {

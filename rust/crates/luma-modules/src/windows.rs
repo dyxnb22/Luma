@@ -12,16 +12,21 @@ use luma_domain::{
 };
 use luma_protocol::{Event, SearchItemDto};
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 use tokio::sync::RwLock;
 use tokio_util::sync::CancellationToken;
 
 /// Hard cap for Hub window rows (ADR-0004).
 pub const HUB_WINDOWS_MAX: usize = 15;
 
+/// Soft TTL for `win` search cache — Hub always lists fresh via `hub_windows`.
+const WINDOWS_CACHE_TTL: Duration = Duration::from_secs(2);
+
 pub struct WindowsModule {
     manifest: ModuleManifest,
     catalog: Arc<dyn WindowCatalogPort>,
     cache: Arc<RwLock<Vec<WindowEntry>>>,
+    cache_at: Arc<RwLock<Option<Instant>>>,
 }
 
 impl WindowsModule {
@@ -43,6 +48,7 @@ impl WindowsModule {
             },
             catalog,
             cache: Arc::new(RwLock::new(Vec::new())),
+            cache_at: Arc::new(RwLock::new(None)),
         }
     }
 
@@ -134,7 +140,15 @@ impl WindowsModule {
     async fn refresh_cache(&self) -> Result<Vec<WindowEntry>, WindowError> {
         let list = self.catalog.list_windows().await?;
         *self.cache.write().await = list.clone();
+        *self.cache_at.write().await = Some(Instant::now());
         Ok(list)
+    }
+
+    async fn cache_is_fresh(&self) -> bool {
+        match *self.cache_at.read().await {
+            Some(at) => at.elapsed() < WINDOWS_CACHE_TTL && !self.cache.read().await.is_empty(),
+            None => false,
+        }
     }
 }
 
@@ -157,7 +171,7 @@ impl LumaModule for WindowsModule {
     async fn search(&self, query: Query, sink: SearchSink, cancel: CancellationToken) {
         let needle = query.rest_normalized();
         let mut list = self.cache.read().await.clone();
-        if list.is_empty() {
+        if !self.cache_is_fresh().await {
             let warming = SearchItemDto {
                 id: "win:warming".into(),
                 module_id: "luma.windows".into(),
@@ -169,14 +183,16 @@ impl LumaModule for WindowsModule {
                 primary_action_label: "Refresh".into(),
                 ..Default::default()
             };
-            let _ = sink
-                .send(Event::ResultsChunk {
-                    request_id: String::new(),
-                    sequence: 1,
-                    upserts: vec![warming],
-                    removed_ids: vec![],
-                })
-                .await;
+            if list.is_empty() {
+                let _ = sink
+                    .send(Event::ResultsChunk {
+                        request_id: String::new(),
+                        sequence: 1,
+                        upserts: vec![warming],
+                        removed_ids: vec![],
+                    })
+                    .await;
+            }
             let listed = tokio::select! {
                 _ = cancel.cancelled() => return,
                 result = self.refresh_cache() => result,
@@ -286,11 +302,6 @@ impl LumaModule for WindowsModule {
     }
 
     async fn hub_windows(&self) -> Option<HubWindowsSlice> {
-        let app_name = self
-            .catalog
-            .previous_frontmost_app()
-            .await
-            .unwrap_or_else(|| "Windows".into());
         let list = match self.catalog.list_windows().await {
             Ok(list) => list,
             Err(err) => {
@@ -312,35 +323,31 @@ impl LumaModule for WindowsModule {
                     }
                 };
                 return Some(HubWindowsSlice {
-                    app_name,
+                    app_name: "all".into(),
                     windows: Vec::new(),
                     more: None,
                     status: Some(status),
                 });
             }
         };
-        let previous = self.catalog.previous_frontmost_app().await?;
-        let mut for_app: Vec<_> = list
-            .into_iter()
-            .filter(|e| e.app_name.eq_ignore_ascii_case(&previous))
-            .collect();
-        for_app.sort_by_key(|a| a.title.to_lowercase());
-        let total = for_app.len();
+        // Keep catalog order (front-to-back on macOS) so recent apps stay near the top.
+        let total = list.len();
         let more = if total > HUB_WINDOWS_MAX {
             Some((total - HUB_WINDOWS_MAX) as u32)
         } else {
             None
         };
-        let windows = for_app
+        let windows = list
             .into_iter()
             .take(HUB_WINDOWS_MAX)
             .map(|e| HubWindowRow {
                 id: Self::result_id(&e),
-                title: e.title,
+                // Disambiguate across apps on the Hub.
+                title: format!("{} · {}", e.title, e.app_name),
             })
             .collect();
         Some(HubWindowsSlice {
-            app_name: previous,
+            app_name: "all".into(),
             windows,
             more,
             status: None,
@@ -370,7 +377,7 @@ impl LumaModule for WindowsModule {
                         },
                     };
                 };
-                // Refresh once before focus (ADR-0004: no background poll).
+                // Fresh list before focus so closed windows fail clearly.
                 let _ = self.refresh_cache().await;
                 match await_unless_cancelled(&cancel, self.catalog.focus(window_id)).await {
                     None => ActionOutcome::Cancelled,
@@ -390,6 +397,7 @@ impl LumaModule for WindowsModule {
 
     async fn teardown(&self) {
         self.cache.write().await.clear();
+        *self.cache_at.write().await = None;
     }
 }
 
@@ -503,8 +511,10 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn hub_windows_caps_and_filters_app() {
+    async fn hub_windows_shows_all_apps_and_caps() {
         let mut entries = Vec::new();
+        // Safari first so it stays inside the hard cap when mixed with many Cursor windows.
+        entries.push(sample("pid:2|num:1", "Safari", "Apple"));
         for i in 0..20 {
             entries.push(sample(
                 &format!("pid:1|num:{i}"),
@@ -512,17 +522,21 @@ mod tests {
                 &format!("w{i}"),
             ));
         }
-        entries.push(sample("pid:2|num:1", "Safari", "other"));
         let catalog = Arc::new(FakeWindowCatalog::with_entries(
             entries,
             Some("Cursor".into()),
         ));
         let m = WindowsModule::with_catalog(catalog);
         let slice = m.hub_windows().await.unwrap();
-        assert_eq!(slice.app_name, "Cursor");
+        assert_eq!(slice.app_name, "all");
         assert_eq!(slice.windows.len(), HUB_WINDOWS_MAX);
-        assert_eq!(slice.more, Some(5));
-        assert!(slice.status.is_none());
+        assert_eq!(slice.more, Some(6)); // 21 − 15
+        assert!(
+            slice.windows[0].title.contains("Safari"),
+            "hub should include other apps, got: {:?}",
+            slice.windows.iter().map(|w| &w.title).collect::<Vec<_>>()
+        );
+        assert!(slice.windows[0].title.contains('·'));
     }
 
     #[tokio::test]

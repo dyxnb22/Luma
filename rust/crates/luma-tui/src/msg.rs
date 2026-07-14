@@ -40,4 +40,8 @@ pub enum Msg {
     Tick,
     /// Fire after input debounce quiet period.
     FlushSearch,
+    /// Soft-refresh Hub windows while the empty Hub is visible.
+    RefreshHub,
+    /// Terminal regained focus (switch back to Luma).
+    FocusGained,
 }

@@ -18,7 +18,7 @@ Personal daily-driver status. Prefer honest `unavailable` / `permission_required
 | Module | Triggers | Status | Default |
 | --- | --- | --- | --- |
 | Apps | `app` / `apps` | Available — fuzzy + session MRU; launch / reveal / copy path | on |
-| Windows | `win` / `window` / `windows` | Available — list+focus; Hub projects previous-frontmost app windows (Enter focuses); hard cap 15 | on |
+| Windows | `win` / `window` / `windows` | Available — list+focus; Hub shows all visible windows (Enter focuses); hard cap 15 | on |
 | Clipboard | `clip` / `cb` | Available — history, pin/unpin, `clip clear`, paste needs AX | on |
 | Notes | `n` / `note` / `notes` | Available — FTS/CJK index; `n new` / `n daily` / `n browse` / `n recent` / `n status` / `n issues` / `n check` / `n reindex`; excludes via `--notes-exclude` | on |
 | Quicklinks | `ql` / `quicklinks` | Available — add/overwrite, open, copy URL, delete | on |

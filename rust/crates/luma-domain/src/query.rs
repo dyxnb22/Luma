@@ -23,29 +23,32 @@ impl Query {
     }
 
     /// Parse using an injected prefix predicate (registry triggers + meta tokens).
+    ///
+    /// A bare trigger (`n`, `clip`) without a trailing space is incomplete → [`QueryScope::Global`].
+    /// Commit with a trailing space (`n `) or a payload (`n docker`).
     pub fn parse_with_prefixes(
         raw: impl Into<String>,
         limit: usize,
         is_prefix: impl Fn(&str) -> bool,
     ) -> Self {
         let raw = raw.into();
+        let committed = raw.ends_with(|c: char| c.is_whitespace());
         let normalized = raw.trim().to_lowercase();
-        let scope = if let Some((prefix, rest)) = normalized.split_once(|c: char| c.is_whitespace())
-        {
-            if !rest.is_empty() && is_prefix(prefix) {
+        let scope = if let Some((prefix, _)) = normalized.split_once(|c: char| c.is_whitespace()) {
+            if is_prefix(prefix) {
                 QueryScope::Targeted {
                     module: prefix.to_string(),
-                }
-            } else if is_prefix(&normalized) {
-                QueryScope::Targeted {
-                    module: normalized.clone(),
                 }
             } else {
                 QueryScope::Global
             }
         } else if is_prefix(&normalized) {
-            QueryScope::Targeted {
-                module: normalized.clone(),
+            if committed {
+                QueryScope::Targeted {
+                    module: normalized.clone(),
+                }
+            } else {
+                QueryScope::Global
             }
         } else {
             QueryScope::Global
@@ -56,6 +59,14 @@ impl Query {
             scope,
             limit,
         }
+    }
+
+    /// True when input is exactly a module trigger with no trailing space yet (`n`, not `n `).
+    pub fn is_incomplete_trigger(&self, is_prefix: impl Fn(&str) -> bool) -> bool {
+        let trimmed = self.raw.trim();
+        !self.raw.ends_with(|c: char| c.is_whitespace())
+            && !trimmed.chars().any(|c| c.is_whitespace())
+            && is_prefix(&trimmed.to_lowercase())
     }
 
     /// Case-preserving text after the first whitespace token in the trimmed raw input.
@@ -132,6 +143,24 @@ mod tests {
         let q = Query::parse("clip", 20);
         assert_eq!(q.rest_raw(), "");
         assert_eq!(q.rest_normalized(), "");
+        assert_eq!(q.scope, QueryScope::Global);
+    }
+
+    #[test]
+    fn trailing_space_commits_bare_trigger() {
+        let q = Query::parse("n ", 20);
+        assert!(matches!(q.scope, QueryScope::Targeted { ref module } if module == "n"));
+        assert_eq!(q.rest_raw(), "");
+    }
+
+    #[test]
+    fn bare_trigger_is_incomplete() {
+        let q = Query::parse("n", 20);
+        assert!(q.is_incomplete_trigger(is_known_prefix));
+        let q2 = Query::parse("n ", 20);
+        assert!(!q2.is_incomplete_trigger(is_known_prefix));
+        let q3 = Query::parse("n docker", 20);
+        assert!(!q3.is_incomplete_trigger(is_known_prefix));
     }
 
     #[test]

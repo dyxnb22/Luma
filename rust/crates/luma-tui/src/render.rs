@@ -2,7 +2,7 @@ use crate::theme::{module_glyph, module_label, ResultKindVisual, Symbols, Theme}
 use crate::view_model::{AppState, Route, StatusTone};
 use luma_domain::{ActionRisk, SearchItem};
 use ratatui::layout::{Alignment, Constraint, Direction, Layout, Rect};
-use ratatui::style::{Modifier, Style};
+use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, List, ListItem, Paragraph, Wrap};
 use ratatui::Frame;
@@ -50,7 +50,7 @@ fn render_with(frame: &mut Frame<'_>, state: &AppState, theme: &Theme, symbols: 
 
     match state.route {
         Route::Search => {}
-        Route::Help => render_overlay_help(frame, area, theme, symbols),
+        Route::Help => render_overlay_help(frame, area, state, theme, symbols),
         Route::Doctor => render_overlay_doctor(frame, area, state, theme, symbols),
         Route::Settings => render_overlay_settings(frame, area, state, theme, symbols),
         Route::Commands => render_overlay_commands(frame, area, state, theme, symbols),
@@ -206,11 +206,10 @@ fn hub_list_items(state: &AppState, theme: &Theme, symbols: &Symbols) -> Vec<Lis
             && start == 0
         {
             shown_windows = true;
-            let app = state
-                .hub_windows
-                .as_ref()
-                .map(|h| h.app_name.as_str())
-                .unwrap_or("Windows");
+            let header = match state.hub_windows.as_ref().map(|h| h.app_name.as_str()) {
+                Some("all") | Some("") | None => "  Windows".to_string(),
+                Some(app) => format!("  Windows · {app}"),
+            };
             let hint = if state
                 .hub_windows
                 .as_ref()
@@ -222,7 +221,7 @@ fn hub_list_items(state: &AppState, theme: &Theme, symbols: &Symbols) -> Vec<Lis
                 "  Enter focuses window · ↑↓ move"
             };
             out.push(ListItem::new(vec![
-                Line::from(Span::styled(format!("  Windows · {app}"), theme.title())),
+                Line::from(Span::styled(header, theme.title())),
                 Line::from(Span::styled(hint, theme.key_hint())),
             ]));
         }
@@ -253,13 +252,25 @@ fn hub_list_items(state: &AppState, theme: &Theme, symbols: &Symbols) -> Vec<Lis
             "window_more" | "window_status" => "win".to_string(),
             _ => query.clone(),
         };
-        out.push(ListItem::new(vec![
-            Line::from(vec![
-                Span::styled(format!(" {prefix} {title}"), style),
-                Span::styled(format!("  {right}"), muted),
-            ]),
-            Line::from(""),
-        ]));
+        let guidance = if kind == "window_status" {
+            state
+                .hub_windows
+                .as_ref()
+                .and_then(|h| h.status_subtitle.as_ref())
+                .cloned()
+        } else {
+            None
+        };
+        let mut lines = vec![Line::from(vec![
+            Span::styled(format!(" {prefix} {title}"), style),
+            Span::styled(format!("  {right}"), muted),
+        ])];
+        if let Some(sub) = guidance {
+            lines.push(Line::from(Span::styled(format!("    {sub}"), muted)));
+        } else {
+            lines.push(Line::from(""));
+        }
+        out.push(ListItem::new(lines));
     }
     out
 }
@@ -370,32 +381,59 @@ fn render_preview(
 }
 
 fn empty_state_item(state: &AppState, theme: &Theme, symbols: &Symbols) -> ListItem<'static> {
-    let (title, detail) =
-        if state.active_request.is_some() && state.status.tone == StatusTone::Progress {
-            (
-                format!("Searching{}", symbols.ellipsis),
-                "Results appear as modules respond".to_string(),
-            )
-        } else if state.prompt.trim().is_empty() {
-            (
-                "Type to search".to_string(),
-                format!(
-                    "Try: app safari {} n meeting {} clip",
-                    symbols.sep, symbols.sep
-                ),
-            )
-        } else if let Some(hint) = empty_hint_for_prompt(state) {
-            ("No results".to_string(), hint)
-        } else {
-            (
-                "No results".to_string(),
-                "Adjust the query or try another module trigger".to_string(),
-            )
-        };
+    let (title, detail) = if state.search_debounce_deadline.is_some() {
+        (
+            format!("Keep typing{}", symbols.ellipsis),
+            "Search runs after a short pause".to_string(),
+        )
+    } else if let Some((trigger, hint)) = incomplete_trigger_hint(state) {
+        (
+            format!("Add a space to enter `{trigger}`"),
+            hint.unwrap_or_else(|| format!("Try `{trigger} ` or `{trigger} query`")),
+        )
+    } else if state.active_request.is_some() && state.status.tone == StatusTone::Progress {
+        (
+            format!("Searching{}", symbols.ellipsis),
+            "Results appear as modules respond".to_string(),
+        )
+    } else if state.prompt.trim().is_empty() {
+        (
+            "Type to search".to_string(),
+            format!(
+                "Try: app safari {} n browse {} clip",
+                symbols.sep, symbols.sep
+            ),
+        )
+    } else if let Some(hint) = empty_hint_for_prompt(state) {
+        ("No results".to_string(), hint)
+    } else {
+        (
+            "No results".to_string(),
+            "Adjust the query or try another module trigger".to_string(),
+        )
+    };
     ListItem::new(vec![
         Line::from(Span::styled(format!("  {title}"), theme.muted())),
         Line::from(Span::styled(format!("  {detail}"), theme.key_hint())),
     ])
+}
+
+/// Bare module trigger without trailing space (`n`, not `n `).
+fn incomplete_trigger_hint(state: &AppState) -> Option<(String, Option<String>)> {
+    let raw = state.prompt.as_str();
+    let trimmed = raw.trim();
+    if trimmed.is_empty()
+        || raw.ends_with(|c: char| c.is_whitespace())
+        || trimmed.chars().any(|c| c.is_whitespace())
+    {
+        return None;
+    }
+    let token = trimmed.to_ascii_lowercase();
+    let module = state
+        .module_catalog
+        .iter()
+        .find(|m| m.enabled && m.triggers.iter().any(|t| t.eq_ignore_ascii_case(&token)))?;
+    Some((token, module.empty_hint.clone()))
 }
 
 /// Prefer the targeted module's `empty_hint` when the prompt starts with its trigger.
@@ -627,6 +665,12 @@ fn render_status(
 ) {
     let status_style = status_style(state.status.tone, theme);
     let hints = match state.route {
+        Route::Search if state.showing_hub() => {
+            format!(
+                "{}{} select {} Enter open {} Ctrl-/ commands {} ? help",
+                symbols.up, symbols.down, symbols.sep, symbols.sep, symbols.sep
+            )
+        }
         Route::Search => {
             let nav = if state.focus == crate::view_model::FocusZone::Preview {
                 "PgUp/Dn scroll preview"
@@ -656,7 +700,10 @@ fn render_status(
         Route::ConfirmAction | Route::QuitConfirm => {
             format!("Enter Confirm {} Esc Cancel", symbols.sep)
         }
-        Route::Help => "Esc Back · type to search".to_string(),
+        Route::Help => format!(
+            "{}{} / PgUp PgDn scroll {} Esc Back",
+            symbols.up, symbols.down, symbols.sep
+        ),
         Route::Doctor => format!(
             "{}{} scroll {} Esc Back",
             symbols.up, symbols.down, symbols.sep
@@ -722,6 +769,19 @@ fn dim_backdrop(frame: &mut Frame<'_>, area: Rect, theme: &Theme) {
     frame.render_widget(dim, area);
 }
 
+/// Paint overlay panel with theme background (avoid `Clear`, which uses the terminal default).
+fn fill_overlay_panel(frame: &mut Frame<'_>, area: Rect, theme: &Theme) {
+    frame.render_widget(Block::default().style(panel_style(theme)), area);
+}
+
+fn panel_style(theme: &Theme) -> Style {
+    Style::default().bg(theme.panel_bg).fg(theme.text)
+}
+
+fn with_panel_bg(style: Style, theme: &Theme) -> Style {
+    style.bg(theme.panel_bg)
+}
+
 fn render_overlay_confirm(
     frame: &mut Frame<'_>,
     area: Rect,
@@ -731,7 +791,8 @@ fn render_overlay_confirm(
 ) {
     dim_backdrop(frame, area, theme);
     let overlay = overlay_area(area, 9);
-    frame.render_widget(Clear, overlay);
+    fill_overlay_panel(frame, overlay, theme);
+    let panel = panel_style(theme);
 
     let pending = state.pending_action.as_ref();
     let action = pending.map(|p| p.action.label.as_str()).unwrap_or("action");
@@ -752,29 +813,37 @@ fn render_overlay_confirm(
         Some(ActionRisk::Confirm) => (theme.warning(), "CONFIRM"),
         _ => (theme.accent(), "CONFIRM"),
     };
+    let title_style = with_panel_bg(title_style, theme);
 
     let lines = vec![
         Line::from(Span::styled(format!(" {risk_label} "), title_style)),
-        Line::from(""),
+        Line::from(Span::styled("", panel)),
         Line::from(vec![
-            Span::styled("  ", theme.muted()),
-            Span::styled(action, theme.text().add_modifier(Modifier::BOLD)),
-            Span::styled(" -> ", theme.muted()),
-            Span::styled(target, theme.accent()),
+            Span::styled("  ", with_panel_bg(theme.muted(), theme)),
+            Span::styled(
+                action,
+                with_panel_bg(theme.text().add_modifier(Modifier::BOLD), theme),
+            ),
+            Span::styled(" -> ", with_panel_bg(theme.muted(), theme)),
+            Span::styled(target, with_panel_bg(theme.accent(), theme)),
         ]),
-        Line::from(""),
+        Line::from(Span::styled("", panel)),
         Line::from(Span::styled(
             format!("  Enter confirm {} Esc cancel", symbols.sep),
-            theme.key_hint(),
+            with_panel_bg(theme.key_hint(), theme),
         )),
     ];
 
-    let widget = Paragraph::new(lines).alignment(Alignment::Left).block(
-        Block::default()
-            .borders(Borders::ALL)
-            .border_style(title_style)
-            .title(Span::styled(" confirm ", title_style)),
-    );
+    let widget = Paragraph::new(lines)
+        .style(panel)
+        .alignment(Alignment::Left)
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .border_style(title_style)
+                .style(panel)
+                .title(Span::styled(" confirm ", title_style)),
+        );
     frame.render_widget(widget, overlay);
 }
 
@@ -788,7 +857,8 @@ fn render_overlay_action_picker(
     dim_backdrop(frame, area, theme);
     let rows = (state.action_choices.len() as u16).saturating_add(2).max(6);
     let overlay = overlay_area(area, rows.min(16));
-    frame.render_widget(Clear, overlay);
+    fill_overlay_panel(frame, overlay, theme);
+    let panel = panel_style(theme);
 
     let target = state
         .action_result_id
@@ -813,7 +883,7 @@ fn render_overlay_action_picker(
             let row_bg = if selected {
                 Style::default().bg(theme.selected_bg)
             } else {
-                Style::default()
+                Style::default().bg(theme.panel_bg)
             };
             let style = if selected {
                 theme.selected_row()
@@ -843,49 +913,95 @@ fn render_overlay_action_picker(
         })
         .collect();
 
-    let list = List::new(items).block(
+    let list = List::new(items).style(panel).block(
         Block::default()
             .borders(Borders::ALL)
-            .border_style(theme.border(true))
+            .border_style(with_panel_bg(theme.border(true), theme))
+            .style(panel)
             .title(Span::styled(
                 format!(" actions {} {target} ", symbols.sep),
-                theme.title(),
+                with_panel_bg(theme.title(), theme),
             )),
     );
     frame.render_widget(list, overlay);
 }
 
-fn render_overlay_help(frame: &mut Frame<'_>, area: Rect, theme: &Theme, symbols: &Symbols) {
+fn render_overlay_help(
+    frame: &mut Frame<'_>,
+    area: Rect,
+    state: &AppState,
+    theme: &Theme,
+    symbols: &Symbols,
+) {
     dim_backdrop(frame, area, theme);
-    let overlay = overlay_area(area, 18);
-    frame.render_widget(Clear, overlay);
-    let text = [
-        "Type to search · Left/Right/Home/End move cursor".to_string(),
-        "Ctrl-u clear to start / home · Ctrl-w delete word".to_string(),
-        "Ctrl-p/n query history (prompt focused)".to_string(),
+    // Shortcuts first (compact), then enabled modules — config tips last so narrow
+    // terminals still see modules after a short scroll.
+    let mut lines: Vec<String> = vec![
+        "Triggers need a trailing space (`n docker`) · Esc clears · empty Esc quits".to_string(),
+        "Enter action · Ctrl-k actions · Ctrl-/ commands · Tab focus · ? help".to_string(),
         format!(
-            "{}{} / PgUp PgDn  move selection (scroll preview when focused)",
+            "{}{} / PgUp PgDn move · Ctrl-u home · Ctrl-w word",
             symbols.up, symbols.down
         ),
-        "Enter  primary action · empty Enter opens Hub trigger".to_string(),
-        "Ctrl-k  action list · Ctrl-/ command palette".to_string(),
-        "Tab  cycle focus (prompt / list / preview)".to_string(),
-        "Esc  browse up / clear · Ctrl-u home · empty Esc quit confirm".to_string(),
-        "?  help · :doctor / :settings / :commands".to_string(),
-        "Preview: side-by-side when wide (≥100); stacked when tall (≥28 rows)".to_string(),
-        "Ctrl-C  quit confirm · Enter exits".to_string(),
         String::new(),
-        "Configure Notes: luma config set --notes-root ~/Notes".to_string(),
-        "Configure Projects: luma config set --projects-root ~/dev".to_string(),
-        "Confirm / Destructive actions always ask first.".to_string(),
-    ]
-    .join("\n");
-    let widget = Paragraph::new(text).wrap(Wrap { trim: false }).block(
-        Block::default()
-            .borders(Borders::ALL)
-            .border_style(theme.border(true))
-            .title(Span::styled(" help ", theme.title())),
-    );
+        "Enabled modules:".to_string(),
+    ];
+    let mut modules: Vec<_> = state.module_catalog.iter().filter(|m| m.enabled).collect();
+    modules.sort_by(|a, b| {
+        a.display_name
+            .to_lowercase()
+            .cmp(&b.display_name.to_lowercase())
+    });
+    if modules.is_empty() {
+        lines.push("  (waiting for session catalog)".to_string());
+    } else {
+        for m in modules {
+            let triggers = if m.triggers.is_empty() {
+                "—".to_string()
+            } else {
+                m.triggers.join("/")
+            };
+            lines.push(format!("  {} · {}", m.display_name, triggers));
+        }
+    }
+    lines.push(String::new());
+    lines.push("Config: luma config set --notes-root ~/Notes".to_string());
+    lines.push("        luma config set --projects-root ~/dev".to_string());
+    lines.push("Confirm / Destructive actions always ask first.".to_string());
+
+    let overlay = overlay_area(area, (area.height.saturating_sub(2)).clamp(12, 22));
+    fill_overlay_panel(frame, overlay, theme);
+    let panel = panel_style(theme);
+    let inner_h = overlay.height.saturating_sub(2) as usize;
+    let max_scroll = lines.len().saturating_sub(inner_h.max(1));
+    let scroll = state.help_scroll.min(max_scroll);
+    let visible = lines
+        .iter()
+        .skip(scroll)
+        .take(inner_h.max(1))
+        .cloned()
+        .collect::<Vec<_>>()
+        .join("\n");
+    let title = if max_scroll > 0 {
+        format!(
+            " help {} {}/{} ",
+            symbols.sep,
+            scroll + 1,
+            lines.len().max(1)
+        )
+    } else {
+        " help ".to_string()
+    };
+    let widget = Paragraph::new(visible)
+        .style(panel)
+        .wrap(Wrap { trim: false })
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .border_style(with_panel_bg(theme.border(true), theme))
+                .style(panel)
+                .title(Span::styled(title, with_panel_bg(theme.title(), theme))),
+        );
     frame.render_widget(widget, overlay);
 }
 
@@ -898,7 +1014,8 @@ fn render_overlay_doctor(
 ) {
     dim_backdrop(frame, area, theme);
     let overlay = overlay_area(area, (area.height.saturating_sub(4)).clamp(8, 20));
-    frame.render_widget(Clear, overlay);
+    fill_overlay_panel(frame, overlay, theme);
+    let panel = panel_style(theme);
     let full = state.doctor_diagnostic.as_ref().map_or_else(
         || format!("Waiting for engine diagnostics{}", symbols.ellipsis),
         |diagnostic| {
@@ -926,12 +1043,16 @@ fn render_overlay_doctor(
     } else {
         " doctor ".to_string()
     };
-    let widget = Paragraph::new(visible).wrap(Wrap { trim: false }).block(
-        Block::default()
-            .borders(Borders::ALL)
-            .border_style(theme.border(true))
-            .title(Span::styled(title, theme.title())),
-    );
+    let widget = Paragraph::new(visible)
+        .style(panel)
+        .wrap(Wrap { trim: false })
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .border_style(with_panel_bg(theme.border(true), theme))
+                .style(panel)
+                .title(Span::styled(title, with_panel_bg(theme.title(), theme))),
+        );
     frame.render_widget(widget, overlay);
 }
 
@@ -944,12 +1065,13 @@ fn render_overlay_settings(
 ) {
     dim_backdrop(frame, area, theme);
     let overlay = overlay_area(area, 16);
-    frame.render_widget(Clear, overlay);
+    fill_overlay_panel(frame, overlay, theme);
+    let panel = panel_style(theme);
     let mut items = Vec::new();
     if state.settings_modules.is_empty() {
         items.push(ListItem::new(Span::styled(
             "  Loading modules…",
-            theme.muted(),
+            with_panel_bg(theme.muted(), theme),
         )));
     } else {
         for (idx, row) in state.settings_modules.iter().enumerate() {
@@ -959,7 +1081,7 @@ fn render_overlay_settings(
             let style = if selected {
                 theme.selected_row()
             } else {
-                theme.text()
+                with_panel_bg(theme.text(), theme)
             };
             items.push(ListItem::new(Span::styled(
                 format!(" {prefix} {mark} {}  ({})", row.name, row.id),
@@ -967,13 +1089,14 @@ fn render_overlay_settings(
             )));
         }
     }
-    let list = List::new(items).block(
+    let list = List::new(items).style(panel).block(
         Block::default()
             .borders(Borders::ALL)
-            .border_style(theme.border(true))
+            .border_style(with_panel_bg(theme.border(true), theme))
+            .style(panel)
             .title(Span::styled(
                 format!(" settings v{} ", state.settings_version),
-                theme.title(),
+                with_panel_bg(theme.title(), theme),
             )),
     );
     frame.render_widget(list, overlay);
@@ -988,7 +1111,8 @@ fn render_overlay_commands(
 ) {
     dim_backdrop(frame, area, theme);
     let overlay = overlay_area(area, 10);
-    frame.render_widget(Clear, overlay);
+    fill_overlay_panel(frame, overlay, theme);
+    let panel = panel_style(theme);
     let commands = [
         ("settings", "Open module settings"),
         ("doctor", "Run diagnostics"),
@@ -1004,12 +1128,12 @@ fn render_overlay_commands(
             let style = if selected {
                 theme.selected_row()
             } else {
-                theme.text()
+                with_panel_bg(theme.text(), theme)
             };
             let muted = if selected {
                 theme.selected_row()
             } else {
-                theme.muted()
+                with_panel_bg(theme.muted(), theme)
             };
             ListItem::new(Line::from(vec![
                 Span::styled(format!(" {prefix} :{name}  "), style),
@@ -1017,32 +1141,56 @@ fn render_overlay_commands(
             ]))
         })
         .collect();
-    let list = List::new(items).block(
+    let list = List::new(items).style(panel).block(
         Block::default()
             .borders(Borders::ALL)
-            .border_style(theme.border(true))
-            .title(Span::styled(" commands ", theme.title())),
+            .border_style(with_panel_bg(theme.border(true), theme))
+            .style(panel)
+            .title(Span::styled(
+                " commands ",
+                with_panel_bg(theme.title(), theme),
+            )),
     );
     frame.render_widget(list, overlay);
 }
 
 fn render_overlay_quit(frame: &mut Frame<'_>, area: Rect, theme: &Theme, symbols: &Symbols) {
-    dim_backdrop(frame, area, theme);
+    // Wipe the dark hub entirely, then paint a light full-screen wash so the
+    // quit step does not flash a bright island on a black page.
+    frame.render_widget(Clear, area);
+    let backdrop = Style::default()
+        .bg(theme.quit_backdrop_bg)
+        .fg(theme.quit_panel_fg);
+    frame.render_widget(Block::default().style(backdrop), area);
+
     let overlay = overlay_area(area, 7);
-    frame.render_widget(Clear, overlay);
+    let panel = Style::default()
+        .bg(theme.quit_panel_bg)
+        .fg(theme.quit_panel_fg);
+    let warn = Style::default()
+        .fg(Color::Rgb(160, 100, 0))
+        .bg(theme.quit_panel_bg)
+        .add_modifier(Modifier::BOLD);
+    let border = Style::default()
+        .fg(Color::Rgb(120, 120, 120))
+        .bg(theme.quit_panel_bg);
+    let hint = Style::default()
+        .fg(Color::Rgb(80, 80, 80))
+        .bg(theme.quit_panel_bg);
     let lines = vec![
-        Line::from(Span::styled(" Quit Luma? ", theme.warning())),
-        Line::from(""),
+        Line::from(Span::styled(" Quit Luma? ", warn)),
+        Line::from(Span::styled("", panel)),
         Line::from(Span::styled(
             format!("  Enter confirm {} Esc stay", symbols.sep),
-            theme.key_hint(),
+            hint,
         )),
     ];
-    let widget = Paragraph::new(lines).block(
+    let widget = Paragraph::new(lines).style(panel).block(
         Block::default()
             .borders(Borders::ALL)
-            .border_style(theme.warning())
-            .title(Span::styled(" quit ", theme.warning())),
+            .border_style(border)
+            .style(panel)
+            .title(Span::styled(" quit ", warn)),
     );
     frame.render_widget(widget, overlay);
 }
@@ -1321,7 +1469,7 @@ mod tests {
                     "c",
                     "Choose a Notes root folder",
                     "luma.notes",
-                    "onboarding",
+                    "not_configured",
                     "NotConfigured",
                     "Configure",
                 )],

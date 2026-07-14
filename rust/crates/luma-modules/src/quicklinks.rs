@@ -215,15 +215,24 @@ impl LumaModule for QuicklinksModule {
             }
         }
         if token == "ql" || token == "quicklinks" {
+            let empty = upserts.is_empty();
             upserts.push(SearchItemDto {
                 id: "ql:manage".into(),
                 module_id: "luma.quicklinks".into(),
-                title: "Manage Quicklinks".into(),
-                subtitle: Some("ql add <trigger> <url>".into()),
-                kind: "status".into(),
-                score: 1.0,
-                primary_action_id: "noop".into(),
-                primary_action_label: "Help".into(),
+                title: if empty {
+                    "No quicklinks yet".into()
+                } else {
+                    "Add a quicklink".into()
+                },
+                subtitle: Some("Enter to type: ql add <trigger> <url>".into()),
+                kind: if empty {
+                    "onboarding".into()
+                } else {
+                    "status".into()
+                },
+                score: if empty { 90.0 } else { 5.0 },
+                primary_action_id: "seed_add".into(),
+                primary_action_label: "Add".into(),
                 ..Default::default()
             });
         }
@@ -275,18 +284,21 @@ impl LumaModule for QuicklinksModule {
                 confirmation: false,
             },
         ];
-        if result.id.as_str() == "ql:manage"
-            || result.id.as_str() == "ql:unavailable"
+        if result.id.as_str() == "ql:manage" || result.primary_action.id.as_str() == "seed_add" {
+            return vec![ActionDescriptor {
+                id: ActionId::new("seed_add"),
+                label: "Add".into(),
+                risk: ActionRisk::Safe,
+                confirmation: false,
+            }];
+        }
+        if result.id.as_str() == "ql:unavailable"
             || result.kind == "unavailable"
             || result.primary_action.id.as_str() == "noop"
         {
             return vec![ActionDescriptor {
                 id: ActionId::new("noop"),
-                label: if result.id.as_str() == "ql:manage" {
-                    "Help".into()
-                } else {
-                    "Unavailable".into()
-                },
+                label: "Unavailable".into(),
                 risk: ActionRisk::Safe,
                 confirmation: false,
             }];
@@ -385,10 +397,12 @@ impl LumaModule for QuicklinksModule {
                 }
             }
             "noop" => ActionOutcome::Success {
-                message: if action.result.id.as_str() == "ql:manage" {
-                    Some("use ql add <trigger> <url>".into())
-                } else {
-                    Some("ok".into())
+                message: Some("ok".into()),
+            },
+            "seed_add" => ActionOutcome::Failed {
+                kind: FailureKind::InvalidInput {
+                    field: "action".into(),
+                    message: "seed_add is search-driven; use `ql add <trigger> <url>`".into(),
                 },
             },
             "open" => {

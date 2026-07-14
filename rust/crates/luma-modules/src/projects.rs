@@ -37,8 +37,10 @@ impl ProjectsModule {
                 required_capabilities: vec![],
                 workbench: luma_application::WorkbenchMeta {
                     glyph: Some("P".into()),
-                    suggested_query: Some("proj ".into()),
-                    empty_hint: Some("proj · proj browse <path>".into()),
+                    suggested_query: Some("proj browse".into()),
+                    empty_hint: Some(
+                        "proj browse · proj <name> · Hub Enter opens the project tree".into(),
+                    ),
                     supports_browse: true,
                 },
             },

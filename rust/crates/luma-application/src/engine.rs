@@ -541,6 +541,29 @@ impl Engine {
             return;
         }
 
+        // Bare trigger (`n`) — finish early before SearchStarted/ResultsReset flash.
+        let incomplete = {
+            let g = self.inner.lock().await;
+            let triggers = g.registry.all_triggers();
+            let query = Query::parse_with_prefixes(&query_raw, 50, |token| {
+                is_meta_prefix(token) || triggers.iter().any(|t| t == token)
+            });
+            query.is_incomplete_trigger(|token| {
+                is_meta_prefix(token) || triggers.iter().any(|t| t == token)
+            })
+        };
+        if incomplete {
+            self.cancel_all_searches_locked().await;
+            let _ = self
+                .emit(Event::SearchFinished {
+                    request_id,
+                    total: 0,
+                    elapsed_ms: 0,
+                })
+                .await;
+            return;
+        }
+
         self.cancel_all_searches_locked().await;
         {
             let mut g = self.inner.lock().await;

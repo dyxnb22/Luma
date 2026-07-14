@@ -14,10 +14,10 @@ favorites) is retired from the empty-prompt Hub; those flows stay available via 
 
 1. **Module `luma.windows`** — triggers `win` / `window` / `windows`, `TargetedOnly`,
    default **on**. Lists visible windows; primary action `focus`.
-2. **Hub projection** — empty prompt shows windows of the **previous frontmost app**
-   (snapshotted at TUI/compose start, not the terminal that is now frontmost). Enter
-   focuses immediately (does not fill the prompt). Hard cap **15** rows; overflow is a
-   single `N more → win` row that opens the full module.
+2. **Hub projection** — empty prompt shows **all visible windows** (terminals / Luma
+   filtered out), sorted by app then title. Enter focuses immediately (does not fill the
+   prompt). Hard cap **15** rows; overflow is a single `N more → win` row that opens the
+   full module. Row labels include `title · app` for disambiguation.
 3. **Hub pins removed** — empty-prompt Hub no longer shows Notes shortcuts or Clipboard
    favorites. Clipboard pin/unpin and purge-keeps-pinned remain inside `clip`. Notes shortcuts
    stay available via `n …`.

@@ -42,7 +42,7 @@ impl SecretsModule {
                     glyph: Some("V".into()),
                     suggested_query: Some("sec ".into()),
                     empty_hint: Some(
-                        "sec · unlock vault · labels only (values never in search)".into(),
+                        "sec · Enter unlocks vault (confirm) · labels only, never values".into(),
                     ),
                     supports_browse: false,
                 },
@@ -345,7 +345,7 @@ mod tests {
             Arc::new(ClipboardSuppression::new()),
         );
         let (tx, mut rx) = mpsc::channel(4);
-        m.search(Query::parse("sec", 10), tx, CancellationToken::new())
+        m.search(Query::parse("sec ", 10), tx, CancellationToken::new())
             .await;
         let ev = rx.recv().await.unwrap();
         let Event::ResultsChunk { upserts, .. } = ev else {
@@ -370,7 +370,7 @@ mod tests {
         );
         m.unlocked.store(true, Ordering::SeqCst);
         let (tx, mut rx) = mpsc::channel(4);
-        m.search(Query::parse("sec", 10), tx, CancellationToken::new())
+        m.search(Query::parse("sec ", 10), tx, CancellationToken::new())
             .await;
         let ev = rx.recv().await.unwrap();
         let Event::ResultsChunk { upserts, .. } = ev else {
@@ -404,7 +404,7 @@ mod tests {
         );
         m.unlocked.store(true, Ordering::SeqCst);
         let (tx, mut rx) = mpsc::channel(4);
-        m.search(Query::parse("sec", 10), tx, CancellationToken::new())
+        m.search(Query::parse("sec ", 10), tx, CancellationToken::new())
             .await;
         let ev = rx.recv().await.unwrap();
         let Event::ResultsChunk { upserts, .. } = ev else {

@@ -307,7 +307,26 @@ impl LumaModule for AppsModule {
                         request_id: String::new(),
                         sequence: 1,
                         upserts,
-                        removed_ids: vec![],
+                        removed_ids: vec!["apps:warming".into()],
+                    })
+                    .await;
+            } else {
+                let _ = sink
+                    .send(Event::ResultsChunk {
+                        request_id: String::new(),
+                        sequence: 1,
+                        upserts: vec![SearchItemDto {
+                            id: "app:empty".into(),
+                            module_id: "luma.apps".into(),
+                            title: "No apps indexed".into(),
+                            subtitle: Some("Catalog refresh finished with an empty list".into()),
+                            kind: "status".into(),
+                            score: 0.0,
+                            primary_action_id: "noop".into(),
+                            primary_action_label: "OK".into(),
+                            ..Default::default()
+                        }],
+                        removed_ids: vec!["apps:warming".into()],
                     })
                     .await;
             }
@@ -351,13 +370,55 @@ impl LumaModule for AppsModule {
                     request_id: String::new(),
                     sequence: 1,
                     upserts,
-                    removed_ids: vec![],
+                    removed_ids: vec!["apps:warming".into()],
+                })
+                .await;
+        } else if !needle.is_empty() {
+            let _ = sink
+                .send(Event::ResultsChunk {
+                    request_id: String::new(),
+                    sequence: 1,
+                    upserts: vec![SearchItemDto {
+                        id: "app:no-matches".into(),
+                        module_id: "luma.apps".into(),
+                        title: format!("No apps matching \"{needle}\""),
+                        subtitle: Some("Try another name · app ".into()),
+                        kind: "status".into(),
+                        score: 0.0,
+                        primary_action_id: "noop".into(),
+                        primary_action_label: "OK".into(),
+                        ..Default::default()
+                    }],
+                    removed_ids: vec!["apps:warming".into()],
+                })
+                .await;
+        } else {
+            let _ = sink
+                .send(Event::ResultsChunk {
+                    request_id: String::new(),
+                    sequence: 1,
+                    upserts: vec![],
+                    removed_ids: vec!["apps:warming".into()],
                 })
                 .await;
         }
     }
 
-    async fn actions(&self, _result: &SearchItem) -> Vec<ActionDescriptor> {
+    async fn actions(&self, result: &SearchItem) -> Vec<ActionDescriptor> {
+        if result.id.as_str() == "app:no-matches"
+            || result.id.as_str() == "app:empty"
+            || result.kind == "status"
+            || result.kind == "unavailable"
+            || result.kind == "warming"
+            || result.primary_action.id.as_str() == "noop"
+        {
+            return vec![ActionDescriptor {
+                id: ActionId::new("noop"),
+                label: "OK".into(),
+                risk: ActionRisk::Safe,
+                confirmation: false,
+            }];
+        }
         vec![
             ActionDescriptor {
                 id: ActionId::new("launch"),

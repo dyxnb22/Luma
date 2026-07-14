@@ -27,6 +27,7 @@ pub fn update(state: &mut AppState, msg: Msg) -> Vec<Effect> {
             }
             state.focus = FocusZone::Prompt;
             state.history_browse = None;
+            state.browse_nav_stack.clear();
             state.insert_prompt_char(c);
             schedule_search(state)
         }
@@ -36,6 +37,7 @@ pub fn update(state: &mut AppState, msg: Msg) -> Vec<Effect> {
             }
             state.focus = FocusZone::Prompt;
             state.history_browse = None;
+            state.browse_nav_stack.clear();
             state.backspace_prompt();
             schedule_search(state)
         }
@@ -45,6 +47,7 @@ pub fn update(state: &mut AppState, msg: Msg) -> Vec<Effect> {
             }
             state.focus = FocusZone::Prompt;
             state.history_browse = None;
+            state.browse_nav_stack.clear();
             state.delete_forward_prompt();
             schedule_search(state)
         }
@@ -86,6 +89,7 @@ pub fn update(state: &mut AppState, msg: Msg) -> Vec<Effect> {
             }
             state.focus = FocusZone::Prompt;
             state.history_browse = None;
+            state.browse_nav_stack.clear();
             state.clear_prompt_to_start();
             schedule_search(state)
         }
@@ -95,6 +99,7 @@ pub fn update(state: &mut AppState, msg: Msg) -> Vec<Effect> {
             }
             state.focus = FocusZone::Prompt;
             state.history_browse = None;
+            state.browse_nav_stack.clear();
             state.delete_prompt_word_back();
             schedule_search(state)
         }
@@ -525,6 +530,7 @@ fn apply_hub_selection(state: &mut AppState) -> Vec<Effect> {
         state.prompt_cursor = state.prompt_char_len();
         state.focus = FocusZone::Prompt;
         state.history_browse = None;
+        state.browse_nav_stack.clear();
         state
             .status
             .set(format!("opening pin {id}"), StatusTone::Neutral);
@@ -535,6 +541,7 @@ fn apply_hub_selection(state: &mut AppState) -> Vec<Effect> {
     state.prompt_cursor = state.prompt_char_len();
     state.focus = FocusZone::Prompt;
     state.history_browse = None;
+    state.browse_nav_stack.clear();
     schedule_search(state)
 }
 
@@ -596,6 +603,13 @@ fn drill_into_browse(state: &mut AppState, item: &luma_domain::SearchItem) -> Ve
         Some(p) if !p.is_empty() => format!("{trigger} browse {p}"),
         _ => format!("{trigger} browse"),
     };
+    let previous = state.prompt.clone();
+    if !previous.is_empty() && previous != query {
+        state.browse_nav_stack.push(previous);
+        if state.browse_nav_stack.len() > 64 {
+            state.browse_nav_stack.remove(0);
+        }
+    }
     state.prompt = query;
     state.prompt_cursor = state.prompt_char_len();
     state.focus = FocusZone::Prompt;
@@ -749,7 +763,22 @@ fn cancel_msg(state: &mut AppState) -> Vec<Effect> {
         let effects = cancel_active(state);
         state.status.set("cancelled", StatusTone::Warning);
         effects
+    } else if let Some(prev) = state.browse_nav_stack.pop() {
+        state.prompt = prev;
+        state.prompt_cursor = state.prompt_char_len();
+        state.focus = FocusZone::Prompt;
+        state.history_browse = None;
+        state.status.set("browsing…", StatusTone::Progress);
+        begin_search(state)
+    } else if let Some(parent) = browse_query_parent(&state.prompt) {
+        state.prompt = parent;
+        state.prompt_cursor = state.prompt_char_len();
+        state.focus = FocusZone::Prompt;
+        state.history_browse = None;
+        state.status.set("browsing…", StatusTone::Progress);
+        begin_search(state)
     } else if !state.prompt.is_empty() {
+        state.browse_nav_stack.clear();
         state.clear_prompt();
         state.results.items.clear();
         state.results.selected_id = None;
@@ -761,6 +790,38 @@ fn cancel_msg(state: &mut AppState) -> Vec<Effect> {
         state.route = Route::QuitConfirm;
         state.status.set("Quit Luma?", StatusTone::Warning);
         vec![Effect::None]
+    }
+}
+
+/// One directory up for `n|note|notes|proj browse <path>`; `None` at browse root / non-browse.
+fn browse_query_parent(prompt: &str) -> Option<String> {
+    let trimmed = prompt.trim();
+    let (trigger, after_trigger) = if let Some(rest) = trimmed.strip_prefix("notes ") {
+        ("notes", rest)
+    } else if let Some(rest) = trimmed.strip_prefix("note ") {
+        ("note", rest)
+    } else if let Some(rest) = trimmed.strip_prefix("proj ") {
+        ("proj", rest)
+    } else if let Some(rest) = trimmed.strip_prefix("n ") {
+        ("n", rest)
+    } else {
+        return None;
+    };
+    let after_browse = after_trigger
+        .strip_prefix("browse")
+        .or_else(|| after_trigger.strip_prefix("Browse"))
+        .or_else(|| after_trigger.strip_prefix("ls"))
+        .or_else(|| after_trigger.strip_prefix("LS"))?;
+    let path = after_browse.trim();
+    if path.is_empty() {
+        return None;
+    }
+    let path = std::path::Path::new(path);
+    match path.parent() {
+        Some(parent) if !parent.as_os_str().is_empty() => {
+            Some(format!("{trigger} browse {}", parent.display()))
+        }
+        _ => Some(format!("{trigger} browse")),
     }
 }
 
@@ -1081,6 +1142,76 @@ mod tests {
         let _ = update(&mut state, Msg::Cancel);
         assert_eq!(state.route, Route::QuitConfirm);
         assert!(!state.should_quit);
+    }
+
+    #[test]
+    fn browse_query_parent_pops_one_path_component() {
+        assert_eq!(
+            browse_query_parent("n browse /Notes/Inbox/nested"),
+            Some("n browse /Notes/Inbox".into())
+        );
+        assert_eq!(
+            browse_query_parent("proj browse /dev/app"),
+            Some("proj browse /dev".into())
+        );
+        assert_eq!(browse_query_parent("n browse"), None);
+        assert_eq!(browse_query_parent("n hello"), None);
+        assert_eq!(
+            browse_query_parent("n browse /Notes"),
+            Some("n browse /".into())
+        );
+    }
+
+    #[test]
+    fn esc_pops_browse_nav_stack_then_clears_at_root() {
+        let mut state = AppState::default();
+        state.prompt = "n browse".into();
+        state.prompt_cursor = state.prompt_char_len();
+        state.results.items.push(SearchItem {
+            id: ResultId::new("browse:n:/tmp/notes/Inbox"),
+            module_id: ModuleId::new("luma.notes"),
+            title: "Inbox/".into(),
+            subtitle: Some("/tmp/notes/Inbox".into()),
+            kind: "directory".into(),
+            score: 1.0,
+            primary_action: ActionDescriptor {
+                id: ActionId::new("browse"),
+                label: "Browse".into(),
+                risk: ActionRisk::Safe,
+                confirmation: false,
+            },
+            secondary_actions: vec![],
+        });
+        state.results.selected_id = Some("browse:n:/tmp/notes/Inbox".into());
+        let _ = update(&mut state, Msg::Submit);
+        assert_eq!(state.prompt, "n browse /tmp/notes/Inbox");
+        assert_eq!(state.browse_nav_stack, vec!["n browse".to_string()]);
+
+        state.active_request = None;
+        let effects = update(&mut state, Msg::Cancel);
+        assert!(
+            effects.iter().any(|e| matches!(e, Effect::Search { .. })),
+            "expected search after browse-up: {effects:?}"
+        );
+        assert_eq!(state.prompt, "n browse");
+        assert!(state.browse_nav_stack.is_empty());
+
+        state.active_request = None;
+        let effects = update(&mut state, Msg::Cancel);
+        assert_eq!(effects, vec![Effect::None]);
+        assert!(state.prompt.is_empty());
+        assert!(!state.should_quit);
+    }
+
+    #[test]
+    fn ctrl_u_clears_browse_stack_for_home() {
+        let mut state = AppState::default();
+        state.prompt = "n browse /tmp/notes/Inbox".into();
+        state.prompt_cursor = state.prompt_char_len();
+        state.browse_nav_stack = vec!["n browse".into()];
+        let _ = update(&mut state, Msg::ClearToStart);
+        assert!(state.prompt.is_empty());
+        assert!(state.browse_nav_stack.is_empty());
     }
 
     #[test]

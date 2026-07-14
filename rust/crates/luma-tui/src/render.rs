@@ -29,13 +29,20 @@ fn render_with(frame: &mut Frame<'_>, state: &AppState, theme: &Theme, symbols: 
     render_prompt(frame, chunks[0], state, theme, symbols, prompt_focused);
 
     let body = chunks[1];
-    if state.preview_visible() {
+    if state.preview_side_by_side() {
         let cols = Layout::default()
             .direction(Direction::Horizontal)
             .constraints([Constraint::Percentage(58), Constraint::Percentage(42)])
             .split(body);
         render_results(frame, cols[0], state, theme, symbols);
         render_preview(frame, cols[1], state, theme, symbols);
+    } else if state.preview_stacked() {
+        let rows = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Min(3), Constraint::Length(8)])
+            .split(body);
+        render_results(frame, rows[0], state, theme, symbols);
+        render_preview(frame, rows[1], state, theme, symbols);
     } else {
         render_results(frame, body, state, theme, symbols);
     }
@@ -365,6 +372,8 @@ fn empty_state_item(state: &AppState, theme: &Theme, symbols: &Symbols) -> ListI
                     symbols.sep, symbols.sep
                 ),
             )
+        } else if let Some(hint) = empty_hint_for_prompt(state) {
+            ("No results".to_string(), hint)
         } else {
             (
                 "No results".to_string(),
@@ -375,6 +384,16 @@ fn empty_state_item(state: &AppState, theme: &Theme, symbols: &Symbols) -> ListI
         Line::from(Span::styled(format!("  {title}"), theme.muted())),
         Line::from(Span::styled(format!("  {detail}"), theme.key_hint())),
     ])
+}
+
+/// Prefer the targeted module's `empty_hint` when the prompt starts with its trigger.
+fn empty_hint_for_prompt(state: &AppState) -> Option<String> {
+    let token = state.prompt.split_whitespace().next()?.to_ascii_lowercase();
+    state
+        .module_catalog
+        .iter()
+        .find(|m| m.enabled && m.triggers.iter().any(|t| t.eq_ignore_ascii_case(&token)))
+        .and_then(|m| m.empty_hint.clone())
 }
 
 fn result_row(
@@ -605,7 +624,7 @@ fn render_status(
                 "PgUp/Dn"
             };
             format!(
-                "{}{} {nav} {} Enter {} Ctrl-k Actions {} Tab Focus {} Esc {} ? Help",
+                "{}{} {nav} {} Enter {} Ctrl-k Actions {} Tab Focus {} Esc up/clear {} ? Help",
                 symbols.up,
                 symbols.down,
                 symbols.sep,
@@ -832,7 +851,7 @@ fn render_overlay_help(frame: &mut Frame<'_>, area: Rect, theme: &Theme, symbols
     frame.render_widget(Clear, overlay);
     let text = [
         "Type to search · Left/Right/Home/End move cursor".to_string(),
-        "Ctrl-u clear to start · Ctrl-w delete word".to_string(),
+        "Ctrl-u clear to start / home · Ctrl-w delete word".to_string(),
         "Ctrl-p/n query history (prompt focused)".to_string(),
         format!(
             "{}{} / PgUp PgDn  move selection (scroll preview when focused)",
@@ -841,8 +860,9 @@ fn render_overlay_help(frame: &mut Frame<'_>, area: Rect, theme: &Theme, symbols
         "Enter  primary action · empty Enter opens Hub trigger".to_string(),
         "Ctrl-k  action list · Ctrl-/ command palette".to_string(),
         "Tab  cycle focus (prompt / list / preview)".to_string(),
-        "Esc  cancel / back / clear · empty Esc quit confirm".to_string(),
+        "Esc  browse up / clear · Ctrl-u home · empty Esc quit confirm".to_string(),
         "?  help · :doctor / :settings / :commands".to_string(),
+        "Preview: side-by-side when wide (≥100); stacked when tall (≥28 rows)".to_string(),
         "Ctrl-C  quit confirm · Enter exits".to_string(),
         String::new(),
         "Configure Notes: luma config set --notes-root ~/Notes".to_string(),

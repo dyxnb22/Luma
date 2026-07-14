@@ -37,7 +37,14 @@ impl SecretsModule {
                 default_enabled: false,
                 search_mode: SearchMode::TargetedOnly,
                 required_capabilities: vec!["keychain".into()],
-                workbench: Default::default(),
+                workbench: luma_application::WorkbenchMeta {
+                    glyph: Some("V".into()),
+                    suggested_query: Some("sec ".into()),
+                    empty_hint: Some(
+                        "sec · unlock vault · labels only (values never in search)".into(),
+                    ),
+                    supports_browse: false,
+                },
             },
             unlocked: AtomicBool::new(false),
             keychain,

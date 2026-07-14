@@ -207,6 +207,9 @@ pub struct AppState {
     pub query_history: Vec<String>,
     /// When browsing history with Ctrl-p/n; `None` means “live” prompt.
     pub history_browse: Option<usize>,
+    /// Previous prompts when drilling into `n browse` / `proj browse` directories.
+    /// Esc pops one level; cleared when the prompt is edited or fully cleared.
+    pub browse_nav_stack: Vec<String>,
     /// Selected row in empty-state module Hub.
     pub hub_selected: usize,
     /// Settings route: selected row in module list.
@@ -291,6 +294,7 @@ impl Default for AppState {
             focus: FocusZone::Prompt,
             query_history: Vec::new(),
             history_browse: None,
+            browse_nav_stack: Vec::new(),
             hub_selected: 0,
             settings_selected: 0,
             settings_version: 0,
@@ -394,14 +398,27 @@ impl AppState {
         self.prompt_cursor = i;
     }
 
-    pub fn preview_visible(&self) -> bool {
+    pub fn preview_side_by_side(&self) -> bool {
         self.term_width >= 100 && !self.results.items.is_empty()
+    }
+
+    /// Stacked preview under results for tall narrow terminals (keeps 80×24 list-only).
+    pub fn preview_stacked(&self) -> bool {
+        self.term_width < 100
+            && self.term_width >= 60
+            && self.term_height >= 28
+            && !self.results.items.is_empty()
+    }
+
+    pub fn preview_visible(&self) -> bool {
+        self.preview_side_by_side() || self.preview_stacked()
     }
 
     pub fn sync_results_viewport(&mut self) {
         // Vertical chrome: prompt(3) + status(3); list borders(2); each row = 2 lines.
         let body = self.term_height.saturating_sub(6) as usize;
-        let list_inner = body.saturating_sub(2);
+        let preview_take = if self.preview_stacked() { 8 } else { 0 };
+        let list_inner = body.saturating_sub(2 + preview_take);
         let rows = (list_inner / 2).max(1);
         self.results.set_viewport_rows(rows);
         self.ensure_hub_selection_visible();
@@ -458,6 +475,7 @@ impl AppState {
             Some(i) => (i + 1).min(self.query_history.len() - 1),
         };
         self.history_browse = Some(next);
+        self.browse_nav_stack.clear();
         self.prompt = self.query_history[next].clone();
         self.prompt_cursor = self.prompt_char_len();
     }
@@ -468,11 +486,13 @@ impl AppState {
         };
         if i == 0 {
             self.history_browse = None;
+            self.browse_nav_stack.clear();
             self.clear_prompt();
             return;
         }
         let next = i - 1;
         self.history_browse = Some(next);
+        self.browse_nav_stack.clear();
         self.prompt = self.query_history[next].clone();
         self.prompt_cursor = self.prompt_char_len();
     }
@@ -876,5 +896,38 @@ mod tests {
         });
         assert!(applied);
         assert_eq!(state.status.tone, StatusTone::Success);
+    }
+
+    #[test]
+    fn preview_stacked_on_tall_narrow_terminal() {
+        use luma_domain::{ActionDescriptor, ActionId, ActionRisk, ModuleId, ResultId, SearchItem};
+
+        let mut state = AppState {
+            term_width: 80,
+            term_height: 28,
+            ..AppState::default()
+        };
+        state.results.items.push(SearchItem {
+            id: ResultId::new("1"),
+            module_id: ModuleId::new("luma.notes"),
+            title: "Note".into(),
+            subtitle: None,
+            kind: "note".into(),
+            score: 1.0,
+            primary_action: ActionDescriptor {
+                id: ActionId::new("open"),
+                label: "Open".into(),
+                risk: ActionRisk::Safe,
+                confirmation: false,
+            },
+            secondary_actions: vec![],
+        });
+        assert!(!state.preview_side_by_side());
+        assert!(state.preview_stacked());
+        assert!(state.preview_visible());
+
+        state.term_height = 24;
+        assert!(!state.preview_stacked());
+        assert!(!state.preview_visible());
     }
 }

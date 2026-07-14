@@ -883,6 +883,17 @@ impl LumaModule for NotesModule {
                 }
             };
             let Ok(rd) = std::fs::read_dir(&dir) else {
+                let _ = sink
+                    .send(Event::ResultsChunk {
+                        request_id: String::new(),
+                        sequence: 1,
+                        upserts: vec![unavailable_row(
+                            "Cannot read folder",
+                            dir.display().to_string(),
+                        )],
+                        removed_ids: vec![],
+                    })
+                    .await;
                 return;
             };
             let mut upserts = Vec::new();
@@ -943,23 +954,39 @@ impl LumaModule for NotesModule {
                     });
                 }
             }
-            if !upserts.is_empty() {
-                let _ = sink
-                    .send(Event::ResultsChunk {
-                        request_id: String::new(),
-                        sequence: 1,
-                        upserts,
-                        removed_ids: vec![],
-                    })
-                    .await;
+            if upserts.is_empty() {
+                upserts.push(SearchItemDto {
+                    id: "notes:browse-empty".into(),
+                    module_id: "luma.notes".into(),
+                    title: "Empty folder".into(),
+                    subtitle: Some(dir.display().to_string()),
+                    kind: "status".into(),
+                    score: 50.0,
+                    primary_action_id: "noop".into(),
+                    primary_action_label: "OK".into(),
+                    ..Default::default()
+                });
             }
+            let _ = sink
+                .send(Event::ResultsChunk {
+                    request_id: String::new(),
+                    sequence: 1,
+                    upserts,
+                    removed_ids: vec![],
+                })
+                .await;
             return;
         }
 
         let needle = rest_check;
         let index = self.index.clone();
         let limit = query.limit;
-        let hits = match tokio::task::spawn_blocking(move || index.search(&needle, limit)).await {
+        let needle_for_search = needle.clone();
+        let hits = match tokio::task::spawn_blocking(move || {
+            index.search(&needle_for_search, limit)
+        })
+        .await
+        {
             Ok(Ok(hits)) => hits,
             Ok(Err(e)) => {
                 let _ = sink
@@ -1013,16 +1040,27 @@ impl LumaModule for NotesModule {
                 ..Default::default()
             });
         }
-        if !upserts.is_empty() {
-            let _ = sink
-                .send(Event::ResultsChunk {
-                    request_id: String::new(),
-                    sequence: 1,
-                    upserts,
-                    removed_ids: vec![],
-                })
-                .await;
+        if upserts.is_empty() {
+            upserts.push(SearchItemDto {
+                id: "notes:no-matches".into(),
+                module_id: "luma.notes".into(),
+                title: format!("No notes matching \"{needle}\""),
+                subtitle: Some("Try another query · n browse · n recent".into()),
+                kind: "status".into(),
+                score: 50.0,
+                primary_action_id: "noop".into(),
+                primary_action_label: "OK".into(),
+                ..Default::default()
+            });
         }
+        let _ = sink
+            .send(Event::ResultsChunk {
+                request_id: String::new(),
+                sequence: 1,
+                upserts,
+                removed_ids: vec![],
+            })
+            .await;
     }
 
     async fn actions(&self, result: &SearchItem) -> Vec<ActionDescriptor> {
@@ -1050,7 +1088,11 @@ impl LumaModule for NotesModule {
                 confirmation: false,
             }];
         }
-        if result.kind == "status" || result.kind == "issue" || result.kind == "onboarding" {
+        if result.kind == "status"
+            || result.kind == "issue"
+            || result.kind == "onboarding"
+            || result.kind == "unavailable"
+        {
             return vec![ActionDescriptor {
                 id: ActionId::new("noop"),
                 label: "OK".into(),
@@ -1703,6 +1745,47 @@ mod tests {
             "{upserts:?}"
         );
         assert!(upserts.iter().all(|u| u.id != "notes:browse-denied"));
+    }
+
+    #[tokio::test]
+    async fn browse_empty_folder_emits_status_row() {
+        let dir = tempdir().unwrap();
+        let empty = dir.path().join("Empty");
+        fs::create_dir(&empty).unwrap();
+        let m = NotesModule::with_root_for_tests(Some(dir.path().to_path_buf()));
+        let (tx, mut rx) = mpsc::channel(4);
+        let q = Query::parse(format!("n browse {}", empty.display()), 20);
+        m.search(q, tx, CancellationToken::new()).await;
+        let ev = rx.recv().await.expect("chunk");
+        let Event::ResultsChunk { upserts, .. } = ev else {
+            panic!("expected chunk");
+        };
+        assert_eq!(upserts.len(), 1);
+        assert_eq!(upserts[0].id, "notes:browse-empty");
+        assert_eq!(upserts[0].kind, "status");
+    }
+
+    #[tokio::test]
+    async fn search_no_matches_emits_status_row() {
+        let dir = tempdir().unwrap();
+        fs::write(dir.path().join("alpha.md"), "# alpha\nhello").unwrap();
+        let m = NotesModule::with_root_for_tests(Some(dir.path().to_path_buf()));
+        m.set_root_for_tests(dir.path().to_path_buf()).await;
+        let (tx, mut rx) = mpsc::channel(4);
+        m.search(
+            Query::parse("n zzz-not-a-real-note-xyz", 20),
+            tx,
+            CancellationToken::new(),
+        )
+        .await;
+        let ev = rx.recv().await.expect("chunk");
+        let Event::ResultsChunk { upserts, .. } = ev else {
+            panic!("expected chunk");
+        };
+        assert!(
+            upserts.iter().any(|u| u.id == "notes:no-matches"),
+            "{upserts:?}"
+        );
     }
 
     #[tokio::test]

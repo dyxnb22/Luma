@@ -258,6 +258,10 @@ impl LumaModule for ProjectsModule {
             } else {
                 Some(PathBuf::from(path_arg))
             };
+            let browse_label = target
+                .as_ref()
+                .map(|p| p.display().to_string())
+                .unwrap_or_else(|| "project roots".into());
             let mut upserts = Vec::new();
             if let Some(dir) = target {
                 let denied_label = dir.display().to_string();
@@ -327,16 +331,27 @@ impl LumaModule for ProjectsModule {
                     });
                 }
             }
-            if !upserts.is_empty() {
-                let _ = sink
-                    .send(Event::ResultsChunk {
-                        request_id: String::new(),
-                        sequence: 1,
-                        upserts,
-                        removed_ids: vec![],
-                    })
-                    .await;
+            if upserts.is_empty() {
+                upserts.push(SearchItemDto {
+                    id: "proj:browse-empty".into(),
+                    module_id: "luma.projects".into(),
+                    title: "Empty folder".into(),
+                    subtitle: Some(browse_label),
+                    kind: "status".into(),
+                    score: 50.0,
+                    primary_action_id: "noop".into(),
+                    primary_action_label: "OK".into(),
+                    ..Default::default()
+                });
             }
+            let _ = sink
+                .send(Event::ResultsChunk {
+                    request_id: String::new(),
+                    sequence: 1,
+                    upserts,
+                    removed_ids: vec![],
+                })
+                .await;
             return;
         }
 
@@ -361,16 +376,38 @@ impl LumaModule for ProjectsModule {
                 });
             }
         }
-        if !upserts.is_empty() {
-            let _ = sink
-                .send(Event::ResultsChunk {
-                    request_id: String::new(),
-                    sequence: 1,
-                    upserts,
-                    removed_ids: vec![],
-                })
-                .await;
+        if upserts.is_empty() {
+            let (title, subtitle) = if needle.is_empty() {
+                (
+                    "No projects found".into(),
+                    "Check roots or run: luma config set --projects-root ~/dev".into(),
+                )
+            } else {
+                (
+                    format!("No projects matching \"{needle}\""),
+                    "Try another query · proj browse".into(),
+                )
+            };
+            upserts.push(SearchItemDto {
+                id: "proj:no-matches".into(),
+                module_id: "luma.projects".into(),
+                title,
+                subtitle: Some(subtitle),
+                kind: "status".into(),
+                score: 50.0,
+                primary_action_id: "noop".into(),
+                primary_action_label: "OK".into(),
+                ..Default::default()
+            });
         }
+        let _ = sink
+            .send(Event::ResultsChunk {
+                request_id: String::new(),
+                sequence: 1,
+                upserts,
+                removed_ids: vec![],
+            })
+            .await;
     }
 
     async fn actions(&self, result: &SearchItem) -> Vec<ActionDescriptor> {
@@ -398,6 +435,18 @@ impl LumaModule for ProjectsModule {
                 },
             ];
         }
+        if result.kind == "status"
+            || result.kind == "onboarding"
+            || result.kind == "unavailable"
+            || result.primary_action.id.as_str() == "noop"
+        {
+            return vec![ActionDescriptor {
+                id: ActionId::new("noop"),
+                label: "OK".into(),
+                risk: ActionRisk::Safe,
+                confirmation: false,
+            }];
+        }
         let mut actions = vec![ActionDescriptor {
             id: ActionId::new("open"),
             label: "Open".into(),
@@ -420,6 +469,9 @@ impl LumaModule for ProjectsModule {
             return ActionOutcome::Cancelled;
         }
         match action.action.id.as_str() {
+            "noop" => ActionOutcome::Success {
+                message: Some("ok".into()),
+            },
             "configure" => ActionOutcome::Failed {
                 kind: FailureKind::NotConfigured {
                     remediation: "Run: luma config set --projects-root ~/dev".into(),

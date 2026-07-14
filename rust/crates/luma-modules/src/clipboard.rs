@@ -245,6 +245,22 @@ impl LumaModule for ClipboardModule {
                 primary_action_label: "OK".into(),
                 ..Default::default()
             });
+        } else if upserts.is_empty()
+            && rows.is_empty()
+            && !needle.is_empty()
+            && matches!(query.scope, luma_domain::QueryScope::Targeted { .. })
+        {
+            upserts.push(SearchItemDto {
+                id: "clip:no-matches".into(),
+                module_id: "luma.clipboard".into(),
+                title: format!("No clips matching \"{needle}\""),
+                subtitle: Some("Try another query · clip clear".into()),
+                kind: "status".into(),
+                score: 0.0,
+                primary_action_id: "noop".into(),
+                primary_action_label: "OK".into(),
+                ..Default::default()
+            });
         }
         for entry in rows {
             if cancel.is_cancelled() {
@@ -289,7 +305,11 @@ impl LumaModule for ClipboardModule {
                 confirmation: true,
             }];
         }
-        if result.id.as_str() == "clip:empty" || result.kind == "onboarding" {
+        if result.id.as_str() == "clip:empty"
+            || result.id.as_str() == "clip:no-matches"
+            || result.kind == "onboarding"
+            || result.kind == "status"
+        {
             return vec![ActionDescriptor {
                 id: ActionId::new("noop"),
                 label: "OK".into(),

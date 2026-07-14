@@ -25,7 +25,12 @@ impl TodoModule {
                 default_enabled: false,
                 search_mode: SearchMode::TargetedOnly,
                 required_capabilities: vec!["eventkit".into()],
-                workbench: Default::default(),
+                workbench: luma_application::WorkbenchMeta {
+                    glyph: Some("T".into()),
+                    suggested_query: Some("t ".into()),
+                    empty_hint: Some("t · t add <title> · needs Reminders permission".into()),
+                    supports_browse: false,
+                },
             },
             eventkit,
         }
@@ -140,6 +145,36 @@ impl LumaModule for TodoModule {
                             removed_ids: vec![],
                         })
                         .await;
+                } else {
+                    let (title, subtitle) = if needle.is_empty() {
+                        (
+                            "No incomplete todos".into(),
+                            "Add with: t add <title> · t +title".into(),
+                        )
+                    } else {
+                        (
+                            format!("No todos matching \"{needle}\""),
+                            "Add with: t add <title>".into(),
+                        )
+                    };
+                    let _ = sink
+                        .send(Event::ResultsChunk {
+                            request_id: String::new(),
+                            sequence: 1,
+                            upserts: vec![SearchItemDto {
+                                id: "todo:empty".into(),
+                                module_id: "luma.todo".into(),
+                                title,
+                                subtitle: Some(subtitle),
+                                kind: "status".into(),
+                                score: 0.0,
+                                primary_action_id: "noop".into(),
+                                primary_action_label: "OK".into(),
+                                ..Default::default()
+                            }],
+                            removed_ids: vec![],
+                        })
+                        .await;
                 }
             }
             Err(_) => {
@@ -181,6 +216,17 @@ impl LumaModule for TodoModule {
                 confirmation: false,
             }];
         }
+        if result.id.as_str() == "todo:empty"
+            || result.kind == "status"
+            || result.primary_action.id.as_str() == "noop"
+        {
+            return vec![ActionDescriptor {
+                id: ActionId::new("noop"),
+                label: "OK".into(),
+                risk: ActionRisk::Safe,
+                confirmation: false,
+            }];
+        }
         vec![ActionDescriptor {
             id: ActionId::new("complete"),
             label: "Complete".into(),
@@ -193,6 +239,9 @@ impl LumaModule for TodoModule {
             return ActionOutcome::Cancelled;
         }
         match action.action.id.as_str() {
+            "noop" => ActionOutcome::Success {
+                message: Some("ok".into()),
+            },
             "request_permission" => match self.eventkit.request_access().await {
                 Ok(RemindersAuth::Authorized) => ActionOutcome::Success {
                     message: Some("reminders authorized".into()),

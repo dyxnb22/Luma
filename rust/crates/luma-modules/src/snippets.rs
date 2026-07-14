@@ -178,6 +178,18 @@ impl LumaModule for SnippetsModule {
                 primary_action_label: "OK".into(),
                 ..Default::default()
             });
+        } else if upserts.is_empty() {
+            upserts.push(SearchItemDto {
+                id: "snip:no-matches".into(),
+                module_id: "luma.snippets".into(),
+                title: format!("No snippets matching \"{needle}\""),
+                subtitle: Some("Add with: snip add <trigger> <body>".into()),
+                kind: "status".into(),
+                score: 0.0,
+                primary_action_id: "noop".into(),
+                primary_action_label: "OK".into(),
+                ..Default::default()
+            });
         }
         if !upserts.is_empty() {
             let _ = sink
@@ -191,7 +203,11 @@ impl LumaModule for SnippetsModule {
         }
     }
     async fn actions(&self, result: &SearchItem) -> Vec<ActionDescriptor> {
-        if result.id.as_str() == "snip:empty" || result.kind == "onboarding" {
+        if result.id.as_str() == "snip:empty"
+            || result.id.as_str() == "snip:no-matches"
+            || result.kind == "onboarding"
+            || result.kind == "status"
+        {
             return vec![ActionDescriptor {
                 id: ActionId::new("noop"),
                 label: "OK".into(),

@@ -40,7 +40,12 @@ impl KillProcessModule {
                 default_enabled: false,
                 search_mode: SearchMode::TargetedOnly,
                 required_capabilities: vec![],
-                workbench: Default::default(),
+                workbench: luma_application::WorkbenchMeta {
+                    glyph: Some("K".into()),
+                    suggested_query: Some("kill ".into()),
+                    empty_hint: Some("kill · terminate / force (always confirms)".into()),
+                    supports_browse: false,
+                },
             },
             catalog,
             cache: Arc::new(RwLock::new(Vec::new())),
@@ -145,6 +150,24 @@ impl LumaModule for KillProcessModule {
                 *self.cache.write().await = fresh;
                 list = self.cache.read().await.clone();
             } else {
+                let _ = sink
+                    .send(Event::ResultsChunk {
+                        request_id: String::new(),
+                        sequence: 2,
+                        upserts: vec![SearchItemDto {
+                            id: "kill:unavailable".into(),
+                            module_id: "luma.kill-process".into(),
+                            title: "Process list unavailable".into(),
+                            subtitle: Some("Could not refresh processes".into()),
+                            kind: "unavailable".into(),
+                            score: 0.0,
+                            primary_action_id: "noop".into(),
+                            primary_action_label: "Unavailable".into(),
+                            ..Default::default()
+                        }],
+                        removed_ids: vec!["kill:warming".into()],
+                    })
+                    .await;
                 return;
             }
         }
@@ -182,7 +205,31 @@ impl LumaModule for KillProcessModule {
                     request_id: String::new(),
                     sequence: 1,
                     upserts,
-                    removed_ids: vec![],
+                    removed_ids: vec!["kill:warming".into()],
+                })
+                .await;
+        } else {
+            let title = if needle.is_empty() {
+                "No processes to list".into()
+            } else {
+                format!("No processes matching \"{needle}\"")
+            };
+            let _ = sink
+                .send(Event::ResultsChunk {
+                    request_id: String::new(),
+                    sequence: 1,
+                    upserts: vec![SearchItemDto {
+                        id: "kill:no-matches".into(),
+                        module_id: "luma.kill-process".into(),
+                        title,
+                        subtitle: Some("Protected processes are hidden".into()),
+                        kind: "status".into(),
+                        score: 0.0,
+                        primary_action_id: "noop".into(),
+                        primary_action_label: "OK".into(),
+                        ..Default::default()
+                    }],
+                    removed_ids: vec!["kill:warming".into()],
                 })
                 .await;
         }
@@ -193,6 +240,19 @@ impl LumaModule for KillProcessModule {
             return vec![ActionDescriptor {
                 id: ActionId::new("refresh"),
                 label: "Refresh".into(),
+                risk: ActionRisk::Safe,
+                confirmation: false,
+            }];
+        }
+        if result.id.as_str() == "kill:no-matches"
+            || result.id.as_str() == "kill:unavailable"
+            || result.kind == "status"
+            || result.kind == "unavailable"
+            || result.primary_action.id.as_str() == "noop"
+        {
+            return vec![ActionDescriptor {
+                id: ActionId::new("noop"),
+                label: "OK".into(),
                 risk: ActionRisk::Safe,
                 confirmation: false,
             }];
@@ -216,6 +276,11 @@ impl LumaModule for KillProcessModule {
     async fn perform(&self, action: ActionRequest, cancel: CancellationToken) -> ActionOutcome {
         if cancel.is_cancelled() {
             return ActionOutcome::Cancelled;
+        }
+        if action.action.id.as_str() == "noop" {
+            return ActionOutcome::Success {
+                message: Some("ok".into()),
+            };
         }
         if action.action.id.as_str() == "refresh" {
             return match self.catalog.list_gui_ish().await {

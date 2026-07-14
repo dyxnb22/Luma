@@ -522,8 +522,6 @@ fn highlight_query(prompt: &str) -> String {
         "quicklinks",
         "s",
         "snip",
-        "t",
-        "todo",
         "proj",
         "project",
         "kill",
@@ -1234,8 +1232,8 @@ mod tests {
             results: ResultsView {
                 items: vec![sample_kind(
                     "p",
-                    "Reminders permission required",
-                    "luma.todo",
+                    "Accessibility permission required",
+                    "luma.clipboard",
                     "permission",
                     "Open System Settings",
                     "Open Settings",

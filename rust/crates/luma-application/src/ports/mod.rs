@@ -5,7 +5,6 @@ mod apps;
 mod clipboard_repo;
 mod clock;
 mod diagnostics;
-mod eventkit;
 mod keychain;
 mod markdown_watch;
 mod memory_repos;
@@ -24,7 +23,6 @@ pub use clipboard_repo::{
 };
 pub use clock::{ClockError, ClockPort, FixedClock, SystemClock};
 pub use diagnostics::{DiagnosticsError, DiagnosticsSink};
-pub use eventkit::{EventKitError, EventKitPort, ReminderItem, RemindersAuth};
 pub use keychain::{FakeKeychain, KeychainError, KeychainPort, SecretLabel};
 pub use markdown_watch::MarkdownWatchPort;
 pub use memory_repos::{

@@ -20,14 +20,13 @@ pub use port::EnginePort;
 pub use ports::{
     looks_secret, AccessibilityError, AccessibilityPort, AppEntry, AppLaunchError, AppSettings,
     AppsCatalogPort, ClipboardEntry, ClipboardHistoryRepository, ClipboardRepoError, ClockError,
-    ClockPort, DiagnosticsError, DiagnosticsSink, EventKitError, EventKitPort, FakeAccessibility,
-    FakeKeychain, FakeOpenPath, FakePasteboard, FixedClock, KeychainError, KeychainPort,
-    MarkdownWatchPort, MemoryClipboardHistory, MemoryNotesIndex, MemoryQuicklinksRepository,
-    MemorySnippetsRepository, NotesDocument, NotesIndexError, NotesIndexRepository, NotesIssue,
-    NotesLink, NotesScanReport, NotesScanStatusView, NotesSearchHit, OpenPathError, OpenPathPort,
-    PasteboardError, PasteboardPort, ProcessCatalogPort, ProcessEntry, ProcessError,
-    QuicklinkEntry, QuicklinksRepoError, QuicklinksRepository, ReminderItem, RemindersAuth,
-    SecretLabel, SettingsError, SettingsRepository, SnippetEntry, SnippetsRepoError,
-    SnippetsRepository, SystemClock,
+    ClockPort, DiagnosticsError, DiagnosticsSink, FakeAccessibility, FakeKeychain, FakeOpenPath,
+    FakePasteboard, FixedClock, KeychainError, KeychainPort, MarkdownWatchPort,
+    MemoryClipboardHistory, MemoryNotesIndex, MemoryQuicklinksRepository, MemorySnippetsRepository,
+    NotesDocument, NotesIndexError, NotesIndexRepository, NotesIssue, NotesLink, NotesScanReport,
+    NotesScanStatusView, NotesSearchHit, OpenPathError, OpenPathPort, PasteboardError,
+    PasteboardPort, ProcessCatalogPort, ProcessEntry, ProcessError, QuicklinkEntry,
+    QuicklinksRepoError, QuicklinksRepository, SecretLabel, SettingsError, SettingsRepository,
+    SnippetEntry, SnippetsRepoError, SnippetsRepository, SystemClock,
 };
 pub use registry::{ModuleRegistry, RegistryError};

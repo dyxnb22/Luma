@@ -91,8 +91,6 @@ fn is_known_prefix(token: &str) -> bool {
             | "quicklinks"
             | "s"
             | "snip"
-            | "t"
-            | "todo"
             | "sec"
             | "secret"
             | "secrets"

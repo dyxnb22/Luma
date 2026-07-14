@@ -11,7 +11,6 @@ mod projects;
 mod quicklinks;
 mod secrets;
 mod snippets;
-mod todo;
 
 pub use apps::AppsModule;
 pub use clipboard::ClipboardModule;
@@ -23,4 +22,3 @@ pub use projects::ProjectsModule;
 pub use quicklinks::QuicklinksModule;
 pub use secrets::SecretsModule;
 pub use snippets::SnippetsModule;
-pub use todo::TodoModule;

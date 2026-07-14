@@ -551,7 +551,6 @@ impl AppState {
                     "notes" => "n",
                     "quicklinks" => "ql",
                     "snippets" => "s",
-                    "todo" => "t",
                     "projects" => "proj",
                     other => other,
                 };

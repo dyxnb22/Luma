@@ -10,11 +10,11 @@ use luma_application::{
 };
 use luma_modules::{
     AppsModule, ClipboardModule, ClipboardSuppression, FakeEchoModule, KillProcessModule,
-    NotesModule, ProjectsModule, QuicklinksModule, SecretsModule, SnippetsModule, TodoModule,
+    NotesModule, ProjectsModule, QuicklinksModule, SecretsModule, SnippetsModule,
 };
 use luma_platform_macos::{
-    FilesystemAppsCatalog, MacAccessibility, MacEventKit, MacKeychain, MacMarkdownWatcher,
-    MacOpenPath, MacPasteboard, MacProcessCatalog,
+    FilesystemAppsCatalog, MacAccessibility, MacKeychain, MacMarkdownWatcher, MacOpenPath,
+    MacPasteboard, MacProcessCatalog,
 };
 use luma_storage::{
     ClipboardStore, ConfigError, ConfigStore, LumaSettings, NotesIndexStore, NotesScanner,
@@ -132,7 +132,6 @@ pub fn registry_from_settings(
             reason,
         });
     }
-    reg.register(Arc::new(TodoModule::with_eventkit(Arc::new(MacEventKit))))?;
     reg.register(Arc::new(ProjectsModule::with_roots(
         project_roots,
         opener.clone(),

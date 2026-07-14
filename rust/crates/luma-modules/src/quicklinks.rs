@@ -19,6 +19,7 @@ pub struct QuicklinksModule {
     manifest: ModuleManifest,
     store: Arc<dyn QuicklinksRepository>,
     index: RwLock<Vec<Link>>,
+    store_error: RwLock<Option<String>>,
     opener: Arc<dyn OpenPathPort>,
     pasteboard: Arc<dyn PasteboardPort>,
 }
@@ -46,14 +47,25 @@ impl QuicklinksModule {
             },
             store,
             index: RwLock::new(Vec::new()),
+            store_error: RwLock::new(None),
             opener,
             pasteboard,
         }
     }
 
     async fn refresh_index(&self) -> Result<(), String> {
-        *self.index.write().await = self.store.list().map_err(|err| err.to_string())?;
-        Ok(())
+        match self.store.list() {
+            Ok(links) => {
+                *self.index.write().await = links;
+                *self.store_error.write().await = None;
+                Ok(())
+            }
+            Err(err) => {
+                let msg = err.to_string();
+                *self.store_error.write().await = Some(msg.clone());
+                Err(msg)
+            }
+        }
     }
 
     async fn upsert(&self, trigger: &str, url: &str) -> Result<(), String> {
@@ -154,6 +166,28 @@ impl LumaModule for QuicklinksModule {
             }
         }
 
+        if let Some(err) = self.store_error.read().await.clone() {
+            let _ = sink
+                .send(Event::ResultsChunk {
+                    request_id: String::new(),
+                    sequence: 1,
+                    upserts: vec![SearchItemDto {
+                        id: "ql:unavailable".into(),
+                        module_id: "luma.quicklinks".into(),
+                        title: "Quicklinks store unavailable".into(),
+                        subtitle: Some(err),
+                        kind: "unavailable".into(),
+                        score: 0.0,
+                        primary_action_id: "noop".into(),
+                        primary_action_label: "Unavailable".into(),
+                        ..Default::default()
+                    }],
+                    removed_ids: vec![],
+                })
+                .await;
+            return;
+        }
+
         let links = self.index.read().await.clone();
         let mut upserts = Vec::new();
         for link in links {
@@ -186,10 +220,10 @@ impl LumaModule for QuicklinksModule {
                 module_id: "luma.quicklinks".into(),
                 title: "Manage Quicklinks".into(),
                 subtitle: Some("ql add <trigger> <url>".into()),
-                kind: "open".into(),
+                kind: "status".into(),
                 score: 1.0,
-                primary_action_id: "open".into(),
-                primary_action_label: "Open".into(),
+                primary_action_id: "noop".into(),
+                primary_action_label: "Help".into(),
                 ..Default::default()
             });
         }
@@ -241,7 +275,23 @@ impl LumaModule for QuicklinksModule {
                 confirmation: false,
             },
         ];
-        if result.id.as_str().starts_with("ql:") && result.id.as_str() != "ql:manage" {
+        if result.id.as_str() == "ql:manage"
+            || result.id.as_str() == "ql:unavailable"
+            || result.kind == "unavailable"
+            || result.primary_action.id.as_str() == "noop"
+        {
+            return vec![ActionDescriptor {
+                id: ActionId::new("noop"),
+                label: if result.id.as_str() == "ql:manage" {
+                    "Help".into()
+                } else {
+                    "Unavailable".into()
+                },
+                risk: ActionRisk::Safe,
+                confirmation: false,
+            }];
+        }
+        if result.id.as_str().starts_with("ql:") {
             actions.push(ActionDescriptor {
                 id: ActionId::new("delete"),
                 label: "Delete".into(),
@@ -334,12 +384,14 @@ impl LumaModule for QuicklinksModule {
                     },
                 }
             }
+            "noop" => ActionOutcome::Success {
+                message: if action.result.id.as_str() == "ql:manage" {
+                    Some("use ql add <trigger> <url>".into())
+                } else {
+                    Some("ok".into())
+                },
+            },
             "open" => {
-                if action.result.id.as_str() == "ql:manage" {
-                    return ActionOutcome::Success {
-                        message: Some("use ql add <trigger> <url>".into()),
-                    };
-                }
                 let Some(url) = action.result.subtitle.clone() else {
                     return ActionOutcome::Failed {
                         kind: FailureKind::InvalidInput {

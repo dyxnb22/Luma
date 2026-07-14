@@ -21,7 +21,7 @@ pub use ports::{
     looks_secret, AccessibilityError, AccessibilityPort, AppEntry, AppLaunchError, AppSettings,
     AppsCatalogPort, ClipboardEntry, ClipboardHistoryRepository, ClipboardRepoError, ClockError,
     ClockPort, DiagnosticsError, DiagnosticsSink, FakeAccessibility, FakeKeychain, FakeOpenPath,
-    FakePasteboard, FixedClock, KeychainError, KeychainPort, MarkdownWatchPort,
+    FakePasteboard, FakeProcessCatalog, FixedClock, KeychainError, KeychainPort, MarkdownWatchPort,
     MemoryClipboardHistory, MemoryNotesIndex, MemoryQuicklinksRepository, MemorySnippetsRepository,
     NotesDocument, NotesIndexError, NotesIndexRepository, NotesIssue, NotesLink, NotesScanReport,
     NotesScanStatusView, NotesSearchHit, OpenPathError, OpenPathPort, PasteboardError,

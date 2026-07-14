@@ -695,6 +695,12 @@ impl AppState {
                 true
             }
             Event::ActionStarted { operation_id } => {
+                if let Some(active) = self.active_operation.as_deref() {
+                    if active != operation_id.as_str() {
+                        // Concurrent op the TUI is not tracking — ignore.
+                        return false;
+                    }
+                }
                 self.active_operation = Some(operation_id.clone());
                 self.status.set("Running…", StatusTone::Progress);
                 true
@@ -703,7 +709,11 @@ impl AppState {
                 operation_id,
                 outcome,
             } => {
-                if self.active_operation.as_deref() == Some(operation_id.as_str()) {
+                if let Some(active) = self.active_operation.as_deref() {
+                    if active != operation_id.as_str() {
+                        // Late finish for a non-current operation.
+                        return false;
+                    }
                     self.active_operation = None;
                 }
                 let tone = status_tone_for_outcome(&outcome);
@@ -711,6 +721,17 @@ impl AppState {
                 true
             }
             Event::DiagnosticRaised { diagnostic } => {
+                let settings_conflict =
+                    diagnostic.get("settings_update").and_then(|v| v.as_str()) == Some("failed");
+                if settings_conflict {
+                    let message = diagnostic
+                        .get("message")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("settings update failed");
+                    self.status
+                        .set(format!("settings conflict: {message}"), StatusTone::Warning);
+                    return true;
+                }
                 self.status
                     .set(format!("doctor: {diagnostic}"), StatusTone::Neutral);
                 self.doctor_diagnostic = Some(diagnostic);
@@ -839,6 +860,24 @@ mod tests {
         assert!(applied);
         assert_eq!(state.status.tone, StatusTone::Warning);
         assert!(state.active_operation.is_none());
+    }
+
+    #[test]
+    fn stale_action_finished_does_not_overwrite_status() {
+        let mut state = AppState {
+            active_operation: Some("op-current".into()),
+            ..AppState::default()
+        };
+        state.status.set("running current", StatusTone::Progress);
+        let applied = state.apply_engine_event(Event::ActionFinished {
+            operation_id: "op-old".into(),
+            outcome: ActionOutcomeDto::Success {
+                message: Some("stale ok".into()),
+            },
+        });
+        assert!(!applied);
+        assert_eq!(state.active_operation.as_deref(), Some("op-current"));
+        assert_eq!(state.status.text, "running current");
     }
 
     #[test]

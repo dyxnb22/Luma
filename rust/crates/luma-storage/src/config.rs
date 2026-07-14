@@ -1,8 +1,10 @@
 use crate::paths::{ensure_luma_next_dirs, luma_next_support_dir, PathsError};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
-use std::fs;
-use std::path::PathBuf;
+use std::fs::{self, File, OpenOptions};
+use std::io::Write;
+use std::path::{Path, PathBuf};
+use std::time::Duration;
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -134,6 +136,7 @@ impl ConfigStore {
         expected_version: u64,
         mut patch: LumaSettings,
     ) -> Result<LumaSettings, ConfigError> {
+        let _lock = SettingsLock::acquire(&self.path)?;
         let current = self.load_or_default()?;
         if current.settings_version != expected_version {
             return Err(ConfigError::VersionConflict {
@@ -145,6 +148,52 @@ impl ConfigStore {
         patch.schema_version = current.schema_version;
         self.save(&patch)?;
         Ok(patch)
+    }
+}
+
+struct SettingsLock {
+    path: PathBuf,
+    _file: File,
+}
+
+impl SettingsLock {
+    fn acquire(settings_path: &Path) -> Result<Self, ConfigError> {
+        let lock_path = settings_path.with_extension("toml.lock");
+        if let Some(parent) = lock_path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        for attempt in 0..100 {
+            match OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&lock_path)
+            {
+                Ok(mut file) => {
+                    let _ = writeln!(file, "pid={}", std::process::id());
+                    return Ok(Self {
+                        path: lock_path,
+                        _file: file,
+                    });
+                }
+                Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => {
+                    if attempt > 30 {
+                        let _ = fs::remove_file(&lock_path);
+                    }
+                    std::thread::sleep(Duration::from_millis(5 + attempt));
+                }
+                Err(err) => return Err(err.into()),
+            }
+        }
+        Err(ConfigError::Io(std::io::Error::new(
+            std::io::ErrorKind::TimedOut,
+            "settings lock timeout",
+        )))
+    }
+}
+
+impl Drop for SettingsLock {
+    fn drop(&mut self) {
+        let _ = fs::remove_file(&self.path);
     }
 }
 

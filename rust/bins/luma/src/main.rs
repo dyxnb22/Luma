@@ -94,6 +94,9 @@ enum ConfigCmd {
         /// Glob patterns relative to notes_root (repeatable). Replaces the full list when set.
         #[arg(long)]
         notes_exclude: Vec<String>,
+        /// Clear all notes_exclude_patterns.
+        #[arg(long)]
+        clear_notes_excludes: bool,
         #[arg(long)]
         enable_module: Vec<String>,
         #[arg(long)]
@@ -323,9 +326,36 @@ async fn main() -> anyhow::Result<()> {
                             "notes_root": "luma config set --notes-root ~/Notes",
                             "projects_roots": "luma config set --projects-root ~/dev",
                             "notes_exclude": "luma config set --notes-exclude 'private/*'",
+                            "clear_notes_excludes": "luma config set --clear-notes-excludes",
                         });
-                        diag["ax_trusted"] =
-                            luma_platform_macos::MacAccessibility::probe_trusted().into();
+                        let ax_trusted = luma_platform_macos::MacAccessibility::probe_trusted();
+                        let parent_pid = std::os::unix::process::parent_id();
+                        let parent_name = std::process::Command::new("ps")
+                            .args(["-p", &parent_pid.to_string(), "-o", "comm="])
+                            .output()
+                            .ok()
+                            .filter(|o| o.status.success())
+                            .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+                            .filter(|s| !s.is_empty());
+                        let host = parent_name
+                            .clone()
+                            .unwrap_or_else(|| "the app that launched Luma".into());
+                        let guidance = if ax_trusted {
+                            format!("Accessibility trusted for current session (host: {host})")
+                        } else {
+                            format!(
+                                "Grant Accessibility to {host} in System Settings → Privacy & Security → Accessibility"
+                            )
+                        };
+                        diag["accessibility"] = serde_json::json!({
+                            "trusted": ax_trusted,
+                            "launch_executable": std::env::current_exe().ok().map(|p| p.display().to_string()),
+                            "parent_pid": parent_pid,
+                            "parent_name": parent_name,
+                            "guidance": guidance,
+                        });
+                        // Legacy top-level mirror for scripts.
+                        diag["ax_trusted"] = ax_trusted.into();
                         if settings.notes_root.is_none() {
                             let mut remediation = diag
                                 .get("remediation")
@@ -370,6 +400,7 @@ async fn main() -> anyhow::Result<()> {
                     notes_root,
                     projects_root,
                     notes_exclude,
+                    clear_notes_excludes,
                     enable_module,
                     disable_module,
                     json,
@@ -384,6 +415,9 @@ async fn main() -> anyhow::Result<()> {
             }
             if !projects_root.is_empty() {
                 next.projects_roots = projects_root;
+            }
+            if clear_notes_excludes {
+                next.notes_exclude_patterns.clear();
             }
             // Presence of any --notes-exclude flag replaces the list (including empty clear via
             // a dedicated empty value is not supported; omit the flag to leave unchanged).

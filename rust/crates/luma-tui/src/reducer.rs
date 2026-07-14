@@ -692,6 +692,13 @@ fn execute_action(
     action: ActionDescriptorDto,
     confirmation: bool,
 ) -> Vec<Effect> {
+    if state.active_operation.is_some() {
+        state.status.set(
+            "action already running — Esc to cancel",
+            StatusTone::Warning,
+        );
+        return vec![Effect::None];
+    }
     state.search_generation = state.search_generation.saturating_add(1);
     let operation_id = format!("op-{}", state.search_generation);
     state.active_operation = Some(operation_id.clone());
@@ -826,6 +833,21 @@ fn browse_query_parent(prompt: &str) -> Option<String> {
 }
 
 fn apply_engine(state: &mut AppState, event: Event) -> Vec<Effect> {
+    if let Event::DiagnosticRaised { diagnostic } = &event {
+        let settings_conflict =
+            diagnostic.get("settings_update").and_then(|v| v.as_str()) == Some("failed");
+        if settings_conflict && state.route == Route::Settings {
+            let message = diagnostic
+                .get("message")
+                .and_then(|v| v.as_str())
+                .unwrap_or("settings conflict");
+            state
+                .status
+                .set(format!("settings conflict: {message}"), StatusTone::Warning);
+            let _ = state.apply_engine_event(event);
+            return vec![Effect::GetSettings];
+        }
+    }
     if let Event::ActionsAvailable { result_id, actions } = event {
         let Some(pending) = state.awaiting_actions.take() else {
             state.status.set(
@@ -872,7 +894,18 @@ fn apply_engine(state: &mut AppState, event: Event) -> Vec<Effect> {
         return effects;
     }
     if settings_changed {
-        return vec![Effect::LoadHub];
+        // Disabled modules may still have cached rows until we re-query.
+        state.results.items.clear();
+        state.results.selected_id = None;
+        state.preview_body = None;
+        state.preview_result_id = None;
+        state.pending_preview_id = None;
+        clear_action_ui(state);
+        let mut effects = vec![Effect::LoadHub];
+        if !state.prompt.is_empty() {
+            effects.extend(begin_search(state));
+        }
+        return effects;
     }
     if let Some(sel) = state.results.selected_id.as_deref() {
         let have_body =
@@ -1418,6 +1451,47 @@ mod tests {
             }] if action_id == "force"
         ));
         assert_eq!(state.route, Route::Search);
+    }
+
+    #[test]
+    fn second_execute_rejected_while_action_active() {
+        let mut state = AppState::default();
+        state.active_operation = Some("op-1".into());
+        state.results.items = vec![SearchItem {
+            id: ResultId::new("1"),
+            module_id: ModuleId::new("luma.fake"),
+            title: "hit".into(),
+            subtitle: None,
+            kind: "mock".into(),
+            score: 1.0,
+            primary_action: ActionDescriptor {
+                id: ActionId::new("open"),
+                label: "Open".into(),
+                risk: ActionRisk::Safe,
+                confirmation: false,
+            },
+            secondary_actions: vec![],
+        }];
+        state.results.selected_id = Some("1".into());
+        state.awaiting_actions = Some(AwaitingActions {
+            intent: ActionsIntent::Primary,
+            result_id: "1".into(),
+        });
+        let effects = update(
+            &mut state,
+            Msg::Engine(Event::ActionsAvailable {
+                result_id: "1".into(),
+                actions: vec![ActionDescriptorDto {
+                    id: "open".into(),
+                    label: "Open".into(),
+                    risk: ActionRisk::Safe,
+                    confirmation: false,
+                }],
+            }),
+        );
+        assert_eq!(effects, vec![Effect::None]);
+        assert_eq!(state.active_operation.as_deref(), Some("op-1"));
+        assert!(state.status.text.contains("already running"));
     }
 
     #[test]

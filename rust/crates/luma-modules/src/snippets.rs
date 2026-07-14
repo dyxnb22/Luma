@@ -18,6 +18,7 @@ pub struct SnippetsModule {
     manifest: ModuleManifest,
     store: Arc<dyn SnippetsRepository>,
     index: RwLock<Vec<Snippet>>,
+    store_error: RwLock<Option<String>>,
     pasteboard: Arc<dyn PasteboardPort>,
     accessibility: Arc<dyn AccessibilityPort>,
 }
@@ -45,14 +46,25 @@ impl SnippetsModule {
             },
             store,
             index: RwLock::new(Vec::new()),
+            store_error: RwLock::new(None),
             pasteboard,
             accessibility,
         }
     }
 
     async fn refresh_index(&self) -> Result<(), String> {
-        *self.index.write().await = self.store.list().map_err(|err| err.to_string())?;
-        Ok(())
+        match self.store.list() {
+            Ok(snippets) => {
+                *self.index.write().await = snippets;
+                *self.store_error.write().await = None;
+                Ok(())
+            }
+            Err(err) => {
+                let msg = err.to_string();
+                *self.store_error.write().await = Some(msg.clone());
+                Err(msg)
+            }
+        }
     }
 
     async fn body_for(&self, trigger: &str) -> Option<String> {
@@ -140,6 +152,28 @@ impl LumaModule for SnippetsModule {
                     return;
                 }
             }
+        }
+
+        if let Some(err) = self.store_error.read().await.clone() {
+            let _ = sink
+                .send(Event::ResultsChunk {
+                    request_id: String::new(),
+                    sequence: 1,
+                    upserts: vec![SearchItemDto {
+                        id: "snip:unavailable".into(),
+                        module_id: "luma.snippets".into(),
+                        title: "Snippets store unavailable".into(),
+                        subtitle: Some(err),
+                        kind: "unavailable".into(),
+                        score: 0.0,
+                        primary_action_id: "noop".into(),
+                        primary_action_label: "Unavailable".into(),
+                        ..Default::default()
+                    }],
+                    removed_ids: vec![],
+                })
+                .await;
+            return;
         }
 
         let needle = query.rest_normalized();

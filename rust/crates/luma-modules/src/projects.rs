@@ -529,6 +529,28 @@ impl LumaModule for ProjectsModule {
                         },
                     };
                 };
+                let Ok(meta) = std::fs::symlink_metadata(&path) else {
+                    return ActionOutcome::Failed {
+                        kind: FailureKind::NotFound {
+                            entity: path.display().to_string(),
+                        },
+                    };
+                };
+                if meta.file_type().is_symlink() {
+                    return ActionOutcome::Failed {
+                        kind: FailureKind::SecurityDenied {
+                            reason: "refusing to open symlink".into(),
+                        },
+                    };
+                }
+                // Re-resolve after metadata check to shrink swap window.
+                let Ok(path) = resolve_under_roots(&path, &roots) else {
+                    return ActionOutcome::Failed {
+                        kind: FailureKind::SecurityDenied {
+                            reason: "path not under scan roots".into(),
+                        },
+                    };
+                };
                 match self.opener.open(&path).await {
                     Ok(()) => ActionOutcome::Success {
                         message: Some("opened".into()),

@@ -18,6 +18,51 @@ fn is_meta_prefix(token: &str) -> bool {
     matches!(token, "doctor" | "help")
 }
 
+#[cfg(unix)]
+fn unix_process_comm(pid: u32) -> Option<String> {
+    std::process::Command::new("ps")
+        .args(["-p", &pid.to_string(), "-o", "comm="])
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+        .filter(|s| !s.is_empty())
+}
+
+fn doctor_launch_context() -> serde_json::Value {
+    let executable = std::env::current_exe()
+        .ok()
+        .map(|p| p.display().to_string());
+    #[cfg(unix)]
+    {
+        let parent_pid = std::os::unix::process::parent_id();
+        let parent_name = unix_process_comm(parent_pid);
+        let host = parent_name
+            .clone()
+            .unwrap_or_else(|| "the app that launched Luma".into());
+        serde_json::json!({
+            "executable": executable,
+            "parent_pid": parent_pid,
+            "parent_name": parent_name,
+            "guidance": format!(
+                "Grant Accessibility to {host} in System Settings → Privacy & Security → Accessibility, then re-run doctor."
+            ),
+        })
+    }
+    #[cfg(not(unix))]
+    {
+        serde_json::json!({ "executable": executable })
+    }
+}
+
+fn doctor_paths() -> serde_json::Value {
+    serde_json::json!({
+        "support_dir": luma_storage::luma_next_support_dir().ok().map(|p| p.display().to_string()),
+        "logs_dir": luma_storage::luma_next_logs_dir().ok().map(|p| p.display().to_string()),
+        "diagnostics_dir": luma_storage::luma_next_diagnostics_dir().ok().map(|p| p.display().to_string()),
+    })
+}
+
 struct SearchTask {
     cancel: CancellationToken,
     module_cancels: HashMap<String, CancellationToken>,
@@ -33,7 +78,6 @@ struct OperationTask {
 
 struct EngineInner {
     registry: ModuleRegistry,
-    event_tx: mpsc::Sender<Event>,
     event_broadcast_tx: broadcast::Sender<Event>,
     session_cancel: CancellationToken,
     searches: HashMap<String, SearchTask>,
@@ -43,6 +87,8 @@ struct EngineInner {
     pending_searches: HashMap<String, CancellationToken>,
     operations: HashMap<String, OperationTask>,
     results_by_id: HashMap<String, luma_domain::SearchItem>,
+    /// Last known warmup/runtime state per module (for Doctor / honesty).
+    module_states: HashMap<String, String>,
 }
 
 /// Optional infrastructure injected at composition time.
@@ -57,7 +103,6 @@ pub struct EngineOptions {
 /// In-process engine: owns modules, searches, and operations.
 pub struct Engine {
     inner: Arc<Mutex<EngineInner>>,
-    event_rx_slot: Mutex<Option<mpsc::Receiver<Event>>>,
     event_broadcast_tx: broadcast::Sender<Event>,
     settings: Option<Arc<dyn crate::ports::SettingsRepository>>,
     diagnostics: Option<Arc<dyn crate::ports::DiagnosticsSink>>,
@@ -86,12 +131,10 @@ impl Engine {
     }
 
     pub fn with_options(registry: ModuleRegistry, options: EngineOptions) -> Self {
-        let (event_tx, event_rx) = mpsc::channel(256);
         let (event_broadcast_tx, _) = broadcast::channel(256);
         Self {
             inner: Arc::new(Mutex::new(EngineInner {
                 registry,
-                event_tx,
                 event_broadcast_tx: event_broadcast_tx.clone(),
                 session_cancel: CancellationToken::new(),
                 searches: HashMap::new(),
@@ -99,8 +142,8 @@ impl Engine {
                 pending_searches: HashMap::new(),
                 operations: HashMap::new(),
                 results_by_id: HashMap::new(),
+                module_states: HashMap::new(),
             })),
-            event_rx_slot: Mutex::new(Some(event_rx)),
             event_broadcast_tx,
             settings: options.settings,
             diagnostics: options.diagnostics,
@@ -123,11 +166,6 @@ impl Engine {
         )
     }
 
-    /// Take the unique event receiver (once). Used by TUI and one-shot CLI helpers.
-    pub async fn take_event_receiver(&self) -> Option<mpsc::Receiver<Event>> {
-        self.event_rx_slot.lock().await.take()
-    }
-
     pub async fn start_session(&self) {
         let (enabled, disabled_ids) = {
             let g = self.inner.lock().await;
@@ -142,6 +180,10 @@ impl Engine {
             (enabled, disabled_ids)
         };
         for id in disabled_ids {
+            {
+                let mut g = self.inner.lock().await;
+                g.module_states.insert(id.clone(), "disabled".into());
+            }
             let _ = self
                 .emit(Event::ModuleStateChanged {
                     module_id: id,
@@ -169,15 +211,20 @@ impl Engine {
         while let Some(joined) = set.join_next().await {
             match joined {
                 Ok((id, state)) => {
+                    let state_str = match &state {
+                        ModuleState::Ready => "ready".into(),
+                        ModuleState::Cold => "cold".into(),
+                        ModuleState::Disabled => "disabled".into(),
+                        ModuleState::Failed(msg) => format!("failed:{msg}"),
+                    };
+                    {
+                        let mut g = self.inner.lock().await;
+                        g.module_states.insert(id.clone(), state_str.clone());
+                    }
                     let _ = self
                         .emit(Event::ModuleStateChanged {
                             module_id: id,
-                            state: match state {
-                                ModuleState::Ready => "ready".into(),
-                                ModuleState::Cold => "cold".into(),
-                                ModuleState::Disabled => "disabled".into(),
-                                ModuleState::Failed(msg) => format!("failed:{msg}"),
-                            },
+                            state: state_str,
                         })
                         .await;
                 }
@@ -195,12 +242,13 @@ impl Engine {
 
     /// Cancel in-flight search/action work for a module, await operation termination, then teardown or warmup.
     async fn apply_module_enabled(&self, module_id: &str, enabled: bool) -> bool {
-        let (module, op_handles) = {
+        let (module, op_handles, removed_ids) = {
             let mut g = self.inner.lock().await;
             if !g.registry.set_enabled(module_id, enabled) {
                 return false;
             }
             let mut op_handles = Vec::new();
+            let mut removed_ids = Vec::new();
             if !enabled {
                 for task in g.searches.values() {
                     if let Some(token) = task.module_cancels.get(module_id) {
@@ -215,11 +263,32 @@ impl Engine {
                         }
                     }
                 }
+                removed_ids = g
+                    .results_by_id
+                    .iter()
+                    .filter(|(_, item)| item.module_id.as_str() == module_id)
+                    .map(|(id, _)| id.clone())
+                    .collect();
+                for id in &removed_ids {
+                    g.results_by_id.remove(id);
+                }
+                g.module_states
+                    .insert(module_id.to_string(), "disabled".into());
             }
-            (g.registry.get(module_id), op_handles)
+            (g.registry.get(module_id), op_handles, removed_ids)
         };
         for handle in op_handles {
             let _ = handle.await;
+        }
+        if !removed_ids.is_empty() {
+            let _ = self
+                .emit(Event::ResultsChunk {
+                    request_id: String::new(),
+                    sequence: 0,
+                    upserts: vec![],
+                    removed_ids,
+                })
+                .await;
         }
         let Some(module) = module else {
             return false;
@@ -234,15 +303,21 @@ impl Engine {
                     cancel: cancel.clone(),
                 })
                 .await;
+            let state_str = match &state {
+                ModuleState::Ready => "ready".into(),
+                ModuleState::Cold => "cold".into(),
+                ModuleState::Disabled => "disabled".into(),
+                ModuleState::Failed(msg) => format!("failed:{msg}"),
+            };
+            {
+                let mut g = self.inner.lock().await;
+                g.module_states
+                    .insert(module_id.to_string(), state_str.clone());
+            }
             let _ = self
                 .emit(Event::ModuleStateChanged {
                     module_id: module_id.to_string(),
-                    state: match state {
-                        ModuleState::Ready => "ready".into(),
-                        ModuleState::Cold => "cold".into(),
-                        ModuleState::Disabled => "disabled".into(),
-                        ModuleState::Failed(msg) => format!("failed:{msg}"),
-                    },
+                    state: state_str,
                 })
                 .await;
         } else {
@@ -258,12 +333,32 @@ impl Engine {
     }
 
     async fn emit(&self, event: Event) -> Result<(), String> {
-        let (tx, broadcast_tx) = {
+        let broadcast_tx = {
             let g = self.inner.lock().await;
-            (g.event_tx.clone(), g.event_broadcast_tx.clone())
+            g.event_broadcast_tx.clone()
         };
-        let _ = broadcast_tx.send(event.clone());
-        tx.send(event).await.map_err(|e| e.to_string())
+        // Broadcast never back-pressures the producer; slow subscribers may Lagged.
+        let _ = broadcast_tx.send(event);
+        Ok(())
+    }
+
+    fn emit_from_inner(inner: &EngineInner, event: Event) {
+        let _ = inner.event_broadcast_tx.send(event);
+    }
+
+    fn resolve_enabled_module(
+        g: &EngineInner,
+        result_id: &str,
+    ) -> (Option<luma_domain::SearchItem>, Option<Arc<dyn LumaModule>>) {
+        let item = g.results_by_id.get(result_id).cloned();
+        let module = item.as_ref().and_then(|i| {
+            if g.registry.is_enabled(i.module_id.as_str()) {
+                g.registry.get(i.module_id.as_str())
+            } else {
+                None
+            }
+        });
+        (item, module)
     }
 
     /// Signal cancel, then bounded-await the search supervisor (modules + collector).
@@ -469,7 +564,6 @@ impl Engine {
             let cancel_for_collect = cancel_for_task.clone();
             async move {
                 let mut sequence = 0u64;
-                let mut total = 0usize;
                 while let Some(ev) = chunk_rx.recv().await {
                     if cancel_for_collect.is_cancelled() {
                         break;
@@ -481,45 +575,45 @@ impl Engine {
                     } = ev
                     {
                         sequence += 1;
-                        total += upserts.len();
-                        {
-                            let mut g = engine.lock().await;
-                            for u in &upserts {
-                                g.results_by_id
-                                    .insert(u.id.clone(), u.clone().into_domain());
-                            }
-                            for id in &removed_ids {
-                                g.results_by_id.remove(id);
-                            }
+                        let mut g = engine.lock().await;
+                        let upserts: Vec<_> = upserts
+                            .into_iter()
+                            .filter(|u| g.registry.is_enabled(&u.module_id))
+                            .collect();
+                        for u in &upserts {
+                            g.results_by_id
+                                .insert(u.id.clone(), u.clone().into_domain());
                         }
-                        let (tx, broadcast_tx) = {
-                            let g = engine.lock().await;
-                            (g.event_tx.clone(), g.event_broadcast_tx.clone())
-                        };
-                        let event = Event::ResultsChunk {
-                            request_id: request_id.clone(),
-                            sequence,
-                            upserts,
-                            removed_ids,
-                        };
-                        let _ = broadcast_tx.send(event.clone());
-                        let _ = tx.send(event).await;
+                        for id in &removed_ids {
+                            g.results_by_id.remove(id);
+                        }
+                        if upserts.is_empty() && removed_ids.is_empty() {
+                            continue;
+                        }
+                        Self::emit_from_inner(
+                            &g,
+                            Event::ResultsChunk {
+                                request_id: request_id.clone(),
+                                sequence,
+                                upserts,
+                                removed_ids,
+                            },
+                        );
                     }
                 }
                 // Terminal cancel is emitted by cancel_search_* (exactly once).
                 // Collector only emits SearchFinished on clean completion.
                 if !cancel_for_collect.is_cancelled() {
-                    let (tx, broadcast_tx) = {
-                        let g = engine.lock().await;
-                        (g.event_tx.clone(), g.event_broadcast_tx.clone())
-                    };
-                    let event = Event::SearchFinished {
-                        request_id,
-                        total,
-                        elapsed_ms: 0,
-                    };
-                    let _ = broadcast_tx.send(event.clone());
-                    let _ = tx.send(event).await;
+                    let g = engine.lock().await;
+                    let total = g.results_by_id.len();
+                    Self::emit_from_inner(
+                        &g,
+                        Event::SearchFinished {
+                            request_id,
+                            total,
+                            elapsed_ms: 0,
+                        },
+                    );
                 }
             }
         });
@@ -578,23 +672,31 @@ impl Engine {
                 self.cancel_search(&request_id).await;
             }
             Command::RunDoctor => {
-                let (rows, settings_snapshot) = {
+                let (rows, settings_snapshot, module_states) = {
                     let g = self.inner.lock().await;
                     let rows = g.registry.list();
                     let settings_snapshot = self
                         .settings
                         .as_ref()
                         .and_then(|s| s.load_or_default().ok());
-                    (rows, settings_snapshot)
+                    let module_states = g.module_states.clone();
+                    (rows, settings_snapshot, module_states)
                 };
                 let modules = rows
                     .iter()
                     .map(|(id, enabled, name)| {
+                        let state = module_states.get(id).cloned().unwrap_or_else(|| {
+                            if *enabled {
+                                "enabled".into()
+                            } else {
+                                "disabled".into()
+                            }
+                        });
                         serde_json::json!({
                             "id": id,
                             "enabled": enabled,
                             "name": name,
-                            "state": if *enabled { "enabled" } else { "disabled" },
+                            "state": state,
                         })
                     })
                     .collect::<Vec<_>>();
@@ -630,6 +732,8 @@ impl Engine {
                     "doctor": true,
                     "modules": modules,
                     "skipped_modules": skipped,
+                    "paths": doctor_paths(),
+                    "launch": doctor_launch_context(),
                     "settings": {
                         "configured": settings_snapshot.is_some(),
                         "settings_version": settings_snapshot.as_ref().map(|s| s.settings_version),
@@ -689,11 +793,7 @@ impl Engine {
             } => {
                 let (item, module) = {
                     let g = self.inner.lock().await;
-                    let item = g.results_by_id.get(&result_id).cloned();
-                    let module = item
-                        .as_ref()
-                        .and_then(|i| g.registry.get(i.module_id.as_str()));
-                    (item, module)
+                    Self::resolve_enabled_module(&g, &result_id)
                 };
                 let cancel = {
                     let mut g = self.inner.lock().await;
@@ -715,15 +815,15 @@ impl Engine {
                 let engine = self.clone_inner();
                 let op_id = operation_id.clone();
                 let handle = tokio::spawn(async move {
-                    let (tx, broadcast_tx) = {
+                    {
                         let g = engine.lock().await;
-                        (g.event_tx.clone(), g.event_broadcast_tx.clone())
-                    };
-                    let started = Event::ActionStarted {
-                        operation_id: op_id.clone(),
-                    };
-                    let _ = broadcast_tx.send(started.clone());
-                    let _ = tx.send(started).await;
+                        Self::emit_from_inner(
+                            &g,
+                            Event::ActionStarted {
+                                operation_id: op_id.clone(),
+                            },
+                        );
+                    }
 
                     let outcome = match (item, module) {
                         (Some(result), Some(module)) => {
@@ -776,17 +876,17 @@ impl Engine {
                             },
                         ),
                     };
-                    let (tx, broadcast_tx) = {
-                        let g = engine.lock().await;
-                        (g.event_tx.clone(), g.event_broadcast_tx.clone())
-                    };
-                    let finished = Event::ActionFinished {
-                        operation_id: op_id.clone(),
-                        outcome,
-                    };
-                    let _ = broadcast_tx.send(finished.clone());
-                    let _ = tx.send(finished).await;
-                    engine.lock().await.operations.remove(&op_id);
+                    {
+                        let mut g = engine.lock().await;
+                        Self::emit_from_inner(
+                            &g,
+                            Event::ActionFinished {
+                                operation_id: op_id.clone(),
+                                outcome,
+                            },
+                        );
+                        g.operations.remove(&op_id);
+                    }
                 });
                 if let Some(op) = self.inner.lock().await.operations.get_mut(&operation_id) {
                     op.handle = Some(handle);
@@ -795,11 +895,7 @@ impl Engine {
             Command::ListActions { result_id } => {
                 let (item, module) = {
                     let g = self.inner.lock().await;
-                    let item = g.results_by_id.get(&result_id).cloned();
-                    let module = item
-                        .as_ref()
-                        .and_then(|i| g.registry.get(i.module_id.as_str()));
-                    (item, module)
+                    Self::resolve_enabled_module(&g, &result_id)
                 };
                 let actions = match (item, module) {
                     (Some(result), Some(module)) => {
@@ -821,20 +917,12 @@ impl Engine {
             } => {
                 let (item, module) = {
                     let g = self.inner.lock().await;
-                    let item = g.results_by_id.get(&result_id).cloned();
-                    let module = item
-                        .as_ref()
-                        .and_then(|i| g.registry.get(i.module_id.as_str()));
-                    (item, module)
+                    Self::resolve_enabled_module(&g, &result_id)
                 };
                 let body = match (item, module) {
                     (Some(result), Some(module)) => module
                         .preview(&result)
                         .await
-                        .unwrap_or_else(|| result.title.clone()),
-                    (Some(result), None) => result
-                        .subtitle
-                        .clone()
                         .unwrap_or_else(|| result.title.clone()),
                     _ => String::new(),
                 };
@@ -1001,23 +1089,6 @@ impl Engine {
                     })
                     .await;
             }
-            Command::OpenModule { module_id } => {
-                let state = {
-                    let g = self.inner.lock().await;
-                    if g.registry.get(&module_id).is_some() {
-                        if g.registry.is_enabled(&module_id) {
-                            "open".to_string()
-                        } else {
-                            "disabled".to_string()
-                        }
-                    } else {
-                        "missing".to_string()
-                    }
-                };
-                let _ = self
-                    .emit(Event::ModuleStateChanged { module_id, state })
-                    .await;
-            }
             Command::CancelOperation { operation_id } => {
                 let handle = {
                     let mut g = self.inner.lock().await;
@@ -1092,24 +1163,16 @@ impl Engine {
             }
         }
     }
+}
 
-    /// Collect events until SearchFinished/Cancelled/Fatal or timeout-ish bound.
-    pub async fn query_collect(
-        &self,
-        query: &str,
-        request_id: &str,
-    ) -> Result<Vec<SearchItemDto>, String> {
-        let mut rx = {
-            let mut slot = self.event_rx_slot.lock().await;
-            slot.take()
-                .ok_or_else(|| "event receiver already taken".to_string())?
-        };
-        // Re-subscribe is not supported once taken; for CLI we create a dedicated engine per call.
-        // Put receiver back pattern: use a fresh channel by reconstructing — simpler approach below.
-        // Restore for subsequent use by creating fan-in is Phase 9. For CLI helpers, see `run_query`.
-        let _ = &mut rx;
-        let _ = (query, request_id);
-        Err("use Engine::run_query for one-shot CLI".into())
+/// Drain lagged frames until the next event or channel close.
+async fn recv_event(rx: &mut broadcast::Receiver<Event>) -> Option<Event> {
+    loop {
+        match rx.recv().await {
+            Ok(ev) => return Some(ev),
+            Err(broadcast::error::RecvError::Lagged(_)) => continue,
+            Err(broadcast::error::RecvError::Closed) => return None,
+        }
     }
 }
 
@@ -1119,10 +1182,7 @@ pub async fn run_query(
     query: &str,
 ) -> Result<(Vec<SearchItemDto>, Vec<Event>), String> {
     let engine = Engine::new(registry);
-    let mut rx = engine
-        .take_event_receiver()
-        .await
-        .expect("fresh engine has receiver");
+    let mut rx = engine.subscribe();
 
     engine.start_session().await;
     let request_id = "cli-1".to_string();
@@ -1134,11 +1194,18 @@ pub async fn run_query(
     let collect = async {
         let mut events = Vec::new();
         let mut items: HashMap<String, SearchItemDto> = HashMap::new();
-        while let Some(ev) = rx.recv().await {
+        while let Some(ev) = recv_event(&mut rx).await {
             match &ev {
-                Event::ResultsChunk { upserts, .. } => {
+                Event::ResultsChunk {
+                    upserts,
+                    removed_ids,
+                    ..
+                } => {
                     for u in upserts {
                         items.insert(u.id.clone(), u.clone());
+                    }
+                    for id in removed_ids {
+                        items.remove(id);
                     }
                 }
                 Event::SearchFinished { .. }
@@ -1173,10 +1240,7 @@ pub async fn run_action(
     confirmation: bool,
 ) -> Result<(SearchItemDto, luma_protocol::ActionOutcomeDto), String> {
     let engine = Engine::new(registry);
-    let mut rx = engine
-        .take_event_receiver()
-        .await
-        .expect("fresh engine has receiver");
+    let mut rx = engine.subscribe();
     engine.start_session().await;
     let request_id = "cli-action-search".to_string();
     let search = engine.handle_command(Command::Search {
@@ -1185,11 +1249,18 @@ pub async fn run_action(
     });
     let collect = async {
         let mut items = HashMap::new();
-        while let Some(event) = rx.recv().await {
+        while let Some(event) = recv_event(&mut rx).await {
             match event {
-                Event::ResultsChunk { upserts, .. } => {
+                Event::ResultsChunk {
+                    upserts,
+                    removed_ids,
+                    ..
+                } => {
                     for item in upserts {
                         items.insert(item.id.clone(), item);
+                    }
+                    for id in removed_ids {
+                        items.remove(&id);
                     }
                 }
                 Event::SearchFinished { .. } | Event::SearchCancelled { .. } => break,
@@ -1222,7 +1293,7 @@ pub async fn run_action(
         })
         .await;
     let outcome = loop {
-        match rx.recv().await {
+        match recv_event(&mut rx).await {
             Some(Event::ActionFinished { outcome, .. }) => break outcome,
             Some(_) => {}
             None => return Err("engine event channel closed".into()),
@@ -1237,14 +1308,11 @@ pub async fn run_doctor(
     settings: Option<Arc<dyn crate::ports::SettingsRepository>>,
 ) -> Result<serde_json::Value, String> {
     let engine = Engine::with_settings(registry, settings);
-    let mut rx = engine
-        .take_event_receiver()
-        .await
-        .expect("fresh engine has receiver");
+    let mut rx = engine.subscribe();
     engine.start_session().await;
     let handle = engine.handle_command(Command::RunDoctor);
     let wait = async {
-        while let Some(ev) = rx.recv().await {
+        while let Some(ev) = recv_event(&mut rx).await {
             if let Event::DiagnosticRaised { diagnostic } = ev {
                 return diagnostic;
             }
@@ -1454,7 +1522,7 @@ mod tests {
             }))
             .unwrap();
         let engine = Arc::new(Engine::new(registry));
-        let mut events = engine.take_event_receiver().await.unwrap();
+        let mut events = engine.subscribe();
         engine.start_session().await;
         engine
             .handle_command(Command::Search {
@@ -1462,7 +1530,7 @@ mod tests {
                 query: "hello".into(),
             })
             .await;
-        while !matches!(events.recv().await, Some(Event::SearchStarted { .. })) {}
+        while !matches!(events.recv().await, Ok(Event::SearchStarted { .. })) {}
         engine
             .handle_command(Command::CancelSearch {
                 request_id: "sticky-1".into(),
@@ -1478,9 +1546,9 @@ mod tests {
     #[tokio::test]
     async fn cancel_before_registration_is_honored() {
         let engine = Arc::new(Engine::new(fake_registry()));
-        let mut events = engine.take_event_receiver().await.unwrap();
+        let mut events = engine.subscribe();
         engine.start_session().await;
-        while !matches!(events.recv().await, Some(Event::SessionReady { .. })) {}
+        while !matches!(events.recv().await, Ok(Event::SessionReady { .. })) {}
         // Cancel arrives before Search for the same request id.
         engine
             .handle_command(Command::CancelSearch {
@@ -1489,7 +1557,7 @@ mod tests {
             .await;
         assert!(matches!(
             events.recv().await,
-            Some(Event::SearchCancelled { request_id }) if request_id == "early"
+            Ok(Event::SearchCancelled { request_id }) if request_id == "early"
         ));
         engine
             .handle_command(Command::Search {
@@ -1530,7 +1598,7 @@ mod tests {
             }))
             .unwrap();
         let engine = Arc::new(Engine::new(registry));
-        let mut events = engine.take_event_receiver().await.unwrap();
+        let mut events = engine.subscribe();
         engine.start_session().await;
 
         engine
@@ -1539,7 +1607,7 @@ mod tests {
                 query: "hello".into(),
             })
             .await;
-        while !matches!(events.recv().await, Some(Event::SearchStarted { .. })) {}
+        while !matches!(events.recv().await, Ok(Event::SearchStarted { .. })) {}
 
         let engine_b = engine.clone();
         let search_new = tokio::spawn(async move {
@@ -1564,11 +1632,11 @@ mod tests {
             tokio::select! {
                 ev = events.recv() => {
                     match ev {
-                        Some(Event::SearchCancelled { request_id }) if request_id == "new" => {
+                        Ok(Event::SearchCancelled { request_id }) if request_id == "new" => {
                             saw_new_cancelled = true;
                             break;
                         }
-                        Some(Event::SearchFinished { request_id, .. }) if request_id == "new" => {
+                        Ok(Event::SearchFinished { request_id, .. }) if request_id == "new" => {
                             panic!("new search must not finish after cancel");
                         }
                         _ => {}
@@ -1664,7 +1732,7 @@ mod tests {
             }))
             .unwrap();
         let engine = Arc::new(Engine::new(registry));
-        let mut events = engine.take_event_receiver().await.unwrap();
+        let mut events = engine.subscribe();
         engine.start_session().await;
         engine
             .handle_command(Command::Search {
@@ -1672,7 +1740,7 @@ mod tests {
                 query: "wait hello".into(),
             })
             .await;
-        while !matches!(events.recv().await, Some(Event::SearchFinished { .. })) {}
+        while !matches!(events.recv().await, Ok(Event::SearchFinished { .. })) {}
         let execute = {
             let engine = engine.clone();
             tokio::spawn(async move {
@@ -1686,14 +1754,14 @@ mod tests {
                     .await;
             })
         };
-        while !matches!(events.recv().await, Some(Event::ActionStarted { .. })) {}
+        while !matches!(events.recv().await, Ok(Event::ActionStarted { .. })) {}
         engine
             .handle_command(Command::CancelOperation {
                 operation_id: "op1".into(),
             })
             .await;
         let outcome = loop {
-            if let Some(Event::ActionFinished { outcome, .. }) = events.recv().await {
+            if let Ok(Event::ActionFinished { outcome, .. }) = events.recv().await {
                 break outcome;
             }
         };
@@ -1722,7 +1790,7 @@ mod tests {
             }))
             .unwrap();
         let engine = Arc::new(Engine::new(registry));
-        let mut events = engine.take_event_receiver().await.unwrap();
+        let mut events = engine.subscribe();
         engine.start_session().await;
         engine
             .handle_command(Command::Search {
@@ -1730,7 +1798,7 @@ mod tests {
                 query: "wait hello".into(),
             })
             .await;
-        while !matches!(events.recv().await, Some(Event::SearchFinished { .. })) {}
+        while !matches!(events.recv().await, Ok(Event::SearchFinished { .. })) {}
         let execute = {
             let engine = engine.clone();
             tokio::spawn(async move {
@@ -1744,7 +1812,7 @@ mod tests {
                     .await;
             })
         };
-        while !matches!(events.recv().await, Some(Event::ActionStarted { .. })) {}
+        while !matches!(events.recv().await, Ok(Event::ActionStarted { .. })) {}
         engine
             .handle_command(Command::SetModuleEnabled {
                 module_id: "luma.wait".into(),
@@ -1752,7 +1820,7 @@ mod tests {
             })
             .await;
         let outcome = loop {
-            if let Some(Event::ActionFinished { outcome, .. }) = events.recv().await {
+            if let Ok(Event::ActionFinished { outcome, .. }) = events.recv().await {
                 break outcome;
             }
         };
@@ -1790,7 +1858,7 @@ mod tests {
         ));
         let settings = Arc::new(crate::TomlSettingsRepository::new(store.clone()));
         let engine = Engine::with_settings(fake_registry(), Some(settings));
-        let mut events = engine.take_event_receiver().await.unwrap();
+        let mut events = engine.subscribe();
         engine
             .handle_command(Command::UpdateSettings {
                 patch: serde_json::json!({"enabled_modules": {"luma.fake": false}}),
@@ -1798,7 +1866,7 @@ mod tests {
             })
             .await;
         let event = loop {
-            if let Some(Event::SettingsChanged { version, settings }) = events.recv().await {
+            if let Ok(Event::SettingsChanged { version, settings }) = events.recv().await {
                 break (version, settings);
             }
         };
@@ -1902,16 +1970,16 @@ mod tests {
             }))
             .unwrap();
         let engine = Arc::new(Engine::new(registry));
-        let mut events = engine.take_event_receiver().await.unwrap();
+        let mut events = engine.subscribe();
         engine.start_session().await;
-        while !matches!(events.recv().await, Some(Event::SessionReady { .. })) {}
+        while !matches!(events.recv().await, Ok(Event::SessionReady { .. })) {}
         engine
             .handle_command(Command::Search {
                 request_id: "r-rm".into(),
                 query: "rm x".into(),
             })
             .await;
-        while !matches!(events.recv().await, Some(Event::SearchFinished { .. })) {}
+        while !matches!(events.recv().await, Ok(Event::SearchFinished { .. })) {}
 
         engine
             .handle_command(Command::ListActions {
@@ -1919,7 +1987,7 @@ mod tests {
             })
             .await;
         let actions = loop {
-            if let Some(Event::ActionsAvailable { actions, .. }) = events.recv().await {
+            if let Ok(Event::ActionsAvailable { actions, .. }) = events.recv().await {
                 break actions;
             }
         };
@@ -1937,7 +2005,7 @@ mod tests {
             })
             .await;
         let outcome = loop {
-            if let Some(Event::ActionFinished { outcome, .. }) = events.recv().await {
+            if let Ok(Event::ActionFinished { outcome, .. }) = events.recv().await {
                 break outcome;
             }
         };
@@ -1959,15 +2027,118 @@ mod tests {
                 skipped_modules: Vec::new(),
             },
         );
-        let mut events = engine.take_event_receiver().await.unwrap();
+        let mut events = engine.subscribe();
         engine.handle_command(Command::ExportDiagnostics).await;
         let path = loop {
-            if let Some(Event::DiagnosticRaised { diagnostic }) = events.recv().await {
+            if let Ok(Event::DiagnosticRaised { diagnostic }) = events.recv().await {
                 break diagnostic["path"].as_str().unwrap().to_owned();
             }
         };
         let body = std::fs::read_to_string(path).unwrap();
         assert!(body.contains("\"redacted\": true"));
         assert!(!body.contains("clipboard_text"));
+    }
+
+    #[tokio::test]
+    async fn broadcast_emit_never_blocks_after_256_events() {
+        use crate::port::EnginePort;
+        let engine = Engine::new(fake_registry());
+        let mut rx = engine.subscribe();
+        // Flood without a consumer draining first — producer must not hang.
+        for i in 0..320 {
+            engine
+                .emit(Event::DiagnosticRaised {
+                    diagnostic: serde_json::json!({ "n": i }),
+                })
+                .await
+                .unwrap();
+        }
+        // Subscriber may lag; must still be able to recv something or Lagged.
+        let mut saw = 0usize;
+        for _ in 0..400 {
+            match rx.try_recv() {
+                Ok(_) => saw += 1,
+                Err(broadcast::error::TryRecvError::Lagged(n)) => {
+                    saw += n as usize;
+                }
+                Err(broadcast::error::TryRecvError::Empty) => break,
+                Err(broadcast::error::TryRecvError::Closed) => break,
+            }
+        }
+        assert!(saw > 0, "subscriber should observe flood or lag");
+        // Engine still accepts commands after flood.
+        engine.start_session().await;
+        assert!(matches!(
+            rx.recv().await,
+            Ok(Event::ModuleStateChanged { .. }) | Ok(Event::SessionReady { .. })
+        ));
+    }
+
+    #[tokio::test]
+    async fn disable_module_purges_results_and_rejects_actions() {
+        let engine = Arc::new(Engine::new(fake_registry()));
+        let mut events = engine.subscribe();
+        engine.start_session().await;
+        while !matches!(events.recv().await, Ok(Event::SessionReady { .. })) {}
+        engine
+            .handle_command(Command::Search {
+                request_id: "r1".into(),
+                query: "hello".into(),
+            })
+            .await;
+        while !matches!(events.recv().await, Ok(Event::SearchFinished { .. })) {}
+
+        engine
+            .handle_command(Command::SetModuleEnabled {
+                module_id: "luma.fake".into(),
+                enabled: false,
+            })
+            .await;
+        // Drain module-disabled and results purge events.
+        let mut saw_removed = false;
+        for _ in 0..20 {
+            match tokio::time::timeout(std::time::Duration::from_millis(50), events.recv()).await {
+                Ok(Ok(Event::ResultsChunk { removed_ids, .. })) if !removed_ids.is_empty() => {
+                    saw_removed = true;
+                    break;
+                }
+                Ok(Ok(_)) => continue,
+                _ => break,
+            }
+        }
+        assert!(
+            saw_removed,
+            "disable must emit removed_ids for cached results"
+        );
+
+        engine
+            .handle_command(Command::ListActions {
+                result_id: "fake-1".into(),
+            })
+            .await;
+        let actions = loop {
+            if let Ok(Event::ActionsAvailable { actions, .. }) = events.recv().await {
+                break actions;
+            }
+        };
+        assert!(actions.is_empty(), "disabled module must not list actions");
+
+        engine
+            .handle_command(Command::ExecuteAction {
+                operation_id: "op-dis".into(),
+                result_id: "fake-1".into(),
+                action_id: "open".into(),
+                confirmation: false,
+            })
+            .await;
+        let outcome = loop {
+            if let Ok(Event::ActionFinished { outcome, .. }) = events.recv().await {
+                break outcome;
+            }
+        };
+        assert!(
+            matches!(outcome, luma_protocol::ActionOutcomeDto::Failed { .. }),
+            "disabled module must not execute: {outcome:?}"
+        );
     }
 }

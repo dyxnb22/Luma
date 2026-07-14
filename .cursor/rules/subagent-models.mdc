@@ -1,0 +1,13 @@
+---
+description: Prefer full Composer 2.5 for Task subagents; never use the fast variant
+alwaysApply: true
+---
+
+# Subagent model choice
+
+When launching Task / subagents with Composer 2.5:
+
+- Use `composer-2.5` (full).
+- Do **not** use `composer-2.5-fast`.
+
+Only pick another model when the user explicitly asks for it.

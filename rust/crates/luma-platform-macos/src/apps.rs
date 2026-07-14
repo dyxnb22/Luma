@@ -74,12 +74,29 @@ fn scan_roots(roots: &[PathBuf]) -> Result<Vec<AppEntry>, String> {
         if !root.exists() {
             continue;
         }
-        let rd = std::fs::read_dir(root).map_err(|e| e.to_string())?;
-        for entry in rd.flatten() {
-            let path = entry.path();
-            if path.extension().and_then(|e| e.to_str()) != Some("app") {
-                continue;
-            }
+        scan_dir(root, 0, &mut apps)?;
+    }
+    apps.sort_by_key(|a| a.name.to_lowercase());
+    apps.dedup_by(|a, b| a.path == b.path);
+    Ok(apps)
+}
+
+const MAX_SCAN_DEPTH: usize = 4;
+
+fn scan_dir(dir: &Path, depth: usize, apps: &mut Vec<AppEntry>) -> Result<(), String> {
+    if depth > MAX_SCAN_DEPTH {
+        return Ok(());
+    }
+    let rd = std::fs::read_dir(dir).map_err(|e| e.to_string())?;
+    for entry in rd.flatten() {
+        let path = entry.path();
+        let Ok(meta) = std::fs::symlink_metadata(&path) else {
+            continue;
+        };
+        if meta.file_type().is_symlink() {
+            continue;
+        }
+        if path.extension().and_then(|e| e.to_str()) == Some("app") {
             let name = path
                 .file_stem()
                 .and_then(|s| s.to_str())
@@ -91,17 +108,30 @@ fn scan_roots(roots: &[PathBuf]) -> Result<Vec<AppEntry>, String> {
                 path,
                 bundle_id: None,
             });
+            continue;
+        }
+        if meta.is_dir() {
+            scan_dir(&path, depth + 1, apps)?;
         }
     }
-    apps.sort_by_key(|a| a.name.to_lowercase());
-    apps.dedup_by(|a, b| a.path == b.path);
-    Ok(apps)
+    Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::fs;
+
+    #[tokio::test]
+    async fn scans_nested_fixture_app() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::create_dir_all(dir.path().join("Setapp").join("Nested")).unwrap();
+        fs::create_dir(dir.path().join("Setapp").join("Nested").join("Bear.app")).unwrap();
+        let catalog = FilesystemAppsCatalog::with_roots(vec![dir.path().to_path_buf()]);
+        let apps = catalog.list_installed().await.unwrap();
+        assert_eq!(apps.len(), 1);
+        assert_eq!(apps[0].name, "Bear");
+    }
 
     #[tokio::test]
     async fn scans_fixture_apps() {

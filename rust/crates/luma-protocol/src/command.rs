@@ -23,9 +23,6 @@ pub enum Command {
     CancelOperation {
         operation_id: String,
     },
-    OpenModule {
-        module_id: String,
-    },
     SetModuleEnabled {
         module_id: String,
         enabled: bool,

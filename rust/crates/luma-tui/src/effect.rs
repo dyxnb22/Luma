@@ -6,8 +6,6 @@ pub enum Effect {
     CancelSearch { request_id: String },
     /// Request engine diagnostics for the doctor route.
     RunDoctor,
-    /// Request a redacted diagnostics export.
-    ExportDiagnostics,
     /// Load settings projection for the Settings route.
     GetSettings,
     /// Toggle a module via engine registry + persistence when available.

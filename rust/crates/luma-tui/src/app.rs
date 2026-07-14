@@ -165,11 +165,6 @@ fn dispatch_effect(engine: Arc<dyn EnginePort>, effect: Effect) {
                 let _ = engine.submit(Command::RunDoctor).await;
             });
         }
-        Effect::ExportDiagnostics => {
-            tokio::spawn(async move {
-                let _ = engine.submit(Command::ExportDiagnostics).await;
-            });
-        }
         Effect::LoadHub => {
             tokio::spawn(async move {
                 let _ = engine.submit(Command::LoadHub).await;

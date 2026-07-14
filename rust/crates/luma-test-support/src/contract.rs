@@ -13,6 +13,7 @@ pub async fn assert_primary_actions_resolvable(module: &dyn LumaModule, query: l
     for item in items {
         if item.kind == "warming"
             || item.kind == "unavailable"
+            || item.kind == "not_configured"
             || item.primary_action.id.as_str() == "noop"
         {
             continue;

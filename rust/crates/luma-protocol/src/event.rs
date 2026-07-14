@@ -214,17 +214,6 @@ pub enum Event {
     ActionStarted {
         operation_id: String,
     },
-    ActionOutput {
-        operation_id: String,
-        stream: String,
-        chunk: String,
-    },
-    ActionProgress {
-        operation_id: String,
-        current: u64,
-        total: u64,
-        message: String,
-    },
     ActionFinished {
         operation_id: String,
         outcome: ActionOutcomeDto,

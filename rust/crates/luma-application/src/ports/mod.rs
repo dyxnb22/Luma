@@ -34,7 +34,7 @@ pub use notes_repo::{
 };
 pub use open_path::{FakeOpenPath, OpenPathError, OpenPathPort};
 pub use pasteboard::{FakePasteboard, PasteboardError, PasteboardPort};
-pub use process::{ProcessCatalogPort, ProcessEntry, ProcessError};
+pub use process::{FakeProcessCatalog, ProcessCatalogPort, ProcessEntry, ProcessError};
 pub use quicklinks_repo::{QuicklinkEntry, QuicklinksRepoError, QuicklinksRepository};
 pub use settings::{AppSettings, SettingsError, SettingsRepository};
 pub use snippets_repo::{SnippetEntry, SnippetsRepoError, SnippetsRepository};

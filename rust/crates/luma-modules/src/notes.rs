@@ -133,17 +133,19 @@ impl NotesModule {
     }
 
     /// Bridge a Tokio cancellation token into a scan-level atomic flag.
-    fn scan_cancel_flag(token: &CancellationToken) -> Arc<AtomicBool> {
+    /// Drop the returned handle (or abort it) when the scan finishes so waiters do not leak.
+    fn scan_cancel_bridge(token: &CancellationToken) -> (Arc<AtomicBool>, Option<JoinHandle<()>>) {
         let flag = Arc::new(AtomicBool::new(token.is_cancelled()));
-        if !token.is_cancelled() {
-            let flag2 = flag.clone();
-            let token = token.clone();
-            tokio::spawn(async move {
-                token.cancelled().await;
-                flag2.store(true, Ordering::Relaxed);
-            });
+        if token.is_cancelled() {
+            return (flag, None);
         }
-        flag
+        let flag2 = flag.clone();
+        let token = token.clone();
+        let handle = tokio::spawn(async move {
+            token.cancelled().await;
+            flag2.store(true, Ordering::Relaxed);
+        });
+        (flag, Some(handle))
     }
 
     async fn rebuild_index(
@@ -189,6 +191,7 @@ impl NotesModule {
         let handle = tokio::spawn(async move {
             let watch_fut = watcher.watch(root.clone(), token.clone(), tx);
             tokio::pin!(watch_fut);
+            let (flag, bridge) = NotesModule::scan_cancel_bridge(&token);
             loop {
                 tokio::select! {
                     _ = token.cancelled() => break,
@@ -201,7 +204,7 @@ impl NotesModule {
                         let gen_before = *generation.read().await;
                         let index = index.clone();
                         let root_clone = root.clone();
-                        let flag = NotesModule::scan_cancel_flag(&token);
+                        let flag = flag.clone();
                         let _ = tokio::task::spawn_blocking(move || {
                             index.incremental_check(&root_clone, Some(flag))
                         })
@@ -213,6 +216,9 @@ impl NotesModule {
                         *gen = gen.saturating_add(1);
                     }
                 }
+            }
+            if let Some(bridge) = bridge {
+                bridge.abort();
             }
         });
         *self.watch_cancel.lock().await = Some(cancel);
@@ -477,8 +483,12 @@ impl LumaModule for NotesModule {
             if ctx.cancel.is_cancelled() {
                 return ModuleState::Failed("notes warmup cancelled".into());
             }
-            let flag = Self::scan_cancel_flag(&ctx.cancel);
-            match self.rebuild_index(&root, Some(flag)).await {
+            let (flag, bridge) = Self::scan_cancel_bridge(&ctx.cancel);
+            let result = self.rebuild_index(&root, Some(flag)).await;
+            if let Some(bridge) = bridge {
+                bridge.abort();
+            }
+            match result {
                 Ok(()) => {
                     if !ctx.cancel.is_cancelled() {
                         self.start_watch(ctx.cancel).await;
@@ -798,7 +808,7 @@ impl LumaModule for NotesModule {
             let index = self.index.clone();
             let root_clone = root.clone();
             let is_rebuild = rest_check == "reindex";
-            let flag = Self::scan_cancel_flag(&cancel);
+            let (flag, bridge) = Self::scan_cancel_bridge(&cancel);
             let report = tokio::task::spawn_blocking(move || {
                 if is_rebuild {
                     index.rebuild(&root_clone, Some(flag))
@@ -807,6 +817,9 @@ impl LumaModule for NotesModule {
                 }
             })
             .await;
+            if let Some(bridge) = bridge {
+                bridge.abort();
+            }
             let (title, kind, label) = match report {
                 Ok(Ok(r)) if r.cancelled => ("Scan cancelled".into(), "unavailable", "Cancelled"),
                 Ok(Ok(r)) => (
@@ -1172,15 +1185,13 @@ impl LumaModule for NotesModule {
                 Some(out)
             };
         }
-        let Ok(raw) = std::fs::read_to_string(&path) else {
-            return if out.is_empty() {
-                result.subtitle.clone()
-            } else {
-                Some(out)
-            };
-        };
-        let body: String = raw.chars().take(4_000).collect();
-        out.push_str(&body);
+        let path_for_read = path.clone();
+        if let Ok(Some(body)) =
+            tokio::task::spawn_blocking(move || read_bounded_utf8_no_follow(&path_for_read, 4_096))
+                .await
+        {
+            out.push_str(&body);
+        }
         Some(out)
     }
 
@@ -1315,6 +1326,28 @@ impl LumaModule for NotesModule {
                         },
                     };
                 }
+                // Re-check immediately before open to shrink symlink-swap window.
+                let Ok(meta) = std::fs::symlink_metadata(&path) else {
+                    return ActionOutcome::Failed {
+                        kind: FailureKind::NotFound {
+                            entity: path.display().to_string(),
+                        },
+                    };
+                };
+                if meta.file_type().is_symlink() {
+                    return ActionOutcome::Failed {
+                        kind: FailureKind::SecurityDenied {
+                            reason: "refusing to open symlink".into(),
+                        },
+                    };
+                }
+                if !Self::contained(&root, &path) {
+                    return ActionOutcome::Failed {
+                        kind: FailureKind::SecurityDenied {
+                            reason: "path escapes notes root".into(),
+                        },
+                    };
+                }
                 match await_unless_cancelled(&cancel, self.opener.open(&path)).await {
                     None => ActionOutcome::Cancelled,
                     Some(Ok(())) => ActionOutcome::Success {
@@ -1422,6 +1455,49 @@ impl LumaModule for NotesModule {
     }
 }
 
+fn read_bounded_utf8_no_follow(path: &Path, max_bytes: usize) -> Option<String> {
+    #[cfg(unix)]
+    {
+        use std::ffi::CString;
+        use std::io::Read;
+        use std::os::unix::ffi::OsStrExt;
+        use std::os::unix::io::FromRawFd;
+
+        #[cfg(target_os = "macos")]
+        const O_RDONLY: i32 = 0;
+        #[cfg(target_os = "macos")]
+        const O_NOFOLLOW: i32 = 0x0100;
+        #[cfg(target_os = "linux")]
+        const O_RDONLY: i32 = 0;
+        #[cfg(target_os = "linux")]
+        const O_NOFOLLOW: i32 = 0o400000;
+
+        extern "C" {
+            fn open(path: *const i8, oflag: i32, ...) -> i32;
+        }
+
+        let cpath = CString::new(path.as_os_str().as_bytes()).ok()?;
+        let fd = unsafe { open(cpath.as_ptr(), O_RDONLY | O_NOFOLLOW) };
+        if fd < 0 {
+            return None;
+        }
+        let mut file = unsafe { std::fs::File::from_raw_fd(fd) };
+        let mut buf = vec![0u8; max_bytes];
+        let n = file.read(&mut buf).ok()?;
+        buf.truncate(n);
+        Some(String::from_utf8_lossy(&buf).into_owned())
+    }
+    #[cfg(not(unix))]
+    {
+        use std::io::Read;
+        let mut file = std::fs::File::open(path).ok()?;
+        let mut buf = vec![0u8; max_bytes];
+        let n = file.read(&mut buf).ok()?;
+        buf.truncate(n);
+        Some(String::from_utf8_lossy(&buf).into_owned())
+    }
+}
+
 fn unavailable_row(title: impl Into<String>, detail: impl Into<String>) -> SearchItemDto {
     SearchItemDto {
         id: "notes:unavailable".into(),
@@ -1455,13 +1531,18 @@ fn status_row(status: &NotesScanStatusView) -> SearchItemDto {
             format!("{processed}/{total}, errors {errors}"),
         ),
     };
+    // Only elevate while indexing or failed so real notes stay selectable by default.
+    let score = match status {
+        NotesScanStatusView::Running { .. } | NotesScanStatusView::Failed { .. } => 95.0,
+        NotesScanStatusView::Idle | NotesScanStatusView::Completed { .. } => 10.0,
+    };
     SearchItemDto {
         id: "notes:index-status".into(),
         module_id: "luma.notes".into(),
         title,
         subtitle: Some(subtitle),
         kind: "status".into(),
-        score: 95.0,
+        score,
         primary_action_id: "noop".into(),
         primary_action_label: "Status".into(),
         ..Default::default()

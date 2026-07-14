@@ -212,14 +212,7 @@ impl ClipboardStore {
 }
 
 /// Privacy filter shared with the Clipboard module.
-pub fn looks_secret(text: &str) -> bool {
-    let lower = text.to_lowercase();
-    lower.contains("password")
-        || lower.contains("secret")
-        || lower.contains("api_key")
-        || lower.contains("-----begin ")
-        || text.len() > 20_000
-}
+pub use luma_domain::looks_secret;
 
 #[cfg(test)]
 mod tests {

@@ -378,3 +378,202 @@ impl LumaModule for KillProcessModule {
         self.cache.write().await.clear();
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use luma_application::{ActionRequest, FakeProcessCatalog};
+    use luma_domain::{ActionId, Query};
+    use std::sync::Arc;
+    use tokio::sync::mpsc;
+
+    fn sample_process(pid: u32, exe: &str) -> ProcessEntry {
+        ProcessEntry {
+            pid,
+            name: exe.rsplit('/').next().unwrap_or(exe).into(),
+            executable: exe.into(),
+            start_unix: 1_700_000_000,
+        }
+    }
+
+    #[tokio::test]
+    async fn protected_processes_are_hidden() {
+        let self_pid = std::process::id();
+        let parent_pid = std::os::unix::process::parent_id();
+        let catalog = Arc::new(FakeProcessCatalog {
+            processes: tokio::sync::Mutex::new(vec![
+                sample_process(self_pid, "/usr/bin/luma"),
+                sample_process(
+                    parent_pid,
+                    "/Applications/Terminal.app/Contents/MacOS/Terminal",
+                ),
+                sample_process(0, "/sbin/launchd"),
+                sample_process(1, "/sbin/init"),
+                sample_process(4242, "/Applications/Bear.app/Contents/MacOS/Bear"),
+            ]),
+            list_error: None,
+            quit_error: None,
+            quit_calls: tokio::sync::Mutex::new(Vec::new()),
+        });
+        let m = KillProcessModule::with_catalog(catalog);
+        m.warmup(WarmupContext {
+            cancel: CancellationToken::new(),
+        })
+        .await;
+        let (tx, mut rx) = mpsc::channel(4);
+        m.search(Query::parse("kill", 20), tx, CancellationToken::new())
+            .await;
+        let ev = rx.recv().await.unwrap();
+        let Event::ResultsChunk { upserts, .. } = ev else {
+            panic!("chunk");
+        };
+        assert_eq!(upserts.len(), 1);
+        assert_eq!(upserts[0].kind, "process");
+        assert_eq!(upserts[0].title, "Bear");
+    }
+
+    #[tokio::test]
+    async fn terminate_requires_confirmation() {
+        let catalog = Arc::new(FakeProcessCatalog {
+            processes: tokio::sync::Mutex::new(vec![sample_process(
+                4242,
+                "/Applications/Bear.app/Contents/MacOS/Bear",
+            )]),
+            list_error: None,
+            quit_error: None,
+            quit_calls: tokio::sync::Mutex::new(Vec::new()),
+        });
+        let m = KillProcessModule::with_catalog(catalog);
+        m.warmup(WarmupContext {
+            cancel: CancellationToken::new(),
+        })
+        .await;
+        let (tx, mut rx) = mpsc::channel(4);
+        m.search(Query::parse("kill bear", 20), tx, CancellationToken::new())
+            .await;
+        let ev = rx.recv().await.unwrap();
+        let Event::ResultsChunk { upserts, .. } = ev else {
+            panic!("chunk");
+        };
+        let row = upserts.into_iter().next().unwrap().into_domain();
+        let outcome = m
+            .perform(
+                ActionRequest {
+                    result: row,
+                    action: ActionDescriptor {
+                        id: ActionId::new("terminate"),
+                        label: "Terminate".into(),
+                        risk: ActionRisk::Confirm,
+                        confirmation: true,
+                    },
+                    confirmation: false,
+                },
+                CancellationToken::new(),
+            )
+            .await;
+        assert!(matches!(
+            outcome,
+            ActionOutcome::Failed {
+                kind: FailureKind::SecurityDenied { .. },
+                ..
+            }
+        ));
+    }
+
+    #[tokio::test]
+    async fn identity_change_is_rejected() {
+        let catalog = Arc::new(FakeProcessCatalog {
+            processes: tokio::sync::Mutex::new(vec![sample_process(
+                4242,
+                "/Applications/Bear.app/Contents/MacOS/Bear",
+            )]),
+            list_error: None,
+            quit_error: None,
+            quit_calls: tokio::sync::Mutex::new(Vec::new()),
+        });
+        let m = KillProcessModule::with_catalog(catalog.clone());
+        m.warmup(WarmupContext {
+            cancel: CancellationToken::new(),
+        })
+        .await;
+        let (tx, mut rx) = mpsc::channel(4);
+        m.search(Query::parse("kill bear", 20), tx, CancellationToken::new())
+            .await;
+        let ev = rx.recv().await.unwrap();
+        let Event::ResultsChunk { upserts, .. } = ev else {
+            panic!("chunk");
+        };
+        let row = upserts.into_iter().next().unwrap().into_domain();
+        {
+            let mut procs = catalog.processes.lock().await;
+            procs[0].executable = "/Applications/Other.app/Contents/MacOS/Other".into();
+            procs[0].start_unix = 1_800_000_000;
+        }
+        let outcome = m
+            .perform(
+                ActionRequest {
+                    result: row,
+                    action: ActionDescriptor {
+                        id: ActionId::new("terminate"),
+                        label: "Terminate".into(),
+                        risk: ActionRisk::Confirm,
+                        confirmation: true,
+                    },
+                    confirmation: true,
+                },
+                CancellationToken::new(),
+            )
+            .await;
+        assert!(matches!(
+            outcome,
+            ActionOutcome::Failed {
+                kind: FailureKind::SecurityDenied { .. },
+                ..
+            }
+        ));
+    }
+
+    #[tokio::test]
+    async fn confirmed_terminate_signals_catalog() {
+        let catalog = Arc::new(FakeProcessCatalog {
+            processes: tokio::sync::Mutex::new(vec![sample_process(
+                4242,
+                "/Applications/Bear.app/Contents/MacOS/Bear",
+            )]),
+            list_error: None,
+            quit_error: None,
+            quit_calls: tokio::sync::Mutex::new(Vec::new()),
+        });
+        let m = KillProcessModule::with_catalog(catalog.clone());
+        m.warmup(WarmupContext {
+            cancel: CancellationToken::new(),
+        })
+        .await;
+        let (tx, mut rx) = mpsc::channel(4);
+        m.search(Query::parse("kill bear", 20), tx, CancellationToken::new())
+            .await;
+        let ev = rx.recv().await.unwrap();
+        let Event::ResultsChunk { upserts, .. } = ev else {
+            panic!("chunk");
+        };
+        let row = upserts.into_iter().next().unwrap().into_domain();
+        let outcome = m
+            .perform(
+                ActionRequest {
+                    result: row,
+                    action: ActionDescriptor {
+                        id: ActionId::new("terminate"),
+                        label: "Terminate".into(),
+                        risk: ActionRisk::Confirm,
+                        confirmation: true,
+                    },
+                    confirmation: true,
+                },
+                CancellationToken::new(),
+            )
+            .await;
+        assert!(matches!(outcome, ActionOutcome::Success { .. }));
+        let calls = catalog.quit_calls.lock().await.clone();
+        assert_eq!(calls, vec![(4242, false)]);
+    }
+}

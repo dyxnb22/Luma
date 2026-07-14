@@ -61,7 +61,10 @@ impl LumaModule for SecretsModule {
         &self.manifest
     }
     async fn warmup(&self, _ctx: WarmupContext) -> ModuleState {
-        ModuleState::Ready
+        match self.keychain.list_labels().await {
+            Ok(_) => ModuleState::Ready,
+            Err(err) => ModuleState::Failed(err.to_string()),
+        }
     }
     async fn search(&self, query: Query, sink: SearchSink, cancel: CancellationToken) {
         if cancel.is_cancelled() {
@@ -93,25 +96,55 @@ impl LumaModule for SecretsModule {
                 .map(|(_, r)| r.trim().to_string())
                 .unwrap_or_default()
                 .to_lowercase();
-            if let Ok(labels) = self.keychain.list_labels().await {
-                for label in labels {
-                    if cancel.is_cancelled() {
-                        return;
-                    }
-                    if needle.is_empty() || label.account.to_lowercase().contains(&needle) {
-                        upserts.push(SearchItemDto {
-                            id: format!("sec:{}", label.account),
-                            module_id: "luma.secrets".into(),
-                            title: label.account.clone(),
-                            subtitle: Some("label only".into()),
-                            kind: "secret".into(),
-                            score: 40.0,
-                            primary_action_id: "copy".into(),
-                            primary_action_label: "Copy".into(),
-                            primary_action_risk: ActionRisk::Confirm,
-                            primary_action_confirmation: true,
-                            ..Default::default()
-                        });
+            match self.keychain.list_labels().await {
+                Err(err) => {
+                    upserts.push(SearchItemDto {
+                        id: "sec:unavailable".into(),
+                        module_id: "luma.secrets".into(),
+                        title: "Secrets keychain unavailable".into(),
+                        subtitle: Some(err.to_string()),
+                        kind: "unavailable".into(),
+                        score: 0.0,
+                        primary_action_id: "noop".into(),
+                        primary_action_label: "Unavailable".into(),
+                        ..Default::default()
+                    });
+                }
+                Ok(labels) if labels.is_empty() => {
+                    upserts.push(SearchItemDto {
+                        id: "sec:not_configured".into(),
+                        module_id: "luma.secrets".into(),
+                        title: "No secrets labels yet".into(),
+                        subtitle: Some(
+                            "NotConfigured — add via Keychain service com.luma.next.secrets (see MODULES.md)".into(),
+                        ),
+                        kind: "not_configured".into(),
+                        score: 0.0,
+                        primary_action_id: "noop".into(),
+                        primary_action_label: "Help".into(),
+                        ..Default::default()
+                    });
+                }
+                Ok(labels) => {
+                    for label in labels {
+                        if cancel.is_cancelled() {
+                            return;
+                        }
+                        if needle.is_empty() || label.account.to_lowercase().contains(&needle) {
+                            upserts.push(SearchItemDto {
+                                id: format!("sec:{}", label.account),
+                                module_id: "luma.secrets".into(),
+                                title: label.account.clone(),
+                                subtitle: Some("label only — copy to pasteboard".into()),
+                                kind: "secret".into(),
+                                score: 40.0,
+                                primary_action_id: "copy".into(),
+                                primary_action_label: "Copy".into(),
+                                primary_action_risk: ActionRisk::Confirm,
+                                primary_action_confirmation: true,
+                                ..Default::default()
+                            });
+                        }
                     }
                 }
             }
@@ -136,6 +169,19 @@ impl LumaModule for SecretsModule {
                 confirmation: true,
             }];
         }
+        if result.id.as_str() == "sec:unavailable"
+            || result.id.as_str() == "sec:not_configured"
+            || result.kind == "unavailable"
+            || result.kind == "not_configured"
+            || result.primary_action.id.as_str() == "noop"
+        {
+            return vec![ActionDescriptor {
+                id: ActionId::new("noop"),
+                label: "Help".into(),
+                risk: ActionRisk::Safe,
+                confirmation: false,
+            }];
+        }
         vec![ActionDescriptor {
             id: ActionId::new("copy"),
             label: "Copy".into(),
@@ -155,6 +201,12 @@ impl LumaModule for SecretsModule {
             };
         }
         match action.action.id.as_str() {
+            "noop" => ActionOutcome::Success {
+                message: Some(
+                    "Bootstrap: security add-generic-password -s com.luma.next.secrets -a <label> -w <secret> -U"
+                        .into(),
+                ),
+            },
             "unlock" => {
                 self.unlocked.store(true, Ordering::SeqCst);
                 ActionOutcome::Success {
@@ -223,7 +275,9 @@ impl LumaModule for SecretsModule {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use luma_application::{FakeKeychain, PasteboardError};
+    use luma_application::{
+        FakeKeychain, KeychainError, KeychainPort, PasteboardError, PasteboardPort, SecretLabel,
+    };
     use tokio::sync::mpsc;
     use tokio::sync::Mutex as TokioMutex;
 
@@ -296,5 +350,61 @@ mod tests {
         assert!(upserts[0].primary_action_confirmation);
         assert_eq!(upserts[0].primary_action_id, "unlock");
         assert_eq!(upserts[0].primary_action_risk, ActionRisk::Confirm);
+    }
+
+    #[tokio::test]
+    async fn not_configured_when_no_labels() {
+        let kc = Arc::new(FakeKeychain {
+            unlocked: true,
+            entries: TokioMutex::new(Default::default()),
+        });
+        let m = SecretsModule::with_deps(
+            kc,
+            Arc::new(MemPb(TokioMutex::new(None))),
+            Arc::new(ClipboardSuppression::new()),
+        );
+        m.unlocked.store(true, Ordering::SeqCst);
+        let (tx, mut rx) = mpsc::channel(4);
+        m.search(Query::parse("sec", 10), tx, CancellationToken::new())
+            .await;
+        let ev = rx.recv().await.unwrap();
+        let Event::ResultsChunk { upserts, .. } = ev else {
+            panic!("chunk");
+        };
+        assert!(upserts.iter().any(|u| u.kind == "not_configured"));
+    }
+
+    #[tokio::test]
+    async fn list_labels_error_emits_unavailable() {
+        struct ErrKc;
+        #[async_trait]
+        impl KeychainPort for ErrKc {
+            async fn list_labels(&self) -> Result<Vec<SecretLabel>, KeychainError> {
+                Err(KeychainError::Unavailable("sidecar missing".into()))
+            }
+            async fn copy_password(&self, _: &str) -> Result<String, KeychainError> {
+                Err(KeychainError::Unavailable("locked".into()))
+            }
+            async fn set_password(&self, _: &str, _: &str) -> Result<(), KeychainError> {
+                Ok(())
+            }
+            async fn delete(&self, _: &str) -> Result<(), KeychainError> {
+                Ok(())
+            }
+        }
+        let m = SecretsModule::with_deps(
+            Arc::new(ErrKc),
+            Arc::new(MemPb(TokioMutex::new(None))),
+            Arc::new(ClipboardSuppression::new()),
+        );
+        m.unlocked.store(true, Ordering::SeqCst);
+        let (tx, mut rx) = mpsc::channel(4);
+        m.search(Query::parse("sec", 10), tx, CancellationToken::new())
+            .await;
+        let ev = rx.recv().await.unwrap();
+        let Event::ResultsChunk { upserts, .. } = ev else {
+            panic!("chunk");
+        };
+        assert!(upserts.iter().any(|u| u.kind == "unavailable"));
     }
 }

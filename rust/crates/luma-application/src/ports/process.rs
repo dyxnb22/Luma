@@ -26,3 +26,28 @@ pub trait ProcessCatalogPort: Send + Sync {
     async fn list_gui_ish(&self) -> Result<Vec<ProcessEntry>, ProcessError>;
     async fn quit(&self, pid: u32, force: bool) -> Result<(), ProcessError>;
 }
+
+pub struct FakeProcessCatalog {
+    pub processes: tokio::sync::Mutex<Vec<ProcessEntry>>,
+    pub list_error: Option<String>,
+    pub quit_error: Option<String>,
+    pub quit_calls: tokio::sync::Mutex<Vec<(u32, bool)>>,
+}
+
+#[async_trait]
+impl ProcessCatalogPort for FakeProcessCatalog {
+    async fn list_gui_ish(&self) -> Result<Vec<ProcessEntry>, ProcessError> {
+        if let Some(msg) = &self.list_error {
+            return Err(ProcessError::Unavailable(msg.clone()));
+        }
+        Ok(self.processes.lock().await.clone())
+    }
+
+    async fn quit(&self, pid: u32, force: bool) -> Result<(), ProcessError> {
+        self.quit_calls.lock().await.push((pid, force));
+        if let Some(msg) = &self.quit_error {
+            return Err(ProcessError::Unavailable(msg.clone()));
+        }
+        Ok(())
+    }
+}

@@ -39,6 +39,9 @@ pub use notes_scan::{
     NotesScanError, NotesScanOptions, NotesScanner, ScanMode, ScanReport, ScanStatus,
     DEFAULT_MAX_FILE_BYTES,
 };
-pub use paths::{ensure_luma_next_dirs, luma_next_logs_dir, luma_next_support_dir, PathsError};
+pub use paths::{
+    ensure_luma_next_dirs, luma_next_diagnostics_dir, luma_next_logs_dir, luma_next_support_dir,
+    PathsError,
+};
 pub use quicklinks_store::{QuicklinkRow, QuicklinksStore, QuicklinksStoreError};
 pub use snippets_store::{SnippetRow, SnippetsStore, SnippetsStoreError};

@@ -58,8 +58,33 @@ async fn quicklinks_overwrite_row_matches_actions_contract() {
         cancel: CancellationToken::new(),
     })
     .await;
-    assert_primary_actions_resolvable(&m, Query::parse("ql docs https://example.com/new", 20))
+    assert_primary_actions_resolvable(&m, Query::parse("ql add docs https://example.com/new", 20))
         .await;
+    let items = luma_test_support::collect_search_items(
+        &m,
+        Query::parse("ql add docs https://example.com/new", 20),
+    )
+    .await;
+    assert!(
+        items.iter().any(|i| {
+            i.id.as_str() == "ql:add:docs"
+                && i.kind == "update"
+                && i.primary_action.id.as_str() == "add"
+                && i.primary_action.confirmation
+        }),
+        "expected ql:add:docs overwrite row, got: {:?}",
+        items
+            .iter()
+            .map(|i| {
+                (
+                    i.id.as_str().to_string(),
+                    i.kind.clone(),
+                    i.primary_action.id.as_str().to_string(),
+                    i.primary_action.confirmation,
+                )
+            })
+            .collect::<Vec<_>>()
+    );
 }
 
 #[tokio::test]
@@ -78,5 +103,27 @@ async fn snippets_overwrite_row_matches_actions_contract() {
         cancel: CancellationToken::new(),
     })
     .await;
-    assert_primary_actions_resolvable(&m, Query::parse("snip sig new body text", 20)).await;
+    assert_primary_actions_resolvable(&m, Query::parse("snip add sig new body text", 20)).await;
+    let items =
+        luma_test_support::collect_search_items(&m, Query::parse("snip add sig new body text", 20))
+            .await;
+    assert!(
+        items.iter().any(|i| {
+            i.id.as_str() == "snip:add:sig"
+                && i.primary_action.id.as_str() == "add"
+                && i.primary_action.confirmation
+        }),
+        "expected snip:add:sig overwrite row, got: {:?}",
+        items
+            .iter()
+            .map(|i| {
+                (
+                    i.id.as_str().to_string(),
+                    i.kind.clone(),
+                    i.primary_action.id.as_str().to_string(),
+                    i.primary_action.confirmation,
+                )
+            })
+            .collect::<Vec<_>>()
+    );
 }

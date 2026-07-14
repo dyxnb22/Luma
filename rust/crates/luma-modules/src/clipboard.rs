@@ -361,8 +361,19 @@ impl LumaModule for ClipboardModule {
     }
 
     async fn preview(&self, result: &SearchItem) -> Option<String> {
-        // Clipboard row title holds the captured text.
-        Some(result.title.clone())
+        let id = result
+            .id
+            .as_str()
+            .strip_prefix("clip:")
+            .and_then(|s| s.parse::<i64>().ok())?;
+        let entry = self.store.get(id).ok().flatten()?;
+        const PREVIEW_LIMIT: usize = 12_000;
+        let body: String = entry.text.chars().take(PREVIEW_LIMIT).collect();
+        if entry.text.chars().count() > PREVIEW_LIMIT {
+            Some(format!("{body}\n…"))
+        } else {
+            Some(body)
+        }
     }
 
     async fn hub_pins(&self) -> Vec<(String, String, String)> {
@@ -407,9 +418,14 @@ impl LumaModule for ClipboardModule {
                 };
                 match self.store.get(id) {
                     Ok(Some(row)) => match self.pasteboard.write_text(&row.text).await {
-                        Ok(()) => ActionOutcome::Success {
-                            message: Some("copied".into()),
-                        },
+                        Ok(()) => {
+                            *self.last_seen_text.lock().await = Some(row.text.clone());
+                            self.suppression
+                                .suppress(&row.text, std::time::Duration::from_secs(45));
+                            ActionOutcome::Success {
+                                message: Some("copied".into()),
+                            }
+                        }
                         Err(err) => ActionOutcome::Failed {
                             kind: FailureKind::Unavailable {
                                 reason: err.to_string(),
@@ -448,17 +464,23 @@ impl LumaModule for ClipboardModule {
                 };
                 match self.store.get(id) {
                     Ok(Some(row)) => match self.pasteboard.write_text(&row.text).await {
-                        Ok(()) => match self.accessibility.paste_clipboard().await {
-                            Ok(()) => ActionOutcome::Success {
-                                message: Some("pasted".into()),
-                            },
-                            Err(_) => ActionOutcome::Failed {
-                                kind: FailureKind::PermissionRequired {
-                                    capability: "accessibility".into(),
-                                    guidance: "Grant Accessibility to paste into other apps".into(),
+                        Ok(()) => {
+                            *self.last_seen_text.lock().await = Some(row.text.clone());
+                            self.suppression
+                                .suppress(&row.text, std::time::Duration::from_secs(45));
+                            match self.accessibility.paste_clipboard().await {
+                                Ok(()) => ActionOutcome::Success {
+                                    message: Some("pasted".into()),
                                 },
-                            },
-                        },
+                                Err(_) => ActionOutcome::Failed {
+                                    kind: FailureKind::PermissionRequired {
+                                        capability: "accessibility".into(),
+                                        guidance: "Grant Accessibility to paste into other apps"
+                                            .into(),
+                                    },
+                                },
+                            }
+                        }
                         Err(err) => ActionOutcome::Failed {
                             kind: FailureKind::Unavailable {
                                 reason: err.to_string(),

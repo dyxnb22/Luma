@@ -12,7 +12,7 @@ impl FsDiagnosticsSink {
     }
 
     pub fn luma_next_default() -> Result<Self, DiagnosticsError> {
-        let root = luma_storage::luma_next_logs_dir()
+        let root = luma_storage::luma_next_diagnostics_dir()
             .map_err(|e| DiagnosticsError::Unavailable(e.to_string()))?;
         Ok(Self::new(root))
     }

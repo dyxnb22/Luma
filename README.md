@@ -7,7 +7,10 @@ cd rust
 cargo run -p luma                 # interactive TUI
 cargo run -p luma -- query "app" --json
 cargo run -p luma -- doctor --json
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo test --workspace --all-features
+cargo test -p luma --test cli_blackbox
 ```
 
 ## Scope

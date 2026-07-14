@@ -88,6 +88,10 @@ pub trait NotesIndexRepository: Send + Sync {
     fn get_document(&self, relative_path: &str) -> Result<Option<NotesDocument>, NotesIndexError>;
     fn list_issues(&self) -> Result<Vec<NotesIssue>, NotesIndexError>;
     fn scan_status(&self) -> NotesScanStatusView;
+    /// Update exclude globs used by subsequent scans (default: no-op).
+    fn set_scan_exclude_patterns(&self, _patterns: Vec<String>) -> Result<(), NotesIndexError> {
+        Ok(())
+    }
     fn full_scan(
         &self,
         root: &Path,

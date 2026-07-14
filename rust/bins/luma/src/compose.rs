@@ -30,6 +30,20 @@ pub enum RegistryError {
     Module(#[from] ModuleRegistryError),
 }
 
+/// Module that could not be registered (store open failure, etc.).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SkippedModule {
+    pub id: String,
+    pub reason: String,
+}
+
+/// Result of loading the composition root for the engine / TUI.
+pub struct RegistryLoad {
+    pub registry: ModuleRegistry,
+    pub settings: Arc<dyn SettingsRepository>,
+    pub skipped: Vec<SkippedModule>,
+}
+
 /// Build registry from settings + optionally opened stores.
 /// Missing stores skip the corresponding module instead of failing the launcher.
 pub fn registry_from_settings(
@@ -38,9 +52,10 @@ pub fn registry_from_settings(
     quicklinks: Option<Arc<QuicklinksStore>>,
     snippets: Option<Arc<SnippetsStore>>,
     notes_index: Option<Arc<NotesScanner>>,
-) -> Result<ModuleRegistry, ModuleRegistryError> {
+) -> Result<(ModuleRegistry, Vec<SkippedModule>), ModuleRegistryError> {
     let notes_root = settings.notes_root.as_ref().map(PathBuf::from);
     let project_roots: Vec<PathBuf> = settings.projects_roots.iter().map(PathBuf::from).collect();
+    let mut skipped = Vec::new();
 
     let opener = Arc::new(MacOpenPath);
     let pasteboard = Arc::new(MacPasteboard);
@@ -60,18 +75,31 @@ pub fn registry_from_settings(
             clipboard_suppression.clone(),
         )))?;
     } else {
-        warn!("clipboard store unavailable — Clipboard module not registered");
+        let reason = "clipboard store unavailable".into();
+        warn!("{reason} — Clipboard module not registered");
+        skipped.push(SkippedModule {
+            id: "luma.clipboard".into(),
+            reason,
+        });
     }
     if let Some(scanner) = notes_index {
         reg.register(Arc::new(NotesModule::with_root(
             notes_root,
             opener.clone(),
             Arc::new(MacMarkdownWatcher),
-            Arc::new(SqliteNotesIndex::new(scanner)),
+            Arc::new(SqliteNotesIndex::with_exclude_patterns(
+                scanner,
+                settings.notes_exclude_patterns.clone(),
+            )),
             pasteboard.clone(),
         )))?;
     } else {
-        warn!("notes index unavailable — Notes module not registered");
+        let reason = "notes index store unavailable".into();
+        warn!("{reason} — Notes module not registered");
+        skipped.push(SkippedModule {
+            id: "luma.notes".into(),
+            reason,
+        });
     }
     if let Some(quicklinks) = quicklinks {
         reg.register(Arc::new(QuicklinksModule::with_deps(
@@ -80,7 +108,12 @@ pub fn registry_from_settings(
             pasteboard.clone(),
         )))?;
     } else {
-        warn!("quicklinks store unavailable — Quicklinks module not registered");
+        let reason = "quicklinks store unavailable".into();
+        warn!("{reason} — Quicklinks module not registered");
+        skipped.push(SkippedModule {
+            id: "luma.quicklinks".into(),
+            reason,
+        });
     }
     if let Some(snippets) = snippets {
         reg.register(Arc::new(SnippetsModule::with_store(
@@ -89,7 +122,12 @@ pub fn registry_from_settings(
             accessibility,
         )))?;
     } else {
-        warn!("snippets store unavailable — Snippets module not registered");
+        let reason = "snippets store unavailable".into();
+        warn!("{reason} — Snippets module not registered");
+        skipped.push(SkippedModule {
+            id: "luma.snippets".into(),
+            reason,
+        });
     }
     reg.register(Arc::new(TodoModule::with_eventkit(Arc::new(MacEventKit))))?;
     reg.register(Arc::new(ProjectsModule::with_roots(
@@ -118,18 +156,17 @@ pub fn registry_from_settings(
     {
         let _ = reg.set_enabled("luma.fake", false);
     }
-    Ok(reg)
+    Ok((reg, skipped))
 }
 
 /// Load LumaNext settings + stores. Corrupt config is not replaced with defaults.
 /// Individual store open failures are logged and skip that module — Apps/shell still start.
 pub fn load_registry() -> Result<ModuleRegistry, RegistryError> {
-    Ok(load_registry_with_settings()?.0)
+    Ok(load_registry_with_settings()?.registry)
 }
 
-/// Same as [`load_registry`], plus a settings repository for the engine.
-pub fn load_registry_with_settings(
-) -> Result<(ModuleRegistry, Arc<dyn SettingsRepository>), RegistryError> {
+/// Same as [`load_registry`], plus settings repository and skipped-module report.
+pub fn load_registry_with_settings() -> Result<RegistryLoad, RegistryError> {
     let store = Arc::new(ConfigStore::luma_next_default()?);
     let settings = store.load_or_default()?;
     let clipboard = match ClipboardStore::luma_next_default() {
@@ -160,7 +197,12 @@ pub fn load_registry_with_settings(
             None
         }
     };
-    let registry = registry_from_settings(&settings, clipboard, quicklinks, snippets, notes_index)?;
+    let (registry, skipped) =
+        registry_from_settings(&settings, clipboard, quicklinks, snippets, notes_index)?;
     let settings_repo: Arc<dyn SettingsRepository> = Arc::new(TomlSettingsRepository::new(store));
-    Ok((registry, settings_repo))
+    Ok(RegistryLoad {
+        registry,
+        settings: settings_repo,
+        skipped,
+    })
 }

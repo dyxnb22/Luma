@@ -200,6 +200,10 @@ pub fn update(state: &mut AppState, msg: Msg) -> Vec<Effect> {
                 return vec![Effect::None];
             }
             if matches!(state.route, Route::Search) {
+                if state.focus == FocusZone::Preview && state.preview_visible() {
+                    state.preview_scroll = state.preview_scroll.saturating_sub(PAGE_SIZE);
+                    return vec![Effect::None];
+                }
                 if state.prompt.is_empty() && state.results.items.is_empty() {
                     state.hub_selected = state.hub_selected.saturating_sub(PAGE_SIZE);
                     state.ensure_hub_selection_visible();
@@ -209,6 +213,7 @@ pub fn update(state: &mut AppState, msg: Msg) -> Vec<Effect> {
                     state.preview_body = None;
                     state.preview_result_id = None;
                     state.pending_preview_id = None;
+                    state.preview_scroll = 0;
                     return preview_effect(state);
                 }
             }
@@ -239,6 +244,10 @@ pub fn update(state: &mut AppState, msg: Msg) -> Vec<Effect> {
                 return vec![Effect::None];
             }
             if matches!(state.route, Route::Search) {
+                if state.focus == FocusZone::Preview && state.preview_visible() {
+                    state.preview_scroll = state.preview_scroll.saturating_add(PAGE_SIZE);
+                    return vec![Effect::None];
+                }
                 if state.prompt.is_empty() && state.results.items.is_empty() {
                     let max = state.hub_rows().len().saturating_sub(1);
                     state.hub_selected = (state.hub_selected + PAGE_SIZE).min(max);
@@ -249,6 +258,7 @@ pub fn update(state: &mut AppState, msg: Msg) -> Vec<Effect> {
                     state.preview_body = None;
                     state.preview_result_id = None;
                     state.pending_preview_id = None;
+                    state.preview_scroll = 0;
                     return preview_effect(state);
                 }
             }
@@ -356,6 +366,11 @@ fn select_next_msg(state: &mut AppState) -> Vec<Effect> {
         state.doctor_scroll = state.doctor_scroll.saturating_add(1);
         return vec![Effect::None];
     }
+    if state.route == Route::Search && state.focus == FocusZone::Preview && state.preview_visible()
+    {
+        state.preview_scroll = state.preview_scroll.saturating_add(1);
+        return vec![Effect::None];
+    }
     if state.route == Route::Search && state.prompt.is_empty() && state.results.items.is_empty() {
         let max = state.hub_rows().len().saturating_sub(1);
         state.hub_selected = (state.hub_selected + 1).min(max);
@@ -367,6 +382,7 @@ fn select_next_msg(state: &mut AppState) -> Vec<Effect> {
         state.results.select_next();
         state.preview_body = None;
         state.preview_result_id = None;
+        state.preview_scroll = 0;
         state.pending_preview_id = None;
         return preview_effect(state);
     }
@@ -390,6 +406,11 @@ fn select_prev_msg(state: &mut AppState) -> Vec<Effect> {
         state.doctor_scroll = state.doctor_scroll.saturating_sub(1);
         return vec![Effect::None];
     }
+    if state.route == Route::Search && state.focus == FocusZone::Preview && state.preview_visible()
+    {
+        state.preview_scroll = state.preview_scroll.saturating_sub(1);
+        return vec![Effect::None];
+    }
     if state.route == Route::Search && state.prompt.is_empty() && state.results.items.is_empty() {
         state.hub_selected = state.hub_selected.saturating_sub(1);
         state.ensure_hub_selection_visible();
@@ -401,6 +422,7 @@ fn select_prev_msg(state: &mut AppState) -> Vec<Effect> {
         state.preview_body = None;
         state.preview_result_id = None;
         state.pending_preview_id = None;
+        state.preview_scroll = 0;
         return preview_effect(state);
     }
     vec![Effect::None]
@@ -489,9 +511,17 @@ fn apply_hub_selection(state: &mut AppState) -> Vec<Effect> {
     let idx = state.hub_selected.min(entries.len() - 1);
     let (kind, id, _title, query) = &entries[idx];
     if kind == "pin" {
-        // Search clipboard history, then select the exact pin id when results arrive.
-        state.hub_pending_select_id = Some(id.clone());
-        state.prompt = "clip ".into();
+        // Clipboard pins select the exact result id; Notes shortcuts just run the query.
+        if id.starts_with("clip:") {
+            state.hub_pending_select_id = Some(id.clone());
+        } else {
+            state.hub_pending_select_id = None;
+        }
+        state.prompt = if query.is_empty() {
+            "clip ".into()
+        } else {
+            query.clone()
+        };
         state.prompt_cursor = state.prompt_char_len();
         state.focus = FocusZone::Prompt;
         state.history_browse = None;
@@ -1525,11 +1555,28 @@ mod tests {
             id: "clip:9".into(),
             title: "pinned text".into(),
             module_id: "luma.clipboard".into(),
+            query: "clip ".into(),
         }];
         state.hub_selected = 0;
         let effects = update(&mut state, Msg::Submit);
         assert_eq!(state.hub_pending_select_id.as_deref(), Some("clip:9"));
         assert_eq!(state.prompt, "clip ");
+        assert!(effects.iter().any(|e| matches!(e, Effect::Search { .. })));
+    }
+
+    #[test]
+    fn hub_notes_pin_runs_query_without_pending_select() {
+        let mut state = AppState::default();
+        state.hub_pins = vec![crate::view_model::HubPinRow {
+            id: "notes:daily".into(),
+            title: "Daily note".into(),
+            module_id: "luma.notes".into(),
+            query: "n daily".into(),
+        }];
+        state.hub_selected = 0;
+        let effects = update(&mut state, Msg::Submit);
+        assert!(state.hub_pending_select_id.is_none());
+        assert_eq!(state.prompt, "n daily");
         assert!(effects.iter().any(|e| matches!(e, Effect::Search { .. })));
     }
 }

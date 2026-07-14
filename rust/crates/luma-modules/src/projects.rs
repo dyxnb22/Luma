@@ -47,6 +47,12 @@ impl ProjectsModule {
             opener,
         }
     }
+
+    /// Replace scan roots and refresh the project index.
+    pub async fn set_roots(&self, roots: Vec<PathBuf>) {
+        *self.roots.write().await = roots.clone();
+        *self.index.write().await = scan_projects(&roots);
+    }
 }
 
 fn scan_projects(roots: &[PathBuf]) -> Vec<Project> {
@@ -212,7 +218,9 @@ impl LumaModule for ProjectsModule {
                         id: "proj:configure".into(),
                         module_id: "luma.projects".into(),
                         title: "Add a project scan root".into(),
-                        subtitle: Some("NotConfigured".into()),
+                        subtitle: Some(
+                            "NotConfigured — run: luma config set --projects-root ~/dev".into(),
+                        ),
                         kind: "onboarding".into(),
                         score: 0.0,
                         primary_action_id: "configure".into(),
@@ -414,7 +422,7 @@ impl LumaModule for ProjectsModule {
         match action.action.id.as_str() {
             "configure" => ActionOutcome::Failed {
                 kind: FailureKind::NotConfigured {
-                    remediation: "Configure project scan roots in settings (coming soon)".into(),
+                    remediation: "Run: luma config set --projects-root ~/dev".into(),
                 },
             },
             "browse" => ActionOutcome::Failed {
@@ -465,6 +473,11 @@ impl LumaModule for ProjectsModule {
                 },
             },
         }
+    }
+
+    async fn apply_settings(&self, settings: &luma_application::AppSettings) {
+        let roots: Vec<PathBuf> = settings.projects_roots.iter().map(PathBuf::from).collect();
+        self.set_roots(roots).await;
     }
 
     async fn teardown(&self) {

@@ -15,6 +15,8 @@ use tokio_util::sync::CancellationToken;
 struct AppsCache {
     apps: Vec<AppEntry>,
     warming: bool,
+    /// Last catalog load error (cleared on success).
+    catalog_error: Option<String>,
     /// path → launch count (session MRU; higher = more recent/frequent)
     launch_counts: std::collections::HashMap<String, u64>,
 }
@@ -48,6 +50,7 @@ impl AppsModule {
             cache: Arc::new(RwLock::new(AppsCache {
                 apps: Vec::new(),
                 warming: false,
+                catalog_error: None,
                 launch_counts: std::collections::HashMap::new(),
             })),
         }
@@ -106,10 +109,12 @@ impl AppsModule {
                 let mut g = self.cache.write().await;
                 g.apps = apps;
                 g.warming = false;
+                g.catalog_error = None;
             }
-            Err(_) => {
+            Err(err) => {
                 let mut g = self.cache.write().await;
                 g.warming = false;
+                g.catalog_error = Some(err);
             }
         }
     }
@@ -132,10 +137,39 @@ impl LumaModule for AppsModule {
     }
 
     async fn search(&self, query: Query, sink: SearchSink, cancel: CancellationToken) {
-        let (apps, warming, empty) = {
+        let (apps, warming, empty, catalog_error) = {
             let g = self.cache.read().await;
-            (g.apps.clone(), g.warming, g.apps.is_empty())
+            (
+                g.apps.clone(),
+                g.warming,
+                g.apps.is_empty(),
+                g.catalog_error.clone(),
+            )
         };
+
+        if let Some(err) = catalog_error {
+            if empty && !warming {
+                let _ = sink
+                    .send(Event::ResultsChunk {
+                        request_id: String::new(),
+                        sequence: 1,
+                        upserts: vec![SearchItemDto {
+                            id: "apps:unavailable".into(),
+                            module_id: "luma.apps".into(),
+                            title: "App catalog unavailable".into(),
+                            subtitle: Some(err),
+                            kind: "unavailable".into(),
+                            score: 0.0,
+                            primary_action_id: "noop".into(),
+                            primary_action_label: "Unavailable".into(),
+                            ..Default::default()
+                        }],
+                        removed_ids: vec![],
+                    })
+                    .await;
+                return;
+            }
+        }
 
         let apps = if empty {
             // Emit warming row whether we own the refresh or another task does.
@@ -184,11 +218,31 @@ impl LumaModule for AppsModule {
                     let mut g = self.cache.write().await;
                     g.apps = apps.clone();
                     g.warming = false;
+                    g.catalog_error = None;
                     apps
                 }
-                Err(_) => {
+                Err(err) => {
                     let mut g = self.cache.write().await;
                     g.warming = false;
+                    g.catalog_error = Some(err.clone());
+                    let _ = sink
+                        .send(Event::ResultsChunk {
+                            request_id: String::new(),
+                            sequence: 2,
+                            upserts: vec![SearchItemDto {
+                                id: "apps:unavailable".into(),
+                                module_id: "luma.apps".into(),
+                                title: "App catalog unavailable".into(),
+                                subtitle: Some(err),
+                                kind: "unavailable".into(),
+                                score: 0.0,
+                                primary_action_id: "noop".into(),
+                                primary_action_label: "Unavailable".into(),
+                                ..Default::default()
+                            }],
+                            removed_ids: vec!["apps:warming".into()],
+                        })
+                        .await;
                     return;
                 }
             }
@@ -405,6 +459,7 @@ impl LumaModule for AppsModule {
         let mut g = self.cache.write().await;
         g.apps.clear();
         g.warming = false;
+        g.catalog_error = None;
     }
 }
 
@@ -555,5 +610,43 @@ mod tests {
             pb.read_text().await.unwrap().as_deref(),
             Some("/Applications/Safari.app")
         );
+    }
+
+    struct FailingCatalog;
+
+    #[async_trait]
+    impl AppsCatalogPort for FailingCatalog {
+        async fn list_installed(&self) -> Result<Vec<AppEntry>, String> {
+            Err("catalog boom".into())
+        }
+        async fn launch(&self, _path: &Path) -> Result<(), AppLaunchError> {
+            Ok(())
+        }
+        async fn reveal(&self, _path: &Path) -> Result<(), AppLaunchError> {
+            Ok(())
+        }
+    }
+
+    #[tokio::test]
+    async fn catalog_failure_emits_unavailable_row() {
+        let module = AppsModule::new(Arc::new(FailingCatalog), mem_pb());
+        module
+            .warmup(WarmupContext {
+                cancel: CancellationToken::new(),
+            })
+            .await;
+        let (tx, mut rx) = mpsc::channel(4);
+        module
+            .search(Query::parse("app", 10), tx, CancellationToken::new())
+            .await;
+        let ev = rx.recv().await.unwrap();
+        match ev {
+            Event::ResultsChunk { upserts, .. } => {
+                assert_eq!(upserts.len(), 1);
+                assert_eq!(upserts[0].kind, "unavailable");
+                assert!(upserts[0].subtitle.as_deref().unwrap().contains("boom"));
+            }
+            other => panic!("{other:?}"),
+        }
     }
 }

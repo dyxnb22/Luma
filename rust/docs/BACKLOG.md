@@ -56,10 +56,10 @@ Items that fight these rules (destructive defaults, silent failures) must not be
 
 ## Now
 
-Architecture / quality (promoted):
+Friction polish (promoted):
 
-- [ ] Module depth polish and architecture / quality items in Tracks
-- [ ] Parallel warmup / fallible module factory (Architecture track)
+- [ ] Preview scroll polish / narrow-terminal preview strategy (partial: PgUp/Dn + arrows when Preview focused)
+- [ ] Restorable browse context / last module session
 
 ## Next
 
@@ -98,24 +98,27 @@ _(Park new ideas here before promoting.)_
 - [x] Browse / drill-down UX for Projects and Notes (`proj browse`, `n browse`, Enter on directory)
 - [x] Extend `ModuleManifest.workbench` + `ModuleInfoDto` display fields; Hub uses suggested_query
 - [x] Hub pinned rows via `LoadHub` + ClipboardModule::hub_pins
+- [x] Preview pane scroll when FocusZone::Preview (PgUp/Dn + arrows)
+- [x] Doctor config gaps + copyable `luma config set` remediation
 
 ### Modules depth
 
 Prefer high-frequency daily modules; keep gated modules honest.
 
-- [x] **Notes** — on-demand body preview; Hub discoverability for Inbox / daily / today
-- [x] **Clipboard** — full-text preview; pins visible from Hub; keep sensitive-suppression messaging honest
-- [x] **Projects** — shallow → drill-down browse (not only open)
-- [ ] **Apps / Snippets / Quicklinks** — richer detail surface + empty-state suggested queries
+- [x] **Notes** — on-demand body preview; Hub shortcuts (`n daily` / `n new` / `n browse`); exclude patterns in settings
+- [x] **Clipboard** — full-text preview; pins visible from Hub; empty-history onboarding
+- [x] **Projects** — shallow → drill-down browse; configure remediation via `luma config set`
+- [x] **Apps / Snippets / Quicklinks** — WorkbenchMeta + empty/unavailable onboarding rows
 - [ ] **Todo / Secrets / Kill** — permission / gated guidance; never look “finished” when unavailable
 
 ### Architecture / ports
 
 Support long-term module growth without a brittle crate graph.
 
-- [ ] Extract remaining ports (Accessibility, OpenPath, AppsCatalog, stores, …); modules depend on ports, not platform/storage concrete types
-- [ ] Per-module fallible factory; one module failure must not take down the shell
-- [ ] First paint, then parallel warmup (session usable before all modules Ready)
+- [x] Notes index port + SqliteNotesIndex adapter (exclude patterns hot-reloadable)
+- [x] Per-module fallible store open; skipped modules surfaced in Doctor
+- [ ] Extract remaining ports (Accessibility, OpenPath, AppsCatalog, …) only if personal use needs it
+- [x] First paint, then parallel warmup (session usable before all modules Ready)
 - [ ] Registry / manifest-driven routing and TUI display metadata (joins TUI workbench Later)
 
 ### Quality / safety
@@ -123,14 +126,15 @@ Support long-term module growth without a brittle crate graph.
 Easy to use also means predictable and testable.
 
 - [ ] PTY / TUI soak coverage; cancel awaits work as documented
-- [ ] Side-effect isolation in tests (no focus steal, no real pasteboard mutation in CI/soak defaults)
+- [x] Side-effect isolation in tests (no focus steal, no real pasteboard mutation in defaults)
 - [ ] Confirm / Destructive contract tests; primary action must not silently fall back to “first action”
-- [ ] CI quality gates (`cargo-deny` and related) enabled and kept green as the repo already configures them
+- ~~CI quality gates (`cargo-deny`)~~ — **out of scope** for personal use (see `.cursor/rules/personal-use.mdc`)
 
 ## Done
 
 Recent completions land here (roll or trim as needed). Newest first.
 
+- [x] 2026-07-14 — Config UX: Doctor remediation commands; Notes/Projects configure copy-paste CLI; notes_exclude; skipped modules visible; Hub Notes shortcuts; preview scroll; QL/Snippets WorkbenchMeta; Apps/Clipboard/Snippets onboarding
 - [x] 2026-07-13 — Review fixes: path containment, preview generation, settings persist, hub pin select
 - [x] 2026-07-13 — Projects/Notes browse drill-down; WorkbenchMeta + Hub pins (LoadHub / clipboard pins)
 - [x] 2026-07-13 — `LoadPreview` protocol + Notes file body / Clipboard text in preview pane

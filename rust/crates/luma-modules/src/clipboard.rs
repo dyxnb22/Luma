@@ -227,6 +227,25 @@ impl LumaModule for ClipboardModule {
         rows.sort_by_key(|entry| (!entry.pinned, std::cmp::Reverse(entry.created_at)));
         rows.truncate(limit);
         let mut upserts = Vec::new();
+        if upserts.is_empty()
+            && rows.is_empty()
+            && needle.is_empty()
+            && matches!(query.scope, luma_domain::QueryScope::Targeted { .. })
+        {
+            upserts.push(SearchItemDto {
+                id: "clip:empty".into(),
+                module_id: "luma.clipboard".into(),
+                title: "Clipboard history is empty".into(),
+                subtitle: Some(
+                    "Copy text elsewhere — new clips appear here; pin favorites for Hub".into(),
+                ),
+                kind: "onboarding".into(),
+                score: 0.0,
+                primary_action_id: "noop".into(),
+                primary_action_label: "OK".into(),
+                ..Default::default()
+            });
+        }
         for entry in rows {
             if cancel.is_cancelled() {
                 return;
@@ -268,6 +287,14 @@ impl LumaModule for ClipboardModule {
                 label: "Clear unpinned".into(),
                 risk: ActionRisk::Destructive,
                 confirmation: true,
+            }];
+        }
+        if result.id.as_str() == "clip:empty" || result.kind == "onboarding" {
+            return vec![ActionDescriptor {
+                id: ActionId::new("noop"),
+                label: "OK".into(),
+                risk: ActionRisk::Safe,
+                confirmation: false,
             }];
         }
         let Some(id) = result
@@ -318,7 +345,7 @@ impl LumaModule for ClipboardModule {
         Some(result.title.clone())
     }
 
-    async fn hub_pins(&self) -> Vec<(String, String)> {
+    async fn hub_pins(&self) -> Vec<(String, String, String)> {
         let Ok(page) = self.store.list_page(0, 40) else {
             return Vec::new();
         };
@@ -331,7 +358,7 @@ impl LumaModule for ClipboardModule {
                 } else {
                     e.text
                 };
-                (format!("clip:{}", e.id), title)
+                (format!("clip:{}", e.id), title, "clip ".into())
             })
             .collect()
     }
@@ -348,6 +375,7 @@ impl LumaModule for ClipboardModule {
             .and_then(|s| s.parse::<i64>().ok());
 
         match action.action.id.as_str() {
+            "noop" => ActionOutcome::Success { message: None },
             "copy" => {
                 let Some(id) = id else {
                     return ActionOutcome::Failed {

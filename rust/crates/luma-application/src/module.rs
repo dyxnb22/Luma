@@ -1,3 +1,4 @@
+use crate::ports::AppSettings;
 use async_trait::async_trait;
 use luma_domain::{ActionDescriptor, FailureKind, ModuleId, Query, SearchItem};
 use luma_protocol::Event;
@@ -87,10 +88,14 @@ pub trait LumaModule: Send + Sync {
             .or_else(|| Some(result.title.clone()))
     }
 
-    /// Pinned / favorite rows for the empty-state Hub (id, title).
-    async fn hub_pins(&self) -> Vec<(String, String)> {
+    /// Pinned / favorite Hub rows: `(id, title, query)`.
+    /// `query` is what Enter types into the prompt (e.g. `clip ` or `n daily`).
+    async fn hub_pins(&self) -> Vec<(String, String, String)> {
         Vec::new()
     }
+
+    /// Apply settings that change at runtime (roots, excludes). Default: no-op.
+    async fn apply_settings(&self, _settings: &AppSettings) {}
 
     async fn perform(&self, action: ActionRequest, cancel: CancellationToken) -> ActionOutcome;
 

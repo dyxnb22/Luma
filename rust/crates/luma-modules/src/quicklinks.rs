@@ -37,7 +37,12 @@ impl QuicklinksModule {
                 default_enabled: true,
                 search_mode: SearchMode::GlobalContributing,
                 required_capabilities: vec![],
-                workbench: Default::default(),
+                workbench: luma_application::WorkbenchMeta {
+                    glyph: Some("Q".into()),
+                    suggested_query: Some("ql ".into()),
+                    empty_hint: Some("ql · ql add <trigger> <url>".into()),
+                    supports_browse: false,
+                },
             },
             store,
             index: RwLock::new(Vec::new()),

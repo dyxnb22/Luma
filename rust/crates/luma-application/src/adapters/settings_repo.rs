@@ -19,6 +19,7 @@ fn to_app(settings: LumaSettings) -> AppSettings {
         enabled_modules: settings.enabled_modules,
         notes_root: settings.notes_root,
         projects_roots: settings.projects_roots,
+        notes_exclude_patterns: settings.notes_exclude_patterns,
         clipboard_retention_days: settings.clipboard_retention_days,
     }
 }
@@ -30,6 +31,7 @@ fn to_storage(settings: AppSettings) -> LumaSettings {
         enabled_modules: settings.enabled_modules,
         notes_root: settings.notes_root,
         projects_roots: settings.projects_roots,
+        notes_exclude_patterns: settings.notes_exclude_patterns,
         clipboard_retention_days: settings.clipboard_retention_days,
     }
 }

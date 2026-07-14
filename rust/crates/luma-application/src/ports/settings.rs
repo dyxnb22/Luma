@@ -21,6 +21,8 @@ pub struct AppSettings {
     pub enabled_modules: BTreeMap<String, bool>,
     pub notes_root: Option<String>,
     pub projects_roots: Vec<String>,
+    #[serde(default)]
+    pub notes_exclude_patterns: Vec<String>,
     pub clipboard_retention_days: u32,
 }
 
@@ -37,6 +39,7 @@ impl Default for AppSettings {
             enabled_modules,
             notes_root: None,
             projects_roots: Vec::new(),
+            notes_exclude_patterns: Vec::new(),
             clipboard_retention_days: 30,
         }
     }

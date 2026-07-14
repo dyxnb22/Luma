@@ -220,6 +220,8 @@ pub struct AppState {
     /// Async preview body for the selected result (`LoadPreview`).
     pub preview_result_id: Option<String>,
     pub preview_body: Option<String>,
+    /// Line offset when preview pane is focused.
+    pub preview_scroll: usize,
     /// Monotonic preview request counter (correlated with `PreviewLoaded.preview_id`).
     pub preview_generation: u64,
     /// In-flight preview request id; `None` when idle.
@@ -257,6 +259,7 @@ pub struct HubPinRow {
     pub id: String,
     pub title: String,
     pub module_id: String,
+    pub query: String,
 }
 
 impl Default for AppState {
@@ -296,6 +299,7 @@ impl Default for AppState {
             commands_selected: 0,
             preview_result_id: None,
             preview_body: None,
+            preview_scroll: 0,
             preview_generation: 0,
             pending_preview_id: None,
             hub_pending_select_id: None,
@@ -482,7 +486,7 @@ impl AppState {
                 "pin".into(),
                 pin.id.clone(),
                 pin.title.clone(),
-                String::new(),
+                pin.query.clone(),
             ));
         }
         let mut modules: Vec<_> = self
@@ -591,6 +595,7 @@ impl AppState {
                         id: p.id,
                         title: p.title,
                         module_id: p.module_id,
+                        query: p.query,
                     })
                     .collect();
                 true
@@ -752,6 +757,7 @@ impl AppState {
                 self.pending_preview_id = None;
                 self.preview_result_id = Some(result_id);
                 self.preview_body = Some(body);
+                self.preview_scroll = 0;
                 true
             }
             Event::ActionsAvailable { result_id, actions } => {

@@ -5,22 +5,37 @@ use crate::ports::{
 use async_trait::async_trait;
 use luma_storage::{NotesScanOptions, NotesScanner, ScanMode, ScanStatus, DEFAULT_MAX_FILE_BYTES};
 use std::path::Path;
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 
 pub struct SqliteNotesIndex {
     scanner: Arc<NotesScanner>,
+    options: Arc<RwLock<NotesScanOptions>>,
 }
 
 impl SqliteNotesIndex {
     pub fn new(scanner: Arc<NotesScanner>) -> Self {
-        Self { scanner }
+        Self::with_exclude_patterns(scanner, Vec::new())
     }
 
-    fn options() -> NotesScanOptions {
-        NotesScanOptions {
-            max_file_bytes: DEFAULT_MAX_FILE_BYTES,
-            ..Default::default()
+    pub fn with_exclude_patterns(
+        scanner: Arc<NotesScanner>,
+        exclude_patterns: Vec<String>,
+    ) -> Self {
+        Self {
+            scanner,
+            options: Arc::new(RwLock::new(NotesScanOptions {
+                max_file_bytes: DEFAULT_MAX_FILE_BYTES,
+                exclude_patterns,
+                ..Default::default()
+            })),
         }
+    }
+
+    fn options_snapshot(&self) -> NotesScanOptions {
+        self.options
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
     }
 
     fn map_report(r: luma_storage::ScanReport) -> NotesScanReport {
@@ -187,13 +202,22 @@ impl NotesIndexRepository for SqliteNotesIndex {
         Self::map_status(self.scanner.status())
     }
 
+    fn set_scan_exclude_patterns(&self, patterns: Vec<String>) -> Result<(), NotesIndexError> {
+        let mut opts = self
+            .options
+            .write()
+            .map_err(|_| NotesIndexError::msg("notes scan options lock poisoned"))?;
+        opts.exclude_patterns = patterns;
+        Ok(())
+    }
+
     fn full_scan(
         &self,
         root: &Path,
         cancel: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
     ) -> Result<NotesScanReport, NotesIndexError> {
         self.scanner
-            .full_scan(root, &Self::options(), cancel.as_deref())
+            .full_scan(root, &self.options_snapshot(), cancel.as_deref())
             .map(Self::map_report)
             .map_err(|e| NotesIndexError::msg(e.to_string()))
     }
@@ -204,7 +228,7 @@ impl NotesIndexRepository for SqliteNotesIndex {
         cancel: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
     ) -> Result<NotesScanReport, NotesIndexError> {
         self.scanner
-            .incremental_check(root, &Self::options(), cancel.as_deref())
+            .incremental_check(root, &self.options_snapshot(), cancel.as_deref())
             .map(Self::map_report)
             .map_err(|e| NotesIndexError::msg(e.to_string()))
     }
@@ -215,7 +239,7 @@ impl NotesIndexRepository for SqliteNotesIndex {
         cancel: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
     ) -> Result<NotesScanReport, NotesIndexError> {
         self.scanner
-            .rebuild(root, &Self::options(), cancel.as_deref())
+            .rebuild(root, &self.options_snapshot(), cancel.as_deref())
             .map(Self::map_report)
             .map_err(|e| NotesIndexError::msg(e.to_string()))
     }

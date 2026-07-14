@@ -79,7 +79,10 @@ impl NotesModule {
                 workbench: luma_application::WorkbenchMeta {
                     glyph: Some("N".into()),
                     suggested_query: Some("n ".into()),
-                    empty_hint: Some("n · n browse · n recent · n daily · n new · n status".into()),
+                    empty_hint: Some(
+                        "n · n browse · n recent · n daily · n new · n status · n issues · n check · n reindex"
+                            .into(),
+                    ),
                     supports_browse: true,
                 },
             },
@@ -115,9 +118,18 @@ impl NotesModule {
         )
     }
 
+    /// Update notes root and rebuild (also used after settings hot-reload).
+    pub async fn set_root(&self, root: Option<PathBuf>) {
+        self.stop_watch().await;
+        *self.root.write().await = root.clone();
+        if let Some(root) = root {
+            let _ = self.rebuild_index(&root, None).await;
+        }
+    }
+
+    /// Test helper wrapping [`Self::set_root`].
     pub async fn set_root_for_tests(&self, root: PathBuf) {
-        *self.root.write().await = Some(root.clone());
-        let _ = self.rebuild_index(&root, None).await;
+        self.set_root(Some(root)).await;
     }
 
     /// Bridge a Tokio cancellation token into a scan-level atomic flag.
@@ -487,7 +499,7 @@ impl LumaModule for NotesModule {
                 id: "notes:configure".into(),
                 module_id: "luma.notes".into(),
                 title: "Choose a Notes root folder".into(),
-                subtitle: Some("NotConfigured — set notes_root via luma config".into()),
+                subtitle: Some("NotConfigured — run: luma config set --notes-root ~/Notes".into()),
                 kind: "onboarding".into(),
                 score: 0.0,
                 primary_action_id: "configure".into(),
@@ -1138,7 +1150,7 @@ impl LumaModule for NotesModule {
         match action.action.id.as_str() {
             "configure" => ActionOutcome::Failed {
                 kind: FailureKind::NotConfigured {
-                    remediation: "Set notes_root in LumaNext settings.toml".into(),
+                    remediation: "Run: luma config set --notes-root ~/Notes".into(),
                 },
             },
             "browse" => ActionOutcome::Failed {
@@ -1151,7 +1163,7 @@ impl LumaModule for NotesModule {
                 let Some(root) = root else {
                     return ActionOutcome::Failed {
                         kind: FailureKind::NotConfigured {
-                            remediation: "Set notes_root first".into(),
+                            remediation: "Run: luma config set --notes-root ~/Notes".into(),
                         },
                     };
                 };
@@ -1330,6 +1342,36 @@ impl LumaModule for NotesModule {
                     entity: format!("action:{other}"),
                 },
             },
+        }
+    }
+
+    async fn hub_pins(&self) -> Vec<(String, String, String)> {
+        vec![
+            ("notes:daily".into(), "Daily note".into(), "n daily".into()),
+            ("notes:new".into(), "New note".into(), "n new".into()),
+            (
+                "notes:browse".into(),
+                "Browse notes".into(),
+                "n browse".into(),
+            ),
+        ]
+    }
+
+    async fn apply_settings(&self, settings: &luma_application::AppSettings) {
+        let _ = self
+            .index
+            .set_scan_exclude_patterns(settings.notes_exclude_patterns.clone());
+        let new_root = settings.notes_root.as_ref().map(PathBuf::from);
+        let current = self.root.read().await.clone();
+        if current != new_root {
+            self.set_root(new_root.clone()).await;
+            if new_root.is_some() {
+                // Watch until next teardown/set_root (engine session cancel not available here).
+                self.start_watch(CancellationToken::new()).await;
+            }
+        } else if let Some(root) = current {
+            // Exclude patterns changed under the same root → rebuild.
+            let _ = self.rebuild_index(&root, None).await;
         }
     }
 

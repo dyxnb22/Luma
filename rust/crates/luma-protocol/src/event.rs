@@ -173,6 +173,9 @@ pub struct HubPinDto {
     pub id: String,
     pub title: String,
     pub module_id: String,
+    /// Query inserted on Enter (e.g. `clip ` or `n daily`).
+    #[serde(default)]
+    pub query: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

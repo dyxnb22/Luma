@@ -29,6 +29,9 @@ pub struct LumaSettings {
     pub notes_root: Option<String>,
     #[serde(default)]
     pub projects_roots: Vec<String>,
+    /// Glob patterns relative to notes_root (e.g. `private/*`).
+    #[serde(default)]
+    pub notes_exclude_patterns: Vec<String>,
     pub clipboard_retention_days: u32,
 }
 
@@ -45,6 +48,7 @@ impl Default for LumaSettings {
             enabled_modules,
             notes_root: None,
             projects_roots: Vec::new(),
+            notes_exclude_patterns: Vec::new(),
             clipboard_retention_days: 30,
         }
     }

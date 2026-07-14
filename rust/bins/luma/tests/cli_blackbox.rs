@@ -75,6 +75,8 @@ fn config_get_and_set_round_trip() {
             "set",
             "--notes-root",
             "/tmp/luma-notes-fixture",
+            "--notes-exclude",
+            "private/*",
             "--json",
         ],
     );
@@ -83,6 +85,70 @@ fn config_get_and_set_round_trip() {
     assert_eq!(code, 0, "stderr={stderr}");
     let v: serde_json::Value = serde_json::from_str(&stdout).unwrap();
     assert_eq!(v["notes_root"], "/tmp/luma-notes-fixture");
+    assert_eq!(v["notes_exclude_patterns"][0], "private/*");
+}
+
+#[test]
+fn doctor_includes_config_commands_and_skipped_modules_array() {
+    let dir = tempdir().unwrap();
+    let support = dir.path().join("support");
+    let logs = dir.path().join("logs");
+    fs::create_dir_all(&support).unwrap();
+    fs::create_dir_all(&logs).unwrap();
+    let (code, stdout, stderr) = run_luma(&support, &logs, &["doctor", "--json"]);
+    assert_eq!(code, 0, "stderr={stderr}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
+    assert!(v.get("skipped_modules").is_some(), "{stdout}");
+    assert!(
+        v["config_commands"]["notes_root"]
+            .as_str()
+            .unwrap_or("")
+            .contains("notes-root"),
+        "{stdout}"
+    );
+}
+
+#[test]
+fn notes_query_against_fixture_workspace() {
+    let dir = tempdir().unwrap();
+    let support = dir.path().join("support");
+    let logs = dir.path().join("logs");
+    fs::create_dir_all(&support).unwrap();
+    fs::create_dir_all(&logs).unwrap();
+    let notes_root =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/notes-workspaces/basic");
+    assert!(
+        notes_root.exists(),
+        "missing fixture {}",
+        notes_root.display()
+    );
+    let (code, _, stderr) = run_luma(
+        &support,
+        &logs,
+        &[
+            "config",
+            "set",
+            "--notes-root",
+            notes_root.to_str().unwrap(),
+            "--json",
+        ],
+    );
+    assert_eq!(code, 0, "stderr={stderr}");
+    let (code, stdout, stderr) = run_luma(&support, &logs, &["query", "n alpha", "--json"]);
+    assert_eq!(code, 0, "stderr={stderr} stdout={stdout}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    let results = v["results"].as_array().expect("results array");
+    assert!(
+        results.iter().any(|r| {
+            r["title"]
+                .as_str()
+                .unwrap_or("")
+                .to_lowercase()
+                .contains("alpha")
+                || r["id"].as_str().unwrap_or("").contains("alpha")
+        }),
+        "expected alpha note hit: {stdout}"
+    );
 }
 
 #[test]

@@ -297,8 +297,21 @@ fn render_preview(
     lines.push(Line::from(""));
     if state.preview_result_id.as_deref() == Some(item.id.as_str()) {
         if let Some(body) = &state.preview_body {
-            for line in body.lines().take(24) {
+            let body_lines: Vec<&str> = body.lines().collect();
+            let header_lines = lines.len();
+            let visible = (area.height as usize)
+                .saturating_sub(header_lines + 2)
+                .max(1);
+            let max_scroll = body_lines.len().saturating_sub(visible);
+            let scroll = state.preview_scroll.min(max_scroll);
+            for line in body_lines.into_iter().skip(scroll).take(visible) {
                 lines.push(Line::from(Span::styled(format!("  {line}"), theme.text())));
+            }
+            if max_scroll > 0 {
+                lines.push(Line::from(Span::styled(
+                    format!("  … {}/{}", scroll + 1, max_scroll + 1),
+                    theme.muted(),
+                )));
             }
         }
     } else {
@@ -585,16 +598,23 @@ fn render_status(
 ) {
     let status_style = status_style(state.status.tone, theme);
     let hints = match state.route {
-        Route::Search => format!(
-            "{}{} PgUp/Dn {} Enter {} Ctrl-k Actions {} Tab Focus {} Esc {} ? Help",
-            symbols.up,
-            symbols.down,
-            symbols.sep,
-            symbols.sep,
-            symbols.sep,
-            symbols.sep,
-            symbols.sep
-        ),
+        Route::Search => {
+            let nav = if state.focus == crate::view_model::FocusZone::Preview {
+                "PgUp/Dn scroll preview"
+            } else {
+                "PgUp/Dn"
+            };
+            format!(
+                "{}{} {nav} {} Enter {} Ctrl-k Actions {} Tab Focus {} Esc {} ? Help",
+                symbols.up,
+                symbols.down,
+                symbols.sep,
+                symbols.sep,
+                symbols.sep,
+                symbols.sep,
+                symbols.sep
+            )
+        }
         Route::ActionPicker => format!(
             "{}{} 1-9 {} Enter Run {} Esc Back",
             symbols.up, symbols.down, symbols.sep, symbols.sep
@@ -814,7 +834,10 @@ fn render_overlay_help(frame: &mut Frame<'_>, area: Rect, theme: &Theme, symbols
         "Type to search · Left/Right/Home/End move cursor".to_string(),
         "Ctrl-u clear to start · Ctrl-w delete word".to_string(),
         "Ctrl-p/n query history (prompt focused)".to_string(),
-        format!("{}{} / PgUp PgDn  move selection", symbols.up, symbols.down),
+        format!(
+            "{}{} / PgUp PgDn  move selection (scroll preview when focused)",
+            symbols.up, symbols.down
+        ),
         "Enter  primary action · empty Enter opens Hub trigger".to_string(),
         "Ctrl-k  action list · Ctrl-/ command palette".to_string(),
         "Tab  cycle focus (prompt / list / preview)".to_string(),
@@ -822,6 +845,8 @@ fn render_overlay_help(frame: &mut Frame<'_>, area: Rect, theme: &Theme, symbols
         "?  help · :doctor / :settings / :commands".to_string(),
         "Ctrl-C  quit confirm · Enter exits".to_string(),
         String::new(),
+        "Configure Notes: luma config set --notes-root ~/Notes".to_string(),
+        "Configure Projects: luma config set --projects-root ~/dev".to_string(),
         "Confirm / Destructive actions always ask first.".to_string(),
     ]
     .join("\n");

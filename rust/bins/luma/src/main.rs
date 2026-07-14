@@ -91,6 +91,9 @@ enum ConfigCmd {
         notes_root: Option<String>,
         #[arg(long)]
         projects_root: Vec<String>,
+        /// Glob patterns relative to notes_root (repeatable). Replaces the full list when set.
+        #[arg(long)]
+        notes_exclude: Vec<String>,
         #[arg(long)]
         enable_module: Vec<String>,
         #[arg(long)]
@@ -172,16 +175,17 @@ async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
     match cli.command {
         None | Some(Commands::Tui) => {
-            let (registry, settings) =
+            let load =
                 load_registry_with_settings().map_err(|e| anyhow::anyhow!("registry: {e}"))?;
             let diagnostics = luma_application::FsDiagnosticsSink::luma_next_default()
                 .ok()
                 .map(|s| Arc::new(s) as Arc<dyn luma_application::DiagnosticsSink>);
             let engine: Arc<dyn luma_application::EnginePort> = Arc::new(Engine::with_options(
-                registry,
+                load.registry,
                 luma_application::EngineOptions {
-                    settings: Some(settings),
+                    settings: Some(load.settings),
                     diagnostics,
+                    skipped_modules: load.skipped.into_iter().map(|s| (s.id, s.reason)).collect(),
                 },
             ));
             run_tui_with_engine(engine).await?;
@@ -260,8 +264,32 @@ async fn main() -> anyhow::Result<()> {
             }
         }
         Some(Commands::Doctor { json }) => {
-            let mut diag = match load_registry() {
-                Ok(registry) => run_doctor(registry).await.map_err(anyhow::Error::msg)?,
+            let mut diag = match load_registry_with_settings() {
+                Ok(load) => {
+                    let mut d = run_doctor(load.registry)
+                        .await
+                        .map_err(anyhow::Error::msg)?;
+                    d["skipped_modules"] = serde_json::json!(load
+                        .skipped
+                        .iter()
+                        .map(|s| serde_json::json!({ "id": s.id, "reason": s.reason }))
+                        .collect::<Vec<_>>());
+                    if !load.skipped.is_empty() {
+                        let mut remediation = d
+                            .get("remediation")
+                            .and_then(|v| v.as_array())
+                            .cloned()
+                            .unwrap_or_default();
+                        for s in &load.skipped {
+                            remediation.push(serde_json::json!(format!(
+                                "Repair store for {} ({}), then restart Luma",
+                                s.id, s.reason
+                            )));
+                        }
+                        d["remediation"] = serde_json::Value::Array(remediation);
+                    }
+                    d
+                }
                 Err(err) => serde_json::json!({
                     "ok": false,
                     "registry_error": err.to_string(),
@@ -272,9 +300,29 @@ async fn main() -> anyhow::Result<()> {
                     Ok(settings) => {
                         diag["settings_version"] = settings.settings_version.into();
                         diag["notes_root_configured"] = settings.notes_root.is_some().into();
-                        diag["projects_roots"] = settings.projects_roots.len().into();
+                        diag["notes_root"] = settings.notes_root.clone().into();
+                        diag["projects_roots"] = settings.projects_roots.clone().into();
+                        diag["notes_exclude_patterns"] =
+                            settings.notes_exclude_patterns.clone().into();
+                        diag["config_commands"] = serde_json::json!({
+                            "notes_root": "luma config set --notes-root ~/Notes",
+                            "projects_roots": "luma config set --projects-root ~/dev",
+                            "notes_exclude": "luma config set --notes-exclude 'private/*'",
+                        });
                         diag["ax_trusted"] =
                             luma_platform_macos::MacAccessibility::probe_trusted().into();
+                        if settings.notes_root.is_none() {
+                            let mut remediation = diag
+                                .get("remediation")
+                                .and_then(|v| v.as_array())
+                                .cloned()
+                                .unwrap_or_default();
+                            remediation.insert(
+                                0,
+                                serde_json::json!("Notes: luma config set --notes-root ~/Notes"),
+                            );
+                            diag["remediation"] = serde_json::Value::Array(remediation);
+                        }
                     }
                     Err(err) => {
                         diag["config_error"] = err.to_string().into();
@@ -306,6 +354,7 @@ async fn main() -> anyhow::Result<()> {
                 ConfigCmd::Set {
                     notes_root,
                     projects_root,
+                    notes_exclude,
                     enable_module,
                     disable_module,
                     json,
@@ -321,6 +370,14 @@ async fn main() -> anyhow::Result<()> {
             if !projects_root.is_empty() {
                 next.projects_roots = projects_root;
             }
+            // Presence of any --notes-exclude flag replaces the list (including empty clear via
+            // a dedicated empty value is not supported; omit the flag to leave unchanged).
+            if !notes_exclude.is_empty() {
+                next.notes_exclude_patterns = notes_exclude
+                    .into_iter()
+                    .filter(|p| !p.is_empty())
+                    .collect();
+            }
             for id in enable_module {
                 next.enabled_modules.insert(id, true);
             }
@@ -332,8 +389,8 @@ async fn main() -> anyhow::Result<()> {
                 println!("{}", serde_json::to_string_pretty(&saved)?);
             } else {
                 println!(
-                    "updated settings_version={} notes_root={:?}",
-                    saved.settings_version, saved.notes_root
+                    "updated settings_version={} notes_root={:?} notes_exclude={:?}",
+                    saved.settings_version, saved.notes_root, saved.notes_exclude_patterns
                 );
             }
         }

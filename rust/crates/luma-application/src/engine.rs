@@ -50,6 +50,8 @@ struct EngineInner {
 pub struct EngineOptions {
     pub settings: Option<Arc<dyn crate::ports::SettingsRepository>>,
     pub diagnostics: Option<Arc<dyn crate::ports::DiagnosticsSink>>,
+    /// Modules skipped at composition (id, reason) — surfaced in Doctor.
+    pub skipped_modules: Vec<(String, String)>,
 }
 
 /// In-process engine: owns modules, searches, and operations.
@@ -59,6 +61,7 @@ pub struct Engine {
     event_broadcast_tx: broadcast::Sender<Event>,
     settings: Option<Arc<dyn crate::ports::SettingsRepository>>,
     diagnostics: Option<Arc<dyn crate::ports::DiagnosticsSink>>,
+    skipped_modules: Vec<(String, String)>,
     /// Serializes search setup so cancel→clear→register cannot interleave.
     search_lifecycle: Mutex<()>,
 }
@@ -77,6 +80,7 @@ impl Engine {
             EngineOptions {
                 settings,
                 diagnostics: None,
+                skipped_modules: Vec::new(),
             },
         )
     }
@@ -100,6 +104,7 @@ impl Engine {
             event_broadcast_tx,
             settings: options.settings,
             diagnostics: options.diagnostics,
+            skipped_modules: options.skipped_modules,
             search_lifecycle: Mutex::new(()),
         }
     }
@@ -593,25 +598,57 @@ impl Engine {
                         })
                     })
                     .collect::<Vec<_>>();
+                let notes_root_configured = settings_snapshot
+                    .as_ref()
+                    .and_then(|s| s.notes_root.as_ref())
+                    .is_some();
+                let projects_roots = settings_snapshot
+                    .as_ref()
+                    .map(|s| s.projects_roots.len())
+                    .unwrap_or(0);
+                let mut remediation = Vec::new();
+                if !notes_root_configured {
+                    remediation.push("Notes: luma config set --notes-root ~/Notes".to_string());
+                }
+                if projects_roots == 0 {
+                    remediation.push("Projects: luma config set --projects-root ~/dev".to_string());
+                }
+                for (id, reason) in &self.skipped_modules {
+                    remediation.push(format!(
+                        "Repair store for {id} ({reason}), then restart Luma"
+                    ));
+                }
+                remediation.push("Grant Accessibility if paste/snippets paste fails".into());
+                remediation
+                    .push("Notes excludes: luma config set --notes-exclude 'private/*'".into());
+                let skipped = self
+                    .skipped_modules
+                    .iter()
+                    .map(|(id, reason)| serde_json::json!({ "id": id, "reason": reason }))
+                    .collect::<Vec<_>>();
                 let diagnostic = serde_json::json!({
                     "doctor": true,
                     "modules": modules,
+                    "skipped_modules": skipped,
                     "settings": {
                         "configured": settings_snapshot.is_some(),
                         "settings_version": settings_snapshot.as_ref().map(|s| s.settings_version),
-                        "notes_root_configured": settings_snapshot.as_ref().and_then(|s| s.notes_root.as_ref()).is_some(),
-                        "projects_roots": settings_snapshot.as_ref().map(|s| s.projects_roots.len()).unwrap_or(0),
+                        "notes_root_configured": notes_root_configured,
+                        "notes_root": settings_snapshot.as_ref().and_then(|s| s.notes_root.clone()),
+                        "projects_roots": settings_snapshot.as_ref().map(|s| s.projects_roots.clone()).unwrap_or_default(),
+                        "notes_exclude_patterns": settings_snapshot.as_ref().map(|s| s.notes_exclude_patterns.clone()).unwrap_or_default(),
                         "clipboard_retention_days": settings_snapshot.as_ref().map(|s| s.clipboard_retention_days),
+                    },
+                    "config_commands": {
+                        "notes_root": "luma config set --notes-root ~/Notes",
+                        "projects_roots": "luma config set --projects-root ~/dev",
+                        "notes_exclude": "luma config set --notes-exclude 'private/*'",
                     },
                     "stores": {
                         "settings": if settings_snapshot.is_some() { "ok" } else { "missing" },
                         "diagnostics": if self.diagnostics.is_some() { "ok" } else { "missing" },
                     },
-                    "remediation": [
-                        "Use `luma config set --notes-root <path>` if Notes is NotConfigured",
-                        "Grant Accessibility if paste/snippets paste fails",
-                        "Re-open a failed module store (clipboard/quicklinks/snippets) after repairing disk permissions"
-                    ],
+                    "remediation": remediation,
                 });
                 let _ = self.emit(Event::DiagnosticRaised { diagnostic }).await;
             }
@@ -817,11 +854,12 @@ impl Engine {
                 let mut pins = Vec::new();
                 for module in modules {
                     let id = module.manifest().id.as_str().to_string();
-                    for (pin_id, title) in module.hub_pins().await {
+                    for (pin_id, title, query) in module.hub_pins().await {
                         pins.push(luma_protocol::HubPinDto {
                             id: pin_id,
                             title,
                             module_id: id.clone(),
+                            query,
                         });
                     }
                 }
@@ -879,6 +917,35 @@ impl Engine {
                         }
                     }
                 }
+                if let Some(root) = patch.get("notes_root") {
+                    if root.is_null() {
+                        next.notes_root = None;
+                    } else if let Some(s) = root.as_str() {
+                        next.notes_root = if s.is_empty() {
+                            None
+                        } else {
+                            Some(s.to_string())
+                        };
+                    }
+                }
+                if let Some(roots) = patch.get("projects_roots").and_then(|v| v.as_array()) {
+                    next.projects_roots = roots
+                        .iter()
+                        .filter_map(|v| v.as_str().map(str::to_string))
+                        .collect();
+                }
+                if let Some(patterns) = patch
+                    .get("notes_exclude_patterns")
+                    .and_then(|v| v.as_array())
+                {
+                    next.notes_exclude_patterns = patterns
+                        .iter()
+                        .filter_map(|v| v.as_str().map(str::to_string))
+                        .collect();
+                }
+                let roots_changed = next.notes_root != current.notes_root
+                    || next.projects_roots != current.projects_roots
+                    || next.notes_exclude_patterns != current.notes_exclude_patterns;
                 let saved = match settings_repo.update_cas(expected_version, next) {
                     Ok(value) => value,
                     Err(err) => {
@@ -906,6 +973,15 @@ impl Engine {
                 for (id, enabled) in changes {
                     let _ = self.apply_module_enabled(&id, enabled).await;
                 }
+                if roots_changed {
+                    let modules = {
+                        let g = self.inner.lock().await;
+                        g.registry.all_modules()
+                    };
+                    for module in modules {
+                        module.apply_settings(&saved).await;
+                    }
+                }
                 let rows = {
                     let g = self.inner.lock().await;
                     g.registry.list()
@@ -918,6 +994,9 @@ impl Engine {
                             "modules": rows.iter().map(|(id, enabled, name)| {
                                 serde_json::json!({"id": id, "enabled": enabled, "name": name})
                             }).collect::<Vec<_>>(),
+                            "notes_root": saved.notes_root,
+                            "projects_roots": saved.projects_roots,
+                            "notes_exclude_patterns": saved.notes_exclude_patterns,
                         }),
                     })
                     .await;
@@ -1874,6 +1953,7 @@ mod tests {
             EngineOptions {
                 settings: None,
                 diagnostics: Some(sink),
+                skipped_modules: Vec::new(),
             },
         );
         let mut events = engine.take_event_receiver().await.unwrap();

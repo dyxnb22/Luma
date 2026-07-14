@@ -18,10 +18,14 @@ cargo run -p luma -- modules list --json
 cargo run -p luma -- doctor --json
 cargo run -p luma -- config get --json
 cargo run -p luma -- config set --notes-root /path/to/notes
+cargo run -p luma -- config set --projects-root ~/dev
+cargo run -p luma -- config set --notes-exclude 'private/*'
 cargo run -p luma   # interactive TUI
 ```
 
 Optional local hygiene: `bash scripts/check_architecture.sh`.
+
+**Fixtures:** `fixtures/notes-workspaces/` for Notes scan/index tests; `fixtures/legacy/` for migrate blackbox.
 
 See [`docs/MODULES.md`](docs/MODULES.md) for module status.
 

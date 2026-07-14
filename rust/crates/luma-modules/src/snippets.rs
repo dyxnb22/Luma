@@ -36,7 +36,12 @@ impl SnippetsModule {
                 default_enabled: true,
                 search_mode: SearchMode::TargetedOnly,
                 required_capabilities: vec![],
-                workbench: Default::default(),
+                workbench: luma_application::WorkbenchMeta {
+                    glyph: Some("S".into()),
+                    suggested_query: Some("s ".into()),
+                    empty_hint: Some("s · snip add <trigger> <body>".into()),
+                    supports_browse: false,
+                },
             },
             store,
             index: RwLock::new(Vec::new()),
@@ -161,6 +166,19 @@ impl LumaModule for SnippetsModule {
                 });
             }
         }
+        if upserts.is_empty() && needle.is_empty() {
+            upserts.push(SearchItemDto {
+                id: "snip:empty".into(),
+                module_id: "luma.snippets".into(),
+                title: "No snippets yet".into(),
+                subtitle: Some("Add with: snip add <trigger> <body>".into()),
+                kind: "onboarding".into(),
+                score: 0.0,
+                primary_action_id: "noop".into(),
+                primary_action_label: "OK".into(),
+                ..Default::default()
+            });
+        }
         if !upserts.is_empty() {
             let _ = sink
                 .send(Event::ResultsChunk {
@@ -173,6 +191,14 @@ impl LumaModule for SnippetsModule {
         }
     }
     async fn actions(&self, result: &SearchItem) -> Vec<ActionDescriptor> {
+        if result.id.as_str() == "snip:empty" || result.kind == "onboarding" {
+            return vec![ActionDescriptor {
+                id: ActionId::new("noop"),
+                label: "OK".into(),
+                risk: ActionRisk::Safe,
+                confirmation: false,
+            }];
+        }
         if result.id.as_str().starts_with("snip:add:") {
             let exists = result.kind == "update";
             return vec![ActionDescriptor {
@@ -216,6 +242,7 @@ impl LumaModule for SnippetsModule {
             return ActionOutcome::Cancelled;
         }
         match action.action.id.as_str() {
+            "noop" => ActionOutcome::Success { message: None },
             "add" => {
                 let Some(trigger) = action.result.id.as_str().strip_prefix("snip:add:") else {
                     return ActionOutcome::Failed {

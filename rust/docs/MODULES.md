@@ -20,7 +20,7 @@ Personal daily-driver status. Prefer honest `unavailable` / `permission_required
 | --- | --- | --- | --- |
 | Apps | `app` / `apps` | Available — fuzzy + session MRU; launch / reveal / copy path | on |
 | Clipboard | `clip` / `cb` | Available — history, pin/unpin, `clip clear`, paste needs AX; Hub pins | on |
-| Notes | `n` / `note` / `notes` | Available — search/open; `n new` / `n daily`; `n browse` folders | on |
+| Notes | `n` / `note` / `notes` | Available — FTS/CJK index; `n new` / `n daily` / `n browse` / `n recent` / `n status` / `n issues` / `n check` / `n reindex`; Copy Path | on |
 | Quicklinks | `ql` | Available — add/overwrite, open, copy URL, delete | on |
 | Snippets | `s` / `snip` | Available — search; add/overwrite; copy/paste; delete | on |
 | Todo | `t` / `todo` | Gated — EventKit; permission row when denied | **off** |

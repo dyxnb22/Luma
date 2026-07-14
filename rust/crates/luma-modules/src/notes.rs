@@ -1,25 +1,21 @@
 use crate::cancel::await_unless_cancelled;
 use async_trait::async_trait;
 use luma_application::{
-    ActionOutcome, ActionRequest, ClockPort, FixedClock, LumaModule, MarkdownWatchPort,
-    ModuleManifest, ModuleState, OpenPathPort, SearchMode, SearchSink, SystemClock, WarmupContext,
+    ActionOutcome, ActionRequest, ClockPort, FakePasteboard, FixedClock, LumaModule,
+    MarkdownWatchPort, MemoryNotesIndex, ModuleManifest, ModuleState, NotesIndexError,
+    NotesIndexRepository, NotesScanStatusView, OpenPathPort, PasteboardPort, SearchMode,
+    SearchSink, SystemClock, WarmupContext,
 };
 use luma_domain::{
     ActionDescriptor, ActionId, ActionRisk, FailureKind, ModuleId, Query, SearchItem,
 };
 use luma_protocol::{Event, SearchItemDto};
 use std::path::{Component, Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use tokio::sync::{mpsc, Mutex, RwLock};
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
-
-#[derive(Clone, Debug)]
-struct NoteEntry {
-    id: String,
-    title: String,
-    path: PathBuf,
-}
 
 /// No-op watcher for tests: waits on cancel without emitting change events.
 pub(crate) struct NullMarkdownWatcher;
@@ -34,12 +30,13 @@ impl MarkdownWatchPort for NullMarkdownWatcher {
 pub struct NotesModule {
     manifest: ModuleManifest,
     root: Arc<RwLock<Option<PathBuf>>>,
-    index: Arc<RwLock<Vec<NoteEntry>>>,
+    index: Arc<dyn NotesIndexRepository>,
     /// Bumped on each rebuild so late watch callbacks can be ignored if needed.
     index_generation: Arc<RwLock<u64>>,
     watch_cancel: Mutex<Option<CancellationToken>>,
     watch_handle: Mutex<Option<JoinHandle<()>>>,
     opener: Arc<dyn OpenPathPort>,
+    pasteboard: Arc<dyn PasteboardPort>,
     watcher: Arc<dyn MarkdownWatchPort>,
     clock: Arc<dyn ClockPort>,
 }
@@ -50,14 +47,25 @@ impl NotesModule {
         root: Option<PathBuf>,
         opener: Arc<dyn OpenPathPort>,
         watcher: Arc<dyn MarkdownWatchPort>,
+        index: Arc<dyn NotesIndexRepository>,
+        pasteboard: Arc<dyn PasteboardPort>,
     ) -> Self {
-        Self::with_root_clock(root, opener, watcher, Arc::new(SystemClock))
+        Self::with_root_clock(
+            root,
+            opener,
+            watcher,
+            index,
+            pasteboard,
+            Arc::new(SystemClock),
+        )
     }
 
     pub fn with_root_clock(
         root: Option<PathBuf>,
         opener: Arc<dyn OpenPathPort>,
         watcher: Arc<dyn MarkdownWatchPort>,
+        index: Arc<dyn NotesIndexRepository>,
+        pasteboard: Arc<dyn PasteboardPort>,
         clock: Arc<dyn ClockPort>,
     ) -> Self {
         Self {
@@ -71,16 +79,17 @@ impl NotesModule {
                 workbench: luma_application::WorkbenchMeta {
                     glyph: Some("N".into()),
                     suggested_query: Some("n ".into()),
-                    empty_hint: Some("n · n browse · n daily · n new".into()),
+                    empty_hint: Some("n · n browse · n recent · n daily · n new · n status".into()),
                     supports_browse: true,
                 },
             },
             root: Arc::new(RwLock::new(root)),
-            index: Arc::new(RwLock::new(Vec::new())),
+            index,
             index_generation: Arc::new(RwLock::new(0)),
             watch_cancel: Mutex::new(None),
             watch_handle: Mutex::new(None),
             opener,
+            pasteboard,
             watcher,
             clock,
         }
@@ -92,12 +101,14 @@ impl NotesModule {
         Self::with_root_and_opener(root, Arc::new(FakeOpenPath::new()))
     }
 
-    /// Test helper: real opener mock + no-op markdown watcher.
+    /// Test helper: real opener mock + no-op markdown watcher + memory index.
     pub fn with_root_and_opener(root: Option<PathBuf>, opener: Arc<dyn OpenPathPort>) -> Self {
         Self::with_root_clock(
             root,
             opener,
             Arc::new(NullMarkdownWatcher),
+            Arc::new(MemoryNotesIndex::new()),
+            Arc::new(FakePasteboard::new()),
             Arc::new(FixedClock {
                 ymd: "2026-07-13".into(),
             }),
@@ -106,17 +117,49 @@ impl NotesModule {
 
     pub async fn set_root_for_tests(&self, root: PathBuf) {
         *self.root.write().await = Some(root.clone());
-        self.rebuild_index(&root).await;
+        let _ = self.rebuild_index(&root, None).await;
     }
 
-    async fn rebuild_index(&self, root: &Path) {
+    /// Bridge a Tokio cancellation token into a scan-level atomic flag.
+    fn scan_cancel_flag(token: &CancellationToken) -> Arc<AtomicBool> {
+        let flag = Arc::new(AtomicBool::new(token.is_cancelled()));
+        if !token.is_cancelled() {
+            let flag2 = flag.clone();
+            let token = token.clone();
+            tokio::spawn(async move {
+                token.cancelled().await;
+                flag2.store(true, Ordering::Relaxed);
+            });
+        }
+        flag
+    }
+
+    async fn rebuild_index(
+        &self,
+        root: &Path,
+        cancel: Option<Arc<AtomicBool>>,
+    ) -> Result<(), NotesIndexError> {
         let root = root.to_path_buf();
-        let notes = tokio::task::spawn_blocking(move || scan_md_tree(&root))
-            .await
-            .unwrap_or_default();
+        let index = self.index.clone();
+        let docs = index.document_count()?;
+        let fts = index.fts_count().unwrap_or(0);
+        // Empty index, or documents/FTS mismatch → authoritative full scan.
+        let need_full = docs == 0 || (docs > 0 && (fts == 0 || fts != docs));
+        let report = tokio::task::spawn_blocking(move || {
+            if need_full {
+                index.full_scan(&root, cancel)
+            } else {
+                index.incremental_check(&root, cancel)
+            }
+        })
+        .await
+        .map_err(|e| NotesIndexError::msg(format!("scan join failed: {e}")))??;
+        if report.cancelled {
+            return Err(NotesIndexError::msg("scan cancelled"));
+        }
         let mut gen = self.index_generation.write().await;
         *gen = gen.saturating_add(1);
-        *self.index.write().await = notes;
+        Ok(())
     }
 
     async fn start_watch(&self, parent: CancellationToken) {
@@ -144,18 +187,18 @@ impl NotesModule {
                             continue;
                         }
                         let gen_before = *generation.read().await;
-                        let notes = tokio::task::spawn_blocking({
-                            let root = root.clone();
-                            move || scan_md_tree(&root)
+                        let index = index.clone();
+                        let root_clone = root.clone();
+                        let flag = NotesModule::scan_cancel_flag(&token);
+                        let _ = tokio::task::spawn_blocking(move || {
+                            index.incremental_check(&root_clone, Some(flag))
                         })
-                        .await
-                        .unwrap_or_default();
+                        .await;
                         let mut gen = generation.write().await;
                         if *gen != gen_before {
                             continue;
                         }
                         *gen = gen.saturating_add(1);
-                        *index.write().await = notes;
                     }
                 }
             }
@@ -410,52 +453,6 @@ impl NotesModule {
     }
 }
 
-fn scan_md_tree(root: &Path) -> Vec<NoteEntry> {
-    let mut notes = Vec::new();
-    let mut stack = vec![root.to_path_buf()];
-    let root_canon = root.canonicalize().unwrap_or_else(|_| root.to_path_buf());
-    while let Some(dir) = stack.pop() {
-        let Ok(rd) = std::fs::read_dir(&dir) else {
-            continue;
-        };
-        for entry in rd.flatten() {
-            let path = entry.path();
-            let Ok(meta) = std::fs::symlink_metadata(&path) else {
-                continue;
-            };
-            if meta.file_type().is_symlink() {
-                // Never follow directory (or file) symlinks during indexing.
-                continue;
-            }
-            if meta.is_dir() {
-                if let Ok(canon) = path.canonicalize() {
-                    if !canon.starts_with(&root_canon) {
-                        continue;
-                    }
-                }
-                stack.push(path);
-                continue;
-            }
-            if path.extension().and_then(|e| e.to_str()) == Some("md") {
-                let title = path
-                    .file_stem()
-                    .and_then(|s| s.to_str())
-                    .unwrap_or("note")
-                    .to_string();
-                notes.push(NoteEntry {
-                    id: format!("note:{}", path.display()),
-                    title,
-                    path,
-                });
-            }
-            if notes.len() >= 5_000 {
-                return notes;
-            }
-        }
-    }
-    notes
-}
-
 #[async_trait]
 impl LumaModule for NotesModule {
     fn manifest(&self) -> &ModuleManifest {
@@ -465,11 +462,19 @@ impl LumaModule for NotesModule {
     async fn warmup(&self, ctx: WarmupContext) -> ModuleState {
         let root = self.root.read().await.clone();
         if let Some(root) = root {
-            if !ctx.cancel.is_cancelled() {
-                self.rebuild_index(&root).await;
-                self.start_watch(ctx.cancel).await;
+            if ctx.cancel.is_cancelled() {
+                return ModuleState::Failed("notes warmup cancelled".into());
             }
-            ModuleState::Ready
+            let flag = Self::scan_cancel_flag(&ctx.cancel);
+            match self.rebuild_index(&root, Some(flag)).await {
+                Ok(()) => {
+                    if !ctx.cancel.is_cancelled() {
+                        self.start_watch(ctx.cancel).await;
+                    }
+                    ModuleState::Ready
+                }
+                Err(e) => ModuleState::Failed(e.to_string()),
+            }
         } else {
             ModuleState::Cold
         }
@@ -595,6 +600,235 @@ impl LumaModule for NotesModule {
 
         let rest_raw = query.rest_raw();
         let rest_check = rest_raw.trim().to_lowercase();
+
+        if rest_check.is_empty() || rest_check == "recent" {
+            let index = self.index.clone();
+            let limit = if rest_check == "recent" {
+                20
+            } else {
+                query.limit.min(20)
+            };
+            let hits = match tokio::task::spawn_blocking(move || index.list_recent(limit)).await {
+                Ok(Ok(hits)) => hits,
+                Ok(Err(e)) => {
+                    let _ = sink
+                        .send(Event::ResultsChunk {
+                            request_id: String::new(),
+                            sequence: 1,
+                            upserts: vec![unavailable_row(
+                                "Notes recent unavailable",
+                                e.to_string(),
+                            )],
+                            removed_ids: vec![],
+                        })
+                        .await;
+                    return;
+                }
+                Err(e) => {
+                    let _ = sink
+                        .send(Event::ResultsChunk {
+                            request_id: String::new(),
+                            sequence: 1,
+                            upserts: vec![unavailable_row(
+                                "Notes recent unavailable",
+                                e.to_string(),
+                            )],
+                            removed_ids: vec![],
+                        })
+                        .await;
+                    return;
+                }
+            };
+            let status = self.index.scan_status();
+            let mut upserts = Vec::new();
+            upserts.push(status_row(&status));
+            for hit in hits {
+                let abs = root.join(&hit.relative_path);
+                if NotesModule::resolve_under_root(&root, &abs).is_err() {
+                    continue;
+                }
+                upserts.push(SearchItemDto {
+                    id: format!("note:{}", abs.display()),
+                    module_id: "luma.notes".into(),
+                    title: hit.title,
+                    subtitle: Some(abs.display().to_string()),
+                    kind: "note".into(),
+                    score: 80.0,
+                    primary_action_id: "open".into(),
+                    primary_action_label: "Open".into(),
+                    ..Default::default()
+                });
+            }
+            let _ = sink
+                .send(Event::ResultsChunk {
+                    request_id: String::new(),
+                    sequence: 1,
+                    upserts,
+                    removed_ids: vec![],
+                })
+                .await;
+            return;
+        }
+
+        if rest_check == "status" {
+            let status = self.index.scan_status();
+            let count_label = match self.index.document_count() {
+                Ok(n) => format!("{n} documents indexed"),
+                Err(e) => format!("document count unavailable: {e}"),
+            };
+            let count_kind = if count_label.starts_with("document count") {
+                "unavailable"
+            } else {
+                "status"
+            };
+            let _ = sink
+                .send(Event::ResultsChunk {
+                    request_id: String::new(),
+                    sequence: 1,
+                    upserts: vec![
+                        status_row(&status),
+                        SearchItemDto {
+                            id: "notes:doc-count".into(),
+                            module_id: "luma.notes".into(),
+                            title: count_label,
+                            subtitle: Some(root.display().to_string()),
+                            kind: count_kind.into(),
+                            score: 90.0,
+                            primary_action_id: "noop".into(),
+                            primary_action_label: if count_kind == "unavailable" {
+                                "Unavailable".into()
+                            } else {
+                                "Status".into()
+                            },
+                            ..Default::default()
+                        },
+                    ],
+                    removed_ids: vec![],
+                })
+                .await;
+            return;
+        }
+
+        if rest_check == "issues" {
+            let index = self.index.clone();
+            let issues = match tokio::task::spawn_blocking(move || index.list_issues()).await {
+                Ok(Ok(issues)) => issues,
+                Ok(Err(e)) => {
+                    let _ = sink
+                        .send(Event::ResultsChunk {
+                            request_id: String::new(),
+                            sequence: 1,
+                            upserts: vec![unavailable_row(
+                                "Notes issues unavailable",
+                                e.to_string(),
+                            )],
+                            removed_ids: vec![],
+                        })
+                        .await;
+                    return;
+                }
+                Err(e) => {
+                    let _ = sink
+                        .send(Event::ResultsChunk {
+                            request_id: String::new(),
+                            sequence: 1,
+                            upserts: vec![unavailable_row(
+                                "Notes issues unavailable",
+                                e.to_string(),
+                            )],
+                            removed_ids: vec![],
+                        })
+                        .await;
+                    return;
+                }
+            };
+            let upserts: Vec<_> = issues
+                .into_iter()
+                .take(query.limit)
+                .map(|i| SearchItemDto {
+                    id: format!("notes:issue:{}:{}", i.scan_id, i.relative_path),
+                    module_id: "luma.notes".into(),
+                    title: format!("{} — {}", i.issue_type, i.relative_path),
+                    subtitle: Some(i.message),
+                    kind: "issue".into(),
+                    score: 50.0,
+                    primary_action_id: "noop".into(),
+                    primary_action_label: "Issue".into(),
+                    ..Default::default()
+                })
+                .collect();
+            let _ = sink
+                .send(Event::ResultsChunk {
+                    request_id: String::new(),
+                    sequence: 1,
+                    upserts: if upserts.is_empty() {
+                        vec![SearchItemDto {
+                            id: "notes:issues-empty".into(),
+                            module_id: "luma.notes".into(),
+                            title: "No scan issues".into(),
+                            subtitle: Some("Index looks clean".into()),
+                            kind: "status".into(),
+                            score: 50.0,
+                            primary_action_id: "noop".into(),
+                            primary_action_label: "OK".into(),
+                            ..Default::default()
+                        }]
+                    } else {
+                        upserts
+                    },
+                    removed_ids: vec![],
+                })
+                .await;
+            return;
+        }
+
+        if rest_check == "check" || rest_check == "reindex" {
+            let index = self.index.clone();
+            let root_clone = root.clone();
+            let is_rebuild = rest_check == "reindex";
+            let flag = Self::scan_cancel_flag(&cancel);
+            let report = tokio::task::spawn_blocking(move || {
+                if is_rebuild {
+                    index.rebuild(&root_clone, Some(flag))
+                } else {
+                    index.incremental_check(&root_clone, Some(flag))
+                }
+            })
+            .await;
+            let (title, kind, label) = match report {
+                Ok(Ok(r)) if r.cancelled => ("Scan cancelled".into(), "unavailable", "Cancelled"),
+                Ok(Ok(r)) => (
+                    format!(
+                        "{} done — processed {} errors {} pruned {}",
+                        r.mode, r.processed, r.errors, r.pruned
+                    ),
+                    "status",
+                    "Done",
+                ),
+                Ok(Err(e)) => (format!("Scan failed: {e}"), "unavailable", "Failed"),
+                Err(e) => (format!("Scan failed: {e}"), "unavailable", "Failed"),
+            };
+            let _ = sink
+                .send(Event::ResultsChunk {
+                    request_id: String::new(),
+                    sequence: 1,
+                    upserts: vec![SearchItemDto {
+                        id: "notes:scan-report".into(),
+                        module_id: "luma.notes".into(),
+                        title,
+                        subtitle: Some(root.display().to_string()),
+                        kind: kind.into(),
+                        score: 100.0,
+                        primary_action_id: "noop".into(),
+                        primary_action_label: label.into(),
+                        ..Default::default()
+                    }],
+                    removed_ids: vec![],
+                })
+                .await;
+            return;
+        }
+
         if rest_check == "browse"
             || rest_check.starts_with("browse ")
             || rest_check.starts_with("ls ")
@@ -674,11 +908,20 @@ impl LumaModule for NotesModule {
                         primary_action_label: "Browse".into(),
                         ..Default::default()
                     });
-                } else if meta.file_type().is_file() && name.ends_with(".md") {
+                } else if meta.file_type().is_file() && name.to_ascii_lowercase().ends_with(".md") {
+                    let title = if let Some(stem) = name
+                        .get(..name.len().saturating_sub(3))
+                        .filter(|_| name.len() >= 3)
+                    {
+                        // Preserve stem casing; strip any .md/.MD/.Md suffix length 3.
+                        stem.to_string()
+                    } else {
+                        name.clone()
+                    };
                     upserts.push(SearchItemDto {
                         id: format!("note:{}", path.display()),
                         module_id: "luma.notes".into(),
-                        title: name.trim_end_matches(".md").to_string(),
+                        title,
                         subtitle: Some(path.display().to_string()),
                         kind: "note".into(),
                         score: 75.0,
@@ -701,84 +944,62 @@ impl LumaModule for NotesModule {
             return;
         }
 
-        let needle = rest;
-        let index = self.index.read().await.clone();
-        if needle.is_empty() {
-            let mut upserts = vec![
-                SearchItemDto {
-                    id: format!("browse:n:{}", root.display()),
-                    module_id: "luma.notes".into(),
-                    title: "Browse notes folders".into(),
-                    subtitle: Some(root.display().to_string()),
-                    kind: "directory".into(),
-                    score: 95.0,
-                    primary_action_id: "browse".into(),
-                    primary_action_label: "Browse".into(),
-                    ..Default::default()
-                },
-                SearchItemDto {
-                    id: "notes:open".into(),
-                    module_id: "luma.notes".into(),
-                    title: "Notes workspace".into(),
-                    subtitle: Some(root.display().to_string()),
-                    kind: "open".into(),
-                    score: 1.0,
-                    primary_action_id: "open".into(),
-                    primary_action_label: "Open".into(),
-                    ..Default::default()
-                },
-            ];
-            for name in ["Inbox", "Daily"] {
-                let path = root.join(name);
-                if path.is_dir() {
-                    upserts.push(SearchItemDto {
-                        id: format!("browse:n:{}", path.display()),
-                        module_id: "luma.notes".into(),
-                        title: format!("{name}/"),
-                        subtitle: Some(path.display().to_string()),
-                        kind: "directory".into(),
-                        score: 90.0,
-                        primary_action_id: "browse".into(),
-                        primary_action_label: "Browse".into(),
-                        ..Default::default()
-                    });
-                }
+        let needle = rest_check;
+        let index = self.index.clone();
+        let limit = query.limit;
+        let hits = match tokio::task::spawn_blocking(move || index.search(&needle, limit)).await {
+            Ok(Ok(hits)) => hits,
+            Ok(Err(e)) => {
+                let _ = sink
+                    .send(Event::ResultsChunk {
+                        request_id: String::new(),
+                        sequence: 1,
+                        upserts: vec![unavailable_row("Notes search unavailable", e.to_string())],
+                        removed_ids: vec![],
+                    })
+                    .await;
+                return;
             }
-            let _ = sink
-                .send(Event::ResultsChunk {
-                    request_id: String::new(),
-                    sequence: 1,
-                    upserts,
-                    removed_ids: vec![],
-                })
-                .await;
+            Err(e) => {
+                let _ = sink
+                    .send(Event::ResultsChunk {
+                        request_id: String::new(),
+                        sequence: 1,
+                        upserts: vec![unavailable_row("Notes search unavailable", e.to_string())],
+                        removed_ids: vec![],
+                    })
+                    .await;
+                return;
+            }
+        };
+        if cancel.is_cancelled() {
             return;
         }
-
         let mut upserts = Vec::new();
-        for note in index {
+        for hit in hits {
             if cancel.is_cancelled() {
                 return;
             }
-            if NotesModule::resolve_under_root(&root, &note.path).is_err() {
+            let abs = root.join(&hit.relative_path);
+            if NotesModule::resolve_under_root(&root, &abs).is_err() {
                 continue;
             }
-            if note.title.to_lowercase().contains(&needle) {
-                upserts.push(SearchItemDto {
-                    id: note.id,
-                    module_id: "luma.notes".into(),
-                    title: note.title,
-                    subtitle: Some(note.path.display().to_string()),
-                    kind: "note".into(),
-                    score: 70.0,
-                    primary_action_id: "open".into(),
-                    primary_action_label: "Open".into(),
-                    ..Default::default()
-                });
-            }
-            if upserts.len() >= query.limit {
-                break;
-            }
+            upserts.push(SearchItemDto {
+                id: format!("note:{}", abs.display()),
+                module_id: "luma.notes".into(),
+                title: hit.title,
+                subtitle: Some(if hit.snippet.is_empty() {
+                    abs.display().to_string()
+                } else {
+                    format!("{} — {}", abs.display(), hit.snippet)
+                }),
+                kind: "note".into(),
+                // bm25 is lower-is-better (often negative); invert for Luma descending score.
+                score: 70.0 - hit.rank,
+                primary_action_id: "open".into(),
+                primary_action_label: "Open".into(),
+                ..Default::default()
+            });
         }
         if !upserts.is_empty() {
             let _ = sink
@@ -817,32 +1038,96 @@ impl LumaModule for NotesModule {
                 confirmation: false,
             }];
         }
-        vec![ActionDescriptor {
-            id: ActionId::new("open"),
-            label: "Open".into(),
-            risk: ActionRisk::Safe,
-            confirmation: false,
-        }]
+        if result.kind == "status" || result.kind == "issue" || result.kind == "onboarding" {
+            return vec![ActionDescriptor {
+                id: ActionId::new("noop"),
+                label: "OK".into(),
+                risk: ActionRisk::Safe,
+                confirmation: false,
+            }];
+        }
+        vec![
+            ActionDescriptor {
+                id: ActionId::new("open"),
+                label: "Open".into(),
+                risk: ActionRisk::Safe,
+                confirmation: false,
+            },
+            ActionDescriptor {
+                id: ActionId::new("copy_path"),
+                label: "Copy Path".into(),
+                risk: ActionRisk::Safe,
+                confirmation: false,
+            },
+        ]
     }
 
     async fn preview(&self, result: &SearchItem) -> Option<String> {
         let root = self.root.read().await.clone()?;
         let raw = result.subtitle.as_deref().map(PathBuf::from)?;
-        let path = Self::resolve_under_root(&root, &raw).ok()?;
+        // subtitle may be "path — snippet"; take path portion
+        let path_part = raw
+            .to_string_lossy()
+            .split(" — ")
+            .next()
+            .unwrap_or("")
+            .to_string();
+        let path = Self::resolve_under_root(&root, Path::new(&path_part)).ok()?;
+        let rel = path
+            .strip_prefix(&root)
+            .ok()
+            .map(|p| p.to_string_lossy().replace('\\', "/"));
+
+        let mut out = String::new();
+        if let Some(rel) = &rel {
+            if let Ok(Some(doc)) = self.index.get_document(rel) {
+                out.push_str(&format!("# {}\n", doc.title));
+                out.push_str(&format!("path: {}\n", doc.relative_path));
+                out.push_str(&format!("mtime: {}\n", doc.mtime_unix));
+                out.push_str(&format!("size: {}\n", doc.size_bytes));
+                if !doc.tags.is_empty() {
+                    out.push_str(&format!("tags: {}\n", doc.tags.join(", ")));
+                }
+                if !doc.outbound.is_empty() {
+                    out.push_str("outbound:\n");
+                    for l in doc.outbound.iter().take(12) {
+                        out.push_str(&format!("  - {} ({})\n", l.raw_href, l.kind));
+                    }
+                }
+                if !doc.backlinks.is_empty() {
+                    out.push_str("backlinks:\n");
+                    for l in doc.backlinks.iter().take(12) {
+                        out.push_str(&format!("  - {}\n", l.target_path));
+                    }
+                }
+                out.push('\n');
+            }
+        }
+
         let Ok(meta) = std::fs::symlink_metadata(&path) else {
-            return result.subtitle.clone();
+            return if out.is_empty() {
+                result.subtitle.clone()
+            } else {
+                Some(out)
+            };
         };
         if meta.file_type().is_symlink() || !meta.file_type().is_file() {
-            return result.subtitle.clone();
+            return if out.is_empty() {
+                result.subtitle.clone()
+            } else {
+                Some(out)
+            };
         }
         let Ok(raw) = std::fs::read_to_string(&path) else {
-            return result.subtitle.clone();
+            return if out.is_empty() {
+                result.subtitle.clone()
+            } else {
+                Some(out)
+            };
         };
-        let mut body = raw.chars().take(4000).collect::<String>();
-        if raw.chars().count() > 4000 {
-            body.push_str("\n…");
-        }
-        Some(body)
+        let body: String = raw.chars().take(4_000).collect();
+        out.push_str(&body);
+        Some(out)
     }
 
     async fn perform(&self, action: ActionRequest, cancel: CancellationToken) -> ActionOutcome {
@@ -911,7 +1196,7 @@ impl LumaModule for NotesModule {
                         },
                     };
                 }
-                self.rebuild_index(&root).await;
+                self.rebuild_index(&root, None).await.ok();
                 // Durable create committed — do not report Cancelled after this point.
                 match await_unless_cancelled(&cancel, self.opener.open(&path)).await {
                     None => ActionOutcome::Success {
@@ -989,6 +1274,57 @@ impl LumaModule for NotesModule {
                     },
                 }
             }
+            "noop" => ActionOutcome::Success {
+                message: Some("ok".into()),
+            },
+            "copy_path" => {
+                let Some(root) = root else {
+                    return ActionOutcome::Failed {
+                        kind: FailureKind::NotConfigured {
+                            remediation: "Set notes_root first".into(),
+                        },
+                    };
+                };
+                let Some(raw) = action
+                    .result
+                    .id
+                    .as_str()
+                    .strip_prefix("note:")
+                    .map(PathBuf::from)
+                else {
+                    return ActionOutcome::Failed {
+                        kind: FailureKind::InvalidInput {
+                            field: "id".into(),
+                            message: "copy_path requires a note result".into(),
+                        },
+                    };
+                };
+                let path = match Self::resolve_under_root(&root, &raw) {
+                    Ok(p) => p,
+                    Err(reason) => {
+                        return ActionOutcome::Failed {
+                            kind: FailureKind::SecurityDenied { reason },
+                        };
+                    }
+                };
+                match await_unless_cancelled(
+                    &cancel,
+                    self.pasteboard.write_text(&path.display().to_string()),
+                )
+                .await
+                {
+                    None => ActionOutcome::Cancelled,
+                    Some(Ok(())) => ActionOutcome::Success {
+                        message: Some(format!("copied {}", path.display())),
+                    },
+                    Some(Err(err)) => ActionOutcome::Failed {
+                        kind: FailureKind::Unavailable {
+                            reason: format!("copy failed: {err}"),
+                            retryable: true,
+                        },
+                    },
+                }
+            }
             other => ActionOutcome::Failed {
                 kind: FailureKind::NotFound {
                     entity: format!("action:{other}"),
@@ -999,14 +1335,59 @@ impl LumaModule for NotesModule {
 
     async fn teardown(&self) {
         self.stop_watch().await;
-        self.index.write().await.clear();
+    }
+}
+
+fn unavailable_row(title: impl Into<String>, detail: impl Into<String>) -> SearchItemDto {
+    SearchItemDto {
+        id: "notes:unavailable".into(),
+        module_id: "luma.notes".into(),
+        title: title.into(),
+        subtitle: Some(detail.into()),
+        kind: "unavailable".into(),
+        score: 0.0,
+        primary_action_id: "noop".into(),
+        primary_action_label: "Unavailable".into(),
+        ..Default::default()
+    }
+}
+
+fn status_row(status: &NotesScanStatusView) -> SearchItemDto {
+    let (title, subtitle) = match status {
+        NotesScanStatusView::Idle => ("Index idle".into(), "Ready".into()),
+        NotesScanStatusView::Running {
+            mode,
+            processed,
+            total,
+        } => (format!("Indexing ({mode})"), format!("{processed}/{total}")),
+        NotesScanStatusView::Failed { message } => ("Index failed".into(), message.clone()),
+        NotesScanStatusView::Completed {
+            mode,
+            processed,
+            total,
+            errors,
+        } => (
+            format!("Index {mode}"),
+            format!("{processed}/{total}, errors {errors}"),
+        ),
+    };
+    SearchItemDto {
+        id: "notes:index-status".into(),
+        module_id: "luma.notes".into(),
+        title,
+        subtitle: Some(subtitle),
+        kind: "status".into(),
+        score: 95.0,
+        primary_action_id: "noop".into(),
+        primary_action_label: "Status".into(),
+        ..Default::default()
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use luma_application::FakeOpenPath;
+    use luma_application::{FakeOpenPath, MemoryNotesIndex};
     use luma_domain::{ActionDescriptor, ActionId, ActionRisk, ResultId, SearchItem};
     use std::fs;
     use std::os::unix::fs::symlink;
@@ -1070,12 +1451,15 @@ mod tests {
         let m = NotesModule::with_root_for_tests(None);
         m.set_root_for_tests(dir.path().to_path_buf()).await;
         let (tx, mut rx) = mpsc::channel(2);
-        m.search(Query::parse("n hello", 10), tx, CancellationToken::new())
+        m.search(Query::parse("n hi", 10), tx, CancellationToken::new())
             .await;
         let ev = rx.recv().await.unwrap();
         match ev {
             Event::ResultsChunk { upserts, .. } => {
-                assert_eq!(upserts[0].title, "hello");
+                assert!(
+                    upserts.iter().any(|u| u.title == "hi" && u.kind == "note"),
+                    "{upserts:?}"
+                );
             }
             other => panic!("{other:?}"),
         }
@@ -1129,14 +1513,14 @@ mod tests {
         fs::write(dir.path().join("safe.md"), "ok").unwrap();
         let link = dir.path().join("escape-link");
         symlink(outside.path(), &link).unwrap();
-        let notes = scan_md_tree(dir.path());
+        let index = MemoryNotesIndex::new();
+        index.full_scan(dir.path(), None).unwrap();
+        let hits = index.search("safe", 20).unwrap();
+        assert!(!hits.is_empty(), "expected in-root note");
+        let secret = index.search("secret", 20).unwrap();
         assert!(
-            notes.iter().any(|n| n.title == "safe"),
-            "expected in-root note"
-        );
-        assert!(
-            notes.iter().all(|n| n.title != "secret"),
-            "directory symlink must not index outside root: {notes:?}"
+            secret.is_empty(),
+            "directory symlink must not index outside root: {secret:?}"
         );
     }
 
@@ -1265,7 +1649,7 @@ mod tests {
         fs::write(dir.path().join("root-note.md"), "# root").unwrap();
         let m = NotesModule::with_root_for_tests(Some(dir.path().to_path_buf()));
         let (tx, mut rx) = mpsc::channel(4);
-        let q = Query::parse(&format!("n browse {}", dir.path().display()), 20);
+        let q = Query::parse(format!("n browse {}", dir.path().display()), 20);
         m.search(q, tx, CancellationToken::new()).await;
         let ev = rx.recv().await.expect("chunk");
         let Event::ResultsChunk { upserts, .. } = ev else {

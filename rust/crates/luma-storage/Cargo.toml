@@ -16,6 +16,11 @@ dirs = { workspace = true }
 tracing = { workspace = true }
 rusqlite = { workspace = true }
 uuid = { workspace = true }
+pulldown-cmark = { workspace = true }
+serde_yaml = { workspace = true }
+sha2 = { workspace = true }
+hex = { workspace = true }
+walkdir = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }

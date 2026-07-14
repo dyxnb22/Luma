@@ -4,6 +4,11 @@ mod clipboard_store;
 mod config;
 mod importer;
 mod migration_ledger;
+mod notes_discover;
+mod notes_ignore;
+mod notes_index_store;
+mod notes_parse;
+mod notes_scan;
 mod paths;
 mod quicklinks_store;
 mod snippets_store;
@@ -18,6 +23,21 @@ pub use importer::{
 pub use migration_ledger::{
     get_migration, list_migrations, record_dry_run, rollback_migration, LedgerError,
     MigrationCommitGuard, MigrationKind, MigrationStatus, PersistedMigration,
+};
+pub use notes_discover::{discover, DiscoverResult, SkipReason, SkippedEntry};
+pub use notes_ignore::{path_match, IgnoreMatcher, DEFAULT_IGNORE_DIRS};
+pub use notes_index_store::{
+    contains_cjk, escape_fts_query, DocumentLinkRow, DocumentRow, NotesIndexStore,
+    NotesIndexStoreError, ScanIssueRow, SearchHit, ISSUE_FRONTMATTER_WARNING, ISSUE_OVERSIZED,
+    ISSUE_SYMLINK_SKIPPED, ISSUE_UNREADABLE, ISSUE_WALK_ERROR,
+};
+pub use notes_parse::{
+    extract_body, extract_links, extract_tags, extract_title, split_frontmatter, ExtractedLink,
+    FrontmatterResult, LinkKind, TagsResult, TitleResult,
+};
+pub use notes_scan::{
+    NotesScanError, NotesScanOptions, NotesScanner, ScanMode, ScanReport, ScanStatus,
+    DEFAULT_MAX_FILE_BYTES,
 };
 pub use paths::{ensure_luma_next_dirs, luma_next_logs_dir, luma_next_support_dir, PathsError};
 pub use quicklinks_store::{QuicklinkRow, QuicklinksStore, QuicklinksStoreError};

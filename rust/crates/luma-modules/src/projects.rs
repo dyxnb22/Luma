@@ -111,6 +111,7 @@ fn list_children(dir: &PathBuf, cancel: &CancellationToken) -> Vec<(String, Path
 
 /// Reject `..` components and require the path (after canonicalize when it exists)
 /// to sit under at least one configured root.
+#[allow(clippy::ptr_arg)]
 fn resolve_under_roots(path: &PathBuf, roots: &[PathBuf]) -> Result<PathBuf, String> {
     for c in path.components() {
         if matches!(c, std::path::Component::ParentDir) {
@@ -429,7 +430,7 @@ impl LumaModule for ProjectsModule {
                     .as_str()
                     .strip_prefix("browse:proj:")
                     .or_else(|| action.result.id.as_str().strip_prefix("proj:"))
-                    .or_else(|| action.result.subtitle.as_deref());
+                    .or(action.result.subtitle.as_deref());
                 let Some(path) = path_str.map(PathBuf::from) else {
                     return ActionOutcome::Failed {
                         kind: FailureKind::InvalidInput {
@@ -525,7 +526,7 @@ mod tests {
         );
         let (tx, mut rx) = mpsc::channel(8);
         let q = Query::parse(
-            &format!("proj browse {}/../outside", root.path().display()),
+            format!("proj browse {}/../outside", root.path().display()),
             20,
         );
         module.search(q, tx, CancellationToken::new()).await;
@@ -549,7 +550,7 @@ mod tests {
         let (tx, mut rx) = mpsc::channel(8);
         let path = mixed.display().to_string();
         // Keep case in the query string.
-        let q = Query::parse(&format!("proj browse {path}"), 20);
+        let q = Query::parse(format!("proj browse {path}"), 20);
         module.search(q, tx, CancellationToken::new()).await;
         let ev = rx.recv().await.expect("chunk");
         let Event::ResultsChunk { upserts, .. } = ev else {

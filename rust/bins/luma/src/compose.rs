@@ -2,7 +2,7 @@
 
 use luma_application::{
     ModuleRegistry, RegistryError as ModuleRegistryError, SettingsRepository,
-    SqliteClipboardHistory, SqliteQuicklinksRepository, SqliteSnippetsRepository,
+    SqliteClipboardHistory, SqliteNotesIndex, SqliteQuicklinksRepository, SqliteSnippetsRepository,
     TomlSettingsRepository,
 };
 use luma_modules::{
@@ -14,7 +14,8 @@ use luma_platform_macos::{
     MacOpenPath, MacPasteboard, MacProcessCatalog,
 };
 use luma_storage::{
-    ClipboardStore, ConfigError, ConfigStore, LumaSettings, QuicklinksStore, SnippetsStore,
+    ClipboardStore, ConfigError, ConfigStore, LumaSettings, NotesIndexStore, NotesScanner,
+    QuicklinksStore, SnippetsStore,
 };
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -36,6 +37,7 @@ pub fn registry_from_settings(
     clipboard: Option<Arc<ClipboardStore>>,
     quicklinks: Option<Arc<QuicklinksStore>>,
     snippets: Option<Arc<SnippetsStore>>,
+    notes_index: Option<Arc<NotesScanner>>,
 ) -> Result<ModuleRegistry, ModuleRegistryError> {
     let notes_root = settings.notes_root.as_ref().map(PathBuf::from);
     let project_roots: Vec<PathBuf> = settings.projects_roots.iter().map(PathBuf::from).collect();
@@ -60,11 +62,17 @@ pub fn registry_from_settings(
     } else {
         warn!("clipboard store unavailable — Clipboard module not registered");
     }
-    reg.register(Arc::new(NotesModule::with_root(
-        notes_root,
-        opener.clone(),
-        Arc::new(MacMarkdownWatcher),
-    )))?;
+    if let Some(scanner) = notes_index {
+        reg.register(Arc::new(NotesModule::with_root(
+            notes_root,
+            opener.clone(),
+            Arc::new(MacMarkdownWatcher),
+            Arc::new(SqliteNotesIndex::new(scanner)),
+            pasteboard.clone(),
+        )))?;
+    } else {
+        warn!("notes index unavailable — Notes module not registered");
+    }
     if let Some(quicklinks) = quicklinks {
         reg.register(Arc::new(QuicklinksModule::with_deps(
             Arc::new(SqliteQuicklinksRepository::new(quicklinks)),
@@ -145,7 +153,14 @@ pub fn load_registry_with_settings(
             None
         }
     };
-    let registry = registry_from_settings(&settings, clipboard, quicklinks, snippets)?;
+    let notes_index = match NotesIndexStore::luma_next_default() {
+        Ok(store) => Some(Arc::new(NotesScanner::new(store))),
+        Err(err) => {
+            warn!(%err, "failed to open notes index");
+            None
+        }
+    };
+    let registry = registry_from_settings(&settings, clipboard, quicklinks, snippets, notes_index)?;
     let settings_repo: Arc<dyn SettingsRepository> = Arc::new(TomlSettingsRepository::new(store));
     Ok((registry, settings_repo))
 }

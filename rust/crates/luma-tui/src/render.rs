@@ -842,7 +842,7 @@ fn render_overlay_doctor(
     symbols: &Symbols,
 ) {
     dim_backdrop(frame, area, theme);
-    let overlay = overlay_area(area, (area.height.saturating_sub(4)).max(8).min(20));
+    let overlay = overlay_area(area, (area.height.saturating_sub(4)).clamp(8, 20));
     frame.render_widget(Clear, overlay);
     let full = state.doctor_diagnostic.as_ref().map_or_else(
         || format!("Waiting for engine diagnostics{}", symbols.ellipsis),

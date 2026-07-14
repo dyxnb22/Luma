@@ -9,6 +9,7 @@ mod eventkit;
 mod keychain;
 mod markdown_watch;
 mod memory_repos;
+mod notes_repo;
 mod open_path;
 mod pasteboard;
 mod process;
@@ -28,10 +29,14 @@ pub use eventkit::{EventKitError, EventKitPort, ReminderItem, RemindersAuth};
 pub use keychain::{FakeKeychain, KeychainError, KeychainPort, SecretLabel};
 pub use markdown_watch::MarkdownWatchPort;
 pub use memory_repos::{
-    MemoryClipboardHistory, MemoryQuicklinksRepository, MemorySnippetsRepository,
+    MemoryClipboardHistory, MemoryNotesIndex, MemoryQuicklinksRepository, MemorySnippetsRepository,
+};
+pub use notes_repo::{
+    NotesDocument, NotesIndexError, NotesIndexRepository, NotesIssue, NotesLink, NotesScanReport,
+    NotesScanStatusView, NotesSearchHit,
 };
 pub use open_path::{FakeOpenPath, OpenPathError, OpenPathPort};
-pub use pasteboard::{PasteboardError, PasteboardPort};
+pub use pasteboard::{FakePasteboard, PasteboardError, PasteboardPort};
 pub use process::{ProcessCatalogPort, ProcessEntry, ProcessError};
 pub use quicklinks_repo::{QuicklinkEntry, QuicklinksRepoError, QuicklinksRepository};
 pub use settings::{AppSettings, SettingsError, SettingsRepository};

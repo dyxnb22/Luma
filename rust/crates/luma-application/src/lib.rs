@@ -8,7 +8,7 @@ mod ports;
 mod registry;
 
 pub use adapters::{
-    FsDiagnosticsSink, SqliteClipboardHistory, SqliteQuicklinksRepository,
+    FsDiagnosticsSink, SqliteClipboardHistory, SqliteNotesIndex, SqliteQuicklinksRepository,
     SqliteSnippetsRepository, TomlSettingsRepository,
 };
 pub use engine::{list_modules_json, run_action, run_doctor, run_query, Engine, EngineOptions};
@@ -21,9 +21,11 @@ pub use ports::{
     looks_secret, AccessibilityError, AccessibilityPort, AppEntry, AppLaunchError, AppSettings,
     AppsCatalogPort, ClipboardEntry, ClipboardHistoryRepository, ClipboardRepoError, ClockError,
     ClockPort, DiagnosticsError, DiagnosticsSink, EventKitError, EventKitPort, FakeAccessibility,
-    FakeKeychain, FakeOpenPath, FixedClock, KeychainError, KeychainPort, MarkdownWatchPort,
-    MemoryClipboardHistory, MemoryQuicklinksRepository, MemorySnippetsRepository, OpenPathError,
-    OpenPathPort, PasteboardError, PasteboardPort, ProcessCatalogPort, ProcessEntry, ProcessError,
+    FakeKeychain, FakeOpenPath, FakePasteboard, FixedClock, KeychainError, KeychainPort,
+    MarkdownWatchPort, MemoryClipboardHistory, MemoryNotesIndex, MemoryQuicklinksRepository,
+    MemorySnippetsRepository, NotesDocument, NotesIndexError, NotesIndexRepository, NotesIssue,
+    NotesLink, NotesScanReport, NotesScanStatusView, NotesSearchHit, OpenPathError, OpenPathPort,
+    PasteboardError, PasteboardPort, ProcessCatalogPort, ProcessEntry, ProcessError,
     QuicklinkEntry, QuicklinksRepoError, QuicklinksRepository, ReminderItem, RemindersAuth,
     SecretLabel, SettingsError, SettingsRepository, SnippetEntry, SnippetsRepoError,
     SnippetsRepository, SystemClock, TranslationError, TranslationResult, TranslatorPort,

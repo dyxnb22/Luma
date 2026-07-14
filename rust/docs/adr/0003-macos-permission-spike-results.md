@@ -15,6 +15,8 @@ and Keychain. Interactive TCC prompts were not forced.
 | Pasteboard | `pbcopy` / `pbpaste` via `MacPasteboard` | Works from Terminal identity; denied vs success distinguishable |
 | Accessibility | `AXIsProcessTrusted` + Cmd+V CGEvent synthesis | Trust query works; paste reports `PermissionRequired` when untrusted — never success |
 | Keychain | `security` CLI, service `com.luma.next.secrets` | Labels/values via explicit copy; search never includes values |
+| Windows list | `CGWindowListCopyWindowInfo` (`windows.list`) | Lists layer-0 windows; titles may be empty without Screen Recording |
+| Windows focus | AX raise + frontmost (`ax.trusted`) | Requires Accessibility; tests never call real focus |
 
 ## Decisions
 

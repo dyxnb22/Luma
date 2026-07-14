@@ -16,7 +16,7 @@ pub enum Effect {
     },
     /// Load detail body for the preview pane.
     LoadPreview { result_id: String, preview_id: u64 },
-    /// Refresh Hub pins (clipboard favorites, etc.).
+    /// Refresh Hub windows slice + modules.
     LoadHub,
     /// Ask the engine for primary + secondary actions for a result.
     ListActions { result_id: String },

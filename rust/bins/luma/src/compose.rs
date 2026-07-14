@@ -10,11 +10,11 @@ use luma_application::{
 };
 use luma_modules::{
     AppsModule, ClipboardModule, ClipboardSuppression, FakeEchoModule, KillProcessModule,
-    NotesModule, ProjectsModule, QuicklinksModule, SecretsModule, SnippetsModule,
+    NotesModule, ProjectsModule, QuicklinksModule, SecretsModule, SnippetsModule, WindowsModule,
 };
 use luma_platform_macos::{
     FilesystemAppsCatalog, MacAccessibility, MacKeychain, MacMarkdownWatcher, MacOpenPath,
-    MacPasteboard, MacProcessCatalog,
+    MacPasteboard, MacProcessCatalog, MacWindowCatalog,
 };
 use luma_storage::{
     ClipboardStore, ConfigError, ConfigStore, LumaSettings, NotesIndexStore, NotesScanner,
@@ -64,12 +64,17 @@ pub fn registry_from_settings(
     let pasteboard = Arc::new(MacPasteboard);
     let accessibility = Arc::new(MacAccessibility);
     let clipboard_suppression = Arc::new(ClipboardSuppression::new());
+    let window_catalog = Arc::new(MacWindowCatalog::new());
+    if let Err(err) = window_catalog.snapshot_previous_frontmost_app_sync() {
+        warn!(%err, "windows: previous-frontmost snapshot failed");
+    }
 
     let mut reg = ModuleRegistry::new();
     reg.register(Arc::new(AppsModule::new(
         Arc::new(FilesystemAppsCatalog::system_default()),
         pasteboard.clone(),
     )))?;
+    reg.register(Arc::new(WindowsModule::with_catalog(window_catalog)))?;
     if let Some(clipboard) = clipboard {
         reg.register(Arc::new(ClipboardModule::with_deps(
             Arc::new(SqliteClipboardHistory::new(clipboard)),

@@ -7,7 +7,7 @@ lightweight local modules than to an agent chat. Codex and Claude Code are inter
 references only (prompt editing, discovery, previews, command surfaces, and clear feedback);
 do not copy their conversational-agent, autonomous-planning, or tool-orchestration product shape.
 
-Prefer: fix friction in core modules, keep tests green, stay on LumaNext paths.  
-Avoid: release packaging, long soak campaigns, stub-module growth, architecture busywork without a personal benefit;
+Prefer: fix friction in core modules (including Windows switcher), keep tests green, stay on LumaNext paths.  
+Avoid: release packaging, long soak campaigns, stub-module growth (Window layouts / Menu / Browser tabs remain stubs), architecture busywork without a personal benefit;
 AI/LLM chat, autonomous agents, task planning/execution loops, background agent daemons, or multi-session orchestration
 unless the user explicitly changes this product boundary.

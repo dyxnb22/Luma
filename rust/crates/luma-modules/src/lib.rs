@@ -11,6 +11,7 @@ mod projects;
 mod quicklinks;
 mod secrets;
 mod snippets;
+mod windows;
 
 pub use apps::AppsModule;
 pub use clipboard::ClipboardModule;
@@ -22,3 +23,4 @@ pub use projects::ProjectsModule;
 pub use quicklinks::QuicklinksModule;
 pub use secrets::SecretsModule;
 pub use snippets::SnippetsModule;
+pub use windows::{WindowsModule, HUB_WINDOWS_MAX};

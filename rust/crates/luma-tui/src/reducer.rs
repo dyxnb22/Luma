@@ -514,29 +514,35 @@ fn apply_hub_selection(state: &mut AppState) -> Vec<Effect> {
         return vec![Effect::LoadHub];
     }
     let idx = state.hub_selected.min(entries.len() - 1);
-    let (kind, id, _title, query) = &entries[idx];
-    if kind == "pin" {
-        // Clipboard pins select the exact result id; Notes shortcuts just run the query.
-        if id.starts_with("clip:") {
-            state.hub_pending_select_id = Some(id.clone());
-        } else {
-            state.hub_pending_select_id = None;
-        }
-        state.prompt = if query.is_empty() {
-            "clip ".into()
-        } else {
-            query.clone()
-        };
+    let (kind, id, title, query) = &entries[idx];
+    if kind == "window" {
+        return execute_action(
+            state,
+            id.clone(),
+            ActionDescriptorDto {
+                id: "focus".into(),
+                label: format!("Focus {title}"),
+                risk: luma_domain::ActionRisk::Safe,
+                confirmation: false,
+            },
+            false,
+        );
+    }
+    if kind == "window_status" || kind == "window_more" {
+        state.prompt = query.clone();
         state.prompt_cursor = state.prompt_char_len();
         state.focus = FocusZone::Prompt;
         state.history_browse = None;
         state.browse_nav_stack.clear();
-        state
-            .status
-            .set(format!("opening pin {id}"), StatusTone::Neutral);
-        return begin_search(state);
+        if kind == "window_status" {
+            if let Some(hub) = &state.hub_windows {
+                if let Some(sub) = &hub.status_subtitle {
+                    state.status.set(sub.clone(), StatusTone::Warning);
+                }
+            }
+        }
+        return schedule_search(state);
     }
-    state.hub_pending_select_id = None;
     state.prompt = query.clone();
     state.prompt_cursor = state.prompt_char_len();
     state.focus = FocusZone::Prompt;
@@ -791,7 +797,8 @@ fn cancel_msg(state: &mut AppState) -> Vec<Effect> {
         state.results.items.clear();
         state.results.selected_id = None;
         state.active_request = None;
-        vec![Effect::None]
+        state.status.set("Ready", StatusTone::Success);
+        vec![Effect::LoadHub]
     } else {
         // Same path as Ctrl-C — confirm before leaving the workbench.
         clear_action_ui(state);
@@ -923,7 +930,7 @@ fn apply_engine(state: &mut AppState, event: Event) -> Vec<Effect> {
 fn schedule_search(state: &mut AppState) -> Vec<Effect> {
     // Cancel in-flight work immediately so typing stays responsive, but delay the
     // new Search until the quiet period so bursts don't thrash modules.
-    let effects = cancel_active(state);
+    let mut effects = cancel_active(state);
     // Stale results must not remain actionable during debounce.
     state.results.items.clear();
     state.results.selected_id = None;
@@ -934,6 +941,7 @@ fn schedule_search(state: &mut AppState) -> Vec<Effect> {
     if state.prompt.is_empty() {
         state.search_debounce_deadline = None;
         state.status.set("Ready", StatusTone::Success);
+        effects.push(Effect::LoadHub);
         return effects;
     }
     state.search_debounce_deadline =
@@ -959,6 +967,7 @@ fn begin_search(state: &mut AppState) -> Vec<Effect> {
         state.results.selected_id = None;
         state.results.scroll = 0;
         state.status.set("Ready", StatusTone::Success);
+        effects.push(Effect::LoadHub);
         return effects;
     }
     state.push_query_history(&state.prompt.clone());
@@ -1185,6 +1194,16 @@ mod tests {
     }
 
     #[test]
+    fn esc_to_empty_prompt_reloads_hub() {
+        let mut state = AppState::default();
+        state.prompt = "app safari".into();
+        state.prompt_cursor = state.prompt_char_len();
+        let effects = update(&mut state, Msg::Cancel);
+        assert!(state.prompt.is_empty());
+        assert!(effects.iter().any(|e| matches!(e, Effect::LoadHub)));
+    }
+
+    #[test]
     fn cancel_opens_quit_confirm_from_empty_search() {
         let mut state = AppState::default();
         let _ = update(&mut state, Msg::Cancel);
@@ -1246,7 +1265,10 @@ mod tests {
 
         state.active_request = None;
         let effects = update(&mut state, Msg::Cancel);
-        assert_eq!(effects, vec![Effect::None]);
+        assert!(
+            effects.iter().any(|e| matches!(e, Effect::LoadHub)),
+            "expected LoadHub after clearing to hub: {effects:?}"
+        );
         assert!(state.prompt.is_empty());
         assert!(!state.should_quit);
     }
@@ -1636,7 +1658,10 @@ mod tests {
         });
         state.prompt = "a".into();
         let effects = update(&mut state, Msg::Cancel);
-        assert_eq!(effects, vec![Effect::None]);
+        assert!(
+            effects.iter().any(|e| matches!(e, Effect::LoadHub)),
+            "expected LoadHub after Esc to empty: {effects:?}"
+        );
         assert!(state.prompt.is_empty());
         assert!(state.results.items.is_empty());
         assert!(!state.should_quit);
@@ -1769,34 +1794,155 @@ mod tests {
     }
 
     #[test]
-    fn hub_pin_enter_sets_pending_select() {
+    fn hub_window_enter_focuses_without_prompt() {
         let mut state = AppState::default();
-        state.hub_pins = vec![crate::view_model::HubPinRow {
-            id: "clip:9".into(),
-            title: "pinned text".into(),
-            module_id: "luma.clipboard".into(),
-            query: "clip ".into(),
-        }];
+        state.hub_windows = Some(crate::view_model::HubWindowsState {
+            app_name: "Cursor".into(),
+            windows: vec![crate::view_model::HubWindowRow {
+                id: "win:pid:1|num:1".into(),
+                title: "Luma".into(),
+            }],
+            more: None,
+            status_kind: None,
+            status_title: None,
+            status_subtitle: None,
+        });
         state.hub_selected = 0;
         let effects = update(&mut state, Msg::Submit);
-        assert_eq!(state.hub_pending_select_id.as_deref(), Some("clip:9"));
-        assert_eq!(state.prompt, "clip ");
-        assert!(effects.iter().any(|e| matches!(e, Effect::Search { .. })));
+        assert!(state.prompt.is_empty());
+        assert!(effects.iter().any(|e| matches!(
+            e,
+            Effect::ExecuteAction {
+                action_id,
+                result_id,
+                ..
+            } if action_id == "focus" && result_id == "win:pid:1|num:1"
+        )));
+        assert!(!effects.iter().any(|e| matches!(e, Effect::LoadHub)));
     }
 
     #[test]
-    fn hub_notes_pin_runs_query_without_pending_select() {
+    fn hub_window_enter_respects_active_operation() {
         let mut state = AppState::default();
-        state.hub_pins = vec![crate::view_model::HubPinRow {
-            id: "notes:daily".into(),
-            title: "Daily note".into(),
-            module_id: "luma.notes".into(),
-            query: "n daily".into(),
-        }];
+        state.active_operation = Some("op-1".into());
+        state.hub_windows = Some(crate::view_model::HubWindowsState {
+            app_name: "Cursor".into(),
+            windows: vec![crate::view_model::HubWindowRow {
+                id: "win:pid:1|num:1".into(),
+                title: "Luma".into(),
+            }],
+            more: None,
+            status_kind: None,
+            status_title: None,
+            status_subtitle: None,
+        });
         state.hub_selected = 0;
         let effects = update(&mut state, Msg::Submit);
-        assert!(state.hub_pending_select_id.is_none());
-        assert_eq!(state.prompt, "n daily");
-        assert!(effects.iter().any(|e| matches!(e, Effect::Search { .. })));
+        assert_eq!(effects, vec![Effect::None]);
+        assert_eq!(state.active_operation.as_deref(), Some("op-1"));
+    }
+
+    #[test]
+    fn empty_prompt_schedules_load_hub() {
+        let mut state = AppState::default();
+        state.prompt = "app x".into();
+        state.prompt_cursor = state.prompt_char_len();
+        let effects = update(&mut state, Msg::ClearToStart);
+        assert!(state.prompt.is_empty());
+        assert!(effects.iter().any(|e| matches!(e, Effect::LoadHub)));
+    }
+
+    #[test]
+    fn hub_more_row_opens_win_trigger() {
+        let mut state = AppState::default();
+        state.hub_windows = Some(crate::view_model::HubWindowsState {
+            app_name: "Cursor".into(),
+            windows: vec![crate::view_model::HubWindowRow {
+                id: "win:pid:1|num:1".into(),
+                title: "Luma".into(),
+            }],
+            more: Some(3),
+            status_kind: None,
+            status_title: None,
+            status_subtitle: None,
+        });
+        state.hub_selected = 1; // more row
+        let _effects = update(&mut state, Msg::Submit);
+        assert_eq!(state.prompt, "win ");
+    }
+
+    #[test]
+    fn hub_status_row_opens_win() {
+        let mut state = AppState::default();
+        state.hub_windows = Some(crate::view_model::HubWindowsState {
+            app_name: "Windows".into(),
+            windows: vec![],
+            more: None,
+            status_kind: Some("permission_required".into()),
+            status_title: Some("Permission required (accessibility)".into()),
+            status_subtitle: Some("Grant Accessibility".into()),
+        });
+        state.hub_selected = 0;
+        let _ = update(&mut state, Msg::Submit);
+        assert_eq!(state.prompt, "win ");
+    }
+
+    #[test]
+    fn hub_rows_order_window_then_module() {
+        let mut state = AppState::default();
+        state.hub_windows = Some(crate::view_model::HubWindowsState {
+            app_name: "Cursor".into(),
+            windows: vec![crate::view_model::HubWindowRow {
+                id: "win:a".into(),
+                title: "A".into(),
+            }],
+            more: None,
+            status_kind: None,
+            status_title: None,
+            status_subtitle: None,
+        });
+        state.module_catalog = vec![crate::view_model::ModuleCatalogEntry {
+            id: "luma.apps".into(),
+            display_name: "Apps".into(),
+            enabled: true,
+            glyph: None,
+            suggested_query: Some("app ".into()),
+            empty_hint: None,
+            supports_browse: false,
+            triggers: vec![],
+        }];
+        let rows = state.hub_rows();
+        assert_eq!(rows[0].0, "window");
+        assert!(rows.iter().any(|(k, ..)| k == "module"));
+    }
+
+    #[test]
+    fn hub_loaded_clamps_selection() {
+        let mut state = AppState::default();
+        state.hub_selected = 50;
+        state.hub_scroll = 40;
+        state.module_catalog = vec![crate::view_model::ModuleCatalogEntry {
+            id: "luma.apps".into(),
+            display_name: "Apps".into(),
+            enabled: true,
+            glyph: None,
+            suggested_query: Some("app ".into()),
+            empty_hint: None,
+            supports_browse: false,
+            triggers: vec![],
+        }];
+        let _ = state.apply_engine_event(Event::HubLoaded {
+            windows: Some(luma_protocol::HubWindowsDto {
+                app_name: "Cursor".into(),
+                windows: vec![luma_protocol::HubWindowDto {
+                    id: "win:a".into(),
+                    title: "A".into(),
+                }],
+                more: None,
+                status: None,
+            }),
+        });
+        assert!(state.hub_selected < state.hub_rows().len());
+        assert!(state.hub_scroll <= state.hub_selected);
     }
 }

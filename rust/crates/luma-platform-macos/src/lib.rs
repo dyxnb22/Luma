@@ -8,6 +8,7 @@ mod markdown_watch;
 mod open_path;
 mod pasteboard;
 mod process;
+mod window;
 
 pub use accessibility::{Accessibility, AccessibilityError, FakeAccessibility, MacAccessibility};
 pub use apps::{AppEntry, AppLaunchError, AppsCatalog, FilesystemAppsCatalog};
@@ -17,3 +18,4 @@ pub use markdown_watch::MacMarkdownWatcher;
 pub use open_path::{FakeOpenPath, MacOpenPath, OpenPath, OpenPathError};
 pub use pasteboard::{MacPasteboard, Pasteboard, PasteboardError};
 pub use process::{MacProcessCatalog, ProcessCatalog, ProcessEntry, ProcessError};
+pub use window::{probe_ax_trusted, probe_windows_list, MacWindowCatalog};

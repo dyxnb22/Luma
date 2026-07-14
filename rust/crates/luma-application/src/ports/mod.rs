@@ -15,6 +15,7 @@ mod process;
 mod quicklinks_repo;
 mod settings;
 mod snippets_repo;
+mod window;
 
 pub use accessibility::{AccessibilityError, AccessibilityPort, FakeAccessibility};
 pub use apps::{AppEntry, AppLaunchError, AppsCatalogPort};
@@ -38,3 +39,4 @@ pub use process::{FakeProcessCatalog, ProcessCatalogPort, ProcessEntry, ProcessE
 pub use quicklinks_repo::{QuicklinkEntry, QuicklinksRepoError, QuicklinksRepository};
 pub use settings::{AppSettings, SettingsError, SettingsRepository};
 pub use snippets_repo::{SnippetEntry, SnippetsRepoError, SnippetsRepository};
+pub use window::{FakeWindowCatalog, WindowCatalogPort, WindowEntry, WindowError};

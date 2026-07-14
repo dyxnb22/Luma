@@ -221,6 +221,32 @@ async fn secrets_vault_row_matches_actions_contract() {
 }
 
 #[tokio::test]
+async fn windows_row_matches_actions_contract() {
+    use luma_application::{FakeWindowCatalog, WindowEntry};
+    use luma_modules::WindowsModule;
+
+    let catalog = Arc::new(FakeWindowCatalog::with_entries(
+        vec![WindowEntry {
+            id: "pid:1|num:1".into(),
+            app_name: "Cursor".into(),
+            app_bundle_id: None,
+            title: "Luma".into(),
+            is_on_screen: true,
+            layer: 0,
+            owner_pid: 1,
+        }],
+        Some("Cursor".into()),
+    ));
+    let m = WindowsModule::with_catalog(catalog);
+    m.warmup(WarmupContext {
+        cancel: CancellationToken::new(),
+    })
+    .await;
+    assert_primary_actions_resolvable(&m, Query::parse("win luma", 20)).await;
+    m.teardown().await;
+}
+
+#[tokio::test]
 async fn notes_daily_row_matches_actions_contract() {
     use luma_modules::NotesModule;
     use tempfile::tempdir;

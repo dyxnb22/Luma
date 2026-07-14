@@ -409,6 +409,14 @@ async fn main() -> anyhow::Result<()> {
                         });
                         // Legacy top-level mirror for scripts.
                         diag["ax_trusted"] = ax_trusted.into();
+                        let windows_list = match luma_platform_macos::probe_windows_list() {
+                            Ok(count) => serde_json::json!({ "ok": true, "count": count }),
+                            Err(err) => serde_json::json!({ "ok": false, "error": err }),
+                        };
+                        diag["probes"] = serde_json::json!({
+                            "windows.list": windows_list,
+                            "ax.trusted": ax_trusted,
+                        });
                         if settings.notes_root.is_none() {
                             let mut remediation = diag
                                 .get("remediation")

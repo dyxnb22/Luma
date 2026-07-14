@@ -1444,18 +1444,6 @@ impl LumaModule for NotesModule {
         }
     }
 
-    async fn hub_pins(&self) -> Vec<(String, String, String)> {
-        vec![
-            ("notes:daily".into(), "Daily note".into(), "n daily".into()),
-            ("notes:new".into(), "New note".into(), "n new".into()),
-            (
-                "notes:browse".into(),
-                "Browse notes".into(),
-                "n browse".into(),
-            ),
-        ]
-    }
-
     async fn apply_settings(&self, settings: &luma_application::AppSettings) {
         let _ = self
             .index

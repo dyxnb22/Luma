@@ -194,24 +194,36 @@ fn hub_list_items(state: &AppState, theme: &Theme, symbols: &Symbols) -> Vec<Lis
         ])];
     }
     let mut out = Vec::new();
-    let mut shown_pins = false;
+    let mut shown_windows = false;
     let mut shown_modules = false;
     let viewport = state.results.viewport_rows.max(1);
-    let end = (state.hub_scroll + viewport).min(rows.len());
-    let window = &rows[state.hub_scroll..end];
-    for (idx, (kind, _id, title, query)) in window
-        .iter()
-        .enumerate()
-        .map(|(i, r)| (state.hub_scroll + i, r))
-    {
-        if kind == "pin" && !shown_pins && state.hub_scroll == 0 {
-            shown_pins = true;
+    let start = state.hub_scroll.min(rows.len());
+    let end = (start + viewport).min(rows.len());
+    let window = &rows[start..end];
+    for (idx, (kind, _id, title, query)) in window.iter().enumerate().map(|(i, r)| (start + i, r)) {
+        if (kind == "window" || kind == "window_more" || kind == "window_status")
+            && !shown_windows
+            && start == 0
+        {
+            shown_windows = true;
+            let app = state
+                .hub_windows
+                .as_ref()
+                .map(|h| h.app_name.as_str())
+                .unwrap_or("Windows");
+            let hint = if state
+                .hub_windows
+                .as_ref()
+                .and_then(|h| h.status_kind.as_ref())
+                .is_some()
+            {
+                "  Enter opens win · ↑↓ move"
+            } else {
+                "  Enter focuses window · ↑↓ move"
+            };
             out.push(ListItem::new(vec![
-                Line::from(Span::styled("  Pinned", theme.title())),
-                Line::from(Span::styled(
-                    "  Enter selects pin in clipboard · ↑↓ move",
-                    theme.key_hint(),
-                )),
+                Line::from(Span::styled(format!("  Windows · {app}"), theme.title())),
+                Line::from(Span::styled(hint, theme.key_hint())),
             ]));
         }
         if kind == "module" && !shown_modules {
@@ -236,10 +248,10 @@ fn hub_list_items(state: &AppState, theme: &Theme, symbols: &Symbols) -> Vec<Lis
         } else {
             theme.muted()
         };
-        let right = if kind == "pin" {
-            "pin".to_string()
-        } else {
-            query.clone()
+        let right = match kind.as_str() {
+            "window" => String::new(),
+            "window_more" | "window_status" => "win".to_string(),
+            _ => query.clone(),
         };
         out.push(ListItem::new(vec![
             Line::from(vec![

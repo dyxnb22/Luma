@@ -58,6 +58,14 @@ fn modules_list_json() {
         .unwrap()
         .iter()
         .any(|m| m["id"] == "luma.apps"));
+    assert!(
+        v["modules"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|m| m["id"] == "luma.windows"),
+        "expected luma.windows in modules list: {stdout}"
+    );
 }
 
 #[test]

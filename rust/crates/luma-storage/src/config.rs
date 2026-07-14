@@ -41,6 +41,7 @@ impl Default for LumaSettings {
     fn default() -> Self {
         let mut enabled_modules = BTreeMap::new();
         enabled_modules.insert("luma.apps".into(), true);
+        enabled_modules.insert("luma.windows".into(), true);
         enabled_modules.insert("luma.clipboard".into(), true);
         enabled_modules.insert("luma.notes".into(), true);
         enabled_modules.insert("luma.fake".into(), false);

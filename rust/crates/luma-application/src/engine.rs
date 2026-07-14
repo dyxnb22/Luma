@@ -798,7 +798,12 @@ impl Engine {
                         "Repair store for {id} ({reason}), then restart Luma"
                     ));
                 }
-                remediation.push("Grant Accessibility if paste/snippets paste fails".into());
+                remediation.push(
+                    "Grant Accessibility if paste/snippets paste / window focus fails".into(),
+                );
+                remediation.push(
+                    "Windows titles may need Screen Recording; focus needs Accessibility".into(),
+                );
                 remediation
                     .push("Notes excludes: luma config set --notes-exclude 'private/*'".into());
                 let skipped = self
@@ -1022,19 +1027,59 @@ impl Engine {
                     let g = self.inner.lock().await;
                     g.registry.enabled_modules()
                 };
-                let mut pins = Vec::new();
+                let mut windows_dto: Option<luma_protocol::HubWindowsDto> = None;
+                let mut seeded: Vec<luma_domain::SearchItem> = Vec::new();
                 for module in modules {
-                    let id = module.manifest().id.as_str().to_string();
-                    for (pin_id, title, query) in module.hub_pins().await {
-                        pins.push(luma_protocol::HubPinDto {
-                            id: pin_id,
-                            title,
-                            module_id: id.clone(),
-                            query,
-                        });
+                    if windows_dto.is_none() {
+                        if let Some(slice) = module.hub_windows().await {
+                            for row in &slice.windows {
+                                seeded.push(luma_domain::SearchItem {
+                                    id: luma_domain::ResultId::new(row.id.clone()),
+                                    module_id: luma_domain::ModuleId::new("luma.windows"),
+                                    title: row.title.clone(),
+                                    subtitle: Some(slice.app_name.clone()),
+                                    kind: "window".into(),
+                                    score: 50.0,
+                                    primary_action: luma_domain::ActionDescriptor {
+                                        id: luma_domain::ActionId::new("focus"),
+                                        label: "Focus".into(),
+                                        risk: luma_domain::ActionRisk::Safe,
+                                        confirmation: false,
+                                    },
+                                    secondary_actions: vec![],
+                                });
+                            }
+                            windows_dto = Some(luma_protocol::HubWindowsDto {
+                                app_name: slice.app_name,
+                                windows: slice
+                                    .windows
+                                    .into_iter()
+                                    .map(|w| luma_protocol::HubWindowDto {
+                                        id: w.id,
+                                        title: w.title,
+                                    })
+                                    .collect(),
+                                more: slice.more,
+                                status: slice.status.map(|s| luma_protocol::HubWindowsStatusDto {
+                                    kind: s.kind,
+                                    title: s.title,
+                                    subtitle: s.subtitle,
+                                }),
+                            });
+                        }
                     }
                 }
-                let _ = self.emit(Event::HubLoaded { pins }).await;
+                {
+                    let mut g = self.inner.lock().await;
+                    for item in seeded {
+                        g.results_by_id.insert(item.id.as_str().to_string(), item);
+                    }
+                }
+                let _ = self
+                    .emit(Event::HubLoaded {
+                        windows: windows_dto,
+                    })
+                    .await;
             }
             Command::GetSettings => {
                 let (rows, version) = {

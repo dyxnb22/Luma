@@ -34,8 +34,11 @@ template. Luma does not adopt their conversational, autonomous-planning, LLM, or
 - Web admin, Chrome management pages, Tauri/Electron/GUI product shells.
 - AI/LLM chat, autonomous planning or execution, agent tool loops, and background-agent or
   multi-session orchestration infrastructure.
-- Stub modules (Media, Wordbook, window/menu/browser search) and signed-host Translate.
+- Stub modules (Media, Wordbook, Window layouts, Menu search, Browser tabs) and signed-host Translate.
 - Writing into any path except LumaNext (and tempfile overrides) unless the user runs an explicit migrate importer.
+
+Personal **Windows** (`luma.windows`: list + focus, Hub projection of previous-frontmost)
+is allowed; see [0004-windows-hub-projection.md](./0004-windows-hub-projection.md).
 
 ## Consequences
 

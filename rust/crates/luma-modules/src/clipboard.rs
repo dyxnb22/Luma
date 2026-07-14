@@ -49,7 +49,7 @@ impl ClipboardModule {
                 workbench: luma_application::WorkbenchMeta {
                     glyph: Some("C".into()),
                     suggested_query: Some("clip ".into()),
-                    empty_hint: Some("clip · pinned items appear in Hub".into()),
+                    empty_hint: Some("clip · history · pin/unpin · paste needs AX".into()),
                     supports_browse: false,
                 },
             },
@@ -295,7 +295,8 @@ impl LumaModule for ClipboardModule {
                 module_id: "luma.clipboard".into(),
                 title: "Clipboard history is empty".into(),
                 subtitle: Some(
-                    "Copy text elsewhere — new clips appear here; pin favorites for Hub".into(),
+                    "Copy text elsewhere — new clips appear here; pin to keep across clear/purge"
+                        .into(),
                 ),
                 kind: "onboarding".into(),
                 score: 0.0,
@@ -437,24 +438,6 @@ impl LumaModule for ClipboardModule {
         } else {
             Some(body)
         }
-    }
-
-    async fn hub_pins(&self) -> Vec<(String, String, String)> {
-        let Ok(page) = self.store.list_page(0, 40) else {
-            return Vec::new();
-        };
-        page.into_iter()
-            .filter(|e| e.pinned && !looks_secret(&e.text))
-            .take(8)
-            .map(|e| {
-                let title = if e.text.chars().count() > 48 {
-                    format!("{}…", e.text.chars().take(48).collect::<String>())
-                } else {
-                    e.text
-                };
-                (format!("clip:{}", e.id), title, "clip ".into())
-            })
-            .collect()
     }
 
     async fn perform(&self, action: ActionRequest, cancel: CancellationToken) -> ActionOutcome {

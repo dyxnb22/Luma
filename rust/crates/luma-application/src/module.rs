@@ -70,6 +70,30 @@ pub enum ActionOutcome {
 
 pub type SearchSink = mpsc::Sender<Event>;
 
+/// Hub projection of previous-frontmost app windows.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct HubWindowRow {
+    pub id: String,
+    pub title: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct HubWindowsStatus {
+    pub kind: String,
+    pub title: String,
+    pub subtitle: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct HubWindowsSlice {
+    pub app_name: String,
+    pub windows: Vec<HubWindowRow>,
+    /// Extra windows beyond the hard cap (shown as `N more → win`).
+    pub more: Option<u32>,
+    /// Structured Hub failure (permission / unavailable) — never silent empty.
+    pub status: Option<HubWindowsStatus>,
+}
+
 #[async_trait]
 pub trait LumaModule: Send + Sync {
     fn manifest(&self) -> &ModuleManifest;
@@ -88,10 +112,9 @@ pub trait LumaModule: Send + Sync {
             .or_else(|| Some(result.title.clone()))
     }
 
-    /// Pinned / favorite Hub rows: `(id, title, query)`.
-    /// `query` is what Enter types into the prompt (e.g. `clip ` or `n daily`).
-    async fn hub_pins(&self) -> Vec<(String, String, String)> {
-        Vec::new()
+    /// Optional Hub windows slice (previous-frontmost app). Default: none.
+    async fn hub_windows(&self) -> Option<HubWindowsSlice> {
+        None
     }
 
     /// Apply settings that change at runtime (roots, excludes). Default: no-op.

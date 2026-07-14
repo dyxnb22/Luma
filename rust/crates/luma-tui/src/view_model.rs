@@ -198,8 +198,8 @@ pub struct AppState {
     pub module_labels: HashMap<String, String>,
     /// Full module catalog from SessionReady (workbench metadata).
     pub module_catalog: Vec<ModuleCatalogEntry>,
-    /// Pinned Hub rows (clipboard favorites, etc.).
-    pub hub_pins: Vec<HubPinRow>,
+    /// Hub windows slice (previous-frontmost app).
+    pub hub_windows: Option<HubWindowsState>,
     /// When set, `FlushSearch` should fire after this Instant.
     pub search_debounce_deadline: Option<std::time::Instant>,
     pub focus: FocusZone,
@@ -229,8 +229,6 @@ pub struct AppState {
     pub preview_generation: u64,
     /// In-flight preview request id; `None` when idle.
     pub pending_preview_id: Option<u64>,
-    /// After Hub pin Enter, select this result id once search results arrive.
-    pub hub_pending_select_id: Option<String>,
     /// First visible Hub row index.
     pub hub_scroll: usize,
     /// Last known terminal size — used to size the results viewport.
@@ -258,11 +256,19 @@ pub struct ModuleCatalogEntry {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct HubPinRow {
+pub struct HubWindowRow {
     pub id: String,
     pub title: String,
-    pub module_id: String,
-    pub query: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct HubWindowsState {
+    pub app_name: String,
+    pub windows: Vec<HubWindowRow>,
+    pub more: Option<u32>,
+    pub status_kind: Option<String>,
+    pub status_title: Option<String>,
+    pub status_subtitle: Option<String>,
 }
 
 impl Default for AppState {
@@ -289,7 +295,7 @@ impl Default for AppState {
             symbols: Symbols::detect(),
             module_labels: HashMap::new(),
             module_catalog: Vec::new(),
-            hub_pins: Vec::new(),
+            hub_windows: None,
             search_debounce_deadline: None,
             focus: FocusZone::Prompt,
             query_history: Vec::new(),
@@ -306,7 +312,6 @@ impl Default for AppState {
             preview_scroll: 0,
             preview_generation: 0,
             pending_preview_id: None,
-            hub_pending_select_id: None,
             hub_scroll: 0,
             term_width: 80,
             term_height: 24,
@@ -497,17 +502,38 @@ impl AppState {
         self.prompt_cursor = self.prompt_char_len();
     }
 
-    /// Sorted hub rows: modules then metadata-driven suggested queries.
-    /// Returns (kind, id, title, query_or_empty) where kind is "pin" | "module".
+    /// Sorted hub rows: windows then modules.
+    /// Returns (kind, id, title, query_or_empty) where kind is
+    /// "window" | "window_more" | "window_status" | "module".
     pub fn hub_rows(&self) -> Vec<(String, String, String, String)> {
         let mut rows = Vec::new();
-        for pin in &self.hub_pins {
-            rows.push((
-                "pin".into(),
-                pin.id.clone(),
-                pin.title.clone(),
-                pin.query.clone(),
-            ));
+        if let Some(hub) = &self.hub_windows {
+            if let Some(title) = &hub.status_title {
+                rows.push((
+                    "window_status".into(),
+                    "win:status".into(),
+                    title.clone(),
+                    "win ".into(),
+                ));
+            }
+            for w in &hub.windows {
+                rows.push((
+                    "window".into(),
+                    w.id.clone(),
+                    w.title.clone(),
+                    String::new(),
+                ));
+            }
+            if let Some(n) = hub.more {
+                if n > 0 {
+                    rows.push((
+                        "window_more".into(),
+                        "win:more".into(),
+                        format!("{n} more → win"),
+                        "win ".into(),
+                    ));
+                }
+            }
         }
         let mut modules: Vec<_> = self
             .module_catalog
@@ -547,6 +573,7 @@ impl AppState {
                         .unwrap_or(m.id.as_str());
                 let trigger = match key {
                     "apps" => "app",
+                    "windows" => "win",
                     "clipboard" => "clip",
                     "notes" => "n",
                     "quicklinks" => "ql",
@@ -559,20 +586,6 @@ impl AppState {
             rows.push(("module".into(), m.id.clone(), m.display_name.clone(), query));
         }
         rows
-    }
-
-    fn try_select_hub_pending(&mut self) {
-        let Some(want) = self.hub_pending_select_id.clone() else {
-            return;
-        };
-        if self.results.items.iter().any(|i| i.id.as_str() == want) {
-            self.results.selected_id = Some(want);
-            self.results.ensure_selection_visible();
-            self.hub_pending_select_id = None;
-            self.preview_body = None;
-            self.preview_result_id = None;
-            self.pending_preview_id = None;
-        }
     }
 
     /// Sorted hub rows: (module_id, display_name, suggested_query).
@@ -607,16 +620,23 @@ impl AppState {
                 self.status.set("Session ready", StatusTone::Success);
                 true
             }
-            Event::HubLoaded { pins } => {
-                self.hub_pins = pins
-                    .into_iter()
-                    .map(|p| HubPinRow {
-                        id: p.id,
-                        title: p.title,
-                        module_id: p.module_id,
-                        query: p.query,
-                    })
-                    .collect();
+            Event::HubLoaded { windows } => {
+                self.hub_windows = windows.map(|w| HubWindowsState {
+                    app_name: w.app_name,
+                    windows: w
+                        .windows
+                        .into_iter()
+                        .map(|row| HubWindowRow {
+                            id: row.id,
+                            title: row.title,
+                        })
+                        .collect(),
+                    more: w.more,
+                    status_kind: w.status.as_ref().map(|s| s.kind.clone()),
+                    status_title: w.status.as_ref().map(|s| s.title.clone()),
+                    status_subtitle: w.status.and_then(|s| s.subtitle),
+                });
+                self.ensure_hub_selection_visible();
                 true
             }
             Event::SearchStarted { request_id } => {
@@ -661,7 +681,6 @@ impl AppState {
                 self.request_seq_seen = sequence;
                 let items: Vec<_> = upserts.into_iter().map(|d| d.into_domain()).collect();
                 self.results.apply_chunk(items, &removed_ids);
-                self.try_select_hub_pending();
                 true
             }
             Event::SearchFinished {
@@ -672,7 +691,6 @@ impl AppState {
                 if self.active_request.as_deref() == Some(request_id.as_str()) {
                     // End the active request so Esc Clear works on the first press.
                     self.active_request = None;
-                    self.try_select_hub_pending();
                     // Leave the numeric count to the status bar (items.len()); avoid duplicate.
                     let (text, tone) = if total == 0 {
                         ("No results".into(), StatusTone::Neutral)

@@ -169,13 +169,27 @@ pub struct ModuleInfoDto {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct HubPinDto {
+pub struct HubWindowDto {
     pub id: String,
     pub title: String,
-    pub module_id: String,
-    /// Query inserted on Enter (e.g. `clip ` or `n daily`).
-    #[serde(default)]
-    pub query: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HubWindowsStatusDto {
+    pub kind: String,
+    pub title: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub subtitle: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HubWindowsDto {
+    pub app_name: String,
+    pub windows: Vec<HubWindowDto>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub more: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub status: Option<HubWindowsStatusDto>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -185,7 +199,8 @@ pub enum Event {
         modules: Vec<ModuleInfoDto>,
     },
     HubLoaded {
-        pins: Vec<HubPinDto>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        windows: Option<HubWindowsDto>,
     },
     SearchStarted {
         request_id: String,

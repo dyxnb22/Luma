@@ -787,6 +787,7 @@ fn cancel_msg(state: &mut AppState) -> Vec<Effect> {
     } else if !state.prompt.is_empty() {
         state.browse_nav_stack.clear();
         state.clear_prompt();
+        state.search_debounce_deadline = None;
         state.results.items.clear();
         state.results.selected_id = None;
         state.active_request = None;
@@ -1165,6 +1166,20 @@ mod tests {
 
         assert_eq!(effects, vec![Effect::None]);
         assert_eq!(state.route, Route::Commands);
+        assert!(state.prompt.is_empty());
+        assert!(state.search_debounce_deadline.is_none());
+    }
+
+    #[test]
+    fn esc_clears_prompt_and_debounce() {
+        let mut state = AppState::default();
+        state.prompt = "clip hello".into();
+        state.prompt_cursor = state.prompt_char_len();
+        let _ = update(&mut state, Msg::KeyChar('x'));
+        assert!(state.search_debounce_deadline.is_some());
+
+        let _ = update(&mut state, Msg::Cancel);
+
         assert!(state.prompt.is_empty());
         assert!(state.search_debounce_deadline.is_none());
     }

@@ -115,11 +115,12 @@ impl LumaModule for KillProcessModule {
         if ctx.cancel.is_cancelled() {
             return ModuleState::Cold;
         }
-        if let Ok(list) = self.catalog.list_gui_ish().await {
-            *self.cache.write().await = list;
-            ModuleState::Ready
-        } else {
-            ModuleState::Cold
+        match self.catalog.list_gui_ish().await {
+            Ok(list) => {
+                *self.cache.write().await = list;
+                ModuleState::Ready
+            }
+            Err(err) => ModuleState::Failed(err.to_string()),
         }
     }
 
@@ -146,29 +147,36 @@ impl LumaModule for KillProcessModule {
                     removed_ids: vec![],
                 })
                 .await;
-            if let Ok(fresh) = self.catalog.list_gui_ish().await {
-                *self.cache.write().await = fresh;
-                list = self.cache.read().await.clone();
-            } else {
-                let _ = sink
-                    .send(Event::ResultsChunk {
-                        request_id: String::new(),
-                        sequence: 2,
-                        upserts: vec![SearchItemDto {
-                            id: "kill:unavailable".into(),
-                            module_id: "luma.kill-process".into(),
-                            title: "Process list unavailable".into(),
-                            subtitle: Some("Could not refresh processes".into()),
-                            kind: "unavailable".into(),
-                            score: 0.0,
-                            primary_action_id: "noop".into(),
-                            primary_action_label: "Unavailable".into(),
-                            ..Default::default()
-                        }],
-                        removed_ids: vec!["kill:warming".into()],
-                    })
-                    .await;
-                return;
+            let listed = tokio::select! {
+                _ = cancel.cancelled() => return,
+                result = self.catalog.list_gui_ish() => result,
+            };
+            match listed {
+                Ok(fresh) => {
+                    *self.cache.write().await = fresh;
+                    list = self.cache.read().await.clone();
+                }
+                Err(_) => {
+                    let _ = sink
+                        .send(Event::ResultsChunk {
+                            request_id: String::new(),
+                            sequence: 2,
+                            upserts: vec![SearchItemDto {
+                                id: "kill:unavailable".into(),
+                                module_id: "luma.kill-process".into(),
+                                title: "Process list unavailable".into(),
+                                subtitle: Some("Could not refresh processes".into()),
+                                kind: "unavailable".into(),
+                                score: 0.0,
+                                primary_action_id: "noop".into(),
+                                primary_action_label: "Unavailable".into(),
+                                ..Default::default()
+                            }],
+                            removed_ids: vec!["kill:warming".into()],
+                        })
+                        .await;
+                    return;
+                }
             }
         }
         let mut upserts = Vec::new();
@@ -189,7 +197,7 @@ impl LumaModule for KillProcessModule {
                     kind: "process".into(),
                     score: 50.0,
                     primary_action_id: "terminate".into(),
-                    primary_action_label: "Terminate".into(),
+                    primary_action_label: "Terminate (SIGTERM)".into(),
                     primary_action_risk: ActionRisk::Confirm,
                     primary_action_confirmation: true,
                     ..Default::default()
@@ -382,7 +390,7 @@ impl LumaModule for KillProcessModule {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use luma_application::{ActionRequest, FakeProcessCatalog};
+    use luma_application::{ActionRequest, FakeProcessCatalog, ModuleState};
     use luma_domain::{ActionId, Query};
     use std::sync::Arc;
     use tokio::sync::mpsc;
@@ -394,6 +402,23 @@ mod tests {
             executable: exe.into(),
             start_unix: 1_700_000_000,
         }
+    }
+
+    #[tokio::test]
+    async fn warmup_failure_returns_failed_state() {
+        let catalog = Arc::new(FakeProcessCatalog {
+            processes: tokio::sync::Mutex::new(vec![]),
+            list_error: Some("ps unavailable".into()),
+            quit_error: None,
+            quit_calls: tokio::sync::Mutex::new(Vec::new()),
+        });
+        let m = KillProcessModule::with_catalog(catalog);
+        let state = m
+            .warmup(WarmupContext {
+                cancel: CancellationToken::new(),
+            })
+            .await;
+        assert!(matches!(state, ModuleState::Failed(_)));
     }
 
     #[tokio::test]

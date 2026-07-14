@@ -643,6 +643,15 @@ impl AppState {
                 upserts,
                 removed_ids,
             } => {
+                // Empty request_id: module-disable eviction (engine purge). Apply removals
+                // regardless of the active search so disabled-module rows leave the UI.
+                if request_id.is_empty() {
+                    if removed_ids.is_empty() {
+                        return false;
+                    }
+                    self.results.apply_chunk(Vec::new(), &removed_ids);
+                    return true;
+                }
                 if self.active_request.as_deref() != Some(request_id.as_str()) {
                     return false;
                 }
@@ -658,18 +667,17 @@ impl AppState {
             Event::SearchFinished {
                 request_id,
                 total,
-                elapsed_ms: _,
+                elapsed_ms,
             } => {
                 if self.active_request.as_deref() == Some(request_id.as_str()) {
                     // End the active request so Esc Clear works on the first press.
                     self.active_request = None;
                     self.try_select_hub_pending();
+                    // Leave the numeric count to the status bar (items.len()); avoid duplicate.
                     let (text, tone) = if total == 0 {
                         ("No results".into(), StatusTone::Neutral)
-                    } else if total == 1 {
-                        ("1 result".into(), StatusTone::Success)
                     } else {
-                        (format!("{total} results"), StatusTone::Success)
+                        (format!("{elapsed_ms}ms"), StatusTone::Success)
                     };
                     self.status.set(text, tone);
                     true
@@ -695,13 +703,9 @@ impl AppState {
                 true
             }
             Event::ActionStarted { operation_id } => {
-                if let Some(active) = self.active_operation.as_deref() {
-                    if active != operation_id.as_str() {
-                        // Concurrent op the TUI is not tracking — ignore.
-                        return false;
-                    }
+                if self.active_operation.as_deref() != Some(operation_id.as_str()) {
+                    return false;
                 }
-                self.active_operation = Some(operation_id.clone());
                 self.status.set("Running…", StatusTone::Progress);
                 true
             }
@@ -709,13 +713,10 @@ impl AppState {
                 operation_id,
                 outcome,
             } => {
-                if let Some(active) = self.active_operation.as_deref() {
-                    if active != operation_id.as_str() {
-                        // Late finish for a non-current operation.
-                        return false;
-                    }
-                    self.active_operation = None;
+                if self.active_operation.as_deref() != Some(operation_id.as_str()) {
+                    return false;
                 }
+                self.active_operation = None;
                 let tone = status_tone_for_outcome(&outcome);
                 self.status.set(outcome.display_message(), tone);
                 true
@@ -733,7 +734,7 @@ impl AppState {
                     return true;
                 }
                 self.status
-                    .set(format!("doctor: {diagnostic}"), StatusTone::Neutral);
+                    .set("doctor ready · see panel", StatusTone::Neutral);
                 self.doctor_diagnostic = Some(diagnostic);
                 self.doctor_scroll = 0;
                 if !matches!(self.route, Route::Settings | Route::Commands) {
@@ -814,7 +815,16 @@ impl AppState {
                 );
                 true
             }
-            _ => false,
+            Event::ModuleStateChanged { module_id, state } => {
+                let enabled = state != "disabled";
+                if let Some(entry) = self.module_catalog.iter_mut().find(|m| m.id == module_id) {
+                    entry.enabled = enabled;
+                }
+                if let Some(row) = self.settings_modules.iter_mut().find(|m| m.id == module_id) {
+                    row.enabled = enabled;
+                }
+                true
+            }
         }
     }
 }
@@ -846,6 +856,41 @@ fn status_tone_for_failure(kind: &FailureKind) -> StatusTone {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn action_started_ignored_without_active_operation() {
+        let mut state = AppState::default();
+        let applied = state.apply_engine_event(Event::ActionStarted {
+            operation_id: "op-1".into(),
+        });
+        assert!(!applied);
+        assert!(state.active_operation.is_none());
+    }
+
+    #[test]
+    fn action_started_applies_when_operation_matches() {
+        let mut state = AppState {
+            active_operation: Some("op-1".into()),
+            ..AppState::default()
+        };
+        let applied = state.apply_engine_event(Event::ActionStarted {
+            operation_id: "op-1".into(),
+        });
+        assert!(applied);
+        assert_eq!(state.status.text, "Running…");
+    }
+
+    #[test]
+    fn action_finished_ignored_without_active_operation() {
+        let mut state = AppState::default();
+        let applied = state.apply_engine_event(Event::ActionFinished {
+            operation_id: "op-2".into(),
+            outcome: ActionOutcomeDto::Success {
+                message: Some("ok".into()),
+            },
+        });
+        assert!(!applied);
+    }
 
     #[test]
     fn action_finished_cancelled_is_warning() {
@@ -882,7 +927,10 @@ mod tests {
 
     #[test]
     fn action_finished_not_configured_is_warning() {
-        let mut state = AppState::default();
+        let mut state = AppState {
+            active_operation: Some("op-2".into()),
+            ..AppState::default()
+        };
         let applied = state.apply_engine_event(Event::ActionFinished {
             operation_id: "op-2".into(),
             outcome: ActionOutcomeDto::failed(FailureKind::NotConfigured {
@@ -896,7 +944,10 @@ mod tests {
 
     #[test]
     fn action_finished_unavailable_is_warning() {
-        let mut state = AppState::default();
+        let mut state = AppState {
+            active_operation: Some("op-3".into()),
+            ..AppState::default()
+        };
         let applied = state.apply_engine_event(Event::ActionFinished {
             operation_id: "op-3".into(),
             outcome: ActionOutcomeDto::failed(FailureKind::Unavailable {
@@ -911,7 +962,10 @@ mod tests {
 
     #[test]
     fn action_finished_permission_is_permission_tone() {
-        let mut state = AppState::default();
+        let mut state = AppState {
+            active_operation: Some("op-4".into()),
+            ..AppState::default()
+        };
         let applied = state.apply_engine_event(Event::ActionFinished {
             operation_id: "op-4".into(),
             outcome: ActionOutcomeDto::failed(FailureKind::PermissionRequired {
@@ -925,7 +979,10 @@ mod tests {
 
     #[test]
     fn action_finished_success_is_success() {
-        let mut state = AppState::default();
+        let mut state = AppState {
+            active_operation: Some("op-5".into()),
+            ..AppState::default()
+        };
         let applied = state.apply_engine_event(Event::ActionFinished {
             operation_id: "op-5".into(),
             outcome: ActionOutcomeDto::Success {
@@ -967,5 +1024,59 @@ mod tests {
         state.term_height = 24;
         assert!(!state.preview_stacked());
         assert!(!state.preview_visible());
+    }
+
+    #[test]
+    fn empty_request_id_chunk_evicts_removed_ids() {
+        use luma_domain::{ActionDescriptor, ActionId, ActionRisk, ModuleId, ResultId, SearchItem};
+
+        let mut state = AppState {
+            active_request: Some("req-1".into()),
+            ..AppState::default()
+        };
+        state.results.items.push(SearchItem {
+            id: ResultId::new("clip:1"),
+            module_id: ModuleId::new("luma.clipboard"),
+            title: "x".into(),
+            subtitle: None,
+            kind: "clip".into(),
+            score: 1.0,
+            primary_action: ActionDescriptor {
+                id: ActionId::new("copy"),
+                label: "Copy".into(),
+                risk: ActionRisk::Safe,
+                confirmation: false,
+            },
+            secondary_actions: vec![],
+        });
+        let applied = state.apply_engine_event(Event::ResultsChunk {
+            request_id: String::new(),
+            sequence: 0,
+            upserts: vec![],
+            removed_ids: vec!["clip:1".into()],
+        });
+        assert!(applied);
+        assert!(state.results.items.is_empty());
+    }
+
+    #[test]
+    fn module_state_changed_updates_catalog_enabled() {
+        let mut state = AppState::default();
+        state.module_catalog.push(ModuleCatalogEntry {
+            id: "luma.kill-process".into(),
+            display_name: "Kill".into(),
+            enabled: true,
+            glyph: None,
+            suggested_query: None,
+            empty_hint: None,
+            supports_browse: false,
+            triggers: vec![],
+        });
+        let applied = state.apply_engine_event(Event::ModuleStateChanged {
+            module_id: "luma.kill-process".into(),
+            state: "disabled".into(),
+        });
+        assert!(applied);
+        assert!(!state.module_catalog[0].enabled);
     }
 }

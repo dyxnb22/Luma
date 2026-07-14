@@ -4,7 +4,9 @@
 use notify::{EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
+use std::sync::Arc;
 use std::time::SystemTime;
 use tokio_util::sync::CancellationToken;
 
@@ -101,10 +103,15 @@ where
     F: FnMut() -> Fut,
     Fut: std::future::Future<Output = ()>,
 {
-    let (tx, rx) = mpsc::channel();
+    // Bounded so a stalled debounce loop cannot retain unbounded notify events.
+    let (tx, rx) = mpsc::sync_channel(64);
+    let overflowed = Arc::new(AtomicBool::new(false));
+    let overflow_flag = overflowed.clone();
     let mut watcher = match RecommendedWatcher::new(
         move |res: Result<notify::Event, notify::Error>| {
-            let _ = tx.send(res);
+            if tx.try_send(res).is_err() {
+                overflow_flag.store(true, Ordering::SeqCst);
+            }
         },
         notify::Config::default(),
     ) {
@@ -125,7 +132,7 @@ where
             _ = cancel.cancelled() => break,
             _ = tokio::time::sleep(std::time::Duration::from_millis(250)) => {
                 // Drain notify channel without blocking the async runtime long.
-                let mut saw = false;
+                let mut saw = overflowed.swap(false, Ordering::SeqCst);
                 while let Ok(msg) = rx.try_recv() {
                     match msg {
                         Ok(ev) => {

@@ -287,3 +287,17 @@ fn corrupt_config_blocks_query() {
         "corrupt config must fail query; stdout={stdout} stderr={stderr}"
     );
 }
+
+#[test]
+fn query_json_redact_flag() {
+    let dir = tempdir().unwrap();
+    let support = dir.path().join("support");
+    let logs = dir.path().join("logs");
+    fs::create_dir_all(&support).unwrap();
+    fs::create_dir_all(&logs).unwrap();
+    let (code, stdout, stderr) =
+        run_luma(&support, &logs, &["query", "clip", "--json", "--redact"]);
+    assert_eq!(code, 0, "stderr={stderr}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
+    assert_eq!(v["redacted"], true);
+}

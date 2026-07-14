@@ -712,29 +712,9 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "phase5 real workspace; run manually"]
+    #[ignore = "phase5 real workspace removed — use tempdir fixtures only"]
     fn phase5_real_workspace_full_scan() {
-        let root = PathBuf::from("/Users/diaoyuxuan/Documents/Notes");
-        assert!(root.is_dir(), "notes workspace missing");
-        let db = dirs::home_dir()
-            .unwrap()
-            .join("Library/Application Support/LumaNext/notes-index.sqlite");
-        if db.exists() {
-            let _ = fs::remove_file(&db);
-        }
-        let store = NotesIndexStore::with_path(db).unwrap();
-        let scanner = NotesScanner::new(store);
-        let options = NotesScanOptions {
-            max_file_bytes: DEFAULT_MAX_FILE_BYTES,
-            ..Default::default()
-        };
-        let report = scanner.full_scan(&root, &options, None).unwrap();
-        let docs = scanner.store().document_count().unwrap();
-        assert!(docs > 100, "docs={docs} report={report:?}");
-        let hits = scanner.store().search("动态规划", 10).unwrap();
-        assert!(
-            !hits.is_empty(),
-            "expected CJK hit for 动态规划; docs={docs}"
-        );
+        // Formerly deleted the real ~/Library/Application Support/LumaNext notes-index.sqlite.
+        // Use `temp_scanner` + fixture trees in this crate for integration coverage instead.
     }
 }

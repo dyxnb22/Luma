@@ -13,6 +13,7 @@ use tokio_util::sync::CancellationToken;
 use tracing::warn;
 
 const SEARCH_CANCEL_BOUND: Duration = Duration::from_millis(750);
+const OPERATION_CANCEL_BOUND: Duration = Duration::from_millis(750);
 
 fn is_meta_prefix(token: &str) -> bool {
     matches!(token, "doctor" | "help")
@@ -60,6 +61,42 @@ fn doctor_paths() -> serde_json::Value {
         "support_dir": luma_storage::luma_next_support_dir().ok().map(|p| p.display().to_string()),
         "logs_dir": luma_storage::luma_next_logs_dir().ok().map(|p| p.display().to_string()),
         "diagnostics_dir": luma_storage::luma_next_diagnostics_dir().ok().map(|p| p.display().to_string()),
+    })
+}
+
+fn doctor_store_probes(settings_ok: bool) -> serde_json::Value {
+    use luma_storage::{ClipboardStore, NotesIndexStore, QuicklinksStore, SnippetsStore};
+    let clipboard = match ClipboardStore::luma_next_default() {
+        Ok(s) => match s.list_page(0, 1) {
+            Ok(_) => serde_json::json!("ok"),
+            Err(err) => serde_json::json!(format!("error:{err}")),
+        },
+        Err(err) => serde_json::json!(format!("unavailable:{err}")),
+    };
+    let quicklinks = match QuicklinksStore::luma_next_default() {
+        Ok(s) => match s.list() {
+            Ok(_) => serde_json::json!("ok"),
+            Err(err) => serde_json::json!(format!("error:{err}")),
+        },
+        Err(err) => serde_json::json!(format!("unavailable:{err}")),
+    };
+    let snippets = match SnippetsStore::luma_next_default() {
+        Ok(s) => match s.list() {
+            Ok(_) => serde_json::json!("ok"),
+            Err(err) => serde_json::json!(format!("error:{err}")),
+        },
+        Err(err) => serde_json::json!(format!("unavailable:{err}")),
+    };
+    let notes_index = match NotesIndexStore::luma_next_default() {
+        Ok(_) => serde_json::json!("ok"),
+        Err(err) => serde_json::json!(format!("unavailable:{err}")),
+    };
+    serde_json::json!({
+        "settings": if settings_ok { "ok" } else { "missing" },
+        "clipboard": clipboard,
+        "quicklinks": quicklinks,
+        "snippets": snippets,
+        "notes_index": notes_index,
     })
 }
 
@@ -167,6 +204,17 @@ impl Engine {
     }
 
     pub async fn start_session(&self) {
+        if let Some(repo) = &self.settings {
+            if let Ok(settings) = repo.load_or_default() {
+                let modules = {
+                    let g = self.inner.lock().await;
+                    g.registry.all_modules()
+                };
+                for module in modules {
+                    module.apply_settings(&settings).await;
+                }
+            }
+        }
         let (enabled, disabled_ids) = {
             let g = self.inner.lock().await;
             let enabled = g.registry.enabled_modules();
@@ -192,25 +240,25 @@ impl Engine {
                 .await;
         }
 
-        let mut set = tokio::task::JoinSet::new();
+        let mut warmup_handles = Vec::new();
         for module in enabled {
+            let module_id = module.manifest().id.as_str().to_string();
             let cancel = {
                 let g = self.inner.lock().await;
                 g.session_cancel.child_token()
             };
-            set.spawn(async move {
-                let id = module.manifest().id.as_str().to_string();
-                let state = module
+            let handle = tokio::spawn(async move {
+                module
                     .warmup(WarmupContext {
                         cancel: cancel.clone(),
                     })
-                    .await;
-                (id, state)
+                    .await
             });
+            warmup_handles.push((module_id, handle));
         }
-        while let Some(joined) = set.join_next().await {
-            match joined {
-                Ok((id, state)) => {
+        for (id, handle) in warmup_handles {
+            match handle.await {
+                Ok(state) => {
                     let state_str = match &state {
                         ModuleState::Ready => "ready".into(),
                         ModuleState::Cold => "cold".into(),
@@ -229,7 +277,18 @@ impl Engine {
                         .await;
                 }
                 Err(err) => {
-                    warn!(?err, "module warmup task panicked");
+                    warn!(module_id = %id, ?err, "module warmup task panicked");
+                    let state_str: String = "failed:panic".into();
+                    {
+                        let mut g = self.inner.lock().await;
+                        g.module_states.insert(id.clone(), state_str.clone());
+                    }
+                    let _ = self
+                        .emit(Event::ModuleStateChanged {
+                            module_id: id,
+                            state: state_str,
+                        })
+                        .await;
                 }
             }
         }
@@ -278,11 +337,12 @@ impl Engine {
             (g.registry.get(module_id), op_handles, removed_ids)
         };
         for handle in op_handles {
-            let _ = handle.await;
+            let _ = Self::await_operation_handle(handle).await;
         }
         if !removed_ids.is_empty() {
             let _ = self
                 .emit(Event::ResultsChunk {
+                    // Empty request_id: TUI treats this as a module eviction (any active search).
                     request_id: String::new(),
                     sequence: 0,
                     upserts: vec![],
@@ -374,6 +434,24 @@ impl Engine {
             }
             Err(_) => {
                 abort.abort();
+            }
+        }
+    }
+
+    /// Bounded await for an operation JoinHandle (mirrors search cancel).
+    async fn await_operation_handle(handle: JoinHandle<()>) -> bool {
+        let abort = handle.abort_handle();
+        match tokio::time::timeout(OPERATION_CANCEL_BOUND, handle).await {
+            Ok(Ok(())) => true,
+            Ok(Err(err)) => {
+                if !err.is_cancelled() {
+                    warn!(?err, "operation task ended with error during cancel");
+                }
+                true
+            }
+            Err(_) => {
+                abort.abort();
+                false
             }
         }
     }
@@ -728,6 +806,7 @@ impl Engine {
                     .iter()
                     .map(|(id, reason)| serde_json::json!({ "id": id, "reason": reason }))
                     .collect::<Vec<_>>();
+                let store_probes = doctor_store_probes(settings_snapshot.is_some());
                 let diagnostic = serde_json::json!({
                     "doctor": true,
                     "modules": modules,
@@ -749,8 +828,12 @@ impl Engine {
                         "notes_exclude": "luma config set --notes-exclude 'private/*'",
                     },
                     "stores": {
-                        "settings": if settings_snapshot.is_some() { "ok" } else { "missing" },
+                        "settings": store_probes["settings"].clone(),
                         "diagnostics": if self.diagnostics.is_some() { "ok" } else { "missing" },
+                        "clipboard": store_probes["clipboard"].clone(),
+                        "quicklinks": store_probes["quicklinks"].clone(),
+                        "snippets": store_probes["snippets"].clone(),
+                        "notes_index": store_probes["notes_index"].clone(),
                     },
                     "remediation": remediation,
                 });
@@ -775,7 +858,7 @@ impl Engine {
                     (g.registry.all_modules(), op_handles)
                 };
                 for handle in op_handles {
-                    let _ = handle.await;
+                    let _ = Self::await_operation_handle(handle).await;
                 }
                 for m in modules {
                     m.teardown().await;
@@ -1064,7 +1147,7 @@ impl Engine {
                 if roots_changed {
                     let modules = {
                         let g = self.inner.lock().await;
-                        g.registry.all_modules()
+                        g.registry.enabled_modules().into_iter().collect::<Vec<_>>()
                     };
                     for module in modules {
                         module.apply_settings(&saved).await;
@@ -1113,9 +1196,22 @@ impl Engine {
                         }
                     }
                 };
-                // Await terminal state so cancel is real for the caller.
+                // Bounded await so Esc/cancel cannot hang on a non-cooperative perform.
                 if let Some(handle) = handle {
-                    let _ = handle.await;
+                    let finished_cleanly = Self::await_operation_handle(handle).await;
+                    if !finished_cleanly {
+                        // Abort skipped the task's ActionFinished emit — synthesize Cancelled.
+                        {
+                            let mut g = self.inner.lock().await;
+                            g.operations.remove(&operation_id);
+                        }
+                        let _ = self
+                            .emit(Event::ActionFinished {
+                                operation_id,
+                                outcome: luma_protocol::ActionOutcomeDto::Cancelled,
+                            })
+                            .await;
+                    }
                 }
             }
             Command::ExportDiagnostics => {
@@ -1180,8 +1276,9 @@ async fn recv_event(rx: &mut broadcast::Receiver<Event>) -> Option<Event> {
 pub async fn run_query(
     registry: ModuleRegistry,
     query: &str,
+    settings: Option<Arc<dyn crate::ports::SettingsRepository>>,
 ) -> Result<(Vec<SearchItemDto>, Vec<Event>), String> {
-    let engine = Engine::new(registry);
+    let engine = Engine::with_settings(registry, settings);
     let mut rx = engine.subscribe();
 
     engine.start_session().await;
@@ -1238,8 +1335,9 @@ pub async fn run_action(
     result_id: Option<&str>,
     action_id: &str,
     confirmation: bool,
+    settings: Option<Arc<dyn crate::ports::SettingsRepository>>,
 ) -> Result<(SearchItemDto, luma_protocol::ActionOutcomeDto), String> {
-    let engine = Engine::new(registry);
+    let engine = Engine::with_settings(registry, settings);
     let mut rx = engine.subscribe();
     engine.start_session().await;
     let request_id = "cli-action-search".to_string();
@@ -1279,9 +1377,20 @@ pub async fn run_action(
             let mut values: Vec<_> = items.into_values().collect();
             values.sort_by(|a, b| b.score.total_cmp(&a.score));
             values
-                .into_iter()
-                .next()
-                .ok_or_else(|| "query returned no results".to_string())?
+                .iter()
+                .find(|item| {
+                    !matches!(
+                        item.kind.as_str(),
+                        "warming"
+                            | "unavailable"
+                            | "not_configured"
+                            | "onboarding"
+                            | "status"
+                            | "permission_required"
+                    ) && item.primary_action_id.as_str() != "noop"
+                })
+                .cloned()
+                .ok_or_else(|| "query returned no actionable results".to_string())?
         }
     };
     engine
@@ -1658,14 +1767,14 @@ mod tests {
 
     #[tokio::test]
     async fn query_returns_fake_hit() {
-        let (items, _events) = run_query(fake_registry(), "hello").await.unwrap();
+        let (items, _events) = run_query(fake_registry(), "hello", None).await.unwrap();
         assert_eq!(items.len(), 1);
         assert!(items[0].title.contains("hello"));
     }
 
     #[tokio::test]
     async fn run_action_executes_fake_result() {
-        let (result, outcome) = run_action(fake_registry(), "hello", None, "open", false)
+        let (result, outcome) = run_action(fake_registry(), "hello", None, "open", false, None)
             .await
             .unwrap();
         assert_eq!(result.id, "fake-1");

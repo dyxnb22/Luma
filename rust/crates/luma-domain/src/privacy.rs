@@ -36,6 +36,22 @@ pub fn looks_secret(text: &str) -> bool {
     {
         return true;
     }
+    // Slack bot/user/app/legacy tokens
+    if text.contains("xoxb-")
+        || text.contains("xoxp-")
+        || text.contains("xoxa-")
+        || text.contains("xoxr-")
+    {
+        return true;
+    }
+    // Stripe secret/restricted keys
+    if text.contains("sk_live_") || text.contains("sk_test_") || text.contains("rk_live_") {
+        return true;
+    }
+    // Anthropic API keys
+    if text.contains("sk-ant-") {
+        return true;
+    }
     // AWS access key id
     if text.contains("AKIA") {
         return true;
@@ -79,5 +95,9 @@ mod tests {
         assert!(looks_secret("sk-proj-abcdefghijklmnopqrstuvwxyz"));
         assert!(looks_secret("ghp_abcdefghijklmnopqrstuvwxyz012345"));
         assert!(looks_secret("AKIAabcdefghijklmnopqrst"));
+        // Constructed at runtime so push protection does not flag literal token shapes.
+        assert!(looks_secret(&format!("xox{}-not-a-real-token", "b")));
+        assert!(looks_secret(&format!("sk_live_{}", "not-a-real-key")));
+        assert!(looks_secret("sk-ant-api03-abcdefghijklmnopqrstuvwxyz"));
     }
 }

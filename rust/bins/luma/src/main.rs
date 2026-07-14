@@ -28,6 +28,9 @@ enum Commands {
         query: String,
         #[arg(long)]
         json: bool,
+        /// Redact clip/snippet bodies in JSON (titles/subtitles replaced; safer for logs/gists).
+        #[arg(long)]
+        redact: bool,
     },
     /// Search then execute an action in the same engine session.
     Action {
@@ -76,6 +79,9 @@ enum ActionCmd {
         confirmation: bool,
         #[arg(long)]
         json: bool,
+        /// Redact clip/snippet bodies in JSON output (safer for logs/gists).
+        #[arg(long)]
+        redact: bool,
     },
 }
 
@@ -101,6 +107,8 @@ enum ConfigCmd {
         enable_module: Vec<String>,
         #[arg(long)]
         disable_module: Vec<String>,
+        #[arg(long)]
+        clipboard_retention_days: Option<u32>,
         #[arg(long)]
         json: bool,
     },
@@ -193,20 +201,49 @@ async fn main() -> anyhow::Result<()> {
             ));
             run_tui_with_engine(engine).await?;
         }
-        Some(Commands::Query { query, json }) => {
-            let registry = load_registry().map_err(|e| anyhow::anyhow!("registry: {e}"))?;
-            let (items, _events) = run_query(registry, &query)
+        Some(Commands::Query {
+            query,
+            json,
+            redact,
+        }) => {
+            let load =
+                load_registry_with_settings().map_err(|e| anyhow::anyhow!("registry: {e}"))?;
+            let (items, _events) = run_query(load.registry, &query, Some(load.settings))
                 .await
                 .map_err(anyhow::Error::msg)?;
             if json {
+                let results: Vec<_> = if redact {
+                    items
+                        .into_iter()
+                        .map(|mut item| {
+                            let sensitive = item.module_id.as_str() == "luma.clipboard"
+                                || item.module_id.as_str() == "luma.snippets";
+                            if sensitive {
+                                item.title = "[redacted]".into();
+                                item.subtitle = Some("[redacted]".into());
+                            }
+                            item
+                        })
+                        .collect()
+                } else {
+                    items
+                };
                 let payload = serde_json::json!({
                     "query": query,
-                    "results": items,
+                    "redacted": redact,
+                    "results": results,
                 });
                 println!("{}", serde_json::to_string_pretty(&payload)?);
             } else {
                 for item in items {
-                    println!("{}\t{}", item.id, item.title);
+                    if redact
+                        && (item.module_id.as_str() == "luma.clipboard"
+                            || item.module_id.as_str() == "luma.snippets")
+                    {
+                        println!("{}\t[redacted]", item.id);
+                    } else {
+                        println!("{}\t{}", item.id, item.title);
+                    }
                 }
             }
         }
@@ -218,23 +255,39 @@ async fn main() -> anyhow::Result<()> {
                     action_id,
                     confirmation,
                     json,
+                    redact,
                 },
         }) => {
-            let registry = load_registry().map_err(|e| anyhow::anyhow!("registry: {e}"))?;
+            let load =
+                load_registry_with_settings().map_err(|e| anyhow::anyhow!("registry: {e}"))?;
             let (result, outcome) = run_action(
-                registry,
+                load.registry,
                 &query,
                 result_id.as_deref(),
                 &action_id,
                 confirmation,
+                Some(load.settings),
             )
             .await
             .map_err(anyhow::Error::msg)?;
             if json {
+                let result = if redact {
+                    let mut result = result;
+                    let sensitive = result.module_id.as_str() == "luma.clipboard"
+                        || result.module_id.as_str() == "luma.snippets";
+                    if sensitive {
+                        result.title = "[redacted]".into();
+                        result.subtitle = Some("[redacted]".into());
+                    }
+                    result
+                } else {
+                    result
+                };
                 println!(
                     "{}",
                     serde_json::to_string_pretty(&serde_json::json!({
                         "query": query,
+                        "redacted": redact,
                         "result": result,
                         "action_id": action_id,
                         "outcome": outcome,
@@ -392,6 +445,15 @@ async fn main() -> anyhow::Result<()> {
                     "settings_version={} notes_root={:?} projects_roots={:?}",
                     settings.settings_version, settings.notes_root, settings.projects_roots
                 );
+                println!(
+                    "notes_exclude_patterns={:?}",
+                    settings.notes_exclude_patterns
+                );
+                println!("enabled_modules={:?}", settings.enabled_modules);
+                println!(
+                    "clipboard_retention_days={}",
+                    settings.clipboard_retention_days
+                );
             }
         }
         Some(Commands::Config {
@@ -403,6 +465,7 @@ async fn main() -> anyhow::Result<()> {
                     clear_notes_excludes,
                     enable_module,
                     disable_module,
+                    clipboard_retention_days,
                     json,
                 },
         }) => {
@@ -432,6 +495,9 @@ async fn main() -> anyhow::Result<()> {
             }
             for id in disable_module {
                 next.enabled_modules.insert(id, false);
+            }
+            if let Some(days) = clipboard_retention_days {
+                next.clipboard_retention_days = days;
             }
             let saved = store.update_cas(expected, next)?;
             if json {

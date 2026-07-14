@@ -13,6 +13,7 @@ use luma_protocol::{Event, SearchItemDto};
 use std::path::{Component, Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::sync::{mpsc, Mutex, RwLock};
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
@@ -230,7 +231,13 @@ impl NotesModule {
             cancel.cancel();
         }
         if let Some(handle) = self.watch_handle.lock().await.take() {
-            let _ = handle.await;
+            let abort = handle.abort_handle();
+            if tokio::time::timeout(Duration::from_secs(2), handle)
+                .await
+                .is_err()
+            {
+                abort.abort();
+            }
         }
     }
 
@@ -630,36 +637,44 @@ impl LumaModule for NotesModule {
             } else {
                 query.limit.min(20)
             };
-            let hits = match tokio::task::spawn_blocking(move || index.list_recent(limit)).await {
-                Ok(Ok(hits)) => hits,
-                Ok(Err(e)) => {
-                    let _ = sink
-                        .send(Event::ResultsChunk {
-                            request_id: String::new(),
-                            sequence: 1,
-                            upserts: vec![unavailable_row(
-                                "Notes recent unavailable",
-                                e.to_string(),
-                            )],
-                            removed_ids: vec![],
-                        })
-                        .await;
+            let handle = tokio::task::spawn_blocking(move || index.list_recent(limit));
+            let abort = handle.abort_handle();
+            let hits = tokio::select! {
+                _ = cancel.cancelled() => {
+                    abort.abort();
                     return;
                 }
-                Err(e) => {
-                    let _ = sink
-                        .send(Event::ResultsChunk {
-                            request_id: String::new(),
-                            sequence: 1,
-                            upserts: vec![unavailable_row(
-                                "Notes recent unavailable",
-                                e.to_string(),
-                            )],
-                            removed_ids: vec![],
-                        })
-                        .await;
-                    return;
-                }
+                result = handle => match result {
+                    Ok(Ok(hits)) => hits,
+                    Ok(Err(e)) => {
+                        let _ = sink
+                            .send(Event::ResultsChunk {
+                                request_id: String::new(),
+                                sequence: 1,
+                                upserts: vec![unavailable_row(
+                                    "Notes recent unavailable",
+                                    e.to_string(),
+                                )],
+                                removed_ids: vec![],
+                            })
+                            .await;
+                        return;
+                    }
+                    Err(e) => {
+                        let _ = sink
+                            .send(Event::ResultsChunk {
+                                request_id: String::new(),
+                                sequence: 1,
+                                upserts: vec![unavailable_row(
+                                    "Notes recent unavailable",
+                                    e.to_string(),
+                                )],
+                                removed_ids: vec![],
+                            })
+                            .await;
+                        return;
+                    }
+                },
             };
             let status = self.index.scan_status();
             let mut upserts = Vec::new();
@@ -733,36 +748,44 @@ impl LumaModule for NotesModule {
 
         if rest_check == "issues" {
             let index = self.index.clone();
-            let issues = match tokio::task::spawn_blocking(move || index.list_issues()).await {
-                Ok(Ok(issues)) => issues,
-                Ok(Err(e)) => {
-                    let _ = sink
-                        .send(Event::ResultsChunk {
-                            request_id: String::new(),
-                            sequence: 1,
-                            upserts: vec![unavailable_row(
-                                "Notes issues unavailable",
-                                e.to_string(),
-                            )],
-                            removed_ids: vec![],
-                        })
-                        .await;
+            let handle = tokio::task::spawn_blocking(move || index.list_issues());
+            let abort = handle.abort_handle();
+            let issues = tokio::select! {
+                _ = cancel.cancelled() => {
+                    abort.abort();
                     return;
                 }
-                Err(e) => {
-                    let _ = sink
-                        .send(Event::ResultsChunk {
-                            request_id: String::new(),
-                            sequence: 1,
-                            upserts: vec![unavailable_row(
-                                "Notes issues unavailable",
-                                e.to_string(),
-                            )],
-                            removed_ids: vec![],
-                        })
-                        .await;
-                    return;
-                }
+                result = handle => match result {
+                    Ok(Ok(issues)) => issues,
+                    Ok(Err(e)) => {
+                        let _ = sink
+                            .send(Event::ResultsChunk {
+                                request_id: String::new(),
+                                sequence: 1,
+                                upserts: vec![unavailable_row(
+                                    "Notes issues unavailable",
+                                    e.to_string(),
+                                )],
+                                removed_ids: vec![],
+                            })
+                            .await;
+                        return;
+                    }
+                    Err(e) => {
+                        let _ = sink
+                            .send(Event::ResultsChunk {
+                                request_id: String::new(),
+                                sequence: 1,
+                                upserts: vec![unavailable_row(
+                                    "Notes issues unavailable",
+                                    e.to_string(),
+                                )],
+                                removed_ids: vec![],
+                            })
+                            .await;
+                        return;
+                    }
+                },
             };
             let upserts: Vec<_> = issues
                 .into_iter()
@@ -995,38 +1018,39 @@ impl LumaModule for NotesModule {
         let index = self.index.clone();
         let limit = query.limit;
         let needle_for_search = needle.clone();
-        let hits = match tokio::task::spawn_blocking(move || {
-            index.search(&needle_for_search, limit)
-        })
-        .await
-        {
-            Ok(Ok(hits)) => hits,
-            Ok(Err(e)) => {
-                let _ = sink
-                    .send(Event::ResultsChunk {
-                        request_id: String::new(),
-                        sequence: 1,
-                        upserts: vec![unavailable_row("Notes search unavailable", e.to_string())],
-                        removed_ids: vec![],
-                    })
-                    .await;
+        let handle = tokio::task::spawn_blocking(move || index.search(&needle_for_search, limit));
+        let abort = handle.abort_handle();
+        let hits = tokio::select! {
+            _ = cancel.cancelled() => {
+                abort.abort();
                 return;
             }
-            Err(e) => {
-                let _ = sink
-                    .send(Event::ResultsChunk {
-                        request_id: String::new(),
-                        sequence: 1,
-                        upserts: vec![unavailable_row("Notes search unavailable", e.to_string())],
-                        removed_ids: vec![],
-                    })
-                    .await;
-                return;
-            }
+            result = handle => match result {
+                Ok(Ok(hits)) => hits,
+                Ok(Err(e)) => {
+                    let _ = sink
+                        .send(Event::ResultsChunk {
+                            request_id: String::new(),
+                            sequence: 1,
+                            upserts: vec![unavailable_row("Notes search unavailable", e.to_string())],
+                            removed_ids: vec![],
+                        })
+                        .await;
+                    return;
+                }
+                Err(e) => {
+                    let _ = sink
+                        .send(Event::ResultsChunk {
+                            request_id: String::new(),
+                            sequence: 1,
+                            upserts: vec![unavailable_row("Notes search unavailable", e.to_string())],
+                            removed_ids: vec![],
+                        })
+                        .await;
+                    return;
+                }
+            },
         };
-        if cancel.is_cancelled() {
-            return;
-        }
         let mut upserts = Vec::new();
         for hit in hits {
             if cancel.is_cancelled() {

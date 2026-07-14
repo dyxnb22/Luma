@@ -222,9 +222,16 @@ impl LumaModule for ProjectsModule {
         if roots.is_empty() {
             return ModuleState::Cold;
         }
-        let idx = tokio::task::spawn_blocking(move || scan_projects(&roots))
-            .await
-            .unwrap_or_default();
+        let cancel = ctx.cancel.clone();
+        let handle = tokio::task::spawn_blocking(move || scan_projects(&roots));
+        let abort = handle.abort_handle();
+        let idx = tokio::select! {
+            _ = cancel.cancelled() => {
+                abort.abort();
+                return ModuleState::Cold;
+            }
+            result = handle => result.unwrap_or_default(),
+        };
         *self.index.write().await = idx;
         ModuleState::Ready
     }
@@ -243,7 +250,7 @@ impl LumaModule for ProjectsModule {
                         subtitle: Some(
                             "NotConfigured — run: luma config set --projects-root ~/dev".into(),
                         ),
-                        kind: "onboarding".into(),
+                        kind: "not_configured".into(),
                         score: 0.0,
                         primary_action_id: "configure".into(),
                         primary_action_label: "Configure".into(),
@@ -458,6 +465,7 @@ impl LumaModule for ProjectsModule {
             ];
         }
         if result.kind == "status"
+            || result.kind == "not_configured"
             || result.kind == "onboarding"
             || result.kind == "unavailable"
             || result.primary_action.id.as_str() == "noop"

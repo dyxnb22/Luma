@@ -104,7 +104,15 @@ impl AppsModule {
             g.warming = false;
             return;
         }
-        match self.catalog.list_installed().await {
+        let listed = tokio::select! {
+            _ = cancel.cancelled() => {
+                let mut g = self.cache.write().await;
+                g.warming = false;
+                return;
+            }
+            result = self.catalog.list_installed() => result,
+        };
+        match listed {
             Ok(apps) => {
                 let mut g = self.cache.write().await;
                 g.apps = apps;
@@ -129,6 +137,9 @@ impl LumaModule for AppsModule {
     async fn warmup(&self, ctx: WarmupContext) -> ModuleState {
         self.ensure_refresh(ctx.cancel).await;
         let g = self.cache.read().await;
+        if let Some(err) = &g.catalog_error {
+            return ModuleState::Failed(err.clone());
+        }
         if g.apps.is_empty() {
             ModuleState::Cold
         } else {
@@ -461,36 +472,73 @@ impl LumaModule for AppsModule {
         };
 
         match action.action.id.as_str() {
-            "launch" => match await_unless_cancelled(&cancel, self.catalog.launch(&path)).await {
-                None => ActionOutcome::Cancelled,
-                Some(Ok(())) => {
-                    let key = path.to_string_lossy().to_string();
-                    let mut g = self.cache.write().await;
-                    *g.launch_counts.entry(key).or_insert(0) += 1;
-                    ActionOutcome::Success {
-                        message: Some(format!("launched {}", path.display())),
-                    }
+            "launch" => {
+                let in_cache = {
+                    let g = self.cache.read().await;
+                    g.apps.iter().any(|a| a.path == path)
+                };
+                if !in_cache {
+                    return ActionOutcome::Failed {
+                        kind: FailureKind::SecurityDenied {
+                            reason: "app not in catalog cache".into(),
+                        },
+                    };
                 }
-                Some(Err(err)) => ActionOutcome::Failed {
-                    kind: FailureKind::Unavailable {
-                        reason: err.to_string(),
-                        retryable: true,
+                match await_unless_cancelled(&cancel, self.catalog.launch(&path)).await {
+                    None => ActionOutcome::Cancelled,
+                    Some(Ok(())) => {
+                        let key = path.to_string_lossy().to_string();
+                        let mut g = self.cache.write().await;
+                        *g.launch_counts.entry(key).or_insert(0) += 1;
+                        ActionOutcome::Success {
+                            message: Some(format!("launched {}", path.display())),
+                        }
+                    }
+                    Some(Err(err)) => ActionOutcome::Failed {
+                        kind: FailureKind::Unavailable {
+                            reason: err.to_string(),
+                            retryable: true,
+                        },
                     },
-                },
-            },
-            "reveal" => match await_unless_cancelled(&cancel, self.catalog.reveal(&path)).await {
-                None => ActionOutcome::Cancelled,
-                Some(Ok(())) => ActionOutcome::Success {
-                    message: Some("revealed".into()),
-                },
-                Some(Err(err)) => ActionOutcome::Failed {
-                    kind: FailureKind::Unavailable {
-                        reason: err.to_string(),
-                        retryable: true,
+                }
+            }
+            "reveal" => {
+                let in_cache = {
+                    let g = self.cache.read().await;
+                    g.apps.iter().any(|a| a.path == path)
+                };
+                if !in_cache {
+                    return ActionOutcome::Failed {
+                        kind: FailureKind::SecurityDenied {
+                            reason: "app not in catalog cache".into(),
+                        },
+                    };
+                }
+                match await_unless_cancelled(&cancel, self.catalog.reveal(&path)).await {
+                    None => ActionOutcome::Cancelled,
+                    Some(Ok(())) => ActionOutcome::Success {
+                        message: Some("revealed".into()),
                     },
-                },
-            },
+                    Some(Err(err)) => ActionOutcome::Failed {
+                        kind: FailureKind::Unavailable {
+                            reason: err.to_string(),
+                            retryable: true,
+                        },
+                    },
+                }
+            }
             "copy_path" => {
+                let in_cache = {
+                    let g = self.cache.read().await;
+                    g.apps.iter().any(|a| a.path == path)
+                };
+                if !in_cache {
+                    return ActionOutcome::Failed {
+                        kind: FailureKind::SecurityDenied {
+                            reason: "app not in catalog cache".into(),
+                        },
+                    };
+                }
                 if cancel.is_cancelled() {
                     return ActionOutcome::Cancelled;
                 }
@@ -528,7 +576,7 @@ impl LumaModule for AppsModule {
 mod tests {
     use super::*;
     use async_trait::async_trait;
-    use luma_application::{AppLaunchError, AppsCatalogPort, PasteboardError};
+    use luma_application::{AppLaunchError, AppsCatalogPort, ModuleState, PasteboardError};
     use std::path::{Path, PathBuf};
     use tokio::sync::mpsc;
     use tokio::sync::Mutex as TokioMutex;
@@ -637,6 +685,11 @@ mod tests {
         });
         let pb = mem_pb();
         let module = AppsModule::new(catalog, pb.clone());
+        module
+            .warmup(WarmupContext {
+                cancel: CancellationToken::new(),
+            })
+            .await;
         let outcome = module
             .perform(
                 ActionRequest {
@@ -709,5 +762,69 @@ mod tests {
             }
             other => panic!("{other:?}"),
         }
+    }
+
+    #[tokio::test]
+    async fn warmup_returns_failed_on_catalog_error() {
+        let module = AppsModule::new(Arc::new(FailingCatalog), mem_pb());
+        let state = module
+            .warmup(WarmupContext {
+                cancel: CancellationToken::new(),
+            })
+            .await;
+        assert!(matches!(state, ModuleState::Failed(_)));
+    }
+
+    #[tokio::test]
+    async fn launch_rejects_path_not_in_cache() {
+        let catalog = Arc::new(FakeCatalog {
+            apps: vec![AppEntry {
+                name: "Safari".into(),
+                path: PathBuf::from("/Applications/Safari.app"),
+                bundle_id: None,
+            }],
+        });
+        let module = AppsModule::new(catalog, mem_pb());
+        module
+            .warmup(WarmupContext {
+                cancel: CancellationToken::new(),
+            })
+            .await;
+        let outcome = module
+            .perform(
+                ActionRequest {
+                    result: SearchItem {
+                        id: luma_domain::ResultId::new("app:/Applications/Other.app"),
+                        module_id: ModuleId::new("luma.apps"),
+                        title: "Other".into(),
+                        subtitle: None,
+                        kind: "app".into(),
+                        score: 1.0,
+                        primary_action: ActionDescriptor {
+                            id: ActionId::new("launch"),
+                            label: "Launch".into(),
+                            risk: ActionRisk::Safe,
+                            confirmation: false,
+                        },
+                        secondary_actions: vec![],
+                    },
+                    action: ActionDescriptor {
+                        id: ActionId::new("launch"),
+                        label: "Launch".into(),
+                        risk: ActionRisk::Safe,
+                        confirmation: false,
+                    },
+                    confirmation: false,
+                },
+                CancellationToken::new(),
+            )
+            .await;
+        assert!(matches!(
+            outcome,
+            ActionOutcome::Failed {
+                kind: FailureKind::SecurityDenied { .. },
+                ..
+            }
+        ));
     }
 }

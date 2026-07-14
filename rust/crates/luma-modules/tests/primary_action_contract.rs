@@ -2,13 +2,17 @@
 
 use async_trait::async_trait;
 use luma_application::{
-    FakeAccessibility, FakeOpenPath, LumaModule, MemoryClipboardHistory,
-    MemoryQuicklinksRepository, MemorySnippetsRepository, PasteboardError, PasteboardPort,
-    QuicklinksRepository, SnippetsRepository, WarmupContext,
+    AppEntry, AppsCatalogPort, FakeAccessibility, FakeOpenPath, FakeProcessCatalog, LumaModule,
+    MemoryClipboardHistory, MemoryQuicklinksRepository, MemorySnippetsRepository, PasteboardError,
+    PasteboardPort, QuicklinksRepository, SnippetsRepository, WarmupContext,
 };
 use luma_domain::Query;
-use luma_modules::{ClipboardModule, ClipboardSuppression, QuicklinksModule, SnippetsModule};
+use luma_modules::{
+    AppsModule, ClipboardModule, ClipboardSuppression, KillProcessModule, QuicklinksModule,
+    SnippetsModule,
+};
 use luma_test_support::assert_primary_actions_resolvable;
+use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
@@ -126,4 +130,107 @@ async fn snippets_overwrite_row_matches_actions_contract() {
             })
             .collect::<Vec<_>>()
     );
+}
+
+struct MemAppsCatalog {
+    apps: Vec<AppEntry>,
+}
+
+#[async_trait]
+impl AppsCatalogPort for MemAppsCatalog {
+    async fn list_installed(&self) -> Result<Vec<AppEntry>, String> {
+        Ok(self.apps.clone())
+    }
+    async fn launch(
+        &self,
+        _path: &std::path::Path,
+    ) -> Result<(), luma_application::AppLaunchError> {
+        Ok(())
+    }
+    async fn reveal(
+        &self,
+        _path: &std::path::Path,
+    ) -> Result<(), luma_application::AppLaunchError> {
+        Ok(())
+    }
+}
+
+#[tokio::test]
+async fn apps_search_row_matches_actions_contract() {
+    let catalog = Arc::new(MemAppsCatalog {
+        apps: vec![AppEntry {
+            name: "Safari".into(),
+            path: PathBuf::from("/Applications/Safari.app"),
+            bundle_id: None,
+        }],
+    });
+    let m = AppsModule::new(catalog, Arc::new(MemPb(Mutex::new(None))));
+    m.warmup(WarmupContext {
+        cancel: CancellationToken::new(),
+    })
+    .await;
+    assert_primary_actions_resolvable(&m, Query::parse("app safari", 20)).await;
+    m.teardown().await;
+}
+
+#[tokio::test]
+async fn kill_process_row_matches_actions_contract() {
+    let catalog = Arc::new(FakeProcessCatalog {
+        processes: Mutex::new(vec![luma_application::ProcessEntry {
+            pid: 4242,
+            name: "Bear".into(),
+            executable: "/Applications/Bear.app/Contents/MacOS/Bear".into(),
+            start_unix: 1_700_000_000,
+        }]),
+        list_error: None,
+        quit_error: None,
+        quit_calls: Mutex::new(Vec::new()),
+    });
+    let m = KillProcessModule::with_catalog(catalog);
+    m.warmup(WarmupContext {
+        cancel: CancellationToken::new(),
+    })
+    .await;
+    assert_primary_actions_resolvable(&m, Query::parse("kill bear", 20)).await;
+    m.teardown().await;
+}
+
+#[tokio::test]
+async fn secrets_vault_row_matches_actions_contract() {
+    use luma_application::FakeKeychain;
+    use luma_modules::SecretsModule;
+
+    let keychain = Arc::new(FakeKeychain {
+        unlocked: true,
+        entries: tokio::sync::Mutex::new(std::collections::BTreeMap::from([(
+            "api-token".into(),
+            "super-secret".into(),
+        )])),
+    });
+    let m = SecretsModule::with_deps(
+        keychain,
+        Arc::new(MemPb(Mutex::new(None))),
+        Arc::new(ClipboardSuppression::new()),
+    );
+    m.warmup(WarmupContext {
+        cancel: CancellationToken::new(),
+    })
+    .await;
+    assert_primary_actions_resolvable(&m, Query::parse("sec ", 20)).await;
+    m.teardown().await;
+}
+
+#[tokio::test]
+async fn notes_daily_row_matches_actions_contract() {
+    use luma_modules::NotesModule;
+    use tempfile::tempdir;
+
+    let dir = tempdir().unwrap();
+    let m = NotesModule::with_root_for_tests(Some(dir.path().to_path_buf()));
+    m.warmup(WarmupContext {
+        cancel: CancellationToken::new(),
+    })
+    .await;
+    assert_primary_actions_resolvable(&m, Query::parse("n daily", 20)).await;
+    m.teardown().await;
 }

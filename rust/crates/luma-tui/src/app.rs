@@ -44,8 +44,15 @@ pub async fn run_tui_with_engine(engine: Arc<dyn EnginePort>) -> std::io::Result
         let poll_timeout = Duration::from_millis(33);
         let mut msgs: Vec<Msg> = Vec::new();
 
-        while let Ok(ev) = engine_rx.try_recv() {
-            msgs.push(Msg::Engine(ev));
+        // Drain all available events. `Lagged` means skipped messages — continue
+        // so we still receive later terminal events (SearchFinished / ActionFinished).
+        loop {
+            match engine_rx.try_recv() {
+                Ok(ev) => msgs.push(Msg::Engine(ev)),
+                Err(tokio::sync::broadcast::error::TryRecvError::Lagged(_)) => continue,
+                Err(tokio::sync::broadcast::error::TryRecvError::Empty)
+                | Err(tokio::sync::broadcast::error::TryRecvError::Closed) => break,
+            }
         }
 
         if let Some(deadline) = state.search_debounce_deadline {
@@ -77,11 +84,14 @@ pub async fn run_tui_with_engine(engine: Arc<dyn EnginePort>) -> std::io::Result
         }
 
         if state.should_quit {
-            let _ = engine.submit(Command::ShutdownSession).await;
             break;
         }
     }
 
+    // Restore terminal before awaiting shutdown so a hung teardown cannot
+    // leave the user stuck in raw mode / alternate screen.
+    drop(guard);
+    let _ = engine.submit(Command::ShutdownSession).await;
     Ok(())
 }
 
@@ -246,5 +256,29 @@ mod tests {
         let state = AppState::default();
         let msg = map_key(KeyCode::Char('_'), KeyModifiers::CONTROL, &state);
         assert!(matches!(msg, Msg::OpenCommands));
+    }
+
+    #[test]
+    fn drain_continues_after_lagged() {
+        // Mirrors the TUI drain loop: Lagged must not stop draining.
+        let (tx, _rx) = tokio::sync::broadcast::channel::<u32>(2);
+        let mut lagged_rx = tx.subscribe();
+        // Force lag by sending beyond capacity without receiving.
+        for i in 0..20 {
+            let _ = tx.send(i);
+        }
+        let mut got = Vec::new();
+        loop {
+            match lagged_rx.try_recv() {
+                Ok(v) => got.push(v),
+                Err(tokio::sync::broadcast::error::TryRecvError::Lagged(_)) => continue,
+                Err(tokio::sync::broadcast::error::TryRecvError::Empty)
+                | Err(tokio::sync::broadcast::error::TryRecvError::Closed) => break,
+            }
+        }
+        assert!(
+            !got.is_empty(),
+            "after Lagged, drain must continue and collect later events"
+        );
     }
 }

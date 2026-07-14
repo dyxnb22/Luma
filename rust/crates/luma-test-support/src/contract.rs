@@ -3,6 +3,7 @@
 use luma_application::LumaModule;
 use luma_domain::SearchItem;
 use luma_protocol::Event;
+use std::time::Duration;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
@@ -60,7 +61,8 @@ pub async fn collect_search_items(
     let (tx, mut rx) = mpsc::channel(64);
     module.search(query, tx, CancellationToken::new()).await;
     let mut items = Vec::new();
-    while let Ok(ev) = rx.try_recv() {
+    let drain_timeout = Duration::from_millis(200);
+    while let Ok(Some(ev)) = tokio::time::timeout(drain_timeout, rx.recv()).await {
         if let Event::ResultsChunk { upserts, .. } = ev {
             for dto in upserts {
                 items.push(dto.into_domain());

@@ -23,9 +23,10 @@ pub struct ClipboardModule {
     pasteboard: Arc<dyn PasteboardPort>,
     accessibility: Arc<dyn AccessibilityPort>,
     suppression: Arc<ClipboardSuppression>,
-    retention_days: u32,
+    retention_days: Arc<std::sync::atomic::AtomicU32>,
     last_seen_text: Arc<Mutex<Option<String>>>,
     index: Arc<RwLock<Vec<ClipboardEntry>>>,
+    store_error: Arc<RwLock<Option<String>>>,
     poll_cancel: Mutex<Option<CancellationToken>>,
     poll_handle: Mutex<Option<JoinHandle<()>>>,
 }
@@ -56,9 +57,10 @@ impl ClipboardModule {
             pasteboard,
             accessibility,
             suppression,
-            retention_days: DEFAULT_RETENTION_DAYS,
+            retention_days: Arc::new(std::sync::atomic::AtomicU32::new(DEFAULT_RETENTION_DAYS)),
             last_seen_text: Arc::new(Mutex::new(None)),
             index: Arc::new(RwLock::new(Vec::new())),
+            store_error: Arc::new(RwLock::new(None)),
             poll_cancel: Mutex::new(None),
             poll_handle: Mutex::new(None),
         }
@@ -71,14 +73,25 @@ impl ClipboardModule {
     async fn refresh_index(
         store: &dyn ClipboardHistoryRepository,
         index: &RwLock<Vec<ClipboardEntry>>,
+        store_error: &RwLock<Option<String>>,
     ) -> Result<(), ClipboardRepoError> {
-        *index.write().await = store.list_page(0, 500)?;
-        Ok(())
+        match store.list_page(0, 500) {
+            Ok(rows) => {
+                *index.write().await = rows;
+                *store_error.write().await = None;
+                Ok(())
+            }
+            Err(err) => {
+                *store_error.write().await = Some(err.to_string());
+                Err(err)
+            }
+        }
     }
 
     async fn capture_once(
         store: &dyn ClipboardHistoryRepository,
         index: &RwLock<Vec<ClipboardEntry>>,
+        store_error: &RwLock<Option<String>>,
         pasteboard: &dyn PasteboardPort,
         suppression: &ClipboardSuppression,
         last_seen_text: &Mutex<Option<String>>,
@@ -102,9 +115,16 @@ impl ClipboardModule {
                     return;
                 }
             }
-            let _ = store.purge_older_than_days(retention_days);
-            if store.insert(&text, false).is_ok() {
-                let _ = Self::refresh_index(store, index).await;
+            if let Err(err) = store.purge_older_than_days(retention_days) {
+                *store_error.write().await = Some(format!("purge failed: {err}"));
+            }
+            match store.insert(&text, false) {
+                Ok(_) => {
+                    let _ = Self::refresh_index(store, index, store_error).await;
+                }
+                Err(err) => {
+                    *store_error.write().await = Some(format!("insert failed: {err}"));
+                }
             }
         }
     }
@@ -114,23 +134,26 @@ impl ClipboardModule {
         let cancel = parent.child_token();
         let store = self.store.clone();
         let index = self.index.clone();
+        let store_error = self.store_error.clone();
         let pasteboard = self.pasteboard.clone();
         let suppression = self.suppression.clone();
         let last_seen_text = self.last_seen_text.clone();
-        let retention_days = self.retention_days;
+        let retention_days = self.retention_days.clone();
         let token = cancel.clone();
         let handle = tokio::spawn(async move {
             loop {
                 tokio::select! {
                     _ = token.cancelled() => break,
                     _ = tokio::time::sleep(std::time::Duration::from_secs(1)) => {
+                        let days = retention_days.load(std::sync::atomic::Ordering::Relaxed);
                         Self::capture_once(
                             store.as_ref(),
                             &index,
+                            &store_error,
                             pasteboard.as_ref(),
                             &suppression,
                             &last_seen_text,
-                            retention_days,
+                            days,
                         ).await;
                     }
                 }
@@ -158,7 +181,9 @@ impl LumaModule for ClipboardModule {
 
     async fn warmup(&self, ctx: WarmupContext) -> ModuleState {
         if !ctx.cancel.is_cancelled() {
-            if let Err(err) = Self::refresh_index(self.store.as_ref(), &self.index).await {
+            if let Err(err) =
+                Self::refresh_index(self.store.as_ref(), &self.index, &self.store_error).await
+            {
                 return ModuleState::Failed(err.to_string());
             }
             // Seed last_seen from the current pasteboard without capturing into history.
@@ -166,7 +191,13 @@ impl LumaModule for ClipboardModule {
             if let Ok(Some(text)) = self.pasteboard.read_text().await {
                 *self.last_seen_text.lock().await = Some(text);
             }
-            let _ = self.store.purge_older_than_days(self.retention_days);
+            let days = self
+                .retention_days
+                .load(std::sync::atomic::Ordering::Relaxed);
+            if let Err(err) = self.store.purge_older_than_days(days) {
+                *self.store_error.write().await = Some(format!("purge failed: {err}"));
+                return ModuleState::Failed(err.to_string());
+            }
             self.start_poller(ctx.cancel).await;
         }
         ModuleState::Ready
@@ -216,11 +247,38 @@ impl LumaModule for ClipboardModule {
                 .await;
             return;
         }
+
+        if let Some(err) = self.store_error.read().await.clone() {
+            if matches!(query.scope, luma_domain::QueryScope::Targeted { .. }) {
+                let _ = sink
+                    .send(Event::ResultsChunk {
+                        request_id: String::new(),
+                        sequence: 1,
+                        upserts: vec![SearchItemDto {
+                            id: "clip:unavailable".into(),
+                            module_id: "luma.clipboard".into(),
+                            title: "Clipboard store unavailable".into(),
+                            subtitle: Some(err),
+                            kind: "unavailable".into(),
+                            score: 0.0,
+                            primary_action_id: "noop".into(),
+                            primary_action_label: "Unavailable".into(),
+                            ..Default::default()
+                        }],
+                        removed_ids: vec![],
+                    })
+                    .await;
+            }
+            return;
+        }
+
         let mut rows: Vec<_> = self
             .index
             .read()
             .await
             .iter()
+            // Skip heuristic secrets that may already be in history (P2-08).
+            .filter(|entry| !looks_secret(&entry.text))
             .filter(|entry| needle.is_empty() || entry.text.to_lowercase().contains(&needle))
             .cloned()
             .collect();
@@ -307,8 +365,10 @@ impl LumaModule for ClipboardModule {
         }
         if result.id.as_str() == "clip:empty"
             || result.id.as_str() == "clip:no-matches"
+            || result.id.as_str() == "clip:unavailable"
             || result.kind == "onboarding"
             || result.kind == "status"
+            || result.kind == "unavailable"
         {
             return vec![ActionDescriptor {
                 id: ActionId::new("noop"),
@@ -367,6 +427,9 @@ impl LumaModule for ClipboardModule {
             .strip_prefix("clip:")
             .and_then(|s| s.parse::<i64>().ok())?;
         let entry = self.store.get(id).ok().flatten()?;
+        if looks_secret(&entry.text) {
+            return Some("[redacted — matched secret heuristic]".into());
+        }
         const PREVIEW_LIMIT: usize = 12_000;
         let body: String = entry.text.chars().take(PREVIEW_LIMIT).collect();
         if entry.text.chars().count() > PREVIEW_LIMIT {
@@ -381,7 +444,7 @@ impl LumaModule for ClipboardModule {
             return Vec::new();
         };
         page.into_iter()
-            .filter(|e| e.pinned)
+            .filter(|e| e.pinned && !looks_secret(&e.text))
             .take(8)
             .map(|e| {
                 let title = if e.text.chars().count() > 48 {
@@ -510,7 +573,13 @@ impl LumaModule for ClipboardModule {
                     };
                 };
                 match self.store.set_pinned(id, true) {
-                    Ok(()) => match Self::refresh_index(self.store.as_ref(), &self.index).await {
+                    Ok(()) => match Self::refresh_index(
+                        self.store.as_ref(),
+                        &self.index,
+                        &self.store_error,
+                    )
+                    .await
+                    {
                         Ok(()) => ActionOutcome::Success {
                             message: Some("pinned".into()),
                         },
@@ -537,7 +606,13 @@ impl LumaModule for ClipboardModule {
                     };
                 };
                 match self.store.set_pinned(id, false) {
-                    Ok(()) => match Self::refresh_index(self.store.as_ref(), &self.index).await {
+                    Ok(()) => match Self::refresh_index(
+                        self.store.as_ref(),
+                        &self.index,
+                        &self.store_error,
+                    )
+                    .await
+                    {
                         Ok(()) => ActionOutcome::Success {
                             message: Some("unpinned".into()),
                         },
@@ -563,7 +638,13 @@ impl LumaModule for ClipboardModule {
                     };
                 }
                 match self.store.clear_unpinned() {
-                    Ok(n) => match Self::refresh_index(self.store.as_ref(), &self.index).await {
+                    Ok(n) => match Self::refresh_index(
+                        self.store.as_ref(),
+                        &self.index,
+                        &self.store_error,
+                    )
+                    .await
+                    {
                         Ok(()) => ActionOutcome::Success {
                             message: Some(format!("cleared {n} unpinned item(s)")),
                         },
@@ -597,7 +678,13 @@ impl LumaModule for ClipboardModule {
                     };
                 };
                 match self.store.delete(id) {
-                    Ok(()) => match Self::refresh_index(self.store.as_ref(), &self.index).await {
+                    Ok(()) => match Self::refresh_index(
+                        self.store.as_ref(),
+                        &self.index,
+                        &self.store_error,
+                    )
+                    .await
+                    {
                         Ok(()) => ActionOutcome::Success {
                             message: Some("deleted".into()),
                         },
@@ -629,6 +716,12 @@ impl LumaModule for ClipboardModule {
 
     async fn teardown(&self) {
         self.stop_poller().await;
+    }
+
+    async fn apply_settings(&self, settings: &luma_application::AppSettings) {
+        let days = settings.clipboard_retention_days.max(1);
+        self.retention_days
+            .store(days, std::sync::atomic::Ordering::Relaxed);
     }
 }
 
@@ -794,5 +887,67 @@ mod tests {
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
         m.teardown().await;
         assert!(m.poll_handle.lock().await.is_none());
+    }
+
+    #[tokio::test]
+    async fn store_error_emits_unavailable_not_empty() {
+        struct FailingStore;
+        #[async_trait]
+        impl ClipboardHistoryRepository for FailingStore {
+            fn list_page(
+                &self,
+                _offset: usize,
+                _limit: usize,
+            ) -> Result<Vec<ClipboardEntry>, ClipboardRepoError> {
+                Err(ClipboardRepoError::msg("disk full"))
+            }
+            fn get(&self, _id: i64) -> Result<Option<ClipboardEntry>, ClipboardRepoError> {
+                Err(ClipboardRepoError::msg("disk full"))
+            }
+            fn latest_by_created(&self) -> Result<Option<ClipboardEntry>, ClipboardRepoError> {
+                Err(ClipboardRepoError::msg("disk full"))
+            }
+            fn insert(&self, _text: &str, _pinned: bool) -> Result<i64, ClipboardRepoError> {
+                Err(ClipboardRepoError::msg("disk full"))
+            }
+            fn set_pinned(&self, _id: i64, _pinned: bool) -> Result<(), ClipboardRepoError> {
+                Err(ClipboardRepoError::msg("disk full"))
+            }
+            fn delete(&self, _id: i64) -> Result<(), ClipboardRepoError> {
+                Err(ClipboardRepoError::msg("disk full"))
+            }
+            fn clear_unpinned(&self) -> Result<usize, ClipboardRepoError> {
+                Err(ClipboardRepoError::msg("disk full"))
+            }
+            fn purge_older_than_days(&self, _days: u32) -> Result<usize, ClipboardRepoError> {
+                Err(ClipboardRepoError::msg("disk full"))
+            }
+        }
+
+        let m = ClipboardModule::with_deps(
+            Arc::new(FailingStore),
+            Arc::new(MemPb(TokioMutex::new(None))),
+            denied_ax(),
+            Arc::new(ClipboardSuppression::new()),
+        );
+        let state = m
+            .warmup(WarmupContext {
+                cancel: CancellationToken::new(),
+            })
+            .await;
+        assert!(matches!(state, ModuleState::Failed(_)), "{state:?}");
+
+        let (tx, mut rx) = tokio::sync::mpsc::channel(8);
+        m.search(Query::parse("clip", 50), tx, CancellationToken::new())
+            .await;
+        let ev = rx.recv().await.expect("chunk");
+        match ev {
+            Event::ResultsChunk { upserts, .. } => {
+                assert_eq!(upserts.len(), 1);
+                assert_eq!(upserts[0].id, "clip:unavailable");
+                assert_eq!(upserts[0].kind, "unavailable");
+            }
+            other => panic!("unexpected {other:?}"),
+        }
     }
 }

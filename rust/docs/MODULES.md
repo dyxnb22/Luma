@@ -10,7 +10,7 @@ Personal daily-driver status. Prefer honest `unavailable` / `permission_required
 | Area | Status | Notes |
 | --- | --- | --- |
 | Doctor / diagnostics | Available | `luma doctor --json`, TUI `:doctor` |
-| Config | Available | Versioned settings; `luma config get/set`; TUI Settings (`:settings` / Ctrl-/ → settings); Space toggle persists via `UpdateSettings` CAS |
+| Config | Available | Versioned settings; `luma config get/set`; TUI Settings via `:settings`; Ctrl-/ opens command palette; Space toggle persists via `UpdateSettings` CAS |
 | Module registry | Available | Manifest + enable/disable; warmup for enabled modules |
 
 ## Modules
@@ -24,7 +24,7 @@ Personal daily-driver status. Prefer honest `unavailable` / `permission_required
 | Snippets | `s` / `snip` | Available — search; add/overwrite; copy/paste; delete | on |
 | Projects | `p` / `proj` / `project` | Available — scan/open; `proj browse [path]` (relative names resolve under roots) | **off** |
 | Kill | `kill` / `quit` / `k` | Process list; quit/force confirm (`luma.kill-process`) | **off** |
-| Secrets | `sec` / `secret` / `secrets` | Copy-only for pre-provisioned labels; Keychain bootstrap below; unlock/copy confirm | **off** |
+| Secrets | `sec` / `secret` / `secrets` | Copy-only for pre-provisioned labels; Keychain bootstrap below; unlock is in-process UX only (no Touch ID); copy confirm | **off** |
 | Fake | — | Test/demo module for CLI blackbox | **off** |
 
 ### Secrets Keychain bootstrap
@@ -39,6 +39,7 @@ No provisioning UI. Labels come from a sidecar plus Keychain entries:
   ```
   The macOS adapter appends the account to the sidecar on successful add.
 - **Search honesty:** empty labels → `not_configured` row with bootstrap hint; sidecar/keychain errors → `unavailable`; values never appear in search (copy-only after unlock + confirm).
+- **Unlock:** in-process session gate only — not Touch ID, Keychain ACL, or an OS auth prompt. Lock on teardown or exit.
 
 ## Product rules
 

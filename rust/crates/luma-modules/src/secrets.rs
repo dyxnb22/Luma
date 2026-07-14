@@ -207,6 +207,8 @@ impl LumaModule for SecretsModule {
                         .into(),
                 ),
             },
+            // In-process UX gate only: no Touch ID, Keychain ACL, or OS auth prompt.
+            // Secret values are still fetched via KeychainPort on confirmed copy.
             "unlock" => {
                 self.unlocked.store(true, Ordering::SeqCst);
                 ActionOutcome::Success {
@@ -239,7 +241,10 @@ impl LumaModule for SecretsModule {
                     Ok(secret) => {
                         // Lease exact value so clipboard history never stores it, even
                         // when heuristic `looks_secret` would miss a plain token.
-                        self.suppression.suppress(&secret, Duration::from_secs(45));
+                        // Personal daily driver: keep copied secrets out of clipboard history
+                        // for the rest of the session (24h lease; process exit clears in-memory map).
+                        self.suppression
+                            .suppress(&secret, Duration::from_secs(86_400));
                         match self.pasteboard.write_text(&secret).await {
                             Ok(()) => ActionOutcome::Success {
                                 message: Some("copied (suppressed from clipboard history)".into()),

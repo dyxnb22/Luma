@@ -36,5 +36,4 @@ favorites) is retired from the empty-prompt Hub; those flows stay available via 
 ## Consequences
 
 - Hub = Windows slice + Modules (see MODULES.md).
-- Kill remains process-oriented; Windows remains window-oriented — not merged.
 - Out of scope: Window layouts, menu-bar search, Browser tabs, global hotkey overlay.

@@ -32,7 +32,7 @@ impl ProjectsModule {
                 id: ModuleId::new("luma.projects"),
                 display_name: "Projects".into(),
                 triggers: vec!["p".into(), "proj".into(), "project".into()],
-                default_enabled: false,
+                default_enabled: true,
                 search_mode: SearchMode::TargetedOnly,
                 required_capabilities: vec![],
                 workbench: luma_application::WorkbenchMeta {

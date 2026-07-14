@@ -10,7 +10,8 @@ Empty prompt shows:
 | Module | Opens |
 |--------|--------|
 | Notes | `n ` — directory tree at notes root (`n recent` = recent flat list) |
-| Projects | `proj browse` — project tree (when enabled) |
+| Projects | `proj browse` — project tree |
+| Secrets | `sec ` — vault labels (unlock/copy) |
 | Apps / Clipboard / Snippets / Quicklinks / Windows | `app ` / `clip ` / `s ` / `ql ` / `win ` — list dump |
 
 Bare triggers without a trailing space (`n`, `clip`) do not search — add a space to enter the module.

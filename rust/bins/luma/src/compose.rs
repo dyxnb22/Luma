@@ -9,12 +9,12 @@ use luma_application::{
     TomlSettingsRepository,
 };
 use luma_modules::{
-    AppsModule, ClipboardModule, ClipboardSuppression, FakeEchoModule, KillProcessModule,
-    NotesModule, ProjectsModule, QuicklinksModule, SecretsModule, SnippetsModule, WindowsModule,
+    AppsModule, ClipboardModule, ClipboardSuppression, FakeEchoModule, NotesModule, ProjectsModule,
+    QuicklinksModule, SecretsModule, SnippetsModule, WindowsModule,
 };
 use luma_platform_macos::{
     FilesystemAppsCatalog, MacAccessibility, MacKeychain, MacMarkdownWatcher, MacOpenPath,
-    MacPasteboard, MacProcessCatalog, MacWindowCatalog,
+    MacPasteboard, MacWindowCatalog,
 };
 use luma_storage::{
     ClipboardStore, ConfigError, ConfigStore, LumaSettings, NotesIndexStore, NotesScanner,
@@ -141,9 +141,6 @@ pub fn registry_from_settings(
         project_roots,
         opener.clone(),
     )))?;
-    reg.register(Arc::new(KillProcessModule::with_catalog(Arc::new(
-        MacProcessCatalog,
-    ))))?;
     reg.register(Arc::new(SecretsModule::with_deps(
         Arc::new(MacKeychain::luma_next()),
         pasteboard,

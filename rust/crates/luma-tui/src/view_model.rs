@@ -1122,8 +1122,8 @@ mod tests {
     fn module_state_changed_updates_catalog_enabled() {
         let mut state = AppState::default();
         state.module_catalog.push(ModuleCatalogEntry {
-            id: "luma.kill-process".into(),
-            display_name: "Kill".into(),
+            id: "luma.projects".into(),
+            display_name: "Projects".into(),
             enabled: true,
             glyph: None,
             suggested_query: None,
@@ -1132,7 +1132,7 @@ mod tests {
             triggers: vec![],
         });
         let applied = state.apply_engine_event(Event::ModuleStateChanged {
-            module_id: "luma.kill-process".into(),
+            module_id: "luma.projects".into(),
             state: "disabled".into(),
         });
         assert!(applied);

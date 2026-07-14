@@ -352,8 +352,8 @@ mod tests {
         catalog.insert("luma.media".into(), "Records".into());
         assert_eq!(module_label("luma.media", &catalog), "Records");
         assert_eq!(module_label("luma.apps", &catalog), "Apps");
-        assert_eq!(module_glyph("luma.kill-process"), "K");
-        assert_eq!(module_label("luma.kill-process", &catalog), "Kill Process");
+        assert_eq!(module_glyph("luma.secrets"), "S");
+        assert_eq!(module_label("luma.secrets", &catalog), "Secrets");
         assert_eq!(
             module_label("luma.custom-module", &catalog),
             "Custom Module"

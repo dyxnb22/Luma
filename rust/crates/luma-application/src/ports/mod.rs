@@ -11,7 +11,6 @@ mod memory_repos;
 mod notes_repo;
 mod open_path;
 mod pasteboard;
-mod process;
 mod quicklinks_repo;
 mod settings;
 mod snippets_repo;
@@ -35,7 +34,6 @@ pub use notes_repo::{
 };
 pub use open_path::{FakeOpenPath, OpenPathError, OpenPathPort};
 pub use pasteboard::{FakePasteboard, PasteboardError, PasteboardPort};
-pub use process::{FakeProcessCatalog, ProcessCatalogPort, ProcessEntry, ProcessError};
 pub use quicklinks_repo::{QuicklinkEntry, QuicklinksRepoError, QuicklinksRepository};
 pub use settings::{AppSettings, SettingsError, SettingsRepository};
 pub use snippets_repo::{SnippetEntry, SnippetsRepoError, SnippetsRepository};

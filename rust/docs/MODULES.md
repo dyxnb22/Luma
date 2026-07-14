@@ -23,9 +23,8 @@ Personal daily-driver status. Prefer honest `unavailable` / `permission_required
 | Notes | `n` / `note` / `notes` | Available — FTS/CJK index; `n new` / `n daily` / `n browse` / `n recent` / `n status` / `n issues` / `n check` / `n reindex`; excludes via `--notes-exclude` | on |
 | Quicklinks | `ql` / `quicklinks` | Available — add/overwrite, open, copy URL, delete | on |
 | Snippets | `s` / `snip` | Available — search; add/overwrite; copy/paste; delete | on |
-| Projects | `p` / `proj` / `project` | Available — scan/open; `proj browse [path]` (relative names resolve under roots) | **off** |
-| Kill | `kill` / `quit` / `k` | Process list; quit/force confirm (`luma.kill-process`) | **off** |
-| Secrets | `sec` / `secret` / `secrets` | Copy-only for pre-provisioned labels; Keychain bootstrap below; unlock is in-process UX only (no Touch ID); copy confirm | **off** |
+| Projects | `p` / `proj` / `project` | Available — scan/open; `proj browse [path]` (relative names resolve under roots) | on |
+| Secrets | `sec` / `secret` / `secrets` | Copy-only for pre-provisioned labels; Keychain bootstrap below; unlock is in-process UX only (no Touch ID); copy confirm | on |
 | Fake | — | Test/demo module for CLI blackbox | **off** |
 
 ### Secrets Keychain bootstrap

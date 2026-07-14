@@ -2,14 +2,13 @@
 
 use async_trait::async_trait;
 use luma_application::{
-    AppEntry, AppsCatalogPort, FakeAccessibility, FakeOpenPath, FakeProcessCatalog, LumaModule,
-    MemoryClipboardHistory, MemoryQuicklinksRepository, MemorySnippetsRepository, PasteboardError,
-    PasteboardPort, QuicklinksRepository, SnippetsRepository, WarmupContext,
+    AppEntry, AppsCatalogPort, FakeAccessibility, FakeOpenPath, LumaModule, MemoryClipboardHistory,
+    MemoryQuicklinksRepository, MemorySnippetsRepository, PasteboardError, PasteboardPort,
+    QuicklinksRepository, SnippetsRepository, WarmupContext,
 };
 use luma_domain::Query;
 use luma_modules::{
-    AppsModule, ClipboardModule, ClipboardSuppression, KillProcessModule, QuicklinksModule,
-    SnippetsModule,
+    AppsModule, ClipboardModule, ClipboardSuppression, QuicklinksModule, SnippetsModule,
 };
 use luma_test_support::assert_primary_actions_resolvable;
 use std::path::PathBuf;
@@ -170,28 +169,6 @@ async fn apps_search_row_matches_actions_contract() {
     })
     .await;
     assert_primary_actions_resolvable(&m, Query::parse("app safari", 20)).await;
-    m.teardown().await;
-}
-
-#[tokio::test]
-async fn kill_process_row_matches_actions_contract() {
-    let catalog = Arc::new(FakeProcessCatalog {
-        processes: Mutex::new(vec![luma_application::ProcessEntry {
-            pid: 4242,
-            name: "Bear".into(),
-            executable: "/Applications/Bear.app/Contents/MacOS/Bear".into(),
-            start_unix: 1_700_000_000,
-        }]),
-        list_error: None,
-        quit_error: None,
-        quit_calls: Mutex::new(Vec::new()),
-    });
-    let m = KillProcessModule::with_catalog(catalog);
-    m.warmup(WarmupContext {
-        cancel: CancellationToken::new(),
-    })
-    .await;
-    assert_primary_actions_resolvable(&m, Query::parse("kill bear", 20)).await;
     m.teardown().await;
 }
 

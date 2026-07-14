@@ -2,7 +2,6 @@
 
 mod app;
 mod effect;
-mod mock_engine;
 mod msg;
 mod reducer;
 mod render;
@@ -12,7 +11,6 @@ mod view_model;
 
 pub use app::run_tui_with_engine;
 pub use effect::Effect;
-pub use mock_engine::MockEngine;
 pub use msg::Msg;
 pub use reducer::update;
 pub use render::render;

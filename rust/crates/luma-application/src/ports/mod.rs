@@ -16,7 +16,6 @@ mod process;
 mod quicklinks_repo;
 mod settings;
 mod snippets_repo;
-mod translator;
 
 pub use accessibility::{AccessibilityError, AccessibilityPort, FakeAccessibility};
 pub use apps::{AppEntry, AppLaunchError, AppsCatalogPort};
@@ -41,4 +40,3 @@ pub use process::{ProcessCatalogPort, ProcessEntry, ProcessError};
 pub use quicklinks_repo::{QuicklinkEntry, QuicklinksRepoError, QuicklinksRepository};
 pub use settings::{AppSettings, SettingsError, SettingsRepository};
 pub use snippets_repo::{SnippetEntry, SnippetsRepoError, SnippetsRepository};
-pub use translator::{TranslationError, TranslationResult, TranslatorPort};

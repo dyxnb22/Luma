@@ -1,10 +1,9 @@
 # Modules
 
-Personal daily-driver status. Prefer honest `unavailable` / `permission_required` / `not_configured` over empty results.
+Personal daily-driver status. Prefer honest `unavailable` / `permission_required` /
+`not_configured` over empty results.
 
-**Scope:** solo local use — not a public product. Stub / signed-host modules were removed from the tree.
-
-**Status vs queue:** this file is capability **status** (what works). Optimization work is tracked in [BACKLOG.md](./BACKLOG.md).
+**Scope:** solo local use — not a public product. Decisions live in [adr/](./adr/).
 
 ## Shell
 
@@ -20,14 +19,14 @@ Personal daily-driver status. Prefer honest `unavailable` / `permission_required
 | --- | --- | --- | --- |
 | Apps | `app` / `apps` | Available — fuzzy + session MRU; launch / reveal / copy path | on |
 | Clipboard | `clip` / `cb` | Available — history, pin/unpin, `clip clear`, paste needs AX; Hub pins | on |
-| Notes | `n` / `note` / `notes` | Available — FTS/CJK index; `n new` / `n daily` / `n browse` / `n recent` / `n status` / `n issues` / `n check` / `n reindex`; Hub shortcuts; excludes via `--notes-exclude`; needs notes-index store + optional `notes_root` | on |
-| Quicklinks | `ql` | Available — add/overwrite, open, copy URL, delete | on |
+| Notes | `n` / `note` / `notes` | Available — FTS/CJK index; `n new` / `n daily` / `n browse` / `n recent` / `n status` / `n issues` / `n check` / `n reindex`; Hub shortcuts; excludes via `--notes-exclude` | on |
+| Quicklinks | `ql` / `quicklinks` | Available — add/overwrite, open, copy URL, delete | on |
 | Snippets | `s` / `snip` | Available — search; add/overwrite; copy/paste; delete | on |
-| Todo | `t` / `todo` | Gated — EventKit; permission row when denied | **off** |
-| Projects | `proj` | Available — scan/open; `proj browse [path]` drill-down | **off** |
-| Kill | `kill` | Process list; quit/force confirm | **off** |
-| Secrets | — | Labels only; Keychain namespace `com.luma.next.secrets` | **off** |
-| Fake | — | Test/demo | **off** |
+| Todo | `t` / `todo` | Gated — EventKit; bare CLI cannot complete Reminders auth | **off** |
+| Projects | `p` / `proj` / `project` | Available — scan/open; `proj browse [path]` (relative names resolve under roots) | **off** |
+| Kill | `kill` / `quit` / `k` | Process list; quit/force confirm (`luma.kill-process`) | **off** |
+| Secrets | `sec` / `secret` / `secrets` | Labels only; Keychain `com.luma.next.secrets`; unlock/copy confirm | **off** |
+| Fake | — | Test/demo module for CLI blackbox | **off** |
 
 ## Product rules
 

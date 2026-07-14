@@ -6,7 +6,7 @@ use luma_application::{list_modules_json, run_action, run_doctor, run_query, Eng
 use luma_storage::{
     dry_run_legacy_dir, import_clipboard_fixture_with_ledger,
     import_notes_config_fixture_with_ledger, list_migrations, rollback_migration, ClipboardStore,
-    ConfigStore, LumaSettings,
+    ConfigStore,
 };
 use luma_tui::run_tui_with_engine;
 use std::path::PathBuf;
@@ -266,7 +266,7 @@ async fn main() -> anyhow::Result<()> {
         Some(Commands::Doctor { json }) => {
             let mut diag = match load_registry_with_settings() {
                 Ok(load) => {
-                    let mut d = run_doctor(load.registry)
+                    let mut d = run_doctor(load.registry, Some(load.settings))
                         .await
                         .map_err(anyhow::Error::msg)?;
                     d["skipped_modules"] = serde_json::json!(load
@@ -298,12 +298,27 @@ async fn main() -> anyhow::Result<()> {
             if let Ok(store) = ConfigStore::luma_next_default() {
                 match store.load_or_default() {
                     Ok(settings) => {
+                        // Keep top-level mirrors for existing CLI consumers; nested
+                        // `settings` already comes from Engine when SettingsRepository is wired.
                         diag["settings_version"] = settings.settings_version.into();
                         diag["notes_root_configured"] = settings.notes_root.is_some().into();
                         diag["notes_root"] = settings.notes_root.clone().into();
                         diag["projects_roots"] = settings.projects_roots.clone().into();
                         diag["notes_exclude_patterns"] =
                             settings.notes_exclude_patterns.clone().into();
+                        diag["settings"] = serde_json::json!({
+                            "configured": true,
+                            "settings_version": settings.settings_version,
+                            "notes_root_configured": settings.notes_root.is_some(),
+                            "notes_root": settings.notes_root,
+                            "projects_roots": settings.projects_roots,
+                            "notes_exclude_patterns": settings.notes_exclude_patterns,
+                            "clipboard_retention_days": settings.clipboard_retention_days,
+                        });
+                        if let Some(stores) = diag.get_mut("stores").and_then(|v| v.as_object_mut())
+                        {
+                            stores.insert("settings".into(), serde_json::json!("ok"));
+                        }
                         diag["config_commands"] = serde_json::json!({
                             "notes_root": "luma config set --notes-root ~/Notes",
                             "projects_roots": "luma config set --projects-root ~/dev",
@@ -526,6 +541,3 @@ fn print_import_report(report: luma_storage::ImportReport, json: bool) -> anyhow
     }
     Ok(())
 }
-
-#[allow(dead_code)]
-fn _keep_settings_ty(_: LumaSettings) {}

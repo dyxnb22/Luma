@@ -5,7 +5,8 @@
 
 ## Context
 
-Evidence for Pasteboard, Accessibility, Automation, EventKit, Translation, and Keychain from a Terminal-launched Rust binary. Interactive TCC prompts were not forced.
+What a Terminal-launched Rust binary can and cannot do for Pasteboard, Accessibility,
+EventKit, and Keychain. Interactive TCC prompts were not forced.
 
 ## Evidence
 
@@ -13,9 +14,7 @@ Evidence for Pasteboard, Accessibility, Automation, EventKit, Translation, and K
 | --- | --- | --- |
 | Pasteboard | `pbcopy` / `pbpaste` via `MacPasteboard` | Works from Terminal identity; denied vs success distinguishable |
 | Accessibility | `AXIsProcessTrusted` + Cmd+V CGEvent synthesis | Trust query works; paste reports `PermissionRequired` when untrusted — never success |
-| Automation | `MacAutomation` | NotDetermined / Unavailable without signed host + user consent |
 | EventKit | `MacEventKit` | CLI cannot request Reminders auth without app bundle + usage string → NotDetermined + guidance |
-| Translation | `MacTranslator` | Unavailable from pure Rust CLI (needs app-host bridge) |
 | Keychain | `security` CLI, service `com.luma.next.secrets` | Labels/values via explicit copy; search never includes values |
 
 ## Decisions
@@ -27,7 +26,6 @@ Evidence for Pasteboard, Accessibility, Automation, EventKit, Translation, and K
 
 ## Consequences
 
-- Todo remains EventKit-gated until Reminders auth is granted to the Terminal/`luma` process (or a future personal host if you add one).
+- Todo remains EventKit-gated until Reminders auth is granted to a signed host (not bare CLI).
 - Clipboard / Snippets paste works when Accessibility is granted to the Terminal/`luma` process.
 - Notes watch uses `notify` (FSEvents on macOS) with polling fallback.
-- Translation / Automation-heavy stubs are not shipped in the personal module set.

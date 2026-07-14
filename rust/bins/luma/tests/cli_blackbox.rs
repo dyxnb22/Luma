@@ -95,6 +95,22 @@ fn doctor_includes_config_commands_and_skipped_modules_array() {
     let logs = dir.path().join("logs");
     fs::create_dir_all(&support).unwrap();
     fs::create_dir_all(&logs).unwrap();
+    let notes = dir.path().join("notes");
+    fs::create_dir_all(&notes).unwrap();
+    let (code, _, stderr) = run_luma(
+        &support,
+        &logs,
+        &[
+            "config",
+            "set",
+            "--notes-root",
+            notes.to_str().unwrap(),
+            "--notes-exclude",
+            "private/*",
+            "--json",
+        ],
+    );
+    assert_eq!(code, 0, "stderr={stderr}");
     let (code, stdout, stderr) = run_luma(&support, &logs, &["doctor", "--json"]);
     assert_eq!(code, 0, "stderr={stderr}");
     let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
@@ -106,6 +122,17 @@ fn doctor_includes_config_commands_and_skipped_modules_array() {
             .contains("notes-root"),
         "{stdout}"
     );
+    assert_eq!(v["settings"]["configured"], true, "{stdout}");
+    assert_eq!(
+        v["settings"]["notes_root"].as_str(),
+        Some(notes.to_str().unwrap()),
+        "{stdout}"
+    );
+    assert_eq!(
+        v["settings"]["notes_exclude_patterns"][0], "private/*",
+        "{stdout}"
+    );
+    assert_eq!(v["stores"]["settings"], "ok", "{stdout}");
 }
 
 #[test]

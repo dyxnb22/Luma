@@ -11,7 +11,7 @@ pub enum PathsError {
 }
 
 /// Active application-support root (`LumaNext`).
-/// Override with `LUMA_NEXT_SUPPORT_DIR` for tests / soak (isolated roots).
+/// Override with `LUMA_NEXT_SUPPORT_DIR` for isolated test roots.
 pub fn luma_next_support_dir() -> Result<PathBuf, PathsError> {
     if let Ok(p) = std::env::var("LUMA_NEXT_SUPPORT_DIR") {
         return Ok(PathBuf::from(p));

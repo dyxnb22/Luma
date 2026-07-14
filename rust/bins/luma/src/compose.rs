@@ -1,4 +1,7 @@
 //! Sole composition root helpers: wire settings, stores, and platform adapters into a registry.
+//!
+//! All modules are registered here; enable/disable is settings-driven. Disabled modules stay
+//! listed in Settings but do not warm up or appear on the Hub.
 
 use luma_application::{
     ModuleRegistry, RegistryError as ModuleRegistryError, SettingsRepository,

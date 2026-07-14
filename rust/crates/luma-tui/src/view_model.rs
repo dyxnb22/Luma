@@ -19,7 +19,7 @@ pub enum Route {
 pub enum ActionsIntent {
     /// Enter: resolve primary (or first) action, then confirm/execute.
     Primary,
-    /// Tab / Ctrl-k: show full action picker.
+    /// Ctrl-k: show full action picker.
     Picker,
 }
 

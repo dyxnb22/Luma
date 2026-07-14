@@ -117,6 +117,8 @@ fn list_children(dir: &PathBuf, cancel: &CancellationToken) -> Vec<(String, Path
 
 /// Reject `..` components and require the path (after canonicalize when it exists)
 /// to sit under at least one configured root.
+///
+/// Relative paths are tried under each configured root (`proj browse empty-dir`).
 #[allow(clippy::ptr_arg)]
 fn resolve_under_roots(path: &PathBuf, roots: &[PathBuf]) -> Result<PathBuf, String> {
     for c in path.components() {
@@ -124,6 +126,26 @@ fn resolve_under_roots(path: &PathBuf, roots: &[PathBuf]) -> Result<PathBuf, Str
             return Err("path escapes project roots (..)".into());
         }
     }
+    let candidates: Vec<PathBuf> = if path.is_absolute() {
+        vec![path.clone()]
+    } else {
+        roots.iter().map(|r| r.join(path)).collect()
+    };
+    if candidates.is_empty() {
+        return Err("no accessible project roots".into());
+    }
+    let mut last_err = "path escapes project roots".to_string();
+    for candidate in candidates {
+        match resolve_candidate_under_roots(&candidate, roots) {
+            Ok(resolved) => return Ok(resolved),
+            Err(err) => last_err = err,
+        }
+    }
+    Err(last_err)
+}
+
+#[allow(clippy::ptr_arg)]
+fn resolve_candidate_under_roots(path: &PathBuf, roots: &[PathBuf]) -> Result<PathBuf, String> {
     let root_canons: Vec<PathBuf> = roots.iter().filter_map(|r| r.canonicalize().ok()).collect();
     if root_canons.is_empty() {
         return Err("no accessible project roots".into());
@@ -625,6 +647,29 @@ mod tests {
             upserts.iter().all(|u| u.id != "proj:denied"),
             "case-sensitive path under root must browse: {upserts:?}"
         );
+    }
+
+    #[tokio::test]
+    async fn browse_relative_name_resolves_under_root() {
+        let root = tempfile::tempdir().unwrap();
+        let empty = root.path().join("empty-dir");
+        std::fs::create_dir(&empty).unwrap();
+        let module = ProjectsModule::with_roots(
+            vec![root.path().to_path_buf()],
+            Arc::new(FakeOpenPath::new()),
+        );
+        let (tx, mut rx) = mpsc::channel(8);
+        let q = Query::parse("proj browse empty-dir", 20);
+        module.search(q, tx, CancellationToken::new()).await;
+        let ev = rx.recv().await.expect("chunk");
+        let Event::ResultsChunk { upserts, .. } = ev else {
+            panic!("expected chunk");
+        };
+        assert_eq!(
+            upserts[0].id, "proj:browse-empty",
+            "relative browse under root should list empty folder: {upserts:?}"
+        );
+        assert_eq!(upserts[0].title, "Empty folder");
     }
 
     #[tokio::test]

@@ -6,7 +6,7 @@ use crate::terminal::{install_panic_hook, TerminalGuard};
 use crate::view_model::{AppState, Route};
 use crossterm::event::{self, Event as CEvent, KeyCode, KeyEventKind, KeyModifiers};
 use luma_application::EnginePort;
-use luma_protocol::{Command, Event};
+use luma_protocol::Command;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -241,9 +241,6 @@ fn dispatch_effect(engine: Arc<dyn EnginePort>, effect: Effect) {
         Effect::None => {}
     }
 }
-
-#[allow(dead_code)]
-fn _event_ty(_: Event) {}
 
 #[cfg(test)]
 mod tests {

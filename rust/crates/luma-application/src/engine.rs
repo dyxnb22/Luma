@@ -1232,8 +1232,11 @@ pub async fn run_action(
     Ok((selected, outcome))
 }
 
-pub async fn run_doctor(registry: ModuleRegistry) -> Result<serde_json::Value, String> {
-    let engine = Engine::new(registry);
+pub async fn run_doctor(
+    registry: ModuleRegistry,
+    settings: Option<Arc<dyn crate::ports::SettingsRepository>>,
+) -> Result<serde_json::Value, String> {
+    let engine = Engine::with_settings(registry, settings);
     let mut rx = engine
         .take_event_receiver()
         .await
@@ -1606,7 +1609,7 @@ mod tests {
 
     #[tokio::test]
     async fn doctor_lists_modules() {
-        let diag = run_doctor(fake_registry()).await.unwrap();
+        let diag = run_doctor(fake_registry(), None).await.unwrap();
         assert_eq!(diag["doctor"], true);
         assert!(diag["modules"]
             .as_array()

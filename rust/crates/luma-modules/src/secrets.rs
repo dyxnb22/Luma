@@ -15,6 +15,7 @@ use tokio_util::sync::CancellationToken;
 use crate::clipboard_privacy::ClipboardSuppression;
 
 /// Secrets is last / default-off. Values never enter search results.
+/// Unlock / lock / copy always require confirmation (search DTO and `actions()` agree).
 pub struct SecretsModule {
     manifest: ModuleManifest,
     unlocked: AtomicBool,
@@ -80,6 +81,8 @@ impl LumaModule for SecretsModule {
             score: 1.0,
             primary_action_id: if unlocked { "lock" } else { "unlock" }.into(),
             primary_action_label: if unlocked { "Lock" } else { "Unlock" }.into(),
+            primary_action_risk: ActionRisk::Confirm,
+            primary_action_confirmation: true,
             ..Default::default()
         }];
 
@@ -105,6 +108,8 @@ impl LumaModule for SecretsModule {
                             score: 40.0,
                             primary_action_id: "copy".into(),
                             primary_action_label: "Copy".into(),
+                            primary_action_risk: ActionRisk::Confirm,
+                            primary_action_confirmation: true,
                             ..Default::default()
                         });
                     }
@@ -260,8 +265,36 @@ mod tests {
                 let blob = serde_json::to_string(&upserts).unwrap();
                 assert!(!blob.contains("super-secret-password-value"));
                 assert!(upserts.iter().any(|u| u.title == "api"));
+                let vault = upserts.iter().find(|u| u.id == "sec:vault").unwrap();
+                assert!(vault.primary_action_confirmation);
+                assert_eq!(vault.primary_action_risk, ActionRisk::Confirm);
+                let api = upserts.iter().find(|u| u.title == "api").unwrap();
+                assert!(api.primary_action_confirmation);
             }
             other => panic!("{other:?}"),
         }
+    }
+
+    #[tokio::test]
+    async fn locked_vault_row_requires_confirmation() {
+        let m = SecretsModule::with_deps(
+            Arc::new(FakeKeychain {
+                unlocked: false,
+                entries: TokioMutex::new(Default::default()),
+            }),
+            Arc::new(MemPb(TokioMutex::new(None))),
+            Arc::new(ClipboardSuppression::new()),
+        );
+        let (tx, mut rx) = mpsc::channel(4);
+        m.search(Query::parse("sec", 10), tx, CancellationToken::new())
+            .await;
+        let ev = rx.recv().await.unwrap();
+        let Event::ResultsChunk { upserts, .. } = ev else {
+            panic!("chunk");
+        };
+        assert_eq!(upserts.len(), 1);
+        assert!(upserts[0].primary_action_confirmation);
+        assert_eq!(upserts[0].primary_action_id, "unlock");
+        assert_eq!(upserts[0].primary_action_risk, ActionRisk::Confirm);
     }
 }

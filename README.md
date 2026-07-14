@@ -26,8 +26,8 @@ cargo test -p luma --test cli_blackbox
 | Doc | Path |
 | --- | --- |
 | Operator guide | [`rust/README.md`](rust/README.md) |
-| Modules | [`rust/docs/MODULES.md`](rust/docs/MODULES.md) |
-| ADRs | [`rust/docs/adr/`](rust/docs/adr/) |
+| Module status | [`rust/docs/MODULES.md`](rust/docs/MODULES.md) |
+| Decisions | [`rust/docs/adr/`](rust/docs/adr/) |
 
 ## Data
 

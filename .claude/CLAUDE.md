@@ -10,8 +10,9 @@
 
 ## Focus
 
-- Daily-driver quality for Apps / Clipboard / Notes / Quicklinks / Snippets.
+- Daily-driver quality for Apps / Clipboard / Notes / Quicklinks / Snippets / Windows / Wordbook / Projects / Records.
 - Engine / CLI / TUI contracts and crate boundaries.
 - LumaNext data isolation; honest unavailable / permission / not-configured states.
+- No centralized `doctor` command/overlay or diagnostics export; keep status and remediation rows module-local.
 - No silent fallbacks; no foreground automation in tests.
 - Do **not** prioritize release gates, soak evidence packs, notarization, or stub-module expansion.

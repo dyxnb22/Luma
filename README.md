@@ -17,8 +17,9 @@ cargo test -p luma --test cli_blackbox
 | In | Out |
 | --- | --- |
 | Local TUI + CLI on your Mac | App Store / notarized shipping |
-| Apps, Clipboard, Notes, Quicklinks, Snippets | Stub/unavailable feature expansion |
+| Apps, Windows, Clipboard, Notes, Quicklinks, Snippets, Wordbook, Projects, Records | Stub/unavailable feature expansion |
 | Honest permission / unavailable states | Release soak, deny-as-policy, marketing docs |
+| Module-local status and remediation rows | Centralized `doctor` command or diagnostics overlay |
 
 ## Docs
 
@@ -26,6 +27,7 @@ cargo test -p luma --test cli_blackbox
 | --- | --- |
 | Operator guide | [`rust/README.md`](rust/README.md) |
 | Module status | [`rust/docs/MODULES.md`](rust/docs/MODULES.md) |
+| Empty Hub and keyboard behavior | [`rust/docs/hub.md`](rust/docs/hub.md) |
 | Decisions | [`rust/docs/adr/`](rust/docs/adr/) |
 
 ## Data
@@ -33,4 +35,9 @@ cargo test -p luma --test cli_blackbox
 | Path | Role |
 | --- | --- |
 | `~/Library/Application Support/LumaNext/` | Active app support |
-| `~/Library/Logs/LumaNext/` | Logs / diagnostics |
+| `~/Library/Logs/LumaNext/` | Runtime logs |
+
+The empty Hub lists visible windows and modules. Press `1`–`9` to focus a numbered window;
+digits remain ordinary prompt input in search fields. `win` provides the same shortcut in its
+focused result list. `wb review due|new|wrong` starts the Wordbook review flow, while `rec`
+searches the imported Records database.

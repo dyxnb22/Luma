@@ -17,6 +17,7 @@ and a background agent/daemon are not, unless the user explicitly changes this b
 
 - Persist only under LumaNext (`LUMA_NEXT_*` in tests).
 - Prefer structured failures over empty results that hide denials.
+- Do not reintroduce `luma doctor`, `:doctor`, a Doctor overlay, diagnostics export, or probe-port subsystem.
 - No foreground automation in tests.
 - Do not add release/CI/soak/notarization work or revive stub modules unless asked.
 - Do not add AI/LLM agent features, conversational workflows, autonomous task execution, or

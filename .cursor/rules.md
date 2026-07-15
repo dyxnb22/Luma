@@ -18,6 +18,7 @@ tool loops, or background-agent/daemon infrastructure unless the user explicitly
 - One scoped task at a time; match existing crate boundaries.
 - Persist only under LumaNext (`LUMA_NEXT_*` in tests).
 - No silent fallbacks: use structured unavailable / permission / not-configured outcomes.
+- Do not reintroduce `luma doctor`, `:doctor`, a Doctor overlay, diagnostics export, or probe-port subsystem.
 - No foreground automation in tests (`open`, osascript, AX paste, system clipboard mutation).
 - Do not expand stub modules or add release/CI/soak/notarization machinery unless asked.
 - Do not add AI/LLM agent features, conversational workflows, autonomous task execution, or

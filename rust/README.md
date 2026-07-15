@@ -14,15 +14,26 @@ cargo test -p luma --test cli_blackbox
 cargo run -p luma -- query "app safari" --json
 cargo run -p luma -- query "clip" --json   # bare trigger OK in CLI (targeted clip)
 cargo run -p luma -- query "n" --json      # bare trigger OK in CLI (targeted notes)
+cargo run -p luma -- query "win" --json
 printf '%s' 'secret' | cargo run -p luma -- secrets set my-label
 cargo run -p luma -- modules list --json
 cargo run -p luma -- config get --json
 cargo run -p luma -- config set --notes-root /path/to/notes
+cargo run -p luma -- config set --records-root ~/Documents/Notes/Records
 cargo run -p luma -- config set --projects-root ~/dev
 cargo run -p luma -- config set --import-project ~/dev/myapp
 cargo run -p luma -- config set --remove-project myapp
 cargo run -p luma -- config set --notes-exclude 'private/*'
 cargo run -p luma -- config set --clear-notes-excludes
+cargo run -p luma -- record import --root ~/Documents/Notes/Records       # dry-run
+cargo run -p luma -- record import --root ~/Documents/Notes/Records --apply
+cargo run -p luma -- record browse
+cargo run -p luma -- record browse --category 电影
+cargo run -p luma -- record import-status
+cargo run -p luma -- record backup
+cargo run -p luma -- record rate 1 9
+cargo run -p luma -- record note 1 '值得重看'
+cargo run -p luma -- record remove 1 --yes
 cargo run -p luma   # interactive TUI
 ```
 
@@ -40,5 +51,17 @@ See [`docs/MODULES.md`](docs/MODULES.md) for module status.
 | `~/Library/Logs/LumaNext/` | Logs |
 
 Tests must use tempfile + `LUMA_NEXT_SUPPORT_DIR` / `LUMA_NEXT_LOGS_DIR`.
+
+`luma record import` is dry-run by default; `--apply` writes the Records database, its LumaNext
+backup, and migration ledger, never the Markdown source files.
+
+## TUI quick reference
+
+- Empty Hub: `1`–`9` focuses visible window rows; status, “more”, and module rows are not numbered.
+- `win`: `1`–`9` works only while the result list is focused. Digits typed in the prompt are never hijacked.
+- `wb due`, `wb new`, `wb wrong`: normal lists. `wb review due|new|wrong`: Enter/Space reveals, `1/2/3` grades, `m` masters after confirmation, `s` skips, Esc exits.
+- `rec`: searches Records. Use `rec browse`, `rec add CATEGORY NAME | rating | note`, `rec rate ID SCORE`, and `rec note ID TEXT`.
+- `proj`: plain search shows only manually imported projects. Use `proj add/import PATH`, `proj remove NAME|PATH`, and `proj browse`.
+- There is no `luma doctor`, `:doctor`, or diagnostics overlay. Modules report `permission`, `unavailable`, or `not_configured` locally when applicable.
 
 Optional importers: `luma migrate …` with an explicit legacy path (dry-run by default).

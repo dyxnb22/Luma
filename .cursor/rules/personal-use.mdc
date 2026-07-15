@@ -16,7 +16,7 @@ tool-orchestration workflows.
 
 ## Do
 
-- Keep Apps / Clipboard / Notes / Quicklinks / Snippets / Windows / Wordbook solid for local use.
+- Keep Apps / Clipboard / Notes / Quicklinks / Snippets / Windows / Wordbook / Projects / Records solid for local use.
 - Prefer small fixes for real friction over roadmap/checklist completion.
 - Persist only under LumaNext (`LUMA_NEXT_*` in tests).
 - Use structured unavailable / permission / not-configured outcomes (no silent fake success).

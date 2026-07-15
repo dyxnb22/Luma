@@ -42,6 +42,10 @@ template. Luma does not adopt their conversational, autonomous-planning, LLM, or
 Personal **Windows** (`luma.windows`: list + focus, Hub projection of previous-frontmost)
 is allowed; see [0004-windows-hub-projection.md](./0004-windows-hub-projection.md).
 
+Personal **Projects** (explicit imported directories only) and **Records** (local SQLite media
+log with read-only Markdown import) are allowed; their data and mutation boundaries are defined
+in [0005-records-and-imported-projects.md](./0005-records-and-imported-projects.md).
+
 ## Consequences
 
 - Module behavior is tracked in [`../MODULES.md`](../MODULES.md).

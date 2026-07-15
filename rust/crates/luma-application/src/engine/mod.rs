@@ -357,6 +357,7 @@ impl Engine {
                         .collect();
                 }
                 let roots_changed = next.notes_root != current.notes_root
+                    || next.records_root != current.records_root
                     || next.projects_roots != current.projects_roots
                     || next.imported_projects != current.imported_projects
                     || next.notes_exclude_patterns != current.notes_exclude_patterns;
@@ -577,6 +578,7 @@ async fn apply_settings_mutation(
     let roots_changed = next.imported_projects != current.imported_projects
         || next.projects_roots != current.projects_roots
         || next.notes_root != current.notes_root
+        || next.records_root != current.records_root
         || next.notes_exclude_patterns != current.notes_exclude_patterns;
     let saved = settings_repo
         .update_cas(expected_version, next)

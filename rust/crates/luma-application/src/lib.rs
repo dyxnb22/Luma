@@ -9,8 +9,8 @@ mod ports;
 mod registry;
 
 pub use adapters::{
-    SqliteClipboardHistory, SqliteNotesIndex, SqliteQuicklinksRepository, SqliteSnippetsRepository,
-    SqliteWordbookRepository, TomlSettingsRepository,
+    SqliteClipboardHistory, SqliteNotesIndex, SqliteQuicklinksRepository, SqliteRecordsRepository,
+    SqliteSnippetsRepository, SqliteWordbookRepository, TomlSettingsRepository,
 };
 pub use engine::{list_modules_json, run_action, run_query, Engine, EngineOptions};
 pub use module::{
@@ -25,14 +25,16 @@ pub use ports::{
     ClipboardRepoError, ClockError, ClockPort, ContentImportReport, FakeAccessibility,
     FakeCapabilities, FakeKeychain, FakeMarkdownWatcher, FakeOpenPath, FakePasteboard, FakeSpeech,
     FakeWindowCatalog, FixedClock, KeychainError, KeychainPort, MarkdownWatchPort,
-    MemoryClipboardHistory, MemoryNotesIndex, MemoryQuicklinksRepository, MemorySnippetsRepository,
-    MemoryWordbookRepository, NotesDocument, NotesIndexError, NotesIndexRepository, NotesIssue,
-    NotesLink, NotesScanReport, NotesScanStatusView, NotesSearchHit, OpenPathError, OpenPathPort,
-    PasteboardError, PasteboardPort, QuicklinkEntry, QuicklinksRepoError, QuicklinksRepository,
-    SecretLabel, SettingsError, SettingsRepository, SnippetEntry, SnippetsRepoError,
-    SnippetsRepository, SpeechAccent, SpeechError, SpeechPort, SystemClock, WindowCatalogPort,
-    WindowEntry, WindowError, WordContentInput, WordEntry, WordbookRepoError, WordbookRepository,
-    WordbookStatsView,
+    MemoryClipboardHistory, MemoryNotesIndex, MemoryQuicklinksRepository, MemoryRecordsRepository,
+    MemorySnippetsRepository, MemoryWordbookRepository, NotesDocument, NotesIndexError,
+    NotesIndexRepository, NotesIssue, NotesLink, NotesScanReport, NotesScanStatusView,
+    NotesSearchHit, OpenPathError, OpenPathPort, PasteboardError, PasteboardPort, QuicklinkEntry,
+    QuicklinksRepoError, QuicklinksRepository, RecordCategory, RecordEntry,
+    RecordImportPreviewView, RecordImportReportView, RecordsRepoError, RecordsRepository,
+    RecordsStatsView, SecretLabel, SettingsError, SettingsRepository, SnippetEntry,
+    SnippetsRepoError, SnippetsRepository, SpeechAccent, SpeechError, SpeechPort, SystemClock,
+    WindowCatalogPort, WindowEntry, WindowError, WordContentInput, WordEntry, WordbookRepoError,
+    WordbookRepository, WordbookStatsView,
 };
 pub use registry::{ModuleRegistry, RegistryError};
 // Application-facing façade for project settings helpers. Modules depend on this layer rather

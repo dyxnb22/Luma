@@ -29,6 +29,7 @@ pub enum MigrationKind {
     Clipboard,
     NotesConfig,
     LegacyDryRun,
+    Records,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]

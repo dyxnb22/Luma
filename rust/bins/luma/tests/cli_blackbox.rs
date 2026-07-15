@@ -58,6 +58,14 @@ fn modules_list_json() {
             .any(|m| m["id"] == "luma.wordbook"),
         "expected luma.wordbook in modules list: {stdout}"
     );
+    assert!(
+        v["modules"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|m| m["id"] == "luma.records"),
+        "expected luma.records in modules list: {stdout}"
+    );
 }
 
 #[test]
@@ -527,4 +535,125 @@ fn wordbook_import_wordpet_dry_run_then_commit() {
     let (code, stdout, stderr) = run_luma(&support, &logs, &["query", "wb throughput", "--json"]);
     assert_eq!(code, 0, "stderr={stderr} stdout={stdout}");
     assert!(stdout.contains("throughput"), "{stdout}");
+}
+
+#[test]
+fn records_import_dry_run_then_apply_and_query() {
+    let dir = tempdir().unwrap();
+    let support = dir.path().join("support");
+    let logs = dir.path().join("logs");
+    fs::create_dir_all(&support).unwrap();
+    fs::create_dir_all(&logs).unwrap();
+
+    let root = dir.path().join("records-src");
+    fs::create_dir_all(&root).unwrap();
+    fs::write(
+        root.join("电影.md"),
+        "| 名字 | 评分 | 备注 |\n|---|---:|---|\n| 沙丘 | 8 | 史诗 |\n",
+    )
+    .unwrap();
+
+    let (code, stdout, stderr) = run_luma(
+        &support,
+        &logs,
+        &[
+            "record",
+            "import",
+            "--root",
+            root.to_str().unwrap(),
+            "--json",
+        ],
+    );
+    assert_eq!(code, 0, "stderr={stderr} stdout={stdout}");
+    let dry: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(dry["preview"]["records"], 1);
+    assert!(
+        !support.join("records.sqlite").exists(),
+        "dry-run must not create records.sqlite"
+    );
+
+    let (code, stdout, stderr) = run_luma(
+        &support,
+        &logs,
+        &[
+            "record",
+            "import",
+            "--root",
+            root.to_str().unwrap(),
+            "--apply",
+            "--json",
+        ],
+    );
+    assert_eq!(code, 0, "stderr={stderr} stdout={stdout}");
+    assert!(support.join("records.sqlite").exists());
+
+    let (code, stdout, stderr) = run_luma(&support, &logs, &["query", "rec 沙丘", "--json"]);
+    assert_eq!(code, 0, "stderr={stderr} stdout={stdout}");
+    assert!(stdout.contains("沙丘"), "{stdout}");
+    assert!(stdout.contains("luma.records"), "{stdout}");
+
+    let (code, stdout, stderr) = run_luma(&support, &logs, &["record", "rate", "1", "9", "--json"]);
+    assert_eq!(code, 0, "stderr={stderr} stdout={stdout}");
+    let rated: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(rated["rating"], 9);
+
+    let (code, _, stderr) = run_luma(&support, &logs, &["record", "rate", "1"]);
+    assert_ne!(code, 0);
+    assert!(
+        stderr.contains("provide SCORE") || stderr.contains("--clear"),
+        "{stderr}"
+    );
+}
+
+#[test]
+fn records_rollback_does_not_touch_unrelated_support_files() {
+    let dir = tempdir().unwrap();
+    let support = dir.path().join("support");
+    let logs = dir.path().join("logs");
+    fs::create_dir_all(&support).unwrap();
+    fs::create_dir_all(&logs).unwrap();
+    fs::write(support.join("settings.toml"), "settings sentinel\n").unwrap();
+    fs::write(support.join("clipboard.sqlite"), b"clipboard sentinel").unwrap();
+
+    let root = dir.path().join("records-src");
+    fs::create_dir_all(&root).unwrap();
+    fs::write(
+        root.join("电影.md"),
+        "| 名字 | 评分 | 备注 |\n|---|---:|---|\n| 沙丘 | 8 | 史诗 |\n",
+    )
+    .unwrap();
+
+    let (code, stdout, stderr) = run_luma(
+        &support,
+        &logs,
+        &[
+            "record",
+            "import",
+            "--root",
+            root.to_str().unwrap(),
+            "--apply",
+            "--json",
+        ],
+    );
+    assert_eq!(code, 0, "stderr={stderr} stdout={stdout}");
+    let applied: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    let migration_id = applied["migration"]["migration_id"]
+        .as_str()
+        .expect("records migration id")
+        .to_string();
+
+    let (code, _, stderr) = run_luma(
+        &support,
+        &logs,
+        &["migrate", "rollback", "--migration-id", &migration_id],
+    );
+    assert_eq!(code, 0, "stderr={stderr}");
+    assert_eq!(
+        fs::read(support.join("settings.toml")).unwrap(),
+        b"settings sentinel\n"
+    );
+    assert_eq!(
+        fs::read(support.join("clipboard.sqlite")).unwrap(),
+        b"clipboard sentinel"
+    );
 }

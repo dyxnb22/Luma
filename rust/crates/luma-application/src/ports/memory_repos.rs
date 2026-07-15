@@ -2,8 +2,9 @@ use crate::ports::{
     ClipboardEntry, ClipboardHistoryRepository, ClipboardRepoError, ContentImportReport,
     NotesDocument, NotesIndexError, NotesIndexRepository, NotesIssue, NotesScanReport,
     NotesScanStatusView, NotesSearchHit, QuicklinkEntry, QuicklinksRepoError, QuicklinksRepository,
-    SnippetEntry, SnippetsRepoError, SnippetsRepository, WordContentInput, WordEntry,
-    WordbookRepoError, WordbookRepository, WordbookStatsView,
+    RecordCategory, RecordEntry, RecordImportPreviewView, RecordImportReportView, RecordsRepoError,
+    RecordsRepository, RecordsStatsView, SnippetEntry, SnippetsRepoError, SnippetsRepository,
+    WordContentInput, WordEntry, WordbookRepoError, WordbookRepository, WordbookStatsView,
 };
 use async_trait::async_trait;
 use std::collections::BTreeMap;
@@ -768,5 +769,267 @@ impl WordbookRepository for MemoryWordbookRepository {
         Ok(std::path::PathBuf::from(
             "/tmp/wordbook-memory-backup.sqlite",
         ))
+    }
+}
+
+/// In-memory records store for module tests (no SQLite).
+#[derive(Default)]
+pub struct MemoryRecordsRepository {
+    categories: Mutex<Vec<RecordCategory>>,
+    records: Mutex<Vec<RecordEntry>>,
+    next_cat_id: Mutex<i64>,
+    next_id: Mutex<i64>,
+}
+
+impl MemoryRecordsRepository {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    fn now() -> String {
+        format!("{}", chrono_now())
+    }
+
+    fn norm(name: &str) -> String {
+        name.split_whitespace()
+            .filter(|p| !p.is_empty())
+            .collect::<Vec<_>>()
+            .join(" ")
+    }
+
+    pub fn add_category(&self, category: &str) {
+        let mut cats = self.categories.lock().expect("lock");
+        if cats.iter().any(|c| c.name == category) {
+            return;
+        }
+        let mut next = self.next_cat_id.lock().expect("lock");
+        *next += 1;
+        let now = Self::now();
+        cats.push(RecordCategory {
+            id: *next,
+            name: category.into(),
+            sort_order: *next,
+            source_file: String::new(),
+            created_at: now.clone(),
+            updated_at: now,
+        });
+    }
+}
+
+#[async_trait]
+impl RecordsRepository for MemoryRecordsRepository {
+    fn stats(&self) -> Result<RecordsStatsView, RecordsRepoError> {
+        Ok(RecordsStatsView {
+            categories: self.categories.lock().expect("lock").len() as i64,
+            records: self.records.lock().expect("lock").len() as i64,
+        })
+    }
+
+    fn list_categories(&self) -> Result<Vec<RecordCategory>, RecordsRepoError> {
+        Ok(self.categories.lock().expect("lock").clone())
+    }
+
+    fn get(&self, id: i64) -> Result<Option<RecordEntry>, RecordsRepoError> {
+        Ok(self
+            .records
+            .lock()
+            .expect("lock")
+            .iter()
+            .find(|r| r.id == id)
+            .cloned())
+    }
+
+    fn get_by_category_and_name(
+        &self,
+        category: &str,
+        name: &str,
+    ) -> Result<Option<RecordEntry>, RecordsRepoError> {
+        let norm = Self::norm(name);
+        Ok(self
+            .records
+            .lock()
+            .expect("lock")
+            .iter()
+            .find(|r| r.category_name == category && Self::norm(&r.name) == norm)
+            .cloned())
+    }
+
+    fn list_by_category(
+        &self,
+        category: &str,
+        limit: usize,
+    ) -> Result<Vec<RecordEntry>, RecordsRepoError> {
+        let mut rows: Vec<_> = self
+            .records
+            .lock()
+            .expect("lock")
+            .iter()
+            .filter(|r| r.category_name == category)
+            .cloned()
+            .collect();
+        rows.truncate(limit);
+        Ok(rows)
+    }
+
+    fn search(
+        &self,
+        query: &str,
+        category_filter: Option<&str>,
+        limit: usize,
+    ) -> Result<Vec<RecordEntry>, RecordsRepoError> {
+        let q = query.to_lowercase();
+        let mut rows: Vec<_> = self
+            .records
+            .lock()
+            .expect("lock")
+            .iter()
+            .filter(|r| {
+                if let Some(cat) = category_filter {
+                    if r.category_name != cat {
+                        return false;
+                    }
+                }
+                r.name.to_lowercase().contains(&q)
+                    || r.note.to_lowercase().contains(&q)
+                    || r.category_name.to_lowercase().contains(&q)
+            })
+            .cloned()
+            .collect();
+        rows.truncate(limit);
+        Ok(rows)
+    }
+
+    fn insert(
+        &self,
+        category: &str,
+        name: &str,
+        rating: Option<i64>,
+        note: &str,
+    ) -> Result<RecordEntry, RecordsRepoError> {
+        if let Some(rating) = rating {
+            if !(1..=10).contains(&rating) {
+                return Err(RecordsRepoError::msg("rating must be between 1 and 10"));
+            }
+        }
+        let category = category.trim();
+        if category.is_empty() {
+            return Err(RecordsRepoError::msg("category is empty"));
+        }
+        let norm = Self::norm(name);
+        if norm.is_empty() {
+            return Err(RecordsRepoError::msg("name is empty"));
+        }
+        let mut records = self.records.lock().expect("lock");
+        if records
+            .iter()
+            .any(|r| r.category_name == category && Self::norm(&r.name) == norm)
+        {
+            return Err(RecordsRepoError::msg("duplicate name"));
+        }
+        let cats = self.categories.lock().expect("lock");
+        if !cats.iter().any(|c| c.name == category) {
+            return Err(RecordsRepoError::msg(
+                "category does not exist; import categories first",
+            ));
+        }
+        let cat_id = cats
+            .iter()
+            .find(|c| c.name == category)
+            .map(|c| c.id)
+            .unwrap_or(1);
+        let mut next = self.next_id.lock().expect("lock");
+        *next += 1;
+        let now = Self::now();
+        let row = RecordEntry {
+            id: *next,
+            category_id: cat_id,
+            category_name: category.into(),
+            name: name.trim().into(),
+            rating,
+            note: note.into(),
+            source_file: String::new(),
+            source_key: String::new(),
+            source_hash: String::new(),
+            created_at: now.clone(),
+            updated_at: now,
+        };
+        records.push(row.clone());
+        Ok(row)
+    }
+
+    fn update(
+        &self,
+        id: i64,
+        name: Option<&str>,
+        rating: Option<Option<i64>>,
+        note: Option<&str>,
+        category: Option<&str>,
+    ) -> Result<RecordEntry, RecordsRepoError> {
+        let mut records = self.records.lock().expect("lock");
+        let row = records
+            .iter_mut()
+            .find(|r| r.id == id)
+            .ok_or_else(|| RecordsRepoError::msg(format!("record {id} not found")))?;
+        if let Some(rating) = rating {
+            if let Some(rating) = rating {
+                if !(1..=10).contains(&rating) {
+                    return Err(RecordsRepoError::msg("rating must be between 1 and 10"));
+                }
+            }
+            row.rating = rating;
+        }
+        if let Some(cat) = category {
+            let cat = cat.trim();
+            if !self
+                .categories
+                .lock()
+                .expect("lock")
+                .iter()
+                .any(|c| c.name == cat)
+            {
+                return Err(RecordsRepoError::msg(
+                    "category does not exist; import categories first",
+                ));
+            }
+            row.category_name = cat.into();
+        }
+        if let Some(n) = name {
+            row.name = n.trim().into();
+        }
+        if let Some(n) = note {
+            row.note = n.into();
+        }
+        row.updated_at = Self::now();
+        Ok(row.clone())
+    }
+
+    fn set_rating(&self, id: i64, rating: Option<i64>) -> Result<RecordEntry, RecordsRepoError> {
+        self.update(id, None, Some(rating), None, None)
+    }
+
+    fn set_note(&self, id: i64, note: &str) -> Result<RecordEntry, RecordsRepoError> {
+        self.update(id, None, None, Some(note), None)
+    }
+
+    fn delete(&self, id: i64) -> Result<(), RecordsRepoError> {
+        let mut records = self.records.lock().expect("lock");
+        let len = records.len();
+        records.retain(|r| r.id != id);
+        if records.len() == len {
+            return Err(RecordsRepoError::msg(format!("record {id} not found")));
+        }
+        Ok(())
+    }
+
+    fn preview_import(&self, _root: &Path) -> Result<RecordImportPreviewView, RecordsRepoError> {
+        Ok(RecordImportPreviewView::default())
+    }
+
+    fn import_dir(&self, _root: &Path) -> Result<RecordImportReportView, RecordsRepoError> {
+        Ok(RecordImportReportView::default())
+    }
+
+    fn backup(&self) -> Result<std::path::PathBuf, RecordsRepoError> {
+        Ok(PathBuf::from("/tmp/records-memory-backup.sqlite"))
     }
 }

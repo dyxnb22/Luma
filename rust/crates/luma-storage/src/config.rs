@@ -48,6 +48,9 @@ pub struct LumaSettings {
     /// Glob patterns relative to notes_root (e.g. `private/*`).
     #[serde(default)]
     pub notes_exclude_patterns: Vec<String>,
+    /// Markdown records import root (e.g. ~/Documents/Notes/Records).
+    #[serde(default)]
+    pub records_root: Option<String>,
     pub clipboard_retention_days: u32,
     /// Lock Secrets vault after this many idle seconds (`0` disables idle lock).
     #[serde(default = "default_secrets_idle_lock_secs")]
@@ -217,6 +220,7 @@ impl Default for LumaSettings {
         enabled_modules.insert("luma.windows".into(), true);
         enabled_modules.insert("luma.clipboard".into(), true);
         enabled_modules.insert("luma.notes".into(), true);
+        enabled_modules.insert("luma.records".into(), true);
         enabled_modules.insert("luma.secrets".into(), false);
         enabled_modules.insert("luma.fake".into(), false);
         Self {
@@ -227,6 +231,7 @@ impl Default for LumaSettings {
             projects_roots: Vec::new(),
             imported_projects: Vec::new(),
             notes_exclude_patterns: Vec::new(),
+            records_root: None,
             clipboard_retention_days: 30,
             secrets_idle_lock_secs: default_secrets_idle_lock_secs(),
             hub_windows_max: default_hub_windows_max(),

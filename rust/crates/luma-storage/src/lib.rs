@@ -11,6 +11,8 @@ mod notes_parse;
 mod notes_scan;
 mod paths;
 mod quicklinks_store;
+mod records_parse;
+mod records_store;
 mod snippets_store;
 mod sqlite;
 mod wordbook_store;
@@ -45,6 +47,11 @@ pub use notes_scan::{
 };
 pub use paths::{ensure_luma_next_dirs, luma_next_logs_dir, luma_next_support_dir, PathsError};
 pub use quicklinks_store::{QuicklinkRow, QuicklinksStore, QuicklinksStoreError};
+pub use records_store::{
+    import_records_with_ledger, now_iso as records_now_iso, preview_import_from_dir,
+    RecordCategoryRow, RecordImportApplyReport, RecordImportPreview, RecordRow,
+    RecordsImportLedgerReport, RecordsStats, RecordsStore, RecordsStoreError,
+};
 pub use snippets_store::{SnippetRow, SnippetsStore, SnippetsStoreError};
 pub use wordbook_store::{
     now_iso, schedule_review, ImportContentReport, WordContent, WordImportRow, WordRow,

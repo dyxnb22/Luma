@@ -5,12 +5,12 @@
 
 use luma_application::{
     CapabilityPort, ModuleRegistry, RegistryError as ModuleRegistryError, SettingsRepository,
-    SqliteClipboardHistory, SqliteNotesIndex, SqliteQuicklinksRepository, SqliteSnippetsRepository,
-    SqliteWordbookRepository, TomlSettingsRepository, WordbookRepository,
+    SqliteClipboardHistory, SqliteNotesIndex, SqliteQuicklinksRepository, SqliteRecordsRepository,
+    SqliteSnippetsRepository, SqliteWordbookRepository, TomlSettingsRepository, WordbookRepository,
 };
 use luma_modules::{
     AppsModule, ClipboardModule, ClipboardSuppression, FakeEchoModule, NotesModule, ProjectsModule,
-    QuicklinksModule, SecretsModule, SnippetsModule, WindowsModule, WordbookModule,
+    QuicklinksModule, RecordsModule, SecretsModule, SnippetsModule, WindowsModule, WordbookModule,
 };
 use luma_platform_macos::{
     FilesystemAppsCatalog, MacAccessibility, MacKeychain, MacMarkdownWatcher, MacOpenPath,
@@ -18,7 +18,7 @@ use luma_platform_macos::{
 };
 use luma_storage::{
     ClipboardStore, ConfigError, ConfigStore, LumaSettings, NotesIndexStore, NotesScanner,
-    QuicklinksStore, SnippetsStore, WordbookStore,
+    QuicklinksStore, RecordsStore, SnippetsStore, WordbookStore,
 };
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -70,9 +70,15 @@ pub fn registry_from_settings(
     quicklinks: Option<Arc<QuicklinksStore>>,
     snippets: Option<Arc<SnippetsStore>>,
     wordbook: Option<Arc<WordbookStore>>,
+    records: Option<Arc<RecordsStore>>,
     notes_index: Option<Arc<NotesScanner>>,
 ) -> Result<(ModuleRegistry, Vec<SkippedModule>), ModuleRegistryError> {
     let notes_root = settings.notes_root.as_ref().map(PathBuf::from);
+    let records_root = settings
+        .records_root
+        .as_ref()
+        .map(PathBuf::from)
+        .or_else(default_records_root);
     let project_roots: Vec<PathBuf> = settings.projects_roots.iter().map(PathBuf::from).collect();
     let mut skipped = Vec::new();
 
@@ -172,6 +178,19 @@ pub fn registry_from_settings(
             reason,
         });
     }
+    if let Some(records) = records {
+        reg.register(Arc::new(RecordsModule::with_deps(
+            Arc::new(SqliteRecordsRepository::new(records)),
+            records_root,
+        )))?;
+    } else {
+        let reason = "records store unavailable".into();
+        warn!("{reason} — Records module not registered");
+        skipped.push(SkippedModule {
+            id: "luma.records".into(),
+            reason,
+        });
+    }
     reg.register(Arc::new(ProjectsModule::with_settings(
         project_roots,
         settings.imported_projects.clone(),
@@ -201,6 +220,10 @@ pub fn registry_from_settings(
         skipped.push(SkippedModule { id, reason });
     }
     Ok((reg, skipped))
+}
+
+fn default_records_root() -> Option<PathBuf> {
+    dirs::home_dir().map(|h| h.join("Documents/Notes/Records"))
 }
 
 /// Load LumaNext settings + stores. Corrupt config is not replaced with defaults.
@@ -241,6 +264,13 @@ pub fn load_registry_with_settings() -> Result<RegistryLoad, RegistryError> {
             None
         }
     };
+    let records = match RecordsStore::luma_next_default() {
+        Ok(s) => Some(Arc::new(s)),
+        Err(err) => {
+            warn!(%err, "failed to open records store");
+            None
+        }
+    };
     let notes_index = match NotesIndexStore::luma_next_default() {
         Ok(store) => Some(Arc::new(NotesScanner::new(store))),
         Err(err) => {
@@ -254,6 +284,7 @@ pub fn load_registry_with_settings() -> Result<RegistryLoad, RegistryError> {
         quicklinks.clone(),
         snippets.clone(),
         wordbook.clone(),
+        records.clone(),
         notes_index.clone(),
     )?;
     let settings_repo: Arc<dyn SettingsRepository> = Arc::new(TomlSettingsRepository::new(store));

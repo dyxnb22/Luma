@@ -668,18 +668,34 @@ fn request_primary_actions(state: &mut AppState) -> Vec<Effect> {
 }
 
 fn drill_into_browse(state: &mut AppState, item: &luma_domain::SearchItem) -> Vec<Effect> {
-    let path = item
-        .subtitle
-        .clone()
-        .or_else(|| {
-            item.id
-                .as_str()
-                .strip_prefix("browse:proj:")
-                .or_else(|| item.id.as_str().strip_prefix("browse:n:"))
-                .map(str::to_string)
-        })
-        .or_else(|| item.id.as_str().strip_prefix("proj:").map(str::to_string));
-    let trigger = if item.module_id.as_str().contains("notes") {
+    let is_records = item.module_id.as_str().contains("records");
+    let path = if is_records {
+        item.action_payload
+            .as_ref()
+            .and_then(|p| p.get("category"))
+            .and_then(|v| v.as_str())
+            .map(str::to_string)
+            .or_else(|| {
+                item.id
+                    .as_str()
+                    .strip_prefix("rec:cat:")
+                    .map(str::to_string)
+            })
+    } else {
+        item.subtitle
+            .clone()
+            .or_else(|| {
+                item.id
+                    .as_str()
+                    .strip_prefix("browse:proj:")
+                    .or_else(|| item.id.as_str().strip_prefix("browse:n:"))
+                    .map(str::to_string)
+            })
+            .or_else(|| item.id.as_str().strip_prefix("proj:").map(str::to_string))
+    };
+    let trigger = if is_records {
+        "rec"
+    } else if item.module_id.as_str().contains("notes") {
         "n"
     } else {
         "proj"
@@ -735,6 +751,37 @@ fn seed_module_add(state: &mut AppState, item: &luma_domain::SearchItem) -> Vec<
         StatusTone::Neutral,
     );
     // Keep debounce quiet so the user can finish typing the add line.
+    state.search_debounce_deadline = None;
+    state.hub_refresh_deadline = None;
+    vec![Effect::None]
+}
+
+fn seed_record_edit(
+    state: &mut AppState,
+    item: &luma_domain::SearchItem,
+    action: &str,
+) -> Vec<Effect> {
+    let Some(id) = item.id.as_str().strip_prefix("rec:") else {
+        state.status.set("invalid record id", StatusTone::Error);
+        return vec![Effect::None];
+    };
+    state.browse_nav_stack.clear();
+    state.prompt = match action {
+        "rate" => format!("rec rate {id} "),
+        "note" => format!("rec note {id} "),
+        _ => return vec![Effect::None],
+    };
+    state.prompt_cursor = state.prompt_char_len();
+    state.focus = FocusZone::Prompt;
+    state.history_browse = None;
+    state.results.items.clear();
+    state.results.selected_id = None;
+    state.preview_body = None;
+    state.preview_result_id = None;
+    state.status.set(
+        "type value · Enter to save · Esc cancel",
+        StatusTone::Neutral,
+    );
     state.search_debounce_deadline = None;
     state.hub_refresh_deadline = None;
     vec![Effect::None]
@@ -816,6 +863,18 @@ fn submit_picker_selection(state: &mut AppState) -> Vec<Effect> {
     };
     state.action_choices.clear();
     state.action_selected = 0;
+    if matches!(action.id.as_str(), "rate" | "note") {
+        if let Some(item) = state
+            .results
+            .items
+            .iter()
+            .find(|i| i.id.as_str() == result_id.as_str() && i.kind == "record")
+            .cloned()
+        {
+            state.route = Route::Search;
+            return seed_record_edit(state, &item, action.id.as_str());
+        }
+    }
     if action.id == "browse" {
         state.route = Route::Search;
         if let Some(item) = state
@@ -1250,6 +1309,10 @@ fn apply_engine(state: &mut AppState, event: Event) -> Vec<Effect> {
         if state.active_operation.as_deref() == Some(operation_id.as_str())
             && matches!(outcome, luma_protocol::ActionOutcomeDto::Success { .. })
             && project_remove_name(&state.prompt).is_some());
+    let records_mutation_success = matches!(&event, Event::ActionFinished { operation_id, outcome }
+        if state.active_operation.as_deref() == Some(operation_id.as_str())
+            && matches!(outcome, luma_protocol::ActionOutcomeDto::Success { .. })
+            && records_query_active(&state.prompt));
     let refresh_review_stats = matches!(&event, Event::ActionFinished { outcome, .. }
         if matches!(outcome, luma_protocol::ActionOutcomeDto::Success { .. })
             && matches!(state.route, Route::WordbookReview)
@@ -1302,6 +1365,9 @@ fn apply_engine(state: &mut AppState, event: Event) -> Vec<Effect> {
         }
         return vec![Effect::None];
     }
+    if records_mutation_success && !state.prompt.trim().is_empty() {
+        return begin_search(state);
+    }
     if let Some(sel) = state.results.selected_id.as_deref() {
         let have_body =
             state.preview_result_id.as_deref() == Some(sel) && state.preview_body.is_some();
@@ -1312,6 +1378,14 @@ fn apply_engine(state: &mut AppState, event: Event) -> Vec<Effect> {
         }
     }
     vec![Effect::None]
+}
+
+fn records_query_active(prompt: &str) -> bool {
+    let lower = prompt.to_ascii_lowercase();
+    matches!(
+        lower.split_whitespace().next(),
+        Some("rec") | Some("record")
+    )
 }
 
 fn project_remove_name(prompt: &str) -> Option<&str> {
@@ -1688,6 +1762,59 @@ mod tests {
             browse_query_parent("n browse /Notes"),
             Some("n browse /".into())
         );
+    }
+
+    #[test]
+    fn records_category_browse_uses_rec_trigger_and_category_payload() {
+        let mut state = AppState::default();
+        let item = SearchItem {
+            id: ResultId::new("rec:cat:电影"),
+            module_id: ModuleId::new("luma.records"),
+            title: "电影/".into(),
+            subtitle: Some("Enter to browse category".into()),
+            kind: "category".into(),
+            score: 1.0,
+            primary_action: ActionDescriptor {
+                id: ActionId::new("browse"),
+                label: "Browse".into(),
+                risk: ActionRisk::Safe,
+                confirmation: false,
+            },
+            secondary_actions: vec![],
+            ui_intent: None,
+            action_payload: Some(serde_json::json!({ "category": "电影" })),
+        };
+        let effects = drill_into_browse(&mut state, &item);
+        assert_eq!(state.prompt, "rec browse 电影");
+        assert!(effects
+            .iter()
+            .any(|e| matches!(e, Effect::Search { query, .. } if query == "rec browse 电影")));
+    }
+
+    #[test]
+    fn records_actions_seed_prompt_for_rate_and_note() {
+        let mut state = AppState::default();
+        let item = SearchItem {
+            id: ResultId::new("rec:42"),
+            module_id: ModuleId::new("luma.records"),
+            title: "沙丘".into(),
+            subtitle: None,
+            kind: "record".into(),
+            score: 1.0,
+            primary_action: ActionDescriptor {
+                id: ActionId::new("open"),
+                label: "View".into(),
+                risk: ActionRisk::Safe,
+                confirmation: false,
+            },
+            secondary_actions: vec![],
+            ui_intent: None,
+            action_payload: None,
+        };
+        let _ = seed_record_edit(&mut state, &item, "rate");
+        assert_eq!(state.prompt, "rec rate 42 ");
+        let _ = seed_record_edit(&mut state, &item, "note");
+        assert_eq!(state.prompt, "rec note 42 ");
     }
 
     #[test]

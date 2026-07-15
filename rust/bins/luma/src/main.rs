@@ -4,11 +4,15 @@ mod compose;
 use clap::{Parser, Subcommand};
 use cli_output::action_exit_code;
 use compose::{load_registry, load_registry_with_settings};
-use luma_application::{list_modules_json, run_action, run_query, Engine, KeychainPort};
+use luma_application::{
+    list_modules_json, run_action, run_query, Engine, KeychainPort, RecordsRepository,
+    SqliteRecordsRepository,
+};
 use luma_storage::{
-    dry_run_legacy_dir, import_clipboard_fixture_with_ledger,
-    import_notes_config_fixture_with_ledger, list_migrations, rollback_migration, ClipboardStore,
-    ConfigError, ConfigStore, WordbookStore,
+    dry_run_legacy_dir, get_migration, import_clipboard_fixture_with_ledger,
+    import_notes_config_fixture_with_ledger, import_records_with_ledger, list_migrations,
+    preview_import_from_dir, record_dry_run, rollback_migration, ClipboardStore, ConfigError,
+    ConfigStore, MigrationKind, RecordsStore, WordbookStore,
 };
 use luma_tui::run_tui_with_engine;
 use std::io::Read;
@@ -63,6 +67,11 @@ enum Commands {
         #[command(subcommand)]
         action: WordbookCmd,
     },
+    /// Personal media/content records (movies, games, …).
+    Record {
+        #[command(subcommand)]
+        action: RecordCmd,
+    },
 }
 
 #[derive(Debug, Subcommand)]
@@ -98,6 +107,8 @@ enum ActionCmd {
 struct ConfigSetArgs {
     #[arg(long)]
     notes_root: Option<String>,
+    #[arg(long)]
+    records_root: Option<String>,
     #[arg(long)]
     projects_root: Vec<String>,
     /// Glob patterns relative to notes_root (repeatable). Replaces the full list when set.
@@ -161,6 +172,76 @@ enum WordbookCmd {
         json: bool,
     },
     /// Copy wordbook.sqlite into LumaNext/backups/.
+    Backup {
+        #[arg(long)]
+        json: bool,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+enum RecordCmd {
+    /// Show DB stats.
+    Status {
+        #[arg(long)]
+        json: bool,
+    },
+    /// List categories or records in a category.
+    Browse {
+        #[arg(long)]
+        category: Option<String>,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Add a record.
+    Add {
+        category: String,
+        name: String,
+        #[arg(long)]
+        rating: Option<i64>,
+        #[arg(long)]
+        note: Option<String>,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Set rating (1-10) or omit with --clear.
+    Rate {
+        id: i64,
+        score: Option<i64>,
+        #[arg(long)]
+        clear: bool,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Update note text.
+    Note {
+        id: i64,
+        text: String,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Remove a record.
+    Remove {
+        id: i64,
+        #[arg(long)]
+        yes: bool,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Import Markdown tables from a directory (default dry-run).
+    Import {
+        #[arg(long)]
+        root: PathBuf,
+        #[arg(long)]
+        apply: bool,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Import status and last migration summary.
+    ImportStatus {
+        #[arg(long)]
+        json: bool,
+    },
+    /// Copy records.sqlite into LumaNext/backups/.
     Backup {
         #[arg(long)]
         json: bool,
@@ -431,6 +512,7 @@ async fn main() -> anyhow::Result<()> {
         }) => {
             let ConfigSetArgs {
                 notes_root,
+                records_root,
                 projects_root,
                 notes_exclude,
                 clear_notes_excludes,
@@ -448,6 +530,9 @@ async fn main() -> anyhow::Result<()> {
             let saved = match store.try_mutate_settings(expected_version, |next| {
                 if let Some(root) = notes_root {
                     next.notes_root = if root.is_empty() { None } else { Some(root) };
+                }
+                if let Some(root) = records_root {
+                    next.records_root = if root.is_empty() { None } else { Some(root) };
                 }
                 if !projects_root.is_empty() {
                     next.projects_roots = projects_root;
@@ -600,13 +685,15 @@ async fn main() -> anyhow::Result<()> {
             let support = luma_storage::luma_next_support_dir()?;
             let settings = support.join("settings.toml");
             let clip = support.join("clipboard.sqlite");
-            let record = rollback_migration(
-                &migration_id,
-                &[
-                    ("settings.toml", settings.as_path()),
-                    ("clipboard.sqlite", clip.as_path()),
-                ],
-            )?;
+            let records = support.join("records.sqlite");
+            let migration = get_migration(&migration_id)?;
+            let targets: Vec<(&str, &std::path::Path)> = match migration.kind {
+                MigrationKind::Clipboard => vec![("clipboard.sqlite", clip.as_path())],
+                MigrationKind::NotesConfig => vec![("settings.toml", settings.as_path())],
+                MigrationKind::Records => vec![("records.sqlite", records.as_path())],
+                MigrationKind::LegacyDryRun => vec![],
+            };
+            let record = rollback_migration(&migration_id, &targets)?;
             if json {
                 println!("{}", serde_json::to_string_pretty(&record)?);
             } else {
@@ -693,6 +780,247 @@ async fn main() -> anyhow::Result<()> {
             } else {
                 println!("backed up to {}", path.display());
             }
+        }
+        Some(Commands::Record { action }) => handle_record_command(action)?,
+    }
+    Ok(())
+}
+
+fn records_repo() -> anyhow::Result<SqliteRecordsRepository> {
+    let store = Arc::new(RecordsStore::luma_next_default()?);
+    Ok(SqliteRecordsRepository::new(store))
+}
+
+fn handle_record_command(action: RecordCmd) -> anyhow::Result<()> {
+    match action {
+        RecordCmd::Status { json } => {
+            let repo = records_repo()?;
+            let stats = repo.stats().map_err(|e| anyhow::anyhow!("{e}"))?;
+            let store = repo.store();
+            if json {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&serde_json::json!({
+                        "db": store.path(),
+                        "categories": stats.categories,
+                        "records": stats.records,
+                    }))?
+                );
+            } else {
+                println!("records.sqlite: {}", store.path().display());
+                println!("categories={} records={}", stats.categories, stats.records);
+            }
+        }
+        RecordCmd::Browse { category, json } => {
+            let repo = records_repo()?;
+            if let Some(cat) = category {
+                let rows = repo
+                    .list_by_category(&cat, 100)
+                    .map_err(|e| anyhow::anyhow!("{e}"))?;
+                if json {
+                    println!("{}", serde_json::to_string_pretty(&rows)?);
+                } else {
+                    for r in rows {
+                        let rating = r
+                            .rating
+                            .map(|x| x.to_string())
+                            .unwrap_or_else(|| "—".into());
+                        println!("rec:{}\t{}\t{cat}\t{rating}", r.id, r.name);
+                    }
+                }
+            } else {
+                let cats = repo.list_categories().map_err(|e| anyhow::anyhow!("{e}"))?;
+                if json {
+                    println!("{}", serde_json::to_string_pretty(&cats)?);
+                } else {
+                    for c in cats {
+                        println!("{}\t{}", c.id, c.name);
+                    }
+                }
+            }
+        }
+        RecordCmd::Add {
+            category,
+            name,
+            rating,
+            note,
+            json,
+        } => {
+            let repo = records_repo()?;
+            let row = repo
+                .insert(&category, &name, rating, note.as_deref().unwrap_or(""))
+                .map_err(|e| anyhow::anyhow!("{e}"))?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&row)?);
+            } else {
+                println!("added rec:{} {} in {}", row.id, row.name, row.category_name);
+            }
+        }
+        RecordCmd::Rate {
+            id,
+            score,
+            clear,
+            json,
+        } => {
+            if clear && score.is_some() {
+                anyhow::bail!("use either score or --clear");
+            }
+            if !clear && score.is_none() {
+                anyhow::bail!("provide SCORE (1-10) or use --clear");
+            }
+            let rating = if clear { None } else { score };
+            let repo = records_repo()?;
+            let row = repo
+                .set_rating(id, rating)
+                .map_err(|e| anyhow::anyhow!("{e}"))?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&row)?);
+            } else {
+                println!(
+                    "rated rec:{} {} → {}",
+                    row.id,
+                    row.name,
+                    row.rating
+                        .map(|r| r.to_string())
+                        .unwrap_or_else(|| "cleared".into())
+                );
+            }
+        }
+        RecordCmd::Note { id, text, json } => {
+            let repo = records_repo()?;
+            let row = repo
+                .set_note(id, &text)
+                .map_err(|e| anyhow::anyhow!("{e}"))?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&row)?);
+            } else {
+                println!("updated note for rec:{} {}", row.id, row.name);
+            }
+        }
+        RecordCmd::Remove { id, yes, json } => {
+            if !yes {
+                anyhow::bail!("refusing remove without --yes");
+            }
+            let repo = records_repo()?;
+            repo.delete(id).map_err(|e| anyhow::anyhow!("{e}"))?;
+            if json {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&serde_json::json!({ "removed": id }))?
+                );
+            } else {
+                println!("removed rec:{id}");
+            }
+        }
+        RecordCmd::Import { root, apply, json } => {
+            if apply {
+                let store = RecordsStore::luma_next_default()?;
+                let report = import_records_with_ledger(&root, &store, true)
+                    .map_err(|e| anyhow::anyhow!("{e}"))?;
+                print_record_import_report(&report, &root, json)?;
+            } else {
+                let preview = preview_import_from_dir(&root).map_err(|e| anyhow::anyhow!("{e}"))?;
+                let migration = record_dry_run(
+                    MigrationKind::Records,
+                    &root,
+                    preview.records as u64,
+                    0,
+                    preview.errors.len() as u64,
+                    preview.warnings.clone(),
+                )
+                .map_err(|e| anyhow::anyhow!("{e}"))?;
+                let report = luma_storage::RecordsImportLedgerReport {
+                    preview,
+                    apply: None,
+                    migration: Some(migration),
+                };
+                print_record_import_report(&report, &root, json)?;
+            }
+        }
+        RecordCmd::ImportStatus { json } => {
+            let repo = records_repo()?;
+            let stats = repo.stats().map_err(|e| anyhow::anyhow!("{e}"))?;
+            let migrations: Vec<_> = list_migrations()?
+                .into_iter()
+                .filter(|m| m.kind == luma_storage::MigrationKind::Records)
+                .collect();
+            let last = migrations.last();
+            let config = ConfigStore::luma_next_default()?.load_or_default()?;
+            let root = config.records_root.as_deref().unwrap_or("(not set)");
+            if json {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&serde_json::json!({
+                        "categories": stats.categories,
+                        "records": stats.records,
+                        "records_root": root,
+                        "last_migration": last,
+                    }))?
+                );
+            } else {
+                println!("categories={} records={}", stats.categories, stats.records);
+                println!("records_root={root}");
+                if let Some(m) = last {
+                    println!(
+                        "last import: {} ({:?}) imported={}",
+                        m.migration_id, m.status, m.imported
+                    );
+                } else {
+                    println!("last import: (none)");
+                }
+            }
+        }
+        RecordCmd::Backup { json } => {
+            let store = RecordsStore::luma_next_default()?;
+            let path = store.backup().map_err(|e| anyhow::anyhow!("{e}"))?;
+            if json {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&serde_json::json!({ "path": path }))?
+                );
+            } else {
+                println!("backed up to {}", path.display());
+            }
+        }
+    }
+    Ok(())
+}
+
+fn print_record_import_report(
+    report: &luma_storage::RecordsImportLedgerReport,
+    root: &std::path::Path,
+    json: bool,
+) -> anyhow::Result<()> {
+    if json {
+        println!("{}", serde_json::to_string_pretty(report)?);
+    } else {
+        let p = &report.preview;
+        println!("Source: {}", root.display());
+        println!(
+            "Files found: {} · Categories: {} · Records: {}",
+            p.files_found, p.categories, p.records
+        );
+        println!(
+            "Warnings: {} · Errors: {}",
+            p.warnings.len(),
+            p.errors.len()
+        );
+        if let Some(apply) = &report.apply {
+            println!(
+                "Applied: inserted={} skipped={}",
+                apply.inserted, apply.skipped
+            );
+        } else {
+            println!("Dry-run (pass --apply to write)");
+        }
+        if let Some(m) = &report.migration {
+            println!("Migration: {}", m.migration_id);
+        }
+        for w in &p.warnings {
+            println!("warning: {w}");
+        }
+        for e in &p.errors {
+            println!("error: {e}");
         }
     }
     Ok(())

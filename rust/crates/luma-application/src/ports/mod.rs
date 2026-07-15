@@ -12,6 +12,7 @@ mod notes_repo;
 mod open_path;
 mod pasteboard;
 mod quicklinks_repo;
+mod records_repo;
 mod settings;
 mod snippets_repo;
 mod speech;
@@ -28,8 +29,8 @@ pub use clock::{ClockError, ClockPort, FixedClock, SystemClock};
 pub use keychain::{FakeKeychain, KeychainError, KeychainPort, SecretLabel};
 pub use markdown_watch::{FakeMarkdownWatcher, MarkdownWatchPort};
 pub use memory_repos::{
-    MemoryClipboardHistory, MemoryNotesIndex, MemoryQuicklinksRepository, MemorySnippetsRepository,
-    MemoryWordbookRepository,
+    MemoryClipboardHistory, MemoryNotesIndex, MemoryQuicklinksRepository, MemoryRecordsRepository,
+    MemorySnippetsRepository, MemoryWordbookRepository,
 };
 pub use notes_repo::{
     NotesDocument, NotesIndexError, NotesIndexRepository, NotesIssue, NotesLink, NotesScanReport,
@@ -38,6 +39,10 @@ pub use notes_repo::{
 pub use open_path::{FakeOpenPath, OpenPathError, OpenPathPort};
 pub use pasteboard::{FakePasteboard, PasteboardError, PasteboardPort};
 pub use quicklinks_repo::{QuicklinkEntry, QuicklinksRepoError, QuicklinksRepository};
+pub use records_repo::{
+    RecordCategory, RecordEntry, RecordImportPreviewView, RecordImportReportView, RecordsRepoError,
+    RecordsRepository, RecordsStatsView,
+};
 pub use settings::{AppSettings, SettingsError, SettingsRepository};
 pub use snippets_repo::{SnippetEntry, SnippetsRepoError, SnippetsRepository};
 pub use speech::{FakeSpeech, SpeechAccent, SpeechError, SpeechPort};

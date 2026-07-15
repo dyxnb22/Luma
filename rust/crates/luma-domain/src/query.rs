@@ -105,7 +105,6 @@ fn is_known_prefix(token: &str) -> bool {
             | "n"
             | "note"
             | "notes"
-            | "doctor"
             | "help"
             | "fake"
             | "echo"

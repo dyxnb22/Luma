@@ -2,7 +2,7 @@
 
 Empty prompt shows:
 
-1. **Windows** — all visible windows (`title · app`); Enter focuses (default cap 15 via `hub_windows_max`; overflow → `win `). Soft-refreshes about every 2s while Hub is visible. Untitled titles surface a Screen Recording hint.
+1. **Windows** — all visible windows (`title · app`); Enter or **1–9** focuses (status/more/modules rows are not numbered). Soft-refreshes about every 2s while Hub is visible.
 2. **Modules** — Enter opens each module’s `suggested_query` (its default surface).
 
 ## Module defaults (Hub Enter)
@@ -10,7 +10,7 @@ Empty prompt shows:
 | Module | Opens |
 |--------|--------|
 | Notes | `n ` — directory tree at notes root (`n recent` = recent flat list) |
-| Projects | `proj browse` — project tree |
+| Projects | `proj browse` — browse project roots (import from browse) |
 | Secrets | `sec ` — vault labels (unlock/copy) |
 | Apps / Clipboard / Snippets / Quicklinks / Windows | `app ` / `clip ` / `s ` / `ql ` / `win ` — list dump |
 

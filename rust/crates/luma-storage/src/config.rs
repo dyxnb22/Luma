@@ -26,6 +26,13 @@ pub enum ConfigError {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ImportedProject {
+    pub path: String,
+    #[serde(default)]
+    pub name: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct LumaSettings {
     pub schema_version: u32,
     pub settings_version: u64,
@@ -33,6 +40,9 @@ pub struct LumaSettings {
     pub notes_root: Option<String>,
     #[serde(default)]
     pub projects_roots: Vec<String>,
+    /// User-imported project directories (canonical paths).
+    #[serde(default)]
+    pub imported_projects: Vec<ImportedProject>,
     /// Glob patterns relative to notes_root (e.g. `private/*`).
     #[serde(default)]
     pub notes_exclude_patterns: Vec<String>,
@@ -43,6 +53,56 @@ pub struct LumaSettings {
     /// Max window rows on the Hub (clamped 5–50 when applied).
     #[serde(default = "default_hub_windows_max")]
     pub hub_windows_max: u32,
+}
+
+/// Validate and canonicalize a directory path for project import (symlinks rejected).
+pub fn validate_import_project_path(path: &Path) -> Result<PathBuf, String> {
+    if !path.exists() {
+        return Err("path does not exist".into());
+    }
+    let meta = std::fs::symlink_metadata(path).map_err(|e| e.to_string())?;
+    if meta.file_type().is_symlink() {
+        return Err("symlink not allowed".into());
+    }
+    if !meta.is_dir() {
+        return Err("path is not a directory".into());
+    }
+    path.canonicalize().map_err(|e| e.to_string())
+}
+
+impl LumaSettings {
+    pub fn import_project_path(&mut self, path: &Path) -> Result<(), String> {
+        let canon = validate_import_project_path(path)?;
+        let canon_str = canon.display().to_string();
+        if self.imported_projects.iter().any(|p| p.path == canon_str) {
+            return Err("project already imported".into());
+        }
+        let name = canon
+            .file_name()
+            .and_then(|s| s.to_str())
+            .unwrap_or("project")
+            .to_string();
+        self.imported_projects.push(ImportedProject {
+            path: canon_str,
+            name: Some(name),
+        });
+        Ok(())
+    }
+
+    pub fn remove_imported_project(&mut self, key: &str) -> Result<(), String> {
+        let before = self.imported_projects.len();
+        self.imported_projects.retain(|p| {
+            let base = Path::new(&p.path)
+                .file_name()
+                .and_then(|s| s.to_str())
+                .unwrap_or("");
+            p.name.as_deref() != Some(key) && base != key && p.path != key
+        });
+        if self.imported_projects.len() == before {
+            return Err(format!("no imported project matching \"{key}\""));
+        }
+        Ok(())
+    }
 }
 
 fn default_secrets_idle_lock_secs() -> u32 {
@@ -68,6 +128,7 @@ impl Default for LumaSettings {
             enabled_modules,
             notes_root: None,
             projects_roots: Vec::new(),
+            imported_projects: Vec::new(),
             notes_exclude_patterns: Vec::new(),
             clipboard_retention_days: 30,
             secrets_idle_lock_secs: default_secrets_idle_lock_secs(),
@@ -378,5 +439,59 @@ mod tests {
         );
         let final_settings = store.load_or_default().unwrap();
         assert_eq!(final_settings.settings_version, 2);
+    }
+
+    #[test]
+    fn import_project_persists_and_rejects_duplicate() {
+        let dir = tempdir().unwrap();
+        let project = dir.path().join("MyApp");
+        fs::create_dir(&project).unwrap();
+        let store = ConfigStore::with_path(dir.path().join("settings.toml"));
+        let mut settings = store.load_or_default().unwrap();
+        settings.import_project_path(&project).unwrap();
+        store.save(&settings).unwrap();
+        let loaded = store.load_or_default().unwrap();
+        assert_eq!(loaded.imported_projects.len(), 1);
+        assert!(loaded.imported_projects[0]
+            .name
+            .as_deref()
+            .is_some_and(|n| n == "MyApp"));
+        let err = loaded.clone().import_project_path(&project).unwrap_err();
+        assert!(err.contains("already imported"), "{err}");
+    }
+
+    #[test]
+    fn remove_imported_project_keeps_directory() {
+        let dir = tempdir().unwrap();
+        let project = dir.path().join("KeepMe");
+        fs::create_dir(&project).unwrap();
+        fs::write(project.join("marker.txt"), "x").unwrap();
+        let store = ConfigStore::with_path(dir.path().join("settings.toml"));
+        let mut settings = store.load_or_default().unwrap();
+        settings.import_project_path(&project).unwrap();
+        settings.remove_imported_project("KeepMe").unwrap();
+        store.save(&settings).unwrap();
+        assert!(project.join("marker.txt").exists());
+        assert!(store
+            .load_or_default()
+            .unwrap()
+            .imported_projects
+            .is_empty());
+    }
+
+    #[test]
+    fn import_rejects_symlink() {
+        let dir = tempdir().unwrap();
+        let real = dir.path().join("real");
+        fs::create_dir(&real).unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::symlink;
+            let link = dir.path().join("link");
+            symlink(&real, &link).unwrap();
+            let mut settings = LumaSettings::default();
+            let err = settings.import_project_path(&link).unwrap_err();
+            assert!(err.contains("symlink"), "{err}");
+        }
     }
 }

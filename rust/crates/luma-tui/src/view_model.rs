@@ -7,8 +7,8 @@ use std::collections::HashMap;
 pub enum Route {
     Search,
     Help,
-    Doctor,
     Settings,
+    WordbookReview,
     Commands,
     QuitConfirm,
     ConfirmAction,
@@ -181,7 +181,6 @@ pub struct AppState {
     pub search_generation: u64,
     pub results: ResultsView,
     pub status: StatusLine,
-    pub doctor_diagnostic: Option<serde_json::Value>,
     pub should_quit: bool,
     pub dirty: bool,
     pub awaiting_actions: Option<AwaitingActions>,
@@ -220,10 +219,8 @@ pub struct AppState {
     pub settings_modules: Vec<SettingsModuleRow>,
     /// Notes / projects roots shown above module toggles.
     pub settings_roots: SettingsRootsInfo,
-    /// Doctor overlay scroll (line offset).
-    pub doctor_scroll: usize,
-    /// Doctor panel: false = actionable summary, true = full JSON.
-    pub doctor_show_raw: bool,
+    /// Active wordbook review session (`wb review`).
+    pub wordbook_review: Option<WordbookReviewState>,
     /// Horizontal scroll offset (Unicode scalar index) for long prompts.
     pub prompt_scroll: usize,
     /// When set, allow stacked preview on narrow terminals (e.g. 80×24).
@@ -261,8 +258,43 @@ pub struct SettingsModuleRow {
 pub struct SettingsRootsInfo {
     pub notes_root: Option<String>,
     pub projects_roots: Vec<String>,
+    pub imported_projects: Vec<String>,
     /// True after at least one SettingsChanged event (avoids Hub false "set root").
     pub loaded: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct WordbookReviewWord {
+    pub id: i64,
+    pub term: String,
+    pub phonetic: String,
+    pub meaning: String,
+    pub example: String,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct WordbookReviewStats {
+    pub queue: String,
+    pub due: i64,
+    pub new_count: i64,
+    pub wrong: i64,
+    pub goal: i64,
+    pub reviewed_today: i64,
+    pub remaining_goal: i64,
+    pub session_known: u32,
+    pub session_fuzzy: u32,
+    pub session_unknown: u32,
+    pub session_skipped: u32,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct WordbookReviewState {
+    pub words: Vec<WordbookReviewWord>,
+    pub index: usize,
+    pub revealed: bool,
+    pub stats: WordbookReviewStats,
+    pub finished: bool,
+    pub pending_grade: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -304,7 +336,6 @@ impl Default for AppState {
             search_generation: 0,
             results: ResultsView::default(),
             status: StatusLine::default(),
-            doctor_diagnostic: None,
             should_quit: false,
             dirty: true,
             awaiting_actions: None,
@@ -329,8 +360,7 @@ impl Default for AppState {
             settings_version: 0,
             settings_modules: Vec::new(),
             settings_roots: SettingsRootsInfo::default(),
-            doctor_scroll: 0,
-            doctor_show_raw: false,
+            wordbook_review: None,
             prompt_scroll: 0,
             preview_pinned: false,
             help_scroll: 0,
@@ -368,6 +398,75 @@ impl AppState {
         } else {
             self.hub_refresh_deadline = None;
         }
+    }
+
+    /// `win` / `window` / `windows` targeted search with results on screen.
+    pub fn is_win_search(&self) -> bool {
+        if !matches!(self.route, Route::Search) || self.results.items.is_empty() {
+            return false;
+        }
+        let token = self
+            .prompt
+            .split_whitespace()
+            .next()
+            .unwrap_or("")
+            .to_ascii_lowercase();
+        matches!(token.as_str(), "win" | "window" | "windows")
+    }
+
+    /// Digit shortcuts for window focus: Hub (empty prompt) or win list when list is focused.
+    pub fn should_intercept_window_digit(&self) -> bool {
+        if self.route != Route::Search || self.active_operation.is_some() {
+            return false;
+        }
+        if self.showing_hub() {
+            return true;
+        }
+        self.is_win_search() && self.focus == FocusZone::List
+    }
+
+    /// First nine focusable window rows: `(result_id, title)` — hub windows or win search rows.
+    pub fn window_digit_targets(&self) -> Vec<(String, String)> {
+        if self.showing_hub() {
+            return self
+                .hub_windows
+                .as_ref()
+                .map(|h| {
+                    h.windows
+                        .iter()
+                        .take(9)
+                        .map(|w| (w.id.clone(), w.title.clone()))
+                        .collect()
+                })
+                .unwrap_or_default();
+        }
+        if self.is_win_search() {
+            return self
+                .results
+                .items
+                .iter()
+                .filter(|i| i.module_id.as_str() == "luma.windows" && i.kind == "window")
+                .take(9)
+                .map(|i| (i.id.as_str().to_string(), i.title.clone()))
+                .collect();
+        }
+        Vec::new()
+    }
+
+    /// 1-based digit label for a hub row index, if that row is a focusable window in 1..=9.
+    pub fn hub_row_window_digit(&self, row_index: usize) -> Option<usize> {
+        let rows = self.hub_rows();
+        let mut window_idx = 0usize;
+        for (i, (kind, _, _, _)) in rows.iter().enumerate() {
+            if kind != "window" {
+                continue;
+            }
+            window_idx += 1;
+            if i == row_index && window_idx <= 9 {
+                return Some(window_idx);
+            }
+        }
+        None
     }
 
     pub fn prompt_char_len(&self) -> usize {
@@ -882,6 +981,53 @@ impl AppState {
                 self.status.set("Running…", StatusTone::Progress);
                 true
             }
+            Event::WordbookReviewLoaded {
+                queue,
+                words,
+                stats,
+            } => {
+                if !matches!(self.route, Route::WordbookReview) {
+                    return false;
+                }
+                let word_items = words
+                    .into_iter()
+                    .map(|w| WordbookReviewWord {
+                        id: w.id,
+                        term: w.term,
+                        phonetic: w.phonetic,
+                        meaning: w.meaning,
+                        example: w.example,
+                    })
+                    .collect::<Vec<_>>();
+                let finished = word_items.is_empty();
+                self.wordbook_review = Some(WordbookReviewState {
+                    words: word_items,
+                    index: 0,
+                    revealed: false,
+                    stats: WordbookReviewStats {
+                        queue,
+                        due: stats.due,
+                        new_count: stats.new_count,
+                        wrong: stats.wrong,
+                        goal: stats.goal,
+                        reviewed_today: stats.reviewed_today,
+                        remaining_goal: stats.remaining_goal,
+                        ..WordbookReviewStats::default()
+                    },
+                    finished,
+                    pending_grade: None,
+                });
+                if finished {
+                    self.status.set(
+                        "review queue empty · try wb review new",
+                        StatusTone::Warning,
+                    );
+                } else {
+                    self.status
+                        .set("review · Enter reveal · 1/2/3 grade", StatusTone::Neutral);
+                }
+                true
+            }
             Event::ActionFinished {
                 operation_id,
                 outcome,
@@ -890,6 +1036,48 @@ impl AppState {
                     return false;
                 }
                 self.active_operation = None;
+                if matches!(self.route, Route::WordbookReview) {
+                    if matches!(outcome, luma_protocol::ActionOutcomeDto::Success { .. }) {
+                        if let Some(review) = self.wordbook_review.as_mut() {
+                            if let Some(action) = review.pending_grade.take() {
+                                match action.as_str() {
+                                    "known" => review.stats.session_known += 1,
+                                    "fuzzy" => review.stats.session_fuzzy += 1,
+                                    "unknown" => review.stats.session_unknown += 1,
+                                    _ => {}
+                                }
+                            }
+                            review.stats.reviewed_today += 1;
+                            if review.stats.remaining_goal > 0 {
+                                review.stats.remaining_goal -= 1;
+                            }
+                            review.revealed = false;
+                            review.index += 1;
+                            if review.index >= review.words.len() {
+                                review.finished = true;
+                            }
+                        }
+                    }
+                    let tone = status_tone_for_outcome(&outcome);
+                    if self.wordbook_review.as_ref().is_some_and(|r| r.finished) {
+                        if let Some(review) = &self.wordbook_review {
+                            self.status.set(
+                                format!(
+                                    "review done · K{} F{} U{} · goal {} · reviewed {}",
+                                    review.stats.session_known,
+                                    review.stats.session_fuzzy,
+                                    review.stats.session_unknown,
+                                    review.stats.goal,
+                                    review.stats.reviewed_today
+                                ),
+                                StatusTone::Success,
+                            );
+                        }
+                    } else {
+                        self.status.set(outcome.user_message(), tone);
+                    }
+                    return true;
+                }
                 let tone = status_tone_for_outcome(&outcome);
                 self.status.set(outcome.user_message(), tone);
                 true
@@ -906,14 +1094,7 @@ impl AppState {
                         .set(format!("settings conflict: {message}"), StatusTone::Warning);
                     return true;
                 }
-                self.status
-                    .set("doctor ready · see panel", StatusTone::Neutral);
-                self.doctor_diagnostic = Some(diagnostic);
-                self.doctor_scroll = 0;
-                if !matches!(self.route, Route::Settings | Route::Commands) {
-                    self.route = Route::Doctor;
-                }
-                true
+                false
             }
             Event::SettingsChanged { version, settings } => {
                 self.settings_version = version;
@@ -928,6 +1109,17 @@ impl AppState {
                     .map(|arr| {
                         arr.iter()
                             .filter_map(|v| v.as_str().map(str::to_string))
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                self.settings_roots.imported_projects = settings
+                    .get("imported_projects")
+                    .and_then(|v| v.as_array())
+                    .map(|arr| {
+                        arr.iter()
+                            .filter_map(|v| {
+                                v.get("path").and_then(|p| p.as_str()).map(str::to_string)
+                            })
                             .collect()
                     })
                     .unwrap_or_default();

@@ -63,9 +63,17 @@ pub struct ActionRequest {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ActionOutcome {
-    Success { message: Option<String> },
-    Failed { kind: FailureKind },
+    Success {
+        message: Option<String>,
+    },
+    Failed {
+        kind: FailureKind,
+    },
     Cancelled,
+    /// Request a settings.toml CAS update (handled by the engine).
+    SettingsMutation {
+        patch: serde_json::Value,
+    },
 }
 
 pub type SearchSink = mpsc::Sender<Event>;

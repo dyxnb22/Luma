@@ -250,6 +250,25 @@ pub struct ModuleInfoDto {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WordReviewWordDto {
+    pub id: i64,
+    pub term: String,
+    pub phonetic: String,
+    pub meaning: String,
+    pub example: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WordbookStatsDto {
+    pub due: i64,
+    pub new_count: i64,
+    pub wrong: i64,
+    pub goal: i64,
+    pub reviewed_today: i64,
+    pub remaining_goal: i64,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct HubWindowDto {
     pub id: String,
     pub title: String,
@@ -330,6 +349,11 @@ pub enum Event {
         result_id: String,
         preview_id: u64,
         body: String,
+    },
+    WordbookReviewLoaded {
+        queue: String,
+        words: Vec<WordReviewWordDto>,
+        stats: WordbookStatsDto,
     },
     ModuleStateChanged {
         module_id: String,

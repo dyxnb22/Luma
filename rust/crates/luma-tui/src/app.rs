@@ -150,16 +150,34 @@ fn map_key(code: KeyCode, modifiers: KeyModifiers, state: &AppState) -> Msg {
         KeyCode::BackTab if matches!(state.route, Route::Search) => Msg::TogglePreview,
         KeyCode::Tab if matches!(state.route, Route::Search) => Msg::FocusNext,
         KeyCode::Char('?') if matches!(state.route, Route::Search) => Msg::OpenHelp,
-        KeyCode::Char('r') if state.route == Route::Doctor => Msg::ToggleDoctorRaw,
+        KeyCode::Char(c)
+            if state.should_intercept_window_digit() && c.is_ascii_digit() && c != '0' =>
+        {
+            Msg::PickWindowDigit(c.to_digit(10).unwrap_or(0) as usize)
+        }
+        KeyCode::Char(c)
+            if matches!(state.route, Route::WordbookReview)
+                && matches!(c, '1' | '2' | '3' | 'm' | 'M' | 's' | 'S') =>
+        {
+            let action = match c {
+                '1' => "known",
+                '2' => "fuzzy",
+                '3' => "unknown",
+                'm' | 'M' => "mastered",
+                _ => "skip",
+            };
+            Msg::WordbookGrade {
+                action_id: action.into(),
+            }
+        }
         KeyCode::Char(c)
             if matches!(state.route, Route::ActionPicker) && c.is_ascii_digit() && c != '0' =>
         {
             Msg::PickActionDigit(c.to_digit(10).unwrap_or(0) as usize)
         }
+        KeyCode::Char(' ') if matches!(state.route, Route::WordbookReview) => Msg::WordbookReveal,
         KeyCode::Char(' ') if matches!(state.route, Route::Settings) => Msg::ToggleSetting,
-        KeyCode::Char(c) if matches!(state.route, Route::Search | Route::Help | Route::Doctor) => {
-            Msg::KeyChar(c)
-        }
+        KeyCode::Char(c) if matches!(state.route, Route::Search | Route::Help) => Msg::KeyChar(c),
         KeyCode::Char(_) => Msg::Tick,
         KeyCode::Backspace => Msg::Backspace,
         KeyCode::Delete => Msg::DeleteForward,
@@ -189,14 +207,14 @@ fn dispatch_effect(engine: Arc<dyn EnginePort>, effect: Effect) {
                 let _ = engine.submit(Command::CancelSearch { request_id }).await;
             });
         }
-        Effect::RunDoctor => {
-            tokio::spawn(async move {
-                let _ = engine.submit(Command::RunDoctor).await;
-            });
-        }
         Effect::LoadHub => {
             tokio::spawn(async move {
                 let _ = engine.submit(Command::LoadHub).await;
+            });
+        }
+        Effect::LoadWordbookReview { queue } => {
+            tokio::spawn(async move {
+                let _ = engine.submit(Command::LoadWordbookReview { queue }).await;
             });
         }
         Effect::GetSnapshot => {

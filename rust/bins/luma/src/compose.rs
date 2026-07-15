@@ -4,9 +4,9 @@
 //! listed in Settings but do not warm up or appear on the Hub.
 
 use luma_application::{
-    CapabilityPort, ModuleRegistry, PlatformProbePort, RegistryError as ModuleRegistryError,
-    SettingsRepository, SqliteClipboardHistory, SqliteNotesIndex, SqliteQuicklinksRepository,
-    SqliteSnippetsRepository, SqliteWordbookRepository, StorageProbePort, TomlSettingsRepository,
+    CapabilityPort, ModuleRegistry, RegistryError as ModuleRegistryError, SettingsRepository,
+    SqliteClipboardHistory, SqliteNotesIndex, SqliteQuicklinksRepository, SqliteSnippetsRepository,
+    SqliteWordbookRepository, TomlSettingsRepository, WordbookRepository,
 };
 use luma_modules::{
     AppsModule, ClipboardModule, ClipboardSuppression, FakeEchoModule, NotesModule, ProjectsModule,
@@ -44,111 +44,9 @@ pub struct SkippedModule {
 pub struct RegistryLoad {
     pub registry: ModuleRegistry,
     pub settings: Arc<dyn SettingsRepository>,
-    pub storage_probe: Arc<dyn StorageProbePort>,
-    pub platform_probe: Arc<dyn PlatformProbePort>,
+    pub wordbook: Option<Arc<dyn WordbookRepository>>,
+    #[allow(dead_code)]
     pub skipped: Vec<SkippedModule>,
-}
-
-/// Doctor store probes using stores opened at composition time.
-pub struct ComposeStorageProbe {
-    clipboard: Option<Arc<ClipboardStore>>,
-    quicklinks: Option<Arc<QuicklinksStore>>,
-    snippets: Option<Arc<SnippetsStore>>,
-    wordbook: Option<Arc<WordbookStore>>,
-    notes_scanner: Option<Arc<NotesScanner>>,
-}
-
-impl StorageProbePort for ComposeStorageProbe {
-    fn probe_stores(&self, settings_ok: bool) -> serde_json::Value {
-        let clipboard = match &self.clipboard {
-            Some(s) => match s.list_page(0, 1) {
-                Ok(_) => serde_json::json!("ok"),
-                Err(err) => serde_json::json!(format!("error:{err}")),
-            },
-            None => serde_json::json!("unavailable:not opened at composition"),
-        };
-        let quicklinks = match &self.quicklinks {
-            Some(s) => match s.list() {
-                Ok(_) => serde_json::json!("ok"),
-                Err(err) => serde_json::json!(format!("error:{err}")),
-            },
-            None => serde_json::json!("unavailable:not opened at composition"),
-        };
-        let snippets = match &self.snippets {
-            Some(s) => match s.list() {
-                Ok(_) => serde_json::json!("ok"),
-                Err(err) => serde_json::json!(format!("error:{err}")),
-            },
-            None => serde_json::json!("unavailable:not opened at composition"),
-        };
-        let wordbook = match &self.wordbook {
-            Some(s) => match s.stats() {
-                Ok(_) => serde_json::json!("ok"),
-                Err(err) => serde_json::json!(format!("error:{err}")),
-            },
-            None => serde_json::json!("unavailable:not opened at composition"),
-        };
-        let notes_index = match &self.notes_scanner {
-            Some(s) => match s.store().document_count() {
-                Ok(_) => serde_json::json!("ok"),
-                Err(err) => serde_json::json!(format!("error:{err}")),
-            },
-            None => serde_json::json!("unavailable:not opened at composition"),
-        };
-        serde_json::json!({
-            "settings": if settings_ok { "ok" } else { "missing" },
-            "clipboard": clipboard,
-            "quicklinks": quicklinks,
-            "snippets": snippets,
-            "wordbook": wordbook,
-            "notes_index": notes_index,
-        })
-    }
-}
-
-/// Doctor platform probes (Accessibility + window list).
-pub struct ComposePlatformProbe;
-
-impl PlatformProbePort for ComposePlatformProbe {
-    fn probe_platform(&self) -> serde_json::Value {
-        let ax_trusted = MacAccessibility::probe_trusted();
-        let parent_pid = std::os::unix::process::parent_id();
-        let parent_name = std::process::Command::new("ps")
-            .args(["-p", &parent_pid.to_string(), "-o", "comm="])
-            .output()
-            .ok()
-            .filter(|o| o.status.success())
-            .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
-            .filter(|s| !s.is_empty());
-        let host = parent_name
-            .clone()
-            .unwrap_or_else(|| "the app that launched Luma".into());
-        let guidance = if ax_trusted {
-            format!("Accessibility trusted for current session (host: {host})")
-        } else {
-            format!(
-                "Grant Accessibility to {host} in System Settings → Privacy & Security → Accessibility"
-            )
-        };
-        let windows_list = match luma_platform_macos::probe_windows_list() {
-            Ok(count) => serde_json::json!({ "ok": true, "count": count }),
-            Err(err) => serde_json::json!({ "ok": false, "error": err }),
-        };
-        serde_json::json!({
-            "accessibility": {
-                "trusted": ax_trusted,
-                "launch_executable": std::env::current_exe().ok().map(|p| p.display().to_string()),
-                "parent_pid": parent_pid,
-                "parent_name": parent_name,
-                "guidance": guidance,
-            },
-            "ax_trusted": ax_trusted,
-            "probes": {
-                "windows.list": windows_list,
-                "ax.trusted": ax_trusted,
-            },
-        })
-    }
 }
 
 struct ComposeCapabilities;
@@ -274,8 +172,9 @@ pub fn registry_from_settings(
             reason,
         });
     }
-    reg.register(Arc::new(ProjectsModule::with_roots(
+    reg.register(Arc::new(ProjectsModule::with_settings(
         project_roots,
+        settings.imported_projects.clone(),
         opener.clone(),
     )))?;
     reg.register(Arc::new(SecretsModule::with_deps(
@@ -358,19 +257,12 @@ pub fn load_registry_with_settings() -> Result<RegistryLoad, RegistryError> {
         notes_index.clone(),
     )?;
     let settings_repo: Arc<dyn SettingsRepository> = Arc::new(TomlSettingsRepository::new(store));
-    let storage_probe: Arc<dyn StorageProbePort> = Arc::new(ComposeStorageProbe {
-        clipboard,
-        quicklinks,
-        snippets,
-        wordbook,
-        notes_scanner: notes_index,
-    });
-    let platform_probe: Arc<dyn PlatformProbePort> = Arc::new(ComposePlatformProbe);
+    let wordbook_repo: Option<Arc<dyn WordbookRepository>> =
+        wordbook.map(|s| Arc::new(SqliteWordbookRepository::new(s)) as Arc<dyn WordbookRepository>);
     Ok(RegistryLoad {
         registry,
         settings: settings_repo,
-        storage_probe,
-        platform_probe,
+        wordbook: wordbook_repo,
         skipped,
     })
 }

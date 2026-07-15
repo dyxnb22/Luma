@@ -16,7 +16,9 @@ mod sqlite;
 mod wordbook_store;
 
 pub use clipboard_store::{looks_secret, ClipboardRow, ClipboardStore, ClipboardStoreError};
-pub use config::{ConfigError, ConfigStore, LumaSettings};
+pub use config::{
+    validate_import_project_path, ConfigError, ConfigStore, ImportedProject, LumaSettings,
+};
 pub use importer::{
     dry_run_legacy_dir, import_clipboard_fixture, import_clipboard_fixture_with_ledger,
     import_notes_config_fixture, import_notes_config_fixture_with_ledger, ImportError,

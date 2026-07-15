@@ -30,6 +30,8 @@ impl Engine {
             );
             cancel
         };
+        let settings_repo = self.settings.clone();
+        let inner = self.inner.clone();
         let engine = self.clone_inner();
         let op_id = operation_id.clone();
         let handle = tokio::spawn(async move {
@@ -72,6 +74,20 @@ impl Engine {
                                 }
                                 crate::module::ActionOutcome::Cancelled => {
                                     luma_protocol::ActionOutcomeDto::Cancelled
+                                }
+                                crate::module::ActionOutcome::SettingsMutation { patch } => {
+                                    match apply_settings_mutation(
+                                        settings_repo.as_ref(),
+                                        &inner,
+                                        patch,
+                                    )
+                                    .await
+                                    {
+                                        Ok(msg) => luma_protocol::ActionOutcomeDto::Success {
+                                            message: Some(msg),
+                                        },
+                                        Err(kind) => luma_protocol::ActionOutcomeDto::failed(kind),
+                                    }
                                 }
                                 crate::module::ActionOutcome::Failed { kind } => {
                                     luma_protocol::ActionOutcomeDto::failed(kind)

@@ -381,6 +381,37 @@ impl LumaModule for WordbookModule {
             return;
         }
 
+        if rest_norm.starts_with("review") {
+            let queue = if rest_norm == "review new" {
+                "new"
+            } else if rest_norm == "review wrong" {
+                "wrong"
+            } else {
+                "due"
+            };
+            let _ = sink
+                .send(Event::ResultsChunk {
+                    request_id: String::new(),
+                    sequence: 1,
+                    upserts: vec![SearchItemDto {
+                        id: format!("wb:review:{queue}"),
+                        module_id: "luma.wordbook".into(),
+                        title: format!("Start review ({queue})"),
+                        subtitle: Some(
+                            "TUI: wb review · Enter to start · 1/2/3/m grade · s skip".into(),
+                        ),
+                        kind: "command".into(),
+                        score: 100.0,
+                        primary_action_id: "noop".into(),
+                        primary_action_label: "Use TUI review".into(),
+                        ..Default::default()
+                    }],
+                    removed_ids: vec![],
+                })
+                .await;
+            return;
+        }
+
         if rest_norm == "status" {
             match self.store.stats() {
                 Ok(s) => {

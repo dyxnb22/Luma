@@ -6,7 +6,6 @@ Keyboard-first **personal** launcher (Rust CLI/TUI). Built for solo daily use â€
 cd rust
 cargo run -p luma                 # interactive TUI
 cargo run -p luma -- query "app" --json
-cargo run -p luma -- doctor --json
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo test --workspace --all-features

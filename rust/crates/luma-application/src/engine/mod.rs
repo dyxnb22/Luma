@@ -21,22 +21,10 @@ pub(crate) const SEARCH_COMPLETION_BOUND: Duration = Duration::from_millis(300);
 pub(crate) const SEARCH_COMPLETION_BOUND: Duration = Duration::from_secs(5);
 
 fn is_meta_prefix(token: &str) -> bool {
-    matches!(token, "doctor" | "help")
-}
-
-#[cfg(unix)]
-fn unix_process_comm(pid: u32) -> Option<String> {
-    std::process::Command::new("ps")
-        .args(["-p", &pid.to_string(), "-o", "comm="])
-        .output()
-        .ok()
-        .filter(|o| o.status.success())
-        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
-        .filter(|s| !s.is_empty())
+    matches!(token, "help")
 }
 
 mod actions;
-mod doctor;
 mod search;
 mod session;
 
@@ -73,10 +61,7 @@ pub(crate) struct EngineInner {
 pub struct EngineOptions {
     pub settings: Option<Arc<dyn crate::ports::SettingsRepository>>,
     pub diagnostics: Option<Arc<dyn crate::ports::DiagnosticsSink>>,
-    pub storage_probe: Option<Arc<dyn crate::ports::StorageProbePort>>,
-    pub platform_probe: Option<Arc<dyn crate::ports::PlatformProbePort>>,
-    /// Modules skipped at composition (id, reason) — surfaced in Doctor.
-    pub skipped_modules: Vec<(String, String)>,
+    pub wordbook: Option<Arc<dyn crate::ports::WordbookRepository>>,
 }
 
 /// In-process engine: owns modules, searches, and operations.
@@ -85,9 +70,7 @@ pub struct Engine {
     event_broadcast_tx: broadcast::Sender<Event>,
     settings: Option<Arc<dyn crate::ports::SettingsRepository>>,
     diagnostics: Option<Arc<dyn crate::ports::DiagnosticsSink>>,
-    storage_probe: Option<Arc<dyn crate::ports::StorageProbePort>>,
-    platform_probe: Option<Arc<dyn crate::ports::PlatformProbePort>>,
-    skipped_modules: Vec<(String, String)>,
+    wordbook: Option<Arc<dyn crate::ports::WordbookRepository>>,
     /// Serializes search setup so cancel→clear→register cannot interleave.
     search_lifecycle: Mutex<()>,
 }
@@ -106,9 +89,7 @@ impl Engine {
             EngineOptions {
                 settings,
                 diagnostics: None,
-                storage_probe: None,
-                platform_probe: None,
-                skipped_modules: Vec::new(),
+                wordbook: None,
             },
         )
     }
@@ -130,9 +111,7 @@ impl Engine {
             event_broadcast_tx,
             settings: options.settings,
             diagnostics: options.diagnostics,
-            storage_probe: options.storage_probe,
-            platform_probe: options.platform_probe,
-            skipped_modules: options.skipped_modules,
+            wordbook: options.wordbook,
             search_lifecycle: Mutex::new(()),
         }
     }
@@ -166,7 +145,6 @@ impl Engine {
             Command::CancelSearch { request_id } => {
                 self.cancel_search(&request_id).await;
             }
-            Command::RunDoctor => self.handle_run_doctor().await,
             Command::ShutdownSession => self.handle_shutdown_session().await,
             Command::SetModuleEnabled { module_id, enabled } => {
                 let _ = self.apply_module_enabled(&module_id, enabled).await;
@@ -264,8 +242,11 @@ impl Engine {
                     })
                     .await;
             }
+            Command::LoadWordbookReview { queue } => {
+                self.handle_load_wordbook_review(queue).await;
+            }
             Command::GetSettings => {
-                let (rows, version, notes_root, projects_roots) = {
+                let (rows, version, notes_root, projects_roots, imported_projects) = {
                     let g = self.inner.lock().await;
                     let rows = g.registry.list();
                     let snapshot = self
@@ -278,12 +259,17 @@ impl Engine {
                         .as_ref()
                         .map(|s| s.projects_roots.clone())
                         .unwrap_or_default();
-                    (rows, version, notes_root, projects_roots)
+                    let imported_projects = snapshot
+                        .as_ref()
+                        .map(|s| s.imported_projects.clone())
+                        .unwrap_or_default();
+                    (rows, version, notes_root, projects_roots, imported_projects)
                 };
                 let settings = serde_json::json!({
                     "source": if self.settings.is_some() { "config_store" } else { "engine_registry" },
                     "notes_root": notes_root,
                     "projects_roots": projects_roots,
+                    "imported_projects": imported_projects,
                     "modules": rows.iter().map(|(id, enabled, name)| {
                         serde_json::json!({"id": id, "enabled": enabled, "name": name})
                     }).collect::<Vec<_>>(),
@@ -339,6 +325,32 @@ impl Engine {
                         .filter_map(|v| v.as_str().map(str::to_string))
                         .collect();
                 }
+                if let Some(path) = patch.get("import_project").and_then(|v| v.as_str()) {
+                    if let Err(err) = next.import_project_path(std::path::Path::new(path)) {
+                        let _ = self
+                            .emit(Event::DiagnosticRaised {
+                                diagnostic: serde_json::json!({
+                                    "settings_update": "failed",
+                                    "message": err,
+                                }),
+                            })
+                            .await;
+                        return;
+                    }
+                }
+                if let Some(name) = patch.get("remove_project").and_then(|v| v.as_str()) {
+                    if let Err(err) = next.remove_imported_project(name) {
+                        let _ = self
+                            .emit(Event::DiagnosticRaised {
+                                diagnostic: serde_json::json!({
+                                    "settings_update": "failed",
+                                    "message": err,
+                                }),
+                            })
+                            .await;
+                        return;
+                    }
+                }
                 if let Some(patterns) = patch
                     .get("notes_exclude_patterns")
                     .and_then(|v| v.as_array())
@@ -350,6 +362,7 @@ impl Engine {
                 }
                 let roots_changed = next.notes_root != current.notes_root
                     || next.projects_roots != current.projects_roots
+                    || next.imported_projects != current.imported_projects
                     || next.notes_exclude_patterns != current.notes_exclude_patterns;
                 let saved = match settings_repo.update_cas(expected_version, next) {
                     Ok(value) => value,
@@ -401,6 +414,7 @@ impl Engine {
                             }).collect::<Vec<_>>(),
                             "notes_root": saved.notes_root,
                             "projects_roots": saved.projects_roots,
+                            "imported_projects": saved.imported_projects,
                             "notes_exclude_patterns": saved.notes_exclude_patterns,
                         }),
                     })
@@ -454,6 +468,132 @@ impl Engine {
             }
         }
     }
+
+    async fn handle_load_wordbook_review(&self, queue: String) {
+        use luma_protocol::{WordReviewWordDto, WordbookStatsDto};
+        let Some(repo) = &self.wordbook else {
+            let _ = self
+                .emit(Event::WordbookReviewLoaded {
+                    queue,
+                    words: vec![],
+                    stats: WordbookStatsDto {
+                        due: 0,
+                        new_count: 0,
+                        wrong: 0,
+                        goal: 0,
+                        reviewed_today: 0,
+                        remaining_goal: 0,
+                    },
+                })
+                .await;
+            return;
+        };
+        let limit = 50usize;
+        let words_result = match queue.as_str() {
+            "new" => repo.list_new(limit),
+            "wrong" => repo.list_wrong(limit),
+            _ => repo.list_due(limit),
+        };
+        let stats = repo.stats().unwrap_or_default();
+        let words: Vec<WordReviewWordDto> = match words_result {
+            Ok(entries) => entries
+                .into_iter()
+                .map(|w| WordReviewWordDto {
+                    id: w.id,
+                    term: w.term,
+                    phonetic: w.phonetic,
+                    meaning: w.meaning,
+                    example: w.example,
+                })
+                .collect(),
+            Err(_) => vec![],
+        };
+        let _ = self
+            .emit(Event::WordbookReviewLoaded {
+                queue,
+                words,
+                stats: WordbookStatsDto {
+                    due: stats.due,
+                    new_count: stats.new_count,
+                    wrong: stats.wrong,
+                    goal: stats.goal,
+                    reviewed_today: stats.reviewed_today,
+                    remaining_goal: stats.remaining_goal,
+                },
+            })
+            .await;
+    }
+}
+
+async fn apply_settings_mutation(
+    settings_repo: Option<&Arc<dyn crate::ports::SettingsRepository>>,
+    inner: &Arc<Mutex<EngineInner>>,
+    patch: serde_json::Value,
+) -> Result<String, luma_domain::FailureKind> {
+    let Some(settings_repo) = settings_repo else {
+        return Err(luma_domain::FailureKind::Unavailable {
+            reason: "no settings repository".into(),
+            retryable: false,
+        });
+    };
+    let current =
+        settings_repo
+            .load_or_default()
+            .map_err(|err| luma_domain::FailureKind::Unavailable {
+                reason: err.to_string(),
+                retryable: true,
+            })?;
+    let expected_version = current.settings_version;
+    let mut next = current.clone();
+    if let Some(path) = patch.get("import_project").and_then(|v| v.as_str()) {
+        next.import_project_path(std::path::Path::new(path))
+            .map_err(|err| luma_domain::FailureKind::SecurityDenied { reason: err })?;
+    } else if let Some(name) = patch.get("remove_project").and_then(|v| v.as_str()) {
+        next.remove_imported_project(name)
+            .map_err(|err| luma_domain::FailureKind::NotFound { entity: err })?;
+    } else {
+        return Err(luma_domain::FailureKind::InvalidInput {
+            field: "patch".into(),
+            message: "unsupported settings mutation".into(),
+        });
+    }
+    let roots_changed = next.imported_projects != current.imported_projects
+        || next.projects_roots != current.projects_roots
+        || next.notes_root != current.notes_root
+        || next.notes_exclude_patterns != current.notes_exclude_patterns;
+    let saved = settings_repo
+        .update_cas(expected_version, next)
+        .map_err(|err| luma_domain::FailureKind::Conflict {
+            reason: err.to_string(),
+        })?;
+    if roots_changed {
+        let modules = {
+            let g = inner.lock().await;
+            g.registry.enabled_modules().into_iter().collect::<Vec<_>>()
+        };
+        for module in modules {
+            module.apply_settings(&saved).await;
+        }
+    }
+    let rows = {
+        let g = inner.lock().await;
+        g.registry.list()
+    };
+    let tx = inner.lock().await.event_broadcast_tx.clone();
+    let _ = tx.send(Event::SettingsChanged {
+        version: saved.settings_version,
+        settings: serde_json::json!({
+            "source": "config_store",
+            "modules": rows.iter().map(|(id, enabled, name)| {
+                serde_json::json!({"id": id, "enabled": enabled, "name": name})
+            }).collect::<Vec<_>>(),
+            "notes_root": saved.notes_root,
+            "projects_roots": saved.projects_roots,
+            "imported_projects": saved.imported_projects,
+            "notes_exclude_patterns": saved.notes_exclude_patterns,
+        }),
+    });
+    Ok("settings updated".into())
 }
 
 /// Drain lagged frames until the next event or channel close.
@@ -610,41 +750,6 @@ pub async fn run_action(
     };
     engine.handle_command(Command::ShutdownSession).await;
     Ok((selected, outcome))
-}
-
-pub async fn run_doctor(
-    registry: ModuleRegistry,
-    settings: Option<Arc<dyn crate::ports::SettingsRepository>>,
-) -> Result<serde_json::Value, String> {
-    run_doctor_with_options(
-        registry,
-        EngineOptions {
-            settings,
-            ..EngineOptions::default()
-        },
-    )
-    .await
-}
-
-pub async fn run_doctor_with_options(
-    registry: ModuleRegistry,
-    options: EngineOptions,
-) -> Result<serde_json::Value, String> {
-    let engine = Engine::with_options(registry, options);
-    let mut rx = engine.subscribe();
-    engine.start_session().await;
-    let handle = engine.handle_command(Command::RunDoctor);
-    let wait = async {
-        while let Some(ev) = recv_event(&mut rx).await {
-            if let Event::DiagnosticRaised { diagnostic } = ev {
-                return diagnostic;
-            }
-        }
-        serde_json::json!({"error": "no diagnostic"})
-    };
-    let ((), diagnostic) = tokio::join!(handle, wait);
-    let _ = engine.handle_command(Command::ShutdownSession).await;
-    Ok(diagnostic)
 }
 
 pub async fn list_modules_json(registry: &ModuleRegistry) -> serde_json::Value {
@@ -999,70 +1104,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn doctor_lists_modules() {
-        let diag = run_doctor(fake_registry(), None).await.unwrap();
-        assert_eq!(diag["doctor"], true);
-        assert!(diag["modules"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|m| m["id"] == "luma.fake"));
-    }
-
-    #[tokio::test]
-    async fn doctor_emits_stable_schema_with_platform_probes() {
-        let probe = Arc::new(crate::ports::FakePlatformProbe {
-            value: serde_json::json!({
-                "accessibility": {
-                    "trusted": false,
-                    "guidance": "grant ax"
-                },
-                "ax_trusted": false,
-                "probes": {
-                    "windows.list": { "ok": true, "count": 3 },
-                    "ax.trusted": false
-                }
-            }),
-        });
-        let diag = run_doctor_with_options(
-            fake_registry(),
-            EngineOptions {
-                settings: None,
-                diagnostics: None,
-                storage_probe: None,
-                platform_probe: Some(probe),
-                skipped_modules: vec![("luma.clipboard".into(), "test skip".into())],
-            },
-        )
-        .await
-        .unwrap();
-        assert_eq!(diag["doctor"], true);
-        for key in [
-            "modules",
-            "skipped_modules",
-            "paths",
-            "launch",
-            "settings",
-            "config_commands",
-            "stores",
-            "remediation",
-            "accessibility",
-            "probes",
-            "ax_trusted",
-        ] {
-            assert!(diag.get(key).is_some(), "missing doctor key {key}: {diag}");
-        }
-        assert_eq!(diag["accessibility"]["trusted"], false);
-        assert_eq!(diag["probes"]["windows.list"]["ok"], true);
-        assert_eq!(diag["ax_trusted"], false);
-        assert!(diag["remediation"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|t| t.as_str().unwrap_or("").contains("Accessibility")));
-    }
-
-    #[tokio::test]
     async fn permission_failure_kind_not_empty_success() {
         let kind = FailureKind::PermissionRequired {
             capability: "ax".into(),
@@ -1400,9 +1441,7 @@ mod tests {
             EngineOptions {
                 settings: None,
                 diagnostics: Some(sink),
-                storage_probe: None,
-                platform_probe: None,
-                skipped_modules: Vec::new(),
+                wordbook: None,
             },
         );
         let mut events = engine.subscribe();

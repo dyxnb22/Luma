@@ -16,7 +16,6 @@ cargo run -p luma -- query "clip" --json   # bare trigger OK in CLI (targeted cl
 cargo run -p luma -- query "n" --json      # bare trigger OK in CLI (targeted notes)
 printf '%s' 'secret' | cargo run -p luma -- secrets set my-label
 cargo run -p luma -- modules list --json
-cargo run -p luma -- doctor --json
 cargo run -p luma -- config get --json
 cargo run -p luma -- config set --notes-root /path/to/notes
 cargo run -p luma -- config set --projects-root ~/dev

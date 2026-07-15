@@ -52,7 +52,6 @@ pub fn update(state: &mut AppState, msg: Msg) -> Vec<Effect> {
                 Route::ConfirmAction
                     | Route::ActionPicker
                     | Route::Help
-                    | Route::Doctor
                     | Route::Settings
                     | Route::Commands
                     | Route::QuitConfirm
@@ -68,7 +67,7 @@ pub fn update(state: &mut AppState, msg: Msg) -> Vec<Effect> {
             schedule_search(state)
         }
         Msg::Backspace => {
-            if !matches!(state.route, Route::Search | Route::Help | Route::Doctor) {
+            if !matches!(state.route, Route::Search | Route::Help) {
                 return vec![Effect::None];
             }
             state.focus = FocusZone::Prompt;
@@ -78,7 +77,7 @@ pub fn update(state: &mut AppState, msg: Msg) -> Vec<Effect> {
             schedule_search(state)
         }
         Msg::DeleteForward => {
-            if !matches!(state.route, Route::Search | Route::Help | Route::Doctor) {
+            if !matches!(state.route, Route::Search | Route::Help) {
                 return vec![Effect::None];
             }
             state.focus = FocusZone::Prompt;
@@ -88,7 +87,7 @@ pub fn update(state: &mut AppState, msg: Msg) -> Vec<Effect> {
             schedule_search(state)
         }
         Msg::CursorLeft => {
-            if matches!(state.route, Route::Search | Route::Help | Route::Doctor) {
+            if matches!(state.route, Route::Search | Route::Help) {
                 state.focus = FocusZone::Prompt;
                 state.clamp_prompt_cursor();
                 state.prompt_cursor = state.prompt_cursor.saturating_sub(1);
@@ -96,7 +95,7 @@ pub fn update(state: &mut AppState, msg: Msg) -> Vec<Effect> {
             vec![Effect::None]
         }
         Msg::CursorRight => {
-            if matches!(state.route, Route::Search | Route::Help | Route::Doctor) {
+            if matches!(state.route, Route::Search | Route::Help) {
                 state.focus = FocusZone::Prompt;
                 state.clamp_prompt_cursor();
                 if state.prompt_cursor < state.prompt_char_len() {
@@ -106,21 +105,21 @@ pub fn update(state: &mut AppState, msg: Msg) -> Vec<Effect> {
             vec![Effect::None]
         }
         Msg::CursorHome => {
-            if matches!(state.route, Route::Search | Route::Help | Route::Doctor) {
+            if matches!(state.route, Route::Search | Route::Help) {
                 state.focus = FocusZone::Prompt;
                 state.prompt_cursor = 0;
             }
             vec![Effect::None]
         }
         Msg::CursorEnd => {
-            if matches!(state.route, Route::Search | Route::Help | Route::Doctor) {
+            if matches!(state.route, Route::Search | Route::Help) {
                 state.focus = FocusZone::Prompt;
                 state.prompt_cursor = state.prompt_char_len();
             }
             vec![Effect::None]
         }
         Msg::ClearToStart => {
-            if !matches!(state.route, Route::Search | Route::Help | Route::Doctor) {
+            if !matches!(state.route, Route::Search | Route::Help) {
                 return vec![Effect::None];
             }
             state.focus = FocusZone::Prompt;
@@ -130,7 +129,7 @@ pub fn update(state: &mut AppState, msg: Msg) -> Vec<Effect> {
             schedule_search(state)
         }
         Msg::DeleteWordBack => {
-            if !matches!(state.route, Route::Search | Route::Help | Route::Doctor) {
+            if !matches!(state.route, Route::Search | Route::Help) {
                 return vec![Effect::None];
             }
             state.focus = FocusZone::Prompt;
@@ -146,7 +145,7 @@ pub fn update(state: &mut AppState, msg: Msg) -> Vec<Effect> {
                 state.should_quit = true;
                 cancel_active(state)
             }
-            Route::Search | Route::Help | Route::Doctor => {
+            Route::Search | Route::Help => {
                 if state.prompt.trim().is_empty()
                     && matches!(state.route, Route::Search)
                     && state.results.items.is_empty()
@@ -155,14 +154,16 @@ pub fn update(state: &mut AppState, msg: Msg) -> Vec<Effect> {
                 }
                 // Meta commands are local navigation. They must win over a pending
                 // search debounce so one Enter opens the requested surface.
-                if state.prompt.trim() == ":doctor" {
+                if let Some(queue) = wordbook_review_queue_from_prompt(state.prompt.trim()) {
                     state.overlay_restore_prompt = Some(state.prompt.clone());
                     state.clear_prompt();
                     state.search_debounce_deadline = None;
-                    state.route = Route::Doctor;
-                    state.doctor_scroll = 0;
-                    state.status.set("doctor", StatusTone::Neutral);
-                    return vec![Effect::RunDoctor];
+                    state.route = Route::WordbookReview;
+                    state.wordbook_review = None;
+                    state
+                        .status
+                        .set(format!("loading review ({queue})…"), StatusTone::Progress);
+                    return vec![Effect::LoadWordbookReview { queue }];
                 }
                 if state.prompt.trim() == ":settings" {
                     state.overlay_restore_prompt = Some(state.prompt.clone());
@@ -192,6 +193,7 @@ pub fn update(state: &mut AppState, msg: Msg) -> Vec<Effect> {
             }
             Route::Settings => toggle_setting(state),
             Route::Commands => run_command_selection(state),
+            Route::WordbookReview => wordbook_reveal(state),
         },
         Msg::OpenActions => {
             if let Some(effects) = flush_pending_search_or_continue(state) {
@@ -233,10 +235,6 @@ pub fn update(state: &mut AppState, msg: Msg) -> Vec<Effect> {
                 state.action_selected = state.action_selected.saturating_sub(PAGE_SIZE);
                 return vec![Effect::None];
             }
-            if state.route == Route::Doctor {
-                state.doctor_scroll = state.doctor_scroll.saturating_sub(PAGE_SIZE);
-                return vec![Effect::None];
-            }
             if state.route == Route::Help {
                 state.help_scroll = state.help_scroll.saturating_sub(PAGE_SIZE);
                 return vec![Effect::None];
@@ -275,10 +273,6 @@ pub fn update(state: &mut AppState, msg: Msg) -> Vec<Effect> {
                     state.action_selected =
                         (state.action_selected + PAGE_SIZE).min(state.action_choices.len() - 1);
                 }
-                return vec![Effect::None];
-            }
-            if state.route == Route::Doctor {
-                state.doctor_scroll = state.doctor_scroll.saturating_add(PAGE_SIZE);
                 return vec![Effect::None];
             }
             if state.route == Route::Help {
@@ -329,17 +323,15 @@ pub fn update(state: &mut AppState, msg: Msg) -> Vec<Effect> {
             state.action_selected = idx;
             submit_picker_selection(state)
         }
+        Msg::PickWindowDigit(digit) => pick_window_digit(state, digit),
+        Msg::WordbookReveal => wordbook_reveal(state),
+        Msg::WordbookGrade { action_id } => wordbook_grade(state, action_id),
+        Msg::WordbookReviewExit => exit_wordbook_review(state),
         Msg::OpenHelp => {
             state.route = Route::Help;
             state.help_scroll = 0;
             state.status.set("help", StatusTone::Neutral);
             vec![Effect::None]
-        }
-        Msg::OpenDoctor => {
-            state.route = Route::Doctor;
-            state.doctor_scroll = 0;
-            state.status.set("doctor", StatusTone::Neutral);
-            vec![Effect::RunDoctor]
         }
         Msg::Quit => {
             if state.route == Route::QuitConfirm {
@@ -396,13 +388,6 @@ pub fn update(state: &mut AppState, msg: Msg) -> Vec<Effect> {
                 state.preview_pinned = !state.preview_pinned;
                 state.sync_results_viewport();
                 return preview_effect(state);
-            }
-            vec![Effect::None]
-        }
-        Msg::ToggleDoctorRaw => {
-            if state.route == Route::Doctor {
-                state.doctor_show_raw = !state.doctor_show_raw;
-                state.doctor_scroll = 0;
             }
             vec![Effect::None]
         }
@@ -469,10 +454,6 @@ fn select_next_msg(state: &mut AppState) -> Vec<Effect> {
         state.commands_selected = (state.commands_selected + 1).min(COMMANDS.len() - 1);
         return vec![Effect::None];
     }
-    if state.route == Route::Doctor {
-        state.doctor_scroll = state.doctor_scroll.saturating_add(1);
-        return vec![Effect::None];
-    }
     if state.route == Route::Help {
         state.help_scroll = state.help_scroll.saturating_add(1);
         return vec![Effect::None];
@@ -514,10 +495,6 @@ fn select_prev_msg(state: &mut AppState) -> Vec<Effect> {
         state.commands_selected = state.commands_selected.saturating_sub(1);
         return vec![Effect::None];
     }
-    if state.route == Route::Doctor {
-        state.doctor_scroll = state.doctor_scroll.saturating_sub(1);
-        return vec![Effect::None];
-    }
     if state.route == Route::Help {
         state.help_scroll = state.help_scroll.saturating_sub(1);
         return vec![Effect::None];
@@ -547,7 +524,6 @@ fn select_prev_msg(state: &mut AppState) -> Vec<Effect> {
 
 const COMMANDS: &[(&str, &str)] = &[
     ("settings", "Open module settings"),
-    ("doctor", "Run diagnostics"),
     ("help", "Keyboard help"),
     ("quit", "Quit Luma"),
 ];
@@ -576,12 +552,6 @@ fn run_command_selection(state: &mut AppState) -> Vec<Effect> {
     let idx = state.commands_selected.min(COMMANDS.len() - 1);
     match COMMANDS[idx].0 {
         "settings" => open_settings(state),
-        "doctor" => {
-            state.route = Route::Doctor;
-            state.doctor_scroll = 0;
-            state.status.set("doctor", StatusTone::Neutral);
-            vec![Effect::RunDoctor]
-        }
         "help" => {
             state.route = Route::Help;
             state.help_scroll = 0;
@@ -789,7 +759,7 @@ fn seed_module_config(state: &mut AppState, item: &luma_domain::SearchItem) -> V
     } else {
         state
             .status
-            .set("configure via: luma doctor", StatusTone::Warning);
+            .set("configure via: luma config", StatusTone::Warning);
         return vec![Effect::None];
     };
     state
@@ -961,7 +931,116 @@ fn begin_primary_or_confirm(
     }
 }
 
+fn wordbook_review_queue_from_prompt(prompt: &str) -> Option<String> {
+    let lower = prompt.to_ascii_lowercase();
+    if lower == "wb review" || lower == "wb review due" {
+        return Some("due".into());
+    }
+    if lower == "wb review new" {
+        return Some("new".into());
+    }
+    if lower == "wb review wrong" {
+        return Some("wrong".into());
+    }
+    None
+}
+
+fn pick_window_digit(state: &mut AppState, digit: usize) -> Vec<Effect> {
+    if digit == 0 || !state.should_intercept_window_digit() {
+        return vec![Effect::None];
+    }
+    let targets = state.window_digit_targets();
+    let idx = digit - 1;
+    let Some((id, title)) = targets.get(idx).cloned() else {
+        return vec![Effect::None];
+    };
+    execute_action(
+        state,
+        id,
+        luma_protocol::ActionDescriptorDto {
+            id: "focus".into(),
+            label: format!("Focus {title}"),
+            risk: luma_domain::ActionRisk::Safe,
+            confirmation: false,
+        },
+        false,
+    )
+}
+
+fn wordbook_reveal(state: &mut AppState) -> Vec<Effect> {
+    if state.route != Route::WordbookReview {
+        return vec![Effect::None];
+    }
+    if let Some(review) = state.wordbook_review.as_mut() {
+        if !review.finished {
+            review.revealed = true;
+        }
+    }
+    vec![Effect::None]
+}
+
+fn wordbook_grade(state: &mut AppState, action_id: String) -> Vec<Effect> {
+    if state.route != Route::WordbookReview {
+        return vec![Effect::None];
+    }
+    let Some(review) = state.wordbook_review.as_ref() else {
+        return vec![Effect::None];
+    };
+    if review.finished || state.active_operation.is_some() {
+        return vec![Effect::None];
+    }
+    let Some(word_id) = review.words.get(review.index).map(|w| w.id) else {
+        return vec![Effect::None];
+    };
+    let revealed = review.revealed;
+    if action_id == "skip" {
+        if let Some(review) = state.wordbook_review.as_mut() {
+            review.stats.session_skipped += 1;
+            review.revealed = false;
+            review.index += 1;
+            if review.index >= review.words.len() {
+                review.finished = true;
+            }
+        }
+        return vec![Effect::None];
+    }
+    if !revealed {
+        return vec![Effect::None];
+    }
+    if let Some(review) = state.wordbook_review.as_mut() {
+        review.pending_grade = Some(action_id.clone());
+    }
+    let result_id = format!("wb:{word_id}");
+    let mastered = action_id == "mastered";
+    let action = luma_protocol::ActionDescriptorDto {
+        id: action_id.clone(),
+        label: action_id,
+        risk: if mastered {
+            luma_domain::ActionRisk::Confirm
+        } else {
+            luma_domain::ActionRisk::Safe
+        },
+        confirmation: mastered,
+    };
+    execute_action(state, result_id, action, false)
+}
+
+fn exit_wordbook_review(state: &mut AppState) -> Vec<Effect> {
+    state.wordbook_review = None;
+    state.route = Route::Search;
+    if let Some(prompt) = state.overlay_restore_prompt.take() {
+        state.prompt = prompt;
+        state.prompt_cursor = state.prompt_char_len();
+    }
+    state.focus = FocusZone::Prompt;
+    state.status.set("review ended", StatusTone::Neutral);
+    vec![Effect::None]
+}
+
 fn cancel_msg(state: &mut AppState) -> Vec<Effect> {
+    if state.route == Route::WordbookReview {
+        return exit_wordbook_review(state);
+    }
     if matches!(state.route, Route::ConfirmAction | Route::ActionPicker) {
         clear_action_ui(state);
         state.route = Route::Search;
@@ -1352,18 +1431,52 @@ mod tests {
     }
 
     #[test]
-    fn doctor_meta_emits_run_doctor_not_primary() {
+    fn hub_digit_focuses_third_window() {
         let mut state = AppState::default();
+        state.hub_windows = Some(crate::view_model::HubWindowsState {
+            app_name: "all".into(),
+            windows: vec![
+                crate::view_model::HubWindowRow {
+                    id: "win:1".into(),
+                    title: "A".into(),
+                },
+                crate::view_model::HubWindowRow {
+                    id: "win:2".into(),
+                    title: "B".into(),
+                },
+                crate::view_model::HubWindowRow {
+                    id: "win:3".into(),
+                    title: "C".into(),
+                },
+            ],
+            more: None,
+            status_kind: Some("permission_required".into()),
+            status_title: Some("hint".into()),
+            status_subtitle: None,
+        });
+        let effects = update(&mut state, Msg::PickWindowDigit(3));
+        assert!(effects.iter().any(|e| matches!(
+            e,
+            Effect::ExecuteAction { result_id, action_id, .. }
+            if result_id == "win:3" && action_id == "focus"
+        )));
+    }
+
+    #[test]
+    fn win_digit_only_when_list_focused() {
+        let mut state = AppState::default();
+        state.prompt = "win ".into();
+        state.prompt_cursor = state.prompt_char_len();
         state.results.items.push(SearchItem {
-            id: ResultId::new("danger"),
-            module_id: ModuleId::new("mock"),
-            title: "Danger".into(),
+            id: ResultId::new("win:a"),
+            module_id: ModuleId::new("luma.windows"),
+            title: "A".into(),
             subtitle: None,
-            kind: "mock".into(),
+            kind: "window".into(),
             score: 1.0,
             primary_action: ActionDescriptor {
-                id: ActionId::new("open"),
-                label: "Open".into(),
+                id: ActionId::new("focus"),
+                label: "Focus".into(),
                 risk: ActionRisk::Safe,
                 confirmation: false,
             },
@@ -1371,16 +1484,20 @@ mod tests {
             ui_intent: None,
             action_payload: None,
         });
-        state.results.selected_id = Some("danger".into());
-        state.prompt = ":doctor".into();
-        let effects = update(&mut state, Msg::Submit);
-        assert_eq!(effects, vec![Effect::RunDoctor]);
-        assert_eq!(state.route, Route::Doctor);
-        assert_eq!(state.status.text, "doctor");
+        state.focus = FocusZone::Prompt;
+        let effects = update(&mut state, Msg::PickWindowDigit(1));
+        assert_eq!(effects, vec![Effect::None]);
+        state.focus = FocusZone::List;
+        let effects = update(&mut state, Msg::PickWindowDigit(1));
+        assert!(effects.iter().any(|e| matches!(
+            e,
+            Effect::ExecuteAction { result_id, action_id, .. }
+            if result_id == "win:a" && action_id == "focus"
+        )));
     }
 
     #[test]
-    fn help_meta_does_not_run_doctor_or_primary_status() {
+    fn help_meta_does_not_run_primary_status() {
         let mut state = AppState::default();
         state.prompt = ":help".into();
         let effects = update(&mut state, Msg::Submit);

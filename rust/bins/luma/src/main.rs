@@ -2,12 +2,9 @@ mod cli_output;
 mod compose;
 
 use clap::{Parser, Subcommand};
-use cli_output::{action_exit_code, format_doctor_summary};
+use cli_output::action_exit_code;
 use compose::{load_registry, load_registry_with_settings};
-use luma_application::{
-    list_modules_json, run_action, run_doctor_with_options, run_query, Engine, EngineOptions,
-    KeychainPort,
-};
+use luma_application::{list_modules_json, run_action, run_query, Engine, KeychainPort};
 use luma_storage::{
     dry_run_legacy_dir, import_clipboard_fixture_with_ledger,
     import_notes_config_fixture_with_ledger, list_migrations, rollback_migration, ClipboardStore,
@@ -46,13 +43,6 @@ enum Commands {
     Modules {
         #[command(subcommand)]
         action: ModulesCmd,
-    },
-    Doctor {
-        #[arg(long)]
-        json: bool,
-        /// Full diagnostic JSON instead of actionable summary.
-        #[arg(long)]
-        raw: bool,
     },
     Config {
         #[command(subcommand)]
@@ -273,9 +263,7 @@ async fn main() -> anyhow::Result<()> {
                 luma_application::EngineOptions {
                     settings: Some(load.settings),
                     diagnostics,
-                    storage_probe: Some(load.storage_probe),
-                    platform_probe: Some(load.platform_probe),
-                    skipped_modules: load.skipped.into_iter().map(|s| (s.id, s.reason)).collect(),
+                    wordbook: load.wordbook,
                 },
             ));
             run_tui_with_engine(engine).await?;
@@ -399,96 +387,6 @@ async fn main() -> anyhow::Result<()> {
                         },
                         m["display_name"].as_str().unwrap_or("")
                     );
-                }
-            }
-        }
-        Some(Commands::Doctor { json, raw }) => {
-            let mut diag = match load_registry_with_settings() {
-                Ok(load) => run_doctor_with_options(
-                    load.registry,
-                    EngineOptions {
-                        settings: Some(load.settings),
-                        diagnostics: None,
-                        storage_probe: Some(load.storage_probe),
-                        platform_probe: Some(load.platform_probe),
-                        skipped_modules: load
-                            .skipped
-                            .into_iter()
-                            .map(|s| (s.id, s.reason))
-                            .collect(),
-                    },
-                )
-                .await
-                .map_err(anyhow::Error::msg)?,
-                Err(err) => serde_json::json!({
-                    "ok": false,
-                    "registry_error": err.to_string(),
-                }),
-            };
-            if let Ok(store) = ConfigStore::luma_next_default() {
-                match store.load_or_default() {
-                    Ok(settings) => {
-                        // Keep top-level mirrors for existing CLI consumers; nested
-                        // `settings` already comes from Engine when SettingsRepository is wired.
-                        diag["settings_version"] = settings.settings_version.into();
-                        diag["notes_root_configured"] = settings.notes_root.is_some().into();
-                        diag["notes_root"] = settings.notes_root.clone().into();
-                        diag["projects_roots"] = settings.projects_roots.clone().into();
-                        diag["notes_exclude_patterns"] =
-                            settings.notes_exclude_patterns.clone().into();
-                        if let Some(settings_obj) =
-                            diag.get_mut("settings").and_then(|v| v.as_object_mut())
-                        {
-                            settings_obj.insert("configured".into(), true.into());
-                            settings_obj.insert(
-                                "clipboard_retention_days".into(),
-                                settings.clipboard_retention_days.into(),
-                            );
-                            settings_obj.insert(
-                                "secrets_idle_lock_secs".into(),
-                                settings.secrets_idle_lock_secs.into(),
-                            );
-                            settings_obj
-                                .insert("hub_windows_max".into(), settings.hub_windows_max.into());
-                        }
-                        if let Some(stores) = diag.get_mut("stores").and_then(|v| v.as_object_mut())
-                        {
-                            stores.insert("settings".into(), serde_json::json!("ok"));
-                        }
-                        diag["config_commands"] = serde_json::json!({
-                            "notes_root": "luma config set --notes-root ~/Notes",
-                            "projects_roots": "luma config set --projects-root ~/dev",
-                            "notes_exclude": "luma config set --notes-exclude 'private/*'",
-                            "clear_notes_excludes": "luma config set --clear-notes-excludes",
-                            "secrets_idle_lock_secs": "luma config set --secrets-idle-lock-secs 300",
-                            "hub_windows_max": "luma config set --hub-windows-max 15",
-                        });
-                        if settings.notes_root.is_none() {
-                            let mut remediation = diag
-                                .get("remediation")
-                                .and_then(|v| v.as_array())
-                                .cloned()
-                                .unwrap_or_default();
-                            remediation.insert(
-                                0,
-                                serde_json::json!("Notes: luma config set --notes-root ~/Notes"),
-                            );
-                            diag["remediation"] = serde_json::Value::Array(remediation);
-                        }
-                    }
-                    Err(err) => {
-                        diag["config_error"] = err.to_string().into();
-                    }
-                }
-            }
-            if json || raw {
-                println!("{}", serde_json::to_string_pretty(&diag)?);
-            } else {
-                let summary = format_doctor_summary(&diag);
-                if summary.trim().is_empty() {
-                    println!("{}", serde_json::to_string_pretty(&diag)?);
-                } else {
-                    println!("{summary}");
                 }
             }
         }

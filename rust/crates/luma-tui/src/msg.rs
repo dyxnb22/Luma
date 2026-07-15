@@ -20,8 +20,9 @@ pub enum Msg {
     SelectPageDown,
     /// ActionPicker: 1-based digit → select and run that action.
     PickActionDigit(usize),
+    /// Hub / win list: 1-based digit → focus that window (1..=9).
+    PickWindowDigit(usize),
     OpenHelp,
-    OpenDoctor,
     OpenSettings,
     OpenCommands,
     OpenActions,
@@ -46,8 +47,14 @@ pub enum Msg {
     BroadcastLagged,
     /// Toggle stacked preview on narrow terminals.
     TogglePreview,
-    /// Toggle doctor Summary / Raw JSON.
-    ToggleDoctorRaw,
+    /// Wordbook review: reveal meaning/example.
+    WordbookReveal,
+    /// Wordbook review: grade (known/fuzzy/unknown/mastered/skip).
+    WordbookGrade {
+        action_id: String,
+    },
+    /// Wordbook review: exit session.
+    WordbookReviewExit,
     /// Terminal regained focus (switch back to Luma).
     FocusGained,
 }

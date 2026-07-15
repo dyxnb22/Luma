@@ -49,15 +49,16 @@ fn render_with(frame: &mut Frame<'_>, state: &AppState, theme: &Theme, symbols: 
             .split(body);
         render_results(frame, rows[0], state, theme, symbols);
         render_preview(frame, rows[1], state, theme, symbols);
+    } else if state.route == Route::WordbookReview {
+        render_wordbook_review(frame, body, state, theme, symbols);
     } else {
         render_results(frame, body, state, theme, symbols);
     }
     render_status(frame, chunks[2], state, theme, symbols);
 
     match state.route {
-        Route::Search => {}
+        Route::Search | Route::WordbookReview => {}
         Route::Help => render_overlay_help(frame, area, state, theme, symbols),
-        Route::Doctor => render_overlay_doctor(frame, area, state, theme, symbols),
         Route::Settings => render_overlay_settings(frame, area, state, theme, symbols),
         Route::Commands => render_overlay_commands(frame, area, state, theme, symbols),
         Route::QuitConfirm => render_overlay_quit(frame, area, theme, symbols),
@@ -146,6 +147,19 @@ fn render_results(
                 .selected_id
                 .as_deref()
                 .is_some_and(|id| id == item.id.as_str());
+            let win_digit = if state.is_win_search()
+                && state.focus == FocusZone::List
+                && item.module_id.as_str() == "luma.windows"
+                && item.kind == "window"
+            {
+                state
+                    .window_digit_targets()
+                    .iter()
+                    .position(|(id, _)| id == item.id.as_str())
+                    .map(|i| i + 1)
+            } else {
+                None
+            };
             items.push(result_row(
                 item,
                 selected,
@@ -154,6 +168,7 @@ fn render_results(
                 theme,
                 symbols,
                 &state.module_labels,
+                win_digit,
             ));
         }
     }
@@ -266,16 +281,7 @@ fn hub_list_items(state: &AppState, theme: &Theme, symbols: &Symbols) -> Vec<Lis
                 Some("all") | Some("") | None => "  Windows".to_string(),
                 Some(app) => format!("  Windows · {app}"),
             };
-            let hint = if state
-                .hub_windows
-                .as_ref()
-                .and_then(|h| h.status_kind.as_ref())
-                .is_some()
-            {
-                "  Enter opens win · ↑↓ move"
-            } else {
-                "  Enter focuses window · ↑↓ move"
-            };
+            let hint = "  Enter focuses window · 1-9 focus · ↑↓ move";
             out.push(ListItem::new(vec![
                 Line::from(Span::styled(header, theme.title())),
                 Line::from(Span::styled(hint, theme.key_hint())),
@@ -304,7 +310,10 @@ fn hub_list_items(state: &AppState, theme: &Theme, symbols: &Symbols) -> Vec<Lis
             theme.muted()
         };
         let right = match kind.as_str() {
-            "window" => String::new(),
+            "window" => state
+                .hub_row_window_digit(idx)
+                .map(|d| format!("[{d}]"))
+                .unwrap_or_default(),
             "window_more" | "window_status" => "win".to_string(),
             _ => query.clone(),
         };
@@ -535,6 +544,7 @@ fn empty_hint_for_prompt(state: &AppState) -> Option<String> {
         .and_then(|m| m.empty_hint.clone())
 }
 
+#[allow(clippy::too_many_arguments)]
 fn result_row(
     item: &SearchItem,
     selected: bool,
@@ -543,6 +553,7 @@ fn result_row(
     theme: &Theme,
     symbols: &Symbols,
     module_labels: &std::collections::HashMap<String, String>,
+    win_digit: Option<usize>,
 ) -> ListItem<'static> {
     let kind = ResultKindVisual::from_kind(&item.kind);
     let glyph = module_glyph(item.module_id.as_str());
@@ -624,6 +635,9 @@ fn result_row(
     if !kind_badge.is_empty() {
         title_spans.push(Span::styled(format!(" {kind_badge}"), hint));
     }
+    if let Some(d) = win_digit {
+        title_spans.push(Span::styled(format!(" [{d}]"), hint));
+    }
     title_spans.push(Span::styled(format!(" {module}"), badge));
     title_spans.push(Span::styled(format!("  {action}"), hint));
     pad_line_to_width(&mut title_spans, width as usize, row_bg);
@@ -638,6 +652,93 @@ fn result_row(
     ListItem::new(vec![Line::from(title_spans), Line::from(sub_spans)])
 }
 
+fn render_wordbook_review(
+    frame: &mut Frame<'_>,
+    area: Rect,
+    state: &AppState,
+    theme: &Theme,
+    symbols: &Symbols,
+) {
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(theme.border(true))
+        .title(Span::styled(" wordbook review ", theme.muted()));
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+
+    let Some(review) = &state.wordbook_review else {
+        frame.render_widget(
+            Paragraph::new("Loading review…").style(theme.muted()),
+            inner,
+        );
+        return;
+    };
+
+    let progress = if review.words.is_empty() {
+        "0/0".to_string()
+    } else {
+        format!("{}/{}", review.index + 1, review.words.len())
+    };
+    let header = format!(
+        "{progress} · {} {} · due {} · goal {}",
+        review.stats.queue, review.stats.reviewed_today, review.stats.due, review.stats.goal
+    );
+
+    if review.finished || review.words.is_empty() {
+        let summary = format!(
+            "Done · Known {} · Fuzzy {} · Unknown {} · skipped {} · remaining goal {}",
+            review.stats.session_known,
+            review.stats.session_fuzzy,
+            review.stats.session_unknown,
+            review.stats.session_skipped,
+            review.stats.remaining_goal
+        );
+        frame.render_widget(
+            Paragraph::new(vec![
+                Line::from(Span::styled(header, theme.title())),
+                Line::from(""),
+                Line::from(Span::styled(summary, theme.text())),
+            ]),
+            inner,
+        );
+        return;
+    }
+
+    let word = &review.words[review.index];
+    let mut lines = vec![
+        Line::from(Span::styled(header, theme.muted())),
+        Line::from(""),
+        Line::from(Span::styled(&word.term, theme.title())),
+    ];
+    if !word.phonetic.is_empty() {
+        lines.push(Line::from(Span::styled(&word.phonetic, theme.muted())));
+    }
+    if review.revealed {
+        if !word.meaning.is_empty() {
+            lines.push(Line::from(""));
+            lines.push(Line::from(Span::styled(&word.meaning, theme.text())));
+        }
+        if !word.example.is_empty() {
+            lines.push(Line::from(Span::styled(
+                format!("ex: {}", word.example),
+                theme.muted(),
+            )));
+        }
+        lines.push(Line::from(""));
+        lines.push(Line::from(Span::styled(
+            "1 Known · 2 Fuzzy · 3 Unknown · m Mastered · s Skip",
+            theme.key_hint(),
+        )));
+    } else {
+        lines.push(Line::from(""));
+        lines.push(Line::from(Span::styled(
+            format!("{} Enter or Space to reveal", symbols.enter),
+            theme.key_hint(),
+        )));
+    }
+    frame.render_widget(Paragraph::new(lines), inner);
+}
+
 fn render_status(
     frame: &mut Frame<'_>,
     area: Rect,
@@ -649,13 +750,15 @@ fn render_status(
     let hints = match state.route {
         Route::Search if state.showing_hub() => {
             format!(
-                "{}{} select {} Enter open {} Ctrl-/ commands {} ? help",
-                symbols.up, symbols.down, symbols.sep, symbols.sep, symbols.sep
+                "1-9 focus {}{}{} select {} Enter {} Ctrl-/ commands",
+                symbols.sep, symbols.up, symbols.down, symbols.sep, symbols.sep
             )
         }
         Route::Search => {
             let nav = if state.focus == crate::view_model::FocusZone::Preview {
                 "PgUp/Dn scroll preview"
+            } else if state.is_win_search() && state.focus == crate::view_model::FocusZone::List {
+                "1-9 focus"
             } else {
                 "PgUp/Dn"
             };
@@ -686,9 +789,9 @@ fn render_status(
             "{}{} / PgUp PgDn scroll {} Esc Back",
             symbols.up, symbols.down, symbols.sep
         ),
-        Route::Doctor => format!(
-            "{}{} scroll {} r raw {} Esc Back",
-            symbols.up, symbols.down, symbols.sep, symbols.sep
+        Route::WordbookReview => format!(
+            "Enter/Space reveal {} 1/2/3/m {} s skip {} Esc exit",
+            symbols.sep, symbols.sep, symbols.sep
         ),
     };
     let count = if state.results.items.is_empty() {

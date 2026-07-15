@@ -12,10 +12,7 @@ pub use adapters::{
     FsDiagnosticsSink, SqliteClipboardHistory, SqliteNotesIndex, SqliteQuicklinksRepository,
     SqliteSnippetsRepository, SqliteWordbookRepository, TomlSettingsRepository,
 };
-pub use engine::{
-    list_modules_json, run_action, run_doctor, run_doctor_with_options, run_query, Engine,
-    EngineOptions,
-};
+pub use engine::{list_modules_json, run_action, run_query, Engine, EngineOptions};
 pub use module::{
     ActionOutcome, ActionRequest, HubWindowRow, HubWindowsSlice, HubWindowsStatus, LumaModule,
     ModuleManifest, ModuleState, SearchMode, SearchSink, WarmupContext, WorkbenchMeta,

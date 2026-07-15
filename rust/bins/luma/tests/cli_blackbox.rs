@@ -28,22 +28,6 @@ fn run_luma(
 }
 
 #[test]
-fn doctor_json_ok_on_isolated_root() {
-    let dir = tempdir().unwrap();
-    let support = dir.path().join("support");
-    let logs = dir.path().join("logs");
-    fs::create_dir_all(&support).unwrap();
-    fs::create_dir_all(&logs).unwrap();
-    let (code, stdout, stderr) = run_luma(&support, &logs, &["doctor", "--json"]);
-    assert_eq!(code, 0, "stderr={stderr}");
-    let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
-    assert_eq!(v["doctor"], true, "{stdout}");
-    assert!(v.get("modules").is_some(), "{stdout}");
-    assert!(v.get("probes").is_some(), "{stdout}");
-    assert!(v.get("accessibility").is_some(), "{stdout}");
-}
-
-#[test]
 fn modules_list_json() {
     let dir = tempdir().unwrap();
     let support = dir.path().join("support");
@@ -102,74 +86,6 @@ fn config_get_and_set_round_trip() {
     let v: serde_json::Value = serde_json::from_str(&stdout).unwrap();
     assert_eq!(v["notes_root"], "/tmp/luma-notes-fixture");
     assert_eq!(v["notes_exclude_patterns"][0], "private/*");
-}
-
-#[test]
-fn doctor_includes_config_commands_and_skipped_modules_array() {
-    let dir = tempdir().unwrap();
-    let support = dir.path().join("support");
-    let logs = dir.path().join("logs");
-    fs::create_dir_all(&support).unwrap();
-    fs::create_dir_all(&logs).unwrap();
-    let notes = dir.path().join("notes");
-    fs::create_dir_all(&notes).unwrap();
-    let (code, _, stderr) = run_luma(
-        &support,
-        &logs,
-        &[
-            "config",
-            "set",
-            "--notes-root",
-            notes.to_str().unwrap(),
-            "--notes-exclude",
-            "private/*",
-            "--json",
-        ],
-    );
-    assert_eq!(code, 0, "stderr={stderr}");
-    let (code, stdout, stderr) = run_luma(&support, &logs, &["doctor", "--json"]);
-    assert_eq!(code, 0, "stderr={stderr}");
-    let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
-    assert!(v.get("skipped_modules").is_some(), "{stdout}");
-    assert!(
-        v["config_commands"]["notes_root"]
-            .as_str()
-            .unwrap_or("")
-            .contains("notes-root"),
-        "{stdout}"
-    );
-    assert_eq!(v["settings"]["configured"], true, "{stdout}");
-    assert_eq!(
-        v["settings"]["notes_root"].as_str(),
-        Some(notes.to_str().unwrap()),
-        "{stdout}"
-    );
-    assert_eq!(
-        v["settings"]["notes_exclude_patterns"][0], "private/*",
-        "{stdout}"
-    );
-    assert_eq!(v["stores"]["settings"], "ok", "{stdout}");
-    assert!(
-        v.get("accessibility").is_some(),
-        "missing accessibility: {stdout}"
-    );
-    assert!(
-        v["accessibility"]["trusted"].is_boolean(),
-        "accessibility.trusted shape: {stdout}"
-    );
-    assert!(v.get("probes").is_some(), "missing probes: {stdout}");
-    assert!(
-        v["probes"]["windows.list"].get("ok").is_some(),
-        "probes.windows.list.ok: {stdout}"
-    );
-    assert!(
-        v["probes"]["ax.trusted"].is_boolean(),
-        "probes.ax.trusted shape: {stdout}"
-    );
-    assert_eq!(
-        v["ax_trusted"], v["accessibility"]["trusted"],
-        "ax_trusted should mirror accessibility.trusted: {stdout}"
-    );
 }
 
 #[test]

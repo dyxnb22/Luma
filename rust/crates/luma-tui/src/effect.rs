@@ -4,8 +4,6 @@ pub enum Effect {
     Search { request_id: String, query: String },
     /// Cancel an in-flight search.
     CancelSearch { request_id: String },
-    /// Request engine diagnostics for the doctor route.
-    RunDoctor,
     /// Load settings projection for the Settings route.
     GetSettings,
     /// Toggle a module via engine registry + persistence when available.
@@ -18,6 +16,8 @@ pub enum Effect {
     LoadPreview { result_id: String, preview_id: u64 },
     /// Refresh Hub windows slice + modules.
     LoadHub,
+    /// Load wordbook review queue (`due` / `new` / `wrong`).
+    LoadWordbookReview { queue: String },
     /// Reconcile UI after broadcast lag (cached engine results).
     GetSnapshot,
     /// Ask the engine for primary + secondary actions for a result.

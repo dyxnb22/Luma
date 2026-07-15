@@ -32,13 +32,15 @@ pub enum Command {
         patch: serde_json::Value,
         expected_version: u64,
     },
-    RunDoctor,
     ExportDiagnostics,
     LoadPreview {
         result_id: String,
         preview_id: u64,
     },
     LoadHub,
+    LoadWordbookReview {
+        queue: String,
+    },
     GetSnapshot,
     ShutdownSession,
 }

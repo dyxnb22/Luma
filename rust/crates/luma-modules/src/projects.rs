@@ -7,6 +7,7 @@ use luma_domain::{
     ActionDescriptor, ActionId, ActionRisk, FailureKind, ModuleId, Query, SearchItem,
 };
 use luma_protocol::{Event, SearchItemDto, UiIntent};
+use luma_storage::{validate_import_project_path, ImportedProject};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -16,17 +17,26 @@ use tokio_util::sync::CancellationToken;
 struct Project {
     name: String,
     path: PathBuf,
+    missing: bool,
 }
 
 pub struct ProjectsModule {
     manifest: ModuleManifest,
     roots: Arc<RwLock<Vec<PathBuf>>>,
-    index: Arc<RwLock<Vec<Project>>>,
+    imported: Arc<RwLock<Vec<ImportedProject>>>,
     opener: Arc<dyn OpenPathPort>,
 }
 
 impl ProjectsModule {
     pub fn with_roots(roots: Vec<PathBuf>, opener: Arc<dyn OpenPathPort>) -> Self {
+        Self::with_settings(roots, Vec::new(), opener)
+    }
+
+    pub fn with_settings(
+        roots: Vec<PathBuf>,
+        imported: Vec<ImportedProject>,
+        opener: Arc<dyn OpenPathPort>,
+    ) -> Self {
         Self {
             manifest: ModuleManifest {
                 id: ModuleId::new("luma.projects"),
@@ -39,46 +49,53 @@ impl ProjectsModule {
                     glyph: Some("P".into()),
                     suggested_query: Some("proj browse".into()),
                     empty_hint: Some(
-                        "proj browse · proj <name> · Hub Enter opens the project tree".into(),
+                        "proj browse · proj add PATH · proj <name> · Hub Enter opens browse".into(),
                     ),
                     supports_browse: true,
                 },
             },
             roots: Arc::new(RwLock::new(roots)),
-            index: Arc::new(RwLock::new(Vec::new())),
+            imported: Arc::new(RwLock::new(imported)),
             opener,
         }
     }
 
-    /// Replace scan roots and refresh the project index.
-    pub async fn set_roots(&self, roots: Vec<PathBuf>) {
-        *self.roots.write().await = roots.clone();
-        *self.index.write().await = scan_projects(&roots);
+    async fn is_imported_path(&self, path: &Path) -> bool {
+        let Ok(canon) = path.canonicalize() else {
+            return false;
+        };
+        let canon_str = canon.display().to_string();
+        self.imported
+            .read()
+            .await
+            .iter()
+            .any(|p| p.path == canon_str)
     }
 }
 
-fn scan_projects(roots: &[PathBuf]) -> Vec<Project> {
-    let mut out = Vec::new();
-    for root in roots {
-        let Ok(rd) = std::fs::read_dir(root) else {
-            continue;
-        };
-        for entry in rd.flatten() {
-            let path = entry.path();
-            if path.join(".git").exists()
-                || path.join("Package.swift").exists()
-                || path.join("Cargo.toml").exists()
-            {
-                let name = path
-                    .file_name()
+fn resolve_import_path(path: &Path) -> Result<PathBuf, String> {
+    validate_import_project_path(path)
+}
+
+fn imported_index(imported: &[ImportedProject]) -> Vec<Project> {
+    imported
+        .iter()
+        .map(|p| {
+            let path = PathBuf::from(&p.path);
+            let missing = !path.exists();
+            let name = p.name.clone().unwrap_or_else(|| {
+                path.file_name()
                     .and_then(|s| s.to_str())
                     .unwrap_or("project")
-                    .to_string();
-                out.push(Project { name, path });
+                    .to_string()
+            });
+            Project {
+                name,
+                path,
+                missing,
             }
-        }
-    }
-    out
+        })
+        .collect()
 }
 
 fn list_children(dir: &PathBuf, cancel: &CancellationToken) -> Vec<(String, PathBuf, bool)> {
@@ -254,53 +271,13 @@ impl LumaModule for ProjectsModule {
         &self.manifest
     }
 
-    async fn warmup(&self, ctx: WarmupContext) -> ModuleState {
-        if ctx.cancel.is_cancelled() {
-            return ModuleState::Cold;
-        }
-        let roots = self.roots.read().await.clone();
-        if roots.is_empty() {
-            return ModuleState::Cold;
-        }
-        let cancel = ctx.cancel.clone();
-        let handle = tokio::task::spawn_blocking(move || scan_projects(&roots));
-        let abort = handle.abort_handle();
-        let idx = tokio::select! {
-            _ = cancel.cancelled() => {
-                abort.abort();
-                return ModuleState::Cold;
-            }
-            result = handle => result.unwrap_or_default(),
-        };
-        *self.index.write().await = idx;
+    async fn warmup(&self, _ctx: WarmupContext) -> ModuleState {
         ModuleState::Ready
     }
 
     async fn search(&self, query: Query, sink: SearchSink, cancel: CancellationToken) {
         let roots = self.roots.read().await.clone();
-        if roots.is_empty() {
-            let _ = sink
-                .send(Event::ResultsChunk {
-                    request_id: String::new(),
-                    sequence: 1,
-                    upserts: vec![SearchItemDto {
-                        id: "proj:configure".into(),
-                        module_id: "luma.projects".into(),
-                        title: "Add a project scan root".into(),
-                        subtitle: Some("Run: luma config set --projects-root ~/dev".into()),
-                        kind: "not_configured".into(),
-                        score: 0.0,
-                        primary_action_id: "seed_config".into(),
-                        primary_action_label: "Show command".into(),
-                        ui_intent: Some(UiIntent::SeedConfig),
-                        action_payload: None,
-                        ..Default::default()
-                    }],
-                    removed_ids: vec![],
-                })
-                .await;
-            return;
-        }
+        let imported = self.imported.read().await.clone();
         let rest_norm = query
             .normalized
             .split_once(|c: char| c.is_whitespace())
@@ -314,6 +291,29 @@ impl LumaModule for ProjectsModule {
             || rest_check.starts_with("browse ")
             || rest_check.starts_with("ls ")
         {
+            if roots.is_empty() {
+                let _ = sink
+                    .send(Event::ResultsChunk {
+                        request_id: String::new(),
+                        sequence: 1,
+                        upserts: vec![SearchItemDto {
+                            id: "proj:configure".into(),
+                            module_id: "luma.projects".into(),
+                            title: "Add a project browse root".into(),
+                            subtitle: Some("Run: luma config set --projects-root ~/dev".into()),
+                            kind: "not_configured".into(),
+                            score: 0.0,
+                            primary_action_id: "seed_config".into(),
+                            primary_action_label: "Show command".into(),
+                            ui_intent: Some(UiIntent::SeedConfig),
+                            action_payload: None,
+                            ..Default::default()
+                        }],
+                        removed_ids: vec![],
+                    })
+                    .await;
+                return;
+            }
             let path_arg = rest_raw
                 .strip_prefix("browse")
                 .or_else(|| rest_raw.strip_prefix("Browse"))
@@ -357,16 +357,33 @@ impl LumaModule for ProjectsModule {
                 };
                 for (name, path, is_dir) in list_children(&dir, &cancel) {
                     if is_dir {
+                        let imported = self.is_imported_path(&path).await;
                         upserts.push(SearchItemDto {
                             id: format!("browse:proj:{}", path.display()),
                             module_id: "luma.projects".into(),
                             title: format!("{name}/"),
                             subtitle: Some(path.display().to_string()),
-                            kind: "directory".into(),
+                            kind: if imported {
+                                "imported".into()
+                            } else {
+                                "directory".into()
+                            },
                             score: 80.0,
-                            primary_action_id: "browse".into(),
-                            primary_action_label: "Browse".into(),
-                            ui_intent: Some(UiIntent::Browse),
+                            primary_action_id: if imported {
+                                "noop".into()
+                            } else {
+                                "import_project".into()
+                            },
+                            primary_action_label: if imported {
+                                "Imported".into()
+                            } else {
+                                "Import project".into()
+                            },
+                            ui_intent: if imported {
+                                None
+                            } else {
+                                Some(UiIntent::Browse)
+                            },
                             action_payload: None,
                             ..Default::default()
                         });
@@ -429,23 +446,200 @@ impl LumaModule for ProjectsModule {
             return;
         }
 
+        if rest_check.starts_with("add ") || rest_check.starts_with("import ") {
+            let path_str = rest_raw
+                .split_once(char::is_whitespace)
+                .map(|(_, tail)| tail.trim())
+                .unwrap_or("");
+            if path_str.is_empty() {
+                let _ = sink
+                    .send(Event::ResultsChunk {
+                        request_id: String::new(),
+                        sequence: 1,
+                        upserts: vec![SearchItemDto {
+                            id: "proj:import-usage".into(),
+                            module_id: "luma.projects".into(),
+                            title: "Import a project directory".into(),
+                            subtitle: Some("Usage: proj add /path/to/project".into()),
+                            kind: "status".into(),
+                            score: 50.0,
+                            primary_action_id: "noop".into(),
+                            primary_action_label: "OK".into(),
+                            ..Default::default()
+                        }],
+                        removed_ids: vec![],
+                    })
+                    .await;
+                return;
+            }
+            let path = PathBuf::from(path_str);
+            match resolve_import_path(&path) {
+                Ok(canon) => {
+                    let title = canon
+                        .file_name()
+                        .and_then(|s| s.to_str())
+                        .unwrap_or("project")
+                        .to_string();
+                    let _ = sink
+                        .send(Event::ResultsChunk {
+                            request_id: String::new(),
+                            sequence: 1,
+                            upserts: vec![SearchItemDto {
+                                id: format!("proj:import:{}", canon.display()),
+                                module_id: "luma.projects".into(),
+                                title: format!("Import {title}"),
+                                subtitle: Some(canon.display().to_string()),
+                                kind: "command".into(),
+                                score: 95.0,
+                                primary_action_id: "import_project".into(),
+                                primary_action_label: "Import".into(),
+                                action_payload: Some(serde_json::json!({
+                                    "path": canon.display().to_string()
+                                })),
+                                ..Default::default()
+                            }],
+                            removed_ids: vec![],
+                        })
+                        .await;
+                }
+                Err(err) => {
+                    let _ = sink
+                        .send(Event::ResultsChunk {
+                            request_id: String::new(),
+                            sequence: 1,
+                            upserts: vec![SearchItemDto {
+                                id: "proj:import-denied".into(),
+                                module_id: "luma.projects".into(),
+                                title: "Cannot import project".into(),
+                                subtitle: Some(err),
+                                kind: "unavailable".into(),
+                                score: 0.0,
+                                primary_action_id: "noop".into(),
+                                primary_action_label: "Unavailable".into(),
+                                ..Default::default()
+                            }],
+                            removed_ids: vec![],
+                        })
+                        .await;
+                }
+            }
+            return;
+        }
+
+        if rest_check.starts_with("remove ") {
+            let key = rest_raw
+                .split_once(char::is_whitespace)
+                .map(|(_, tail)| tail.trim())
+                .unwrap_or("");
+            if key.is_empty() {
+                let _ = sink
+                    .send(Event::ResultsChunk {
+                        request_id: String::new(),
+                        sequence: 1,
+                        upserts: vec![SearchItemDto {
+                            id: "proj:remove-usage".into(),
+                            module_id: "luma.projects".into(),
+                            title: "Remove an imported project".into(),
+                            subtitle: Some("Usage: proj remove project-name".into()),
+                            kind: "status".into(),
+                            score: 50.0,
+                            primary_action_id: "noop".into(),
+                            primary_action_label: "OK".into(),
+                            ..Default::default()
+                        }],
+                        removed_ids: vec![],
+                    })
+                    .await;
+                return;
+            }
+            let _ = sink
+                .send(Event::ResultsChunk {
+                    request_id: String::new(),
+                    sequence: 1,
+                    upserts: vec![SearchItemDto {
+                        id: format!("proj:remove:{key}"),
+                        module_id: "luma.projects".into(),
+                        title: format!("Remove {key}"),
+                        subtitle: Some("Removes import config only — not the directory".into()),
+                        kind: "command".into(),
+                        score: 95.0,
+                        primary_action_id: "remove_project".into(),
+                        primary_action_label: "Remove".into(),
+                        primary_action_confirmation: true,
+                        primary_action_risk: ActionRisk::Confirm,
+                        action_payload: Some(serde_json::json!({ "name": key })),
+                        ..Default::default()
+                    }],
+                    removed_ids: vec![],
+                })
+                .await;
+            return;
+        }
+
         let needle = rest_norm;
-        let index = self.index.read().await.clone();
+        if imported.is_empty() && needle.is_empty() {
+            let _ = sink
+                .send(Event::ResultsChunk {
+                    request_id: String::new(),
+                    sequence: 1,
+                    upserts: vec![SearchItemDto {
+                        id: "proj:not-configured".into(),
+                        module_id: "luma.projects".into(),
+                        title: "No imported projects".into(),
+                        subtitle: Some(
+                            "proj add /path · proj browse · luma config set --projects-root ~/dev"
+                                .into(),
+                        ),
+                        kind: "not_configured".into(),
+                        score: 0.0,
+                        primary_action_id: "seed_config".into(),
+                        primary_action_label: "Show command".into(),
+                        ui_intent: Some(UiIntent::SeedConfig),
+                        action_payload: None,
+                        ..Default::default()
+                    }],
+                    removed_ids: vec![],
+                })
+                .await;
+            return;
+        }
+
+        let index = imported_index(&imported);
         let mut upserts = Vec::new();
         for p in index {
             if cancel.is_cancelled() {
                 return;
             }
             if needle.is_empty() || p.name.to_lowercase().contains(&needle) {
+                let (kind, primary, label) = if p.missing {
+                    ("unavailable", "remove_project", "Remove missing project")
+                } else {
+                    ("project", "open", "Open")
+                };
                 upserts.push(SearchItemDto {
                     id: format!("proj:{}", p.path.display()),
                     module_id: "luma.projects".into(),
-                    title: p.name,
-                    subtitle: Some(p.path.display().to_string()),
-                    kind: "project".into(),
-                    score: 65.0,
-                    primary_action_id: "open".into(),
-                    primary_action_label: "Open".into(),
+                    title: p.name.clone(),
+                    subtitle: Some(if p.missing {
+                        format!("{} — path missing", p.path.display())
+                    } else {
+                        p.path.display().to_string()
+                    }),
+                    kind: kind.into(),
+                    score: if p.missing { 40.0 } else { 65.0 },
+                    primary_action_id: primary.into(),
+                    primary_action_label: label.into(),
+                    primary_action_confirmation: p.missing,
+                    primary_action_risk: if p.missing {
+                        ActionRisk::Confirm
+                    } else {
+                        ActionRisk::Safe
+                    },
+                    action_payload: if p.missing {
+                        Some(serde_json::json!({ "name": p.name }))
+                    } else {
+                        None
+                    },
                     ..Default::default()
                 });
             }
@@ -453,8 +647,8 @@ impl LumaModule for ProjectsModule {
         if upserts.is_empty() {
             let (title, subtitle) = if needle.is_empty() {
                 (
-                    "No projects found".into(),
-                    "Check roots or run: luma config set --projects-root ~/dev".into(),
+                    "No imported projects".into(),
+                    "proj add /path · proj browse".into(),
                 )
             } else {
                 (
@@ -494,8 +688,11 @@ impl LumaModule for ProjectsModule {
                 confirmation: false,
             }];
         }
-        if result.kind == "directory" || result.primary_action.id.as_str() == "browse" {
-            return vec![
+        if result.kind == "directory"
+            || result.kind == "imported"
+            || result.primary_action.id.as_str() == "browse"
+        {
+            let mut actions = vec![
                 ActionDescriptor {
                     id: ActionId::new("browse"),
                     label: "Browse".into(),
@@ -509,6 +706,34 @@ impl LumaModule for ProjectsModule {
                     confirmation: false,
                 },
             ];
+            if result.kind == "directory" && result.primary_action.id.as_str() == "import_project" {
+                actions.insert(
+                    0,
+                    ActionDescriptor {
+                        id: ActionId::new("import_project"),
+                        label: "Import project".into(),
+                        risk: ActionRisk::Safe,
+                        confirmation: false,
+                    },
+                );
+            }
+            return actions;
+        }
+        if result.primary_action.id.as_str() == "import_project" {
+            return vec![ActionDescriptor {
+                id: ActionId::new("import_project"),
+                label: "Import".into(),
+                risk: ActionRisk::Safe,
+                confirmation: false,
+            }];
+        }
+        if result.primary_action.id.as_str() == "remove_project" {
+            return vec![ActionDescriptor {
+                id: ActionId::new("remove_project"),
+                label: "Remove".into(),
+                risk: ActionRisk::Confirm,
+                confirmation: true,
+            }];
         }
         if result.kind == "status"
             || result.kind == "onboarding"
@@ -574,6 +799,60 @@ impl LumaModule for ProjectsModule {
                     message: "browse is search-driven; use `proj browse <path>`".into(),
                 },
             },
+            "import_project" => {
+                let path_str = action
+                    .result
+                    .action_payload
+                    .as_ref()
+                    .and_then(|p| p.get("path"))
+                    .and_then(|v| v.as_str())
+                    .or_else(|| {
+                        action
+                            .result
+                            .subtitle
+                            .as_deref()
+                            .map(|s| s.split(" — ").next().unwrap_or(s))
+                    })
+                    .or_else(|| action.result.id.as_str().strip_prefix("proj:import:"));
+                let Some(path_str) = path_str else {
+                    return ActionOutcome::Failed {
+                        kind: FailureKind::InvalidInput {
+                            field: "path".into(),
+                            message: "missing import path".into(),
+                        },
+                    };
+                };
+                match resolve_import_path(Path::new(path_str)) {
+                    Ok(canon) => ActionOutcome::SettingsMutation {
+                        patch: serde_json::json!({
+                            "import_project": canon.display().to_string()
+                        }),
+                    },
+                    Err(err) => ActionOutcome::Failed {
+                        kind: FailureKind::SecurityDenied { reason: err },
+                    },
+                }
+            }
+            "remove_project" => {
+                let key = action
+                    .result
+                    .action_payload
+                    .as_ref()
+                    .and_then(|p| p.get("name"))
+                    .and_then(|v| v.as_str())
+                    .or_else(|| action.result.id.as_str().strip_prefix("proj:remove:"));
+                let Some(key) = key else {
+                    return ActionOutcome::Failed {
+                        kind: FailureKind::InvalidInput {
+                            field: "name".into(),
+                            message: "missing project name".into(),
+                        },
+                    };
+                };
+                ActionOutcome::SettingsMutation {
+                    patch: serde_json::json!({ "remove_project": key }),
+                }
+            }
             "open" => {
                 let path_str = action
                     .result
@@ -581,8 +860,12 @@ impl LumaModule for ProjectsModule {
                     .as_str()
                     .strip_prefix("browse:proj:")
                     .or_else(|| action.result.id.as_str().strip_prefix("proj:"))
-                    .or(action.result.subtitle.as_deref());
-                let Some(path) = path_str.map(PathBuf::from) else {
+                    .or(action
+                        .result
+                        .subtitle
+                        .as_deref()
+                        .map(|s| s.split(" — ").next().unwrap_or(s)));
+                let Some(path_str) = path_str else {
                     return ActionOutcome::Failed {
                         kind: FailureKind::InvalidInput {
                             field: "result_id".into(),
@@ -590,18 +873,29 @@ impl LumaModule for ProjectsModule {
                         },
                     };
                 };
-                let roots = self.roots.read().await.clone();
-                let Ok(path) = resolve_under_roots(&path, &roots) else {
-                    return ActionOutcome::Failed {
-                        kind: FailureKind::SecurityDenied {
-                            reason: "path not under scan roots".into(),
-                        },
-                    };
+                let path = PathBuf::from(path_str);
+                let imported = self.imported.read().await.clone();
+                let is_imported = imported.iter().any(|p| p.path == path_str);
+                let open_path = if is_imported {
+                    match resolve_import_path(&path) {
+                        Ok(p) => p,
+                        Err(_) => path,
+                    }
+                } else {
+                    let roots = self.roots.read().await.clone();
+                    match resolve_under_roots(&path, &roots) {
+                        Ok(p) => p,
+                        Err(reason) => {
+                            return ActionOutcome::Failed {
+                                kind: FailureKind::SecurityDenied { reason },
+                            };
+                        }
+                    }
                 };
-                let Ok(meta) = std::fs::symlink_metadata(&path) else {
+                let Ok(meta) = std::fs::symlink_metadata(&open_path) else {
                     return ActionOutcome::Failed {
                         kind: FailureKind::NotFound {
-                            entity: path.display().to_string(),
+                            entity: open_path.display().to_string(),
                         },
                     };
                 };
@@ -612,15 +906,7 @@ impl LumaModule for ProjectsModule {
                         },
                     };
                 }
-                // Re-resolve after metadata check to shrink swap window.
-                let Ok(path) = resolve_under_roots(&path, &roots) else {
-                    return ActionOutcome::Failed {
-                        kind: FailureKind::SecurityDenied {
-                            reason: "path not under scan roots".into(),
-                        },
-                    };
-                };
-                match self.opener.open(&path).await {
+                match self.opener.open(&open_path).await {
                     Ok(()) => ActionOutcome::Success {
                         message: Some("opened".into()),
                     },
@@ -642,11 +928,12 @@ impl LumaModule for ProjectsModule {
 
     async fn apply_settings(&self, settings: &luma_application::AppSettings) {
         let roots: Vec<PathBuf> = settings.projects_roots.iter().map(PathBuf::from).collect();
-        self.set_roots(roots).await;
+        *self.roots.write().await = roots;
+        *self.imported.write().await = settings.imported_projects.clone();
     }
 
     async fn teardown(&self) {
-        self.index.write().await.clear();
+        self.imported.write().await.clear();
     }
 }
 

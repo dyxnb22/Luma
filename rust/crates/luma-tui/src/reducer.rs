@@ -1281,8 +1281,8 @@ fn apply_engine(state: &mut AppState, event: Event) -> Vec<Effect> {
         clear_action_ui(state);
         let mut effects = vec![Effect::LoadHub];
         state.schedule_hub_refresh();
-        if !state.prompt.is_empty()
-            && !(state.active_operation.is_some() && project_remove_name(&state.prompt).is_some())
+        if !(state.prompt.is_empty()
+            || (state.active_operation.is_some() && project_remove_name(&state.prompt).is_some()))
         {
             effects.extend(begin_search(state));
         }

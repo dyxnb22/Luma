@@ -182,13 +182,33 @@ fn render_results(
     frame.render_widget(list, area);
 }
 
+fn hub_module_title(state: &AppState, module_id: &str, title: &str) -> String {
+    if !state.settings_roots.loaded {
+        return title.to_string();
+    }
+    let needs_notes = module_id == "luma.notes"
+        && state
+            .settings_roots
+            .notes_root
+            .as_ref()
+            .map(|s| s.is_empty())
+            .unwrap_or(true);
+    let needs_projects =
+        module_id == "luma.projects" && state.settings_roots.projects_roots.is_empty();
+    if needs_notes || needs_projects {
+        format!("{title} · set root")
+    } else {
+        title.to_string()
+    }
+}
+
 fn hub_list_items(state: &AppState, theme: &Theme, symbols: &Symbols) -> Vec<ListItem<'static>> {
     let rows = state.hub_rows();
     if rows.is_empty() {
         return vec![ListItem::new(vec![
             Line::from(Span::styled("  Waiting for modules…", theme.muted())),
             Line::from(Span::styled(
-                "  Session warms in the background",
+                "  Loading modules in the background",
                 theme.key_hint(),
             )),
         ])];
@@ -261,8 +281,13 @@ fn hub_list_items(state: &AppState, theme: &Theme, symbols: &Symbols) -> Vec<Lis
         } else {
             None
         };
+        let display_title = if kind == "module" {
+            hub_module_title(state, _id, title)
+        } else {
+            title.clone()
+        };
         let mut lines = vec![Line::from(vec![
-            Span::styled(format!(" {prefix} {title}"), style),
+            Span::styled(format!(" {prefix} {display_title}"), style),
             Span::styled(format!("  {right}"), muted),
         ])];
         if let Some(sub) = guidance {
@@ -321,8 +346,32 @@ fn render_preview(
         )),
     ];
     if let Some(sub) = &item.subtitle {
-        lines.push(Line::from(""));
-        lines.push(Line::from(Span::styled(format!("  {sub}"), theme.text())));
+        let body_dupes_sub = state
+            .preview_result_id
+            .as_deref()
+            .filter(|id| *id == item.id.as_str())
+            .and(state.preview_body.as_deref())
+            .is_some_and(|body| {
+                let body_trim = body.trim();
+                body_trim == sub.trim()
+                    || body_trim == item.title.trim()
+                    || body_trim
+                        .lines()
+                        .next()
+                        .is_some_and(|l| l.trim() == sub.trim() || l.trim() == item.title.trim())
+            });
+        if !body_dupes_sub {
+            lines.push(Line::from(""));
+            lines.push(Line::from(Span::styled(format!("  {sub}"), theme.text())));
+        }
+    } else if state
+        .preview_result_id
+        .as_deref()
+        .filter(|id| *id == item.id.as_str())
+        .and(state.preview_body.as_deref())
+        .is_some_and(|body| body.trim() == item.title.trim())
+    {
+        // Title already shown; skip empty subtitle when body only echoes title.
     }
     lines.push(Line::from(""));
     if state.preview_result_id.as_deref() == Some(item.id.as_str()) {
@@ -334,7 +383,11 @@ fn render_preview(
                 .max(1);
             let max_scroll = body_lines.len().saturating_sub(visible);
             let scroll = state.preview_scroll.min(max_scroll);
+            let body_len = body_lines.len();
             for line in body_lines.into_iter().skip(scroll).take(visible) {
+                if scroll == 0 && line.trim() == item.title.trim() && body_len == 1 {
+                    continue;
+                }
                 lines.push(Line::from(Span::styled(format!("  {line}"), theme.text())));
             }
             if max_scroll > 0 {
@@ -1015,9 +1068,7 @@ fn render_overlay_doctor(
     let panel = panel_style(theme);
     let full = state.doctor_diagnostic.as_ref().map_or_else(
         || format!("Waiting for engine diagnostics{}", symbols.ellipsis),
-        |diagnostic| {
-            serde_json::to_string_pretty(diagnostic).unwrap_or_else(|_| diagnostic.to_string())
-        },
+        format_doctor_panel,
     );
     let lines: Vec<&str> = full.lines().collect();
     let inner_h = overlay.height.saturating_sub(2) as usize;
@@ -1053,6 +1104,71 @@ fn render_overlay_doctor(
     frame.render_widget(widget, overlay);
 }
 
+fn format_doctor_panel(diagnostic: &serde_json::Value) -> String {
+    let mut lines = Vec::new();
+    if let Some(remediation) = diagnostic.get("remediation").and_then(|v| v.as_array()) {
+        let tips: Vec<&str> = remediation
+            .iter()
+            .filter_map(|v| v.as_str())
+            .filter(|s| !s.is_empty())
+            .collect();
+        if !tips.is_empty() {
+            lines.push("Next steps:".to_string());
+            for tip in tips {
+                lines.push(format!("  · {tip}"));
+            }
+            lines.push(String::new());
+        }
+    }
+    if let Some(cmds) = diagnostic
+        .get("config_commands")
+        .and_then(|v| v.as_object())
+    {
+        if !cmds.is_empty() {
+            lines.push("Config:".to_string());
+            for (key, val) in cmds {
+                if let Some(cmd) = val.as_str() {
+                    lines.push(format!("  {key}: {cmd}"));
+                }
+            }
+            lines.push(String::new());
+        }
+    }
+    let notes = diagnostic
+        .pointer("/settings/notes_root")
+        .or_else(|| diagnostic.get("notes_root"))
+        .and_then(|v| v.as_str());
+    let projects = diagnostic
+        .pointer("/settings/projects_roots")
+        .or_else(|| diagnostic.get("projects_roots"))
+        .and_then(|v| v.as_array());
+    if notes.is_some() || projects.is_some() {
+        lines.push("Roots:".to_string());
+        lines.push(format!("  notes_root: {}", notes.unwrap_or("(not set)")));
+        let proj = projects
+            .map(|arr| {
+                let joined: Vec<&str> = arr.iter().filter_map(|v| v.as_str()).collect();
+                if joined.is_empty() {
+                    "(none)".into()
+                } else {
+                    joined.join(", ")
+                }
+            })
+            .unwrap_or_else(|| "(none)".into());
+        lines.push(format!("  projects_roots: {proj}"));
+        lines.push(String::new());
+    }
+    if lines.is_empty() {
+        serde_json::to_string_pretty(diagnostic).unwrap_or_else(|_| diagnostic.to_string())
+    } else {
+        lines.push("— raw —".into());
+        lines.push(
+            serde_json::to_string_pretty(diagnostic).unwrap_or_else(|_| diagnostic.to_string()),
+        );
+        lines.join("\n")
+    }
+}
+
 fn render_overlay_settings(
     frame: &mut Frame<'_>,
     area: Rect,
@@ -1065,6 +1181,30 @@ fn render_overlay_settings(
     fill_overlay_panel(frame, overlay, theme);
     let panel = panel_style(theme);
     let mut items = Vec::new();
+    let notes_line = match &state.settings_roots.notes_root {
+        Some(root) if !root.is_empty() => format!(" Notes root: {root}"),
+        _ => " Notes root: (not set) · luma config set --notes-root ~/Notes".into(),
+    };
+    let projects_line = if state.settings_roots.projects_roots.is_empty() {
+        " Projects: (none) · luma config set --projects-root ~/dev".into()
+    } else {
+        format!(
+            " Projects: {}",
+            state.settings_roots.projects_roots.join(", ")
+        )
+    };
+    items.push(ListItem::new(Span::styled(
+        notes_line,
+        with_panel_bg(theme.muted(), theme),
+    )));
+    items.push(ListItem::new(Span::styled(
+        projects_line,
+        with_panel_bg(theme.muted(), theme),
+    )));
+    items.push(ListItem::new(Span::styled(
+        " — modules (Space toggles) —",
+        with_panel_bg(theme.muted(), theme),
+    )));
     if state.settings_modules.is_empty() {
         items.push(ListItem::new(Span::styled(
             "  Loading modules…",
@@ -1427,7 +1567,7 @@ mod tests {
             ..AppState::default()
         };
         let (flat, _) = draw(&state, 80, 24);
-        assert!(flat.contains("warming"), "warming badge missing: {flat}");
+        assert!(flat.contains("loading"), "loading badge missing: {flat}");
     }
 
     #[test]
@@ -1476,10 +1616,7 @@ mod tests {
             ..AppState::default()
         };
         let (flat, _) = draw(&state, 80, 24);
-        assert!(
-            flat.contains("not configured"),
-            "not-configured badge missing: {flat}"
-        );
+        assert!(flat.contains("setup"), "setup badge missing: {flat}");
     }
 
     #[test]

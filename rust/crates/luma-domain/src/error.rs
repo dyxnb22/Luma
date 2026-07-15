@@ -81,6 +81,28 @@ impl FailureKind {
             }
         }
     }
+
+    /// Short copy for TUI status (no taxonomy prefixes).
+    pub fn user_message(&self) -> String {
+        match self {
+            FailureKind::PermissionRequired { guidance, .. } => guidance.clone(),
+            FailureKind::NotConfigured { remediation } => remediation.clone(),
+            FailureKind::Warming { progress } => {
+                progress.clone().unwrap_or_else(|| "Loading…".into())
+            }
+            FailureKind::Unavailable { reason, .. } => reason.clone(),
+            FailureKind::Timeout { operation } => format!("Timed out: {operation}"),
+            FailureKind::Cancelled => "Cancelled".into(),
+            FailureKind::InvalidInput { message, .. } => message.clone(),
+            FailureKind::NotFound { entity } => format!("Not found: {entity}"),
+            FailureKind::Conflict { reason } => reason.clone(),
+            FailureKind::SecurityDenied { reason } => reason.clone(),
+            FailureKind::Io { context } => context.clone(),
+            FailureKind::Internal { correlation_id } => {
+                format!("Internal error [{correlation_id}]")
+            }
+        }
+    }
 }
 
 #[derive(Clone, Debug, Error, PartialEq, Eq)]

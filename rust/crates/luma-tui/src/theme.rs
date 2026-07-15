@@ -279,7 +279,7 @@ impl ResultKindVisual {
     pub fn from_kind(kind: &str) -> Self {
         match kind {
             "warming" => Self::Warming,
-            "permission" => Self::Permission,
+            "permission" | "permission_required" => Self::Permission,
             "unavailable" => Self::Unavailable,
             // Empty-store onboarding is actionable — do not badge as "not configured".
             "not_configured" | "not-configured" => Self::NotConfigured,
@@ -290,10 +290,10 @@ impl ResultKindVisual {
     pub fn badge(self) -> Option<&'static str> {
         match self {
             Self::Normal => None,
-            Self::Warming => Some("warming"),
+            Self::Warming => Some("loading"),
             Self::Permission => Some("permission"),
             Self::Unavailable => Some("unavailable"),
-            Self::NotConfigured => Some("not configured"),
+            Self::NotConfigured => Some("setup"),
         }
     }
 }

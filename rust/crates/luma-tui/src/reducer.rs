@@ -629,6 +629,11 @@ fn request_primary_actions(state: &mut AppState) -> Vec<Effect> {
     if item.primary_action.id.as_str() == "seed_add" {
         return seed_module_add(state, &item);
     }
+    if item.primary_action.id.as_str() == "seed_config"
+        || item.primary_action.id.as_str() == "configure"
+    {
+        return seed_module_config(state, &item);
+    }
     let result_id = item.id.as_str().to_string();
     state.awaiting_actions = Some(AwaitingActions {
         intent: ActionsIntent::Primary,
@@ -711,6 +716,29 @@ fn seed_module_add(state: &mut AppState, item: &luma_domain::SearchItem) -> Vec<
     vec![Effect::None]
 }
 
+fn seed_module_config(state: &mut AppState, item: &luma_domain::SearchItem) -> Vec<Effect> {
+    let cmd = if item.module_id.as_str().contains("notes") {
+        "luma config set --notes-root ~/Notes"
+    } else if item.module_id.as_str().contains("projects") {
+        "luma config set --projects-root ~/dev"
+    } else if item.module_id.as_str().contains("secrets") {
+        "security add-generic-password -s com.luma.next.secrets -a LABEL -w 'VALUE' -U"
+    } else if let Some(sub) = item.subtitle.as_deref() {
+        // Fall back to subtitle when it already carries a CLI hint.
+        state.status.set(sub, StatusTone::Warning);
+        return vec![Effect::None];
+    } else {
+        state
+            .status
+            .set("configure via: luma doctor", StatusTone::Warning);
+        return vec![Effect::None];
+    };
+    state
+        .status
+        .set(format!("run in terminal: {cmd}"), StatusTone::Warning);
+    vec![Effect::None]
+}
+
 fn request_action_picker(state: &mut AppState) -> Vec<Effect> {
     if state.route != Route::Search {
         return vec![Effect::None];
@@ -776,6 +804,19 @@ fn submit_picker_selection(state: &mut AppState) -> Vec<Effect> {
             .cloned()
         {
             return seed_module_add(state, &item);
+        }
+        return vec![Effect::None];
+    }
+    if action.id == "seed_config" || action.id == "configure" {
+        state.route = Route::Search;
+        if let Some(item) = state
+            .results
+            .items
+            .iter()
+            .find(|i| i.id.as_str() == result_id.as_str())
+            .cloned()
+        {
+            return seed_module_config(state, &item);
         }
         return vec![Effect::None];
     }
@@ -1011,7 +1052,7 @@ fn apply_engine(state: &mut AppState, event: Event) -> Vec<Effect> {
     let settings_changed = matches!(event, Event::SettingsChanged { .. });
     let _ = state.apply_engine_event(event);
     if ready {
-        let mut effects = vec![Effect::LoadHub];
+        let mut effects = vec![Effect::GetSettings, Effect::LoadHub];
         state.schedule_hub_refresh();
         if state.results.selected_id.is_some() {
             effects.extend(preview_effect(state));

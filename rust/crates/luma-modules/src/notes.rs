@@ -516,11 +516,11 @@ impl LumaModule for NotesModule {
                 id: "notes:configure".into(),
                 module_id: "luma.notes".into(),
                 title: "Choose a Notes root folder".into(),
-                subtitle: Some("NotConfigured — run: luma config set --notes-root ~/Notes".into()),
+                subtitle: Some("Run: luma config set --notes-root ~/Notes".into()),
                 kind: "not_configured".into(),
                 score: 0.0,
-                primary_action_id: "configure".into(),
-                primary_action_label: "Configure".into(),
+                primary_action_id: "seed_config".into(),
+                primary_action_label: "Show command".into(),
                 ..Default::default()
             };
             let _ = sink
@@ -575,7 +575,7 @@ impl LumaModule for NotesModule {
                                 id: "note:clock-error".into(),
                                 module_id: "luma.notes".into(),
                                 title: "Daily note unavailable".into(),
-                                subtitle: Some(err.to_string()),
+                                subtitle: Some(crate::ux::friendly_store_error(&err.to_string())),
                                 kind: "unavailable".into(),
                                 score: 0.0,
                                 primary_action_id: "noop".into(),
@@ -674,7 +674,14 @@ impl LumaModule for NotesModule {
             };
             let status = self.index.scan_status();
             let mut upserts = Vec::new();
-            upserts.push(status_row(&status));
+            let show_status = match &status {
+                NotesScanStatusView::Running { .. } | NotesScanStatusView::Failed { .. } => true,
+                NotesScanStatusView::Completed { errors, .. } => *errors > 0,
+                NotesScanStatusView::Idle => false,
+            };
+            if show_status {
+                upserts.push(status_row(&status));
+            }
             for hit in hits {
                 let abs = root.join(&hit.relative_path);
                 if NotesModule::resolve_under_root(&root, &abs).is_err() {
@@ -794,8 +801,12 @@ impl LumaModule for NotesModule {
                     Some(SearchItemDto {
                         id: format!("note:{}", abs.display()),
                         module_id: "luma.notes".into(),
-                        title: format!("{} — {}", i.issue_type, i.relative_path),
-                        subtitle: Some(format!("{} — {}", abs.display(), i.message)),
+                        title: format!(
+                            "{} — {}",
+                            humanize_issue_type(&i.issue_type),
+                            i.relative_path
+                        ),
+                        subtitle: Some(short_issue_message(&i.message)),
                         kind: "issue".into(),
                         score: 50.0,
                         primary_action_id: "open".into(),
@@ -847,14 +858,14 @@ impl LumaModule for NotesModule {
             }
             let (title, kind, label) = match report {
                 Ok(Ok(r)) if r.cancelled => ("Scan cancelled".into(), "unavailable", "Cancelled"),
-                Ok(Ok(r)) => (
-                    format!(
-                        "{} done — processed {} errors {} pruned {}",
-                        r.mode, r.processed, r.errors, r.pruned
-                    ),
-                    "status",
-                    "Done",
-                ),
+                Ok(Ok(r)) => {
+                    let title = if r.errors == 0 {
+                        format!("Checked {} notes", r.processed)
+                    } else {
+                        format!("Checked {} notes · {} issue(s)", r.processed, r.errors)
+                    };
+                    (title, "status", "Done")
+                }
                 Ok(Err(e)) => (format!("Scan failed: {e}"), "unavailable", "Failed"),
                 Err(e) => (format!("Scan failed: {e}"), "unavailable", "Failed"),
             };
@@ -1122,10 +1133,11 @@ impl LumaModule for NotesModule {
         if result.id.as_str() == "notes:configure"
             || result.kind == "not_configured"
             || result.primary_action.id.as_str() == "configure"
+            || result.primary_action.id.as_str() == "seed_config"
         {
             return vec![ActionDescriptor {
-                id: ActionId::new("configure"),
-                label: "Configure".into(),
+                id: ActionId::new("seed_config"),
+                label: "Show command".into(),
                 risk: ActionRisk::Safe,
                 confirmation: false,
             }];
@@ -1180,14 +1192,12 @@ impl LumaModule for NotesModule {
 
     async fn preview(&self, result: &SearchItem) -> Option<String> {
         let root = self.root.read().await.clone()?;
-        let raw = result.subtitle.as_deref().map(PathBuf::from)?;
-        // subtitle may be "path — snippet"; take path portion
-        let path_part = raw
-            .to_string_lossy()
-            .split(" — ")
-            .next()
-            .unwrap_or("")
-            .to_string();
+        if result.kind == "directory" || result.id.as_str().starts_with("browse:n:") {
+            let path_part = subtitle_path(result.subtitle.as_deref()?);
+            let path = Self::resolve_under_root_for_browse(&root, Path::new(&path_part)).ok()?;
+            return Some(format_notes_directory_preview(&path));
+        }
+        let path_part = subtitle_path(result.subtitle.as_deref()?);
         let path = Self::resolve_under_root(&root, Path::new(&path_part)).ok()?;
         let rel = path
             .strip_prefix(&root)
@@ -1227,7 +1237,13 @@ impl LumaModule for NotesModule {
                 Some(out)
             };
         };
-        if meta.file_type().is_symlink() || !meta.file_type().is_file() {
+        if meta.file_type().is_symlink() {
+            return if out.is_empty() { None } else { Some(out) };
+        }
+        if meta.file_type().is_dir() {
+            return Some(format_notes_directory_preview(&path));
+        }
+        if !meta.file_type().is_file() {
             return if out.is_empty() {
                 result.subtitle.clone()
             } else {
@@ -1541,12 +1557,104 @@ fn read_bounded_utf8_no_follow(path: &Path, max_bytes: usize) -> Option<String> 
     }
 }
 
+fn subtitle_path(subtitle: &str) -> String {
+    subtitle.split(" — ").next().unwrap_or(subtitle).to_string()
+}
+
+fn humanize_issue_type(issue_type: &str) -> &'static str {
+    match issue_type {
+        "unreadable" => "Couldn't index",
+        "oversized" => "File too large",
+        "frontmatter_warning" => "Frontmatter warning",
+        "symlink_skipped" => "Skipped symlink",
+        "walk_error" => "Folder unreadable",
+        _ => "Index issue",
+    }
+}
+
+fn short_issue_message(message: &str) -> String {
+    let trimmed = message.trim();
+    let cleaned = trimmed
+        .strip_prefix("sqlite: ")
+        .or_else(|| trimmed.strip_prefix("sqlite:"))
+        .unwrap_or(trimmed);
+    if cleaned.chars().count() > 120 {
+        let mut out: String = cleaned.chars().take(117).collect();
+        out.push('…');
+        out
+    } else {
+        cleaned.to_string()
+    }
+}
+
+fn format_notes_directory_preview(dir: &Path) -> String {
+    const MAX: usize = 40;
+    let Ok(rd) = std::fs::read_dir(dir) else {
+        return format!("Cannot read folder:\n  {}", dir.display());
+    };
+    let mut dirs = Vec::new();
+    let mut files = Vec::new();
+    for entry in rd.flatten() {
+        let path = entry.path();
+        let Ok(meta) = std::fs::symlink_metadata(&path) else {
+            continue;
+        };
+        if meta.file_type().is_symlink() {
+            continue;
+        }
+        let name = path
+            .file_name()
+            .and_then(|s| s.to_str())
+            .unwrap_or("?")
+            .to_string();
+        if name.starts_with('.') {
+            continue;
+        }
+        if meta.file_type().is_dir() {
+            dirs.push(name);
+        } else if meta.file_type().is_file() && name.to_ascii_lowercase().ends_with(".md") {
+            files.push(name);
+        }
+    }
+    dirs.sort_by_cached_key(|s| s.to_ascii_lowercase());
+    files.sort_by_cached_key(|s| s.to_ascii_lowercase());
+    format_directory_children(&dirs, &files, MAX)
+}
+
+fn format_directory_children(dirs: &[String], files: &[String], max: usize) -> String {
+    let total = dirs.len() + files.len();
+    if total == 0 {
+        return "Empty folder".into();
+    }
+    let mut out = format!("{total} item(s):\n");
+    let mut shown = 0usize;
+    for d in dirs {
+        if shown >= max {
+            break;
+        }
+        out.push_str(&format!("  {d}/\n"));
+        shown += 1;
+    }
+    for f in files {
+        if shown >= max {
+            break;
+        }
+        out.push_str(&format!("  {f}\n"));
+        shown += 1;
+    }
+    if shown < total {
+        out.push_str(&format!("  … +{} more\n", total - shown));
+    }
+    out.trim_end().to_string()
+}
+
 fn unavailable_row(title: impl Into<String>, detail: impl Into<String>) -> SearchItemDto {
+    let detail = crate::ux::friendly_store_error(&detail.into());
     SearchItemDto {
         id: "notes:unavailable".into(),
         module_id: "luma.notes".into(),
         title: title.into(),
-        subtitle: Some(detail.into()),
+        subtitle: Some(detail),
         kind: "unavailable".into(),
         score: 0.0,
         primary_action_id: "noop".into(),
@@ -1559,41 +1667,39 @@ fn status_row(status: &NotesScanStatusView) -> SearchItemDto {
     let (title, subtitle, score, action_id, action_label) = match status {
         NotesScanStatusView::Idle => ("Index idle".into(), "Ready".into(), 10.0, "noop", "Status"),
         NotesScanStatusView::Running {
-            mode,
-            processed,
-            total,
+            processed, total, ..
         } => (
-            format!("Indexing ({mode})"),
+            "Updating notes index…".into(),
             format!("{processed}/{total}"),
             95.0,
             "noop",
             "Status",
         ),
         NotesScanStatusView::Failed { message } => (
-            "Index failed".into(),
-            message.clone(),
+            "Notes index failed".into(),
+            crate::ux::friendly_store_error(message),
             95.0,
             "noop",
             "Status",
         ),
         NotesScanStatusView::Completed {
-            mode,
             processed,
             total,
             errors,
+            ..
         } => {
             if *errors > 0 {
                 (
-                    format!("Index {mode}"),
-                    format!("{processed}/{total}, errors {errors} · Enter details"),
+                    format!("{errors} index issue(s)"),
+                    format!("{processed}/{total} notes · Enter for details"),
                     90.0,
                     "list_issues",
                     "View issues",
                 )
             } else {
                 (
-                    format!("Index {mode}"),
-                    format!("{processed}/{total}, errors {errors}"),
+                    "Notes index OK".into(),
+                    format!("{processed}/{total}"),
                     10.0,
                     "noop",
                     "Status",
@@ -1669,7 +1775,15 @@ mod tests {
         match ev {
             Event::ResultsChunk { upserts, .. } => {
                 assert_eq!(upserts[0].kind, "not_configured");
-                assert_eq!(upserts[0].primary_action_id, "configure");
+                assert_eq!(upserts[0].primary_action_id, "seed_config");
+                assert!(
+                    upserts[0]
+                        .subtitle
+                        .as_deref()
+                        .is_some_and(|s| s.contains("luma config set --notes-root")),
+                    "subtitle should carry CLI: {:?}",
+                    upserts[0].subtitle
+                );
             }
             other => panic!("{other:?}"),
         }
@@ -1959,6 +2073,36 @@ mod tests {
             "symlink must not appear in browse: {upserts:?}"
         );
         assert!(upserts.iter().any(|u| u.title == "safe"));
+    }
+
+    #[tokio::test]
+    async fn preview_directory_lists_children() {
+        let dir = tempdir().unwrap();
+        fs::create_dir(dir.path().join("Backend")).unwrap();
+        fs::write(dir.path().join("readme.md"), "# hi").unwrap();
+        let m = NotesModule::with_root_for_tests(Some(dir.path().to_path_buf()));
+        let item = SearchItem {
+            id: ResultId::new(format!("browse:n:{}", dir.path().display())),
+            module_id: ModuleId::new("luma.notes"),
+            title: "Learning/".into(),
+            subtitle: Some(dir.path().display().to_string()),
+            kind: "directory".into(),
+            score: 1.0,
+            primary_action: ActionDescriptor {
+                id: ActionId::new("browse"),
+                label: "Browse".into(),
+                risk: ActionRisk::Safe,
+                confirmation: false,
+            },
+            secondary_actions: vec![],
+        };
+        let preview = m.preview(&item).await.expect("directory preview");
+        assert!(preview.contains("Backend/"));
+        assert!(preview.contains("readme.md"));
+        assert!(
+            !preview.contains(dir.path().to_str().unwrap()),
+            "directory preview should list children, not repeat the path: {preview}"
+        );
     }
 
     #[tokio::test]

@@ -7,7 +7,7 @@ use luma_domain::{
     ActionDescriptor, ActionId, ActionRisk, FailureKind, ModuleId, Query, SearchItem,
 };
 use luma_protocol::{Event, SearchItemDto};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tokio_util::sync::CancellationToken;
@@ -115,6 +115,44 @@ fn list_children(dir: &PathBuf, cancel: &CancellationToken) -> Vec<(String, Path
         _ => a.0.to_lowercase().cmp(&b.0.to_lowercase()),
     });
     out
+}
+
+fn format_projects_directory_preview(dir: &Path) -> String {
+    const MAX: usize = 40;
+    let children = list_children(&dir.to_path_buf(), &CancellationToken::new());
+    if children.is_empty() {
+        return "Empty folder".into();
+    }
+    let mut dirs = Vec::new();
+    let mut files = Vec::new();
+    for (name, _, is_dir) in children {
+        if is_dir {
+            dirs.push(name);
+        } else {
+            files.push(name);
+        }
+    }
+    let total = dirs.len() + files.len();
+    let mut out = format!("{total} item(s):\n");
+    let mut shown = 0usize;
+    for d in &dirs {
+        if shown >= MAX {
+            break;
+        }
+        out.push_str(&format!("  {d}/\n"));
+        shown += 1;
+    }
+    for f in &files {
+        if shown >= MAX {
+            break;
+        }
+        out.push_str(&format!("  {f}\n"));
+        shown += 1;
+    }
+    if shown < total {
+        out.push_str(&format!("  … +{} more\n", total - shown));
+    }
+    out.trim_end().to_string()
 }
 
 /// Reject `..` components and require the path (after canonicalize when it exists)
@@ -249,13 +287,11 @@ impl LumaModule for ProjectsModule {
                         id: "proj:configure".into(),
                         module_id: "luma.projects".into(),
                         title: "Add a project scan root".into(),
-                        subtitle: Some(
-                            "NotConfigured — run: luma config set --projects-root ~/dev".into(),
-                        ),
+                        subtitle: Some("Run: luma config set --projects-root ~/dev".into()),
                         kind: "not_configured".into(),
                         score: 0.0,
-                        primary_action_id: "configure".into(),
-                        primary_action_label: "Configure".into(),
+                        primary_action_id: "seed_config".into(),
+                        primary_action_label: "Show command".into(),
                         ..Default::default()
                     }],
                     removed_ids: vec![],
@@ -442,10 +478,10 @@ impl LumaModule for ProjectsModule {
     }
 
     async fn actions(&self, result: &SearchItem) -> Vec<ActionDescriptor> {
-        if result.id.as_str() == "proj:configure" {
+        if result.id.as_str() == "proj:configure" || result.kind == "not_configured" {
             return vec![ActionDescriptor {
-                id: ActionId::new("configure"),
-                label: "Configure".into(),
+                id: ActionId::new("seed_config"),
+                label: "Show command".into(),
                 risk: ActionRisk::Safe,
                 confirmation: false,
             }];
@@ -467,7 +503,6 @@ impl LumaModule for ProjectsModule {
             ];
         }
         if result.kind == "status"
-            || result.kind == "not_configured"
             || result.kind == "onboarding"
             || result.kind == "unavailable"
             || result.primary_action.id.as_str() == "noop"
@@ -494,6 +529,22 @@ impl LumaModule for ProjectsModule {
             });
         }
         actions
+    }
+
+    async fn preview(&self, result: &SearchItem) -> Option<String> {
+        if result.kind == "directory" || result.id.as_str().starts_with("browse:proj:") {
+            let path_part = result
+                .subtitle
+                .as_deref()?
+                .split(" — ")
+                .next()
+                .unwrap_or("");
+            return Some(format_projects_directory_preview(Path::new(path_part)));
+        }
+        result
+            .subtitle
+            .clone()
+            .or_else(|| Some(result.title.clone()))
     }
 
     async fn perform(&self, action: ActionRequest, cancel: CancellationToken) -> ActionOutcome {

@@ -10,6 +10,7 @@ mod projects;
 mod quicklinks;
 mod secrets;
 mod snippets;
+mod ux;
 mod windows;
 
 pub use apps::AppsModule;

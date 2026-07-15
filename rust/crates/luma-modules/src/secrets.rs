@@ -102,7 +102,7 @@ impl LumaModule for SecretsModule {
                         id: "sec:unavailable".into(),
                         module_id: "luma.secrets".into(),
                         title: "Secrets keychain unavailable".into(),
-                        subtitle: Some(err.to_string()),
+                        subtitle: Some(crate::ux::friendly_store_error(&err.to_string())),
                         kind: "unavailable".into(),
                         score: 0.0,
                         primary_action_id: "noop".into(),
@@ -116,12 +116,13 @@ impl LumaModule for SecretsModule {
                         module_id: "luma.secrets".into(),
                         title: "No secrets labels yet".into(),
                         subtitle: Some(
-                            "NotConfigured — add via Keychain service com.luma.next.secrets (see MODULES.md)".into(),
+                            "Run: security add-generic-password -s com.luma.next.secrets -a LABEL -w 'VALUE' -U"
+                                .into(),
                         ),
                         kind: "not_configured".into(),
                         score: 0.0,
-                        primary_action_id: "noop".into(),
-                        primary_action_label: "Help".into(),
+                        primary_action_id: "seed_config".into(),
+                        primary_action_label: "Show command".into(),
                         ..Default::default()
                     });
                 }
@@ -169,15 +170,24 @@ impl LumaModule for SecretsModule {
                 confirmation: true,
             }];
         }
-        if result.id.as_str() == "sec:unavailable"
-            || result.id.as_str() == "sec:not_configured"
-            || result.kind == "unavailable"
+        if result.id.as_str() == "sec:not_configured"
             || result.kind == "not_configured"
+            || result.primary_action.id.as_str() == "seed_config"
+        {
+            return vec![ActionDescriptor {
+                id: ActionId::new("seed_config"),
+                label: "Show command".into(),
+                risk: ActionRisk::Safe,
+                confirmation: false,
+            }];
+        }
+        if result.id.as_str() == "sec:unavailable"
+            || result.kind == "unavailable"
             || result.primary_action.id.as_str() == "noop"
         {
             return vec![ActionDescriptor {
                 id: ActionId::new("noop"),
-                label: "Help".into(),
+                label: "OK".into(),
                 risk: ActionRisk::Safe,
                 confirmation: false,
             }];

@@ -175,8 +175,8 @@ impl LumaModule for WindowsModule {
             let warming = SearchItemDto {
                 id: "win:warming".into(),
                 module_id: "luma.windows".into(),
-                title: "Refreshing windows…".into(),
-                subtitle: Some("warming".into()),
+                title: "Loading windows…".into(),
+                subtitle: Some("refreshing list".into()),
                 kind: "warming".into(),
                 score: 0.0,
                 primary_action_id: "refresh".into(),

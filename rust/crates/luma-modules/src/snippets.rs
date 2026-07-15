@@ -163,7 +163,7 @@ impl LumaModule for SnippetsModule {
                         id: "snip:unavailable".into(),
                         module_id: "luma.snippets".into(),
                         title: "Snippets store unavailable".into(),
-                        subtitle: Some(err),
+                        subtitle: Some(crate::ux::friendly_store_error(&err)),
                         kind: "unavailable".into(),
                         score: 0.0,
                         primary_action_id: "noop".into(),
@@ -191,7 +191,7 @@ impl LumaModule for SnippetsModule {
                     id: format!("snip:{}", snip.trigger),
                     module_id: "luma.snippets".into(),
                     title: snip.trigger,
-                    subtitle: Some(snip.body),
+                    subtitle: Some(truncate_snippet_subtitle(&snip.body)),
                     kind: "snippet".into(),
                     score: 55.0,
                     primary_action_id: "copy".into(),
@@ -235,6 +235,21 @@ impl LumaModule for SnippetsModule {
                 })
                 .await;
         }
+    }
+    async fn preview(&self, result: &SearchItem) -> Option<String> {
+        if result.kind != "snippet" {
+            return result
+                .subtitle
+                .clone()
+                .or_else(|| Some(result.title.clone()));
+        }
+        let trigger = result.id.as_str().strip_prefix("snip:")?;
+        let index = self.index.read().await;
+        index
+            .iter()
+            .find(|s| s.trigger == trigger)
+            .map(|s| s.body.clone())
+            .or_else(|| result.subtitle.clone())
     }
     async fn actions(&self, result: &SearchItem) -> Vec<ActionDescriptor> {
         if result.id.as_str() == "snip:empty"
@@ -451,4 +466,19 @@ impl LumaModule for SnippetsModule {
         }
     }
     async fn teardown(&self) {}
+}
+
+fn truncate_snippet_subtitle(body: &str) -> String {
+    let one_line = body.lines().next().unwrap_or(body).trim();
+    if one_line.chars().count() <= 72 {
+        if body.lines().count() > 1 {
+            format!("{one_line}…")
+        } else {
+            one_line.to_string()
+        }
+    } else {
+        let mut out: String = one_line.chars().take(69).collect();
+        out.push('…');
+        out
+    }
 }

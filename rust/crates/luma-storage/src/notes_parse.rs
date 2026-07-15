@@ -22,7 +22,7 @@ pub struct TitleResult {
     pub title: String,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum LinkKind {
     Internal,
     External,
@@ -242,7 +242,20 @@ pub fn extract_links(content: &[u8], source_rel: &str) -> Vec<ExtractedLink> {
         }
     }
 
+    dedupe_links(&mut links);
     links
+}
+
+fn dedupe_links(links: &mut Vec<ExtractedLink>) {
+    let mut seen = std::collections::HashSet::new();
+    links.retain(|link| {
+        let key = (
+            link.raw_href.clone(),
+            link.kind,
+            link.target_path.clone().unwrap_or_default(),
+        );
+        seen.insert(key)
+    });
 }
 
 fn parse_href(raw: &str, source_rel: &str) -> Option<ExtractedLink> {
@@ -368,6 +381,17 @@ mod tests {
         assert!(
             links.is_empty(),
             "fragment-only hrefs must be skipped: {links:?}"
+        );
+    }
+
+    #[test]
+    fn links_dedupe_identical_hrefs() {
+        let content = b"[first](target.md)\n[second](target.md)\n";
+        let links = extract_links(content, "doc.md");
+        assert_eq!(
+            links.len(),
+            1,
+            "duplicate hrefs from one source must dedupe"
         );
     }
 

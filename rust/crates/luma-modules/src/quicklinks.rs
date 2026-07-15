@@ -175,7 +175,7 @@ impl LumaModule for QuicklinksModule {
                         id: "ql:unavailable".into(),
                         module_id: "luma.quicklinks".into(),
                         title: "Quicklinks store unavailable".into(),
-                        subtitle: Some(err),
+                        subtitle: Some(crate::ux::friendly_store_error(&err)),
                         kind: "unavailable".into(),
                         score: 0.0,
                         primary_action_id: "noop".into(),

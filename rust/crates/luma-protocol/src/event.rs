@@ -149,6 +149,27 @@ impl ActionOutcomeDto {
             Self::Cancelled => "cancelled".into(),
         }
     }
+
+    /// TUI status copy (prefer explicit message, else FailureKind::user_message).
+    pub fn user_message(&self) -> String {
+        match self {
+            Self::Success { message } => message.clone().unwrap_or_else(|| "ok".into()),
+            Self::Failed { message, kind } => message
+                .clone()
+                .filter(|m| {
+                    !m.starts_with("not_configured:")
+                        && !m.starts_with("permission_required")
+                        && !m.starts_with("unavailable")
+                        && !m.starts_with("invalid_input")
+                        && !m.starts_with("security_denied")
+                        && !m.starts_with("conflict:")
+                        && !m.starts_with("io:")
+                        && !m.starts_with("internal")
+                })
+                .unwrap_or_else(|| kind.user_message()),
+            Self::Cancelled => "Cancelled".into(),
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

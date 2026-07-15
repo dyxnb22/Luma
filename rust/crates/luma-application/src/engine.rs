@@ -1105,19 +1105,25 @@ impl Engine {
                     .await;
             }
             Command::GetSettings => {
-                let (rows, version) = {
+                let (rows, version, notes_root, projects_roots) = {
                     let g = self.inner.lock().await;
                     let rows = g.registry.list();
-                    let version = self
+                    let snapshot = self
                         .settings
                         .as_ref()
-                        .and_then(|repo| repo.load_or_default().ok())
-                        .map(|s| s.settings_version)
-                        .unwrap_or(0);
-                    (rows, version)
+                        .and_then(|repo| repo.load_or_default().ok());
+                    let version = snapshot.as_ref().map(|s| s.settings_version).unwrap_or(0);
+                    let notes_root = snapshot.as_ref().and_then(|s| s.notes_root.clone());
+                    let projects_roots = snapshot
+                        .as_ref()
+                        .map(|s| s.projects_roots.clone())
+                        .unwrap_or_default();
+                    (rows, version, notes_root, projects_roots)
                 };
                 let settings = serde_json::json!({
                     "source": if self.settings.is_some() { "config_store" } else { "engine_registry" },
+                    "notes_root": notes_root,
+                    "projects_roots": projects_roots,
                     "modules": rows.iter().map(|(id, enabled, name)| {
                         serde_json::json!({"id": id, "enabled": enabled, "name": name})
                     }).collect::<Vec<_>>(),

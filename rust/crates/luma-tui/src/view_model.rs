@@ -218,6 +218,8 @@ pub struct AppState {
     pub settings_selected: usize,
     pub settings_version: u64,
     pub settings_modules: Vec<SettingsModuleRow>,
+    /// Notes / projects roots shown above module toggles.
+    pub settings_roots: SettingsRootsInfo,
     /// Doctor overlay scroll (line offset).
     pub doctor_scroll: usize,
     /// Help overlay scroll (line offset).
@@ -247,6 +249,14 @@ pub struct SettingsModuleRow {
     pub id: String,
     pub name: String,
     pub enabled: bool,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct SettingsRootsInfo {
+    pub notes_root: Option<String>,
+    pub projects_roots: Vec<String>,
+    /// True after at least one SettingsChanged event (avoids Hub false "set root").
+    pub loaded: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -312,6 +322,7 @@ impl Default for AppState {
             settings_selected: 0,
             settings_version: 0,
             settings_modules: Vec::new(),
+            settings_roots: SettingsRootsInfo::default(),
             doctor_scroll: 0,
             help_scroll: 0,
             overlay_restore_prompt: None,
@@ -777,7 +788,7 @@ impl AppState {
                 }
                 self.active_operation = None;
                 let tone = status_tone_for_outcome(&outcome);
-                self.status.set(outcome.display_message(), tone);
+                self.status.set(outcome.user_message(), tone);
                 true
             }
             Event::DiagnosticRaised { diagnostic } => {
@@ -804,6 +815,20 @@ impl AppState {
             Event::SettingsChanged { version, settings } => {
                 self.settings_version = version;
                 self.settings_modules.clear();
+                self.settings_roots.notes_root = settings
+                    .get("notes_root")
+                    .and_then(|v| v.as_str())
+                    .map(str::to_string);
+                self.settings_roots.projects_roots = settings
+                    .get("projects_roots")
+                    .and_then(|v| v.as_array())
+                    .map(|arr| {
+                        arr.iter()
+                            .filter_map(|v| v.as_str().map(str::to_string))
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                self.settings_roots.loaded = true;
                 if let Some(modules) = settings.get("modules").and_then(|v| v.as_array()) {
                     for row in modules {
                         let id = row
@@ -998,7 +1023,7 @@ mod tests {
         });
         assert!(applied);
         assert_eq!(state.status.tone, StatusTone::Warning);
-        assert!(state.status.text.contains("not_configured"));
+        assert!(state.status.text.contains("set notes_root"));
     }
 
     #[test]
@@ -1016,7 +1041,7 @@ mod tests {
         });
         assert!(applied);
         assert_eq!(state.status.tone, StatusTone::Warning);
-        assert!(state.status.text.contains("unavailable"));
+        assert!(state.status.text.contains("signed host required"));
     }
 
     #[test]

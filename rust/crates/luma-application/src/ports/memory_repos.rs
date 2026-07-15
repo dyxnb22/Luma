@@ -1,8 +1,9 @@
 use crate::ports::{
-    ClipboardEntry, ClipboardHistoryRepository, ClipboardRepoError, NotesDocument, NotesIndexError,
-    NotesIndexRepository, NotesIssue, NotesScanReport, NotesScanStatusView, NotesSearchHit,
-    QuicklinkEntry, QuicklinksRepoError, QuicklinksRepository, SnippetEntry, SnippetsRepoError,
-    SnippetsRepository,
+    ClipboardEntry, ClipboardHistoryRepository, ClipboardRepoError, ContentImportReport,
+    NotesDocument, NotesIndexError, NotesIndexRepository, NotesIssue, NotesScanReport,
+    NotesScanStatusView, NotesSearchHit, QuicklinkEntry, QuicklinksRepoError, QuicklinksRepository,
+    SnippetEntry, SnippetsRepoError, SnippetsRepository, WordContentInput, WordEntry,
+    WordbookRepoError, WordbookRepository, WordbookStatsView,
 };
 use async_trait::async_trait;
 use std::collections::BTreeMap;
@@ -463,5 +464,309 @@ impl NotesIndexRepository for MemoryNotesIndex {
         cancel: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
     ) -> Result<NotesScanReport, NotesIndexError> {
         self.full_scan(root, cancel)
+    }
+}
+
+/// In-memory wordbook for module tests (no SQLite).
+#[derive(Default)]
+pub struct MemoryWordbookRepository {
+    words: Mutex<Vec<WordEntry>>,
+    next_id: Mutex<i64>,
+    daily_goal: Mutex<i64>,
+}
+
+impl MemoryWordbookRepository {
+    pub fn new() -> Self {
+        Self {
+            words: Mutex::new(Vec::new()),
+            next_id: Mutex::new(0),
+            daily_goal: Mutex::new(30),
+        }
+    }
+
+    fn now() -> String {
+        format!("{}", chrono_now())
+    }
+}
+
+#[async_trait]
+impl WordbookRepository for MemoryWordbookRepository {
+    fn get(&self, id: i64) -> Result<Option<WordEntry>, WordbookRepoError> {
+        Ok(self
+            .words
+            .lock()
+            .expect("lock")
+            .iter()
+            .find(|w| w.id == id)
+            .cloned())
+    }
+
+    fn get_by_term(&self, term: &str) -> Result<Option<WordEntry>, WordbookRepoError> {
+        Ok(self
+            .words
+            .lock()
+            .expect("lock")
+            .iter()
+            .find(|w| w.term == term)
+            .cloned())
+    }
+
+    fn list_due(&self, limit: usize) -> Result<Vec<WordEntry>, WordbookRepoError> {
+        let now = Self::now();
+        let mut rows: Vec<_> = self
+            .words
+            .lock()
+            .expect("lock")
+            .iter()
+            .filter(|w| {
+                w.mastered_at.is_empty()
+                    && w.review_count > 0
+                    && (w.next_review_at.is_empty() || w.next_review_at <= now)
+            })
+            .cloned()
+            .collect();
+        rows.sort_by(|a, b| {
+            (b.wrong_count >= 2)
+                .cmp(&(a.wrong_count >= 2))
+                .then(a.next_review_at.cmp(&b.next_review_at))
+                .then(b.wrong_count.cmp(&a.wrong_count))
+        });
+        rows.truncate(limit);
+        Ok(rows)
+    }
+
+    fn list_new(&self, limit: usize) -> Result<Vec<WordEntry>, WordbookRepoError> {
+        let mut rows: Vec<_> = self
+            .words
+            .lock()
+            .expect("lock")
+            .iter()
+            .filter(|w| w.mastered_at.is_empty() && w.review_count == 0)
+            .cloned()
+            .collect();
+        rows.sort_by_key(|a| a.id);
+        rows.truncate(limit);
+        Ok(rows)
+    }
+
+    fn list_wrong(&self, limit: usize) -> Result<Vec<WordEntry>, WordbookRepoError> {
+        let mut rows: Vec<_> = self
+            .words
+            .lock()
+            .expect("lock")
+            .iter()
+            .filter(|w| w.mastered_at.is_empty() && w.review_count > 0 && w.wrong_count > 0)
+            .cloned()
+            .collect();
+        rows.sort_by_key(|b| std::cmp::Reverse(b.wrong_count));
+        rows.truncate(limit);
+        Ok(rows)
+    }
+
+    fn search(&self, query: &str, limit: usize) -> Result<Vec<WordEntry>, WordbookRepoError> {
+        let q = query.trim().to_lowercase();
+        let mut rows: Vec<_> = self
+            .words
+            .lock()
+            .expect("lock")
+            .iter()
+            .filter(|w| {
+                q.is_empty()
+                    || w.term.to_lowercase().contains(&q)
+                    || w.meaning.to_lowercase().contains(&q)
+                    || w.example.to_lowercase().contains(&q)
+                    || w.category.to_lowercase().contains(&q)
+            })
+            .cloned()
+            .collect();
+        rows.truncate(limit);
+        Ok(rows)
+    }
+
+    fn stats(&self) -> Result<WordbookStatsView, WordbookRepoError> {
+        let words = self.words.lock().expect("lock");
+        let goal = *self.daily_goal.lock().expect("lock");
+        let now = Self::now();
+        let now_secs = chrono_now();
+        let today_start = now_secs - (now_secs % 86_400);
+        let total = words.len() as i64;
+        let due = words
+            .iter()
+            .filter(|w| {
+                w.mastered_at.is_empty()
+                    && w.review_count > 0
+                    && (w.next_review_at.is_empty() || w.next_review_at <= now)
+            })
+            .count() as i64;
+        let new_count = words
+            .iter()
+            .filter(|w| w.mastered_at.is_empty() && w.review_count == 0)
+            .count() as i64;
+        let wrong = words
+            .iter()
+            .filter(|w| w.mastered_at.is_empty() && w.review_count > 0 && w.wrong_count > 0)
+            .count() as i64;
+        let mastered = words
+            .iter()
+            .filter(|w| !w.mastered_at.is_empty() || w.familiarity == "mastered")
+            .count() as i64;
+        let reviewed_today = words
+            .iter()
+            .filter(|w| {
+                w.last_review_at
+                    .parse::<i64>()
+                    .ok()
+                    .is_some_and(|t| t >= today_start)
+            })
+            .count() as i64;
+        Ok(WordbookStatsView {
+            total,
+            due,
+            new_count,
+            wrong,
+            mastered,
+            goal,
+            reviewed_today,
+            remaining_goal: (goal - reviewed_today).max(0),
+        })
+    }
+
+    fn daily_goal(&self) -> Result<i64, WordbookRepoError> {
+        Ok(*self.daily_goal.lock().expect("lock"))
+    }
+
+    fn set_daily_goal(&self, value: i64) -> Result<(), WordbookRepoError> {
+        *self.daily_goal.lock().expect("lock") = value.max(1);
+        Ok(())
+    }
+
+    fn upsert_content(&self, content: &WordContentInput) -> Result<bool, WordbookRepoError> {
+        let term = content.term.trim();
+        if term.is_empty() {
+            return Err(WordbookRepoError::msg("term is required"));
+        }
+        let mut words = self.words.lock().expect("lock");
+        if let Some(existing) = words.iter_mut().find(|w| w.term == term) {
+            existing.phonetic = content.phonetic.clone();
+            existing.meaning = content.meaning.clone();
+            existing.example = content.example.clone();
+            existing.category = content.category.clone();
+            existing.updated_at = Self::now();
+            return Ok(false);
+        }
+        let mut next = self.next_id.lock().expect("lock");
+        *next += 1;
+        let id = *next;
+        let now = Self::now();
+        words.push(WordEntry {
+            id,
+            term: term.into(),
+            phonetic: content.phonetic.clone(),
+            meaning: content.meaning.clone(),
+            example: content.example.clone(),
+            category: content.category.clone(),
+            familiarity: "unknown".into(),
+            review_stage: 0,
+            review_count: 0,
+            wrong_count: 0,
+            last_review_at: String::new(),
+            next_review_at: now.clone(),
+            mastered_at: String::new(),
+            created_at: now.clone(),
+            updated_at: now,
+        });
+        Ok(true)
+    }
+
+    fn upsert_contents(
+        &self,
+        rows: &[WordContentInput],
+    ) -> Result<ContentImportReport, WordbookRepoError> {
+        let mut report = ContentImportReport::default();
+        for row in rows {
+            if row.term.trim().is_empty() {
+                report.skipped += 1;
+                continue;
+            }
+            if self.upsert_content(row)? {
+                report.inserted += 1;
+            } else {
+                report.updated += 1;
+            }
+        }
+        Ok(report)
+    }
+
+    fn delete(&self, id: i64) -> Result<(), WordbookRepoError> {
+        self.words.lock().expect("lock").retain(|w| w.id != id);
+        Ok(())
+    }
+
+    fn review(&self, id: i64, familiarity: &str) -> Result<WordEntry, WordbookRepoError> {
+        let mut words = self.words.lock().expect("lock");
+        let word = words
+            .iter_mut()
+            .find(|w| w.id == id)
+            .ok_or_else(|| WordbookRepoError::msg(format!("word {id} not found")))?;
+        if !word.mastered_at.is_empty() || word.familiarity == "mastered" {
+            return Err(WordbookRepoError::msg(format!(
+                "word {id} is mastered; unmaster before reviewing"
+            )));
+        }
+        let wrong = if familiarity == "unknown" {
+            word.wrong_count + 1
+        } else {
+            word.wrong_count
+        };
+        let stage = match familiarity {
+            "known" => (word.review_stage + 1).min(9),
+            "fuzzy" => word.review_stage,
+            "unknown" => 0,
+            other => {
+                return Err(WordbookRepoError::msg(format!(
+                    "invalid familiarity: {other}"
+                )))
+            }
+        };
+        word.familiarity = familiarity.into();
+        word.review_stage = stage;
+        word.review_count += 1;
+        word.wrong_count = wrong;
+        word.last_review_at = Self::now();
+        word.next_review_at = Self::now();
+        word.updated_at = Self::now();
+        word.mastered_at.clear();
+        Ok(word.clone())
+    }
+
+    fn set_mastered(&self, id: i64, mastered: bool) -> Result<WordEntry, WordbookRepoError> {
+        let mut words = self.words.lock().expect("lock");
+        let word = words
+            .iter_mut()
+            .find(|w| w.id == id)
+            .ok_or_else(|| WordbookRepoError::msg(format!("word {id} not found")))?;
+        if mastered {
+            word.familiarity = "mastered".into();
+            word.mastered_at = Self::now();
+            word.next_review_at = "9999-12-31T00:00:00Z".into();
+            word.review_stage = 9;
+            word.review_count = word.review_count.max(9);
+            word.last_review_at = Self::now();
+        } else {
+            word.familiarity = "unknown".into();
+            word.mastered_at.clear();
+            word.review_stage = 0;
+            word.review_count = 0;
+            word.last_review_at.clear();
+            word.next_review_at = Self::now();
+        }
+        word.updated_at = Self::now();
+        Ok(word.clone())
+    }
+
+    fn backup(&self) -> Result<std::path::PathBuf, WordbookRepoError> {
+        Ok(std::path::PathBuf::from(
+            "/tmp/wordbook-memory-backup.sqlite",
+        ))
     }
 }

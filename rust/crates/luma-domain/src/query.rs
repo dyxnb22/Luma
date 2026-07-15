@@ -119,6 +119,12 @@ fn is_known_prefix(token: &str) -> bool {
             | "p"
             | "proj"
             | "project"
+            | "wb"
+            | "wordbook"
+            | "words"
+            | "win"
+            | "window"
+            | "windows"
     )
 }
 

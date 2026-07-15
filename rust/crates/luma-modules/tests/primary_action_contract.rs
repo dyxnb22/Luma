@@ -3,12 +3,14 @@
 use async_trait::async_trait;
 use luma_application::{
     AppEntry, AppsCatalogPort, FakeAccessibility, FakeOpenPath, FakeWindowCatalog, LumaModule,
-    MemoryClipboardHistory, MemoryQuicklinksRepository, MemorySnippetsRepository, PasteboardError,
-    PasteboardPort, QuicklinksRepository, SnippetsRepository, WarmupContext,
+    MemoryClipboardHistory, MemoryQuicklinksRepository, MemorySnippetsRepository,
+    MemoryWordbookRepository, PasteboardError, PasteboardPort, QuicklinksRepository,
+    SnippetsRepository, WarmupContext, WordContentInput, WordbookRepository,
 };
 use luma_domain::Query;
 use luma_modules::{
     AppsModule, ClipboardModule, ClipboardSuppression, QuicklinksModule, SnippetsModule,
+    WordbookModule,
 };
 use luma_test_support::assert_primary_actions_resolvable;
 use std::path::PathBuf;
@@ -237,5 +239,50 @@ async fn notes_daily_row_matches_actions_contract() {
     })
     .await;
     assert_primary_actions_resolvable(&m, Query::parse("n daily", 20)).await;
+    m.teardown().await;
+}
+
+#[tokio::test]
+async fn wordbook_due_and_add_rows_match_actions_contract() {
+    let store = Arc::new(MemoryWordbookRepository::new());
+    store
+        .upsert_content(&WordContentInput {
+            term: "latency".into(),
+            phonetic: "".into(),
+            meaning: "延迟".into(),
+            example: "".into(),
+            category: "".into(),
+        })
+        .unwrap();
+    let id = store.get_by_term("latency").unwrap().unwrap().id;
+    store.review(id, "known").unwrap();
+    // Force due by setting next_review_at in the past via review (memory uses now).
+    // list_due filters next_review_at <= now; memory review sets next to now so it may be due.
+    let m = WordbookModule::with_store_for_tests(store.clone(), Arc::new(MemPb(Mutex::new(None))));
+    m.warmup(WarmupContext {
+        cancel: CancellationToken::new(),
+    })
+    .await;
+    assert_primary_actions_resolvable(&m, Query::parse("wb due", 20)).await;
+    assert_primary_actions_resolvable(&m, Query::parse("wb add latency | 延迟 new | example", 20))
+        .await;
+    let items = luma_test_support::collect_search_items(
+        &m,
+        Query::parse("wb add latency | 延迟 new | example", 20),
+    )
+    .await;
+    assert!(
+        items.iter().any(|i| {
+            i.id.as_str() == "wb:add:latency"
+                && i.kind == "update"
+                && i.primary_action.id.as_str() == "add"
+                && i.primary_action.confirmation
+        }),
+        "expected overwrite add row, got: {:?}",
+        items
+            .iter()
+            .map(|i| (i.id.as_str().to_string(), i.kind.clone()))
+            .collect::<Vec<_>>()
+    );
     m.teardown().await;
 }

@@ -81,9 +81,13 @@ impl Engine {
             remediation.push("Projects: luma config set --projects-root ~/dev".to_string());
         }
         for (id, reason) in &self.skipped_modules {
-            remediation.push(format!(
-                "Repair store for {id} ({reason}), then restart Luma"
-            ));
+            if reason.contains("missing capability:") {
+                remediation.push(format!("Restore capability for {id} ({reason})"));
+            } else {
+                remediation.push(format!(
+                    "Repair store for {id} ({reason}), then restart Luma"
+                ));
+            }
         }
         remediation.push("Grant Accessibility if paste/snippets paste / window focus fails".into());
         remediation
@@ -108,6 +112,7 @@ impl Engine {
                 "clipboard": "unconfigured",
                 "quicklinks": "unconfigured",
                 "snippets": "unconfigured",
+                "wordbook": "unconfigured",
                 "notes_index": "unconfigured",
             })
         };
@@ -149,6 +154,10 @@ impl Engine {
                 "clipboard": store_probes["clipboard"].clone(),
                 "quicklinks": store_probes["quicklinks"].clone(),
                 "snippets": store_probes["snippets"].clone(),
+                "wordbook": store_probes
+                    .get("wordbook")
+                    .cloned()
+                    .unwrap_or_else(|| serde_json::json!("unconfigured")),
                 "notes_index": store_probes["notes_index"].clone(),
             },
             "remediation": remediation,

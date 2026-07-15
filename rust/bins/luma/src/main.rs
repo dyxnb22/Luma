@@ -11,7 +11,7 @@ use luma_application::{
 use luma_storage::{
     dry_run_legacy_dir, import_clipboard_fixture_with_ledger,
     import_notes_config_fixture_with_ledger, list_migrations, rollback_migration, ClipboardStore,
-    ConfigError, ConfigStore,
+    ConfigError, ConfigStore, WordbookStore,
 };
 use luma_tui::run_tui_with_engine;
 use std::io::Read;
@@ -67,6 +67,11 @@ enum Commands {
     Secrets {
         #[command(subcommand)]
         action: SecretsCmd,
+    },
+    /// Wordbook vocab / import from WordPet.
+    Wordbook {
+        #[command(subcommand)]
+        action: WordbookCmd,
     },
 }
 
@@ -144,6 +149,25 @@ enum ConfigCmd {
 enum SecretsCmd {
     /// Store a secret: reads value from stdin (not argv). Updates Keychain + label sidecar.
     Set { account: String },
+}
+
+#[derive(Debug, Subcommand)]
+enum WordbookCmd {
+    /// Import a WordPet/WordBot sqlite database (preserves review progress).
+    ImportWordpet {
+        #[arg(long = "from")]
+        from: PathBuf,
+        /// Write into LumaNext wordbook.sqlite (default is dry-run).
+        #[arg(long)]
+        commit: bool,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Copy wordbook.sqlite into LumaNext/backups/.
+    Backup {
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 #[derive(Debug, Subcommand)]
@@ -689,6 +713,65 @@ async fn main() -> anyhow::Result<()> {
                 .await
                 .map_err(|e| anyhow::anyhow!("secrets set: {e}"))?;
             println!("stored label {account}");
+        }
+        Some(Commands::Wordbook {
+            action: WordbookCmd::ImportWordpet { from, commit, json },
+        }) => {
+            let report = if commit {
+                let store = WordbookStore::luma_next_default()?;
+                store
+                    .import_wordpet(&from, true)
+                    .map_err(|e| anyhow::anyhow!("import-wordpet: {e}"))?
+            } else {
+                WordbookStore::preview_import_wordpet(&from)
+                    .map_err(|e| anyhow::anyhow!("import-wordpet: {e}"))?
+            };
+            if json {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&serde_json::json!({
+                        "from": from,
+                        "committed": report.committed,
+                        "would_insert": report.would_insert,
+                        "would_update": report.would_update,
+                        "skipped": report.skipped,
+                        "settings_copied": report.settings_copied,
+                        "sample_terms": report.sample_terms,
+                    }))?
+                );
+            } else {
+                println!(
+                    "import-wordpet {} insert={} update={} skipped={} settings={:?}",
+                    if report.committed {
+                        "committed"
+                    } else {
+                        "dry-run"
+                    },
+                    report.would_insert,
+                    report.would_update,
+                    report.skipped,
+                    report.settings_copied
+                );
+                if !report.sample_terms.is_empty() {
+                    println!("sample: {}", report.sample_terms.join(", "));
+                }
+            }
+        }
+        Some(Commands::Wordbook {
+            action: WordbookCmd::Backup { json },
+        }) => {
+            let store = WordbookStore::luma_next_default()?;
+            let path = store
+                .backup()
+                .map_err(|e| anyhow::anyhow!("wordbook backup: {e}"))?;
+            if json {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&serde_json::json!({ "path": path }))?
+                );
+            } else {
+                println!("backed up to {}", path.display());
+            }
         }
     }
     Ok(())

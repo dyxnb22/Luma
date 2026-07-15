@@ -10,7 +10,7 @@ mod registry;
 
 pub use adapters::{
     FsDiagnosticsSink, SqliteClipboardHistory, SqliteNotesIndex, SqliteQuicklinksRepository,
-    SqliteSnippetsRepository, TomlSettingsRepository,
+    SqliteSnippetsRepository, SqliteWordbookRepository, TomlSettingsRepository,
 };
 pub use engine::{
     list_modules_json, run_action, run_doctor, run_doctor_with_options, run_query, Engine,
@@ -25,15 +25,17 @@ pub use port::EnginePort;
 pub use ports::{
     looks_secret, AccessibilityError, AccessibilityPort, AppEntry, AppLaunchError, AppSettings,
     AppsCatalogPort, CapabilityPort, ClipboardEntry, ClipboardHistoryRepository,
-    ClipboardRepoError, ClockError, ClockPort, DiagnosticsError, DiagnosticsSink,
-    FakeAccessibility, FakeCapabilities, FakeKeychain, FakeMarkdownWatcher, FakeOpenPath,
-    FakePasteboard, FakePlatformProbe, FakeWindowCatalog, FixedClock, KeychainError, KeychainPort,
-    MarkdownWatchPort, MemoryClipboardHistory, MemoryNotesIndex, MemoryQuicklinksRepository,
-    MemorySnippetsRepository, NotesDocument, NotesIndexError, NotesIndexRepository, NotesIssue,
-    NotesLink, NotesScanReport, NotesScanStatusView, NotesSearchHit, OpenPathError, OpenPathPort,
-    PasteboardError, PasteboardPort, PlatformProbePort, QuicklinkEntry, QuicklinksRepoError,
-    QuicklinksRepository, SecretLabel, SettingsError, SettingsRepository, SnippetEntry,
-    SnippetsRepoError, SnippetsRepository, StorageProbePort, SystemClock, WindowCatalogPort,
-    WindowEntry, WindowError,
+    ClipboardRepoError, ClockError, ClockPort, ContentImportReport, DiagnosticsError,
+    DiagnosticsSink, FakeAccessibility, FakeCapabilities, FakeKeychain, FakeMarkdownWatcher,
+    FakeOpenPath, FakePasteboard, FakePlatformProbe, FakeSpeech, FakeWindowCatalog, FixedClock,
+    KeychainError, KeychainPort, MarkdownWatchPort, MemoryClipboardHistory, MemoryNotesIndex,
+    MemoryQuicklinksRepository, MemorySnippetsRepository, MemoryWordbookRepository, NotesDocument,
+    NotesIndexError, NotesIndexRepository, NotesIssue, NotesLink, NotesScanReport,
+    NotesScanStatusView, NotesSearchHit, OpenPathError, OpenPathPort, PasteboardError,
+    PasteboardPort, PlatformProbePort, QuicklinkEntry, QuicklinksRepoError, QuicklinksRepository,
+    SecretLabel, SettingsError, SettingsRepository, SnippetEntry, SnippetsRepoError,
+    SnippetsRepository, SpeechAccent, SpeechError, SpeechPort, StorageProbePort, SystemClock,
+    WindowCatalogPort, WindowEntry, WindowError, WordContentInput, WordEntry, WordbookRepoError,
+    WordbookRepository, WordbookStatsView,
 };
 pub use registry::{ModuleRegistry, RegistryError};

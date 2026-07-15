@@ -12,6 +12,7 @@ mod secrets;
 mod snippets;
 mod ux;
 mod windows;
+mod wordbook;
 
 pub use apps::AppsModule;
 pub use clipboard::ClipboardModule;
@@ -23,3 +24,4 @@ pub use quicklinks::QuicklinksModule;
 pub use secrets::SecretsModule;
 pub use snippets::SnippetsModule;
 pub use windows::{WindowsModule, HUB_WINDOWS_MAX};
+pub use wordbook::WordbookModule;

@@ -16,7 +16,7 @@ tool-orchestration workflows.
 
 ## Do
 
-- Keep Apps / Clipboard / Notes / Quicklinks / Snippets / Windows solid for local use.
+- Keep Apps / Clipboard / Notes / Quicklinks / Snippets / Windows / Wordbook solid for local use.
 - Prefer small fixes for real friction over roadmap/checklist completion.
 - Persist only under LumaNext (`LUMA_NEXT_*` in tests).
 - Use structured unavailable / permission / not-configured outcomes (no silent fake success).
@@ -27,8 +27,8 @@ tool-orchestration workflows.
 - Build Web / native GUI / Tauri / Electron / agent daemon / plugin ABI.
 - Add AI/LLM chat, autonomous agents, task planners, tool-execution loops, or background and
   multi-session agent orchestration unless the user explicitly changes the product boundary.
-- Expand stub modules (Media, Wordbook, Window layouts, Menu search, Browser tabs) or signed-host Translate.
-  (`luma.windows` list+focus is allowed — not Window layouts.)
+- Expand stub modules (Media, Window layouts, Menu search, Browser tabs) or signed-host Translate.
+  (`luma.windows` list+focus is allowed — not Window layouts. `luma.wordbook` vocab/SRS is allowed.)
 - Treat architecture purity (adapter moves, crate splits) as mandatory unless it unblocks personal use.
 
 ## Verify (enough for personal)

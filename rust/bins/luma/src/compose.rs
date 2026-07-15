@@ -6,19 +6,19 @@
 use luma_application::{
     CapabilityPort, ModuleRegistry, PlatformProbePort, RegistryError as ModuleRegistryError,
     SettingsRepository, SqliteClipboardHistory, SqliteNotesIndex, SqliteQuicklinksRepository,
-    SqliteSnippetsRepository, StorageProbePort, TomlSettingsRepository,
+    SqliteSnippetsRepository, SqliteWordbookRepository, StorageProbePort, TomlSettingsRepository,
 };
 use luma_modules::{
     AppsModule, ClipboardModule, ClipboardSuppression, FakeEchoModule, NotesModule, ProjectsModule,
-    QuicklinksModule, SecretsModule, SnippetsModule, WindowsModule,
+    QuicklinksModule, SecretsModule, SnippetsModule, WindowsModule, WordbookModule,
 };
 use luma_platform_macos::{
     FilesystemAppsCatalog, MacAccessibility, MacKeychain, MacMarkdownWatcher, MacOpenPath,
-    MacPasteboard, MacWindowCatalog,
+    MacPasteboard, MacSpeech, MacWindowCatalog,
 };
 use luma_storage::{
     ClipboardStore, ConfigError, ConfigStore, LumaSettings, NotesIndexStore, NotesScanner,
-    QuicklinksStore, SnippetsStore,
+    QuicklinksStore, SnippetsStore, WordbookStore,
 };
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -54,6 +54,7 @@ pub struct ComposeStorageProbe {
     clipboard: Option<Arc<ClipboardStore>>,
     quicklinks: Option<Arc<QuicklinksStore>>,
     snippets: Option<Arc<SnippetsStore>>,
+    wordbook: Option<Arc<WordbookStore>>,
     notes_scanner: Option<Arc<NotesScanner>>,
 }
 
@@ -80,6 +81,13 @@ impl StorageProbePort for ComposeStorageProbe {
             },
             None => serde_json::json!("unavailable:not opened at composition"),
         };
+        let wordbook = match &self.wordbook {
+            Some(s) => match s.stats() {
+                Ok(_) => serde_json::json!("ok"),
+                Err(err) => serde_json::json!(format!("error:{err}")),
+            },
+            None => serde_json::json!("unavailable:not opened at composition"),
+        };
         let notes_index = match &self.notes_scanner {
             Some(s) => match s.store().document_count() {
                 Ok(_) => serde_json::json!("ok"),
@@ -92,6 +100,7 @@ impl StorageProbePort for ComposeStorageProbe {
             "clipboard": clipboard,
             "quicklinks": quicklinks,
             "snippets": snippets,
+            "wordbook": wordbook,
             "notes_index": notes_index,
         })
     }
@@ -162,6 +171,7 @@ pub fn registry_from_settings(
     clipboard: Option<Arc<ClipboardStore>>,
     quicklinks: Option<Arc<QuicklinksStore>>,
     snippets: Option<Arc<SnippetsStore>>,
+    wordbook: Option<Arc<WordbookStore>>,
     notes_index: Option<Arc<NotesScanner>>,
 ) -> Result<(ModuleRegistry, Vec<SkippedModule>), ModuleRegistryError> {
     let notes_root = settings.notes_root.as_ref().map(PathBuf::from);
@@ -250,6 +260,20 @@ pub fn registry_from_settings(
             reason,
         });
     }
+    if let Some(wordbook) = wordbook {
+        reg.register(Arc::new(WordbookModule::with_deps(
+            Arc::new(SqliteWordbookRepository::new(wordbook)),
+            pasteboard.clone(),
+            Arc::new(MacSpeech),
+        )))?;
+    } else {
+        let reason = "wordbook store unavailable".into();
+        warn!("{reason} — Wordbook module not registered");
+        skipped.push(SkippedModule {
+            id: "luma.wordbook".into(),
+            reason,
+        });
+    }
     reg.register(Arc::new(ProjectsModule::with_roots(
         project_roots,
         opener.clone(),
@@ -311,6 +335,13 @@ pub fn load_registry_with_settings() -> Result<RegistryLoad, RegistryError> {
             None
         }
     };
+    let wordbook = match WordbookStore::luma_next_default() {
+        Ok(s) => Some(Arc::new(s)),
+        Err(err) => {
+            warn!(%err, "failed to open wordbook store");
+            None
+        }
+    };
     let notes_index = match NotesIndexStore::luma_next_default() {
         Ok(store) => Some(Arc::new(NotesScanner::new(store))),
         Err(err) => {
@@ -323,6 +354,7 @@ pub fn load_registry_with_settings() -> Result<RegistryLoad, RegistryError> {
         clipboard.clone(),
         quicklinks.clone(),
         snippets.clone(),
+        wordbook.clone(),
         notes_index.clone(),
     )?;
     let settings_repo: Arc<dyn SettingsRepository> = Arc::new(TomlSettingsRepository::new(store));
@@ -330,6 +362,7 @@ pub fn load_registry_with_settings() -> Result<RegistryLoad, RegistryError> {
         clipboard,
         quicklinks,
         snippets,
+        wordbook,
         notes_scanner: notes_index,
     });
     let platform_probe: Arc<dyn PlatformProbePort> = Arc::new(ComposePlatformProbe);

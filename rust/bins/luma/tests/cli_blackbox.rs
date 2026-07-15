@@ -66,6 +66,14 @@ fn modules_list_json() {
             .any(|m| m["id"] == "luma.windows"),
         "expected luma.windows in modules list: {stdout}"
     );
+    assert!(
+        v["modules"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|m| m["id"] == "luma.wordbook"),
+        "expected luma.wordbook in modules list: {stdout}"
+    );
 }
 
 #[test]
@@ -477,4 +485,79 @@ fn concurrent_config_set_one_wins() {
     assert_eq!(code, 0, "stderr={stderr}");
     let v: serde_json::Value = serde_json::from_str(&stdout).unwrap();
     assert_eq!(v["settings_version"].as_u64(), Some(2), "{stdout}");
+}
+
+#[test]
+fn wordbook_import_wordpet_dry_run_then_commit() {
+    use luma_storage::{WordContent, WordbookStore};
+
+    let dir = tempdir().unwrap();
+    let support = dir.path().join("support");
+    let logs = dir.path().join("logs");
+    fs::create_dir_all(&support).unwrap();
+    fs::create_dir_all(&logs).unwrap();
+
+    let src = dir.path().join("wordpet.sqlite3");
+    {
+        let store = WordbookStore::with_path(src.clone()).unwrap();
+        store
+            .upsert_content(&WordContent {
+                term: "throughput".into(),
+                phonetic: "".into(),
+                meaning: "吞吐量".into(),
+                example: "Improved throughput".into(),
+                category: "sys".into(),
+            })
+            .unwrap();
+        let id = store.get_by_term("throughput").unwrap().unwrap().id;
+        store.review(id, "known").unwrap();
+        store.set_daily_goal(25).unwrap();
+    }
+
+    let (code, stdout, stderr) = run_luma(
+        &support,
+        &logs,
+        &[
+            "wordbook",
+            "import-wordpet",
+            "--from",
+            src.to_str().unwrap(),
+            "--json",
+        ],
+    );
+    assert_eq!(code, 0, "stderr={stderr} stdout={stdout}");
+    let dry: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(dry["committed"], false);
+    assert_eq!(dry["would_insert"], 1);
+    assert!(
+        !support.join("wordbook.sqlite").exists(),
+        "dry-run must not create wordbook.sqlite"
+    );
+
+    let (code, stdout, stderr) = run_luma(
+        &support,
+        &logs,
+        &[
+            "wordbook",
+            "import-wordpet",
+            "--from",
+            src.to_str().unwrap(),
+            "--commit",
+            "--json",
+        ],
+    );
+    assert_eq!(code, 0, "stderr={stderr} stdout={stdout}");
+    let committed: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(committed["committed"], true);
+
+    let (code, stdout, stderr) = run_luma(&support, &logs, &["query", "wb status", "--json"]);
+    assert_eq!(code, 0, "stderr={stderr} stdout={stdout}");
+    assert!(
+        stdout.contains("Today") || stdout.contains("wb:status") || stdout.contains("due"),
+        "{stdout}"
+    );
+
+    let (code, stdout, stderr) = run_luma(&support, &logs, &["query", "wb throughput", "--json"]);
+    assert_eq!(code, 0, "stderr={stderr} stdout={stdout}");
+    assert!(stdout.contains("throughput"), "{stdout}");
 }

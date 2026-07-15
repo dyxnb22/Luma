@@ -13,6 +13,7 @@ mod paths;
 mod quicklinks_store;
 mod snippets_store;
 mod sqlite;
+mod wordbook_store;
 
 pub use clipboard_store::{looks_secret, ClipboardRow, ClipboardStore, ClipboardStoreError};
 pub use config::{ConfigError, ConfigStore, LumaSettings};
@@ -46,3 +47,7 @@ pub use paths::{
 };
 pub use quicklinks_store::{QuicklinkRow, QuicklinksStore, QuicklinksStoreError};
 pub use snippets_store::{SnippetRow, SnippetsStore, SnippetsStoreError};
+pub use wordbook_store::{
+    now_iso, schedule_review, ImportContentReport, WordContent, WordImportRow, WordRow,
+    WordbookStats, WordbookStore, WordbookStoreError, WordpetImportReport,
+};

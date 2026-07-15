@@ -7,6 +7,7 @@ mod keychain;
 mod markdown_watch;
 mod open_path;
 mod pasteboard;
+mod speech;
 mod window;
 
 pub use accessibility::{Accessibility, AccessibilityError, FakeAccessibility, MacAccessibility};
@@ -16,4 +17,5 @@ pub use keychain::{FakeKeychain, Keychain, KeychainError, MacKeychain, SecretLab
 pub use markdown_watch::MacMarkdownWatcher;
 pub use open_path::{FakeOpenPath, MacOpenPath, OpenPath, OpenPathError};
 pub use pasteboard::{MacPasteboard, Pasteboard, PasteboardError};
+pub use speech::MacSpeech;
 pub use window::{probe_ax_trusted, probe_windows_list, MacWindowCatalog};

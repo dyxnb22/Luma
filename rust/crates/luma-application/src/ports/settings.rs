@@ -1,5 +1,3 @@
-use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
 use thiserror::Error;
 
 #[derive(Debug, Error, Clone, PartialEq, Eq)]
@@ -14,37 +12,8 @@ pub enum SettingsError {
     Unavailable(String),
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
-pub struct AppSettings {
-    pub schema_version: u32,
-    pub settings_version: u64,
-    pub enabled_modules: BTreeMap<String, bool>,
-    pub notes_root: Option<String>,
-    pub projects_roots: Vec<String>,
-    #[serde(default)]
-    pub notes_exclude_patterns: Vec<String>,
-    pub clipboard_retention_days: u32,
-}
-
-impl Default for AppSettings {
-    fn default() -> Self {
-        let mut enabled_modules = BTreeMap::new();
-        enabled_modules.insert("luma.apps".into(), true);
-        enabled_modules.insert("luma.windows".into(), true);
-        enabled_modules.insert("luma.clipboard".into(), true);
-        enabled_modules.insert("luma.notes".into(), true);
-        enabled_modules.insert("luma.fake".into(), false);
-        Self {
-            schema_version: 1,
-            settings_version: 1,
-            enabled_modules,
-            notes_root: None,
-            projects_roots: Vec::new(),
-            notes_exclude_patterns: Vec::new(),
-            clipboard_retention_days: 30,
-        }
-    }
-}
+/// Persistent settings schema (single source of truth: `luma_storage::LumaSettings`).
+pub type AppSettings = luma_storage::LumaSettings;
 
 /// Persistent application settings (CAS updates).
 pub trait SettingsRepository: Send + Sync {

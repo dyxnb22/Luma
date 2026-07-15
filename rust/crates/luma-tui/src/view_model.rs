@@ -222,6 +222,12 @@ pub struct AppState {
     pub settings_roots: SettingsRootsInfo,
     /// Doctor overlay scroll (line offset).
     pub doctor_scroll: usize,
+    /// Doctor panel: false = actionable summary, true = full JSON.
+    pub doctor_show_raw: bool,
+    /// Horizontal scroll offset (Unicode scalar index) for long prompts.
+    pub prompt_scroll: usize,
+    /// When set, allow stacked preview on narrow terminals (e.g. 80×24).
+    pub preview_pinned: bool,
     /// Help overlay scroll (line offset).
     pub help_scroll: usize,
     /// Prompt to restore when leaving Commands / Settings / Help / Doctor overlays.
@@ -324,6 +330,9 @@ impl Default for AppState {
             settings_modules: Vec::new(),
             settings_roots: SettingsRootsInfo::default(),
             doctor_scroll: 0,
+            doctor_show_raw: false,
+            prompt_scroll: 0,
+            preview_pinned: false,
             help_scroll: 0,
             overlay_restore_prompt: None,
             commands_selected: 0,
@@ -446,12 +455,15 @@ impl AppState {
         self.term_width >= 100 && !self.results.items.is_empty()
     }
 
-    /// Stacked preview under results for tall narrow terminals (keeps 80×24 list-only).
+    /// Stacked preview under results; pin allows 80×24 manual preview.
     pub fn preview_stacked(&self) -> bool {
-        self.term_width < 100
-            && self.term_width >= 60
-            && self.term_height >= 28
-            && !self.results.items.is_empty()
+        if self.results.items.is_empty() || self.term_width >= 100 {
+            return false;
+        }
+        if self.preview_pinned && self.term_width >= 60 {
+            return true;
+        }
+        self.term_width >= 60 && self.term_height >= 28
     }
 
     pub fn preview_visible(&self) -> bool {
@@ -468,6 +480,35 @@ impl AppState {
         self.ensure_hub_selection_visible();
     }
 
+    /// Header rows inserted by `hub_list_items` (each consumes one data-row slot).
+    pub fn hub_header_slots(&self) -> usize {
+        let rows = self.hub_rows();
+        if rows.is_empty() {
+            return 0;
+        }
+        let start = self.hub_scroll.min(rows.len());
+        let module_start = rows.iter().position(|(k, _, _, _)| k == "module");
+        let mut slots = 0;
+        if start == 0
+            && rows
+                .get(start)
+                .is_some_and(|(k, _, _, _)| k.starts_with("window"))
+        {
+            slots += 1;
+        }
+        if module_start == Some(start) {
+            slots += 1;
+        }
+        slots
+    }
+
+    pub fn hub_data_capacity(&self) -> usize {
+        self.results
+            .viewport_rows
+            .saturating_sub(self.hub_header_slots())
+            .max(1)
+    }
+
     pub fn ensure_hub_selection_visible(&mut self) {
         let len = self.hub_rows().len();
         if len == 0 {
@@ -478,7 +519,7 @@ impl AppState {
         if self.hub_selected >= len {
             self.hub_selected = len - 1;
         }
-        let rows = self.results.viewport_rows.max(1);
+        let rows = self.hub_data_capacity();
         if self.hub_selected < self.hub_scroll {
             self.hub_scroll = self.hub_selected;
         } else if self.hub_selected >= self.hub_scroll + rows {
@@ -487,6 +528,52 @@ impl AppState {
         let max_scroll = len.saturating_sub(rows);
         if self.hub_scroll > max_scroll {
             self.hub_scroll = max_scroll;
+        }
+    }
+
+    /// Keep `prompt_cursor` within the visible horizontal window (`inner_width` = prompt inner cols).
+    pub fn ensure_prompt_visible(&mut self, inner_width: usize) {
+        use unicode_width::UnicodeWidthStr;
+        let budget = inner_width.saturating_sub(4).max(8);
+        let chars: Vec<char> = self.prompt.chars().collect();
+        if chars.is_empty() {
+            self.prompt_scroll = 0;
+            return;
+        }
+        if self.prompt_cursor < self.prompt_scroll {
+            self.prompt_scroll = self.prompt_cursor;
+        }
+        loop {
+            let before_cursor: String = chars
+                .iter()
+                .skip(self.prompt_scroll)
+                .take(self.prompt_cursor.saturating_sub(self.prompt_scroll))
+                .collect();
+            let at_cursor = chars.get(self.prompt_cursor).copied().unwrap_or(' ');
+            let line = format!("{before_cursor}{at_cursor}");
+            if UnicodeWidthStr::width(line.as_str()) <= budget {
+                break;
+            }
+            if self.prompt_scroll >= self.prompt_cursor {
+                break;
+            }
+            self.prompt_scroll += 1;
+        }
+        while self.prompt_scroll > 0 {
+            let before_cursor: String = chars
+                .iter()
+                .skip(self.prompt_scroll)
+                .take(self.prompt_cursor.saturating_sub(self.prompt_scroll))
+                .collect();
+            let at_cursor = chars.get(self.prompt_cursor).copied().unwrap_or(' ');
+            let line = format!("{before_cursor}{at_cursor}");
+            if UnicodeWidthStr::width(line.as_str()) <= budget {
+                break;
+            }
+            self.prompt_scroll += 1;
+        }
+        if self.prompt_scroll > self.prompt_cursor {
+            self.prompt_scroll = self.prompt_cursor;
         }
     }
 
@@ -677,6 +764,22 @@ impl AppState {
                 });
                 self.ensure_hub_selection_visible();
                 self.schedule_hub_refresh();
+                true
+            }
+            Event::SnapshotLoaded {
+                items,
+                module_states: _,
+            } => {
+                self.results.items = items.into_iter().map(|d| d.into_domain()).collect();
+                self.results.selected_id = self
+                    .results
+                    .items
+                    .first()
+                    .map(|i| i.id.as_str().to_string());
+                self.results.scroll = 0;
+                self.sync_results_viewport();
+                self.status
+                    .set("Resynced after lag", crate::view_model::StatusTone::Warning);
                 true
             }
             Event::SearchStarted { request_id } => {
@@ -1100,6 +1203,8 @@ mod tests {
                 confirmation: false,
             },
             secondary_actions: vec![],
+            ui_intent: None,
+            action_payload: None,
         });
         assert!(!state.preview_side_by_side());
         assert!(state.preview_stacked());
@@ -1132,6 +1237,8 @@ mod tests {
                 confirmation: false,
             },
             secondary_actions: vec![],
+            ui_intent: None,
+            action_payload: None,
         });
         let applied = state.apply_engine_event(Event::ResultsChunk {
             request_id: String::new(),

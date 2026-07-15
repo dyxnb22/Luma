@@ -14,6 +14,11 @@ use tracing::warn;
 
 const SEARCH_CANCEL_BOUND: Duration = Duration::from_millis(750);
 const OPERATION_CANCEL_BOUND: Duration = Duration::from_millis(750);
+/// Soft bound for module search completion; partial results are kept.
+#[cfg(test)]
+pub(crate) const SEARCH_COMPLETION_BOUND: Duration = Duration::from_millis(300);
+#[cfg(not(test))]
+pub(crate) const SEARCH_COMPLETION_BOUND: Duration = Duration::from_secs(5);
 
 fn is_meta_prefix(token: &str) -> bool {
     matches!(token, "doctor" | "help")
@@ -30,75 +35,10 @@ fn unix_process_comm(pid: u32) -> Option<String> {
         .filter(|s| !s.is_empty())
 }
 
-fn doctor_launch_context() -> serde_json::Value {
-    let executable = std::env::current_exe()
-        .ok()
-        .map(|p| p.display().to_string());
-    #[cfg(unix)]
-    {
-        let parent_pid = std::os::unix::process::parent_id();
-        let parent_name = unix_process_comm(parent_pid);
-        let host = parent_name
-            .clone()
-            .unwrap_or_else(|| "the app that launched Luma".into());
-        serde_json::json!({
-            "executable": executable,
-            "parent_pid": parent_pid,
-            "parent_name": parent_name,
-            "guidance": format!(
-                "Grant Accessibility to {host} in System Settings → Privacy & Security → Accessibility, then re-run doctor."
-            ),
-        })
-    }
-    #[cfg(not(unix))]
-    {
-        serde_json::json!({ "executable": executable })
-    }
-}
-
-fn doctor_paths() -> serde_json::Value {
-    serde_json::json!({
-        "support_dir": luma_storage::luma_next_support_dir().ok().map(|p| p.display().to_string()),
-        "logs_dir": luma_storage::luma_next_logs_dir().ok().map(|p| p.display().to_string()),
-        "diagnostics_dir": luma_storage::luma_next_diagnostics_dir().ok().map(|p| p.display().to_string()),
-    })
-}
-
-fn doctor_store_probes(settings_ok: bool) -> serde_json::Value {
-    use luma_storage::{ClipboardStore, NotesIndexStore, QuicklinksStore, SnippetsStore};
-    let clipboard = match ClipboardStore::luma_next_default() {
-        Ok(s) => match s.list_page(0, 1) {
-            Ok(_) => serde_json::json!("ok"),
-            Err(err) => serde_json::json!(format!("error:{err}")),
-        },
-        Err(err) => serde_json::json!(format!("unavailable:{err}")),
-    };
-    let quicklinks = match QuicklinksStore::luma_next_default() {
-        Ok(s) => match s.list() {
-            Ok(_) => serde_json::json!("ok"),
-            Err(err) => serde_json::json!(format!("error:{err}")),
-        },
-        Err(err) => serde_json::json!(format!("unavailable:{err}")),
-    };
-    let snippets = match SnippetsStore::luma_next_default() {
-        Ok(s) => match s.list() {
-            Ok(_) => serde_json::json!("ok"),
-            Err(err) => serde_json::json!(format!("error:{err}")),
-        },
-        Err(err) => serde_json::json!(format!("unavailable:{err}")),
-    };
-    let notes_index = match NotesIndexStore::luma_next_default() {
-        Ok(_) => serde_json::json!("ok"),
-        Err(err) => serde_json::json!(format!("unavailable:{err}")),
-    };
-    serde_json::json!({
-        "settings": if settings_ok { "ok" } else { "missing" },
-        "clipboard": clipboard,
-        "quicklinks": quicklinks,
-        "snippets": snippets,
-        "notes_index": notes_index,
-    })
-}
+mod actions;
+mod doctor;
+mod search;
+mod session;
 
 struct SearchTask {
     cancel: CancellationToken,
@@ -113,7 +53,7 @@ struct OperationTask {
     handle: Option<JoinHandle<()>>,
 }
 
-struct EngineInner {
+pub(crate) struct EngineInner {
     registry: ModuleRegistry,
     event_broadcast_tx: broadcast::Sender<Event>,
     session_cancel: CancellationToken,
@@ -133,6 +73,7 @@ struct EngineInner {
 pub struct EngineOptions {
     pub settings: Option<Arc<dyn crate::ports::SettingsRepository>>,
     pub diagnostics: Option<Arc<dyn crate::ports::DiagnosticsSink>>,
+    pub storage_probe: Option<Arc<dyn crate::ports::StorageProbePort>>,
     /// Modules skipped at composition (id, reason) — surfaced in Doctor.
     pub skipped_modules: Vec<(String, String)>,
 }
@@ -143,6 +84,7 @@ pub struct Engine {
     event_broadcast_tx: broadcast::Sender<Event>,
     settings: Option<Arc<dyn crate::ports::SettingsRepository>>,
     diagnostics: Option<Arc<dyn crate::ports::DiagnosticsSink>>,
+    storage_probe: Option<Arc<dyn crate::ports::StorageProbePort>>,
     skipped_modules: Vec<(String, String)>,
     /// Serializes search setup so cancel→clear→register cannot interleave.
     search_lifecycle: Mutex<()>,
@@ -162,6 +104,7 @@ impl Engine {
             EngineOptions {
                 settings,
                 diagnostics: None,
+                storage_probe: None,
                 skipped_modules: Vec::new(),
             },
         )
@@ -184,6 +127,7 @@ impl Engine {
             event_broadcast_tx,
             settings: options.settings,
             diagnostics: options.diagnostics,
+            storage_probe: options.storage_probe,
             skipped_modules: options.skipped_modules,
             search_lifecycle: Mutex::new(()),
         }
@@ -202,564 +146,10 @@ impl Engine {
             }),
         )
     }
+}
 
-    pub async fn start_session(&self) {
-        if let Some(repo) = &self.settings {
-            if let Ok(settings) = repo.load_or_default() {
-                let modules = {
-                    let g = self.inner.lock().await;
-                    g.registry.all_modules()
-                };
-                for module in modules {
-                    module.apply_settings(&settings).await;
-                }
-            }
-        }
-        let (enabled, disabled_ids) = {
-            let g = self.inner.lock().await;
-            let enabled = g.registry.enabled_modules();
-            let disabled_ids: Vec<String> = g
-                .registry
-                .list()
-                .into_iter()
-                .filter(|(_, enabled, _)| !*enabled)
-                .map(|(id, _, _)| id)
-                .collect();
-            (enabled, disabled_ids)
-        };
-        for id in disabled_ids {
-            {
-                let mut g = self.inner.lock().await;
-                g.module_states.insert(id.clone(), "disabled".into());
-            }
-            let _ = self
-                .emit(Event::ModuleStateChanged {
-                    module_id: id,
-                    state: "disabled".into(),
-                })
-                .await;
-        }
-
-        let mut warmup_handles = Vec::new();
-        for module in enabled {
-            let module_id = module.manifest().id.as_str().to_string();
-            let cancel = {
-                let g = self.inner.lock().await;
-                g.session_cancel.child_token()
-            };
-            let handle = tokio::spawn(async move {
-                module
-                    .warmup(WarmupContext {
-                        cancel: cancel.clone(),
-                    })
-                    .await
-            });
-            warmup_handles.push((module_id, handle));
-        }
-        for (id, handle) in warmup_handles {
-            match handle.await {
-                Ok(state) => {
-                    let state_str = match &state {
-                        ModuleState::Ready => "ready".into(),
-                        ModuleState::Cold => "cold".into(),
-                        ModuleState::Disabled => "disabled".into(),
-                        ModuleState::Failed(msg) => format!("failed:{msg}"),
-                    };
-                    {
-                        let mut g = self.inner.lock().await;
-                        g.module_states.insert(id.clone(), state_str.clone());
-                    }
-                    let _ = self
-                        .emit(Event::ModuleStateChanged {
-                            module_id: id,
-                            state: state_str,
-                        })
-                        .await;
-                }
-                Err(err) => {
-                    warn!(module_id = %id, ?err, "module warmup task panicked");
-                    let state_str: String = "failed:panic".into();
-                    {
-                        let mut g = self.inner.lock().await;
-                        g.module_states.insert(id.clone(), state_str.clone());
-                    }
-                    let _ = self
-                        .emit(Event::ModuleStateChanged {
-                            module_id: id,
-                            state: state_str,
-                        })
-                        .await;
-                }
-            }
-        }
-        let modules = {
-            let g = self.inner.lock().await;
-            g.registry.list_module_info().into_iter().collect()
-        };
-        let _ = self.emit(Event::SessionReady { modules }).await;
-    }
-
-    /// Cancel in-flight search/action work for a module, await operation termination, then teardown or warmup.
-    async fn apply_module_enabled(&self, module_id: &str, enabled: bool) -> bool {
-        let (module, op_handles, removed_ids) = {
-            let mut g = self.inner.lock().await;
-            if !g.registry.set_enabled(module_id, enabled) {
-                return false;
-            }
-            let mut op_handles = Vec::new();
-            let mut removed_ids = Vec::new();
-            if !enabled {
-                for task in g.searches.values() {
-                    if let Some(token) = task.module_cancels.get(module_id) {
-                        token.cancel();
-                    }
-                }
-                for op in g.operations.values_mut() {
-                    if op.module_id == module_id {
-                        op.cancel.cancel();
-                        if let Some(handle) = op.handle.take() {
-                            op_handles.push(handle);
-                        }
-                    }
-                }
-                removed_ids = g
-                    .results_by_id
-                    .iter()
-                    .filter(|(_, item)| item.module_id.as_str() == module_id)
-                    .map(|(id, _)| id.clone())
-                    .collect();
-                for id in &removed_ids {
-                    g.results_by_id.remove(id);
-                }
-                g.module_states
-                    .insert(module_id.to_string(), "disabled".into());
-            }
-            (g.registry.get(module_id), op_handles, removed_ids)
-        };
-        for handle in op_handles {
-            let _ = Self::await_operation_handle(handle).await;
-        }
-        if !removed_ids.is_empty() {
-            let _ = self
-                .emit(Event::ResultsChunk {
-                    // Empty request_id: TUI treats this as a module eviction (any active search).
-                    request_id: String::new(),
-                    sequence: 0,
-                    upserts: vec![],
-                    removed_ids,
-                })
-                .await;
-        }
-        let Some(module) = module else {
-            return false;
-        };
-        if enabled {
-            let cancel = {
-                let g = self.inner.lock().await;
-                g.session_cancel.child_token()
-            };
-            let state = module
-                .warmup(WarmupContext {
-                    cancel: cancel.clone(),
-                })
-                .await;
-            let state_str = match &state {
-                ModuleState::Ready => "ready".into(),
-                ModuleState::Cold => "cold".into(),
-                ModuleState::Disabled => "disabled".into(),
-                ModuleState::Failed(msg) => format!("failed:{msg}"),
-            };
-            {
-                let mut g = self.inner.lock().await;
-                g.module_states
-                    .insert(module_id.to_string(), state_str.clone());
-            }
-            let _ = self
-                .emit(Event::ModuleStateChanged {
-                    module_id: module_id.to_string(),
-                    state: state_str,
-                })
-                .await;
-        } else {
-            module.teardown().await;
-            let _ = self
-                .emit(Event::ModuleStateChanged {
-                    module_id: module_id.to_string(),
-                    state: "disabled".into(),
-                })
-                .await;
-        }
-        true
-    }
-
-    async fn emit(&self, event: Event) -> Result<(), String> {
-        let broadcast_tx = {
-            let g = self.inner.lock().await;
-            g.event_broadcast_tx.clone()
-        };
-        // Broadcast never back-pressures the producer; slow subscribers may Lagged.
-        let _ = broadcast_tx.send(event);
-        Ok(())
-    }
-
-    fn emit_from_inner(inner: &EngineInner, event: Event) {
-        let _ = inner.event_broadcast_tx.send(event);
-    }
-
-    fn resolve_enabled_module(
-        g: &EngineInner,
-        result_id: &str,
-    ) -> (Option<luma_domain::SearchItem>, Option<Arc<dyn LumaModule>>) {
-        let item = g.results_by_id.get(result_id).cloned();
-        let module = item.as_ref().and_then(|i| {
-            if g.registry.is_enabled(i.module_id.as_str()) {
-                g.registry.get(i.module_id.as_str())
-            } else {
-                None
-            }
-        });
-        (item, module)
-    }
-
-    /// Signal cancel, then bounded-await the search supervisor (modules + collector).
-    async fn cancel_search_task(task: SearchTask) {
-        task.cancel.cancel();
-        let abort = task.handle.abort_handle();
-        match tokio::time::timeout(SEARCH_CANCEL_BOUND, task.handle).await {
-            Ok(Ok(())) => {}
-            Ok(Err(err)) => {
-                if !err.is_cancelled() {
-                    warn!(?err, "search supervisor ended with error during cancel");
-                }
-            }
-            Err(_) => {
-                abort.abort();
-            }
-        }
-    }
-
-    /// Bounded await for an operation JoinHandle (mirrors search cancel).
-    async fn await_operation_handle(handle: JoinHandle<()>) -> bool {
-        let abort = handle.abort_handle();
-        match tokio::time::timeout(OPERATION_CANCEL_BOUND, handle).await {
-            Ok(Ok(())) => true,
-            Ok(Err(err)) => {
-                if !err.is_cancelled() {
-                    warn!(?err, "operation task ended with error during cancel");
-                }
-                true
-            }
-            Err(_) => {
-                abort.abort();
-                false
-            }
-        }
-    }
-
-    /// Cancel one search under `search_lifecycle`. Emits `SearchCancelled` exactly once when
-    /// the request was known (running, pending, or pre-registered intent).
-    async fn cancel_search(&self, request_id: &str) {
-        let _lifecycle = self.search_lifecycle.lock().await;
-        self.cancel_search_locked(request_id).await;
-    }
-
-    async fn cancel_search_locked(&self, request_id: &str) {
-        if let Some(cancel) = {
-            let mut g = self.inner.lock().await;
-            g.pending_searches.remove(request_id)
-        } {
-            cancel.cancel();
-            let _ = self
-                .emit(Event::SearchCancelled {
-                    request_id: request_id.to_string(),
-                })
-                .await;
-            return;
-        }
-
-        let task = {
-            let mut g = self.inner.lock().await;
-            g.searches.remove(request_id)
-        };
-        if let Some(task) = task {
-            Self::cancel_search_task(task).await;
-            let _ = self
-                .emit(Event::SearchCancelled {
-                    request_id: request_id.to_string(),
-                })
-                .await;
-            return;
-        }
-
-        // Search not registered yet — remember so a racing handle_search aborts,
-        // and emit now so clients are not left without a terminal event.
-        {
-            let mut g = self.inner.lock().await;
-            g.cancel_intents.insert(request_id.to_string(), ());
-        }
-        let _ = self
-            .emit(Event::SearchCancelled {
-                request_id: request_id.to_string(),
-            })
-            .await;
-    }
-
-    /// Cancel every running search and emit one `SearchCancelled` per request.
-    /// Caller must hold `search_lifecycle`.
-    async fn cancel_all_searches_locked(&self) {
-        let tasks = {
-            let mut g = self.inner.lock().await;
-            g.searches.drain().collect::<Vec<_>>()
-        };
-        for (request_id, task) in tasks {
-            Self::cancel_search_task(task).await;
-            let _ = self
-                .emit(Event::SearchCancelled {
-                    request_id: request_id.clone(),
-                })
-                .await;
-        }
-        let pending = {
-            let mut g = self.inner.lock().await;
-            g.pending_searches.drain().collect::<Vec<_>>()
-        };
-        for (request_id, cancel) in pending {
-            cancel.cancel();
-            let _ = self.emit(Event::SearchCancelled { request_id }).await;
-        }
-    }
-
-    async fn handle_search(&self, request_id: String, query_raw: String) {
-        let _lifecycle = self.search_lifecycle.lock().await;
-
-        // Cancel-before-registration: honor intent (SearchCancelled already emitted).
-        let pre_cancelled = {
-            let mut g = self.inner.lock().await;
-            g.cancel_intents.remove(&request_id).is_some()
-        };
-        if pre_cancelled {
-            return;
-        }
-
-        // Bare trigger (`n`) — finish early before SearchStarted/ResultsReset flash.
-        let incomplete = {
-            let g = self.inner.lock().await;
-            let triggers = g.registry.all_triggers();
-            let query = Query::parse_with_prefixes(&query_raw, 50, |token| {
-                is_meta_prefix(token) || triggers.iter().any(|t| t == token)
-            });
-            query.is_incomplete_trigger(|token| {
-                is_meta_prefix(token) || triggers.iter().any(|t| t == token)
-            })
-        };
-        if incomplete {
-            self.cancel_all_searches_locked().await;
-            let _ = self
-                .emit(Event::SearchFinished {
-                    request_id,
-                    total: 0,
-                    elapsed_ms: 0,
-                })
-                .await;
-            return;
-        }
-
-        self.cancel_all_searches_locked().await;
-        {
-            let mut g = self.inner.lock().await;
-            g.results_by_id.clear();
-        }
-
-        let cancel = {
-            let g = self.inner.lock().await;
-            g.session_cancel.child_token()
-        };
-        {
-            let mut g = self.inner.lock().await;
-            g.pending_searches
-                .insert(request_id.clone(), cancel.clone());
-        }
-
-        // Intent recorded while we held lifecycle is impossible; token cancel means
-        // cancel_search_locked already emitted for this pending id.
-        if cancel.is_cancelled() {
-            let mut g = self.inner.lock().await;
-            g.pending_searches.remove(&request_id);
-            return;
-        }
-
-        let _ = self
-            .emit(Event::SearchStarted {
-                request_id: request_id.clone(),
-            })
-            .await;
-        let _ = self
-            .emit(Event::ResultsReset {
-                request_id: request_id.clone(),
-            })
-            .await;
-
-        let query = {
-            let g = self.inner.lock().await;
-            let triggers = g.registry.all_triggers();
-            Query::parse_with_prefixes(query_raw, 50, |token| {
-                is_meta_prefix(token) || triggers.iter().any(|t| t == token)
-            })
-        };
-        let modules: Vec<Arc<dyn LumaModule>> = {
-            let g = self.inner.lock().await;
-            match &query.scope {
-                QueryScope::Targeted { module } => {
-                    g.registry.resolve_trigger(module).into_iter().collect()
-                }
-                QueryScope::Global => g.registry.contributing(),
-            }
-        };
-
-        if modules.is_empty() {
-            {
-                let mut g = self.inner.lock().await;
-                g.pending_searches.remove(&request_id);
-            }
-            let _ = self
-                .emit(Event::SearchFinished {
-                    request_id,
-                    total: 0,
-                    elapsed_ms: 0,
-                })
-                .await;
-            return;
-        }
-
-        if cancel.is_cancelled() {
-            {
-                let mut g = self.inner.lock().await;
-                g.pending_searches.remove(&request_id);
-            }
-            // cancel_search_locked already emitted SearchCancelled for pending.
-            return;
-        }
-
-        let (chunk_tx, mut chunk_rx) = mpsc::channel::<Event>(64);
-        let engine = self.clone_inner();
-        let request_for_task = request_id.clone();
-        let cancel_for_task = cancel.clone();
-
-        let mut module_cancels = HashMap::new();
-        let mut set = JoinSet::new();
-        for module in modules {
-            let q = query.clone();
-            let sink = chunk_tx.clone();
-            let module_id = module.manifest().id.as_str().to_string();
-            let token = cancel_for_task.child_token();
-            module_cancels.insert(module_id, token.clone());
-            set.spawn(async move {
-                module.search(q, sink, token).await;
-            });
-        }
-        drop(chunk_tx);
-
-        set.spawn({
-            let request_id = request_id.clone();
-            let engine = engine.clone();
-            let cancel_for_collect = cancel_for_task.clone();
-            async move {
-                let mut sequence = 0u64;
-                while let Some(ev) = chunk_rx.recv().await {
-                    if cancel_for_collect.is_cancelled() {
-                        break;
-                    }
-                    if let Event::ResultsChunk {
-                        upserts,
-                        removed_ids,
-                        ..
-                    } = ev
-                    {
-                        sequence += 1;
-                        let mut g = engine.lock().await;
-                        let upserts: Vec<_> = upserts
-                            .into_iter()
-                            .filter(|u| g.registry.is_enabled(&u.module_id))
-                            .collect();
-                        for u in &upserts {
-                            g.results_by_id
-                                .insert(u.id.clone(), u.clone().into_domain());
-                        }
-                        for id in &removed_ids {
-                            g.results_by_id.remove(id);
-                        }
-                        if upserts.is_empty() && removed_ids.is_empty() {
-                            continue;
-                        }
-                        Self::emit_from_inner(
-                            &g,
-                            Event::ResultsChunk {
-                                request_id: request_id.clone(),
-                                sequence,
-                                upserts,
-                                removed_ids,
-                            },
-                        );
-                    }
-                }
-                // Terminal cancel is emitted by cancel_search_* (exactly once).
-                // Collector only emits SearchFinished on clean completion.
-                if !cancel_for_collect.is_cancelled() {
-                    let g = engine.lock().await;
-                    let total = g.results_by_id.len();
-                    Self::emit_from_inner(
-                        &g,
-                        Event::SearchFinished {
-                            request_id,
-                            total,
-                            elapsed_ms: 0,
-                        },
-                    );
-                }
-            }
-        });
-
-        // Aborting this supervisor drops JoinSet, which aborts every owned child.
-        // Also abort_all on cancel so non-cooperative modules cannot outlive cancel.
-        let supervisor = tokio::spawn(async move {
-            tokio::select! {
-                _ = cancel_for_task.cancelled() => {
-                    set.abort_all();
-                    while let Some(joined) = set.join_next().await {
-                        if let Err(err) = joined {
-                            if !err.is_cancelled() {
-                                warn!(?err, "search JoinSet task ended with error after abort");
-                            }
-                        }
-                    }
-                }
-                _ = async {
-                    while let Some(joined) = set.join_next().await {
-                        if let Err(err) = joined {
-                            if !err.is_cancelled() {
-                                warn!(?err, "search JoinSet task ended with error");
-                            }
-                        }
-                    }
-                } => {}
-            }
-        });
-
-        {
-            let mut g = self.inner.lock().await;
-            g.pending_searches.remove(&request_for_task);
-            g.searches.insert(
-                request_for_task,
-                SearchTask {
-                    cancel,
-                    module_cancels,
-                    handle: supervisor,
-                },
-            );
-        }
-    }
-
-    fn clone_inner(&self) -> Arc<Mutex<EngineInner>> {
+impl Engine {
+    pub(super) fn clone_inner(&self) -> Arc<Mutex<EngineInner>> {
         self.inner.clone()
     }
 
@@ -772,127 +162,8 @@ impl Engine {
             Command::CancelSearch { request_id } => {
                 self.cancel_search(&request_id).await;
             }
-            Command::RunDoctor => {
-                let (rows, settings_snapshot, module_states) = {
-                    let g = self.inner.lock().await;
-                    let rows = g.registry.list();
-                    let settings_snapshot = self
-                        .settings
-                        .as_ref()
-                        .and_then(|s| s.load_or_default().ok());
-                    let module_states = g.module_states.clone();
-                    (rows, settings_snapshot, module_states)
-                };
-                let modules = rows
-                    .iter()
-                    .map(|(id, enabled, name)| {
-                        let state = module_states.get(id).cloned().unwrap_or_else(|| {
-                            if *enabled {
-                                "enabled".into()
-                            } else {
-                                "disabled".into()
-                            }
-                        });
-                        serde_json::json!({
-                            "id": id,
-                            "enabled": enabled,
-                            "name": name,
-                            "state": state,
-                        })
-                    })
-                    .collect::<Vec<_>>();
-                let notes_root_configured = settings_snapshot
-                    .as_ref()
-                    .and_then(|s| s.notes_root.as_ref())
-                    .is_some();
-                let projects_roots = settings_snapshot
-                    .as_ref()
-                    .map(|s| s.projects_roots.len())
-                    .unwrap_or(0);
-                let mut remediation = Vec::new();
-                if !notes_root_configured {
-                    remediation.push("Notes: luma config set --notes-root ~/Notes".to_string());
-                }
-                if projects_roots == 0 {
-                    remediation.push("Projects: luma config set --projects-root ~/dev".to_string());
-                }
-                for (id, reason) in &self.skipped_modules {
-                    remediation.push(format!(
-                        "Repair store for {id} ({reason}), then restart Luma"
-                    ));
-                }
-                remediation.push(
-                    "Grant Accessibility if paste/snippets paste / window focus fails".into(),
-                );
-                remediation.push(
-                    "Windows titles may need Screen Recording; focus needs Accessibility".into(),
-                );
-                remediation
-                    .push("Notes excludes: luma config set --notes-exclude 'private/*'".into());
-                let skipped = self
-                    .skipped_modules
-                    .iter()
-                    .map(|(id, reason)| serde_json::json!({ "id": id, "reason": reason }))
-                    .collect::<Vec<_>>();
-                let store_probes = doctor_store_probes(settings_snapshot.is_some());
-                let diagnostic = serde_json::json!({
-                    "doctor": true,
-                    "modules": modules,
-                    "skipped_modules": skipped,
-                    "paths": doctor_paths(),
-                    "launch": doctor_launch_context(),
-                    "settings": {
-                        "configured": settings_snapshot.is_some(),
-                        "settings_version": settings_snapshot.as_ref().map(|s| s.settings_version),
-                        "notes_root_configured": notes_root_configured,
-                        "notes_root": settings_snapshot.as_ref().and_then(|s| s.notes_root.clone()),
-                        "projects_roots": settings_snapshot.as_ref().map(|s| s.projects_roots.clone()).unwrap_or_default(),
-                        "notes_exclude_patterns": settings_snapshot.as_ref().map(|s| s.notes_exclude_patterns.clone()).unwrap_or_default(),
-                        "clipboard_retention_days": settings_snapshot.as_ref().map(|s| s.clipboard_retention_days),
-                    },
-                    "config_commands": {
-                        "notes_root": "luma config set --notes-root ~/Notes",
-                        "projects_roots": "luma config set --projects-root ~/dev",
-                        "notes_exclude": "luma config set --notes-exclude 'private/*'",
-                    },
-                    "stores": {
-                        "settings": store_probes["settings"].clone(),
-                        "diagnostics": if self.diagnostics.is_some() { "ok" } else { "missing" },
-                        "clipboard": store_probes["clipboard"].clone(),
-                        "quicklinks": store_probes["quicklinks"].clone(),
-                        "snippets": store_probes["snippets"].clone(),
-                        "notes_index": store_probes["notes_index"].clone(),
-                    },
-                    "remediation": remediation,
-                });
-                let _ = self.emit(Event::DiagnosticRaised { diagnostic }).await;
-            }
-            Command::ShutdownSession => {
-                {
-                    let _lifecycle = self.search_lifecycle.lock().await;
-                    self.cancel_all_searches_locked().await;
-                }
-                let (modules, op_handles) = {
-                    let mut g = self.inner.lock().await;
-                    g.session_cancel.cancel();
-                    let mut op_handles = Vec::new();
-                    for op in g.operations.values_mut() {
-                        op.cancel.cancel();
-                        if let Some(handle) = op.handle.take() {
-                            op_handles.push(handle);
-                        }
-                    }
-                    g.operations.clear();
-                    (g.registry.all_modules(), op_handles)
-                };
-                for handle in op_handles {
-                    let _ = Self::await_operation_handle(handle).await;
-                }
-                for m in modules {
-                    m.teardown().await;
-                }
-            }
-            // Runtime-only enable flip (no settings.toml write). Settings UI uses UpdateSettings.
+            Command::RunDoctor => self.handle_run_doctor().await,
+            Command::ShutdownSession => self.handle_shutdown_session().await,
             Command::SetModuleEnabled { module_id, enabled } => {
                 let _ = self.apply_module_enabled(&module_id, enabled).await;
             }
@@ -902,148 +173,31 @@ impl Engine {
                 action_id,
                 confirmation,
             } => {
-                let (item, module) = {
-                    let g = self.inner.lock().await;
-                    Self::resolve_enabled_module(&g, &result_id)
-                };
-                let cancel = {
-                    let mut g = self.inner.lock().await;
-                    let cancel = g.session_cancel.child_token();
-                    let module_id = item
-                        .as_ref()
-                        .map(|i| i.module_id.as_str().to_string())
-                        .unwrap_or_default();
-                    g.operations.insert(
-                        operation_id.clone(),
-                        OperationTask {
-                            cancel: cancel.clone(),
-                            module_id,
-                            handle: None,
-                        },
-                    );
-                    cancel
-                };
-                let engine = self.clone_inner();
-                let op_id = operation_id.clone();
-                let handle = tokio::spawn(async move {
-                    {
-                        let g = engine.lock().await;
-                        Self::emit_from_inner(
-                            &g,
-                            Event::ActionStarted {
-                                operation_id: op_id.clone(),
-                            },
-                        );
-                    }
-
-                    let outcome = match (item, module) {
-                        (Some(result), Some(module)) => {
-                            let actions = module.actions(&result).await;
-                            if let Some(action) =
-                                actions.into_iter().find(|a| a.id.as_str() == action_id)
-                            {
-                                let needs_confirm = action.confirmation
-                                    || !matches!(action.risk, luma_domain::ActionRisk::Safe);
-                                if needs_confirm && !confirmation {
-                                    luma_protocol::ActionOutcomeDto::failed(
-                                        luma_domain::FailureKind::SecurityDenied {
-                                            reason: "confirmation required".into(),
-                                        },
-                                    )
-                                } else {
-                                    let out = module
-                                        .perform(
-                                            crate::module::ActionRequest {
-                                                result,
-                                                action,
-                                                confirmation,
-                                            },
-                                            cancel,
-                                        )
-                                        .await;
-                                    match out {
-                                        crate::module::ActionOutcome::Success { message } => {
-                                            luma_protocol::ActionOutcomeDto::Success { message }
-                                        }
-                                        crate::module::ActionOutcome::Cancelled => {
-                                            luma_protocol::ActionOutcomeDto::Cancelled
-                                        }
-                                        crate::module::ActionOutcome::Failed { kind } => {
-                                            luma_protocol::ActionOutcomeDto::failed(kind)
-                                        }
-                                    }
-                                }
-                            } else {
-                                luma_protocol::ActionOutcomeDto::failed(
-                                    luma_domain::FailureKind::NotFound {
-                                        entity: format!("action:{action_id}"),
-                                    },
-                                )
-                            }
-                        }
-                        _ => luma_protocol::ActionOutcomeDto::failed(
-                            luma_domain::FailureKind::NotFound {
-                                entity: format!("result:{result_id}"),
-                            },
-                        ),
-                    };
-                    {
-                        let mut g = engine.lock().await;
-                        Self::emit_from_inner(
-                            &g,
-                            Event::ActionFinished {
-                                operation_id: op_id.clone(),
-                                outcome,
-                            },
-                        );
-                        g.operations.remove(&op_id);
-                    }
-                });
-                if let Some(op) = self.inner.lock().await.operations.get_mut(&operation_id) {
-                    op.handle = Some(handle);
-                }
+                self.handle_execute_action(operation_id, result_id, action_id, confirmation)
+                    .await;
             }
             Command::ListActions { result_id } => {
-                let (item, module) = {
+                self.handle_list_actions(result_id).await;
+            }
+            Command::GetSnapshot => {
+                let (items, module_states) = {
                     let g = self.inner.lock().await;
-                    Self::resolve_enabled_module(&g, &result_id)
-                };
-                let actions = match (item, module) {
-                    (Some(result), Some(module)) => {
-                        let descriptors = module.actions(&result).await;
-                        descriptors
-                            .into_iter()
-                            .map(|a| luma_protocol::ActionDescriptorDto::from(&a))
-                            .collect::<Vec<_>>()
-                    }
-                    _ => Vec::new(),
+                    let items: Vec<SearchItemDto> =
+                        g.results_by_id.values().map(SearchItemDto::from).collect();
+                    (items, g.module_states.clone())
                 };
                 let _ = self
-                    .emit(Event::ActionsAvailable { result_id, actions })
+                    .emit(Event::SnapshotLoaded {
+                        items,
+                        module_states,
+                    })
                     .await;
             }
             Command::LoadPreview {
                 result_id,
                 preview_id,
             } => {
-                let (item, module) = {
-                    let g = self.inner.lock().await;
-                    Self::resolve_enabled_module(&g, &result_id)
-                };
-                let body = match (item, module) {
-                    (Some(result), Some(module)) => module
-                        .preview(&result)
-                        .await
-                        .unwrap_or_else(|| result.title.clone()),
-                    _ => String::new(),
-                };
-                let _ = self
-                    .emit(Event::PreviewLoaded {
-                        result_id,
-                        preview_id,
-                        body,
-                    })
-                    .await;
+                self.handle_load_preview(result_id, preview_id).await;
             }
             Command::LoadHub => {
                 let modules = {
@@ -1070,6 +224,8 @@ impl Engine {
                                         confirmation: false,
                                     },
                                     secondary_actions: vec![],
+                                    ui_intent: None,
+                                    action_payload: None,
                                 });
                             }
                             windows_dto = Some(luma_protocol::HubWindowsDto {
@@ -1247,46 +403,7 @@ impl Engine {
                     .await;
             }
             Command::CancelOperation { operation_id } => {
-                let handle = {
-                    let mut g = self.inner.lock().await;
-                    match g.operations.get_mut(&operation_id) {
-                        Some(op) => {
-                            op.cancel.cancel();
-                            op.handle.take()
-                        }
-                        None => {
-                            drop(g);
-                            let _ = self
-                                .emit(Event::ActionFinished {
-                                    operation_id,
-                                    outcome: luma_protocol::ActionOutcomeDto::failed(
-                                        luma_domain::FailureKind::NotFound {
-                                            entity: "operation".into(),
-                                        },
-                                    ),
-                                })
-                                .await;
-                            return;
-                        }
-                    }
-                };
-                // Bounded await so Esc/cancel cannot hang on a non-cooperative perform.
-                if let Some(handle) = handle {
-                    let finished_cleanly = Self::await_operation_handle(handle).await;
-                    if !finished_cleanly {
-                        // Abort skipped the task's ActionFinished emit — synthesize Cancelled.
-                        {
-                            let mut g = self.inner.lock().await;
-                            g.operations.remove(&operation_id);
-                        }
-                        let _ = self
-                            .emit(Event::ActionFinished {
-                                operation_id,
-                                outcome: luma_protocol::ActionOutcomeDto::Cancelled,
-                            })
-                            .await;
-                    }
-                }
+                self.handle_cancel_operation(operation_id).await;
             }
             Command::ExportDiagnostics => {
                 let (rows, settings_version) = {
@@ -1352,6 +469,10 @@ pub async fn run_query(
     query: &str,
     settings: Option<Arc<dyn crate::ports::SettingsRepository>>,
 ) -> Result<(Vec<SearchItemDto>, Vec<Event>), String> {
+    let triggers = registry.all_triggers();
+    let query = luma_domain::Query::normalize_for_cli(query, |token| {
+        is_meta_prefix(token) || triggers.iter().any(|t| t == token)
+    });
     let engine = Engine::with_settings(registry, settings);
     let mut rx = engine.subscribe();
 
@@ -1359,7 +480,7 @@ pub async fn run_query(
     let request_id = "cli-1".to_string();
     let search = engine.handle_command(Command::Search {
         request_id: request_id.clone(),
-        query: query.to_string(),
+        query,
     });
 
     let collect = async {
@@ -1411,14 +532,15 @@ pub async fn run_action(
     confirmation: bool,
     settings: Option<Arc<dyn crate::ports::SettingsRepository>>,
 ) -> Result<(SearchItemDto, luma_protocol::ActionOutcomeDto), String> {
+    let triggers = registry.all_triggers();
+    let query = luma_domain::Query::normalize_for_cli(query, |token| {
+        is_meta_prefix(token) || triggers.iter().any(|t| t == token)
+    });
     let engine = Engine::with_settings(registry, settings);
     let mut rx = engine.subscribe();
     engine.start_session().await;
     let request_id = "cli-action-search".to_string();
-    let search = engine.handle_command(Command::Search {
-        request_id,
-        query: query.to_string(),
-    });
+    let search = engine.handle_command(Command::Search { request_id, query });
     let collect = async {
         let mut items = HashMap::new();
         while let Some(event) = recv_event(&mut rx).await {
@@ -2207,6 +1329,7 @@ mod tests {
             EngineOptions {
                 settings: None,
                 diagnostics: Some(sink),
+                storage_probe: None,
                 skipped_modules: Vec::new(),
             },
         );
@@ -2322,6 +1445,81 @@ mod tests {
         assert!(
             matches!(outcome, luma_protocol::ActionOutcomeDto::Failed { .. }),
             "disabled module must not execute: {outcome:?}"
+        );
+    }
+
+    struct SlowSearchModule {
+        manifest: ModuleManifest,
+    }
+
+    #[async_trait]
+    impl LumaModule for SlowSearchModule {
+        fn manifest(&self) -> &ModuleManifest {
+            &self.manifest
+        }
+
+        async fn warmup(&self, _ctx: WarmupContext) -> ModuleState {
+            ModuleState::Ready
+        }
+
+        async fn search(&self, _query: Query, _sink: SearchSink, _cancel: CancellationToken) {
+            tokio::time::sleep(Duration::from_secs(30)).await;
+        }
+
+        async fn actions(&self, _result: &SearchItem) -> Vec<ActionDescriptor> {
+            Vec::new()
+        }
+
+        async fn perform(
+            &self,
+            _action: ActionRequest,
+            _cancel: CancellationToken,
+        ) -> ActionOutcome {
+            ActionOutcome::Success { message: None }
+        }
+
+        async fn teardown(&self) {}
+    }
+
+    #[tokio::test]
+    async fn search_completion_bound_aborts_slow_module() {
+        let mut registry = ModuleRegistry::new();
+        registry
+            .register(Arc::new(SlowSearchModule {
+                manifest: ModuleManifest {
+                    id: ModuleId::new("luma.slow"),
+                    display_name: "Slow".into(),
+                    triggers: vec!["slow".into()],
+                    default_enabled: true,
+                    search_mode: SearchMode::GlobalContributing,
+                    required_capabilities: vec![],
+                    workbench: Default::default(),
+                },
+            }))
+            .expect("register slow");
+        let engine = Engine::new(registry);
+        let mut events = engine.subscribe();
+        let started = std::time::Instant::now();
+        engine
+            .handle_command(Command::Search {
+                request_id: "slow-1".into(),
+                query: "slow hello".into(),
+            })
+            .await;
+        let finished = tokio::time::timeout(Duration::from_secs(2), async {
+            loop {
+                if let Ok(Event::SearchFinished { request_id, .. }) = events.recv().await {
+                    if request_id == "slow-1" {
+                        break;
+                    }
+                }
+            }
+        })
+        .await;
+        assert!(finished.is_ok(), "slow search must emit SearchFinished");
+        assert!(
+            started.elapsed() < Duration::from_secs(2),
+            "slow module search must not block past completion bound"
         );
     }
 }

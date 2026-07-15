@@ -42,6 +42,12 @@ pub enum Msg {
     FlushSearch,
     /// Soft-refresh Hub windows while the empty Hub is visible.
     RefreshHub,
+    /// Broadcast subscriber lagged — resync UI from engine.
+    BroadcastLagged,
+    /// Toggle stacked preview on narrow terminals.
+    TogglePreview,
+    /// Toggle doctor Summary / Raw JSON.
+    ToggleDoctorRaw,
     /// Terminal regained focus (switch back to Luma).
     FocusGained,
 }

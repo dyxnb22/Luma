@@ -179,7 +179,11 @@ impl NotesScanner {
         }
 
         let matcher = options.matcher();
-        let discovery = discover(workspace_root, &matcher);
+        let discovery = discover(workspace_root, &matcher, cancel);
+
+        if discovery.cancelled {
+            return Err(NotesScanError::Cancelled);
+        }
 
         // Root-level discovery failure: do not touch the index.
         if !discovery.complete && discovery.files.is_empty() {
@@ -210,6 +214,12 @@ impl NotesScanner {
             let mut errors = 0usize;
             let mut issues = Vec::new();
             let now = NotesIndexStore::now_unix();
+            let scan_conn = self.store.connect()?;
+            let mut scan_tx = scan_conn
+                .unchecked_transaction()
+                .map_err(NotesIndexStoreError::from)?;
+            let mut batch_writes = 0usize;
+            const SCAN_BATCH: usize = 32;
 
             for skip in &discovery.skipped {
                 if let Some(issue) = skipped_to_issue(skip, scan_id, now) {
@@ -236,6 +246,7 @@ impl NotesScanner {
                     scan_id,
                     mode == ScanMode::Incremental,
                     now,
+                    Some(&mut scan_tx),
                 ) {
                     Ok(file_issues) => {
                         errors += file_issues.len();
@@ -253,6 +264,15 @@ impl NotesScanner {
                     }
                 }
 
+                batch_writes += 1;
+                if batch_writes >= SCAN_BATCH {
+                    scan_tx.commit().map_err(NotesIndexStoreError::from)?;
+                    scan_tx = scan_conn
+                        .unchecked_transaction()
+                        .map_err(NotesIndexStoreError::from)?;
+                    batch_writes = 0;
+                }
+
                 processed += 1;
                 {
                     let mut status = self.status.lock().unwrap();
@@ -264,6 +284,10 @@ impl NotesScanner {
                         };
                     }
                 }
+            }
+
+            if batch_writes > 0 {
+                scan_tx.commit().map_err(NotesIndexStoreError::from)?;
             }
 
             // Only prune after an authoritative complete enumeration.
@@ -322,6 +346,7 @@ impl NotesScanner {
         scan_id: i64,
         incremental: bool,
         now: i64,
+        batch_tx: Option<&mut rusqlite::Transaction<'_>>,
     ) -> Result<Vec<ScanIssueRow>, NotesScanError> {
         let meta = std::fs::symlink_metadata(abs)?;
         if meta.file_type().is_symlink() {
@@ -381,7 +406,7 @@ impl NotesScanner {
             let title = extract_title(&prefix, &file_name);
             let hash = content_hash(&prefix);
 
-            self.store.upsert_parsed(
+            self.upsert_indexed(
                 &DocumentRow {
                     relative_path: rel.to_string(),
                     title: title.title.clone(),
@@ -394,6 +419,7 @@ impl NotesScanner {
                 &tags.tags,
                 &[],
                 "",
+                batch_tx,
             )?;
 
             issues.push(ScanIssueRow {
@@ -443,7 +469,7 @@ impl NotesScanner {
             })
             .collect();
 
-        self.store.upsert_parsed(
+        self.upsert_indexed(
             &DocumentRow {
                 relative_path: rel.to_string(),
                 title: title.title.clone(),
@@ -456,6 +482,7 @@ impl NotesScanner {
             &tags.tags,
             &link_rows,
             &body,
+            batch_tx,
         )?;
 
         if let Some(w) = fm_warning.or(tags.warning) {
@@ -469,6 +496,24 @@ impl NotesScanner {
         }
 
         Ok(issues)
+    }
+
+    fn upsert_indexed(
+        &self,
+        doc: &DocumentRow,
+        tags: &[String],
+        links: &[DocumentLinkRow],
+        fts_body: &str,
+        batch_tx: Option<&mut rusqlite::Transaction<'_>>,
+    ) -> Result<(), NotesScanError> {
+        match batch_tx {
+            Some(tx) => NotesIndexStore::upsert_parsed_tx(tx, doc, tags, links, fts_body)
+                .map_err(NotesScanError::Store),
+            None => self
+                .store
+                .upsert_parsed(doc, tags, links, fts_body)
+                .map_err(NotesScanError::Store),
+        }
     }
 }
 

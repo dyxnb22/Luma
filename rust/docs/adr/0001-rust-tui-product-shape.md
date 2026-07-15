@@ -25,6 +25,7 @@ template. Luma does not adopt their conversational, autonomous-planning, LLM, or
 - In-process Engine: TUI and engine share a process via a stable Command/Event boundary (`luma-protocol`).
 - No `luma-agent`, AI agent, or background daemon is part of this product shape (see ADR-0002).
 - Layering: `platform` → `storage` → `domain` ← `application` ← `modules`; `luma-tui` depends on application projections/ports only; `bins/luma` is the composition root.
+- `luma-application` may depend on `luma-storage` for settings/path adapters; Doctor store probes are injected via `StorageProbePort` at composition time (`compose.rs`), not opened inside the engine.
 - TUI: one `AppState`, one event loop, Elm-style `update` / `render`. `update` and `render` must not perform I/O; Effects own I/O and return messages.
 - Failure taxonomy distinguishes permission denied, cold/warming cache, not configured, timeout, cancelled, and true empty results.
 

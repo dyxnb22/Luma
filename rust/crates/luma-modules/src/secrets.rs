@@ -6,7 +6,7 @@ use luma_application::{
 use luma_domain::{
     ActionDescriptor, ActionId, ActionRisk, FailureKind, ModuleId, Query, SearchItem,
 };
-use luma_protocol::{Event, SearchItemDto};
+use luma_protocol::{Event, SearchItemDto, UiIntent};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
@@ -116,13 +116,13 @@ impl LumaModule for SecretsModule {
                         module_id: "luma.secrets".into(),
                         title: "No secrets labels yet".into(),
                         subtitle: Some(
-                            "Run: security add-generic-password -s com.luma.next.secrets -a LABEL -w 'VALUE' -U"
-                                .into(),
+                            "Run: luma secrets set <account>  (value from stdin)".into(),
                         ),
                         kind: "not_configured".into(),
                         score: 0.0,
                         primary_action_id: "seed_config".into(),
                         primary_action_label: "Show command".into(),
+                        ui_intent: Some(UiIntent::SeedConfig),
                         ..Default::default()
                     });
                 }
@@ -211,9 +211,9 @@ impl LumaModule for SecretsModule {
             };
         }
         match action.action.id.as_str() {
-            "noop" => ActionOutcome::Success {
+            "noop" | "seed_config" => ActionOutcome::Success {
                 message: Some(
-                    "Bootstrap: security add-generic-password -s com.luma.next.secrets -a <label> -w <secret> -U"
+                    "Bootstrap: luma secrets set <account>  (value from stdin; updates Keychain + label sidecar)"
                         .into(),
                 ),
             },

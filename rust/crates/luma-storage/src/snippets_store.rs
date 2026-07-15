@@ -36,7 +36,7 @@ impl SnippetsStore {
     }
 
     fn connect(&self) -> Result<Connection, SnippetsStoreError> {
-        Ok(Connection::open(&self.path)?)
+        crate::sqlite::open_connection(&self.path).map_err(Into::into)
     }
 
     fn init(&self) -> Result<(), SnippetsStoreError> {

@@ -4,9 +4,9 @@
 //! listed in Settings but do not warm up or appear on the Hub.
 
 use luma_application::{
-    ModuleRegistry, RegistryError as ModuleRegistryError, SettingsRepository,
+    CapabilityPort, ModuleRegistry, RegistryError as ModuleRegistryError, SettingsRepository,
     SqliteClipboardHistory, SqliteNotesIndex, SqliteQuicklinksRepository, SqliteSnippetsRepository,
-    TomlSettingsRepository,
+    StorageProbePort, TomlSettingsRepository,
 };
 use luma_modules::{
     AppsModule, ClipboardModule, ClipboardSuppression, FakeEchoModule, NotesModule, ProjectsModule,
@@ -44,7 +44,69 @@ pub struct SkippedModule {
 pub struct RegistryLoad {
     pub registry: ModuleRegistry,
     pub settings: Arc<dyn SettingsRepository>,
+    pub storage_probe: Arc<dyn StorageProbePort>,
     pub skipped: Vec<SkippedModule>,
+}
+
+/// Doctor store probes using stores opened at composition time.
+pub struct ComposeStorageProbe {
+    clipboard: Option<Arc<ClipboardStore>>,
+    quicklinks: Option<Arc<QuicklinksStore>>,
+    snippets: Option<Arc<SnippetsStore>>,
+    notes_scanner: Option<Arc<NotesScanner>>,
+}
+
+impl StorageProbePort for ComposeStorageProbe {
+    fn probe_stores(&self, settings_ok: bool) -> serde_json::Value {
+        let clipboard = match &self.clipboard {
+            Some(s) => match s.list_page(0, 1) {
+                Ok(_) => serde_json::json!("ok"),
+                Err(err) => serde_json::json!(format!("error:{err}")),
+            },
+            None => serde_json::json!("unavailable:not opened at composition"),
+        };
+        let quicklinks = match &self.quicklinks {
+            Some(s) => match s.list() {
+                Ok(_) => serde_json::json!("ok"),
+                Err(err) => serde_json::json!(format!("error:{err}")),
+            },
+            None => serde_json::json!("unavailable:not opened at composition"),
+        };
+        let snippets = match &self.snippets {
+            Some(s) => match s.list() {
+                Ok(_) => serde_json::json!("ok"),
+                Err(err) => serde_json::json!(format!("error:{err}")),
+            },
+            None => serde_json::json!("unavailable:not opened at composition"),
+        };
+        let notes_index = match &self.notes_scanner {
+            Some(s) => match s.store().document_count() {
+                Ok(_) => serde_json::json!("ok"),
+                Err(err) => serde_json::json!(format!("error:{err}")),
+            },
+            None => serde_json::json!("unavailable:not opened at composition"),
+        };
+        serde_json::json!({
+            "settings": if settings_ok { "ok" } else { "missing" },
+            "clipboard": clipboard,
+            "quicklinks": quicklinks,
+            "snippets": snippets,
+            "notes_index": notes_index,
+        })
+    }
+}
+
+struct ComposeCapabilities;
+
+impl CapabilityPort for ComposeCapabilities {
+    fn has(&self, capability: &str) -> bool {
+        match capability {
+            "accessibility" => luma_platform_macos::MacAccessibility::probe_trusted(),
+            // Service exists; empty label list is handled by the module.
+            "keychain" => true,
+            _ => true,
+        }
+    }
 }
 
 /// Build registry from settings + optionally opened stores.
@@ -74,12 +136,15 @@ pub fn registry_from_settings(
         Arc::new(FilesystemAppsCatalog::system_default()),
         pasteboard.clone(),
     )))?;
-    reg.register(Arc::new(WindowsModule::with_catalog(window_catalog)))?;
+    reg.register(Arc::new(WindowsModule::with_catalog(
+        window_catalog.clone(),
+    )))?;
     if let Some(clipboard) = clipboard {
         reg.register(Arc::new(ClipboardModule::with_deps(
             Arc::new(SqliteClipboardHistory::new(clipboard)),
             pasteboard.clone(),
             accessibility.clone(),
+            window_catalog.clone(),
             clipboard_suppression.clone(),
         )))?;
     } else {
@@ -127,7 +192,8 @@ pub fn registry_from_settings(
         reg.register(Arc::new(SnippetsModule::with_store(
             Arc::new(SqliteSnippetsRepository::new(snippets)),
             pasteboard.clone(),
-            accessibility,
+            accessibility.clone(),
+            window_catalog,
         )))?;
     } else {
         let reason = "snippets store unavailable".into();
@@ -159,6 +225,10 @@ pub fn registry_from_settings(
         .unwrap_or(false)
     {
         let _ = reg.set_enabled("luma.fake", false);
+    }
+    for (id, reason) in reg.apply_capability_preflight(&ComposeCapabilities) {
+        warn!("{id}: {reason} — module disabled");
+        skipped.push(SkippedModule { id, reason });
     }
     Ok((reg, skipped))
 }
@@ -201,12 +271,24 @@ pub fn load_registry_with_settings() -> Result<RegistryLoad, RegistryError> {
             None
         }
     };
-    let (registry, skipped) =
-        registry_from_settings(&settings, clipboard, quicklinks, snippets, notes_index)?;
+    let (registry, skipped) = registry_from_settings(
+        &settings,
+        clipboard.clone(),
+        quicklinks.clone(),
+        snippets.clone(),
+        notes_index.clone(),
+    )?;
     let settings_repo: Arc<dyn SettingsRepository> = Arc::new(TomlSettingsRepository::new(store));
+    let storage_probe: Arc<dyn StorageProbePort> = Arc::new(ComposeStorageProbe {
+        clipboard,
+        quicklinks,
+        snippets,
+        notes_scanner: notes_index,
+    });
     Ok(RegistryLoad {
         registry,
         settings: settings_repo,
+        storage_probe,
         skipped,
     })
 }

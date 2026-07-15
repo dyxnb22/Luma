@@ -37,6 +37,17 @@ impl ClipboardHistoryRepository for SqliteClipboardHistory {
             .map_err(|e| ClipboardRepoError::msg(e.to_string()))
     }
 
+    fn search_text(
+        &self,
+        needle: &str,
+        limit: usize,
+    ) -> Result<Vec<ClipboardEntry>, ClipboardRepoError> {
+        self.store
+            .search(needle, limit)
+            .map(|rows| rows.into_iter().map(map_row).collect())
+            .map_err(|e| ClipboardRepoError::msg(e.to_string()))
+    }
+
     fn latest_by_created(&self) -> Result<Option<ClipboardEntry>, ClipboardRepoError> {
         self.store
             .latest_by_created()

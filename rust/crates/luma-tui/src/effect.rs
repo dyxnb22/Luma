@@ -18,6 +18,8 @@ pub enum Effect {
     LoadPreview { result_id: String, preview_id: u64 },
     /// Refresh Hub windows slice + modules.
     LoadHub,
+    /// Reconcile UI after broadcast lag (cached engine results).
+    GetSnapshot,
     /// Ask the engine for primary + secondary actions for a result.
     ListActions { result_id: String },
     /// Execute an action, optionally with confirmation.

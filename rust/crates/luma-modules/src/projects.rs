@@ -6,7 +6,7 @@ use luma_application::{
 use luma_domain::{
     ActionDescriptor, ActionId, ActionRisk, FailureKind, ModuleId, Query, SearchItem,
 };
-use luma_protocol::{Event, SearchItemDto};
+use luma_protocol::{Event, SearchItemDto, UiIntent};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -292,6 +292,8 @@ impl LumaModule for ProjectsModule {
                         score: 0.0,
                         primary_action_id: "seed_config".into(),
                         primary_action_label: "Show command".into(),
+                        ui_intent: Some(UiIntent::SeedConfig),
+                        action_payload: None,
                         ..Default::default()
                     }],
                     removed_ids: vec![],
@@ -364,6 +366,8 @@ impl LumaModule for ProjectsModule {
                             score: 80.0,
                             primary_action_id: "browse".into(),
                             primary_action_label: "Browse".into(),
+                            ui_intent: Some(UiIntent::Browse),
+                            action_payload: None,
                             ..Default::default()
                         });
                     } else {
@@ -394,6 +398,8 @@ impl LumaModule for ProjectsModule {
                         score: 90.0,
                         primary_action_id: "browse".into(),
                         primary_action_label: "Browse".into(),
+                        ui_intent: Some(UiIntent::Browse),
+                        action_payload: None,
                         ..Default::default()
                     });
                 }
@@ -411,6 +417,7 @@ impl LumaModule for ProjectsModule {
                     ..Default::default()
                 });
             }
+            upserts.truncate(query.limit);
             let _ = sink
                 .send(Event::ResultsChunk {
                     request_id: String::new(),
@@ -467,6 +474,7 @@ impl LumaModule for ProjectsModule {
                 ..Default::default()
             });
         }
+        upserts.truncate(query.limit);
         let _ = sink
             .send(Event::ResultsChunk {
                 request_id: String::new(),
@@ -775,6 +783,8 @@ mod tests {
                             confirmation: false,
                         },
                         secondary_actions: vec![],
+                        ui_intent: None,
+                        action_payload: None,
                     },
                     action: ActionDescriptor {
                         id: ActionId::new("browse"),

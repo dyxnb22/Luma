@@ -61,6 +61,17 @@ impl Query {
         }
     }
 
+    /// Normalize a query for non-interactive CLI: bare triggers become committed targeted searches.
+    pub fn normalize_for_cli(raw: impl Into<String>, is_prefix: impl Fn(&str) -> bool) -> String {
+        let raw = raw.into();
+        let probe = Self::parse_with_prefixes(&raw, 50, &is_prefix);
+        if probe.is_incomplete_trigger(&is_prefix) {
+            format!("{} ", raw.trim_end())
+        } else {
+            raw
+        }
+    }
+
     /// True when input is exactly a module trigger with no trailing space yet (`n`, not `n `).
     pub fn is_incomplete_trigger(&self, is_prefix: impl Fn(&str) -> bool) -> bool {
         let trimmed = self.raw.trim();
@@ -148,6 +159,16 @@ mod tests {
         let q = Query::parse("n ", 20);
         assert!(matches!(q.scope, QueryScope::Targeted { ref module } if module == "n"));
         assert_eq!(q.rest_raw(), "");
+    }
+
+    #[test]
+    fn normalize_for_cli_commits_bare_trigger() {
+        let n = Query::normalize_for_cli("clip", is_known_prefix);
+        assert_eq!(n, "clip ");
+        let q = Query::parse(&n, 20);
+        assert!(matches!(q.scope, QueryScope::Targeted { ref module } if module == "clip"));
+        let unchanged = Query::normalize_for_cli("app safari", is_known_prefix);
+        assert_eq!(unchanged, "app safari");
     }
 
     #[test]

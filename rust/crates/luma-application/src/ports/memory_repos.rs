@@ -38,6 +38,29 @@ impl ClipboardHistoryRepository for MemoryClipboardHistory {
         Ok(rows.into_iter().skip(offset).take(limit).collect())
     }
 
+    fn search_text(
+        &self,
+        needle: &str,
+        limit: usize,
+    ) -> Result<Vec<ClipboardEntry>, ClipboardRepoError> {
+        let needle = needle.to_lowercase();
+        let mut rows: Vec<_> = self
+            .rows
+            .lock()
+            .expect("lock")
+            .iter()
+            .filter(|r| r.text.to_lowercase().contains(&needle))
+            .cloned()
+            .collect();
+        rows.sort_by(|a, b| {
+            b.pinned
+                .cmp(&a.pinned)
+                .then(b.created_at.cmp(&a.created_at))
+        });
+        rows.truncate(limit);
+        Ok(rows)
+    }
+
     fn latest_by_created(&self) -> Result<Option<ClipboardEntry>, ClipboardRepoError> {
         Ok(self
             .rows

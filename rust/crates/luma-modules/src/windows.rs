@@ -491,6 +491,8 @@ mod tests {
                             confirmation: false,
                         },
                         secondary_actions: vec![],
+                        ui_intent: None,
+                        action_payload: None,
                     },
                     action: ActionDescriptor {
                         id: ActionId::new("focus"),

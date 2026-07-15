@@ -1,8 +1,8 @@
 use async_trait::async_trait;
 use luma_application::{
-    looks_secret, AccessibilityPort, ActionOutcome, ActionRequest, ClipboardEntry,
-    ClipboardHistoryRepository, ClipboardRepoError, LumaModule, ModuleManifest, ModuleState,
-    PasteboardPort, SearchMode, SearchSink, WarmupContext,
+    looks_secret, paste_to_target_app, AccessibilityPort, ActionOutcome, ActionRequest,
+    ClipboardEntry, ClipboardHistoryRepository, ClipboardRepoError, LumaModule, ModuleManifest,
+    ModuleState, PasteboardPort, SearchMode, SearchSink, WarmupContext, WindowCatalogPort,
 };
 use luma_domain::{
     ActionDescriptor, ActionId, ActionRisk, FailureKind, ModuleId, Query, SearchItem,
@@ -22,6 +22,7 @@ pub struct ClipboardModule {
     store: Arc<dyn ClipboardHistoryRepository>,
     pasteboard: Arc<dyn PasteboardPort>,
     accessibility: Arc<dyn AccessibilityPort>,
+    window_catalog: Arc<dyn WindowCatalogPort>,
     suppression: Arc<ClipboardSuppression>,
     retention_days: Arc<std::sync::atomic::AtomicU32>,
     last_seen_text: Arc<Mutex<Option<String>>>,
@@ -36,6 +37,7 @@ impl ClipboardModule {
         store: Arc<dyn ClipboardHistoryRepository>,
         pasteboard: Arc<dyn PasteboardPort>,
         accessibility: Arc<dyn AccessibilityPort>,
+        window_catalog: Arc<dyn WindowCatalogPort>,
         suppression: Arc<ClipboardSuppression>,
     ) -> Self {
         Self {
@@ -45,7 +47,7 @@ impl ClipboardModule {
                 triggers: vec!["clip".into(), "cb".into()],
                 default_enabled: true,
                 search_mode: SearchMode::GlobalContributing,
-                required_capabilities: vec![],
+                required_capabilities: vec!["accessibility".into()],
                 workbench: luma_application::WorkbenchMeta {
                     glyph: Some("C".into()),
                     suggested_query: Some("clip ".into()),
@@ -56,6 +58,7 @@ impl ClipboardModule {
             store,
             pasteboard,
             accessibility,
+            window_catalog,
             suppression,
             retention_days: Arc::new(std::sync::atomic::AtomicU32::new(DEFAULT_RETENTION_DAYS)),
             last_seen_text: Arc::new(Mutex::new(None)),
@@ -75,7 +78,7 @@ impl ClipboardModule {
         index: &RwLock<Vec<ClipboardEntry>>,
         store_error: &RwLock<Option<String>>,
     ) -> Result<(), ClipboardRepoError> {
-        match store.list_page(0, 500) {
+        match store.list_page(0, 64) {
             Ok(rows) => {
                 *index.write().await = rows;
                 *store_error.write().await = None;
@@ -272,18 +275,49 @@ impl LumaModule for ClipboardModule {
             return;
         }
 
-        let mut rows: Vec<_> = self
-            .index
-            .read()
-            .await
-            .iter()
-            // Skip heuristic secrets that may already be in history (P2-08).
+        let rows = match tokio::task::spawn_blocking({
+            let store = self.store.clone();
+            let needle = needle.clone();
+            move || {
+                if needle.is_empty() {
+                    store.list_page(0, limit)
+                } else {
+                    store.search_text(&needle, limit)
+                }
+            }
+        })
+        .await
+        {
+            Ok(Ok(rows)) => rows,
+            Ok(Err(err)) => {
+                if matches!(query.scope, luma_domain::QueryScope::Targeted { .. }) {
+                    let _ = sink
+                        .send(Event::ResultsChunk {
+                            request_id: String::new(),
+                            sequence: 1,
+                            upserts: vec![SearchItemDto {
+                                id: "clip:unavailable".into(),
+                                module_id: "luma.clipboard".into(),
+                                title: "Clipboard store unavailable".into(),
+                                subtitle: Some(crate::ux::friendly_store_error(&err.to_string())),
+                                kind: "unavailable".into(),
+                                score: 0.0,
+                                primary_action_id: "noop".into(),
+                                primary_action_label: "Unavailable".into(),
+                                ..Default::default()
+                            }],
+                            removed_ids: vec![],
+                        })
+                        .await;
+                }
+                return;
+            }
+            _ => return,
+        };
+        let rows: Vec<_> = rows
+            .into_iter()
             .filter(|entry| !looks_secret(&entry.text))
-            .filter(|entry| needle.is_empty() || entry.text.to_lowercase().contains(&needle))
-            .cloned()
             .collect();
-        rows.sort_by_key(|entry| (!entry.pinned, std::cmp::Reverse(entry.created_at)));
-        rows.truncate(limit);
         let mut upserts = Vec::new();
         if upserts.is_empty()
             && rows.is_empty()
@@ -492,14 +526,6 @@ impl LumaModule for ClipboardModule {
                 }
             }
             "paste" => {
-                if !self.accessibility.is_trusted() {
-                    return ActionOutcome::Failed {
-                        kind: FailureKind::PermissionRequired {
-                            capability: "accessibility".into(),
-                            guidance: "Grant Accessibility to paste into other apps".into(),
-                        },
-                    };
-                }
                 let Some(id) = id else {
                     return ActionOutcome::Failed {
                         kind: FailureKind::InvalidInput {
@@ -509,31 +535,24 @@ impl LumaModule for ClipboardModule {
                     };
                 };
                 match self.store.get(id) {
-                    Ok(Some(row)) => match self.pasteboard.write_text(&row.text).await {
-                        Ok(()) => {
-                            *self.last_seen_text.lock().await = Some(row.text.clone());
-                            self.suppression
-                                .suppress(&row.text, std::time::Duration::from_secs(45));
-                            match self.accessibility.paste_clipboard().await {
-                                Ok(()) => ActionOutcome::Success {
-                                    message: Some("pasted".into()),
-                                },
-                                Err(_) => ActionOutcome::Failed {
-                                    kind: FailureKind::PermissionRequired {
-                                        capability: "accessibility".into(),
-                                        guidance: "Grant Accessibility to paste into other apps"
-                                            .into(),
-                                    },
-                                },
-                            }
-                        }
-                        Err(err) => ActionOutcome::Failed {
-                            kind: FailureKind::Unavailable {
-                                reason: err.to_string(),
-                                retryable: true,
+                    Ok(Some(row)) => {
+                        *self.last_seen_text.lock().await = Some(row.text.clone());
+                        self.suppression
+                            .suppress(&row.text, std::time::Duration::from_secs(45));
+                        match paste_to_target_app(
+                            self.window_catalog.clone(),
+                            self.pasteboard.clone(),
+                            self.accessibility.clone(),
+                            &row.text,
+                        )
+                        .await
+                        {
+                            Ok(()) => ActionOutcome::Success {
+                                message: Some("pasted".into()),
                             },
-                        },
-                    },
+                            Err(kind) => ActionOutcome::Failed { kind },
+                        }
+                    }
                     Ok(None) => ActionOutcome::Failed {
                         kind: FailureKind::NotFound {
                             entity: format!("clip:{id}"),
@@ -712,7 +731,9 @@ impl LumaModule for ClipboardModule {
 mod tests {
     use super::*;
     use async_trait::async_trait;
-    use luma_application::{FakeAccessibility, MemoryClipboardHistory, PasteboardError};
+    use luma_application::{
+        FakeAccessibility, FakeWindowCatalog, MemoryClipboardHistory, PasteboardError,
+    };
     use tokio::sync::Mutex as TokioMutex;
 
     struct MemPb(TokioMutex<Option<String>>);
@@ -735,6 +756,13 @@ mod tests {
         })
     }
 
+    fn test_catalog() -> Arc<dyn WindowCatalogPort> {
+        Arc::new(FakeWindowCatalog::with_entries(
+            vec![],
+            Some("Safari".into()),
+        ))
+    }
+
     fn test_repo() -> Arc<dyn ClipboardHistoryRepository> {
         Arc::new(MemoryClipboardHistory::new())
     }
@@ -748,6 +776,7 @@ mod tests {
             repo,
             pb.clone(),
             denied_ax(),
+            test_catalog(),
             Arc::new(ClipboardSuppression::new()),
         );
         let outcome = m
@@ -767,6 +796,8 @@ mod tests {
                             confirmation: false,
                         },
                         secondary_actions: vec![],
+                        ui_intent: None,
+                        action_payload: None,
                     },
                     action: ActionDescriptor {
                         id: ActionId::new("copy"),
@@ -785,17 +816,20 @@ mod tests {
 
     #[tokio::test]
     async fn paste_denied_is_not_success() {
+        let repo = test_repo();
+        let id = repo.insert("secret text", false).unwrap();
         let m = ClipboardModule::with_deps(
-            test_repo(),
+            repo,
             Arc::new(MemPb(TokioMutex::new(None))),
             denied_ax(),
+            test_catalog(),
             Arc::new(ClipboardSuppression::new()),
         );
         let outcome = m
             .perform(
                 ActionRequest {
                     result: SearchItem {
-                        id: luma_domain::ResultId::new("clip:1"),
+                        id: luma_domain::ResultId::new(format!("clip:{id}")),
                         module_id: ModuleId::new("luma.clipboard"),
                         title: "x".into(),
                         subtitle: None,
@@ -808,6 +842,8 @@ mod tests {
                             confirmation: false,
                         },
                         secondary_actions: vec![],
+                        ui_intent: None,
+                        action_payload: None,
                     },
                     action: ActionDescriptor {
                         id: ActionId::new("paste"),
@@ -836,6 +872,7 @@ mod tests {
             repo.clone(),
             pb,
             denied_ax(),
+            test_catalog(),
             Arc::new(ClipboardSuppression::new()),
         );
         m.warmup(WarmupContext {
@@ -860,6 +897,7 @@ mod tests {
             test_repo(),
             pb,
             denied_ax(),
+            test_catalog(),
             Arc::new(ClipboardSuppression::new()),
         );
         let cancel = CancellationToken::new();
@@ -880,6 +918,13 @@ mod tests {
             fn list_page(
                 &self,
                 _offset: usize,
+                _limit: usize,
+            ) -> Result<Vec<ClipboardEntry>, ClipboardRepoError> {
+                Err(ClipboardRepoError::msg("disk full"))
+            }
+            fn search_text(
+                &self,
+                _needle: &str,
                 _limit: usize,
             ) -> Result<Vec<ClipboardEntry>, ClipboardRepoError> {
                 Err(ClipboardRepoError::msg("disk full"))
@@ -911,6 +956,7 @@ mod tests {
             Arc::new(FailingStore),
             Arc::new(MemPb(TokioMutex::new(None))),
             denied_ax(),
+            test_catalog(),
             Arc::new(ClipboardSuppression::new()),
         );
         let state = m

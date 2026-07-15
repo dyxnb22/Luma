@@ -81,8 +81,8 @@ impl NotesIndexStore {
         &self.path
     }
 
-    fn connect(&self) -> Result<Connection, NotesIndexStoreError> {
-        Ok(Connection::open(&self.path)?)
+    pub(crate) fn connect(&self) -> Result<Connection, NotesIndexStoreError> {
+        crate::sqlite::open_connection(&self.path).map_err(Into::into)
     }
 
     fn init(&self) -> Result<(), NotesIndexStoreError> {
@@ -404,6 +404,19 @@ impl NotesIndexStore {
     ) -> Result<(), NotesIndexStoreError> {
         let conn = self.connect()?;
         let tx = conn.unchecked_transaction()?;
+        Self::upsert_parsed_tx(&tx, doc, tags, links, fts_body)?;
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// Upsert within an existing scan batch transaction.
+    pub(crate) fn upsert_parsed_tx(
+        tx: &rusqlite::Transaction<'_>,
+        doc: &DocumentRow,
+        tags: &[String],
+        links: &[DocumentLinkRow],
+        fts_body: &str,
+    ) -> Result<(), NotesIndexStoreError> {
         let tags_joined = tags.join(" ");
 
         tx.execute(
@@ -470,7 +483,6 @@ impl NotesIndexStore {
             ],
         )?;
 
-        tx.commit()?;
         Ok(())
     }
 
@@ -745,14 +757,36 @@ impl NotesIndexStore {
     pub fn prune_except(&self, keep: &[String]) -> Result<usize, NotesIndexStoreError> {
         let existing = self.list_documents()?;
         let keep_set: std::collections::HashSet<&str> = keep.iter().map(|s| s.as_str()).collect();
-        let mut removed = 0usize;
-        for doc in existing {
-            if !keep_set.contains(doc.relative_path.as_str()) {
-                self.delete_document(&doc.relative_path)?;
-                removed += 1;
-            }
+        let stale: Vec<String> = existing
+            .into_iter()
+            .filter(|doc| !keep_set.contains(doc.relative_path.as_str()))
+            .map(|doc| doc.relative_path)
+            .collect();
+        if stale.is_empty() {
+            return Ok(0);
         }
-        Ok(removed)
+        let conn = self.connect()?;
+        let tx = conn.unchecked_transaction()?;
+        for path in &stale {
+            tx.execute(
+                "DELETE FROM documents WHERE relative_path = ?1",
+                params![path],
+            )?;
+            tx.execute(
+                "DELETE FROM documents_fts WHERE relative_path = ?1",
+                params![path],
+            )?;
+            tx.execute(
+                "DELETE FROM document_tags WHERE relative_path = ?1",
+                params![path],
+            )?;
+            tx.execute(
+                "DELETE FROM document_links WHERE source_path = ?1",
+                params![path],
+            )?;
+        }
+        tx.commit()?;
+        Ok(stale.len())
     }
 }
 

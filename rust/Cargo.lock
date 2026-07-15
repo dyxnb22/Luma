@@ -727,6 +727,7 @@ dependencies = [
  "luma-application",
  "luma-modules",
  "luma-platform-macos",
+ "luma-protocol",
  "luma-storage",
  "luma-tui",
  "serde_json",

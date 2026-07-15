@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # Architecture dependency allowlist for Luma crates.
+# Guards module/TUI boundaries; documents allowed edges (TUI → domain/protocol, compose → storage).
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
@@ -28,6 +29,12 @@ print(' '.join(dep['name'] for dep in p['dependencies'] if dep.get('kind') is No
 check_absent luma-tui luma-platform-macos luma-storage luma-modules
 check_absent luma-modules luma-platform-macos luma-storage
 check_absent luma-domain luma-platform-macos luma-storage luma-modules luma-tui
+# application → storage is allowed (settings adapters); engine must not open stores for Doctor.
+if rg -n 'ClipboardStore::luma_next_default|NotesIndexStore::luma_next_default|QuicklinksStore::luma_next_default|SnippetsStore::luma_next_default' \
+  crates/luma-application/src/engine.rs crates/luma-application/src/engine/*.rs 2>/dev/null | head -20 | grep .; then
+  echo "FAIL: engine must use StorageProbePort for Doctor store probes (wire in compose.rs)"
+  fail=1
+fi
 
 if rg -n 'ConfigStore::luma_next_default|MacPasteboard::|MacOpenPath|MacKeychain::' \
   crates/luma-modules/src 2>/dev/null | head -20 | grep .; then

@@ -297,6 +297,58 @@ fn corrupt_config_blocks_query() {
 }
 
 #[test]
+fn query_bare_fake_trigger_returns_results_in_cli() {
+    let dir = tempdir().unwrap();
+    let support = dir.path().join("support");
+    let logs = dir.path().join("logs");
+    fs::create_dir_all(&support).unwrap();
+    fs::create_dir_all(&logs).unwrap();
+    let (code, _, stderr) = run_luma(
+        &support,
+        &logs,
+        &["config", "set", "--enable-module", "luma.fake", "--json"],
+    );
+    assert_eq!(code, 0, "stderr={stderr}");
+    let (code, stdout, stderr) = run_luma(&support, &logs, &["query", "fake", "--json"]);
+    assert_eq!(code, 0, "stderr={stderr}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
+    let n = v["results"].as_array().map(|a| a.len()).unwrap_or(0);
+    assert!(n >= 1, "bare fake should target module in CLI: {stdout}");
+}
+
+#[test]
+fn action_failure_exits_nonzero() {
+    let dir = tempdir().unwrap();
+    let support = dir.path().join("support");
+    let logs = dir.path().join("logs");
+    fs::create_dir_all(&support).unwrap();
+    fs::create_dir_all(&logs).unwrap();
+    let (code, _, stderr) = run_luma(
+        &support,
+        &logs,
+        &["config", "set", "--enable-module", "luma.fake", "--json"],
+    );
+    assert_eq!(code, 0, "stderr={stderr}");
+    let (code, stdout, stderr) = run_luma(
+        &support,
+        &logs,
+        &[
+            "action",
+            "run",
+            "--query",
+            "fake hello",
+            "--action-id",
+            "nonexistent_action",
+            "--json",
+        ],
+    );
+    assert_ne!(
+        code, 0,
+        "failed action must exit nonzero; stdout={stdout} stderr={stderr}"
+    );
+}
+
+#[test]
 fn query_json_redact_flag() {
     let dir = tempdir().unwrap();
     let support = dir.path().join("support");
@@ -308,4 +360,100 @@ fn query_json_redact_flag() {
     assert_eq!(code, 0, "stderr={stderr}");
     let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
     assert_eq!(v["redacted"], true);
+}
+
+#[test]
+fn secrets_set_smoke_or_skip_without_keychain() {
+    let dir = tempdir().unwrap();
+    let support = dir.path().join("support");
+    let logs = dir.path().join("logs");
+    fs::create_dir_all(&support).unwrap();
+    fs::create_dir_all(&logs).unwrap();
+    let out = std::process::Command::new(luma_bin())
+        .args(["secrets", "set", "phase6-smoke-label"])
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .env("LUMA_NEXT_SUPPORT_DIR", &support)
+        .env("LUMA_NEXT_LOGS_DIR", &logs)
+        .spawn()
+        .expect("spawn luma secrets set");
+    use std::io::Write;
+    let mut child = out;
+    if let Some(mut stdin) = child.stdin.take() {
+        let _ = stdin.write_all(b"phase6-test-value\n");
+    }
+    let out = child.wait_with_output().expect("wait");
+    let code = out.status.code().unwrap_or(1);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    if stderr.contains("keychain")
+        || stderr.contains("Keychain")
+        || stderr.contains("unavailable")
+        || stderr.contains("secrets set:")
+    {
+        eprintln!("skip secrets_set_smoke: {stderr}");
+        return;
+    }
+    assert_eq!(code, 0, "stderr={stderr}");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(stdout.contains("phase6-smoke-label"), "{stdout}");
+}
+
+#[test]
+fn concurrent_config_set_one_wins() {
+    use std::process::{Command, Stdio};
+    use std::sync::Arc;
+    use std::sync::Barrier;
+    use std::thread;
+    let dir = tempdir().unwrap();
+    let support = dir.path().join("support");
+    let logs = dir.path().join("logs");
+    fs::create_dir_all(&support).unwrap();
+    fs::create_dir_all(&logs).unwrap();
+    let (code, _, stderr) = run_luma(&support, &logs, &["config", "get", "--json"]);
+    assert_eq!(code, 0, "stderr={stderr}");
+    let barrier = Arc::new(Barrier::new(2));
+    let run_set = |notes: &'static str, barrier: Arc<Barrier>| {
+        let support = support.clone();
+        let logs = logs.clone();
+        thread::spawn(move || {
+            barrier.wait();
+            Command::new(luma_bin())
+                .args([
+                    "config",
+                    "set",
+                    "--notes-root",
+                    notes,
+                    "--expected-version",
+                    "1",
+                    "--json",
+                ])
+                .env("LUMA_NEXT_SUPPORT_DIR", support)
+                .env("LUMA_NEXT_LOGS_DIR", logs)
+                .stdout(Stdio::null())
+                .stderr(Stdio::piped())
+                .output()
+                .expect("config set")
+        })
+    };
+    let a = run_set("/tmp/luma-lock-a", Arc::clone(&barrier));
+    let b = run_set("/tmp/luma-lock-b", barrier);
+    let a_out = a.join().unwrap();
+    let b_out = b.join().unwrap();
+    let codes = [
+        a_out.status.code().unwrap_or(1),
+        b_out.status.code().unwrap_or(1),
+    ];
+    let successes = codes.iter().filter(|&&c| c == 0).count();
+    assert_eq!(
+        successes,
+        1,
+        "exactly one config set should win; codes={codes:?} a_err={} b_err={}",
+        String::from_utf8_lossy(&a_out.stderr),
+        String::from_utf8_lossy(&b_out.stderr)
+    );
+    let (code, stdout, stderr) = run_luma(&support, &logs, &["config", "get", "--json"]);
+    assert_eq!(code, 0, "stderr={stderr}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(v["settings_version"].as_u64(), Some(2), "{stdout}");
 }

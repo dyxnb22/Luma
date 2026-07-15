@@ -85,6 +85,52 @@ fn allowed_scheme(url: &str) -> bool {
     url.starts_with("http://") || url.starts_with("https://") || url.starts_with("mailto:")
 }
 
+fn ql_url_payload(url: &str) -> serde_json::Value {
+    serde_json::json!({ "url": url })
+}
+
+fn quicklink_subtitle(url: &str) -> String {
+    let host = url
+        .strip_prefix("https://")
+        .or_else(|| url.strip_prefix("http://"))
+        .or_else(|| url.strip_prefix("mailto:"))
+        .unwrap_or(url);
+    host.split('/').next().unwrap_or(host).to_string()
+}
+
+fn ql_add_payload(trigger: &str, url: &str) -> serde_json::Value {
+    serde_json::json!({ "trigger": trigger, "url": url })
+}
+
+fn quicklink_trigger_id(id: &str) -> Option<&str> {
+    let trigger = id.strip_prefix("ql:")?;
+    if trigger.is_empty() || trigger.contains(':') || trigger == "manage" {
+        None
+    } else {
+        Some(trigger)
+    }
+}
+
+fn url_for_item(item: &SearchItem, index: &[Link]) -> Option<String> {
+    if let Some(payload) = &item.action_payload {
+        if let Some(url) = payload.get("url").and_then(|v| v.as_str()) {
+            return Some(url.to_string());
+        }
+    }
+    if let Some(sub) = &item.subtitle {
+        if allowed_scheme(sub) {
+            return Some(sub.clone());
+        }
+    }
+    if let Some(trigger) = quicklink_trigger_id(item.id.as_str()) {
+        return index
+            .iter()
+            .find(|l| l.trigger == trigger)
+            .map(|l| l.url.clone());
+    }
+    None
+}
+
 #[async_trait]
 impl LumaModule for QuicklinksModule {
     fn manifest(&self) -> &ModuleManifest {
@@ -146,7 +192,7 @@ impl LumaModule for QuicklinksModule {
                             id: format!("ql:add:{trigger}"),
                             module_id: "luma.quicklinks".into(),
                             title,
-                            subtitle: Some(url),
+                            subtitle: Some(url.clone()),
                             kind: if exists {
                                 "update".into()
                             } else {
@@ -158,6 +204,8 @@ impl LumaModule for QuicklinksModule {
                             primary_action_risk: risk,
                             primary_action_confirmation: confirmation,
                             secondary_actions: vec![],
+                            ui_intent: None,
+                            action_payload: Some(ql_add_payload(&trigger, &url)),
                         }],
                         removed_ids: vec![],
                     })
@@ -205,11 +253,12 @@ impl LumaModule for QuicklinksModule {
                     id: format!("ql:{}", link.trigger),
                     module_id: "luma.quicklinks".into(),
                     title: link.trigger.clone(),
-                    subtitle: Some(link.url.clone()),
+                    subtitle: Some(quicklink_subtitle(&link.url)),
                     kind: "quicklink".into(),
                     score: if link.trigger == token { 90.0 } else { 70.0 },
                     primary_action_id: "open".into(),
                     primary_action_label: "Open".into(),
+                    action_payload: Some(ql_url_payload(&link.url)),
                     ..Default::default()
                 });
             }
@@ -237,6 +286,7 @@ impl LumaModule for QuicklinksModule {
             });
         }
         if !upserts.is_empty() {
+            upserts.truncate(query.limit);
             let _ = sink
                 .send(Event::ResultsChunk {
                     request_id: String::new(),
@@ -303,7 +353,7 @@ impl LumaModule for QuicklinksModule {
                 confirmation: false,
             }];
         }
-        if result.id.as_str().starts_with("ql:") {
+        if quicklink_trigger_id(result.id.as_str()).is_some() {
             actions.push(ActionDescriptor {
                 id: ActionId::new("delete"),
                 label: "Delete".into(),
@@ -327,7 +377,14 @@ impl LumaModule for QuicklinksModule {
                         },
                     };
                 };
-                let Some(url) = action.result.subtitle.clone() else {
+                let Some(url) = action
+                    .result
+                    .action_payload
+                    .as_ref()
+                    .and_then(|p| p.get("url").and_then(|v| v.as_str()))
+                    .map(str::to_string)
+                    .or_else(|| action.result.subtitle.clone())
+                else {
                     return ActionOutcome::Failed {
                         kind: FailureKind::InvalidInput {
                             field: "url".into(),
@@ -379,11 +436,11 @@ impl LumaModule for QuicklinksModule {
                         },
                     };
                 }
-                let Some(trigger) = action.result.id.as_str().strip_prefix("ql:") else {
+                let Some(trigger) = quicklink_trigger_id(action.result.id.as_str()) else {
                     return ActionOutcome::Failed {
                         kind: FailureKind::InvalidInput {
                             field: "result_id".into(),
-                            message: "expected ql:<trigger>".into(),
+                            message: "expected ql:<trigger> (not ql:add:*)".into(),
                         },
                     };
                 };
@@ -406,7 +463,8 @@ impl LumaModule for QuicklinksModule {
                 },
             },
             "open" => {
-                let Some(url) = action.result.subtitle.clone() else {
+                let index = self.index.read().await;
+                let Some(url) = url_for_item(&action.result, &index) else {
                     return ActionOutcome::Failed {
                         kind: FailureKind::InvalidInput {
                             field: "url".into(),
@@ -435,7 +493,8 @@ impl LumaModule for QuicklinksModule {
                 }
             }
             "copy" => {
-                let Some(url) = action.result.subtitle.clone() else {
+                let index = self.index.read().await;
+                let Some(url) = url_for_item(&action.result, &index) else {
                     return ActionOutcome::Failed {
                         kind: FailureKind::InvalidInput {
                             field: "url".into(),
@@ -524,6 +583,8 @@ mod tests {
                     confirmation: true,
                 },
                 secondary_actions: vec![],
+                ui_intent: None,
+                action_payload: None,
             })
             .await;
         assert_eq!(actions.len(), 1);
@@ -542,6 +603,8 @@ mod tests {
                         score: 1.0,
                         primary_action: actions[0].clone(),
                         secondary_actions: vec![],
+                        ui_intent: None,
+                        action_payload: None,
                     },
                     action: actions[0].clone(),
                     confirmation: false,
@@ -568,6 +631,8 @@ mod tests {
                         score: 1.0,
                         primary_action: actions[0].clone(),
                         secondary_actions: vec![],
+                        ui_intent: None,
+                        action_payload: None,
                     },
                     action: actions[0].clone(),
                     confirmation: true,
@@ -586,5 +651,56 @@ mod tests {
                 .url,
             "https://other.example"
         );
+    }
+
+    #[tokio::test]
+    async fn delete_rejects_ql_add_prefix() {
+        let store = Arc::new(MemoryQuicklinksRepository::new());
+        let m = QuicklinksModule::with_deps(
+            store,
+            Arc::new(luma_application::FakeOpenPath::new()),
+            Arc::new(MemPb::default()),
+        );
+        m.upsert("docs", "https://example.com").await.unwrap();
+        let item = SearchItem {
+            id: luma_domain::ResultId::new("ql:add:docs"),
+            module_id: ModuleId::new("luma.quicklinks"),
+            title: "Add docs".into(),
+            subtitle: None,
+            kind: "update".into(),
+            score: 1.0,
+            primary_action: ActionDescriptor {
+                id: ActionId::new("delete"),
+                label: "Delete".into(),
+                risk: ActionRisk::Destructive,
+                confirmation: true,
+            },
+            secondary_actions: vec![],
+            ui_intent: None,
+            action_payload: None,
+        };
+        let actions = m.actions(&item).await;
+        assert!(actions.is_empty() || actions[0].id.as_str() != "delete");
+        let outcome = m
+            .perform(
+                ActionRequest {
+                    result: item,
+                    action: ActionDescriptor {
+                        id: ActionId::new("delete"),
+                        label: "Delete".into(),
+                        risk: ActionRisk::Destructive,
+                        confirmation: true,
+                    },
+                    confirmation: true,
+                },
+                CancellationToken::new(),
+            )
+            .await;
+        assert!(matches!(
+            outcome,
+            ActionOutcome::Failed {
+                kind: FailureKind::InvalidInput { .. }
+            }
+        ));
     }
 }

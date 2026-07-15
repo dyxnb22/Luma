@@ -10,6 +10,7 @@ use std::sync::{Mutex, OnceLock};
 /// Live macOS adapter.
 pub struct MacWindowCatalog {
     previous_frontmost: Mutex<Option<String>>,
+    paste_target: Mutex<Option<String>>,
 }
 
 impl Default for MacWindowCatalog {
@@ -22,6 +23,13 @@ impl MacWindowCatalog {
     pub fn new() -> Self {
         Self {
             previous_frontmost: Mutex::new(None),
+            paste_target: Mutex::new(None),
+        }
+    }
+
+    fn set_paste_target_locked(&self, label: Option<String>) {
+        if let Ok(mut g) = self.paste_target.lock() {
+            *g = label;
         }
     }
 
@@ -123,6 +131,22 @@ impl MacWindowCatalog {
             .map(|e| e.app_name.clone())
     }
 
+    fn focus_app_blocking(app_name: &str) -> Result<(), WindowError> {
+        let entries = Self::list_windows_blocking()?;
+        let Some(target) = entries
+            .iter()
+            .find(|e| e.app_name == app_name && e.is_on_screen)
+        else {
+            return Err(WindowError::NotFound(format!("app {app_name}")));
+        };
+        Self::focus_blocking(&target.id)
+    }
+
+    fn frontmost_app_blocking() -> Result<Option<String>, WindowError> {
+        let entries = Self::list_windows_blocking()?;
+        Ok(Self::snapshot_blocking(&entries))
+    }
+
     fn focus_blocking(id: &str) -> Result<(), WindowError> {
         if !unsafe { AXIsProcessTrusted() } {
             return Err(WindowError::PermissionRequired {
@@ -156,6 +180,7 @@ impl MacWindowCatalog {
             .lock()
             .map_err(|_| WindowError::Unavailable("previous_frontmost lock poisoned".into()))? =
             label.clone();
+        self.set_paste_target_locked(label.clone());
         Ok(label)
     }
 }
@@ -296,11 +321,33 @@ impl WindowCatalogPort for MacWindowCatalog {
             .lock()
             .map_err(|_| WindowError::Unavailable("previous_frontmost lock poisoned".into()))? =
             label.clone();
+        self.set_paste_target_locked(label.clone());
         Ok(label)
     }
 
     async fn previous_frontmost_app(&self) -> Option<String> {
         self.previous_frontmost.lock().ok().and_then(|g| g.clone())
+    }
+
+    async fn paste_target_app(&self) -> Option<String> {
+        self.paste_target.lock().ok().and_then(|g| g.clone())
+    }
+
+    async fn set_paste_target_app(&self, app_name: Option<String>) {
+        self.set_paste_target_locked(app_name);
+    }
+
+    async fn focus_app_by_name(&self, app_name: &str) -> Result<(), WindowError> {
+        let name = app_name.to_string();
+        tokio::task::spawn_blocking(move || MacWindowCatalog::focus_app_blocking(&name))
+            .await
+            .map_err(|e| WindowError::Unavailable(e.to_string()))?
+    }
+
+    async fn frontmost_app_name(&self) -> Result<Option<String>, WindowError> {
+        tokio::task::spawn_blocking(MacWindowCatalog::frontmost_app_blocking)
+            .await
+            .map_err(|e| WindowError::Unavailable(e.to_string()))?
     }
 
     async fn list_windows(&self) -> Result<Vec<WindowEntry>, WindowError> {

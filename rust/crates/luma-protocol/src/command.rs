@@ -39,5 +39,6 @@ pub enum Command {
         preview_id: u64,
     },
     LoadHub,
+    GetSnapshot,
     ShutdownSession,
 }

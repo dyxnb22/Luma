@@ -2,9 +2,9 @@
 
 use async_trait::async_trait;
 use luma_application::{
-    AppEntry, AppsCatalogPort, FakeAccessibility, FakeOpenPath, LumaModule, MemoryClipboardHistory,
-    MemoryQuicklinksRepository, MemorySnippetsRepository, PasteboardError, PasteboardPort,
-    QuicklinksRepository, SnippetsRepository, WarmupContext,
+    AppEntry, AppsCatalogPort, FakeAccessibility, FakeOpenPath, FakeWindowCatalog, LumaModule,
+    MemoryClipboardHistory, MemoryQuicklinksRepository, MemorySnippetsRepository, PasteboardError,
+    PasteboardPort, QuicklinksRepository, SnippetsRepository, WarmupContext,
 };
 use luma_domain::Query;
 use luma_modules::{
@@ -38,6 +38,7 @@ async fn clipboard_clear_row_matches_actions_contract() {
             trusted: false,
             paste_ok: false,
         }),
+        Arc::new(FakeWindowCatalog::default()),
         Arc::new(ClipboardSuppression::new()),
     );
     m.warmup(WarmupContext {
@@ -101,6 +102,7 @@ async fn snippets_overwrite_row_matches_actions_contract() {
             trusted: false,
             paste_ok: false,
         }),
+        Arc::new(FakeWindowCatalog::default()),
     );
     m.warmup(WarmupContext {
         cancel: CancellationToken::new(),

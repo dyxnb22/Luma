@@ -37,6 +37,56 @@ impl ActionDescriptorDto {
     }
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SearchFailure {
+    Unavailable { reason: String },
+    NotConfigured { hint: String },
+    PermissionRequired { capability: String },
+    Warming,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SearchStatus {
+    Ready,
+    Warming,
+    Failed(SearchFailure),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum UiIntent {
+    Browse,
+    SeedConfig,
+    ListIssues,
+    SeedAdd,
+    OpenPath,
+}
+
+impl UiIntent {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Browse => "browse",
+            Self::SeedConfig => "seed_config",
+            Self::ListIssues => "list_issues",
+            Self::SeedAdd => "seed_add",
+            Self::OpenPath => "open_path",
+        }
+    }
+
+    pub fn parse(tag: &str) -> Option<Self> {
+        match tag {
+            "browse" => Some(Self::Browse),
+            "seed_config" | "configure" => Some(Self::SeedConfig),
+            "list_issues" => Some(Self::ListIssues),
+            "seed_add" => Some(Self::SeedAdd),
+            "open_path" => Some(Self::OpenPath),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct SearchItemDto {
     pub id: String,
@@ -53,6 +103,10 @@ pub struct SearchItemDto {
     pub primary_action_confirmation: bool,
     #[serde(default)]
     pub secondary_actions: Vec<ActionDescriptorDto>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ui_intent: Option<UiIntent>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub action_payload: Option<serde_json::Value>,
 }
 
 impl Default for SearchItemDto {
@@ -69,6 +123,8 @@ impl Default for SearchItemDto {
             primary_action_risk: ActionRisk::Safe,
             primary_action_confirmation: false,
             secondary_actions: Vec::new(),
+            ui_intent: None,
+            action_payload: None,
         }
     }
 }
@@ -91,6 +147,8 @@ impl From<&SearchItem> for SearchItemDto {
                 .iter()
                 .map(ActionDescriptorDto::from)
                 .collect(),
+            ui_intent: item.ui_intent.as_deref().and_then(UiIntent::parse),
+            action_payload: item.action_payload.clone(),
         }
     }
 }
@@ -115,6 +173,8 @@ impl SearchItemDto {
                 .into_iter()
                 .map(ActionDescriptorDto::into_domain)
                 .collect(),
+            ui_intent: self.ui_intent.map(|i| i.as_str().to_string()),
+            action_payload: self.action_payload,
         }
     }
 }
@@ -223,6 +283,11 @@ pub enum Event {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         windows: Option<HubWindowsDto>,
     },
+    SnapshotLoaded {
+        items: Vec<SearchItemDto>,
+        #[serde(default, skip_serializing_if = "std::collections::HashMap::is_empty")]
+        module_states: std::collections::HashMap<String, String>,
+    },
     SearchStarted {
         request_id: String,
     },
@@ -321,6 +386,8 @@ mod tests {
             primary_action_risk: ActionRisk::Destructive,
             primary_action_confirmation: true,
             secondary_actions: vec![],
+            ui_intent: None,
+            action_payload: None,
         };
         let item = dto.clone().into_domain();
         assert_eq!(item.primary_action.risk, ActionRisk::Destructive);

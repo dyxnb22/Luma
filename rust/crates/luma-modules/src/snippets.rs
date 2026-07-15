@@ -1,8 +1,9 @@
 use crate::cancel::await_unless_cancelled;
 use async_trait::async_trait;
 use luma_application::{
-    AccessibilityPort, ActionOutcome, ActionRequest, LumaModule, ModuleManifest, ModuleState,
-    PasteboardPort, SearchMode, SearchSink, SnippetEntry, SnippetsRepository, WarmupContext,
+    paste_to_target_app, AccessibilityPort, ActionOutcome, ActionRequest, LumaModule,
+    ModuleManifest, ModuleState, PasteboardPort, SearchMode, SearchSink, SnippetEntry,
+    SnippetsRepository, WarmupContext, WindowCatalogPort,
 };
 use luma_domain::{
     ActionDescriptor, ActionId, ActionRisk, FailureKind, ModuleId, Query, SearchItem,
@@ -21,6 +22,7 @@ pub struct SnippetsModule {
     store_error: RwLock<Option<String>>,
     pasteboard: Arc<dyn PasteboardPort>,
     accessibility: Arc<dyn AccessibilityPort>,
+    window_catalog: Arc<dyn WindowCatalogPort>,
 }
 
 impl SnippetsModule {
@@ -28,6 +30,7 @@ impl SnippetsModule {
         store: Arc<dyn SnippetsRepository>,
         pasteboard: Arc<dyn PasteboardPort>,
         accessibility: Arc<dyn AccessibilityPort>,
+        window_catalog: Arc<dyn WindowCatalogPort>,
     ) -> Self {
         Self {
             manifest: ModuleManifest {
@@ -36,7 +39,7 @@ impl SnippetsModule {
                 triggers: vec!["s".into(), "snip".into()],
                 default_enabled: true,
                 search_mode: SearchMode::TargetedOnly,
-                required_capabilities: vec![],
+                required_capabilities: vec!["accessibility".into()],
                 workbench: luma_application::WorkbenchMeta {
                     glyph: Some("S".into()),
                     suggested_query: Some("s ".into()),
@@ -49,6 +52,7 @@ impl SnippetsModule {
             store_error: RwLock::new(None),
             pasteboard,
             accessibility,
+            window_catalog,
         }
     }
 
@@ -225,6 +229,7 @@ impl LumaModule for SnippetsModule {
                 ..Default::default()
             });
         }
+        upserts.truncate(query.limit);
         if !upserts.is_empty() {
             let _ = sink
                 .send(Event::ResultsChunk {
@@ -424,38 +429,22 @@ impl LumaModule for SnippetsModule {
                         },
                     };
                 }
-                if !self.accessibility.is_trusted() {
-                    return ActionOutcome::Failed {
-                        kind: FailureKind::PermissionRequired {
-                            capability: "accessibility".into(),
-                            guidance: "Grant Accessibility to paste".into(),
-                        },
-                    };
-                }
-                match await_unless_cancelled(&cancel, self.pasteboard.write_text(&body)).await {
+                match await_unless_cancelled(
+                    &cancel,
+                    paste_to_target_app(
+                        self.window_catalog.clone(),
+                        self.pasteboard.clone(),
+                        self.accessibility.clone(),
+                        &body,
+                    ),
+                )
+                .await
+                {
                     None => ActionOutcome::Cancelled,
-                    Some(Ok(())) => {
-                        match await_unless_cancelled(&cancel, self.accessibility.paste_clipboard())
-                            .await
-                        {
-                            None => ActionOutcome::Cancelled,
-                            Some(Ok(())) => ActionOutcome::Success {
-                                message: Some("pasted".into()),
-                            },
-                            Some(Err(_)) => ActionOutcome::Failed {
-                                kind: FailureKind::PermissionRequired {
-                                    capability: "accessibility".into(),
-                                    guidance: "Grant Accessibility to paste".into(),
-                                },
-                            },
-                        }
-                    }
-                    Some(Err(err)) => ActionOutcome::Failed {
-                        kind: FailureKind::Unavailable {
-                            reason: err.to_string(),
-                            retryable: true,
-                        },
+                    Some(Ok(())) => ActionOutcome::Success {
+                        message: Some("pasted".into()),
                     },
+                    Some(Err(kind)) => ActionOutcome::Failed { kind },
                 }
             }
             other => ActionOutcome::Failed {

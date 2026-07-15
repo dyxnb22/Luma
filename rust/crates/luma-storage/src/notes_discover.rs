@@ -2,6 +2,7 @@
 
 use crate::notes_ignore::{rel_path_str, IgnoreMatcher};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use walkdir::WalkDir;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -40,10 +41,20 @@ pub struct DiscoverResult {
     /// False when the root is missing/unreadable or any walk error occurred.
     /// Incomplete discoveries must not drive a global prune.
     pub complete: bool,
+    /// True when traversal stopped early due to cancellation.
+    pub cancelled: bool,
+}
+
+fn is_cancelled(cancel: Option<&AtomicBool>) -> bool {
+    cancel.is_some_and(|c| c.load(Ordering::Relaxed))
 }
 
 /// Discover `.md` files under `workspace_root`, honoring ignore rules and skipping symlinks.
-pub fn discover(workspace_root: &Path, matcher: &IgnoreMatcher) -> DiscoverResult {
+pub fn discover(
+    workspace_root: &Path,
+    matcher: &IgnoreMatcher,
+    cancel: Option<&AtomicBool>,
+) -> DiscoverResult {
     let mut result = DiscoverResult {
         complete: true,
         ..DiscoverResult::default()
@@ -74,10 +85,19 @@ pub fn discover(workspace_root: &Path, matcher: &IgnoreMatcher) -> DiscoverResul
         }
     }
 
+    if is_cancelled(cancel) {
+        result.cancelled = true;
+        result.complete = false;
+        return result;
+    }
+
     for entry in WalkDir::new(root)
         .follow_links(false)
         .into_iter()
         .filter_entry(|entry| {
+            if is_cancelled(cancel) {
+                return false;
+            }
             if entry.depth() == 0 {
                 return true;
             }
@@ -98,6 +118,12 @@ pub fn discover(workspace_root: &Path, matcher: &IgnoreMatcher) -> DiscoverResul
             true
         })
     {
+        if is_cancelled(cancel) {
+            result.cancelled = true;
+            result.complete = false;
+            break;
+        }
+
         let entry = match entry {
             Ok(e) => e,
             Err(err) => {
@@ -229,16 +255,25 @@ mod tests {
     }
 
     #[test]
+    fn discover_respects_cancel_flag() {
+        let root = fixture_root("basic");
+        let cancel = std::sync::atomic::AtomicBool::new(true);
+        let result = discover(&root, &IgnoreMatcher::default(), Some(&cancel));
+        assert!(result.cancelled);
+        assert!(!result.complete);
+    }
+
+    #[test]
     fn basic_discovers_seven_md_files() {
         let root = fixture_root("basic");
-        let result = discover(&root, &IgnoreMatcher::default());
+        let result = discover(&root, &IgnoreMatcher::default(), None);
         assert_eq!(result.files.len(), 7, "files: {:?}", result.files);
     }
 
     #[test]
     fn hidden_ignores_git() {
         let root = fixture_root("hidden");
-        let result = discover(&root, &IgnoreMatcher::default());
+        let result = discover(&root, &IgnoreMatcher::default(), None);
         assert_eq!(result.files.len(), 1);
         assert!(result.files[0]
             .file_name()
@@ -258,7 +293,7 @@ mod tests {
     fn excluded_private_pattern() {
         let root = fixture_root("excluded");
         let matcher = IgnoreMatcher::new(vec![], vec!["private/*".into()]);
-        let result = discover(&root, &matcher);
+        let result = discover(&root, &matcher, None);
         assert_eq!(result.files.len(), 1);
         assert!(result.files[0].to_string_lossy().contains("public/note.md"));
     }
@@ -266,7 +301,7 @@ mod tests {
     #[test]
     fn symlinks_skip_link_md() {
         let root = fixture_root("symlinks");
-        let result = discover(&root, &IgnoreMatcher::default());
+        let result = discover(&root, &IgnoreMatcher::default(), None);
         assert_eq!(result.files.len(), 1);
         assert!(result.files[0]
             .file_name()

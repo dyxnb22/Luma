@@ -24,7 +24,7 @@ Personal daily-driver status. Prefer honest `unavailable` / `permission_required
 | Quicklinks | `ql` / `quicklinks` | Available — add/overwrite, open, copy URL, delete | on |
 | Snippets | `s` / `snip` | Available — search; add/overwrite; copy/paste; delete | on |
 | Projects | `p` / `proj` / `project` | Available — scan/open; `proj browse [path]` (relative names resolve under roots) | on |
-| Secrets | `sec` / `secret` / `secrets` | Copy-only for pre-provisioned labels; Keychain bootstrap below; unlock is in-process UX only (no Touch ID); copy confirm | on |
+| Secrets | `sec` / `secret` / `secrets` | Copy-only for pre-provisioned labels; `luma secrets set` bootstrap; unlock is in-process UX only (no Touch ID); copy confirm | **off** (enable in Settings after bootstrap) |
 | Fake | — | Test/demo module for CLI blackbox | **off** |
 
 ### Secrets Keychain bootstrap
@@ -35,9 +35,10 @@ No provisioning UI. Labels come from a sidecar plus Keychain entries:
 - **Sidecar:** `~/Library/Application Support/LumaNext/secrets-labels.json` (label list only; no values)
 - **Add a secret (CLI):**
   ```bash
-  security add-generic-password -s com.luma.next.secrets -a api-token -w '…' -U
+  printf '%s' 'your-secret-value' | luma secrets set api-token
   ```
-  The macOS adapter appends the account to the sidecar on successful add.
+  Reads the value from **stdin** (never argv). The macOS adapter writes Keychain and appends the account to the sidecar.
+- **Enable module:** `luma config set --enable-module luma.secrets` (default-off until labels exist).
 - **Search honesty:** empty labels → `not_configured` row with bootstrap hint; sidecar/keychain errors → `unavailable`; values never appear in search (copy-only after unlock + confirm).
 - **Unlock:** in-process session gate only — not Touch ID, Keychain ACL, or an OS auth prompt. Lock on teardown or exit.
 

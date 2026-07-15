@@ -1,12 +1,18 @@
 use crate::theme::{module_glyph, module_label, ResultKindVisual, Symbols, Theme};
 use crate::view_model::{AppState, Route, StatusTone};
 use luma_domain::{ActionRisk, SearchItem};
-use ratatui::layout::{Alignment, Constraint, Direction, Layout, Rect};
-use ratatui::style::{Color, Modifier, Style};
+use ratatui::layout::{Constraint, Direction, Layout, Rect};
+use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Clear, List, ListItem, Paragraph, Wrap};
+use ratatui::widgets::{Block, Borders, List, ListItem, Paragraph, Wrap};
 use ratatui::Frame;
-use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
+mod overlays;
+mod util;
+
+use overlays::*;
+use util::{
+    display_width, highlight_query, highlighted_spans, pad_line_to_width, pad_right, truncate,
+};
 
 /// Pure projection. Must not mutate state, start tasks, or read the environment.
 pub fn render(frame: &mut Frame<'_>, state: &AppState) {
@@ -68,10 +74,16 @@ fn render_prompt(
     symbols: &Symbols,
     focused: bool,
 ) {
+    let inner_w = area.width.saturating_sub(2) as usize;
+    let _ = inner_w;
     let cursor = if focused { symbols.cursor } else { " " };
-    let mut chars = state.prompt.chars();
-    let before: String = chars.by_ref().take(state.prompt_cursor).collect();
-    let after: String = chars.collect();
+    let chars: Vec<char> = state.prompt.chars().collect();
+    let before: String = chars
+        .iter()
+        .skip(state.prompt_scroll)
+        .take(state.prompt_cursor.saturating_sub(state.prompt_scroll))
+        .collect();
+    let after: String = chars.iter().skip(state.prompt_cursor).collect();
     let line = Line::from(vec![
         Span::styled("  ", theme.muted()),
         Span::styled(before, theme.text()),
@@ -148,7 +160,30 @@ fn render_results(
 
     let title = if state.results.items.is_empty() {
         if state.prompt.trim().is_empty() {
-            " hub ".to_string()
+            let hub_total = state.hub_rows().len();
+            let sel = state.hub_selected + 1;
+            let mut scroll_marks = String::new();
+            if state.hub_scroll > 0 {
+                scroll_marks.push_str(symbols.up);
+            }
+            if state.hub_scroll + state.hub_data_capacity() < hub_total {
+                scroll_marks.push_str(symbols.down);
+            }
+            let scroll_part = if scroll_marks.is_empty() {
+                String::new()
+            } else {
+                format!(" {scroll_marks}")
+            };
+            if hub_total > 0 {
+                format!(
+                    " hub {} {}/{}{scroll_part} ",
+                    symbols.sep,
+                    sel.min(hub_total),
+                    hub_total
+                )
+            } else {
+                " hub ".to_string()
+            }
         } else {
             " results ".to_string()
         }
@@ -216,9 +251,10 @@ fn hub_list_items(state: &AppState, theme: &Theme, symbols: &Symbols) -> Vec<Lis
     let mut out = Vec::new();
     let mut shown_windows = false;
     let mut shown_modules = false;
-    let viewport = state.results.viewport_rows.max(1);
+    let viewport = state.hub_data_capacity();
     let start = state.hub_scroll.min(rows.len());
     let end = (start + viewport).min(rows.len());
+    let module_global_start = rows.iter().position(|(k, _, _, _)| k == "module");
     let window = &rows[start..end];
     for (idx, (kind, _id, title, query)) in window.iter().enumerate().map(|(i, r)| (start + i, r)) {
         if (kind == "window" || kind == "window_more" || kind == "window_status")
@@ -245,7 +281,7 @@ fn hub_list_items(state: &AppState, theme: &Theme, symbols: &Symbols) -> Vec<Lis
                 Line::from(Span::styled(hint, theme.key_hint())),
             ]));
         }
-        if kind == "module" && !shown_modules {
+        if kind == "module" && !shown_modules && module_global_start == Some(idx) {
             shown_modules = true;
             out.push(ListItem::new(vec![
                 Line::from(Span::styled("  Modules", theme.title())),
@@ -602,110 +638,6 @@ fn result_row(
     ListItem::new(vec![Line::from(title_spans), Line::from(sub_spans)])
 }
 
-fn pad_line_to_width(spans: &mut Vec<Span<'static>>, width: usize, fill: Style) {
-    let used: usize = spans
-        .iter()
-        .map(|s| display_width(s.content.as_ref()))
-        .sum();
-    if used < width {
-        spans.push(Span::styled(" ".repeat(width - used), fill));
-    }
-}
-
-fn highlight_query(prompt: &str) -> String {
-    const TRIGGERS: &[&str] = &[
-        "app",
-        "apps",
-        "clip",
-        "cb",
-        "n",
-        "note",
-        "notes",
-        "ql",
-        "quicklinks",
-        "s",
-        "snip",
-        "proj",
-        "project",
-        "sec",
-        "secret",
-        "secrets",
-        "fake",
-        "echo",
-        "p",
-    ];
-    let tokens: Vec<&str> = prompt.split_whitespace().collect();
-    if tokens.is_empty() {
-        return String::new();
-    }
-    let start = if TRIGGERS.iter().any(|t| tokens[0].eq_ignore_ascii_case(t)) {
-        1
-    } else {
-        0
-    };
-    tokens[start..].join(" ")
-}
-
-fn highlighted_spans(
-    text: &str,
-    query: &str,
-    normal: Style,
-    highlight: Style,
-) -> Vec<Span<'static>> {
-    if query.trim().is_empty() || text.is_empty() {
-        return vec![Span::styled(text.to_string(), normal)];
-    }
-
-    let chars: Vec<char> = text.chars().collect();
-    let lower_chars: Vec<char> = chars
-        .iter()
-        .map(|c| c.to_lowercase().next().unwrap_or(*c))
-        .collect();
-    let mut marks = vec![false; chars.len()];
-
-    for needle in query.split_whitespace().filter(|n| !n.is_empty()) {
-        let needle_chars: Vec<char> = needle.to_lowercase().chars().collect();
-        if needle_chars.is_empty() {
-            continue;
-        }
-        let mut i = 0;
-        while i + needle_chars.len() <= lower_chars.len() {
-            if lower_chars[i..i + needle_chars.len()] == needle_chars[..] {
-                for m in &mut marks[i..i + needle_chars.len()] {
-                    *m = true;
-                }
-                i += needle_chars.len();
-            } else {
-                i += 1;
-            }
-        }
-    }
-
-    let mut spans = Vec::new();
-    let mut current = String::new();
-    let mut current_hl = marks.first().copied().unwrap_or(false);
-    for (ch, &hl) in chars.iter().zip(marks.iter()) {
-        if hl != current_hl && !current.is_empty() {
-            spans.push(Span::styled(
-                std::mem::take(&mut current),
-                if current_hl { highlight } else { normal },
-            ));
-            current_hl = hl;
-        }
-        current.push(*ch);
-    }
-    if !current.is_empty() {
-        spans.push(Span::styled(
-            current,
-            if current_hl { highlight } else { normal },
-        ));
-    }
-    if spans.is_empty() {
-        spans.push(Span::styled(text.to_string(), normal));
-    }
-    spans
-}
-
 fn render_status(
     frame: &mut Frame<'_>,
     area: Rect,
@@ -755,8 +687,8 @@ fn render_status(
             symbols.up, symbols.down, symbols.sep
         ),
         Route::Doctor => format!(
-            "{}{} scroll {} Esc Back",
-            symbols.up, symbols.down, symbols.sep
+            "{}{} scroll {} r raw {} Esc Back",
+            symbols.up, symbols.down, symbols.sep, symbols.sep
         ),
     };
     let count = if state.results.items.is_empty() {
@@ -777,8 +709,17 @@ fn render_status(
         format!("{} results{module_part}   ", state.results.items.len())
     };
 
+    let inner_w = area.width.saturating_sub(2) as usize;
+    let hints_budget = inner_w.saturating_sub(24).max(16);
+    let status_text = truncate(
+        &state.status.text,
+        inner_w.saturating_sub(hints_budget).max(8),
+        symbols,
+    );
+    let hints = truncate(&hints, hints_budget, symbols);
+
     let line = Line::from(vec![
-        Span::styled(format!(" {}  ", state.status.text), status_style),
+        Span::styled(format!(" {status_text}  "), status_style),
         Span::styled(count, theme.muted()),
         Span::styled(hints, theme.key_hint()),
     ]);
@@ -799,576 +740,6 @@ fn status_style(tone: StatusTone, theme: &Theme) -> Style {
         StatusTone::Warning => theme.warning(),
         StatusTone::Error => theme.error(),
         StatusTone::Permission => theme.permission(),
-    }
-}
-
-fn overlay_area(frame_area: Rect, prefer_height: u16) -> Rect {
-    let width = (frame_area.width.saturating_mul(2) / 3)
-        .max(36)
-        .min(frame_area.width.saturating_sub(4));
-    let height = prefer_height
-        .min(frame_area.height.saturating_sub(4))
-        .max(5);
-    let x = frame_area.x + (frame_area.width.saturating_sub(width)) / 2;
-    let y = frame_area.y + (frame_area.height.saturating_sub(height)) / 2;
-    Rect::new(x, y, width, height)
-}
-
-fn dim_backdrop(frame: &mut Frame<'_>, area: Rect, theme: &Theme) {
-    let dim = Block::default().style(Style::default().bg(theme.overlay_dim));
-    frame.render_widget(dim, area);
-}
-
-/// Paint overlay panel with theme background (avoid `Clear`, which uses the terminal default).
-fn fill_overlay_panel(frame: &mut Frame<'_>, area: Rect, theme: &Theme) {
-    frame.render_widget(Block::default().style(panel_style(theme)), area);
-}
-
-fn panel_style(theme: &Theme) -> Style {
-    Style::default().bg(theme.panel_bg).fg(theme.text)
-}
-
-fn with_panel_bg(style: Style, theme: &Theme) -> Style {
-    style.bg(theme.panel_bg)
-}
-
-fn render_overlay_confirm(
-    frame: &mut Frame<'_>,
-    area: Rect,
-    state: &AppState,
-    theme: &Theme,
-    symbols: &Symbols,
-) {
-    dim_backdrop(frame, area, theme);
-    let overlay = overlay_area(area, 9);
-    fill_overlay_panel(frame, overlay, theme);
-    let panel = panel_style(theme);
-
-    let pending = state.pending_action.as_ref();
-    let action = pending.map(|p| p.action.label.as_str()).unwrap_or("action");
-    let risk = pending.map(|p| &p.action.risk);
-    let target = pending
-        .and_then(|p| {
-            state
-                .results
-                .items
-                .iter()
-                .find(|i| i.id.as_str() == p.result_id)
-        })
-        .map(|i| i.title.as_str())
-        .unwrap_or("selected item");
-
-    let (title_style, risk_label) = match risk {
-        Some(ActionRisk::Destructive) => (theme.destructive(), "DESTRUCTIVE"),
-        Some(ActionRisk::Confirm) => (theme.warning(), "CONFIRM"),
-        _ => (theme.accent(), "CONFIRM"),
-    };
-    let title_style = with_panel_bg(title_style, theme);
-
-    let lines = vec![
-        Line::from(Span::styled(format!(" {risk_label} "), title_style)),
-        Line::from(Span::styled("", panel)),
-        Line::from(vec![
-            Span::styled("  ", with_panel_bg(theme.muted(), theme)),
-            Span::styled(
-                action,
-                with_panel_bg(theme.text().add_modifier(Modifier::BOLD), theme),
-            ),
-            Span::styled(" -> ", with_panel_bg(theme.muted(), theme)),
-            Span::styled(target, with_panel_bg(theme.accent(), theme)),
-        ]),
-        Line::from(Span::styled("", panel)),
-        Line::from(Span::styled(
-            format!("  Enter confirm {} Esc cancel", symbols.sep),
-            with_panel_bg(theme.key_hint(), theme),
-        )),
-    ];
-
-    let widget = Paragraph::new(lines)
-        .style(panel)
-        .alignment(Alignment::Left)
-        .block(
-            Block::default()
-                .borders(Borders::ALL)
-                .border_style(title_style)
-                .style(panel)
-                .title(Span::styled(" confirm ", title_style)),
-        );
-    frame.render_widget(widget, overlay);
-}
-
-fn render_overlay_action_picker(
-    frame: &mut Frame<'_>,
-    area: Rect,
-    state: &AppState,
-    theme: &Theme,
-    symbols: &Symbols,
-) {
-    dim_backdrop(frame, area, theme);
-    let rows = (state.action_choices.len() as u16).saturating_add(2).max(6);
-    let overlay = overlay_area(area, rows.min(16));
-    fill_overlay_panel(frame, overlay, theme);
-    let panel = panel_style(theme);
-
-    let target = state
-        .action_result_id
-        .as_ref()
-        .and_then(|id| {
-            state
-                .results
-                .items
-                .iter()
-                .find(|i| i.id.as_str() == id.as_str())
-        })
-        .map(|i| i.title.clone())
-        .unwrap_or_else(|| "item".into());
-
-    let items: Vec<ListItem> = state
-        .action_choices
-        .iter()
-        .enumerate()
-        .map(|(idx, action)| {
-            let selected = idx == state.action_selected;
-            let prefix = if selected { symbols.selected } else { " " };
-            let row_bg = if selected {
-                Style::default().bg(theme.selected_bg)
-            } else {
-                Style::default().bg(theme.panel_bg)
-            };
-            let style = if selected {
-                theme.selected_row()
-            } else {
-                theme.row()
-            }
-            .patch(row_bg);
-            let risk_style = match action.risk {
-                ActionRisk::Destructive => theme.destructive().patch(row_bg),
-                ActionRisk::Confirm => theme.warning().patch(row_bg),
-                ActionRisk::Safe => theme.muted().patch(row_bg),
-            };
-            let risk = match action.risk {
-                ActionRisk::Destructive => "destructive",
-                ActionRisk::Confirm => "confirm",
-                ActionRisk::Safe => "safe",
-            };
-            let confirm = if action.confirmation {
-                format!(" {} asks", symbols.sep)
-            } else {
-                String::new()
-            };
-            ListItem::new(Line::from(vec![
-                Span::styled(format!("{prefix} {} ", action.label), style),
-                Span::styled(format!("({risk}{confirm})"), risk_style),
-            ]))
-        })
-        .collect();
-
-    let list = List::new(items).style(panel).block(
-        Block::default()
-            .borders(Borders::ALL)
-            .border_style(with_panel_bg(theme.border(true), theme))
-            .style(panel)
-            .title(Span::styled(
-                format!(" actions {} {target} ", symbols.sep),
-                with_panel_bg(theme.title(), theme),
-            )),
-    );
-    frame.render_widget(list, overlay);
-}
-
-fn render_overlay_help(
-    frame: &mut Frame<'_>,
-    area: Rect,
-    state: &AppState,
-    theme: &Theme,
-    symbols: &Symbols,
-) {
-    dim_backdrop(frame, area, theme);
-    // Shortcuts first (compact), then enabled modules — config tips last so narrow
-    // terminals still see modules after a short scroll.
-    let mut lines: Vec<String> = vec![
-        "Triggers need a trailing space (`n docker`) · Esc clears · empty Esc quits".to_string(),
-        "Enter action · Ctrl-k actions · Ctrl-/ commands · Tab focus · ? help".to_string(),
-        format!(
-            "{}{} / PgUp PgDn move · Ctrl-u home · Ctrl-w word",
-            symbols.up, symbols.down
-        ),
-        String::new(),
-        "Enabled modules:".to_string(),
-    ];
-    let mut modules: Vec<_> = state.module_catalog.iter().filter(|m| m.enabled).collect();
-    modules.sort_by(|a, b| {
-        a.display_name
-            .to_lowercase()
-            .cmp(&b.display_name.to_lowercase())
-    });
-    if modules.is_empty() {
-        lines.push("  (waiting for session catalog)".to_string());
-    } else {
-        for m in modules {
-            let triggers = if m.triggers.is_empty() {
-                "—".to_string()
-            } else {
-                m.triggers.join("/")
-            };
-            lines.push(format!("  {} · {}", m.display_name, triggers));
-        }
-    }
-    lines.push(String::new());
-    lines.push("Config: luma config set --notes-root ~/Notes".to_string());
-    lines.push("        luma config set --projects-root ~/dev".to_string());
-    lines.push("Confirm / Destructive actions always ask first.".to_string());
-
-    let overlay = overlay_area(area, (area.height.saturating_sub(2)).clamp(12, 22));
-    fill_overlay_panel(frame, overlay, theme);
-    let panel = panel_style(theme);
-    let inner_h = overlay.height.saturating_sub(2) as usize;
-    let max_scroll = lines.len().saturating_sub(inner_h.max(1));
-    let scroll = state.help_scroll.min(max_scroll);
-    let visible = lines
-        .iter()
-        .skip(scroll)
-        .take(inner_h.max(1))
-        .cloned()
-        .collect::<Vec<_>>()
-        .join("\n");
-    let title = if max_scroll > 0 {
-        format!(
-            " help {} {}/{} ",
-            symbols.sep,
-            scroll + 1,
-            lines.len().max(1)
-        )
-    } else {
-        " help ".to_string()
-    };
-    let widget = Paragraph::new(visible)
-        .style(panel)
-        .wrap(Wrap { trim: false })
-        .block(
-            Block::default()
-                .borders(Borders::ALL)
-                .border_style(with_panel_bg(theme.border(true), theme))
-                .style(panel)
-                .title(Span::styled(title, with_panel_bg(theme.title(), theme))),
-        );
-    frame.render_widget(widget, overlay);
-}
-
-fn render_overlay_doctor(
-    frame: &mut Frame<'_>,
-    area: Rect,
-    state: &AppState,
-    theme: &Theme,
-    symbols: &Symbols,
-) {
-    dim_backdrop(frame, area, theme);
-    let overlay = overlay_area(area, (area.height.saturating_sub(4)).clamp(8, 20));
-    fill_overlay_panel(frame, overlay, theme);
-    let panel = panel_style(theme);
-    let full = state.doctor_diagnostic.as_ref().map_or_else(
-        || format!("Waiting for engine diagnostics{}", symbols.ellipsis),
-        format_doctor_panel,
-    );
-    let lines: Vec<&str> = full.lines().collect();
-    let inner_h = overlay.height.saturating_sub(2) as usize;
-    let max_scroll = lines.len().saturating_sub(inner_h.max(1));
-    let scroll = state.doctor_scroll.min(max_scroll);
-    let visible: String = lines
-        .iter()
-        .skip(scroll)
-        .take(inner_h.max(1))
-        .cloned()
-        .collect::<Vec<_>>()
-        .join("\n");
-    let title = if max_scroll > 0 {
-        format!(
-            " doctor {} {}/{} ",
-            symbols.sep,
-            scroll + 1,
-            lines.len().max(1)
-        )
-    } else {
-        " doctor ".to_string()
-    };
-    let widget = Paragraph::new(visible)
-        .style(panel)
-        .wrap(Wrap { trim: false })
-        .block(
-            Block::default()
-                .borders(Borders::ALL)
-                .border_style(with_panel_bg(theme.border(true), theme))
-                .style(panel)
-                .title(Span::styled(title, with_panel_bg(theme.title(), theme))),
-        );
-    frame.render_widget(widget, overlay);
-}
-
-fn format_doctor_panel(diagnostic: &serde_json::Value) -> String {
-    let mut lines = Vec::new();
-    if let Some(remediation) = diagnostic.get("remediation").and_then(|v| v.as_array()) {
-        let tips: Vec<&str> = remediation
-            .iter()
-            .filter_map(|v| v.as_str())
-            .filter(|s| !s.is_empty())
-            .collect();
-        if !tips.is_empty() {
-            lines.push("Next steps:".to_string());
-            for tip in tips {
-                lines.push(format!("  · {tip}"));
-            }
-            lines.push(String::new());
-        }
-    }
-    if let Some(cmds) = diagnostic
-        .get("config_commands")
-        .and_then(|v| v.as_object())
-    {
-        if !cmds.is_empty() {
-            lines.push("Config:".to_string());
-            for (key, val) in cmds {
-                if let Some(cmd) = val.as_str() {
-                    lines.push(format!("  {key}: {cmd}"));
-                }
-            }
-            lines.push(String::new());
-        }
-    }
-    let notes = diagnostic
-        .pointer("/settings/notes_root")
-        .or_else(|| diagnostic.get("notes_root"))
-        .and_then(|v| v.as_str());
-    let projects = diagnostic
-        .pointer("/settings/projects_roots")
-        .or_else(|| diagnostic.get("projects_roots"))
-        .and_then(|v| v.as_array());
-    if notes.is_some() || projects.is_some() {
-        lines.push("Roots:".to_string());
-        lines.push(format!("  notes_root: {}", notes.unwrap_or("(not set)")));
-        let proj = projects
-            .map(|arr| {
-                let joined: Vec<&str> = arr.iter().filter_map(|v| v.as_str()).collect();
-                if joined.is_empty() {
-                    "(none)".into()
-                } else {
-                    joined.join(", ")
-                }
-            })
-            .unwrap_or_else(|| "(none)".into());
-        lines.push(format!("  projects_roots: {proj}"));
-        lines.push(String::new());
-    }
-    if lines.is_empty() {
-        serde_json::to_string_pretty(diagnostic).unwrap_or_else(|_| diagnostic.to_string())
-    } else {
-        lines.push("— raw —".into());
-        lines.push(
-            serde_json::to_string_pretty(diagnostic).unwrap_or_else(|_| diagnostic.to_string()),
-        );
-        lines.join("\n")
-    }
-}
-
-fn render_overlay_settings(
-    frame: &mut Frame<'_>,
-    area: Rect,
-    state: &AppState,
-    theme: &Theme,
-    symbols: &Symbols,
-) {
-    dim_backdrop(frame, area, theme);
-    let overlay = overlay_area(area, 16);
-    fill_overlay_panel(frame, overlay, theme);
-    let panel = panel_style(theme);
-    let mut items = Vec::new();
-    let notes_line = match &state.settings_roots.notes_root {
-        Some(root) if !root.is_empty() => format!(" Notes root: {root}"),
-        _ => " Notes root: (not set) · luma config set --notes-root ~/Notes".into(),
-    };
-    let projects_line = if state.settings_roots.projects_roots.is_empty() {
-        " Projects: (none) · luma config set --projects-root ~/dev".into()
-    } else {
-        format!(
-            " Projects: {}",
-            state.settings_roots.projects_roots.join(", ")
-        )
-    };
-    items.push(ListItem::new(Span::styled(
-        notes_line,
-        with_panel_bg(theme.muted(), theme),
-    )));
-    items.push(ListItem::new(Span::styled(
-        projects_line,
-        with_panel_bg(theme.muted(), theme),
-    )));
-    items.push(ListItem::new(Span::styled(
-        " — modules (Space toggles) —",
-        with_panel_bg(theme.muted(), theme),
-    )));
-    if state.settings_modules.is_empty() {
-        items.push(ListItem::new(Span::styled(
-            "  Loading modules…",
-            with_panel_bg(theme.muted(), theme),
-        )));
-    } else {
-        for (idx, row) in state.settings_modules.iter().enumerate() {
-            let selected = idx == state.settings_selected;
-            let prefix = if selected { symbols.selected } else { " " };
-            let mark = if row.enabled { "[on] " } else { "[off]" };
-            let style = if selected {
-                theme.selected_row()
-            } else {
-                with_panel_bg(theme.text(), theme)
-            };
-            items.push(ListItem::new(Span::styled(
-                format!(" {prefix} {mark} {}  ({})", row.name, row.id),
-                style,
-            )));
-        }
-    }
-    let list = List::new(items).style(panel).block(
-        Block::default()
-            .borders(Borders::ALL)
-            .border_style(with_panel_bg(theme.border(true), theme))
-            .style(panel)
-            .title(Span::styled(
-                format!(" settings v{} ", state.settings_version),
-                with_panel_bg(theme.title(), theme),
-            )),
-    );
-    frame.render_widget(list, overlay);
-}
-
-fn render_overlay_commands(
-    frame: &mut Frame<'_>,
-    area: Rect,
-    state: &AppState,
-    theme: &Theme,
-    symbols: &Symbols,
-) {
-    dim_backdrop(frame, area, theme);
-    let overlay = overlay_area(area, 10);
-    fill_overlay_panel(frame, overlay, theme);
-    let panel = panel_style(theme);
-    let commands = [
-        ("settings", "Open module settings"),
-        ("doctor", "Run diagnostics"),
-        ("help", "Keyboard help"),
-        ("quit", "Quit Luma"),
-    ];
-    let items: Vec<ListItem> = commands
-        .iter()
-        .enumerate()
-        .map(|(idx, (name, desc))| {
-            let selected = idx == state.commands_selected;
-            let prefix = if selected { symbols.selected } else { " " };
-            let style = if selected {
-                theme.selected_row()
-            } else {
-                with_panel_bg(theme.text(), theme)
-            };
-            let muted = if selected {
-                theme.selected_row()
-            } else {
-                with_panel_bg(theme.muted(), theme)
-            };
-            ListItem::new(Line::from(vec![
-                Span::styled(format!(" {prefix} :{name}  "), style),
-                Span::styled((*desc).to_string(), muted),
-            ]))
-        })
-        .collect();
-    let list = List::new(items).style(panel).block(
-        Block::default()
-            .borders(Borders::ALL)
-            .border_style(with_panel_bg(theme.border(true), theme))
-            .style(panel)
-            .title(Span::styled(
-                " commands ",
-                with_panel_bg(theme.title(), theme),
-            )),
-    );
-    frame.render_widget(list, overlay);
-}
-
-fn render_overlay_quit(frame: &mut Frame<'_>, area: Rect, theme: &Theme, symbols: &Symbols) {
-    // Wipe the dark hub entirely, then paint a light full-screen wash so the
-    // quit step does not flash a bright island on a black page.
-    frame.render_widget(Clear, area);
-    let backdrop = Style::default()
-        .bg(theme.quit_backdrop_bg)
-        .fg(theme.quit_panel_fg);
-    frame.render_widget(Block::default().style(backdrop), area);
-
-    let overlay = overlay_area(area, 7);
-    let panel = Style::default()
-        .bg(theme.quit_panel_bg)
-        .fg(theme.quit_panel_fg);
-    let warn = Style::default()
-        .fg(Color::Rgb(160, 100, 0))
-        .bg(theme.quit_panel_bg)
-        .add_modifier(Modifier::BOLD);
-    let border = Style::default()
-        .fg(Color::Rgb(120, 120, 120))
-        .bg(theme.quit_panel_bg);
-    let hint = Style::default()
-        .fg(Color::Rgb(80, 80, 80))
-        .bg(theme.quit_panel_bg);
-    let lines = vec![
-        Line::from(Span::styled(" Quit Luma? ", warn)),
-        Line::from(Span::styled("", panel)),
-        Line::from(Span::styled(
-            format!("  Enter confirm {} Esc stay", symbols.sep),
-            hint,
-        )),
-    ];
-    let widget = Paragraph::new(lines).style(panel).block(
-        Block::default()
-            .borders(Borders::ALL)
-            .border_style(border)
-            .style(panel)
-            .title(Span::styled(" quit ", warn)),
-    );
-    frame.render_widget(widget, overlay);
-}
-
-fn display_width(s: &str) -> usize {
-    UnicodeWidthStr::width(s)
-}
-
-fn truncate(s: &str, max: usize, symbols: &Symbols) -> String {
-    if max == 0 {
-        return String::new();
-    }
-    if display_width(s) <= max {
-        return s.to_string();
-    }
-    let ell = symbols.ellipsis;
-    let ell_w = display_width(ell).max(1);
-    if max <= ell_w {
-        return ell.chars().take(1).collect();
-    }
-    let keep = max - ell_w;
-    let mut out = String::new();
-    let mut w = 0;
-    for ch in s.chars() {
-        let cw = UnicodeWidthChar::width(ch).unwrap_or(0);
-        if w + cw > keep {
-            break;
-        }
-        out.push(ch);
-        w += cw;
-    }
-    out.push_str(ell);
-    out
-}
-
-fn pad_right(s: &str, width: usize) -> String {
-    let w = display_width(s);
-    if w >= width {
-        s.to_string()
-    } else {
-        format!("{s}{}", " ".repeat(width - w))
     }
 }
 
@@ -1397,6 +768,8 @@ mod tests {
                 confirmation: false,
             },
             secondary_actions: vec![],
+            ui_intent: None,
+            action_payload: None,
         }
     }
 
@@ -1422,6 +795,8 @@ mod tests {
                 confirmation: false,
             },
             secondary_actions: vec![],
+            ui_intent: None,
+            action_payload: None,
         }
     }
 
@@ -1468,6 +843,45 @@ mod tests {
         terminal.draw(|f| render(f, state)).expect("draw");
         let buffer = terminal.backend().buffer().clone();
         (buffer_flat(&buffer), buffer)
+    }
+
+    #[test]
+    fn hub_layout_80x24_last_row_visible() {
+        let state = AppState {
+            module_catalog: (0..12)
+                .map(|i| crate::view_model::ModuleCatalogEntry {
+                    id: format!("luma.mod{i}"),
+                    display_name: format!("Module {i}"),
+                    enabled: true,
+                    glyph: None,
+                    suggested_query: Some(format!("m{i} ")),
+                    empty_hint: None,
+                    supports_browse: false,
+                    triggers: vec![],
+                })
+                .collect(),
+            hub_windows: Some(crate::view_model::HubWindowsState {
+                app_name: "Cursor".into(),
+                windows: vec![crate::view_model::HubWindowRow {
+                    id: "win:a".into(),
+                    title: "Editor".into(),
+                }],
+                more: None,
+                status_kind: None,
+                status_title: None,
+                status_subtitle: None,
+            }),
+            ..AppState::default()
+        };
+        let (flat, buffer) = draw(&state, 80, 24);
+        assert_eq!(buffer.area.height, 24);
+        let last_row: String = (0..buffer.area.width)
+            .map(|x| buffer[(x, 23)].symbol().chars().next().unwrap_or(' '))
+            .collect();
+        assert!(
+            last_row.contains("Enter") || flat.contains("Enter open"),
+            "hub status hints should appear on last row: {last_row:?}"
+        );
     }
 
     #[test]

@@ -77,7 +77,7 @@ impl Theme {
             text: Color::Black,
             border: Color::Gray,
             border_focused: Color::Blue,
-            selected_bg: Color::Indexed(255),
+            selected_bg: Color::Indexed(251),
             selected_fg: Color::Black,
             success: Color::Green,
             warning: Color::Rgb(180, 110, 0),

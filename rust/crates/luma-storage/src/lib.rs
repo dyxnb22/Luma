@@ -12,6 +12,7 @@ mod notes_scan;
 mod paths;
 mod quicklinks_store;
 mod snippets_store;
+mod sqlite;
 
 pub use clipboard_store::{looks_secret, ClipboardRow, ClipboardStore, ClipboardStoreError};
 pub use config::{ConfigError, ConfigStore, LumaSettings};

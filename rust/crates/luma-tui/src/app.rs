@@ -9,6 +9,7 @@ use luma_application::EnginePort;
 use luma_protocol::Command;
 use std::sync::Arc;
 use std::time::Duration;
+use tracing::warn;
 
 /// Interactive TUI entry. Composition root (`bins/luma`) supplies the engine port.
 pub async fn run_tui_with_engine(engine: Arc<dyn EnginePort>) -> std::io::Result<()> {
@@ -43,16 +44,25 @@ pub async fn run_tui_with_engine(engine: Arc<dyn EnginePort>) -> std::io::Result
 
         let poll_timeout = Duration::from_millis(33);
         let mut msgs: Vec<Msg> = Vec::new();
+        let mut broadcast_lagged = false;
 
         // Drain all available events. `Lagged` means skipped messages — continue
         // so we still receive later terminal events (SearchFinished / ActionFinished).
         loop {
             match engine_rx.try_recv() {
                 Ok(ev) => msgs.push(Msg::Engine(ev)),
-                Err(tokio::sync::broadcast::error::TryRecvError::Lagged(_)) => continue,
+                Err(tokio::sync::broadcast::error::TryRecvError::Lagged(n)) => {
+                    warn!(skipped = n, "broadcast subscriber lagged");
+                    broadcast_lagged = true;
+                    continue;
+                }
                 Err(tokio::sync::broadcast::error::TryRecvError::Empty)
                 | Err(tokio::sync::broadcast::error::TryRecvError::Closed) => break,
             }
+        }
+
+        if broadcast_lagged {
+            msgs.push(Msg::BroadcastLagged);
         }
 
         if let Some(deadline) = state.search_debounce_deadline {
@@ -137,8 +147,10 @@ fn map_key(code: KeyCode, modifiers: KeyModifiers, state: &AppState) -> Msg {
         };
     }
     match code {
+        KeyCode::BackTab if matches!(state.route, Route::Search) => Msg::TogglePreview,
         KeyCode::Tab if matches!(state.route, Route::Search) => Msg::FocusNext,
         KeyCode::Char('?') if matches!(state.route, Route::Search) => Msg::OpenHelp,
+        KeyCode::Char('r') if state.route == Route::Doctor => Msg::ToggleDoctorRaw,
         KeyCode::Char(c)
             if matches!(state.route, Route::ActionPicker) && c.is_ascii_digit() && c != '0' =>
         {
@@ -185,6 +197,11 @@ fn dispatch_effect(engine: Arc<dyn EnginePort>, effect: Effect) {
         Effect::LoadHub => {
             tokio::spawn(async move {
                 let _ = engine.submit(Command::LoadHub).await;
+            });
+        }
+        Effect::GetSnapshot => {
+            tokio::spawn(async move {
+                let _ = engine.submit(Command::GetSnapshot).await;
             });
         }
         Effect::LoadPreview {

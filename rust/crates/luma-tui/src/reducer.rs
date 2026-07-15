@@ -3,9 +3,44 @@ use crate::msg::Msg;
 use crate::view_model::{
     ActionsIntent, AppState, AwaitingActions, FocusZone, PendingAction, Route, StatusTone,
 };
-use luma_protocol::{ActionDescriptorDto, Event};
+use luma_protocol::{ActionDescriptorDto, Event, UiIntent};
 
 const PAGE_SIZE: usize = 5;
+
+fn resolve_ui_intent(item: &luma_domain::SearchItem) -> Option<UiIntent> {
+    legacy_ui_intent_from_action(item)
+}
+
+fn legacy_ui_intent_from_action(item: &luma_domain::SearchItem) -> Option<UiIntent> {
+    if item.kind == "directory" || item.primary_action.id.as_str() == "browse" {
+        return Some(UiIntent::Browse);
+    }
+    match item.primary_action.id.as_str() {
+        "list_issues" => Some(UiIntent::ListIssues),
+        "seed_add" => Some(UiIntent::SeedAdd),
+        "seed_config" | "configure" => Some(UiIntent::SeedConfig),
+        _ => None,
+    }
+}
+
+fn apply_ui_intent(
+    state: &mut AppState,
+    item: &luma_domain::SearchItem,
+    intent: UiIntent,
+) -> Vec<Effect> {
+    match intent {
+        UiIntent::Browse => drill_into_browse(state, item),
+        UiIntent::ListIssues => open_notes_issues(state),
+        UiIntent::SeedAdd => seed_module_add(state, item),
+        UiIntent::SeedConfig => seed_module_config(state, item),
+        UiIntent::OpenPath => {
+            state
+                .status
+                .set("open via action picker", StatusTone::Warning);
+            vec![Effect::None]
+        }
+    }
+}
 
 /// Pure synchronous reducer. Must not perform I/O.
 pub fn update(state: &mut AppState, msg: Msg) -> Vec<Effect> {
@@ -29,6 +64,7 @@ pub fn update(state: &mut AppState, msg: Msg) -> Vec<Effect> {
             state.history_browse = None;
             state.browse_nav_stack.clear();
             state.insert_prompt_char(c);
+            sync_prompt_viewport(state);
             schedule_search(state)
         }
         Msg::Backspace => {
@@ -325,6 +361,7 @@ pub fn update(state: &mut AppState, msg: Msg) -> Vec<Effect> {
             state.term_width = width;
             state.term_height = height;
             state.sync_results_viewport();
+            sync_prompt_viewport(state);
             if !state.preview_visible() && state.focus == FocusZone::Preview {
                 state.focus = FocusZone::List;
             }
@@ -341,6 +378,34 @@ pub fn update(state: &mut AppState, msg: Msg) -> Vec<Effect> {
             state.schedule_hub_refresh();
             vec![Effect::LoadHub]
         }
+        Msg::BroadcastLagged => {
+            state
+                .status
+                .set("Resyncing…", crate::view_model::StatusTone::Warning);
+            if state.search_debounce_deadline.is_some() {
+                state.search_debounce_deadline = None;
+                return begin_search(state);
+            }
+            if state.active_request.is_some() || !state.prompt.trim().is_empty() {
+                return begin_search(state);
+            }
+            vec![Effect::GetSnapshot]
+        }
+        Msg::TogglePreview => {
+            if matches!(state.route, Route::Search) {
+                state.preview_pinned = !state.preview_pinned;
+                state.sync_results_viewport();
+                return preview_effect(state);
+            }
+            vec![Effect::None]
+        }
+        Msg::ToggleDoctorRaw => {
+            if state.route == Route::Doctor {
+                state.doctor_show_raw = !state.doctor_show_raw;
+                state.doctor_scroll = 0;
+            }
+            vec![Effect::None]
+        }
         Msg::FocusGained => {
             if state.showing_hub() {
                 state.schedule_hub_refresh();
@@ -351,6 +416,11 @@ pub fn update(state: &mut AppState, msg: Msg) -> Vec<Effect> {
         }
         Msg::Engine(event) => apply_engine(state, event),
     }
+}
+
+fn sync_prompt_viewport(state: &mut AppState) {
+    let inner_w = state.term_width.saturating_sub(2) as usize;
+    state.ensure_prompt_visible(inner_w.max(20));
 }
 
 fn preview_effect(state: &mut AppState) -> Vec<Effect> {
@@ -620,19 +690,8 @@ fn request_primary_actions(state: &mut AppState) -> Vec<Effect> {
         state.status.set("no result selected", StatusTone::Warning);
         return vec![Effect::None];
     };
-    if item.kind == "directory" || item.primary_action.id.as_str() == "browse" {
-        return drill_into_browse(state, &item);
-    }
-    if item.primary_action.id.as_str() == "list_issues" {
-        return open_notes_issues(state);
-    }
-    if item.primary_action.id.as_str() == "seed_add" {
-        return seed_module_add(state, &item);
-    }
-    if item.primary_action.id.as_str() == "seed_config"
-        || item.primary_action.id.as_str() == "configure"
-    {
-        return seed_module_config(state, &item);
+    if let Some(intent) = resolve_ui_intent(&item) {
+        return apply_ui_intent(state, &item, intent);
     }
     let result_id = item.id.as_str().to_string();
     state.awaiting_actions = Some(AwaitingActions {
@@ -722,7 +781,7 @@ fn seed_module_config(state: &mut AppState, item: &luma_domain::SearchItem) -> V
     } else if item.module_id.as_str().contains("projects") {
         "luma config set --projects-root ~/dev"
     } else if item.module_id.as_str().contains("secrets") {
-        "security add-generic-password -s com.luma.next.secrets -a LABEL -w 'VALUE' -U"
+        "luma secrets set <account>  (value from stdin)"
     } else if let Some(sub) = item.subtitle.as_deref() {
         // Fall back to subtitle when it already carries a CLI hint.
         state.status.set(sub, StatusTone::Warning);
@@ -1309,6 +1368,8 @@ mod tests {
                 confirmation: false,
             },
             secondary_actions: vec![],
+            ui_intent: None,
+            action_payload: None,
         });
         state.results.selected_id = Some("danger".into());
         state.prompt = ":doctor".into();
@@ -1429,6 +1490,8 @@ mod tests {
                 confirmation: false,
             },
             secondary_actions: vec![],
+            ui_intent: None,
+            action_payload: None,
         });
         state.results.selected_id = Some("browse:n:/tmp/notes/Inbox".into());
         let _ = update(&mut state, Msg::Submit);
@@ -1494,6 +1557,8 @@ mod tests {
                     confirmation: false,
                 },
                 secondary_actions: vec![],
+                ui_intent: None,
+                action_payload: None,
             });
         }
         state.results.selected_id = Some("0".into());
@@ -1546,6 +1611,8 @@ mod tests {
                 confirmation: false,
             },
             secondary_actions: vec![],
+            ui_intent: None,
+            action_payload: None,
         });
         state.results.selected_id = Some("1".into());
         let effects = update(&mut state, Msg::Submit);
@@ -1581,6 +1648,8 @@ mod tests {
                 confirmation: true,
             },
             secondary_actions: vec![],
+            ui_intent: None,
+            action_payload: None,
         });
         state.results.selected_id = Some("1".into());
         state.awaiting_actions = Some(AwaitingActions {
@@ -1621,6 +1690,8 @@ mod tests {
                 confirmation: false,
             },
             secondary_actions: vec![],
+            ui_intent: None,
+            action_payload: None,
         });
         state.results.selected_id = Some("1".into());
         state.awaiting_actions = Some(AwaitingActions {
@@ -1689,6 +1760,8 @@ mod tests {
                 confirmation: false,
             },
             secondary_actions: vec![],
+            ui_intent: None,
+            action_payload: None,
         }];
         state.results.selected_id = Some("1".into());
         state.awaiting_actions = Some(AwaitingActions {
@@ -1836,6 +1909,8 @@ mod tests {
                 confirmation: false,
             },
             secondary_actions: vec![],
+            ui_intent: None,
+            action_payload: None,
         });
         state.prompt = "a".into();
         let effects = update(&mut state, Msg::Cancel);
@@ -1909,6 +1984,8 @@ mod tests {
                 confirmation: false,
             },
             secondary_actions: vec![],
+            ui_intent: None,
+            action_payload: None,
         });
         state.results.selected_id = Some("note:a".into());
         let effects = preview_effect(&mut state);
@@ -2066,6 +2143,39 @@ mod tests {
         state.hub_selected = 0;
         let _ = update(&mut state, Msg::Submit);
         assert_eq!(state.prompt, "win ");
+    }
+
+    #[test]
+    fn seed_config_primary_skips_action_picker() {
+        use luma_domain::{ActionDescriptor, ActionId, ActionRisk, ModuleId, ResultId, SearchItem};
+        let mut state = AppState::default();
+        let item = SearchItem {
+            id: ResultId::new("notes:configure"),
+            module_id: ModuleId::new("luma.notes"),
+            title: "Configure".into(),
+            subtitle: Some("hint".into()),
+            kind: "not_configured".into(),
+            score: 0.0,
+            primary_action: ActionDescriptor {
+                id: ActionId::new("seed_config"),
+                label: "Show command".into(),
+                risk: ActionRisk::Safe,
+                confirmation: false,
+            },
+            secondary_actions: vec![],
+            ui_intent: Some("seed_config".into()),
+            action_payload: None,
+        };
+        state.results.items = vec![item.clone()];
+        state.results.selected_id = Some(item.id.as_str().to_string());
+        let effects = request_primary_actions(&mut state);
+        assert!(
+            effects
+                .iter()
+                .all(|e| !matches!(e, Effect::ListActions { .. })),
+            "seed_config primary should not open action picker: {effects:?}"
+        );
+        assert!(state.status.text.contains("luma config set"));
     }
 
     #[test]

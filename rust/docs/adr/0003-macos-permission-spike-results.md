@@ -22,10 +22,15 @@ and Keychain. Interactive TCC prompts were not forced.
 
 1. Product UI stays CLI/TUI for personal use; no signed app host in scope.
 2. Modules use ports and prefer permission-denied / unavailable taxonomy over empty results.
-3. Secrets remain default-off; Keychain namespace is LumaNext-only (`com.luma.next.secrets`).
+3. Secrets remain **default-off** until provisioned via `luma secrets set`; Keychain namespace is LumaNext-only (`com.luma.next.secrets`).
 4. Optional migrate importers are dry-run by default and never write the source tree.
+
+## Amended 2026-07-15
+
+- Secrets bootstrap is `luma secrets set <account>` (stdin value), not raw `security` CLI alone.
+- Clipboard/Snippets paste requires a recorded target app/window before Cmd-V; paste into the Luma terminal is not success.
 
 ## Consequences
 
-- Clipboard / Snippets paste works when Accessibility is granted to the Terminal/`luma` process.
+- Clipboard / Snippets paste works when Accessibility is granted **and** a target app was captured before Luma took focus.
 - Notes watch uses `notify` (FSEvents on macOS) with polling fallback.

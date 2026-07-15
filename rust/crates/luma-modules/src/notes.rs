@@ -36,6 +36,7 @@ pub struct NotesModule {
     index_generation: Arc<RwLock<u64>>,
     watch_cancel: Mutex<Option<CancellationToken>>,
     watch_handle: Mutex<Option<JoinHandle<()>>>,
+    watch_warning: Arc<Mutex<Option<String>>>,
     opener: Arc<dyn OpenPathPort>,
     pasteboard: Arc<dyn PasteboardPort>,
     watcher: Arc<dyn MarkdownWatchPort>,
@@ -92,6 +93,7 @@ impl NotesModule {
             index_generation: Arc::new(RwLock::new(0)),
             watch_cancel: Mutex::new(None),
             watch_handle: Mutex::new(None),
+            watch_warning: Arc::new(Mutex::new(None)),
             opener,
             pasteboard,
             watcher,
@@ -111,6 +113,24 @@ impl NotesModule {
             root,
             opener,
             Arc::new(NullMarkdownWatcher),
+            Arc::new(MemoryNotesIndex::new()),
+            Arc::new(FakePasteboard::new()),
+            Arc::new(FixedClock {
+                ymd: "2026-07-13".into(),
+            }),
+        )
+    }
+
+    /// Test helper with a custom markdown watcher.
+    pub fn with_root_watcher_for_tests(
+        root: Option<PathBuf>,
+        watcher: Arc<dyn MarkdownWatchPort>,
+    ) -> Self {
+        use luma_application::FakeOpenPath;
+        Self::with_root_clock(
+            root,
+            Arc::new(FakeOpenPath::new()),
+            watcher,
             Arc::new(MemoryNotesIndex::new()),
             Arc::new(FakePasteboard::new()),
             Arc::new(FixedClock {
@@ -177,8 +197,32 @@ impl NotesModule {
         Ok(())
     }
 
+    async fn prepend_watch_warning(&self, upserts: &mut Vec<SearchItemDto>) {
+        if let Some(msg) = self.watch_warning.lock().await.clone() {
+            upserts.insert(0, watch_warning_row(&msg));
+        }
+    }
+
+    async fn emit_results(
+        &self,
+        sink: &SearchSink,
+        mut upserts: Vec<SearchItemDto>,
+        removed_ids: Vec<String>,
+    ) {
+        self.prepend_watch_warning(&mut upserts).await;
+        sink.send(Event::ResultsChunk {
+            request_id: String::new(),
+            sequence: 1,
+            upserts,
+            removed_ids,
+        })
+        .await
+        .ok();
+    }
+
     async fn start_watch(&self, parent: CancellationToken) {
         self.stop_watch().await;
+        *self.watch_warning.lock().await = None;
         let Some(root) = self.root.read().await.clone() else {
             return;
         };
@@ -187,17 +231,39 @@ impl NotesModule {
         let module_root = self.root.clone();
         let index = self.index.clone();
         let generation = self.index_generation.clone();
+        let watch_warning = self.watch_warning.clone();
         let (tx, mut rx) = mpsc::channel(8);
         let watcher = self.watcher.clone();
         let handle = tokio::spawn(async move {
             let watch_fut = watcher.watch(root.clone(), token.clone(), tx);
             tokio::pin!(watch_fut);
             let (flag, bridge) = NotesModule::scan_cancel_bridge(&token);
+            let debounce = Duration::from_millis(200);
+            let mut debounce_until: Option<tokio::time::Instant> = None;
+            let mut watch_done = false;
             loop {
+                let debounce_sleep = async {
+                    match debounce_until {
+                        Some(deadline) => tokio::time::sleep_until(deadline).await,
+                        None => std::future::pending().await,
+                    }
+                };
                 tokio::select! {
                     _ = token.cancelled() => break,
-                    _ = &mut watch_fut => break,
+                    _ = &mut watch_fut, if !watch_done => {
+                        watch_done = true;
+                        if !token.is_cancelled() {
+                            *watch_warning.lock().await = Some(
+                                "Notes file watcher stopped; run `n check` or restart watcher"
+                                    .into(),
+                            );
+                        }
+                    }
                     Some(()) = rx.recv() => {
+                        debounce_until = Some(tokio::time::Instant::now() + debounce);
+                    }
+                    () = debounce_sleep, if debounce_until.is_some() => {
+                        debounce_until = None;
                         let current = module_root.read().await.clone();
                         if current.as_ref() != Some(&root) {
                             continue;
@@ -523,14 +589,10 @@ impl LumaModule for NotesModule {
                 primary_action_label: "Show command".into(),
                 ..Default::default()
             };
-            let _ = sink
-                .send(Event::ResultsChunk {
-                    request_id: String::new(),
-                    sequence: 1,
-                    upserts: vec![row],
-                    removed_ids: vec![],
-                })
-                .await;
+            {
+                let upserts = vec![row];
+                self.emit_results(&sink, upserts, vec![]).await;
+            }
             return;
         };
 
@@ -542,24 +604,20 @@ impl LumaModule for NotesModule {
                 .map(|d| d.as_nanos())
                 .unwrap_or(0);
             let path = root.join("Inbox").join(format!("note-{stamp}.md"));
-            let _ = sink
-                .send(Event::ResultsChunk {
-                    request_id: String::new(),
-                    sequence: 1,
-                    upserts: vec![SearchItemDto {
-                        id: format!("note:{}", path.display()),
-                        module_id: "luma.notes".into(),
-                        title: "Create note".into(),
-                        subtitle: Some(path.display().to_string()),
-                        kind: "create".into(),
-                        score: 100.0,
-                        primary_action_id: "create".into(),
-                        primary_action_label: "Create".into(),
-                        ..Default::default()
-                    }],
-                    removed_ids: vec![],
-                })
-                .await;
+            {
+                let upserts = vec![SearchItemDto {
+                    id: format!("note:{}", path.display()),
+                    module_id: "luma.notes".into(),
+                    title: "Create note".into(),
+                    subtitle: Some(path.display().to_string()),
+                    kind: "create".into(),
+                    score: 100.0,
+                    primary_action_id: "create".into(),
+                    primary_action_label: "Create".into(),
+                    ..Default::default()
+                }];
+                self.emit_results(&sink, upserts, vec![]).await;
+            }
             return;
         }
 
@@ -567,63 +625,55 @@ impl LumaModule for NotesModule {
             let date = match self.clock.today_ymd() {
                 Ok(d) => d,
                 Err(err) => {
-                    let _ = sink
-                        .send(Event::ResultsChunk {
-                            request_id: String::new(),
-                            sequence: 1,
-                            upserts: vec![SearchItemDto {
-                                id: "note:clock-error".into(),
-                                module_id: "luma.notes".into(),
-                                title: "Daily note unavailable".into(),
-                                subtitle: Some(crate::ux::friendly_store_error(&err.to_string())),
-                                kind: "unavailable".into(),
-                                score: 0.0,
-                                primary_action_id: "noop".into(),
-                                primary_action_label: "Unavailable".into(),
-                                ..Default::default()
-                            }],
-                            removed_ids: vec![],
-                        })
-                        .await;
+                    {
+                        let upserts = vec![SearchItemDto {
+                            id: "note:clock-error".into(),
+                            module_id: "luma.notes".into(),
+                            title: "Daily note unavailable".into(),
+                            subtitle: Some(crate::ux::friendly_store_error(&err.to_string())),
+                            kind: "unavailable".into(),
+                            score: 0.0,
+                            primary_action_id: "noop".into(),
+                            primary_action_label: "Unavailable".into(),
+                            ..Default::default()
+                        }];
+                        self.emit_results(&sink, upserts, vec![]).await;
+                    }
                     return;
                 }
             };
             let path = root.join("Daily").join(format!("{date}.md"));
             let exists = path.exists();
-            let _ = sink
-                .send(Event::ResultsChunk {
-                    request_id: String::new(),
-                    sequence: 1,
-                    upserts: vec![SearchItemDto {
-                        id: format!("note:{}", path.display()),
-                        module_id: "luma.notes".into(),
-                        title: if exists {
-                            format!("Open daily note ({date})")
-                        } else {
-                            format!("Create daily note ({date})")
-                        },
-                        subtitle: Some(path.display().to_string()),
-                        kind: if exists {
-                            "note".into()
-                        } else {
-                            "create".into()
-                        },
-                        score: 100.0,
-                        primary_action_id: if exists {
-                            "open".into()
-                        } else {
-                            "create".into()
-                        },
-                        primary_action_label: if exists {
-                            "Open".into()
-                        } else {
-                            "Create".into()
-                        },
-                        ..Default::default()
-                    }],
-                    removed_ids: vec![],
-                })
-                .await;
+            {
+                let upserts = vec![SearchItemDto {
+                    id: format!("note:{}", path.display()),
+                    module_id: "luma.notes".into(),
+                    title: if exists {
+                        format!("Open daily note ({date})")
+                    } else {
+                        format!("Create daily note ({date})")
+                    },
+                    subtitle: Some(path.display().to_string()),
+                    kind: if exists {
+                        "note".into()
+                    } else {
+                        "create".into()
+                    },
+                    score: 100.0,
+                    primary_action_id: if exists {
+                        "open".into()
+                    } else {
+                        "create".into()
+                    },
+                    primary_action_label: if exists {
+                        "Open".into()
+                    } else {
+                        "Create".into()
+                    },
+                    ..Default::default()
+                }];
+                self.emit_results(&sink, upserts, vec![]).await;
+            }
             return;
         }
 
@@ -636,42 +686,34 @@ impl LumaModule for NotesModule {
             let handle = tokio::task::spawn_blocking(move || index.list_recent(limit));
             let abort = handle.abort_handle();
             let hits = tokio::select! {
-                _ = cancel.cancelled() => {
-                    abort.abort();
-                    return;
-                }
-                result = handle => match result {
-                    Ok(Ok(hits)) => hits,
-                    Ok(Err(e)) => {
-                        let _ = sink
-                            .send(Event::ResultsChunk {
-                                request_id: String::new(),
-                                sequence: 1,
-                                upserts: vec![unavailable_row(
-                                    "Notes recent unavailable",
-                                    e.to_string(),
-                                )],
-                                removed_ids: vec![],
-                            })
-                            .await;
-                        return;
-                    }
-                    Err(e) => {
-                        let _ = sink
-                            .send(Event::ResultsChunk {
-                                request_id: String::new(),
-                                sequence: 1,
-                                upserts: vec![unavailable_row(
-                                    "Notes recent unavailable",
-                                    e.to_string(),
-                                )],
-                                removed_ids: vec![],
-                            })
-                            .await;
-                        return;
-                    }
-                },
-            };
+                            _ = cancel.cancelled() => {
+                                abort.abort();
+                                return;
+                            }
+                            result = handle => match result {
+                                Ok(Ok(hits)) => hits,
+                                Ok(Err(e)) => {
+                                    {
+                let upserts = vec![unavailable_row(
+                                                "Notes recent unavailable",
+                                                e.to_string(),
+                                            )];
+                self.emit_results(&sink, upserts, vec![]).await;
+            }
+                                    return;
+                                }
+                                Err(e) => {
+                                    {
+                let upserts = vec![unavailable_row(
+                                                "Notes recent unavailable",
+                                                e.to_string(),
+                                            )];
+                self.emit_results(&sink, upserts, vec![]).await;
+            }
+                                    return;
+                                }
+                            },
+                        };
             let status = self.index.scan_status();
             let mut upserts = Vec::new();
             let show_status = match &status {
@@ -699,14 +741,7 @@ impl LumaModule for NotesModule {
                     ..Default::default()
                 });
             }
-            let _ = sink
-                .send(Event::ResultsChunk {
-                    request_id: String::new(),
-                    sequence: 1,
-                    upserts,
-                    removed_ids: vec![],
-                })
-                .await;
+            self.emit_results(&sink, upserts, vec![]).await;
             return;
         }
 
@@ -721,31 +756,27 @@ impl LumaModule for NotesModule {
             } else {
                 "status"
             };
-            let _ = sink
-                .send(Event::ResultsChunk {
-                    request_id: String::new(),
-                    sequence: 1,
-                    upserts: vec![
-                        status_row(&status),
-                        SearchItemDto {
-                            id: "notes:doc-count".into(),
-                            module_id: "luma.notes".into(),
-                            title: count_label,
-                            subtitle: Some(root.display().to_string()),
-                            kind: count_kind.into(),
-                            score: 90.0,
-                            primary_action_id: "noop".into(),
-                            primary_action_label: if count_kind == "unavailable" {
-                                "Unavailable".into()
-                            } else {
-                                "Status".into()
-                            },
-                            ..Default::default()
+            {
+                let upserts = vec![
+                    status_row(&status),
+                    SearchItemDto {
+                        id: "notes:doc-count".into(),
+                        module_id: "luma.notes".into(),
+                        title: count_label,
+                        subtitle: Some(root.display().to_string()),
+                        kind: count_kind.into(),
+                        score: 90.0,
+                        primary_action_id: "noop".into(),
+                        primary_action_label: if count_kind == "unavailable" {
+                            "Unavailable".into()
+                        } else {
+                            "Status".into()
                         },
-                    ],
-                    removed_ids: vec![],
-                })
-                .await;
+                        ..Default::default()
+                    },
+                ];
+                self.emit_results(&sink, upserts, vec![]).await;
+            }
             return;
         }
 
@@ -754,42 +785,34 @@ impl LumaModule for NotesModule {
             let handle = tokio::task::spawn_blocking(move || index.list_issues());
             let abort = handle.abort_handle();
             let issues = tokio::select! {
-                _ = cancel.cancelled() => {
-                    abort.abort();
-                    return;
-                }
-                result = handle => match result {
-                    Ok(Ok(issues)) => issues,
-                    Ok(Err(e)) => {
-                        let _ = sink
-                            .send(Event::ResultsChunk {
-                                request_id: String::new(),
-                                sequence: 1,
-                                upserts: vec![unavailable_row(
-                                    "Notes issues unavailable",
-                                    e.to_string(),
-                                )],
-                                removed_ids: vec![],
-                            })
-                            .await;
-                        return;
-                    }
-                    Err(e) => {
-                        let _ = sink
-                            .send(Event::ResultsChunk {
-                                request_id: String::new(),
-                                sequence: 1,
-                                upserts: vec![unavailable_row(
-                                    "Notes issues unavailable",
-                                    e.to_string(),
-                                )],
-                                removed_ids: vec![],
-                            })
-                            .await;
-                        return;
-                    }
-                },
-            };
+                            _ = cancel.cancelled() => {
+                                abort.abort();
+                                return;
+                            }
+                            result = handle => match result {
+                                Ok(Ok(issues)) => issues,
+                                Ok(Err(e)) => {
+                                    {
+                let upserts = vec![unavailable_row(
+                                                "Notes issues unavailable",
+                                                e.to_string(),
+                                            )];
+                self.emit_results(&sink, upserts, vec![]).await;
+            }
+                                    return;
+                                }
+                                Err(e) => {
+                                    {
+                let upserts = vec![unavailable_row(
+                                                "Notes issues unavailable",
+                                                e.to_string(),
+                                            )];
+                self.emit_results(&sink, upserts, vec![]).await;
+            }
+                                    return;
+                                }
+                            },
+                        };
             let upserts: Vec<_> = issues
                 .into_iter()
                 .take(query.limit)
@@ -815,28 +838,24 @@ impl LumaModule for NotesModule {
                     })
                 })
                 .collect();
-            let _ = sink
-                .send(Event::ResultsChunk {
-                    request_id: String::new(),
-                    sequence: 1,
-                    upserts: if upserts.is_empty() {
-                        vec![SearchItemDto {
-                            id: "notes:issues-empty".into(),
-                            module_id: "luma.notes".into(),
-                            title: "No scan issues".into(),
-                            subtitle: Some("Index looks clean".into()),
-                            kind: "status".into(),
-                            score: 50.0,
-                            primary_action_id: "noop".into(),
-                            primary_action_label: "OK".into(),
-                            ..Default::default()
-                        }]
-                    } else {
-                        upserts
-                    },
-                    removed_ids: vec![],
-                })
-                .await;
+            {
+                let upserts = if upserts.is_empty() {
+                    vec![SearchItemDto {
+                        id: "notes:issues-empty".into(),
+                        module_id: "luma.notes".into(),
+                        title: "No scan issues".into(),
+                        subtitle: Some("Index looks clean".into()),
+                        kind: "status".into(),
+                        score: 50.0,
+                        primary_action_id: "noop".into(),
+                        primary_action_label: "OK".into(),
+                        ..Default::default()
+                    }]
+                } else {
+                    upserts
+                };
+                self.emit_results(&sink, upserts, vec![]).await;
+            }
             return;
         }
 
@@ -869,24 +888,20 @@ impl LumaModule for NotesModule {
                 Ok(Err(e)) => (format!("Scan failed: {e}"), "unavailable", "Failed"),
                 Err(e) => (format!("Scan failed: {e}"), "unavailable", "Failed"),
             };
-            let _ = sink
-                .send(Event::ResultsChunk {
-                    request_id: String::new(),
-                    sequence: 1,
-                    upserts: vec![SearchItemDto {
-                        id: "notes:scan-report".into(),
-                        module_id: "luma.notes".into(),
-                        title,
-                        subtitle: Some(root.display().to_string()),
-                        kind: kind.into(),
-                        score: 100.0,
-                        primary_action_id: "noop".into(),
-                        primary_action_label: label.into(),
-                        ..Default::default()
-                    }],
-                    removed_ids: vec![],
-                })
-                .await;
+            {
+                let upserts = vec![SearchItemDto {
+                    id: "notes:scan-report".into(),
+                    module_id: "luma.notes".into(),
+                    title,
+                    subtitle: Some(root.display().to_string()),
+                    kind: kind.into(),
+                    score: 100.0,
+                    primary_action_id: "noop".into(),
+                    primary_action_label: label.into(),
+                    ..Default::default()
+                }];
+                self.emit_results(&sink, upserts, vec![]).await;
+            }
             return;
         }
 
@@ -915,40 +930,32 @@ impl LumaModule for NotesModule {
                 match NotesModule::resolve_under_root_for_browse(&root, &candidate) {
                     Ok(p) => p,
                     Err(err) => {
-                        let _ = sink
-                            .send(Event::ResultsChunk {
-                                request_id: String::new(),
-                                sequence: 1,
-                                upserts: vec![SearchItemDto {
-                                    id: "notes:browse-denied".into(),
-                                    module_id: "luma.notes".into(),
-                                    title: "Path outside notes root".into(),
-                                    subtitle: Some(err),
-                                    kind: "unavailable".into(),
-                                    score: 0.0,
-                                    primary_action_id: "noop".into(),
-                                    primary_action_label: "Unavailable".into(),
-                                    ..Default::default()
-                                }],
-                                removed_ids: vec![],
-                            })
-                            .await;
+                        {
+                            let upserts = vec![SearchItemDto {
+                                id: "notes:browse-denied".into(),
+                                module_id: "luma.notes".into(),
+                                title: "Path outside notes root".into(),
+                                subtitle: Some(err),
+                                kind: "unavailable".into(),
+                                score: 0.0,
+                                primary_action_id: "noop".into(),
+                                primary_action_label: "Unavailable".into(),
+                                ..Default::default()
+                            }];
+                            self.emit_results(&sink, upserts, vec![]).await;
+                        }
                         return;
                     }
                 }
             };
             let Ok(rd) = std::fs::read_dir(&dir) else {
-                let _ = sink
-                    .send(Event::ResultsChunk {
-                        request_id: String::new(),
-                        sequence: 1,
-                        upserts: vec![unavailable_row(
-                            "Cannot read folder",
-                            dir.display().to_string(),
-                        )],
-                        removed_ids: vec![],
-                    })
-                    .await;
+                {
+                    let upserts = vec![unavailable_row(
+                        "Cannot read folder",
+                        dir.display().to_string(),
+                    )];
+                    self.emit_results(&sink, upserts, vec![]).await;
+                }
                 return;
             };
             let mut upserts = Vec::new();
@@ -1032,14 +1039,7 @@ impl LumaModule for NotesModule {
                     ..Default::default()
                 });
             }
-            let _ = sink
-                .send(Event::ResultsChunk {
-                    request_id: String::new(),
-                    sequence: 1,
-                    upserts,
-                    removed_ids: vec![],
-                })
-                .await;
+            self.emit_results(&sink, upserts, vec![]).await;
             return;
         }
 
@@ -1050,36 +1050,28 @@ impl LumaModule for NotesModule {
         let handle = tokio::task::spawn_blocking(move || index.search(&needle_for_search, limit));
         let abort = handle.abort_handle();
         let hits = tokio::select! {
-            _ = cancel.cancelled() => {
-                abort.abort();
-                return;
-            }
-            result = handle => match result {
-                Ok(Ok(hits)) => hits,
-                Ok(Err(e)) => {
-                    let _ = sink
-                        .send(Event::ResultsChunk {
-                            request_id: String::new(),
-                            sequence: 1,
-                            upserts: vec![unavailable_row("Notes search unavailable", e.to_string())],
-                            removed_ids: vec![],
-                        })
-                        .await;
-                    return;
-                }
-                Err(e) => {
-                    let _ = sink
-                        .send(Event::ResultsChunk {
-                            request_id: String::new(),
-                            sequence: 1,
-                            upserts: vec![unavailable_row("Notes search unavailable", e.to_string())],
-                            removed_ids: vec![],
-                        })
-                        .await;
-                    return;
-                }
-            },
-        };
+                    _ = cancel.cancelled() => {
+                        abort.abort();
+                        return;
+                    }
+                    result = handle => match result {
+                        Ok(Ok(hits)) => hits,
+                        Ok(Err(e)) => {
+                            {
+            let upserts = vec![unavailable_row("Notes search unavailable", e.to_string())];
+            self.emit_results(&sink, upserts, vec![]).await;
+        }
+                            return;
+                        }
+                        Err(e) => {
+                            {
+            let upserts = vec![unavailable_row("Notes search unavailable", e.to_string())];
+            self.emit_results(&sink, upserts, vec![]).await;
+        }
+                            return;
+                        }
+                    },
+                };
         let mut upserts = Vec::new();
         for hit in hits {
             if cancel.is_cancelled() {
@@ -1119,14 +1111,7 @@ impl LumaModule for NotesModule {
                 ..Default::default()
             });
         }
-        let _ = sink
-            .send(Event::ResultsChunk {
-                request_id: String::new(),
-                sequence: 1,
-                upserts,
-                removed_ids: vec![],
-            })
-            .await;
+        self.emit_results(&sink, upserts, vec![]).await;
     }
 
     async fn actions(&self, result: &SearchItem) -> Vec<ActionDescriptor> {
@@ -1266,6 +1251,19 @@ impl LumaModule for NotesModule {
         }
         let root = self.root.read().await.clone();
         match action.action.id.as_str() {
+            "restart_watch" => {
+                let Some(_root) = root else {
+                    return ActionOutcome::Failed {
+                        kind: FailureKind::NotConfigured {
+                            remediation: "Run: luma config set --notes-root ~/Notes".into(),
+                        },
+                    };
+                };
+                self.start_watch(CancellationToken::new()).await;
+                ActionOutcome::Success {
+                    message: Some("restarted notes file watcher".into()),
+                }
+            }
             "configure" => ActionOutcome::Failed {
                 kind: FailureKind::NotConfigured {
                     remediation: "Run: luma config set --notes-root ~/Notes".into(),
@@ -1648,6 +1646,20 @@ fn format_directory_children(dirs: &[String], files: &[String], max: usize) -> S
     out.trim_end().to_string()
 }
 
+fn watch_warning_row(message: &str) -> SearchItemDto {
+    SearchItemDto {
+        id: "notes:watch-warning".into(),
+        module_id: "luma.notes".into(),
+        title: "Notes watcher stopped".into(),
+        subtitle: Some(message.into()),
+        kind: "status".into(),
+        score: 92.0,
+        primary_action_id: "restart_watch".into(),
+        primary_action_label: "Restart watcher".into(),
+        ..Default::default()
+    }
+}
+
 fn unavailable_row(title: impl Into<String>, detail: impl Into<String>) -> SearchItemDto {
     let detail = crate::ux::friendly_store_error(&detail.into());
     SearchItemDto {
@@ -1746,6 +1758,8 @@ mod tests {
                     confirmation: false,
                 },
                 secondary_actions: vec![],
+                ui_intent: None,
+                action_payload: None,
             },
             action: ActionDescriptor {
                 id: ActionId::new("create"),
@@ -1963,6 +1977,8 @@ mod tests {
                     confirmation: false,
                 },
                 secondary_actions: vec![],
+                ui_intent: None,
+                action_payload: None,
             },
             action: ActionDescriptor {
                 id: ActionId::new("create"),
@@ -2095,6 +2111,8 @@ mod tests {
                 confirmation: false,
             },
             secondary_actions: vec![],
+            ui_intent: None,
+            action_payload: None,
         };
         let preview = m.preview(&item).await.expect("directory preview");
         assert!(preview.contains("Backend/"));
@@ -2128,6 +2146,8 @@ mod tests {
                 confirmation: false,
             },
             secondary_actions: vec![],
+            ui_intent: None,
+            action_payload: None,
         };
         let preview = m.preview(&item).await;
         assert!(
@@ -2160,6 +2180,8 @@ mod tests {
                             confirmation: false,
                         },
                         secondary_actions: vec![],
+                        ui_intent: None,
+                        action_payload: None,
                     },
                     action: ActionDescriptor {
                         id: ActionId::new("browse"),
@@ -2173,5 +2195,34 @@ mod tests {
             )
             .await;
         assert!(matches!(out, ActionOutcome::Failed { .. }), "{out:?}");
+    }
+
+    #[tokio::test]
+    async fn watcher_early_exit_surfaces_warning() {
+        use luma_application::FakeMarkdownWatcher;
+        use luma_domain::Query;
+        let dir = tempdir().unwrap();
+        let watcher = Arc::new(FakeMarkdownWatcher {
+            exit_immediately: true,
+            ..Default::default()
+        });
+        let m = NotesModule::with_root_watcher_for_tests(Some(dir.path().to_path_buf()), watcher);
+        m.start_watch(CancellationToken::new()).await;
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        let (tx, mut rx) = mpsc::channel(8);
+        m.search(Query::parse("n ", 10), tx, CancellationToken::new())
+            .await;
+        let mut saw_warning = false;
+        while let Ok(ev) = rx.try_recv() {
+            if let Event::ResultsChunk { upserts, .. } = ev {
+                if upserts.iter().any(|row| row.id == "notes:watch-warning") {
+                    saw_warning = true;
+                }
+            }
+        }
+        assert!(
+            saw_warning,
+            "expected notes:watch-warning row after watcher exit"
+        );
     }
 }

@@ -99,6 +99,31 @@ impl ModuleRegistry {
         rows
     }
 
+    /// Disable enabled modules that declare missing runtime capabilities.
+    pub fn apply_capability_preflight(
+        &mut self,
+        caps: &dyn crate::ports::CapabilityPort,
+    ) -> Vec<(String, String)> {
+        let ids: Vec<String> = self.modules.keys().cloned().collect();
+        let mut denied = Vec::new();
+        for id in ids {
+            if !self.is_enabled(&id) {
+                continue;
+            }
+            let Some(module) = self.modules.get(&id) else {
+                continue;
+            };
+            for cap in &module.manifest().required_capabilities {
+                if !caps.has(cap) {
+                    self.enabled.insert(id.clone(), false);
+                    denied.push((id.clone(), format!("missing capability: {cap}")));
+                    break;
+                }
+            }
+        }
+        denied
+    }
+
     pub fn list_module_info(&self) -> Vec<luma_protocol::ModuleInfoDto> {
         let mut rows: Vec<_> = self
             .modules
@@ -230,5 +255,29 @@ mod tests {
         reg.register(stub("luma.a", &["x"])).unwrap();
         let err = reg.register(stub("luma.b", &["X"])).unwrap_err();
         assert!(matches!(err, RegistryError::DuplicateTrigger { .. }));
+    }
+
+    #[test]
+    fn capability_preflight_disables_module_missing_cap() {
+        use crate::ports::FakeCapabilities;
+        let mut reg = ModuleRegistry::new();
+        reg.register(Arc::new(StubModule {
+            manifest: ModuleManifest {
+                id: ModuleId::new("luma.ax"),
+                display_name: "AX".into(),
+                triggers: vec!["ax".into()],
+                default_enabled: true,
+                search_mode: SearchMode::TargetedOnly,
+                required_capabilities: vec!["accessibility".into()],
+                workbench: Default::default(),
+            },
+        }))
+        .unwrap();
+        let denied = reg.apply_capability_preflight(&FakeCapabilities {
+            accessibility: false,
+            keychain: true,
+        });
+        assert_eq!(denied.len(), 1);
+        assert!(!reg.is_enabled("luma.ax"));
     }
 }

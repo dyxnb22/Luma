@@ -28,4 +28,8 @@ pub struct SearchItem {
     pub score: f64,
     pub primary_action: ActionDescriptor,
     pub secondary_actions: Vec<ActionDescriptor>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ui_intent: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub action_payload: Option<serde_json::Value>,
 }

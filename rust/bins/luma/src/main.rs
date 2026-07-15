@@ -1,14 +1,19 @@
+mod cli_output;
 mod compose;
 
 use clap::{Parser, Subcommand};
+use cli_output::{action_exit_code, format_doctor_summary};
 use compose::{load_registry, load_registry_with_settings};
-use luma_application::{list_modules_json, run_action, run_doctor, run_query, Engine};
+use luma_application::{
+    list_modules_json, run_action, run_doctor, run_query, Engine, KeychainPort,
+};
 use luma_storage::{
     dry_run_legacy_dir, import_clipboard_fixture_with_ledger,
     import_notes_config_fixture_with_ledger, list_migrations, rollback_migration, ClipboardStore,
-    ConfigStore,
+    ConfigError, ConfigStore,
 };
 use luma_tui::run_tui_with_engine;
+use std::io::Read;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -44,6 +49,9 @@ enum Commands {
     Doctor {
         #[arg(long)]
         json: bool,
+        /// Full diagnostic JSON instead of actionable summary.
+        #[arg(long)]
+        raw: bool,
     },
     Config {
         #[command(subcommand)]
@@ -53,6 +61,11 @@ enum Commands {
     Migrate {
         #[command(subcommand)]
         action: MigrateCmd,
+    },
+    /// Manage Keychain-backed secrets (labels only in search).
+    Secrets {
+        #[command(subcommand)]
+        action: SecretsCmd,
     },
 }
 
@@ -85,33 +98,45 @@ enum ActionCmd {
     },
 }
 
+#[derive(Debug, clap::Args)]
+struct ConfigSetArgs {
+    #[arg(long)]
+    notes_root: Option<String>,
+    #[arg(long)]
+    projects_root: Vec<String>,
+    /// Glob patterns relative to notes_root (repeatable). Replaces the full list when set.
+    #[arg(long)]
+    notes_exclude: Vec<String>,
+    /// Clear all notes_exclude_patterns.
+    #[arg(long)]
+    clear_notes_excludes: bool,
+    #[arg(long)]
+    enable_module: Vec<String>,
+    #[arg(long)]
+    disable_module: Vec<String>,
+    #[arg(long)]
+    clipboard_retention_days: Option<u32>,
+    /// CAS guard: fail unless settings.toml is at this settings_version.
+    #[arg(long = "expected-version")]
+    expected_version: Option<u64>,
+    #[arg(long)]
+    json: bool,
+}
+
 #[derive(Debug, Subcommand)]
 enum ConfigCmd {
     Get {
         #[arg(long)]
         json: bool,
     },
-    /// Patch LumaNext settings (CAS on settings_version).
-    Set {
-        #[arg(long)]
-        notes_root: Option<String>,
-        #[arg(long)]
-        projects_root: Vec<String>,
-        /// Glob patterns relative to notes_root (repeatable). Replaces the full list when set.
-        #[arg(long)]
-        notes_exclude: Vec<String>,
-        /// Clear all notes_exclude_patterns.
-        #[arg(long)]
-        clear_notes_excludes: bool,
-        #[arg(long)]
-        enable_module: Vec<String>,
-        #[arg(long)]
-        disable_module: Vec<String>,
-        #[arg(long)]
-        clipboard_retention_days: Option<u32>,
-        #[arg(long)]
-        json: bool,
-    },
+    /// Patch LumaNext settings (compare-and-swap on settings_version).
+    Set(ConfigSetArgs),
+}
+
+#[derive(Debug, Subcommand)]
+enum SecretsCmd {
+    /// Store a secret: reads value from stdin (not argv). Updates Keychain + label sidecar.
+    Set { account: String },
 }
 
 #[derive(Debug, Subcommand)]
@@ -173,15 +198,36 @@ enum MigrateCmd {
     },
 }
 
+fn init_tracing() {
+    use tracing_subscriber::layer::SubscriberExt;
+    use tracing_subscriber::util::SubscriberInitExt;
+    use tracing_subscriber::Layer;
+    let filter = tracing_subscriber::EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("warn"));
+    let stderr = tracing_subscriber::fmt::layer().with_writer(std::io::stderr);
+    let mut layers = vec![stderr.boxed()];
+    if let Ok(dir) = luma_storage::luma_next_logs_dir() {
+        let _ = std::fs::create_dir_all(&dir);
+        let path = dir.join("luma.log");
+        if let Ok(file) = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(path)
+        {
+            let file_layer =
+                tracing_subscriber::fmt::layer().with_writer(std::sync::Mutex::new(file));
+            layers.push(file_layer.boxed());
+        }
+    }
+    tracing_subscriber::registry()
+        .with(filter)
+        .with(layers)
+        .init();
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    tracing_subscriber::fmt()
-        .with_writer(std::io::stderr)
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("warn")),
-        )
-        .init();
+    init_tracing();
 
     let cli = Cli::parse();
     match cli.command {
@@ -196,6 +242,7 @@ async fn main() -> anyhow::Result<()> {
                 luma_application::EngineOptions {
                     settings: Some(load.settings),
                     diagnostics,
+                    storage_probe: Some(load.storage_probe),
                     skipped_modules: load.skipped.into_iter().map(|s| (s.id, s.reason)).collect(),
                 },
             ));
@@ -296,6 +343,10 @@ async fn main() -> anyhow::Result<()> {
             } else {
                 println!("{}\t{:?}", result.id, outcome);
             }
+            let code = action_exit_code(&outcome);
+            if code != 0 {
+                std::process::exit(code);
+            }
         }
         Some(Commands::Modules {
             action: ModulesCmd::List { json },
@@ -319,7 +370,7 @@ async fn main() -> anyhow::Result<()> {
                 }
             }
         }
-        Some(Commands::Doctor { json }) => {
+        Some(Commands::Doctor { json, raw }) => {
             let mut diag = match load_registry_with_settings() {
                 Ok(load) => {
                     let mut d = run_doctor(load.registry, Some(load.settings))
@@ -435,10 +486,15 @@ async fn main() -> anyhow::Result<()> {
                     }
                 }
             }
-            if json {
+            if json || raw {
                 println!("{}", serde_json::to_string_pretty(&diag)?);
             } else {
-                println!("{diag}");
+                let summary = format_doctor_summary(&diag);
+                if summary.trim().is_empty() {
+                    println!("{}", serde_json::to_string_pretty(&diag)?);
+                } else {
+                    println!("{summary}");
+                }
             }
         }
         Some(Commands::Config {
@@ -465,49 +521,55 @@ async fn main() -> anyhow::Result<()> {
             }
         }
         Some(Commands::Config {
-            action:
-                ConfigCmd::Set {
-                    notes_root,
-                    projects_root,
-                    notes_exclude,
-                    clear_notes_excludes,
-                    enable_module,
-                    disable_module,
-                    clipboard_retention_days,
-                    json,
-                },
+            action: ConfigCmd::Set(args),
         }) => {
+            let ConfigSetArgs {
+                notes_root,
+                projects_root,
+                notes_exclude,
+                clear_notes_excludes,
+                enable_module,
+                disable_module,
+                clipboard_retention_days,
+                expected_version,
+                json,
+            } = args;
             let store = ConfigStore::luma_next_default()?;
-            let current = store.load_or_default()?;
-            let expected = current.settings_version;
-            let mut next = current.clone();
-            if let Some(root) = notes_root {
-                next.notes_root = if root.is_empty() { None } else { Some(root) };
-            }
-            if !projects_root.is_empty() {
-                next.projects_roots = projects_root;
-            }
-            if clear_notes_excludes {
-                next.notes_exclude_patterns.clear();
-            }
-            // Presence of any --notes-exclude flag replaces the list (including empty clear via
-            // a dedicated empty value is not supported; omit the flag to leave unchanged).
-            if !notes_exclude.is_empty() {
-                next.notes_exclude_patterns = notes_exclude
-                    .into_iter()
-                    .filter(|p| !p.is_empty())
-                    .collect();
-            }
-            for id in enable_module {
-                next.enabled_modules.insert(id, true);
-            }
-            for id in disable_module {
-                next.enabled_modules.insert(id, false);
-            }
-            if let Some(days) = clipboard_retention_days {
-                next.clipboard_retention_days = days;
-            }
-            let saved = store.update_cas(expected, next)?;
+            let saved = match store.mutate_settings(expected_version, |next| {
+                if let Some(root) = notes_root {
+                    next.notes_root = if root.is_empty() { None } else { Some(root) };
+                }
+                if !projects_root.is_empty() {
+                    next.projects_roots = projects_root;
+                }
+                if clear_notes_excludes {
+                    next.notes_exclude_patterns.clear();
+                }
+                if !notes_exclude.is_empty() {
+                    next.notes_exclude_patterns = notes_exclude
+                        .into_iter()
+                        .filter(|p| !p.is_empty())
+                        .collect();
+                }
+                for id in enable_module {
+                    next.enabled_modules.insert(id, true);
+                }
+                for id in disable_module {
+                    next.enabled_modules.insert(id, false);
+                }
+                if let Some(days) = clipboard_retention_days {
+                    next.clipboard_retention_days = days;
+                }
+            }) {
+                Ok(s) => s,
+                Err(ConfigError::VersionConflict { expected, found }) => {
+                    anyhow::bail!("version conflict: expected {expected}, found {found}");
+                }
+                Err(ConfigError::LockTimeout) => {
+                    anyhow::bail!("settings lock timeout — another Luma instance may be saving");
+                }
+                Err(err) => return Err(err.into()),
+            };
             if json {
                 println!("{}", serde_json::to_string_pretty(&saved)?);
             } else {
@@ -627,6 +689,25 @@ async fn main() -> anyhow::Result<()> {
                     record.migration_id, record.status
                 );
             }
+        }
+        Some(Commands::Secrets {
+            action: SecretsCmd::Set { account },
+        }) => {
+            if account.trim().is_empty() {
+                anyhow::bail!("account must not be empty");
+            }
+            let mut value = String::new();
+            std::io::stdin().read_to_string(&mut value)?;
+            let value = value.trim_end_matches(['\n', '\r']);
+            if value.is_empty() {
+                anyhow::bail!("empty secret value on stdin");
+            }
+            let keychain = luma_platform_macos::MacKeychain::luma_next();
+            keychain
+                .set_password(account.trim(), value)
+                .await
+                .map_err(|e| anyhow::anyhow!("secrets set: {e}"))?;
+            println!("stored label {account}");
         }
     }
     Ok(())

@@ -29,6 +29,11 @@ pub trait ClipboardHistoryRepository: Send + Sync {
         offset: usize,
         limit: usize,
     ) -> Result<Vec<ClipboardEntry>, ClipboardRepoError>;
+    fn search_text(
+        &self,
+        needle: &str,
+        limit: usize,
+    ) -> Result<Vec<ClipboardEntry>, ClipboardRepoError>;
     fn latest_by_created(&self) -> Result<Option<ClipboardEntry>, ClipboardRepoError>;
     fn purge_older_than_days(&self, days: u32) -> Result<usize, ClipboardRepoError>;
     fn insert(&self, text: &str, pinned: bool) -> Result<i64, ClipboardRepoError>;

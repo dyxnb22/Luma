@@ -60,6 +60,14 @@ pub(super) fn render_overlay_confirm(
                 .find(|i| i.id.as_str() == p.result_id)
         })
         .map(|i| i.title.as_str())
+        .or_else(|| {
+            state
+                .wordbook_review
+                .as_ref()
+                .filter(|_| pending.is_some())
+                .and_then(|review| review.words.get(review.index))
+                .map(|word| word.term.as_str())
+        })
         .unwrap_or("selected item");
 
     let (title_style, risk_label) = match risk {
@@ -72,15 +80,14 @@ pub(super) fn render_overlay_confirm(
     let lines = vec![
         Line::from(Span::styled(format!(" {risk_label} "), title_style)),
         Line::from(Span::styled("", panel)),
-        Line::from(vec![
-            Span::styled("  ", with_panel_bg(theme.muted(), theme)),
-            Span::styled(
-                action,
-                with_panel_bg(theme.text().add_modifier(Modifier::BOLD), theme),
-            ),
-            Span::styled(" -> ", with_panel_bg(theme.muted(), theme)),
-            Span::styled(target, with_panel_bg(theme.accent(), theme)),
-        ]),
+        Line::from(Span::styled(
+            format!("  Action: {action}"),
+            with_panel_bg(theme.text().add_modifier(Modifier::BOLD), theme),
+        )),
+        Line::from(Span::styled(
+            format!("  Target: {target}"),
+            with_panel_bg(theme.accent(), theme),
+        )),
         Line::from(Span::styled("", panel)),
         Line::from(Span::styled(
             format!("  Enter confirm {} Esc cancel", symbols.sep),
@@ -91,6 +98,7 @@ pub(super) fn render_overlay_confirm(
     let widget = Paragraph::new(lines)
         .style(panel)
         .alignment(Alignment::Left)
+        .wrap(Wrap { trim: false })
         .block(
             Block::default()
                 .borders(Borders::ALL)
@@ -197,6 +205,8 @@ pub(super) fn render_overlay_help(
             "{}{} / PgUp PgDn move · Ctrl-u home · Ctrl-w word",
             symbols.up, symbols.down
         ),
+        "Hub / win list: 1-9 focus visible window · ↑↓ move · Enter open".to_string(),
+        "Projects: proj add PATH · proj browse · proj remove NAME".to_string(),
         String::new(),
         "Enabled modules:".to_string(),
     ];
@@ -221,6 +231,7 @@ pub(super) fn render_overlay_help(
     lines.push(String::new());
     lines.push("Config: luma config set --notes-root ~/Notes".to_string());
     lines.push("        luma config set --projects-root ~/dev".to_string());
+    lines.push("        proj add /path/to/project (manual import)".to_string());
     lines.push("Wordbook: wb review · wb review new/wrong · 1/2/3/m in session".to_string());
     lines.push("Confirm / Destructive actions always ask first.".to_string());
 
@@ -325,6 +336,7 @@ pub(super) fn render_overlay_settings(
         " — modules (Space toggles) —",
         with_panel_bg(theme.muted(), theme),
     )));
+    let module_start = items.len();
     if state.settings_modules.is_empty() {
         items.push(ListItem::new(Span::styled(
             "  Loading modules…",
@@ -346,13 +358,44 @@ pub(super) fn render_overlay_settings(
             )));
         }
     }
-    let list = List::new(items).style(panel).block(
+    let visible_height = overlay.height.saturating_sub(2) as usize;
+    let selected_row = if state.settings_modules.is_empty() {
+        0
+    } else {
+        module_start
+            + state
+                .settings_selected
+                .min(state.settings_modules.len() - 1)
+    };
+    let max_scroll = items.len().saturating_sub(visible_height.max(1));
+    let scroll = selected_row
+        .saturating_sub(visible_height.saturating_sub(1))
+        .min(max_scroll);
+    let scroll_hint = if max_scroll == 0 {
+        String::new()
+    } else {
+        format!(
+            " {}{}",
+            if scroll > 0 { symbols.up } else { "" },
+            if scroll < max_scroll {
+                symbols.down
+            } else {
+                ""
+            }
+        )
+    };
+    let visible_items = items
+        .into_iter()
+        .skip(scroll)
+        .take(visible_height.max(1))
+        .collect::<Vec<_>>();
+    let list = List::new(visible_items).style(panel).block(
         Block::default()
             .borders(Borders::ALL)
             .border_style(with_panel_bg(theme.border(true), theme))
             .style(panel)
             .title(Span::styled(
-                format!(" settings v{} ", state.settings_version),
+                format!(" settings v{}{} ", state.settings_version, scroll_hint),
                 with_panel_bg(theme.title(), theme),
             )),
     );

@@ -681,27 +681,34 @@ fn render_wordbook_review(
         return;
     };
 
+    let progress_index = if review.finished {
+        review.index.min(review.words.len())
+    } else {
+        review.index.saturating_add(1).min(review.words.len())
+    };
     let progress = if review.words.is_empty() {
         "0/0".to_string()
     } else {
-        format!("{}/{}", review.index + 1, review.words.len())
+        format!("{}/{}", progress_index, review.words.len())
     };
     let header = format!(
-        "{progress} · {} {} · due {} · goal {} · left {}",
+        "{progress} · queue {} · due {} · today {} · goal {} · remaining {}",
         review.stats.queue,
-        review.stats.reviewed_today,
         review.stats.due,
+        review.stats.reviewed_today,
         review.stats.goal,
         review.stats.remaining_goal
     );
 
     if review.finished || review.words.is_empty() {
         let summary = format!(
-            "Done · Known {} · Fuzzy {} · Unknown {} · skipped {} · remaining goal {}",
+            "Done · Known {} · Fuzzy {} · Unknown {} · Mastered {} · Skipped {} · today {} · remaining {}",
             review.stats.session_known,
             review.stats.session_fuzzy,
             review.stats.session_unknown,
+            review.stats.session_mastered,
             review.stats.session_skipped,
+            review.stats.reviewed_today,
             review.stats.remaining_goal
         );
         frame.render_widget(
@@ -709,7 +716,8 @@ fn render_wordbook_review(
                 Line::from(Span::styled(header, theme.title())),
                 Line::from(""),
                 Line::from(Span::styled(summary, theme.text())),
-            ]),
+            ])
+            .wrap(Wrap { trim: false }),
             inner,
         );
         return;
@@ -747,7 +755,7 @@ fn render_wordbook_review(
             theme.key_hint(),
         )));
     }
-    frame.render_widget(Paragraph::new(lines), inner);
+    frame.render_widget(Paragraph::new(lines).wrap(Wrap { trim: false }), inner);
 }
 
 fn render_status(
@@ -761,28 +769,33 @@ fn render_status(
     let hints = match state.route {
         Route::Search if state.showing_hub() => {
             format!(
-                "1-9 focus {}{}{} select {} Enter {} Ctrl-/ commands",
+                "1-9 focus {}{}{} move {} Enter open {} Ctrl-/ commands",
                 symbols.sep, symbols.up, symbols.down, symbols.sep, symbols.sep
             )
         }
         Route::Search => {
-            let nav = if state.focus == crate::view_model::FocusZone::Preview {
-                "PgUp/Dn scroll preview"
+            if state.focus == crate::view_model::FocusZone::Preview {
+                format!(
+                    "PgUp/Dn scroll {} Tab focus {} Esc back",
+                    symbols.sep, symbols.sep
+                )
             } else if state.is_win_search() && state.focus == crate::view_model::FocusZone::List {
-                "1-9 focus"
+                format!(
+                    "1-9 focus {}{} move {} Enter open {} Ctrl-k actions {} Tab focus",
+                    symbols.sep, symbols.up, symbols.sep, symbols.sep, symbols.sep
+                )
             } else {
-                "PgUp/Dn"
-            };
-            format!(
-                "{}{} {nav} {} Enter {} Ctrl-k Actions {} Tab Focus {} Esc up/clear {} ? Help",
-                symbols.up,
-                symbols.down,
-                symbols.sep,
-                symbols.sep,
-                symbols.sep,
-                symbols.sep,
-                symbols.sep
-            )
+                format!(
+                    "{}{} move {} Enter search {} Ctrl-k actions {} Tab focus {} Esc back {} ? help",
+                    symbols.up,
+                    symbols.down,
+                    symbols.sep,
+                    symbols.sep,
+                    symbols.sep,
+                    symbols.sep,
+                    symbols.sep
+                )
+            }
         }
         Route::ActionPicker => format!(
             "{}{} 1-9 {} Enter Run {} Esc Back",
@@ -801,40 +814,19 @@ fn render_status(
             symbols.up, symbols.down, symbols.sep
         ),
         Route::WordbookReview => format!(
-            "Enter/Space reveal {} 1/2/3/m {} s skip {} Esc exit",
-            symbols.sep, symbols.sep, symbols.sep
+            "Enter/Space reveal {} 1/2/3 grade {} m master {} s skip {} Esc cancel/exit",
+            symbols.sep, symbols.sep, symbols.sep, symbols.sep
         ),
-    };
-    let count = if state.results.items.is_empty() {
-        String::new()
-    } else {
-        let mut seen = Vec::new();
-        for item in &state.results.items {
-            let label = module_label(item.module_id.as_str(), &state.module_labels);
-            if !seen.contains(&label) {
-                seen.push(label);
-            }
-        }
-        let module_part = if seen.is_empty() {
-            String::new()
-        } else {
-            format!(" {} {}", symbols.sep, seen.join(", "))
-        };
-        format!("{} results{module_part}   ", state.results.items.len())
     };
 
     let inner_w = area.width.saturating_sub(2) as usize;
-    let hints_budget = inner_w.saturating_sub(24).max(16);
-    let status_text = truncate(
-        &state.status.text,
-        inner_w.saturating_sub(hints_budget).max(8),
-        symbols,
-    );
+    let hints_budget = (inner_w / 2).clamp(16, 60);
     let hints = truncate(&hints, hints_budget, symbols);
+    let status_budget = inner_w.saturating_sub(display_width(&hints) + 3).max(8);
+    let status_text = truncate(&state.status.text, status_budget, symbols);
 
     let line = Line::from(vec![
         Span::styled(format!(" {status_text}  "), status_style),
-        Span::styled(count, theme.muted()),
         Span::styled(hints, theme.key_hint()),
     ]);
     let widget = Paragraph::new(line).block(
@@ -1213,6 +1205,118 @@ mod tests {
         let (flat, _) = draw(&state, 80, 24);
         assert!(flat.contains("DESTRUCTIVE") || flat.contains("Force Quit"));
         assert!(flat.contains("Safari"));
+    }
+
+    #[test]
+    fn render_wordbook_progress_and_summary_are_consistent() {
+        let mut state = AppState {
+            route: Route::WordbookReview,
+            wordbook_review: Some(crate::view_model::WordbookReviewState {
+                words: vec![
+                    crate::view_model::WordbookReviewWord {
+                        id: 1,
+                        term: "alpha".into(),
+                        phonetic: String::new(),
+                        meaning: "first".into(),
+                        example: String::new(),
+                    },
+                    crate::view_model::WordbookReviewWord {
+                        id: 2,
+                        term: "beta".into(),
+                        phonetic: String::new(),
+                        meaning: "second".into(),
+                        example: String::new(),
+                    },
+                ],
+                index: 2,
+                revealed: false,
+                stats: crate::view_model::WordbookReviewStats {
+                    queue: "due".into(),
+                    due: 0,
+                    goal: 20,
+                    reviewed_today: 12,
+                    remaining_goal: 8,
+                    session_known: 1,
+                    session_fuzzy: 0,
+                    session_unknown: 0,
+                    session_skipped: 0,
+                    session_mastered: 1,
+                    ..Default::default()
+                },
+                finished: true,
+                pending_grade: None,
+            }),
+            ..AppState::default()
+        };
+        state.term_width = 80;
+        state.term_height = 24;
+        let (flat, _) = draw(&state, 80, 24);
+        assert!(flat.contains("2/2"), "completed progress missing: {flat}");
+        assert!(!flat.contains("3/2"), "progress overflowed: {flat}");
+        assert!(flat.contains("Mastered 1"), "mastered stat missing: {flat}");
+        assert!(flat.contains("today 12"), "today stat missing: {flat}");
+
+        state.wordbook_review.as_mut().unwrap().finished = false;
+        state.wordbook_review.as_mut().unwrap().index = 0;
+        let (flat, _) = draw(&state, 80, 24);
+        assert!(flat.contains("1/2"), "current progress missing: {flat}");
+    }
+
+    #[test]
+    fn render_wordbook_confirm_shows_current_word() {
+        let state = AppState {
+            route: Route::ConfirmAction,
+            wordbook_review: Some(crate::view_model::WordbookReviewState {
+                words: vec![crate::view_model::WordbookReviewWord {
+                    id: 42,
+                    term: "ephemeral".into(),
+                    phonetic: String::new(),
+                    meaning: "short-lived".into(),
+                    example: String::new(),
+                }],
+                index: 0,
+                revealed: true,
+                stats: Default::default(),
+                finished: false,
+                pending_grade: Some("mastered".into()),
+            }),
+            pending_action: Some(crate::view_model::PendingAction {
+                result_id: "wb:42".into(),
+                action: luma_protocol::ActionDescriptorDto {
+                    id: "mastered".into(),
+                    label: "mastered".into(),
+                    risk: ActionRisk::Confirm,
+                    confirmation: true,
+                },
+            }),
+            ..AppState::default()
+        };
+        let (flat, _) = draw(&state, 80, 24);
+        assert!(
+            flat.contains("Target: ephemeral"),
+            "word target missing: {flat}"
+        );
+    }
+
+    #[test]
+    fn settings_overlay_keeps_selected_module_visible() {
+        let state = AppState {
+            route: Route::Settings,
+            settings_selected: 24,
+            settings_modules: (0..30)
+                .map(|i| crate::view_model::SettingsModuleRow {
+                    id: format!("luma.module{i}"),
+                    name: format!("Module {i}"),
+                    enabled: true,
+                })
+                .collect(),
+            ..AppState::default()
+        };
+        let (flat, _) = draw(&state, 80, 24);
+        assert!(
+            flat.contains("Module 24"),
+            "selected module not visible: {flat}"
+        );
     }
 
     #[test]

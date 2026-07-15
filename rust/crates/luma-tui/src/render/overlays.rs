@@ -221,6 +221,7 @@ pub(super) fn render_overlay_help(
     lines.push(String::new());
     lines.push("Config: luma config set --notes-root ~/Notes".to_string());
     lines.push("        luma config set --projects-root ~/dev".to_string());
+    lines.push("Wordbook: wb review · wb review new/wrong · 1/2/3/m in session".to_string());
     lines.push("Confirm / Destructive actions always ask first.".to_string());
 
     let overlay = overlay_area(area, (area.height.saturating_sub(2)).clamp(12, 22));
@@ -267,7 +268,7 @@ pub(super) fn render_overlay_settings(
     symbols: &Symbols,
 ) {
     dim_backdrop(frame, area, theme);
-    let overlay = overlay_area(area, 16);
+    let overlay = overlay_area(area, 18);
     fill_overlay_panel(frame, overlay, theme);
     let panel = panel_style(theme);
     let mut items = Vec::new();
@@ -291,6 +292,35 @@ pub(super) fn render_overlay_settings(
         projects_line,
         with_panel_bg(theme.muted(), theme),
     )));
+    let imported_line = if state.settings_roots.imported_projects.is_empty() {
+        " Imported: (none) · proj add PATH or proj browse".into()
+    } else {
+        format!(
+            " Imported: {} project(s)",
+            state.settings_roots.imported_projects.len()
+        )
+    };
+    items.push(ListItem::new(Span::styled(
+        imported_line,
+        with_panel_bg(theme.muted(), theme),
+    )));
+    if !state.settings_roots.imported_projects.is_empty() {
+        for path in state.settings_roots.imported_projects.iter().take(8) {
+            items.push(ListItem::new(Span::styled(
+                format!("   · {path}"),
+                with_panel_bg(theme.muted(), theme),
+            )));
+        }
+        if state.settings_roots.imported_projects.len() > 8 {
+            items.push(ListItem::new(Span::styled(
+                format!(
+                    "   · … {} more",
+                    state.settings_roots.imported_projects.len() - 8
+                ),
+                with_panel_bg(theme.muted(), theme),
+            )));
+        }
+    }
     items.push(ListItem::new(Span::styled(
         " — modules (Space toggles) —",
         with_panel_bg(theme.muted(), theme),

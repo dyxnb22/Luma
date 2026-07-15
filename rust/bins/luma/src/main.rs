@@ -118,6 +118,12 @@ struct ConfigSetArgs {
     /// Max Hub window rows (clamped 5–50).
     #[arg(long)]
     hub_windows_max: Option<u32>,
+    /// Import a project directory (canonical path; repeatable).
+    #[arg(long)]
+    import_project: Vec<String>,
+    /// Remove an imported project by name or path (config only; repeatable).
+    #[arg(long)]
+    remove_project: Vec<String>,
     /// CAS guard: fail unless settings.toml is at this settings_version.
     #[arg(long = "expected-version")]
     expected_version: Option<u64>,
@@ -126,6 +132,7 @@ struct ConfigSetArgs {
 }
 
 #[derive(Debug, Subcommand)]
+#[allow(clippy::large_enum_variant)]
 enum ConfigCmd {
     Get {
         #[arg(long)]
@@ -255,14 +262,10 @@ async fn main() -> anyhow::Result<()> {
         None | Some(Commands::Tui) => {
             let load =
                 load_registry_with_settings().map_err(|e| anyhow::anyhow!("registry: {e}"))?;
-            let diagnostics = luma_application::FsDiagnosticsSink::luma_next_default()
-                .ok()
-                .map(|s| Arc::new(s) as Arc<dyn luma_application::DiagnosticsSink>);
             let engine: Arc<dyn luma_application::EnginePort> = Arc::new(Engine::with_options(
                 load.registry,
                 luma_application::EngineOptions {
                     settings: Some(load.settings),
-                    diagnostics,
                     wordbook: load.wordbook,
                 },
             ));
@@ -402,6 +405,14 @@ async fn main() -> anyhow::Result<()> {
                     "settings_version={} notes_root={:?} projects_roots={:?}",
                     settings.settings_version, settings.notes_root, settings.projects_roots
                 );
+                if settings.imported_projects.is_empty() {
+                    println!("imported_projects=(none)");
+                } else {
+                    for p in &settings.imported_projects {
+                        let name = p.name.as_deref().unwrap_or("(unnamed)");
+                        println!("imported_project={name}\t{}", p.path);
+                    }
+                }
                 println!(
                     "notes_exclude_patterns={:?}",
                     settings.notes_exclude_patterns
@@ -428,11 +439,13 @@ async fn main() -> anyhow::Result<()> {
                 clipboard_retention_days,
                 secrets_idle_lock_secs,
                 hub_windows_max,
+                import_project,
+                remove_project,
                 expected_version,
                 json,
             } = args;
             let store = ConfigStore::luma_next_default()?;
-            let saved = match store.mutate_settings(expected_version, |next| {
+            let saved = match store.try_mutate_settings(expected_version, |next| {
                 if let Some(root) = notes_root {
                     next.notes_root = if root.is_empty() { None } else { Some(root) };
                 }
@@ -463,6 +476,15 @@ async fn main() -> anyhow::Result<()> {
                 if let Some(max) = hub_windows_max {
                     next.hub_windows_max = max.clamp(5, 50);
                 }
+                for path in &import_project {
+                    next.import_project_path(std::path::Path::new(path))
+                        .map_err(|err| err.to_string())?;
+                }
+                for name in &remove_project {
+                    next.remove_imported_project(name)
+                        .map_err(|err| err.to_string())?;
+                }
+                Ok(())
             }) {
                 Ok(s) => s,
                 Err(ConfigError::VersionConflict { expected, found }) => {
@@ -471,6 +493,7 @@ async fn main() -> anyhow::Result<()> {
                 Err(ConfigError::LockTimeout) => {
                     anyhow::bail!("settings lock timeout — another Luma instance may be saving");
                 }
+                Err(ConfigError::Mutation(message)) => anyhow::bail!("{message}"),
                 Err(err) => return Err(err.into()),
             };
             if json {

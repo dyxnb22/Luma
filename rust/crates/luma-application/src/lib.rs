@@ -9,8 +9,8 @@ mod ports;
 mod registry;
 
 pub use adapters::{
-    FsDiagnosticsSink, SqliteClipboardHistory, SqliteNotesIndex, SqliteQuicklinksRepository,
-    SqliteSnippetsRepository, SqliteWordbookRepository, TomlSettingsRepository,
+    SqliteClipboardHistory, SqliteNotesIndex, SqliteQuicklinksRepository, SqliteSnippetsRepository,
+    SqliteWordbookRepository, TomlSettingsRepository,
 };
 pub use engine::{list_modules_json, run_action, run_query, Engine, EngineOptions};
 pub use module::{
@@ -22,17 +22,19 @@ pub use port::EnginePort;
 pub use ports::{
     looks_secret, AccessibilityError, AccessibilityPort, AppEntry, AppLaunchError, AppSettings,
     AppsCatalogPort, CapabilityPort, ClipboardEntry, ClipboardHistoryRepository,
-    ClipboardRepoError, ClockError, ClockPort, ContentImportReport, DiagnosticsError,
-    DiagnosticsSink, FakeAccessibility, FakeCapabilities, FakeKeychain, FakeMarkdownWatcher,
-    FakeOpenPath, FakePasteboard, FakePlatformProbe, FakeSpeech, FakeWindowCatalog, FixedClock,
-    KeychainError, KeychainPort, MarkdownWatchPort, MemoryClipboardHistory, MemoryNotesIndex,
-    MemoryQuicklinksRepository, MemorySnippetsRepository, MemoryWordbookRepository, NotesDocument,
-    NotesIndexError, NotesIndexRepository, NotesIssue, NotesLink, NotesScanReport,
-    NotesScanStatusView, NotesSearchHit, OpenPathError, OpenPathPort, PasteboardError,
-    PasteboardPort, PlatformProbePort, QuicklinkEntry, QuicklinksRepoError, QuicklinksRepository,
+    ClipboardRepoError, ClockError, ClockPort, ContentImportReport, FakeAccessibility,
+    FakeCapabilities, FakeKeychain, FakeMarkdownWatcher, FakeOpenPath, FakePasteboard, FakeSpeech,
+    FakeWindowCatalog, FixedClock, KeychainError, KeychainPort, MarkdownWatchPort,
+    MemoryClipboardHistory, MemoryNotesIndex, MemoryQuicklinksRepository, MemorySnippetsRepository,
+    MemoryWordbookRepository, NotesDocument, NotesIndexError, NotesIndexRepository, NotesIssue,
+    NotesLink, NotesScanReport, NotesScanStatusView, NotesSearchHit, OpenPathError, OpenPathPort,
+    PasteboardError, PasteboardPort, QuicklinkEntry, QuicklinksRepoError, QuicklinksRepository,
     SecretLabel, SettingsError, SettingsRepository, SnippetEntry, SnippetsRepoError,
-    SnippetsRepository, SpeechAccent, SpeechError, SpeechPort, StorageProbePort, SystemClock,
-    WindowCatalogPort, WindowEntry, WindowError, WordContentInput, WordEntry, WordbookRepoError,
-    WordbookRepository, WordbookStatsView,
+    SnippetsRepository, SpeechAccent, SpeechError, SpeechPort, SystemClock, WindowCatalogPort,
+    WindowEntry, WindowError, WordContentInput, WordEntry, WordbookRepoError, WordbookRepository,
+    WordbookStatsView,
 };
 pub use registry::{ModuleRegistry, RegistryError};
+// Application-facing façade for project settings helpers. Modules depend on this layer rather
+// than importing storage adapters directly.
+pub use luma_storage::{validate_import_project_path, ImportedProject};

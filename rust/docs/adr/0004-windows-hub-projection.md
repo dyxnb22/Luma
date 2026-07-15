@@ -27,13 +27,6 @@ favorites) is retired from the empty-prompt Hub; those flows stay available via 
    silent empty list.
 5. **Tests** — never call real `focus`, `osascript`, or otherwise steal focus (MODULES.md).
 
-## Doctor probes
-
-| Probe | Meaning |
-| --- | --- |
-| `windows.list` | `CGWindowListCopyWindowInfo` (or fake) succeeds |
-| `ax.trusted` | `AXIsProcessTrusted` for the current process |
-
 ## Consequences
 
 - Hub = Windows slice + Modules (see MODULES.md).

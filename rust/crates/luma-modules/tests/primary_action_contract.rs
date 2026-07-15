@@ -286,3 +286,29 @@ async fn wordbook_due_and_add_rows_match_actions_contract() {
     );
     m.teardown().await;
 }
+
+#[tokio::test]
+async fn wordbook_review_row_starts_with_start_review_action() {
+    let store = Arc::new(MemoryWordbookRepository::new());
+    let m = WordbookModule::with_store_for_tests(store, Arc::new(MemPb(Mutex::new(None))));
+    m.warmup(WarmupContext {
+        cancel: CancellationToken::new(),
+    })
+    .await;
+    let items =
+        luma_test_support::collect_search_items(&m, Query::parse("wb review new", 20)).await;
+    assert!(
+        items.iter().any(|i| {
+            i.id.as_str() == "wb:review:new" && i.primary_action.id.as_str() == "start_review"
+        }),
+        "expected start_review row: {:?}",
+        items
+            .iter()
+            .map(|i| (
+                i.id.as_str().to_string(),
+                i.primary_action.id.as_str().to_string()
+            ))
+            .collect::<Vec<_>>()
+    );
+    m.teardown().await;
+}

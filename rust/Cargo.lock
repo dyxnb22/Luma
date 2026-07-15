@@ -829,7 +829,6 @@ dependencies = [
  "luma-application",
  "luma-domain",
  "luma-protocol",
- "luma-storage",
  "luma-test-support",
  "serde_json",
  "tempfile",

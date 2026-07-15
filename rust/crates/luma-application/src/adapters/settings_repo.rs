@@ -21,6 +21,7 @@ fn map_err(err: ConfigError) -> SettingsError {
         ConfigError::LockTimeout => SettingsError::Unavailable(
             "settings lock timeout — another Luma instance may be saving".into(),
         ),
+        ConfigError::Mutation(message) => SettingsError::Unavailable(message),
         other => SettingsError::Io(other.to_string()),
     }
 }

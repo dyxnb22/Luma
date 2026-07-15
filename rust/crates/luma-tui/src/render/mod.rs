@@ -49,7 +49,9 @@ fn render_with(frame: &mut Frame<'_>, state: &AppState, theme: &Theme, symbols: 
             .split(body);
         render_results(frame, rows[0], state, theme, symbols);
         render_preview(frame, rows[1], state, theme, symbols);
-    } else if state.route == Route::WordbookReview {
+    } else if state.route == Route::WordbookReview
+        || (state.wordbook_review.is_some() && matches!(state.route, Route::ConfirmAction))
+    {
         render_wordbook_review(frame, body, state, theme, symbols);
     } else {
         render_results(frame, body, state, theme, symbols);
@@ -243,10 +245,15 @@ fn hub_module_title(state: &AppState, module_id: &str, title: &str) -> String {
             .as_ref()
             .map(|s| s.is_empty())
             .unwrap_or(true);
-    let needs_projects =
-        module_id == "luma.projects" && state.settings_roots.projects_roots.is_empty();
+    let needs_projects = module_id == "luma.projects"
+        && (state.settings_roots.projects_roots.is_empty()
+            || state.settings_roots.imported_projects.is_empty());
     if needs_notes || needs_projects {
-        format!("{title} · set root")
+        if module_id == "luma.projects" && !state.settings_roots.projects_roots.is_empty() {
+            format!("{title} · import")
+        } else {
+            format!("{title} · set root")
+        }
     } else {
         title.to_string()
     }
@@ -680,8 +687,12 @@ fn render_wordbook_review(
         format!("{}/{}", review.index + 1, review.words.len())
     };
     let header = format!(
-        "{progress} · {} {} · due {} · goal {}",
-        review.stats.queue, review.stats.reviewed_today, review.stats.due, review.stats.goal
+        "{progress} · {} {} · due {} · goal {} · left {}",
+        review.stats.queue,
+        review.stats.reviewed_today,
+        review.stats.due,
+        review.stats.goal,
+        review.stats.remaining_goal
     );
 
     if review.finished || review.words.is_empty() {
@@ -1219,5 +1230,90 @@ mod tests {
             }
         }
         assert!(saw_error, "expected red error status cells");
+    }
+
+    #[test]
+    fn hub_window_rows_show_digit_hints() {
+        let state = AppState {
+            hub_windows: Some(crate::view_model::HubWindowsState {
+                app_name: "all".into(),
+                windows: vec![
+                    crate::view_model::HubWindowRow {
+                        id: "win:1".into(),
+                        title: "Alpha".into(),
+                    },
+                    crate::view_model::HubWindowRow {
+                        id: "win:2".into(),
+                        title: "Beta".into(),
+                    },
+                ],
+                more: None,
+                status_kind: Some("permission_required".into()),
+                status_title: Some("grant AX".into()),
+                status_subtitle: None,
+            }),
+            ..AppState::default()
+        };
+        let (flat, _) = draw(&state, 80, 24);
+        assert!(flat.contains("[1]"), "first window should show [1]: {flat}");
+        assert!(
+            flat.contains("[2]"),
+            "second window should show [2]: {flat}"
+        );
+        assert!(
+            !flat.contains("grant AX[1]"),
+            "status row must not be numbered"
+        );
+    }
+
+    #[test]
+    fn win_search_window_rows_show_digit_hints() {
+        let state = AppState {
+            prompt: "win ".into(),
+            focus: crate::view_model::FocusZone::List,
+            results: crate::view_model::ResultsView {
+                items: vec![
+                    luma_domain::SearchItem {
+                        id: luma_domain::ResultId::new("win:status"),
+                        module_id: luma_domain::ModuleId::new("luma.windows"),
+                        title: "Permission".into(),
+                        subtitle: None,
+                        kind: "permission_required".into(),
+                        score: 1.0,
+                        primary_action: luma_domain::ActionDescriptor {
+                            id: luma_domain::ActionId::new("noop"),
+                            label: "OK".into(),
+                            risk: luma_domain::ActionRisk::Safe,
+                            confirmation: false,
+                        },
+                        secondary_actions: vec![],
+                        ui_intent: None,
+                        action_payload: None,
+                    },
+                    luma_domain::SearchItem {
+                        id: luma_domain::ResultId::new("win:a"),
+                        module_id: luma_domain::ModuleId::new("luma.windows"),
+                        title: "Alpha".into(),
+                        subtitle: None,
+                        kind: "window".into(),
+                        score: 1.0,
+                        primary_action: luma_domain::ActionDescriptor {
+                            id: luma_domain::ActionId::new("focus"),
+                            label: "Focus".into(),
+                            risk: luma_domain::ActionRisk::Safe,
+                            confirmation: false,
+                        },
+                        secondary_actions: vec![],
+                        ui_intent: None,
+                        action_payload: None,
+                    },
+                ],
+                selected_id: Some("win:a".into()),
+                ..Default::default()
+            },
+            ..AppState::default()
+        };
+        let (flat, _) = draw(&state, 80, 24);
+        assert!(flat.contains("[1]"), "window row should show [1]: {flat}");
     }
 }

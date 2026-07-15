@@ -52,7 +52,7 @@ pub(crate) struct EngineInner {
     pending_searches: HashMap<String, CancellationToken>,
     operations: HashMap<String, OperationTask>,
     results_by_id: HashMap<String, luma_domain::SearchItem>,
-    /// Last known warmup/runtime state per module (for Doctor / honesty).
+    /// Last known warmup/runtime state per module (for honesty / capability gating).
     module_states: HashMap<String, String>,
 }
 
@@ -60,7 +60,6 @@ pub(crate) struct EngineInner {
 #[derive(Default)]
 pub struct EngineOptions {
     pub settings: Option<Arc<dyn crate::ports::SettingsRepository>>,
-    pub diagnostics: Option<Arc<dyn crate::ports::DiagnosticsSink>>,
     pub wordbook: Option<Arc<dyn crate::ports::WordbookRepository>>,
 }
 
@@ -69,7 +68,6 @@ pub struct Engine {
     inner: Arc<Mutex<EngineInner>>,
     event_broadcast_tx: broadcast::Sender<Event>,
     settings: Option<Arc<dyn crate::ports::SettingsRepository>>,
-    diagnostics: Option<Arc<dyn crate::ports::DiagnosticsSink>>,
     wordbook: Option<Arc<dyn crate::ports::WordbookRepository>>,
     /// Serializes search setup so cancel→clear→register cannot interleave.
     search_lifecycle: Mutex<()>,
@@ -88,7 +86,6 @@ impl Engine {
             registry,
             EngineOptions {
                 settings,
-                diagnostics: None,
                 wordbook: None,
             },
         )
@@ -110,7 +107,6 @@ impl Engine {
             })),
             event_broadcast_tx,
             settings: options.settings,
-            diagnostics: options.diagnostics,
             wordbook: options.wordbook,
             search_lifecycle: Mutex::new(()),
         }
@@ -423,50 +419,30 @@ impl Engine {
             Command::CancelOperation { operation_id } => {
                 self.handle_cancel_operation(operation_id).await;
             }
-            Command::ExportDiagnostics => {
-                let (rows, settings_version) = {
-                    let g = self.inner.lock().await;
-                    (
-                        g.registry.list(),
-                        self.settings.as_ref().and_then(|c| {
-                            c.load_or_default()
-                                .ok()
-                                .map(|settings| settings.settings_version)
-                        }),
-                    )
-                };
-                let now = std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .map(|d| d.as_millis())
-                    .unwrap_or_default();
-                let diagnostic = serde_json::json!({
-                    "export": true, "redacted": true, "created_unix_ms": now,
-                    "settings_version": settings_version,
-                    "modules": rows.iter().map(|(id, enabled, name)| serde_json::json!({
-                        "id": id, "enabled": enabled, "name": name
-                    })).collect::<Vec<_>>(),
-                });
-                let diagnostic = match self.diagnostics.as_ref().map(|sink| {
-                    let body = serde_json::to_vec_pretty(&diagnostic).unwrap_or_default();
-                    sink.write_export(&format!("diagnostics-{now}.json"), &body)
-                        .map(|path| (path, diagnostic.clone()))
-                }) {
-                    Some(Ok((path, mut diagnostic))) => {
-                        diagnostic["path"] = path.display().to_string().into();
-                        diagnostic
-                    }
-                    Some(Err(err)) => serde_json::json!({
-                        "export": false, "redacted": true, "message": err.to_string()
-                    }),
-                    None => serde_json::json!({
-                        "export": false,
-                        "redacted": true,
-                        "message": "no DiagnosticsSink configured"
-                    }),
-                };
-                let _ = self.emit(Event::DiagnosticRaised { diagnostic }).await;
+            Command::RefreshWordbookReviewStats => {
+                self.handle_refresh_wordbook_review_stats().await;
             }
         }
+    }
+
+    async fn handle_refresh_wordbook_review_stats(&self) {
+        use luma_protocol::WordbookStatsDto;
+        let Some(repo) = &self.wordbook else {
+            return;
+        };
+        let stats = repo.stats().unwrap_or_default();
+        let _ = self
+            .emit(Event::WordbookReviewStatsUpdated {
+                stats: WordbookStatsDto {
+                    due: stats.due,
+                    new_count: stats.new_count,
+                    wrong: stats.wrong,
+                    goal: stats.goal,
+                    reviewed_today: stats.reviewed_today,
+                    remaining_goal: stats.remaining_goal,
+                },
+            })
+            .await;
     }
 
     async fn handle_load_wordbook_review(&self, queue: String) {
@@ -488,13 +464,23 @@ impl Engine {
                 .await;
             return;
         };
-        let limit = 50usize;
+        let stats = repo.stats().unwrap_or_default();
+        let queue_available = match queue.as_str() {
+            "new" => stats.new_count.max(0) as usize,
+            "wrong" => stats.wrong.max(0) as usize,
+            _ => stats.due.max(0) as usize,
+        };
+        let goal_batch = if stats.remaining_goal > 0 {
+            stats.remaining_goal as usize
+        } else {
+            stats.goal.max(1) as usize
+        };
+        let limit = goal_batch.min(queue_available.max(1)).clamp(1, 500);
         let words_result = match queue.as_str() {
             "new" => repo.list_new(limit),
             "wrong" => repo.list_wrong(limit),
             _ => repo.list_due(limit),
         };
-        let stats = repo.stats().unwrap_or_default();
         let words: Vec<WordReviewWordDto> = match words_result {
             Ok(entries) => entries
                 .into_iter()
@@ -1299,6 +1285,65 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn import_project_cas_conflict_does_not_overwrite() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Arc::new(luma_storage::ConfigStore::with_path(
+            dir.path().join("settings.toml"),
+        ));
+        let settings = Arc::new(crate::TomlSettingsRepository::new(store.clone()));
+        let engine = Engine::with_settings(fake_registry(), Some(settings));
+        let mut events = engine.subscribe();
+
+        let proj1 = dir.path().join("proj1");
+        let proj2 = dir.path().join("proj2");
+        std::fs::create_dir(&proj1).unwrap();
+        std::fs::create_dir(&proj2).unwrap();
+
+        engine
+            .handle_command(Command::UpdateSettings {
+                patch: serde_json::json!({"import_project": proj1.display().to_string()}),
+                expected_version: 1,
+            })
+            .await;
+        loop {
+            if let Ok(Event::SettingsChanged { .. }) = events.recv().await {
+                break;
+            }
+        }
+
+        let mut current = store.load_or_default().unwrap();
+        current.enabled_modules.insert("luma.fake".into(), false);
+        store
+            .update_cas(current.settings_version, current)
+            .expect("bump version");
+
+        engine
+            .handle_command(Command::UpdateSettings {
+                patch: serde_json::json!({"import_project": proj2.display().to_string()}),
+                expected_version: 1,
+            })
+            .await;
+        let mut saw_conflict = false;
+        for _ in 0..5 {
+            if let Ok(Event::DiagnosticRaised { diagnostic }) = events.recv().await {
+                if diagnostic.get("settings_update").and_then(|v| v.as_str()) == Some("failed") {
+                    saw_conflict = true;
+                    break;
+                }
+            }
+        }
+        assert!(saw_conflict, "expected settings conflict diagnostic");
+
+        let loaded = store.load_or_default().unwrap();
+        assert_eq!(loaded.imported_projects.len(), 1);
+        assert!(loaded.imported_projects[0].path.contains("proj1"));
+        assert!(!loaded
+            .imported_projects
+            .iter()
+            .any(|p| p.path.contains("proj2")));
+    }
+
+    #[tokio::test]
     async fn removed_ids_evict_results_by_id() {
         struct RemoveModule {
             manifest: ModuleManifest,
@@ -1433,27 +1478,37 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn export_diagnostics_creates_redacted_file() {
-        let dir = tempfile::tempdir().unwrap();
-        let sink = Arc::new(crate::FsDiagnosticsSink::new(dir.path()));
+    async fn refresh_wordbook_review_stats_emits_event() {
+        use crate::ports::WordbookRepository;
+        use crate::{MemoryWordbookRepository, WordContentInput};
+        use std::sync::Arc;
+        let store = Arc::new(MemoryWordbookRepository::new());
+        store
+            .upsert_content(&WordContentInput {
+                term: "alpha".into(),
+                phonetic: "".into(),
+                meaning: "a".into(),
+                example: "".into(),
+                category: "".into(),
+            })
+            .unwrap();
         let engine = Engine::with_options(
             fake_registry(),
             EngineOptions {
                 settings: None,
-                diagnostics: Some(sink),
-                wordbook: None,
+                wordbook: Some(store),
             },
         );
         let mut events = engine.subscribe();
-        engine.handle_command(Command::ExportDiagnostics).await;
-        let path = loop {
-            if let Ok(Event::DiagnosticRaised { diagnostic }) = events.recv().await {
-                break diagnostic["path"].as_str().unwrap().to_owned();
+        engine
+            .handle_command(Command::RefreshWordbookReviewStats)
+            .await;
+        let event = loop {
+            if let Ok(Event::WordbookReviewStatsUpdated { stats }) = events.recv().await {
+                break stats;
             }
         };
-        let body = std::fs::read_to_string(path).unwrap();
-        assert!(body.contains("\"redacted\": true"));
-        assert!(!body.contains("clipboard_text"));
+        assert!(event.goal >= 1);
     }
 
     #[tokio::test]

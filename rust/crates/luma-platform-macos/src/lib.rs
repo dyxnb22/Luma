@@ -18,4 +18,4 @@ pub use markdown_watch::MacMarkdownWatcher;
 pub use open_path::{FakeOpenPath, MacOpenPath, OpenPath, OpenPathError};
 pub use pasteboard::{MacPasteboard, Pasteboard, PasteboardError};
 pub use speech::MacSpeech;
-pub use window::{probe_ax_trusted, probe_windows_list, MacWindowCatalog};
+pub use window::MacWindowCatalog;

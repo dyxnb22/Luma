@@ -355,6 +355,9 @@ pub enum Event {
         words: Vec<WordReviewWordDto>,
         stats: WordbookStatsDto,
     },
+    WordbookReviewStatsUpdated {
+        stats: WordbookStatsDto,
+    },
     ModuleStateChanged {
         module_id: String,
         state: String,

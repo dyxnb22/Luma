@@ -227,7 +227,7 @@ pub struct AppState {
     pub preview_pinned: bool,
     /// Help overlay scroll (line offset).
     pub help_scroll: usize,
-    /// Prompt to restore when leaving Commands / Settings / Help / Doctor overlays.
+    /// Prompt to restore when leaving Commands / Settings / Help overlays.
     pub overlay_restore_prompt: Option<String>,
     /// Command palette selection.
     pub commands_selected: usize,
@@ -285,6 +285,7 @@ pub struct WordbookReviewStats {
     pub session_fuzzy: u32,
     pub session_unknown: u32,
     pub session_skipped: u32,
+    pub session_mastered: u32,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -428,23 +429,23 @@ impl AppState {
     /// First nine focusable window rows: `(result_id, title)` — hub windows or win search rows.
     pub fn window_digit_targets(&self) -> Vec<(String, String)> {
         if self.showing_hub() {
-            return self
-                .hub_windows
-                .as_ref()
-                .map(|h| {
-                    h.windows
-                        .iter()
-                        .take(9)
-                        .map(|w| (w.id.clone(), w.title.clone()))
-                        .collect()
-                })
-                .unwrap_or_default();
+            let rows = self.hub_rows();
+            let start = self.hub_scroll.min(rows.len());
+            return rows
+                .iter()
+                .skip(start)
+                .filter(|(kind, _, _, _)| kind == "window")
+                .take(9)
+                .map(|(_, id, title, _)| (id.clone(), title.clone()))
+                .collect();
         }
         if self.is_win_search() {
+            let start = self.results.scroll.min(self.results.items.len());
             return self
                 .results
                 .items
                 .iter()
+                .skip(start)
                 .filter(|i| i.module_id.as_str() == "luma.windows" && i.kind == "window")
                 .take(9)
                 .map(|i| (i.id.as_str().to_string(), i.title.clone()))
@@ -456,8 +457,9 @@ impl AppState {
     /// 1-based digit label for a hub row index, if that row is a focusable window in 1..=9.
     pub fn hub_row_window_digit(&self, row_index: usize) -> Option<usize> {
         let rows = self.hub_rows();
+        let start = self.hub_scroll.min(rows.len());
         let mut window_idx = 0usize;
-        for (i, (kind, _, _, _)) in rows.iter().enumerate() {
+        for (i, (kind, _, _, _)) in rows.iter().enumerate().skip(start) {
             if kind != "window" {
                 continue;
             }
@@ -1044,12 +1046,9 @@ impl AppState {
                                     "known" => review.stats.session_known += 1,
                                     "fuzzy" => review.stats.session_fuzzy += 1,
                                     "unknown" => review.stats.session_unknown += 1,
+                                    "mastered" => review.stats.session_mastered += 1,
                                     _ => {}
                                 }
-                            }
-                            review.stats.reviewed_today += 1;
-                            if review.stats.remaining_goal > 0 {
-                                review.stats.remaining_goal -= 1;
                             }
                             review.revealed = false;
                             review.index += 1;
@@ -1057,6 +1056,9 @@ impl AppState {
                                 review.finished = true;
                             }
                         }
+                    } else if let Some(review) = self.wordbook_review.as_mut() {
+                        // A cancelled grade must not remain armed for the next keypress.
+                        review.pending_grade = None;
                     }
                     let tone = status_tone_for_outcome(&outcome);
                     if self.wordbook_review.as_ref().is_some_and(|r| r.finished) {
@@ -1080,6 +1082,17 @@ impl AppState {
                 }
                 let tone = status_tone_for_outcome(&outcome);
                 self.status.set(outcome.user_message(), tone);
+                true
+            }
+            Event::WordbookReviewStatsUpdated { stats } => {
+                if let Some(review) = self.wordbook_review.as_mut() {
+                    review.stats.due = stats.due;
+                    review.stats.new_count = stats.new_count;
+                    review.stats.wrong = stats.wrong;
+                    review.stats.goal = stats.goal;
+                    review.stats.reviewed_today = stats.reviewed_today;
+                    review.stats.remaining_goal = stats.remaining_goal;
+                }
                 true
             }
             Event::DiagnosticRaised { diagnostic } => {
@@ -1461,5 +1474,174 @@ mod tests {
         });
         assert!(applied);
         assert!(!state.module_catalog[0].enabled);
+    }
+
+    #[test]
+    fn hub_row_window_digit_skips_status_more_and_modules() {
+        let state = AppState {
+            hub_windows: Some(HubWindowsState {
+                app_name: "all".into(),
+                windows: vec![
+                    HubWindowRow {
+                        id: "win:1".into(),
+                        title: "A".into(),
+                    },
+                    HubWindowRow {
+                        id: "win:2".into(),
+                        title: "B".into(),
+                    },
+                ],
+                more: Some(3),
+                status_kind: Some("permission_required".into()),
+                status_title: Some("grant AX".into()),
+                status_subtitle: None,
+            }),
+            module_catalog: vec![ModuleCatalogEntry {
+                id: "luma.apps".into(),
+                display_name: "Apps".into(),
+                enabled: true,
+                glyph: None,
+                suggested_query: Some("app ".into()),
+                empty_hint: None,
+                supports_browse: false,
+                triggers: vec![],
+            }],
+            ..Default::default()
+        };
+        let rows = state.hub_rows();
+        let status_idx = rows
+            .iter()
+            .position(|(k, ..)| k == "window_status")
+            .unwrap();
+        let first_win_idx = rows.iter().position(|(k, ..)| k == "window").unwrap();
+        let more_idx = rows.iter().position(|(k, ..)| k == "window_more").unwrap();
+        let module_idx = rows.iter().position(|(k, ..)| k == "module").unwrap();
+        assert_eq!(state.hub_row_window_digit(status_idx), None);
+        assert_eq!(state.hub_row_window_digit(first_win_idx), Some(1));
+        assert_eq!(state.hub_row_window_digit(first_win_idx + 1), Some(2));
+        assert_eq!(state.hub_row_window_digit(more_idx), None);
+        assert_eq!(state.hub_row_window_digit(module_idx), None);
+    }
+
+    #[test]
+    fn window_digit_targets_follow_scroll_position() {
+        let mut state = AppState {
+            prompt: "win ".into(),
+            focus: FocusZone::List,
+            ..Default::default()
+        };
+        state.results.items = (0..20)
+            .map(|i| SearchItem {
+                id: luma_domain::ResultId::new(format!("win:{i}")),
+                module_id: luma_domain::ModuleId::new("luma.windows"),
+                title: format!("Window {i}"),
+                subtitle: None,
+                kind: "window".into(),
+                score: 1.0,
+                primary_action: luma_domain::ActionDescriptor {
+                    id: luma_domain::ActionId::new("focus"),
+                    label: "Focus".into(),
+                    risk: luma_domain::ActionRisk::Safe,
+                    confirmation: false,
+                },
+                secondary_actions: vec![],
+                ui_intent: None,
+                action_payload: None,
+            })
+            .collect();
+        state.results.scroll = 4;
+        let targets = state.window_digit_targets();
+        assert_eq!(targets.first().map(|(id, _)| id.as_str()), Some("win:4"));
+        assert_eq!(targets.get(8).map(|(id, _)| id.as_str()), Some("win:12"));
+    }
+
+    #[test]
+    fn hub_window_digit_targets_follow_scroll_position() {
+        let mut state = AppState {
+            hub_windows: Some(HubWindowsState {
+                app_name: "all".into(),
+                windows: (0..12)
+                    .map(|i| HubWindowRow {
+                        id: format!("win:{i}"),
+                        title: format!("Window {i}"),
+                    })
+                    .collect(),
+                more: None,
+                status_kind: None,
+                status_title: None,
+                status_subtitle: None,
+            }),
+            ..Default::default()
+        };
+        state.hub_scroll = 4;
+        assert_eq!(
+            state
+                .window_digit_targets()
+                .first()
+                .map(|(id, _)| id.as_str()),
+            Some("win:4")
+        );
+        let rows = state.hub_rows();
+        let row_index = rows.iter().position(|(_, id, _, _)| id == "win:4").unwrap();
+        assert_eq!(state.hub_row_window_digit(row_index), Some(1));
+    }
+
+    #[test]
+    fn wordbook_review_loaded_empty_finishes() {
+        let mut state = AppState {
+            route: Route::WordbookReview,
+            ..Default::default()
+        };
+        let applied = state.apply_engine_event(Event::WordbookReviewLoaded {
+            queue: "due".into(),
+            words: vec![],
+            stats: luma_protocol::WordbookStatsDto {
+                due: 0,
+                new_count: 0,
+                wrong: 0,
+                goal: 20,
+                reviewed_today: 5,
+                remaining_goal: 15,
+            },
+        });
+        assert!(applied);
+        let review = state.wordbook_review.as_ref().unwrap();
+        assert!(review.finished);
+        assert!(state.status.text.contains("empty"));
+    }
+
+    #[test]
+    fn wordbook_review_stats_updated_refreshes_counters() {
+        let mut state = AppState {
+            route: Route::WordbookReview,
+            wordbook_review: Some(WordbookReviewState {
+                words: vec![],
+                index: 0,
+                revealed: false,
+                stats: WordbookReviewStats {
+                    reviewed_today: 3,
+                    remaining_goal: 10,
+                    ..Default::default()
+                },
+                finished: true,
+                pending_grade: None,
+            }),
+            ..Default::default()
+        };
+        let applied = state.apply_engine_event(Event::WordbookReviewStatsUpdated {
+            stats: luma_protocol::WordbookStatsDto {
+                due: 5,
+                new_count: 2,
+                wrong: 1,
+                goal: 20,
+                reviewed_today: 8,
+                remaining_goal: 12,
+            },
+        });
+        assert!(applied);
+        let review = state.wordbook_review.as_ref().unwrap();
+        assert_eq!(review.stats.reviewed_today, 8);
+        assert_eq!(review.stats.remaining_goal, 12);
+        assert_eq!(review.stats.due, 5);
     }
 }

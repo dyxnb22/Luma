@@ -31,15 +31,9 @@ pub fn luma_next_logs_dir() -> Result<PathBuf, PathsError> {
     Ok(home.join("Library").join("Logs").join("LumaNext"))
 }
 
-/// Diagnostic exports under Application Support (`LumaNext/diagnostics`).
-pub fn luma_next_diagnostics_dir() -> Result<PathBuf, PathsError> {
-    Ok(luma_next_support_dir()?.join("diagnostics"))
-}
-
 pub fn ensure_luma_next_dirs() -> Result<(), PathsError> {
     fs::create_dir_all(luma_next_support_dir()?)?;
     fs::create_dir_all(luma_next_logs_dir()?)?;
-    fs::create_dir_all(luma_next_diagnostics_dir()?)?;
     Ok(())
 }
 

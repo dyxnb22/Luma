@@ -24,7 +24,7 @@ Personal daily-driver status. Prefer honest `unavailable` / `permission_required
 | Quicklinks | `ql` / `quicklinks` | Available — add/overwrite, open, copy URL, delete | on |
 | Snippets | `s` / `snip` | Available — search; add/overwrite; copy/paste; delete | on |
 | Wordbook | `wb` / `wordbook` / `words` | Available — due/new/wrong; `wb review` session; known/fuzzy/unknown/mastered; import; daily goal | on |
-| Projects | `p` / `proj` / `project` | Available — manual import (`proj add`); browse roots; `proj browse` | on |
+| Projects | `p` / `proj` / `project` | Available — manual import (`proj add` / `config set --import-project`); browse roots; `proj browse` | on |
 | Secrets | `sec` / `secret` / `secrets` | Copy-only for pre-provisioned labels; `luma secrets set` bootstrap; unlock is in-process UX only (no Touch ID); copy confirm | **off** (enable in Settings after bootstrap) |
 | Fake | — | Test/demo module for CLI blackbox | **off** |
 

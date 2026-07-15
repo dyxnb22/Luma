@@ -404,6 +404,57 @@ fn concurrent_config_set_one_wins() {
 }
 
 #[test]
+fn config_import_project_round_trip() {
+    let dir = tempdir().unwrap();
+    let support = dir.path().join("support");
+    let logs = dir.path().join("logs");
+    fs::create_dir_all(&support).unwrap();
+    fs::create_dir_all(&logs).unwrap();
+    let project = dir.path().join("myapp");
+    fs::create_dir(&project).unwrap();
+    let path = project.display().to_string();
+    let (code, _, stderr) = run_luma(
+        &support,
+        &logs,
+        &["config", "set", "--import-project", &path, "--json"],
+    );
+    assert_eq!(code, 0, "stderr={stderr}");
+    let (code, stdout, stderr) = run_luma(&support, &logs, &["config", "get", "--json"]);
+    assert_eq!(code, 0, "stderr={stderr}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    let imports = v["imported_projects"].as_array().expect("imports");
+    assert_eq!(imports.len(), 1);
+    assert!(imports[0]["path"].as_str().unwrap().contains("myapp"));
+    let (code, _, stderr) = run_luma(
+        &support,
+        &logs,
+        &["config", "set", "--import-project", &path, "--json"],
+    );
+    assert_ne!(code, 0);
+    assert!(stderr.contains("already imported"), "stderr={stderr}");
+    assert!(!stderr.contains("panicked"), "stderr={stderr}");
+    let (code, _, stderr) = run_luma(
+        &support,
+        &logs,
+        &[
+            "config",
+            "set",
+            "--remove-project",
+            "myapp",
+            "--expected-version",
+            &v["settings_version"].to_string(),
+            "--json",
+        ],
+    );
+    assert_eq!(code, 0, "stderr={stderr}");
+    assert!(project.exists(), "remove must not delete directory");
+    let (code, stdout, stderr) = run_luma(&support, &logs, &["config", "get", "--json"]);
+    assert_eq!(code, 0, "stderr={stderr}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert!(v["imported_projects"].as_array().unwrap().is_empty());
+}
+
+#[test]
 fn wordbook_import_wordpet_dry_run_then_commit() {
     use luma_storage::{WordContent, WordbookStore};
 

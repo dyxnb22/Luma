@@ -1,13 +1,12 @@
 use async_trait::async_trait;
 use luma_application::{
-    ActionOutcome, ActionRequest, LumaModule, ModuleManifest, ModuleState, OpenPathPort,
-    SearchMode, SearchSink, WarmupContext,
+    validate_import_project_path, ActionOutcome, ActionRequest, ImportedProject, LumaModule,
+    ModuleManifest, ModuleState, OpenPathPort, SearchMode, SearchSink, WarmupContext,
 };
 use luma_domain::{
     ActionDescriptor, ActionId, ActionRisk, FailureKind, ModuleId, Query, SearchItem,
 };
 use luma_protocol::{Event, SearchItemDto, UiIntent};
-use luma_storage::{validate_import_project_path, ImportedProject};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -370,20 +369,16 @@ impl LumaModule for ProjectsModule {
                             },
                             score: 80.0,
                             primary_action_id: if imported {
-                                "noop".into()
+                                "browse".into()
                             } else {
                                 "import_project".into()
                             },
                             primary_action_label: if imported {
-                                "Imported".into()
+                                "Browse".into()
                             } else {
                                 "Import project".into()
                             },
-                            ui_intent: if imported {
-                                None
-                            } else {
-                                Some(UiIntent::Browse)
-                            },
+                            ui_intent: Some(UiIntent::Browse).filter(|_| imported),
                             action_payload: None,
                             ..Default::default()
                         });
@@ -1085,5 +1080,94 @@ mod tests {
             )
             .await;
         assert!(matches!(outcome, ActionOutcome::Failed { .. }));
+    }
+
+    #[tokio::test]
+    async fn empty_proj_lists_not_configured() {
+        let root = tempfile::tempdir().unwrap();
+        let module = ProjectsModule::with_roots(
+            vec![root.path().to_path_buf()],
+            Arc::new(FakeOpenPath::new()),
+        );
+        let (tx, mut rx) = mpsc::channel(8);
+        let q = Query::parse("proj", 20);
+        module.search(q, tx, CancellationToken::new()).await;
+        let ev = rx.recv().await.expect("chunk");
+        let Event::ResultsChunk { upserts, .. } = ev else {
+            panic!("expected chunk");
+        };
+        assert_eq!(upserts[0].id, "proj:not-configured");
+        assert_eq!(upserts[0].kind, "not_configured");
+    }
+
+    #[tokio::test]
+    async fn proj_add_emits_import_action() {
+        let root = tempfile::tempdir().unwrap();
+        let project = root.path().join("myapp");
+        std::fs::create_dir(&project).unwrap();
+        let module = ProjectsModule::with_roots(
+            vec![root.path().to_path_buf()],
+            Arc::new(FakeOpenPath::new()),
+        );
+        let (tx, mut rx) = mpsc::channel(8);
+        let q = Query::parse(format!("proj add {}", project.display()), 20);
+        module.search(q, tx, CancellationToken::new()).await;
+        let ev = rx.recv().await.expect("chunk");
+        let Event::ResultsChunk { upserts, .. } = ev else {
+            panic!("expected chunk");
+        };
+        assert_eq!(
+            upserts[0].primary_action_id, "import_project",
+            "upserts={upserts:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn browse_rows_have_real_primary_actions() {
+        let root = tempfile::tempdir().unwrap();
+        let project = root.path().join("myapp");
+        std::fs::create_dir(&project).unwrap();
+
+        let module = ProjectsModule::with_roots(
+            vec![root.path().to_path_buf()],
+            Arc::new(FakeOpenPath::new()),
+        );
+        let (tx, mut rx) = mpsc::channel(8);
+        module
+            .search(
+                Query::parse(format!("proj browse {}", root.path().display()), 20),
+                tx,
+                CancellationToken::new(),
+            )
+            .await;
+        let Event::ResultsChunk { upserts, .. } = rx.recv().await.unwrap() else {
+            panic!("expected chunk");
+        };
+        let candidate = upserts.iter().find(|item| item.title == "myapp/").unwrap();
+        assert_eq!(candidate.primary_action_id, "import_project");
+        assert!(candidate.ui_intent.is_none());
+
+        let imported_module = ProjectsModule::with_settings(
+            vec![root.path().to_path_buf()],
+            vec![ImportedProject {
+                path: project.canonicalize().unwrap().display().to_string(),
+                name: Some("myapp".into()),
+            }],
+            Arc::new(FakeOpenPath::new()),
+        );
+        let (tx, mut rx) = mpsc::channel(8);
+        imported_module
+            .search(
+                Query::parse(format!("proj browse {}", root.path().display()), 20),
+                tx,
+                CancellationToken::new(),
+            )
+            .await;
+        let Event::ResultsChunk { upserts, .. } = rx.recv().await.unwrap() else {
+            panic!("expected chunk");
+        };
+        let imported = upserts.iter().find(|item| item.title == "myapp/").unwrap();
+        assert_eq!(imported.primary_action_id, "browse");
+        assert_eq!(imported.ui_intent, Some(UiIntent::Browse));
     }
 }

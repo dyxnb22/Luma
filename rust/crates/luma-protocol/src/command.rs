@@ -32,7 +32,6 @@ pub enum Command {
         patch: serde_json::Value,
         expected_version: u64,
     },
-    ExportDiagnostics,
     LoadPreview {
         result_id: String,
         preview_id: u64,
@@ -41,6 +40,7 @@ pub enum Command {
     LoadWordbookReview {
         queue: String,
     },
+    RefreshWordbookReviewStats,
     GetSnapshot,
     ShutdownSession,
 }

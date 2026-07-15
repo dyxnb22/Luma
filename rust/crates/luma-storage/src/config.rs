@@ -23,6 +23,8 @@ pub enum ConfigError {
     Corrupt(PathBuf),
     #[error("settings lock timeout — another Luma instance may be saving")]
     LockTimeout,
+    #[error("settings mutation rejected: {0}")]
+    Mutation(String),
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -60,14 +62,63 @@ pub fn validate_import_project_path(path: &Path) -> Result<PathBuf, String> {
     if !path.exists() {
         return Err("path does not exist".into());
     }
-    let meta = std::fs::symlink_metadata(path).map_err(|e| e.to_string())?;
-    if meta.file_type().is_symlink() {
+    let absolute = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        std::env::current_dir()
+            .map_err(|e| e.to_string())?
+            .join(path)
+    };
+
+    // Check every existing path component before canonicalizing. Checking only the final
+    // component would allow `symlink-to-outside/project` to escape the import boundary.
+    let mut current = PathBuf::new();
+    for component in absolute.components() {
+        match component {
+            std::path::Component::Prefix(prefix) => current.push(prefix.as_os_str()),
+            std::path::Component::RootDir => current.push(component.as_os_str()),
+            std::path::Component::CurDir => {}
+            std::path::Component::ParentDir => {
+                current.pop();
+            }
+            std::path::Component::Normal(name) => {
+                current.push(name);
+                let meta = fs::symlink_metadata(&current).map_err(|e| e.to_string())?;
+                if meta.file_type().is_symlink() && !is_macos_system_alias(&current) {
+                    return Err("symlink not allowed".into());
+                }
+            }
+        }
+    }
+
+    let meta = fs::symlink_metadata(&absolute).map_err(|e| e.to_string())?;
+    if meta.file_type().is_symlink() && !is_macos_system_alias(&absolute) {
         return Err("symlink not allowed".into());
     }
     if !meta.is_dir() {
         return Err("path is not a directory".into());
     }
-    path.canonicalize().map_err(|e| e.to_string())
+    absolute.canonicalize().map_err(|e| e.to_string())
+}
+
+/// macOS exposes `/tmp`, `/var`, and `/etc` as stable aliases into `/private`.
+/// They are OS path aliases, not user-controlled project symlinks; allow them while
+/// still rejecting every symlink below those roots.
+#[cfg(unix)]
+fn is_macos_system_alias(path: &Path) -> bool {
+    let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
+        return false;
+    };
+    if !matches!(name, "tmp" | "var" | "etc") {
+        return false;
+    }
+    let expected = Path::new("/private").join(name);
+    path.is_absolute() && path.canonicalize().ok().as_deref() == Some(expected.as_path())
+}
+
+#[cfg(not(unix))]
+fn is_macos_system_alias(_path: &Path) -> bool {
+    false
 }
 
 impl LumaSettings {
@@ -90,17 +141,63 @@ impl LumaSettings {
     }
 
     pub fn remove_imported_project(&mut self, key: &str) -> Result<(), String> {
-        let before = self.imported_projects.len();
-        self.imported_projects.retain(|p| {
-            let base = Path::new(&p.path)
-                .file_name()
-                .and_then(|s| s.to_str())
-                .unwrap_or("");
-            p.name.as_deref() != Some(key) && base != key && p.path != key
-        });
-        if self.imported_projects.len() == before {
+        let key_path = Path::new(key);
+        let path_like = key_path.is_absolute()
+            || key_path.components().count() > 1
+            || key.starts_with('.')
+            || key.contains(std::path::MAIN_SEPARATOR);
+        let canonical_key = if path_like && key_path.exists() {
+            Some(
+                validate_import_project_path(key_path)?
+                    .display()
+                    .to_string(),
+            )
+        } else {
+            None
+        };
+
+        let path_matches: Vec<usize> = self
+            .imported_projects
+            .iter()
+            .enumerate()
+            .filter_map(|(index, project)| {
+                let stored_canonical = Path::new(&project.path)
+                    .canonicalize()
+                    .ok()
+                    .map(|path| path.display().to_string());
+                if project.path == key || canonical_key.as_deref() == stored_canonical.as_deref() {
+                    Some(index)
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        let matches = if path_matches.is_empty() {
+            self.imported_projects
+                .iter()
+                .enumerate()
+                .filter_map(|(index, project)| {
+                    let base = Path::new(&project.path)
+                        .file_name()
+                        .and_then(|s| s.to_str())
+                        .unwrap_or("");
+                    (project.name.as_deref() == Some(key) || base == key).then_some(index)
+                })
+                .collect::<Vec<_>>()
+        } else {
+            path_matches
+        };
+
+        if matches.is_empty() {
             return Err(format!("no imported project matching \"{key}\""));
         }
+        if matches.len() > 1 {
+            return Err(format!(
+                "ambiguous imported project \"{key}\"; remove it by full path"
+            ));
+        }
+        self.imported_projects.remove(matches[0]);
         Ok(())
     }
 }
@@ -257,6 +354,18 @@ impl ConfigStore {
         expected_version: Option<u64>,
         mutate: impl FnOnce(&mut LumaSettings),
     ) -> Result<LumaSettings, ConfigError> {
+        self.try_mutate_settings(expected_version, |next| {
+            mutate(next);
+            Ok(())
+        })
+    }
+
+    /// Read settings under lock, apply a fallible mutation, then CAS-save atomically.
+    pub fn try_mutate_settings(
+        &self,
+        expected_version: Option<u64>,
+        mutate: impl FnOnce(&mut LumaSettings) -> Result<(), String>,
+    ) -> Result<LumaSettings, ConfigError> {
         self.with_settings_lock(|_| {
             let current = self.load_or_default_unlocked()?;
             let expected = expected_version.unwrap_or(current.settings_version);
@@ -267,7 +376,7 @@ impl ConfigStore {
                 });
             }
             let mut next = current;
-            mutate(&mut next);
+            mutate(&mut next).map_err(ConfigError::Mutation)?;
             next.settings_version = expected + 1;
             self.save_unlocked(&next)?;
             Ok(next)
@@ -493,5 +602,61 @@ mod tests {
             let err = settings.import_project_path(&link).unwrap_err();
             assert!(err.contains("symlink"), "{err}");
         }
+    }
+
+    #[test]
+    fn import_rejects_symlink_ancestor() {
+        let dir = tempdir().unwrap();
+        let outside = tempdir().unwrap();
+        let real_parent = outside.path().join("parent");
+        fs::create_dir(&real_parent).unwrap();
+        let project = real_parent.join("project");
+        fs::create_dir(&project).unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::symlink;
+            let link = dir.path().join("link");
+            symlink(&real_parent, &link).unwrap();
+            let mut settings = LumaSettings::default();
+            let err = settings
+                .import_project_path(&link.join("project"))
+                .unwrap_err();
+            assert!(err.contains("symlink"), "{err}");
+        }
+    }
+
+    #[test]
+    fn legacy_settings_without_imported_projects_load_empty() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("settings.toml");
+        let raw = toml::to_string_pretty(&LumaSettings::default())
+            .unwrap()
+            .replace("imported_projects = []\n", "");
+        fs::write(&path, raw).unwrap();
+        let loaded = ConfigStore::with_path(path).load_or_default().unwrap();
+        assert!(loaded.imported_projects.is_empty());
+    }
+
+    #[test]
+    fn remove_by_path_is_canonical_and_names_must_be_unambiguous() {
+        let dir = tempdir().unwrap();
+        let first_parent = dir.path().join("one");
+        let second_parent = dir.path().join("two");
+        fs::create_dir_all(&first_parent).unwrap();
+        fs::create_dir_all(&second_parent).unwrap();
+        let first = first_parent.join("same");
+        let second = second_parent.join("same");
+        fs::create_dir(&first).unwrap();
+        fs::create_dir(&second).unwrap();
+        let mut settings = LumaSettings::default();
+        settings.import_project_path(&first).unwrap();
+        settings.import_project_path(&second).unwrap();
+        let err = settings.remove_imported_project("same").unwrap_err();
+        assert!(err.contains("ambiguous"), "{err}");
+        settings
+            .remove_imported_project(&first.display().to_string())
+            .unwrap();
+        assert_eq!(settings.imported_projects.len(), 1);
+        assert!(settings.imported_projects[0].path.ends_with("/two/same"));
     }
 }

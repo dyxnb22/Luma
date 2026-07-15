@@ -217,6 +217,11 @@ fn dispatch_effect(engine: Arc<dyn EnginePort>, effect: Effect) {
                 let _ = engine.submit(Command::LoadWordbookReview { queue }).await;
             });
         }
+        Effect::RefreshWordbookReviewStats => {
+            tokio::spawn(async move {
+                let _ = engine.submit(Command::RefreshWordbookReviewStats).await;
+            });
+        }
         Effect::GetSnapshot => {
             tokio::spawn(async move {
                 let _ = engine.submit(Command::GetSnapshot).await;
@@ -298,6 +303,32 @@ mod tests {
         let state = AppState::default();
         let msg = map_key(KeyCode::Char('_'), KeyModifiers::CONTROL, &state);
         assert!(matches!(msg, Msg::OpenCommands));
+    }
+
+    #[test]
+    fn map_key_digit_routes_to_prompt_when_not_intercepting() {
+        let mut state = AppState::default();
+        state.prompt = "app ".into();
+        state.prompt_cursor = state.prompt_char_len();
+        let msg = map_key(KeyCode::Char('3'), KeyModifiers::empty(), &state);
+        assert!(matches!(msg, Msg::KeyChar('3')));
+    }
+
+    #[test]
+    fn map_key_digit_routes_to_window_pick_on_hub() {
+        let state = AppState::default();
+        let msg = map_key(KeyCode::Char('2'), KeyModifiers::empty(), &state);
+        assert!(matches!(msg, Msg::PickWindowDigit(2)));
+    }
+
+    #[test]
+    fn map_key_action_picker_digit_unchanged() {
+        let state = AppState {
+            route: Route::ActionPicker,
+            ..Default::default()
+        };
+        let msg = map_key(KeyCode::Char('1'), KeyModifiers::empty(), &state);
+        assert!(matches!(msg, Msg::PickActionDigit(1)));
     }
 
     #[test]

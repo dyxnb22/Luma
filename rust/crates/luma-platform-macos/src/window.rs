@@ -545,15 +545,3 @@ fn cf_string_to_rust(s: CFStringRef) -> Option<String> {
     let c = unsafe { CStr::from_ptr(buf.as_ptr()) };
     Some(c.to_string_lossy().into_owned())
 }
-
-/// Probe for doctor: can we list windows?
-pub fn probe_windows_list() -> Result<usize, String> {
-    MacWindowCatalog::list_windows_blocking()
-        .map(|v| v.len())
-        .map_err(|e| e.to_string())
-}
-
-/// Probe for doctor: Accessibility trusted?
-pub fn probe_ax_trusted() -> bool {
-    unsafe { AXIsProcessTrusted() }
-}

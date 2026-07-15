@@ -398,12 +398,13 @@ impl LumaModule for WordbookModule {
                         module_id: "luma.wordbook".into(),
                         title: format!("Start review ({queue})"),
                         subtitle: Some(
-                            "TUI: wb review · Enter to start · 1/2/3/m grade · s skip".into(),
+                            "Enter to start · reveal then 1/2/3/m grade · s skip · Esc exit".into(),
                         ),
                         kind: "command".into(),
                         score: 100.0,
-                        primary_action_id: "noop".into(),
-                        primary_action_label: "Use TUI review".into(),
+                        primary_action_id: "start_review".into(),
+                        primary_action_label: "Start review".into(),
+                        action_payload: Some(serde_json::json!({ "queue": queue })),
                         ..Default::default()
                     }],
                     removed_ids: vec![],
@@ -571,6 +572,12 @@ impl LumaModule for WordbookModule {
                 risk: ActionRisk::Safe,
                 confirmation: false,
             }],
+            "start_review" => vec![ActionDescriptor {
+                id: ActionId::new("start_review"),
+                label: "Start review".into(),
+                risk: ActionRisk::Safe,
+                confirmation: false,
+            }],
             "noop" => vec![ActionDescriptor {
                 id: ActionId::new("noop"),
                 label: "OK".into(),
@@ -674,6 +681,9 @@ impl LumaModule for WordbookModule {
         }
         match action.action.id.as_str() {
             "noop" => ActionOutcome::Success { message: None },
+            "start_review" => ActionOutcome::Success {
+                message: Some("review session is TUI-only — use Enter on the review row".into()),
+            },
             "add" => {
                 let Some(term) = action.result.id.as_str().strip_prefix("wb:add:") else {
                     return ActionOutcome::Failed {

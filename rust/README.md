@@ -19,6 +19,8 @@ cargo run -p luma -- modules list --json
 cargo run -p luma -- config get --json
 cargo run -p luma -- config set --notes-root /path/to/notes
 cargo run -p luma -- config set --projects-root ~/dev
+cargo run -p luma -- config set --import-project ~/dev/myapp
+cargo run -p luma -- config set --remove-project myapp
 cargo run -p luma -- config set --notes-exclude 'private/*'
 cargo run -p luma -- config set --clear-notes-excludes
 cargo run -p luma   # interactive TUI
@@ -35,7 +37,6 @@ See [`docs/MODULES.md`](docs/MODULES.md) for module status.
 | Path | Role |
 | --- | --- |
 | `~/Library/Application Support/LumaNext/` | Active settings / stores |
-| `~/Library/Application Support/LumaNext/diagnostics/` | Diagnostic exports |
 | `~/Library/Logs/LumaNext/` | Logs |
 
 Tests must use tempfile + `LUMA_NEXT_SUPPORT_DIR` / `LUMA_NEXT_LOGS_DIR`.

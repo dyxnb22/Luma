@@ -482,16 +482,47 @@ impl Engine {
             _ => repo.list_due(limit),
         };
         let words: Vec<WordReviewWordDto> = match words_result {
-            Ok(entries) => entries
-                .into_iter()
-                .map(|w| WordReviewWordDto {
-                    id: w.id,
-                    term: w.term,
-                    phonetic: w.phonetic,
-                    meaning: w.meaning,
-                    example: w.example,
-                })
-                .collect(),
+            Ok(entries) => {
+                let mut words = Vec::with_capacity(entries.len());
+                let mut review_items = Vec::with_capacity(entries.len());
+                for (index, word) in entries.into_iter().enumerate() {
+                    // Review actions use the same `wb:<id>` result contract as
+                    // normal Wordbook search. Register the loaded words before
+                    // emitting the event so grading does not depend on a prior
+                    // search having populated the session cache.
+                    review_items.push(luma_domain::SearchItem {
+                        id: luma_domain::ResultId::new(format!("wb:{}", word.id)),
+                        module_id: luma_domain::ModuleId::new("luma.wordbook"),
+                        title: word.term.clone(),
+                        subtitle: Some(word.meaning.clone()),
+                        kind: "word".into(),
+                        score: 90.0 - index as f64 * 0.1,
+                        primary_action: luma_domain::ActionDescriptor {
+                            id: luma_domain::ActionId::new("known"),
+                            label: "Known".into(),
+                            risk: luma_domain::ActionRisk::Safe,
+                            confirmation: false,
+                        },
+                        secondary_actions: vec![],
+                        ui_intent: None,
+                        action_payload: None,
+                    });
+                    words.push(WordReviewWordDto {
+                        id: word.id,
+                        term: word.term,
+                        phonetic: word.phonetic,
+                        meaning: word.meaning,
+                        example: word.example,
+                    });
+                }
+                let mut inner = self.inner.lock().await;
+                for item in review_items {
+                    inner
+                        .results_by_id
+                        .insert(item.id.as_str().to_string(), item);
+                }
+                words
+            }
             Err(_) => vec![],
         };
         let _ = self
@@ -1509,6 +1540,79 @@ mod tests {
             }
         };
         assert!(event.goal >= 1);
+    }
+
+    #[tokio::test]
+    async fn load_wordbook_review_registers_gradeable_result() {
+        use crate::ports::WordbookRepository;
+        use crate::{MemoryWordbookRepository, WordContentInput};
+        use std::sync::Arc;
+
+        let store = Arc::new(MemoryWordbookRepository::new());
+        store
+            .upsert_content(&WordContentInput {
+                term: "alpha".into(),
+                phonetic: "".into(),
+                meaning: "a".into(),
+                example: "".into(),
+                category: "".into(),
+            })
+            .unwrap();
+        let word_id = store.get_by_term("alpha").unwrap().unwrap().id;
+
+        let mut registry = fake_registry();
+        registry
+            .register(Arc::new(FakeModule {
+                manifest: ModuleManifest {
+                    id: ModuleId::new("luma.wordbook"),
+                    display_name: "Wordbook".into(),
+                    triggers: vec!["wb".into()],
+                    default_enabled: true,
+                    search_mode: SearchMode::TargetedOnly,
+                    required_capabilities: vec![],
+                    workbench: Default::default(),
+                },
+                wait_for_cancel: false,
+            }))
+            .unwrap();
+        let engine = Engine::with_options(
+            registry,
+            EngineOptions {
+                settings: None,
+                wordbook: Some(store),
+            },
+        );
+        let mut events = engine.subscribe();
+
+        engine
+            .handle_command(Command::LoadWordbookReview {
+                queue: "new".into(),
+            })
+            .await;
+        let loaded = loop {
+            if let Ok(Event::WordbookReviewLoaded { words, .. }) = events.recv().await {
+                break words;
+            }
+        };
+        assert_eq!(loaded[0].id, word_id);
+
+        engine
+            .handle_command(Command::ExecuteAction {
+                operation_id: "op-review".into(),
+                result_id: format!("wb:{word_id}"),
+                action_id: "open".into(),
+                confirmation: false,
+            })
+            .await;
+        let outcome = loop {
+            if let Ok(Event::ActionFinished { outcome, .. }) = events.recv().await {
+                break outcome;
+            }
+        };
+        assert!(matches!(
+            outcome,
+            luma_protocol::ActionOutcomeDto::Success { .. }
+        ));
     }
 
     #[tokio::test]

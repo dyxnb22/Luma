@@ -122,7 +122,9 @@ fn map_key(code: KeyCode, modifiers: KeyModifiers, state: &AppState) -> Msg {
             KeyCode::Char('k') if matches!(state.route, Route::Search) => Msg::OpenActions,
             // Many terminals encode Ctrl-/ as the ASCII unit separator, which
             // crossterm reports as Ctrl-_. Accept both spellings.
-            KeyCode::Char('/') | KeyCode::Char('_') if matches!(state.route, Route::Search) => {
+            KeyCode::Char('/') | KeyCode::Char('_') | KeyCode::Char('\u{1f}')
+                if matches!(state.route, Route::Search) =>
+            {
                 Msg::OpenCommands
             }
             KeyCode::Char('p') => {
@@ -149,6 +151,7 @@ fn map_key(code: KeyCode, modifiers: KeyModifiers, state: &AppState) -> Msg {
     match code {
         KeyCode::BackTab if matches!(state.route, Route::Search) => Msg::TogglePreview,
         KeyCode::Tab if matches!(state.route, Route::Search) => Msg::FocusNext,
+        KeyCode::Char('\u{1f}') if matches!(state.route, Route::Search) => Msg::OpenCommands,
         KeyCode::Char('?') if matches!(state.route, Route::Search) => Msg::OpenHelp,
         KeyCode::Char(c)
             if state.should_intercept_window_digit() && c.is_ascii_digit() && c != '0' =>
@@ -302,6 +305,13 @@ mod tests {
     fn ctrl_underscore_encoding_opens_commands() {
         let state = AppState::default();
         let msg = map_key(KeyCode::Char('_'), KeyModifiers::CONTROL, &state);
+        assert!(matches!(msg, Msg::OpenCommands));
+    }
+
+    #[test]
+    fn ctrl_slash_control_character_opens_commands() {
+        let state = AppState::default();
+        let msg = map_key(KeyCode::Char('\u{1f}'), KeyModifiers::empty(), &state);
         assert!(matches!(msg, Msg::OpenCommands));
     }
 

@@ -441,12 +441,21 @@ impl LumaModule for ProjectsModule {
             return;
         }
 
-        if rest_check.starts_with("add ") || rest_check.starts_with("import ") {
+        if rest_check == "add"
+            || rest_check == "import"
+            || rest_check.starts_with("add ")
+            || rest_check.starts_with("import ")
+        {
             let path_str = rest_raw
                 .split_once(char::is_whitespace)
                 .map(|(_, tail)| tail.trim())
                 .unwrap_or("");
             if path_str.is_empty() {
+                let usage = if rest_check == "import" {
+                    "Usage: proj import /path/to/project"
+                } else {
+                    "Usage: proj add /path/to/project"
+                };
                 let _ = sink
                     .send(Event::ResultsChunk {
                         request_id: String::new(),
@@ -455,7 +464,7 @@ impl LumaModule for ProjectsModule {
                             id: "proj:import-usage".into(),
                             module_id: "luma.projects".into(),
                             title: "Import a project directory".into(),
-                            subtitle: Some("Usage: proj add /path/to/project".into()),
+                            subtitle: Some(usage.into()),
                             kind: "status".into(),
                             score: 50.0,
                             primary_action_id: "noop".into(),
@@ -521,7 +530,7 @@ impl LumaModule for ProjectsModule {
             return;
         }
 
-        if rest_check.starts_with("remove ") {
+        if rest_check == "remove" || rest_check.starts_with("remove ") {
             let key = rest_raw
                 .split_once(char::is_whitespace)
                 .map(|(_, tail)| tail.trim())
@@ -1120,6 +1129,27 @@ mod tests {
             upserts[0].primary_action_id, "import_project",
             "upserts={upserts:?}"
         );
+    }
+
+    #[tokio::test]
+    async fn proj_add_without_path_shows_usage() {
+        let root = tempfile::tempdir().unwrap();
+        let module = ProjectsModule::with_roots(
+            vec![root.path().to_path_buf()],
+            Arc::new(FakeOpenPath::new()),
+        );
+        let (tx, mut rx) = mpsc::channel(8);
+        module
+            .search(Query::parse("proj add ", 20), tx, CancellationToken::new())
+            .await;
+        let Event::ResultsChunk { upserts, .. } = rx.recv().await.unwrap() else {
+            panic!("expected chunk");
+        };
+        assert_eq!(upserts[0].id, "proj:import-usage");
+        assert!(upserts[0]
+            .subtitle
+            .as_deref()
+            .is_some_and(|text| text.contains("Usage: proj add")));
     }
 
     #[tokio::test]

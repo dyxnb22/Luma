@@ -35,7 +35,11 @@ fn render_with(frame: &mut Frame<'_>, state: &AppState, theme: &Theme, symbols: 
     render_prompt(frame, chunks[0], state, theme, symbols, prompt_focused);
 
     let body = chunks[1];
-    if state.preview_side_by_side() {
+    if state.route == Route::WordbookReview
+        || (state.wordbook_review.is_some() && matches!(state.route, Route::ConfirmAction))
+    {
+        render_wordbook_review(frame, body, state, theme, symbols);
+    } else if state.preview_side_by_side() {
         let cols = Layout::default()
             .direction(Direction::Horizontal)
             .constraints([Constraint::Percentage(58), Constraint::Percentage(42)])
@@ -49,10 +53,6 @@ fn render_with(frame: &mut Frame<'_>, state: &AppState, theme: &Theme, symbols: 
             .split(body);
         render_results(frame, rows[0], state, theme, symbols);
         render_preview(frame, rows[1], state, theme, symbols);
-    } else if state.route == Route::WordbookReview
-        || (state.wordbook_review.is_some() && matches!(state.route, Route::ConfirmAction))
-    {
-        render_wordbook_review(frame, body, state, theme, symbols);
     } else {
         render_results(frame, body, state, theme, symbols);
     }
@@ -324,6 +324,12 @@ fn hub_list_items(state: &AppState, theme: &Theme, symbols: &Symbols) -> Vec<Lis
             "window_more" | "window_status" => "win".to_string(),
             _ => query.clone(),
         };
+        let right = truncate(
+            &right,
+            (state.term_width.saturating_sub(6) as usize / 3).max(8),
+            symbols,
+        );
+        let content_width = state.term_width.saturating_sub(4) as usize;
         let guidance = if kind == "window_status" {
             state
                 .hub_windows
@@ -338,12 +344,25 @@ fn hub_list_items(state: &AppState, theme: &Theme, symbols: &Symbols) -> Vec<Lis
         } else {
             title.clone()
         };
+        let display_title = truncate(
+            &display_title,
+            content_width
+                .saturating_sub(display_width(&right) + 4)
+                .max(8),
+            symbols,
+        );
         let mut lines = vec![Line::from(vec![
             Span::styled(format!(" {prefix} {display_title}"), style),
             Span::styled(format!("  {right}"), muted),
         ])];
         if let Some(sub) = guidance {
-            lines.push(Line::from(Span::styled(format!("    {sub}"), muted)));
+            lines.push(Line::from(Span::styled(
+                format!(
+                    "    {}",
+                    truncate(&sub, content_width.saturating_sub(4), symbols)
+                ),
+                muted,
+            )));
         } else {
             lines.push(Line::from(""));
         }
@@ -813,17 +832,53 @@ fn render_status(
             "{}{} / PgUp PgDn scroll {} Esc Back",
             symbols.up, symbols.down, symbols.sep
         ),
-        Route::WordbookReview => format!(
-            "Enter/Space reveal {} 1/2/3 grade {} m master {} s skip {} Esc cancel/exit",
-            symbols.sep, symbols.sep, symbols.sep, symbols.sep
-        ),
+        Route::WordbookReview => {
+            if state.wordbook_review.as_ref().is_some_and(|r| r.finished) {
+                "Esc back".into()
+            } else {
+                "Enter/Space reveal · 1/2/3 grade · m master · s skip · Esc exit".into()
+            }
+        }
     };
 
     let inner_w = area.width.saturating_sub(2) as usize;
+    let narrow = inner_w < 60;
+    let (status_text, hints) = if narrow {
+        let compact_hints = match state.route {
+            Route::Search if state.showing_hub() => "1-9 · ↑↓ · Enter".to_string(),
+            Route::Search => "Enter · Ctrl-k · Esc".to_string(),
+            Route::ActionPicker => "1-9 · Enter · Esc".to_string(),
+            Route::Settings => "↑↓ · Space · Esc".to_string(),
+            Route::Commands => "Enter · Esc".to_string(),
+            Route::ConfirmAction | Route::QuitConfirm => "Enter yes · Esc no".to_string(),
+            Route::Help => "↑↓ · Esc".to_string(),
+            Route::WordbookReview => {
+                if state.wordbook_review.as_ref().is_some_and(|r| r.finished) {
+                    "Esc back".to_string()
+                } else {
+                    "1/2/3 · s skip · Esc".to_string()
+                }
+            }
+        };
+        let compact_status = if state.route == Route::WordbookReview {
+            if state.wordbook_review.as_ref().is_some_and(|r| r.finished) {
+                "done"
+            } else {
+                "review"
+            }
+        } else if state.status.text.starts_with("removed ") {
+            "removed · dir kept"
+        } else {
+            state.status.text.as_str()
+        };
+        (compact_status.to_string(), compact_hints)
+    } else {
+        (state.status.text.clone(), hints)
+    };
     let hints_budget = (inner_w / 2).clamp(16, 60);
     let hints = truncate(&hints, hints_budget, symbols);
     let status_budget = inner_w.saturating_sub(display_width(&hints) + 3).max(8);
-    let status_text = truncate(&state.status.text, status_budget, symbols);
+    let status_text = truncate(&status_text, status_budget, symbols);
 
     let line = Line::from(vec![
         Span::styled(format!(" {status_text}  "), status_style),
@@ -1295,6 +1350,56 @@ mod tests {
         assert!(
             flat.contains("Target: ephemeral"),
             "word target missing: {flat}"
+        );
+    }
+
+    #[test]
+    fn wide_review_hides_search_preview() {
+        let mut state = AppState {
+            route: Route::WordbookReview,
+            wordbook_review: Some(crate::view_model::WordbookReviewState {
+                words: vec![crate::view_model::WordbookReviewWord {
+                    id: 1,
+                    term: "alpha".into(),
+                    phonetic: String::new(),
+                    meaning: "first".into(),
+                    example: String::new(),
+                }],
+                index: 0,
+                revealed: false,
+                stats: Default::default(),
+                finished: false,
+                pending_grade: None,
+            }),
+            results: ResultsView {
+                items: vec![sample_item("1", "Preview result", "apps", "body")],
+                selected_id: Some("1".into()),
+                ..Default::default()
+            },
+            ..AppState::default()
+        };
+        state.term_width = 120;
+        let (flat, _) = draw(&state, 120, 40);
+        assert!(
+            flat.contains("wordbook review"),
+            "review body missing: {flat}"
+        );
+        assert!(
+            !flat.contains(" preview "),
+            "search preview leaked into review: {flat}"
+        );
+
+        state.term_width = 43;
+        let (flat, _) = draw(&state, 43, 20);
+        assert!(flat.contains("1/2/3"), "narrow grade hint missing: {flat}");
+        assert!(flat.contains("Esc"), "narrow exit hint missing: {flat}");
+
+        state.wordbook_review.as_mut().unwrap().finished = true;
+        let (flat, _) = draw(&state, 43, 20);
+        assert!(flat.contains("done"), "narrow done status missing: {flat}");
+        assert!(
+            flat.contains("Esc back"),
+            "narrow done hint missing: {flat}"
         );
     }
 

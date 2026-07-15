@@ -1,3 +1,4 @@
+use super::util::truncate;
 use crate::theme::{Symbols, Theme};
 use crate::view_model::AppState;
 use luma_domain::ActionRisk;
@@ -282,18 +283,20 @@ pub(super) fn render_overlay_settings(
     let overlay = overlay_area(area, 18);
     fill_overlay_panel(frame, overlay, theme);
     let panel = panel_style(theme);
+    let content_width = overlay.width.saturating_sub(2) as usize;
+    let fit = |text: String| truncate(&text, content_width, symbols);
     let mut items = Vec::new();
     let notes_line = match &state.settings_roots.notes_root {
-        Some(root) if !root.is_empty() => format!(" Notes root: {root}"),
-        _ => " Notes root: (not set) · luma config set --notes-root ~/Notes".into(),
+        Some(root) if !root.is_empty() => fit(format!(" Notes root: {root}")),
+        _ => fit(" Notes root: (not set) · luma config set --notes-root ~/Notes".into()),
     };
     let projects_line = if state.settings_roots.projects_roots.is_empty() {
-        " Projects: (none) · luma config set --projects-root ~/dev".into()
+        fit(" Projects: (none) · luma config set --projects-root ~/dev".into())
     } else {
-        format!(
+        fit(format!(
             " Projects: {}",
             state.settings_roots.projects_roots.join(", ")
-        )
+        ))
     };
     items.push(ListItem::new(Span::styled(
         notes_line,
@@ -304,12 +307,12 @@ pub(super) fn render_overlay_settings(
         with_panel_bg(theme.muted(), theme),
     )));
     let imported_line = if state.settings_roots.imported_projects.is_empty() {
-        " Imported: (none) · proj add PATH or proj browse".into()
+        fit(" Imported: (none) · proj add PATH or proj browse".into())
     } else {
-        format!(
+        fit(format!(
             " Imported: {} project(s)",
             state.settings_roots.imported_projects.len()
-        )
+        ))
     };
     items.push(ListItem::new(Span::styled(
         imported_line,
@@ -318,28 +321,28 @@ pub(super) fn render_overlay_settings(
     if !state.settings_roots.imported_projects.is_empty() {
         for path in state.settings_roots.imported_projects.iter().take(8) {
             items.push(ListItem::new(Span::styled(
-                format!("   · {path}"),
+                fit(format!("   · {path}")),
                 with_panel_bg(theme.muted(), theme),
             )));
         }
         if state.settings_roots.imported_projects.len() > 8 {
             items.push(ListItem::new(Span::styled(
-                format!(
+                fit(format!(
                     "   · … {} more",
                     state.settings_roots.imported_projects.len() - 8
-                ),
+                )),
                 with_panel_bg(theme.muted(), theme),
             )));
         }
     }
     items.push(ListItem::new(Span::styled(
-        " — modules (Space toggles) —",
+        fit(" — modules (Space toggles) —".into()),
         with_panel_bg(theme.muted(), theme),
     )));
     let module_start = items.len();
     if state.settings_modules.is_empty() {
         items.push(ListItem::new(Span::styled(
-            "  Loading modules…",
+            fit("  Loading modules…".into()),
             with_panel_bg(theme.muted(), theme),
         )));
     } else {
@@ -353,7 +356,7 @@ pub(super) fn render_overlay_settings(
                 with_panel_bg(theme.text(), theme)
             };
             items.push(ListItem::new(Span::styled(
-                format!(" {prefix} {mark} {}  ({})", row.name, row.id),
+                fit(format!(" {prefix} {mark} {}  ({})", row.name, row.id)),
                 style,
             )));
         }

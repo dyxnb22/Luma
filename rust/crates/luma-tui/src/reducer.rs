@@ -1045,6 +1045,11 @@ fn wordbook_grade(state: &mut AppState, action_id: String) -> Vec<Effect> {
                 review.finished = true;
             }
         }
+        if state.wordbook_review.as_ref().is_some_and(|r| r.finished) {
+            state
+                .status
+                .set("review done · skipped", StatusTone::Success);
+        }
         return vec![Effect::None];
     }
     if !revealed {
@@ -1115,6 +1120,7 @@ fn cancel_msg(state: &mut AppState) -> Vec<Effect> {
             return vec![Effect::None];
         }
         if state.showing_hub() {
+            state.status.set("Ready", StatusTone::Success);
             state.schedule_hub_refresh();
             return vec![Effect::LoadHub];
         }
@@ -1240,6 +1246,10 @@ fn apply_engine(state: &mut AppState, event: Event) -> Vec<Effect> {
             }
         }
     }
+    let project_remove_success = matches!(&event, Event::ActionFinished { operation_id, outcome }
+        if state.active_operation.as_deref() == Some(operation_id.as_str())
+            && matches!(outcome, luma_protocol::ActionOutcomeDto::Success { .. })
+            && project_remove_name(&state.prompt).is_some());
     let refresh_review_stats = matches!(&event, Event::ActionFinished { outcome, .. }
         if matches!(outcome, luma_protocol::ActionOutcomeDto::Success { .. })
             && matches!(state.route, Route::WordbookReview)
@@ -1271,10 +1281,26 @@ fn apply_engine(state: &mut AppState, event: Event) -> Vec<Effect> {
         clear_action_ui(state);
         let mut effects = vec![Effect::LoadHub];
         state.schedule_hub_refresh();
-        if !state.prompt.is_empty() {
+        if !state.prompt.is_empty()
+            && !(state.active_operation.is_some() && project_remove_name(&state.prompt).is_some())
+        {
             effects.extend(begin_search(state));
         }
         return effects;
+    }
+    if project_remove_success {
+        if let Some(name) = project_remove_name(&state.prompt) {
+            state.results.items.clear();
+            state.results.selected_id = None;
+            state.preview_body = None;
+            state.preview_result_id = None;
+            state.pending_preview_id = None;
+            state.status.set(
+                format!("removed {name} · config only; directory kept"),
+                StatusTone::Success,
+            );
+        }
+        return vec![Effect::None];
     }
     if let Some(sel) = state.results.selected_id.as_deref() {
         let have_body =
@@ -1286,6 +1312,18 @@ fn apply_engine(state: &mut AppState, event: Event) -> Vec<Effect> {
         }
     }
     vec![Effect::None]
+}
+
+fn project_remove_name(prompt: &str) -> Option<&str> {
+    let mut tokens = prompt.split_whitespace();
+    let trigger = tokens.next()?.to_ascii_lowercase();
+    if !matches!(trigger.as_str(), "p" | "proj" | "project") {
+        return None;
+    }
+    if !tokens.next()?.eq_ignore_ascii_case("remove") {
+        return None;
+    }
+    tokens.next().filter(|name| !name.is_empty())
 }
 
 fn schedule_search(state: &mut AppState) -> Vec<Effect> {
@@ -2587,6 +2625,82 @@ mod tests {
         let review = state.wordbook_review.as_ref().unwrap();
         assert_eq!(review.index, 1);
         assert_eq!(review.stats.session_skipped, 1);
+    }
+
+    #[test]
+    fn wordbook_skip_completion_sets_done_status() {
+        let mut state = sample_wordbook_review(vec![(1, "alpha")]);
+        let _ = update(
+            &mut state,
+            Msg::WordbookGrade {
+                action_id: "skip".into(),
+            },
+        );
+        assert!(state.wordbook_review.as_ref().unwrap().finished);
+        assert_eq!(state.status.tone, StatusTone::Success);
+        assert!(state.status.text.starts_with("review done"));
+    }
+
+    #[test]
+    fn help_cancel_from_hub_restores_ready_status() {
+        let mut state = AppState::default();
+        let _ = update(&mut state, Msg::OpenHelp);
+        let _ = update(&mut state, Msg::Cancel);
+        assert_eq!(state.route, Route::Search);
+        assert!(state.showing_hub());
+        assert_eq!(state.status.text, "Ready");
+    }
+
+    #[test]
+    fn project_remove_refresh_keeps_success_feedback_and_clears_row() {
+        let mut state = AppState::default();
+        state.prompt = "proj remove files".into();
+        state.prompt_cursor = state.prompt_char_len();
+        state.results.items.push(SearchItem {
+            id: ResultId::new("proj:remove:files"),
+            module_id: ModuleId::new("luma.projects"),
+            title: "Remove files".into(),
+            subtitle: Some("config only".into()),
+            kind: "command".into(),
+            score: 1.0,
+            primary_action: ActionDescriptor {
+                id: ActionId::new("remove_project"),
+                label: "Remove".into(),
+                risk: ActionRisk::Confirm,
+                confirmation: true,
+            },
+            secondary_actions: vec![],
+            ui_intent: None,
+            action_payload: None,
+        });
+        state.results.selected_id = Some("proj:remove:files".into());
+        state.active_operation = Some("op-remove".into());
+
+        let settings = Event::SettingsChanged {
+            version: 2,
+            settings: serde_json::json!({
+                "modules": [],
+                "projects_roots": [],
+                "imported_projects": []
+            }),
+        };
+        let effects = apply_engine(&mut state, settings);
+        assert!(!effects
+            .iter()
+            .any(|effect| matches!(effect, Effect::Search { .. })));
+        assert!(state.results.items.is_empty());
+
+        let _ = apply_engine(
+            &mut state,
+            Event::ActionFinished {
+                operation_id: "op-remove".into(),
+                outcome: luma_protocol::ActionOutcomeDto::Success {
+                    message: Some("settings updated".into()),
+                },
+            },
+        );
+        assert!(state.status.text.contains("directory kept"));
+        assert_eq!(state.status.tone, StatusTone::Success);
     }
 
     #[test]

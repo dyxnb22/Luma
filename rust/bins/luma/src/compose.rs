@@ -10,11 +10,12 @@ use luma_application::{
 };
 use luma_modules::{
     AppsModule, ClipboardModule, ClipboardSuppression, FakeEchoModule, NotesModule, ProjectsModule,
-    QuicklinksModule, RecordsModule, SecretsModule, SnippetsModule, WindowsModule, WordbookModule,
+    ProxyModule, QuicklinksModule, RecordsModule, SecretsModule, SnippetsModule, WindowsModule,
+    WordbookModule,
 };
 use luma_platform_macos::{
-    FilesystemAppsCatalog, MacAccessibility, MacKeychain, MacMarkdownWatcher, MacOpenPath,
-    MacPasteboard, MacSpeech, MacWindowCatalog,
+    FilesystemAppsCatalog, MacAccessibility, MacKeychain, MacMarkdownWatcher, MacMihomoProxyCore,
+    MacOpenPath, MacPasteboard, MacSpeech, MacSystemProxy, MacWindowCatalog,
 };
 use luma_storage::{
     ClipboardStore, ConfigError, ConfigStore, LumaSettings, NotesIndexStore, NotesScanner,
@@ -84,6 +85,7 @@ pub fn registry_from_settings(
 
     let opener = Arc::new(MacOpenPath);
     let pasteboard = Arc::new(MacPasteboard);
+    let keychain = Arc::new(MacKeychain::luma_next());
     let accessibility = Arc::new(MacAccessibility);
     let clipboard_suppression = Arc::new(ClipboardSuppression::new());
     let window_catalog = Arc::new(MacWindowCatalog::new());
@@ -92,6 +94,16 @@ pub fn registry_from_settings(
     }
 
     let mut reg = ModuleRegistry::new();
+    reg.register(Arc::new(ProxyModule::with_deps(
+        Arc::new(MacMihomoProxyCore::from_settings(
+            settings,
+            keychain.clone(),
+        )),
+        Arc::new(MacSystemProxy::with_service(
+            settings.proxy_network_service.clone(),
+        )),
+        pasteboard.clone(),
+    )))?;
     reg.register(Arc::new(AppsModule::new(
         Arc::new(FilesystemAppsCatalog::system_default()),
         pasteboard.clone(),
@@ -197,7 +209,7 @@ pub fn registry_from_settings(
         opener.clone(),
     )))?;
     reg.register(Arc::new(SecretsModule::with_deps(
-        Arc::new(MacKeychain::luma_next()),
+        keychain,
         pasteboard,
         clipboard_suppression,
     )))?;

@@ -11,11 +11,13 @@ mod memory_repos;
 mod notes_repo;
 mod open_path;
 mod pasteboard;
+mod proxy_core;
 mod quicklinks_repo;
 mod records_repo;
 mod settings;
 mod snippets_repo;
 mod speech;
+mod system_proxy;
 mod window;
 mod wordbook_repo;
 
@@ -38,6 +40,10 @@ pub use notes_repo::{
 };
 pub use open_path::{FakeOpenPath, OpenPathError, OpenPathPort};
 pub use pasteboard::{FakePasteboard, PasteboardError, PasteboardPort};
+pub use proxy_core::{
+    ExternalControllerStatus, FakeProxyCore, ProxyCoreError, ProxyCorePort, ProxyGroup, ProxyMode,
+    ProxyNode, ProxyPorts, ProxyStatus,
+};
 pub use quicklinks_repo::{QuicklinkEntry, QuicklinksRepoError, QuicklinksRepository};
 pub use records_repo::{
     RecordCategory, RecordEntry, RecordImportPreviewView, RecordImportReportView, RecordsRepoError,
@@ -46,6 +52,9 @@ pub use records_repo::{
 pub use settings::{AppSettings, SettingsError, SettingsRepository};
 pub use snippets_repo::{SnippetEntry, SnippetsRepoError, SnippetsRepository};
 pub use speech::{FakeSpeech, SpeechAccent, SpeechError, SpeechPort};
+pub use system_proxy::{
+    FakeSystemProxy, SystemProxyError, SystemProxyPort, SystemProxySetting, SystemProxyStatus,
+};
 pub use window::{FakeWindowCatalog, WindowCatalogPort, WindowEntry, WindowError};
 pub use wordbook_repo::{
     ContentImportReport, WordContentInput, WordEntry, WordbookRepoError, WordbookRepository,

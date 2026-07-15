@@ -27,6 +27,7 @@ struct Cli {
 }
 
 #[derive(Debug, Subcommand)]
+#[allow(clippy::large_enum_variant)]
 enum Commands {
     /// Run interactive TUI (default when no subcommand).
     Tui,
@@ -129,6 +130,18 @@ struct ConfigSetArgs {
     /// Max Hub window rows (clamped 5–50).
     #[arg(long)]
     hub_windows_max: Option<u32>,
+    /// Mihomo Unix controller socket path (loopback-only adapter).
+    #[arg(long)]
+    proxy_controller_unix_socket: Option<String>,
+    /// Mihomo loopback controller address, for example 127.0.0.1:9097.
+    #[arg(long)]
+    proxy_controller_address: Option<String>,
+    /// Luma Keychain account containing the Mihomo controller secret.
+    #[arg(long)]
+    proxy_controller_secret_account: Option<String>,
+    /// Explicit macOS Network Service name for system proxy changes.
+    #[arg(long)]
+    proxy_network_service: Option<String>,
     /// Import a project directory (canonical path; repeatable).
     #[arg(long)]
     import_project: Vec<String>,
@@ -505,6 +518,19 @@ async fn main() -> anyhow::Result<()> {
                 );
                 println!("secrets_idle_lock_secs={}", settings.secrets_idle_lock_secs);
                 println!("hub_windows_max={}", settings.hub_windows_max);
+                println!(
+                    "proxy_controller_unix_socket={:?}",
+                    settings.proxy_controller_unix_socket
+                );
+                println!(
+                    "proxy_controller_address={:?}",
+                    settings.proxy_controller_address
+                );
+                println!(
+                    "proxy_controller_secret_account={:?}",
+                    settings.proxy_controller_secret_account
+                );
+                println!("proxy_network_service={:?}", settings.proxy_network_service);
             }
         }
         Some(Commands::Config {
@@ -521,6 +547,10 @@ async fn main() -> anyhow::Result<()> {
                 clipboard_retention_days,
                 secrets_idle_lock_secs,
                 hub_windows_max,
+                proxy_controller_unix_socket,
+                proxy_controller_address,
+                proxy_controller_secret_account,
+                proxy_network_service,
                 import_project,
                 remove_project,
                 expected_version,
@@ -560,6 +590,31 @@ async fn main() -> anyhow::Result<()> {
                 }
                 if let Some(max) = hub_windows_max {
                     next.hub_windows_max = max.clamp(5, 50);
+                }
+                if let Some(path) = proxy_controller_unix_socket {
+                    next.proxy_controller_unix_socket =
+                        if path.is_empty() { None } else { Some(path) };
+                }
+                if let Some(address) = proxy_controller_address {
+                    next.proxy_controller_address = if address.is_empty() {
+                        None
+                    } else {
+                        Some(address)
+                    };
+                }
+                if let Some(account) = proxy_controller_secret_account {
+                    next.proxy_controller_secret_account = if account.is_empty() {
+                        None
+                    } else {
+                        Some(account)
+                    };
+                }
+                if let Some(service) = proxy_network_service {
+                    next.proxy_network_service = if service.is_empty() {
+                        None
+                    } else {
+                        Some(service)
+                    };
                 }
                 for path in &import_project {
                     next.import_project_path(std::path::Path::new(path))

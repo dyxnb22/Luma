@@ -58,6 +58,16 @@ pub struct LumaSettings {
     /// Max window rows on the Hub (clamped 5–50 when applied).
     #[serde(default = "default_hub_windows_max")]
     pub hub_windows_max: u32,
+    /// Optional loopback/Unix Mihomo controller settings. Secret is a Keychain account name,
+    /// never the secret value itself.
+    #[serde(default)]
+    pub proxy_controller_unix_socket: Option<String>,
+    #[serde(default)]
+    pub proxy_controller_address: Option<String>,
+    #[serde(default)]
+    pub proxy_controller_secret_account: Option<String>,
+    #[serde(default)]
+    pub proxy_network_service: Option<String>,
 }
 
 /// Validate and canonicalize a directory path for project import (symlinks rejected).
@@ -218,6 +228,7 @@ impl Default for LumaSettings {
         let mut enabled_modules = BTreeMap::new();
         enabled_modules.insert("luma.apps".into(), true);
         enabled_modules.insert("luma.windows".into(), true);
+        enabled_modules.insert("luma.proxy".into(), true);
         enabled_modules.insert("luma.clipboard".into(), true);
         enabled_modules.insert("luma.notes".into(), true);
         enabled_modules.insert("luma.records".into(), true);
@@ -235,6 +246,10 @@ impl Default for LumaSettings {
             clipboard_retention_days: 30,
             secrets_idle_lock_secs: default_secrets_idle_lock_secs(),
             hub_windows_max: default_hub_windows_max(),
+            proxy_controller_unix_socket: None,
+            proxy_controller_address: None,
+            proxy_controller_secret_account: None,
+            proxy_network_service: None,
         }
     }
 }

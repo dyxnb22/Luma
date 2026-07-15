@@ -7,7 +7,9 @@ mod keychain;
 mod markdown_watch;
 mod open_path;
 mod pasteboard;
+mod proxy_core;
 mod speech;
+mod system_proxy;
 mod window;
 
 pub use accessibility::{Accessibility, AccessibilityError, FakeAccessibility, MacAccessibility};
@@ -17,5 +19,7 @@ pub use keychain::{FakeKeychain, Keychain, KeychainError, MacKeychain, SecretLab
 pub use markdown_watch::MacMarkdownWatcher;
 pub use open_path::{FakeOpenPath, MacOpenPath, OpenPath, OpenPathError};
 pub use pasteboard::{MacPasteboard, Pasteboard, PasteboardError};
+pub use proxy_core::MacMihomoProxyCore;
 pub use speech::MacSpeech;
+pub use system_proxy::MacSystemProxy;
 pub use window::MacWindowCatalog;

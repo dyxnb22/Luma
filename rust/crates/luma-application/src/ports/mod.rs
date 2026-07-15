@@ -11,6 +11,7 @@ mod memory_repos;
 mod notes_repo;
 mod open_path;
 mod pasteboard;
+mod profile;
 mod proxy_core;
 mod quicklinks_repo;
 mod records_repo;
@@ -40,6 +41,9 @@ pub use notes_repo::{
 };
 pub use open_path::{FakeOpenPath, OpenPathError, OpenPathPort};
 pub use pasteboard::{FakePasteboard, PasteboardError, PasteboardPort};
+pub use profile::{
+    ProfileImportResult, ProfileSource, ProfileStoreError, ProfileStorePort, ProfileSummary,
+};
 pub use proxy_core::{
     ExternalControllerStatus, FakeProxyCore, ProxyCoreError, ProxyCorePort, ProxyGroup, ProxyMode,
     ProxyNode, ProxyPorts, ProxyStatus,

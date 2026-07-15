@@ -7,6 +7,7 @@ mod keychain;
 mod markdown_watch;
 mod open_path;
 mod pasteboard;
+mod profile_store;
 mod proxy_core;
 mod speech;
 mod system_proxy;
@@ -19,6 +20,7 @@ pub use keychain::{FakeKeychain, Keychain, KeychainError, MacKeychain, SecretLab
 pub use markdown_watch::MacMarkdownWatcher;
 pub use open_path::{FakeOpenPath, MacOpenPath, OpenPath, OpenPathError};
 pub use pasteboard::{MacPasteboard, Pasteboard, PasteboardError};
+pub use profile_store::MacProfileStore;
 pub use proxy_core::MacMihomoProxyCore;
 pub use speech::MacSpeech;
 pub use system_proxy::MacSystemProxy;

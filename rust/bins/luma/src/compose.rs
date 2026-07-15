@@ -15,7 +15,7 @@ use luma_modules::{
 };
 use luma_platform_macos::{
     FilesystemAppsCatalog, MacAccessibility, MacKeychain, MacMarkdownWatcher, MacMihomoProxyCore,
-    MacOpenPath, MacPasteboard, MacSpeech, MacSystemProxy, MacWindowCatalog,
+    MacOpenPath, MacPasteboard, MacProfileStore, MacSpeech, MacSystemProxy, MacWindowCatalog,
 };
 use luma_storage::{
     ClipboardStore, ConfigError, ConfigStore, LumaSettings, NotesIndexStore, NotesScanner,
@@ -94,16 +94,24 @@ pub fn registry_from_settings(
     }
 
     let mut reg = ModuleRegistry::new();
-    reg.register(Arc::new(ProxyModule::with_deps(
-        Arc::new(MacMihomoProxyCore::from_settings(
-            settings,
-            keychain.clone(),
-        )),
+    let proxy_core = Arc::new(MacMihomoProxyCore::from_settings(
+        settings,
+        keychain.clone(),
+    ));
+    let proxy_store = MacProfileStore::new(keychain.clone(), proxy_core.clone())
+        .ok()
+        .map(|store| Arc::new(store) as Arc<dyn luma_application::ProfileStorePort>);
+    let mut proxy_module = ProxyModule::with_deps(
+        proxy_core,
         Arc::new(MacSystemProxy::with_service(
             settings.proxy_network_service.clone(),
         )),
         pasteboard.clone(),
-    )))?;
+    );
+    if let Some(proxy_store) = proxy_store {
+        proxy_module = proxy_module.with_profile_store(proxy_store);
+    }
+    reg.register(Arc::new(proxy_module))?;
     reg.register(Arc::new(AppsModule::new(
         Arc::new(FilesystemAppsCatalog::system_default()),
         pasteboard.clone(),

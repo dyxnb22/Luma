@@ -4,8 +4,9 @@ use crate::cancel::await_unless_cancelled;
 use async_trait::async_trait;
 use luma_application::{
     ActionOutcome, ActionRequest, LumaModule, ModuleManifest, ModuleState, PasteboardPort,
-    ProxyCoreError, ProxyCorePort, ProxyGroup, ProxyMode, ProxyNode, ProxyStatus, SearchMode,
-    SearchSink, SystemProxyError, SystemProxyPort, WarmupContext,
+    ProfileSource, ProfileStoreError, ProfileStorePort, ProfileSummary, ProxyCoreError,
+    ProxyCorePort, ProxyGroup, ProxyMode, ProxyNode, ProxyStatus, SearchMode, SearchSink,
+    SystemProxyError, SystemProxyPort, WarmupContext,
 };
 use luma_domain::{
     ActionDescriptor, ActionId, ActionRisk, FailureKind, ModuleId, Query, SearchItem,
@@ -14,6 +15,7 @@ use luma_protocol::{Event, SearchItemDto};
 use serde_json::Value;
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
+use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tokio_util::sync::CancellationToken;
@@ -25,8 +27,15 @@ pub struct ProxyModule {
     core: Arc<dyn ProxyCorePort>,
     system_proxy: Arc<dyn SystemProxyPort>,
     pasteboard: Arc<dyn PasteboardPort>,
+    profiles: Option<Arc<dyn ProfileStorePort>>,
     last_status: RwLock<Option<ProxyStatus>>,
     selection_keys: RwLock<HashMap<String, (String, String)>>,
+    import_keys: RwLock<HashMap<String, ImportIntent>>,
+}
+
+enum ImportIntent {
+    Subscription(String),
+    Local(PathBuf),
 }
 
 impl ProxyModule {
@@ -53,9 +62,16 @@ impl ProxyModule {
             core,
             system_proxy,
             pasteboard,
+            profiles: None,
             last_status: RwLock::new(None),
             selection_keys: RwLock::new(HashMap::new()),
+            import_keys: RwLock::new(HashMap::new()),
         }
+    }
+
+    pub fn with_profile_store(mut self, profiles: Arc<dyn ProfileStorePort>) -> Self {
+        self.profiles = Some(profiles);
+        self
     }
 
     fn status_item(
@@ -196,6 +212,15 @@ impl ProxyModule {
     }
 
     async fn search_ready(&self, query: &Query, sink: &SearchSink, cancel: &CancellationToken) {
+        let rest = query.rest_normalized();
+        if rest == "profile"
+            || rest.starts_with("profile ")
+            || rest == "import"
+            || rest.starts_with("import ")
+        {
+            self.search_profiles(&rest, query.limit, sink).await;
+            return;
+        }
         let status = match await_unless_cancelled(cancel, self.core.get_status()).await {
             None => return,
             Some(Ok(status)) => status,
@@ -232,7 +257,6 @@ impl ProxyModule {
                 return;
             }
         };
-        let rest = query.rest_normalized();
         let mut items = vec![Self::status_item(&status, system.as_ref())];
         if rest == "global" || rest == "rule" {
             let mode = if rest == "global" { "global" } else { "rule" };
@@ -308,6 +332,205 @@ impl ProxyModule {
             })
             .await;
     }
+
+    async fn search_profiles(&self, rest: &str, limit: usize, sink: &SearchSink) {
+        let Some(store) = &self.profiles else {
+            let _ = sink
+                .send(Event::ResultsChunk {
+                    request_id: String::new(),
+                    sequence: 1,
+                    upserts: vec![profile_unavailable()],
+                    removed_ids: vec![],
+                })
+                .await;
+            return;
+        };
+        if rest == "import" || rest.starts_with("import ") {
+            let source = rest.strip_prefix("import ").unwrap_or("").trim();
+            let item = if source.is_empty() {
+                SearchItemDto {
+                    id: "proxy:profile:import-help".into(),
+                    module_id: MODULE_ID.into(),
+                    title: "Import a Profile".into(),
+                    subtitle: Some("Use proxy import <HTTPS URL or local YAML path>".into()),
+                    kind: "profile_import_help".into(),
+                    score: 95.0,
+                    ..Default::default()
+                }
+            } else {
+                let id = format!("proxy:profile:import:{}", opaque_component(source));
+                let intent = if source.starts_with("https://") || source.starts_with("http://") {
+                    ImportIntent::Subscription(source.to_string())
+                } else {
+                    ImportIntent::Local(PathBuf::from(source))
+                };
+                self.import_keys.write().await.insert(id.clone(), intent);
+                SearchItemDto {
+                    id,
+                    module_id: MODULE_ID.into(),
+                    title: if source.starts_with("http") {
+                        "Import HTTPS subscription".into()
+                    } else {
+                        "Import local YAML".into()
+                    },
+                    subtitle: Some(
+                        "Source hidden until import; YAML will be validated before saving".into(),
+                    ),
+                    kind: "profile_import".into(),
+                    score: 95.0,
+                    primary_action_id: "import_profile".into(),
+                    primary_action_label: "Import".into(),
+                    primary_action_risk: ActionRisk::Confirm,
+                    primary_action_confirmation: true,
+                    ..Default::default()
+                }
+            };
+            let _ = sink
+                .send(Event::ResultsChunk {
+                    request_id: String::new(),
+                    sequence: 1,
+                    upserts: vec![item],
+                    removed_ids: vec![],
+                })
+                .await;
+            return;
+        }
+        let filter = rest
+            .strip_prefix("profile")
+            .unwrap_or("")
+            .trim()
+            .to_lowercase();
+        match store.list_profiles().await {
+            Ok(profiles) => {
+                let refresh_mode = filter == "refresh";
+                let items = profiles
+                    .into_iter()
+                    .filter(|p| {
+                        (refresh_mode && p.owned_by_luma)
+                            || (!refresh_mode
+                                && (filter.is_empty() || p.name.to_lowercase().contains(&filter)))
+                    })
+                    .take(limit)
+                    .map(|profile| {
+                        let mut item = profile_item(profile);
+                        if refresh_mode && item.kind == "profile" {
+                            item.primary_action_id = "refresh_profile".into();
+                            item.primary_action_label = "Refresh".into();
+                            item.primary_action_risk = ActionRisk::Safe;
+                            item.primary_action_confirmation = false;
+                        }
+                        item
+                    })
+                    .collect();
+                let _ = sink
+                    .send(Event::ResultsChunk {
+                        request_id: String::new(),
+                        sequence: 1,
+                        upserts: items,
+                        removed_ids: vec!["proxy:profile:unavailable".into()],
+                    })
+                    .await;
+            }
+            Err(error) => {
+                let _ = sink
+                    .send(Event::ResultsChunk {
+                        request_id: String::new(),
+                        sequence: 1,
+                        upserts: vec![profile_error_item(&error)],
+                        removed_ids: vec![],
+                    })
+                    .await;
+            }
+        }
+    }
+}
+
+fn profile_item(profile: ProfileSummary) -> SearchItemDto {
+    let updated = profile
+        .updated_at
+        .map(|v| v.to_string())
+        .unwrap_or_else(|| "unknown".into());
+    let primary = if profile.owned_by_luma {
+        "use_profile"
+    } else {
+        "noop"
+    };
+    let details = if !profile.metadata_available {
+        format!(
+            "metadata unavailable · updated {} · {}{}",
+            updated,
+            profile.source.label(),
+            if profile.current { " · current" } else { "" }
+        )
+    } else {
+        format!(
+            "{} nodes · {} groups · {} rules · updated {} · {}{}",
+            profile.node_count,
+            profile.group_count,
+            profile.rule_count,
+            updated,
+            profile.source.label(),
+            if profile.current { " · current" } else { "" }
+        )
+    };
+    SearchItemDto {
+        id: format!("proxy:profile:{}", profile.id),
+        module_id: MODULE_ID.into(),
+        title: redact_label(&profile.name),
+        subtitle: Some(details),
+        kind: "profile".into(),
+        score: if profile.current { 100.0 } else { 85.0 },
+        primary_action_id: primary.into(),
+        primary_action_label: if profile.owned_by_luma {
+            "Use".into()
+        } else {
+            "Read-only".into()
+        },
+        primary_action_risk: if profile.owned_by_luma {
+            ActionRisk::Confirm
+        } else {
+            ActionRisk::Safe
+        },
+        primary_action_confirmation: profile.owned_by_luma,
+        secondary_actions: if profile.owned_by_luma {
+            vec![
+                action_dto("delete_profile", "Delete", ActionRisk::Confirm, true),
+                action_dto("refresh_profile", "Refresh", ActionRisk::Safe, false),
+            ]
+        } else {
+            vec![]
+        },
+        action_payload: Some(serde_json::json!({"profile_id": profile.id})),
+        ..Default::default()
+    }
+}
+
+fn profile_unavailable() -> SearchItemDto {
+    SearchItemDto {
+        id: "proxy:profile:unavailable".into(),
+        module_id: MODULE_ID.into(),
+        title: "Profiles unavailable".into(),
+        subtitle: Some("Luma Profile storage is not configured".into()),
+        kind: "unavailable".into(),
+        primary_action_id: "refresh".into(),
+        primary_action_label: "Refresh".into(),
+        ..Default::default()
+    }
+}
+fn profile_error_item(error: &ProfileStoreError) -> SearchItemDto {
+    SearchItemDto {
+        id: "proxy:profile:unavailable".into(),
+        module_id: MODULE_ID.into(),
+        title: "Profiles unavailable".into(),
+        subtitle: Some(profile_error_message(error)),
+        kind: "unavailable".into(),
+        primary_action_id: "refresh".into(),
+        primary_action_label: "Refresh".into(),
+        ..Default::default()
+    }
+}
+fn profile_error_message(error: &ProfileStoreError) -> String {
+    error.to_string()
 }
 
 fn mode_label(mode: ProxyMode) -> &'static str {
@@ -439,6 +662,29 @@ fn system_failure(error: SystemProxyError) -> FailureKind {
     }
 }
 
+fn profile_failure(error: ProfileStoreError) -> FailureKind {
+    match error {
+        ProfileStoreError::InvalidInput { field, message } => {
+            FailureKind::InvalidInput { field, message }
+        }
+        ProfileStoreError::NotFound(entity) => FailureKind::NotFound { entity },
+        ProfileStoreError::Timeout => FailureKind::Timeout {
+            operation: "profile operation".into(),
+        },
+        ProfileStoreError::SecurityDenied(reason) => FailureKind::SecurityDenied { reason },
+        ProfileStoreError::Conflict(reason) => FailureKind::Conflict { reason },
+        ProfileStoreError::NotConfigured(remediation) => FailureKind::NotConfigured { remediation },
+        ProfileStoreError::Unsupported(reason) => FailureKind::Unavailable {
+            reason,
+            retryable: false,
+        },
+        ProfileStoreError::Unavailable(reason) => FailureKind::Unavailable {
+            reason,
+            retryable: true,
+        },
+    }
+}
+
 #[async_trait]
 impl LumaModule for ProxyModule {
     fn manifest(&self) -> &ModuleManifest {
@@ -498,6 +744,36 @@ impl LumaModule for ProxyModule {
                     confirmation: true,
                 }]
             }
+            "profile" => {
+                let mut actions = vec![ActionDescriptor {
+                    id: ActionId::new(result.primary_action.id.as_str()),
+                    label: result.primary_action.label.clone(),
+                    risk: result.primary_action.risk.clone(),
+                    confirmation: result.primary_action.confirmation,
+                }];
+                if result.primary_action.id.as_str() == "use_profile" {
+                    actions.push(ActionDescriptor {
+                        id: ActionId::new("delete_profile"),
+                        label: "Delete".into(),
+                        risk: ActionRisk::Confirm,
+                        confirmation: true,
+                    });
+                    actions.push(ActionDescriptor {
+                        id: ActionId::new("refresh_profile"),
+                        label: "Refresh".into(),
+                        risk: ActionRisk::Safe,
+                        confirmation: false,
+                    });
+                }
+                actions
+            }
+            "profile_import" => vec![ActionDescriptor {
+                id: ActionId::new("import_profile"),
+                label: "Import".into(),
+                risk: ActionRisk::Confirm,
+                confirmation: true,
+            }],
+            "profile_import_help" => vec![],
             _ => {
                 let system_on = self
                     .system_proxy
@@ -610,6 +886,110 @@ impl LumaModule for ProxyModule {
                     kind: proxy_failure(error),
                 },
             },
+            "import_profile" => {
+                let Some(intent) = self
+                    .import_keys
+                    .write()
+                    .await
+                    .remove(action.result.id.as_str())
+                else {
+                    return ActionOutcome::Failed {
+                        kind: FailureKind::InvalidInput {
+                            field: "result_id".into(),
+                            message: "import request expired; search again".into(),
+                        },
+                    };
+                };
+                let Some(store) = &self.profiles else {
+                    return ActionOutcome::Failed {
+                        kind: FailureKind::NotConfigured {
+                            remediation: "Profile storage is not configured".into(),
+                        },
+                    };
+                };
+                let result = match intent {
+                    ImportIntent::Subscription(url) => store.import_subscription(&url, None).await,
+                    ImportIntent::Local(path) => store.import_local_file(&path, None).await,
+                };
+                match result {
+                    Ok(result) => ActionOutcome::Success {
+                        message: Some(format!(
+                            "已导入 Profile：{}；尚未应用到运行中的 Mihomo",
+                            redact_label(&result.summary.name)
+                        )),
+                    },
+                    Err(error) => ActionOutcome::Failed {
+                        kind: profile_failure(error),
+                    },
+                }
+            }
+            "use_profile" | "delete_profile" | "refresh_profile" => {
+                let Some(profile_id) = action
+                    .result
+                    .action_payload
+                    .as_ref()
+                    .and_then(|p| p.get("profile_id"))
+                    .and_then(Value::as_str)
+                else {
+                    return ActionOutcome::Failed {
+                        kind: FailureKind::InvalidInput {
+                            field: "profile_id".into(),
+                            message: "missing opaque Profile identifier".into(),
+                        },
+                    };
+                };
+                let Some(store) = &self.profiles else {
+                    return ActionOutcome::Failed {
+                        kind: FailureKind::NotConfigured {
+                            remediation: "Profile storage is not configured".into(),
+                        },
+                    };
+                };
+                let result = match id {
+                    "use_profile" => store
+                        .use_profile(profile_id)
+                        .await
+                        .map(|r| (r, "Profile 已应用")),
+                    "refresh_profile" => store
+                        .refresh_profile(profile_id)
+                        .await
+                        .map(|r| (r, "Profile 已刷新；尚未应用到运行中的 Mihomo")),
+                    _ => store.delete_profile(profile_id).await.map(|_| {
+                        (
+                            luma_application::ProfileImportResult {
+                                summary: ProfileSummary {
+                                    id: profile_id.into(),
+                                    name: "Profile".into(),
+                                    node_count: 0,
+                                    group_count: 0,
+                                    rule_count: 0,
+                                    metadata_available: true,
+                                    updated_at: None,
+                                    source: ProfileSource::LumaLocal,
+                                    owned_by_luma: true,
+                                    current: false,
+                                },
+                                source_written: false,
+                                metadata_updated: true,
+                                runtime_applied: false,
+                            },
+                            "Profile 已删除",
+                        )
+                    }),
+                };
+                match result {
+                    Ok((result, message)) => ActionOutcome::Success {
+                        message: Some(if id == "use_profile" && !result.runtime_applied {
+                            "已导入，尚未应用到运行中的 Mihomo".into()
+                        } else {
+                            message.into()
+                        }),
+                    },
+                    Err(error) => ActionOutcome::Failed {
+                        kind: profile_failure(error),
+                    },
+                }
+            }
             "select_proxy" => {
                 let Some((group, proxy)) = self
                     .selection_keys
@@ -712,10 +1092,11 @@ impl LumaModule for ProxyModule {
 mod tests {
     use super::*;
     use luma_application::{
-        FakePasteboard, FakeProxyCore, FakeSystemProxy, ProxyPorts, SystemProxySetting,
-        SystemProxyStatus,
+        FakePasteboard, FakeProxyCore, FakeSystemProxy, ProfileImportResult, ProfileSource,
+        ProfileStoreError, ProfileStorePort, ProxyPorts, SystemProxySetting, SystemProxyStatus,
     };
     use luma_test_support::collect_search_items;
+    use std::path::Path;
 
     fn module() -> (ProxyModule, Arc<FakeProxyCore>) {
         let core = FakeProxyCore::new(
@@ -787,5 +1168,100 @@ mod tests {
             .await;
         assert!(matches!(outcome, ActionOutcome::Success { .. }));
         assert_eq!(core.selected.lock().await.len(), 1);
+    }
+
+    struct TestProfiles {
+        summary: ProfileSummary,
+    }
+
+    #[async_trait]
+    impl ProfileStorePort for TestProfiles {
+        async fn list_profiles(&self) -> Result<Vec<ProfileSummary>, ProfileStoreError> {
+            Ok(vec![self.summary.clone()])
+        }
+        async fn import_subscription(
+            &self,
+            _url: &str,
+            _name: Option<&str>,
+        ) -> Result<ProfileImportResult, ProfileStoreError> {
+            Ok(ProfileImportResult {
+                summary: self.summary.clone(),
+                source_written: true,
+                metadata_updated: true,
+                runtime_applied: false,
+            })
+        }
+        async fn import_local_file(
+            &self,
+            _path: &Path,
+            _name: Option<&str>,
+        ) -> Result<ProfileImportResult, ProfileStoreError> {
+            Ok(ProfileImportResult {
+                summary: self.summary.clone(),
+                source_written: true,
+                metadata_updated: true,
+                runtime_applied: false,
+            })
+        }
+        async fn use_profile(&self, _id: &str) -> Result<ProfileImportResult, ProfileStoreError> {
+            Ok(ProfileImportResult {
+                summary: self.summary.clone(),
+                source_written: true,
+                metadata_updated: true,
+                runtime_applied: true,
+            })
+        }
+        async fn refresh_profile(
+            &self,
+            _id: &str,
+        ) -> Result<ProfileImportResult, ProfileStoreError> {
+            Ok(ProfileImportResult {
+                summary: self.summary.clone(),
+                source_written: true,
+                metadata_updated: true,
+                runtime_applied: false,
+            })
+        }
+        async fn delete_profile(&self, _id: &str) -> Result<(), ProfileStoreError> {
+            Ok(())
+        }
+    }
+
+    #[tokio::test]
+    async fn profile_search_and_import_never_echo_subscription_url_or_credentials() {
+        let (base, _) = module();
+        let profiles = Arc::new(TestProfiles {
+            summary: ProfileSummary {
+                id: "p-0123456789abcdef0123".into(),
+                name: "subscription-name".into(),
+                node_count: 3,
+                group_count: 1,
+                rule_count: 2,
+                metadata_available: true,
+                updated_at: Some(1),
+                source: ProfileSource::Subscription,
+                owned_by_luma: true,
+                current: false,
+            },
+        });
+        let module = base.with_profile_store(profiles);
+        let items = collect_search_items(&module, Query::parse("proxy profile", 20)).await;
+        let serialized = format!("{items:?}");
+        assert!(!serialized.contains("secret"));
+        assert!(!serialized.contains("uuid"));
+        assert!(items.iter().any(|item| item.kind == "profile"));
+        let import_items = collect_search_items(
+            &module,
+            Query::parse("proxy import https://example.invalid/token=secret", 20),
+        )
+        .await;
+        let serialized = format!("{import_items:?}");
+        assert!(!serialized.contains("https://example.invalid"));
+        assert!(!serialized.contains("token=secret"));
+        let refresh_items =
+            collect_search_items(&module, Query::parse("proxy profile refresh", 20)).await;
+        assert!(refresh_items
+            .iter()
+            .any(|item| item.primary_action.id.as_str() == "refresh_profile"));
     }
 }

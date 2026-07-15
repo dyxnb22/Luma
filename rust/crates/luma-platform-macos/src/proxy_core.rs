@@ -402,6 +402,70 @@ impl MacMihomoProxyCore {
         .await
         .map(|_| ())
     }
+
+    /// Apply a validated, Luma-owned YAML file through Mihomo's config reload endpoint.
+    /// The file is read only inside the platform adapter; raw YAML never crosses into modules.
+    pub async fn apply_profile_file(&self, path: &std::path::Path) -> Result<(), ProxyCoreError> {
+        let metadata = std::fs::metadata(path)
+            .map_err(|_| ProxyCoreError::NotFound("profile source file".into()))?;
+        if metadata.len() > MAX_CONFIG_BYTES {
+            return Err(ProxyCoreError::SecurityDenied(
+                "profile source exceeds the configured size limit".into(),
+            ));
+        }
+        let imported = std::fs::read_to_string(path)
+            .map_err(|_| ProxyCoreError::Unavailable("profile source could not be read".into()))?;
+        let imported: serde_yaml::Value =
+            serde_yaml::from_str(&imported).map_err(|_| ProxyCoreError::InvalidInput {
+                field: "profile".into(),
+                message: "profile source is not valid YAML".into(),
+            })?;
+        let Some(imported_map) = imported.as_mapping() else {
+            return Err(ProxyCoreError::InvalidInput {
+                field: "profile".into(),
+                message: "profile source root must be a mapping".into(),
+            });
+        };
+        let current = self.json("GET", "/configs", None).await?;
+        let mut trusted = serde_yaml::to_value(current).map_err(|_| {
+            ProxyCoreError::Unavailable("current Mihomo configuration could not be read".into())
+        })?;
+        let Some(trusted_map) = trusted.as_mapping_mut() else {
+            return Err(ProxyCoreError::Unavailable(
+                "current Mihomo configuration has an invalid shape".into(),
+            ));
+        };
+        let allowed = [
+            "proxies",
+            "proxy-groups",
+            "proxy-providers",
+            "rule-providers",
+            "rules",
+            "sub-rules",
+        ];
+        let mut copied = false;
+        for key in allowed {
+            let key = serde_yaml::Value::String(key.into());
+            if let Some(value) = imported_map.get(&key) {
+                trusted_map.insert(key, value.clone());
+                copied = true;
+            }
+        }
+        if !copied {
+            return Err(ProxyCoreError::InvalidInput {
+                field: "profile".into(),
+                message: "profile has no supported proxy or rule content".into(),
+            });
+        }
+        let payload = serde_yaml::to_string(&trusted).map_err(|_| {
+            ProxyCoreError::Unavailable("trusted Mihomo configuration could not be encoded".into())
+        })?;
+        self.put(
+            "/configs?force=true",
+            serde_json::json!({"path": "", "payload": payload}),
+        )
+        .await
+    }
 }
 
 async fn read_response<S: AsyncReadExt + Unpin>(stream: &mut S) -> Result<(u16, Vec<u8>), String> {
@@ -829,9 +893,25 @@ mod tests {
         let address = listener.local_addr().unwrap();
         let server = tokio::spawn(async move {
             let (mut stream, _) = listener.accept().await.unwrap();
-            let mut request = vec![0_u8; 1024];
-            let n = stream.read(&mut request).await.unwrap();
-            let request = String::from_utf8_lossy(&request[..n]);
+            let mut request = Vec::new();
+            let mut chunk = [0_u8; 1024];
+            loop {
+                let n = stream.read(&mut chunk).await.unwrap();
+                request.extend_from_slice(&chunk[..n]);
+                let text = String::from_utf8_lossy(&request);
+                let expected = text
+                    .split_once("Content-Length: ")
+                    .and_then(|(_, rest)| rest.split('\r').next())
+                    .and_then(|value| value.parse::<usize>().ok())
+                    .unwrap_or(0);
+                if text.contains("\r\n\r\n") {
+                    let header_len = text.find("\r\n\r\n").unwrap() + 4;
+                    if request.len() >= header_len + expected {
+                        break;
+                    }
+                }
+            }
+            let request = String::from_utf8_lossy(&request);
             assert!(request.starts_with("PATCH /configs HTTP/1.1"));
             assert!(request.contains("\"mode\":\"global\""));
             stream
@@ -842,6 +922,69 @@ mod tests {
         MacMihomoProxyCore::with_loopback_controller(address)
             .unwrap()
             .set_mode(ProxyMode::Global)
+            .await
+            .unwrap();
+        server.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn profile_apply_keeps_trusted_controller_fields() {
+        let listener = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let mut request = [0_u8; 2048];
+            let n = stream.read(&mut request).await.unwrap();
+            assert!(String::from_utf8_lossy(&request[..n]).starts_with("GET /configs HTTP/1.1"));
+            let response = br#"{"mode":"rule","external-controller":"127.0.0.1:9097","secret":"trusted-secret","mixed-port":7897}"#;
+            stream
+                .write_all(
+                    format!(
+                        "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                        response.len()
+                    )
+                    .as_bytes(),
+                )
+                .await
+                .unwrap();
+            stream.write_all(response).await.unwrap();
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let mut request = Vec::new();
+            let mut chunk = [0_u8; 4096];
+            loop {
+                let n = stream.read(&mut chunk).await.unwrap();
+                request.extend_from_slice(&chunk[..n]);
+                let text = String::from_utf8_lossy(&request);
+                let content_length = text
+                    .split_once("Content-Length: ")
+                    .and_then(|(_, rest)| rest.split('\r').next())
+                    .and_then(|value| value.parse::<usize>().ok())
+                    .unwrap_or(0);
+                if let Some(header_end) = text.find("\r\n\r\n") {
+                    if request.len() >= header_end + 4 + content_length {
+                        assert!(text.starts_with("PUT /configs?force=true HTTP/1.1"));
+                        assert!(text.contains("proxy-name"));
+                        assert!(!text.contains("attacker-secret"));
+                        assert!(!text.contains("0.0.0.0:9097"));
+                        break;
+                    }
+                }
+            }
+            stream
+                .write_all(b"HTTP/1.1 204 No Content\r\nConnection: close\r\n\r\n")
+                .await
+                .unwrap();
+        });
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("profile.yaml");
+        fs::write(
+            &path,
+            "external-controller: 0.0.0.0:9097\nsecret: attacker-secret\nproxies:\n  - name: proxy-name\n",
+        )
+        .unwrap();
+        MacMihomoProxyCore::with_loopback_controller(address)
+            .unwrap()
+            .apply_profile_file(&path)
             .await
             .unwrap();
         server.await.unwrap();

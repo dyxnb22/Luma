@@ -74,6 +74,7 @@ pub struct EngineOptions {
     pub settings: Option<Arc<dyn crate::ports::SettingsRepository>>,
     pub diagnostics: Option<Arc<dyn crate::ports::DiagnosticsSink>>,
     pub storage_probe: Option<Arc<dyn crate::ports::StorageProbePort>>,
+    pub platform_probe: Option<Arc<dyn crate::ports::PlatformProbePort>>,
     /// Modules skipped at composition (id, reason) — surfaced in Doctor.
     pub skipped_modules: Vec<(String, String)>,
 }
@@ -85,6 +86,7 @@ pub struct Engine {
     settings: Option<Arc<dyn crate::ports::SettingsRepository>>,
     diagnostics: Option<Arc<dyn crate::ports::DiagnosticsSink>>,
     storage_probe: Option<Arc<dyn crate::ports::StorageProbePort>>,
+    platform_probe: Option<Arc<dyn crate::ports::PlatformProbePort>>,
     skipped_modules: Vec<(String, String)>,
     /// Serializes search setup so cancel→clear→register cannot interleave.
     search_lifecycle: Mutex<()>,
@@ -105,6 +107,7 @@ impl Engine {
                 settings,
                 diagnostics: None,
                 storage_probe: None,
+                platform_probe: None,
                 skipped_modules: Vec::new(),
             },
         )
@@ -128,6 +131,7 @@ impl Engine {
             settings: options.settings,
             diagnostics: options.diagnostics,
             storage_probe: options.storage_probe,
+            platform_probe: options.platform_probe,
             skipped_modules: options.skipped_modules,
             search_lifecycle: Mutex::new(()),
         }
@@ -612,7 +616,21 @@ pub async fn run_doctor(
     registry: ModuleRegistry,
     settings: Option<Arc<dyn crate::ports::SettingsRepository>>,
 ) -> Result<serde_json::Value, String> {
-    let engine = Engine::with_settings(registry, settings);
+    run_doctor_with_options(
+        registry,
+        EngineOptions {
+            settings,
+            ..EngineOptions::default()
+        },
+    )
+    .await
+}
+
+pub async fn run_doctor_with_options(
+    registry: ModuleRegistry,
+    options: EngineOptions,
+) -> Result<serde_json::Value, String> {
+    let engine = Engine::with_options(registry, options);
     let mut rx = engine.subscribe();
     engine.start_session().await;
     let handle = engine.handle_command(Command::RunDoctor);
@@ -992,6 +1010,59 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn doctor_emits_stable_schema_with_platform_probes() {
+        let probe = Arc::new(crate::ports::FakePlatformProbe {
+            value: serde_json::json!({
+                "accessibility": {
+                    "trusted": false,
+                    "guidance": "grant ax"
+                },
+                "ax_trusted": false,
+                "probes": {
+                    "windows.list": { "ok": true, "count": 3 },
+                    "ax.trusted": false
+                }
+            }),
+        });
+        let diag = run_doctor_with_options(
+            fake_registry(),
+            EngineOptions {
+                settings: None,
+                diagnostics: None,
+                storage_probe: None,
+                platform_probe: Some(probe),
+                skipped_modules: vec![("luma.clipboard".into(), "test skip".into())],
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(diag["doctor"], true);
+        for key in [
+            "modules",
+            "skipped_modules",
+            "paths",
+            "launch",
+            "settings",
+            "config_commands",
+            "stores",
+            "remediation",
+            "accessibility",
+            "probes",
+            "ax_trusted",
+        ] {
+            assert!(diag.get(key).is_some(), "missing doctor key {key}: {diag}");
+        }
+        assert_eq!(diag["accessibility"]["trusted"], false);
+        assert_eq!(diag["probes"]["windows.list"]["ok"], true);
+        assert_eq!(diag["ax_trusted"], false);
+        assert!(diag["remediation"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|t| t.as_str().unwrap_or("").contains("Accessibility")));
+    }
+
+    #[tokio::test]
     async fn permission_failure_kind_not_empty_success() {
         let kind = FailureKind::PermissionRequired {
             capability: "ax".into(),
@@ -1330,6 +1401,7 @@ mod tests {
                 settings: None,
                 diagnostics: Some(sink),
                 storage_probe: None,
+                platform_probe: None,
                 skipped_modules: Vec::new(),
             },
         );

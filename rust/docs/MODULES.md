@@ -40,7 +40,7 @@ No provisioning UI. Labels come from a sidecar plus Keychain entries:
   Reads the value from **stdin** (never argv). The macOS adapter writes Keychain and appends the account to the sidecar.
 - **Enable module:** `luma config set --enable-module luma.secrets` (default-off until labels exist).
 - **Search honesty:** empty labels → `not_configured` row with bootstrap hint; sidecar/keychain errors → `unavailable`; values never appear in search (copy-only after unlock + confirm).
-- **Unlock:** in-process session gate only — not Touch ID, Keychain ACL, or an OS auth prompt. Lock on teardown or exit.
+- **Unlock:** in-process session gate only — not Touch ID, Keychain ACL, or an OS auth prompt. Locks on teardown/exit and after idle (`secrets_idle_lock_secs`, default 300; `0` disables).
 
 ## Product rules
 

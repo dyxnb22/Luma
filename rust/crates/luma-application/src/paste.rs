@@ -28,6 +28,24 @@ fn map_window_err(err: WindowError) -> FailureKind {
     }
 }
 
+pub const NO_PASTE_TARGET_REASON: &str =
+    "no paste target — focus the destination with Hub or `win`, then paste again";
+
+/// Resolve paste destination from cache, then the launch-time previous-frontmost label.
+///
+/// Do **not** re-enumerate live windows here: once Luma is focused, a live snapshot /
+/// frontmost probe often points at an unrelated app and would paste into the wrong place.
+async fn resolve_paste_target(catalog: &dyn WindowCatalogPort) -> Option<String> {
+    if let Some(target) = catalog.paste_target_app().await {
+        return Some(target);
+    }
+    if let Some(prev) = catalog.previous_frontmost_app().await {
+        catalog.set_paste_target_app(Some(prev.clone())).await;
+        return Some(prev);
+    }
+    None
+}
+
 /// Write `text` to the pasteboard, refocus the recorded target app, verify frontmost, then Cmd-V.
 pub async fn paste_to_target_app(
     catalog: Arc<dyn WindowCatalogPort>,
@@ -41,9 +59,9 @@ pub async fn paste_to_target_app(
             guidance: "Grant Accessibility to paste into other apps".into(),
         });
     }
-    let Some(target) = catalog.paste_target_app().await else {
+    let Some(target) = resolve_paste_target(catalog.as_ref()).await else {
         return Err(FailureKind::Unavailable {
-            reason: "no paste target — focus another app before opening Luma".into(),
+            reason: NO_PASTE_TARGET_REASON.into(),
             retryable: false,
         });
     };
@@ -132,10 +150,75 @@ mod tests {
             trusted: true,
             paste_ok: true,
         });
-        let err = paste_to_target_app(catalog, pasteboard, accessibility, "x")
+        let err = paste_to_target_app(catalog.clone(), pasteboard, accessibility, "x")
+            .await
+            .unwrap_err();
+        match err {
+            FailureKind::Unavailable { reason, retryable } => {
+                assert_eq!(reason, NO_PASTE_TARGET_REASON);
+                assert!(!retryable);
+            }
+            other => panic!("expected Unavailable, got {other:?}"),
+        }
+        assert_eq!(
+            *catalog.snapshot_calls.lock().await,
+            0,
+            "must not re-snapshot live windows when resolving paste target"
+        );
+    }
+
+    #[tokio::test]
+    async fn paste_uses_previous_frontmost_when_paste_target_cleared() {
+        let catalog = Arc::new(FakeWindowCatalog::with_entries(
+            vec![WindowEntry {
+                id: "pid:1|num:1".into(),
+                app_name: "Safari".into(),
+                app_bundle_id: None,
+                title: "Page".into(),
+                is_on_screen: true,
+                layer: 0,
+                owner_pid: 1,
+            }],
+            Some("Safari".into()),
+        ));
+        // Clear cached paste target so paste must recover from previous_frontmost.
+        catalog.set_paste_target_app(None).await;
+        let pasteboard = Arc::new(FakePasteboard::new());
+        let accessibility = Arc::new(FakeAccessibility {
+            trusted: true,
+            paste_ok: true,
+        });
+        paste_to_target_app(catalog.clone(), pasteboard, accessibility, "hello")
+            .await
+            .expect("paste from previous_frontmost");
+        assert_eq!(*catalog.snapshot_calls.lock().await, 0);
+        assert_eq!(catalog.paste_target_app().await.as_deref(), Some("Safari"));
+    }
+
+    #[tokio::test]
+    async fn paste_does_not_use_live_frontmost_as_fallback() {
+        let catalog = Arc::new(FakeWindowCatalog::with_entries(
+            vec![WindowEntry {
+                id: "pid:2|num:1".into(),
+                app_name: "Mail".into(),
+                app_bundle_id: None,
+                title: "Inbox".into(),
+                is_on_screen: true,
+                layer: 0,
+                owner_pid: 2,
+            }],
+            None,
+        ));
+        let pasteboard = Arc::new(FakePasteboard::new());
+        let accessibility = Arc::new(FakeAccessibility {
+            trusted: true,
+            paste_ok: true,
+        });
+        let err = paste_to_target_app(catalog.clone(), pasteboard, accessibility, "x")
             .await
             .unwrap_err();
         assert!(matches!(err, FailureKind::Unavailable { .. }));
+        assert!(catalog.focus_app_calls.lock().await.is_empty());
     }
 
     #[tokio::test]

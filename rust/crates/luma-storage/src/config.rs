@@ -37,6 +37,20 @@ pub struct LumaSettings {
     #[serde(default)]
     pub notes_exclude_patterns: Vec<String>,
     pub clipboard_retention_days: u32,
+    /// Lock Secrets vault after this many idle seconds (`0` disables idle lock).
+    #[serde(default = "default_secrets_idle_lock_secs")]
+    pub secrets_idle_lock_secs: u32,
+    /// Max window rows on the Hub (clamped 5–50 when applied).
+    #[serde(default = "default_hub_windows_max")]
+    pub hub_windows_max: u32,
+}
+
+fn default_secrets_idle_lock_secs() -> u32 {
+    300
+}
+
+fn default_hub_windows_max() -> u32 {
+    15
 }
 
 impl Default for LumaSettings {
@@ -56,6 +70,8 @@ impl Default for LumaSettings {
             projects_roots: Vec::new(),
             notes_exclude_patterns: Vec::new(),
             clipboard_retention_days: 30,
+            secrets_idle_lock_secs: default_secrets_idle_lock_secs(),
+            hub_windows_max: default_hub_windows_max(),
         }
     }
 }
@@ -248,7 +264,10 @@ impl SettingsLock {
         let _ = writeln!(file, "pid={}", std::process::id());
         let _ = file.sync_all();
         let data = if settings_path.exists() {
-            let df = OpenOptions::new().read(true).write(true).open(settings_path)?;
+            let df = OpenOptions::new()
+                .read(true)
+                .write(true)
+                .open(settings_path)?;
             flock_exclusive(&df)?;
             Some(df)
         } else {

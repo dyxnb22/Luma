@@ -341,7 +341,9 @@ impl WindowCatalogPort for MacWindowCatalog {
         let name = app_name.to_string();
         tokio::task::spawn_blocking(move || MacWindowCatalog::focus_app_blocking(&name))
             .await
-            .map_err(|e| WindowError::Unavailable(e.to_string()))?
+            .map_err(|e| WindowError::Unavailable(e.to_string()))??;
+        self.set_paste_target_locked(Some(app_name.to_string()));
+        Ok(())
     }
 
     async fn frontmost_app_name(&self) -> Result<Option<String>, WindowError> {
@@ -358,9 +360,27 @@ impl WindowCatalogPort for MacWindowCatalog {
 
     async fn focus(&self, id: &str) -> Result<(), WindowError> {
         let id = id.to_string();
+        let app_name = {
+            let id_for_lookup = id.clone();
+            tokio::task::spawn_blocking(move || {
+                let entries = MacWindowCatalog::list_windows_blocking()?;
+                Ok::<_, WindowError>(
+                    entries
+                        .into_iter()
+                        .find(|e| e.id == id_for_lookup)
+                        .map(|e| e.app_name),
+                )
+            })
+            .await
+            .map_err(|e| WindowError::Unavailable(e.to_string()))??
+        };
         tokio::task::spawn_blocking(move || MacWindowCatalog::focus_blocking(&id))
             .await
-            .map_err(|e| WindowError::Unavailable(e.to_string()))?
+            .map_err(|e| WindowError::Unavailable(e.to_string()))??;
+        if let Some(name) = app_name {
+            self.set_paste_target_locked(Some(name));
+        }
+        Ok(())
     }
 }
 

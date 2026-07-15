@@ -96,7 +96,9 @@ impl FakeWindowCatalog {
 impl WindowCatalogPort for FakeWindowCatalog {
     async fn snapshot_previous_frontmost_app(&self) -> Result<Option<String>, WindowError> {
         *self.snapshot_calls.lock().await += 1;
-        Ok(self.previous_frontmost.lock().await.clone())
+        let label = self.previous_frontmost.lock().await.clone();
+        *self.paste_target.lock().await = label.clone();
+        Ok(label)
     }
 
     async fn previous_frontmost_app(&self) -> Option<String> {
@@ -124,11 +126,17 @@ impl WindowCatalogPort for FakeWindowCatalog {
             return Err(WindowError::NotFound(format!("app {app_name}")));
         };
         self.focus_calls.lock().await.push(entry.id.clone());
+        drop(entries);
+        *self.paste_target.lock().await = Some(app_name.to_string());
         Ok(())
     }
 
     async fn frontmost_app_name(&self) -> Result<Option<String>, WindowError> {
-        Ok(self.paste_target.lock().await.clone())
+        let entries = self.entries.lock().await;
+        Ok(entries
+            .iter()
+            .find(|e| e.is_on_screen)
+            .map(|e| e.app_name.clone()))
     }
 
     async fn list_windows(&self) -> Result<Vec<WindowEntry>, WindowError> {
@@ -142,6 +150,16 @@ impl WindowCatalogPort for FakeWindowCatalog {
         self.focus_calls.lock().await.push(id.to_string());
         if let Some(err) = self.focus_error.lock().await.clone() {
             return Err(err);
+        }
+        let app_name = self
+            .entries
+            .lock()
+            .await
+            .iter()
+            .find(|e| e.id == id)
+            .map(|e| e.app_name.clone());
+        if let Some(name) = app_name {
+            *self.paste_target.lock().await = Some(name);
         }
         Ok(())
     }

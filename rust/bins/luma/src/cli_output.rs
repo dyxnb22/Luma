@@ -12,6 +12,7 @@ pub fn action_exit_code(outcome: &ActionOutcomeDto) -> i32 {
 }
 
 /// Actionable doctor summary for CLI (default non-JSON output).
+/// Keep in sync with `luma_tui::render::overlays::format_doctor_summary`.
 pub fn format_doctor_summary(diagnostic: &serde_json::Value) -> String {
     let mut lines = Vec::new();
     if let Some(remediation) = diagnostic.get("remediation").and_then(|v| v.as_array()) {
@@ -24,6 +25,41 @@ pub fn format_doctor_summary(diagnostic: &serde_json::Value) -> String {
             lines.push("Next steps:".to_string());
             for tip in tips {
                 lines.push(format!("  · {tip}"));
+            }
+            lines.push(String::new());
+        }
+    }
+    if let Some(ax) = diagnostic.get("accessibility") {
+        lines.push("Accessibility:".to_string());
+        let trusted = ax.get("trusted").and_then(|v| v.as_bool()).unwrap_or(false);
+        lines.push(format!("  trusted: {trusted}"));
+        if let Some(guidance) = ax.get("guidance").and_then(|v| v.as_str()) {
+            lines.push(format!("  {guidance}"));
+        }
+        lines.push(String::new());
+    }
+    if let Some(probes) = diagnostic.get("probes").and_then(|v| v.as_object()) {
+        lines.push("Probes:".to_string());
+        if let Some(windows) = probes.get("windows.list") {
+            if windows.get("ok").and_then(|v| v.as_bool()) == Some(true) {
+                let count = windows.get("count").and_then(|v| v.as_u64()).unwrap_or(0);
+                lines.push(format!("  windows.list: ok ({count})"));
+            } else if let Some(err) = windows.get("error").and_then(|v| v.as_str()) {
+                lines.push(format!("  windows.list: error ({err})"));
+            } else {
+                lines.push("  windows.list: unavailable".into());
+            }
+        }
+        if let Some(ax) = probes.get("ax.trusted") {
+            lines.push(format!("  ax.trusted: {ax}"));
+        }
+        lines.push(String::new());
+    }
+    if let Some(stores) = diagnostic.get("stores").and_then(|v| v.as_object()) {
+        if !stores.is_empty() {
+            lines.push("Stores:".to_string());
+            for (key, val) in stores {
+                lines.push(format!("  {key}: {val}"));
             }
             lines.push(String::new());
         }

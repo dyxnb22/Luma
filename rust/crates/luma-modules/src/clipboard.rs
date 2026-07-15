@@ -865,6 +865,73 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn paste_without_target_is_unavailable_with_remediation() {
+        let repo = test_repo();
+        let id = repo.insert("paste me", false).unwrap();
+        let catalog = Arc::new(FakeWindowCatalog::default());
+        let m = ClipboardModule::with_deps(
+            repo,
+            Arc::new(MemPb(TokioMutex::new(None))),
+            Arc::new(FakeAccessibility {
+                trusted: true,
+                paste_ok: true,
+            }),
+            catalog.clone(),
+            Arc::new(ClipboardSuppression::new()),
+        );
+        let outcome = m
+            .perform(
+                ActionRequest {
+                    result: SearchItem {
+                        id: luma_domain::ResultId::new(format!("clip:{id}")),
+                        module_id: ModuleId::new("luma.clipboard"),
+                        title: "x".into(),
+                        subtitle: None,
+                        kind: "clip".into(),
+                        score: 1.0,
+                        primary_action: ActionDescriptor {
+                            id: ActionId::new("paste"),
+                            label: "Paste".into(),
+                            risk: ActionRisk::Confirm,
+                            confirmation: false,
+                        },
+                        secondary_actions: vec![],
+                        ui_intent: None,
+                        action_payload: None,
+                    },
+                    action: ActionDescriptor {
+                        id: ActionId::new("paste"),
+                        label: "Paste".into(),
+                        risk: ActionRisk::Confirm,
+                        confirmation: false,
+                    },
+                    confirmation: false,
+                },
+                CancellationToken::new(),
+            )
+            .await;
+        match outcome {
+            ActionOutcome::Failed {
+                kind: FailureKind::Unavailable { reason, .. },
+            } => {
+                assert!(
+                    reason.contains("no paste target"),
+                    "unexpected reason: {reason}"
+                );
+                assert!(
+                    reason.contains("Hub") || reason.contains("win"),
+                    "reason should mention Hub/win remediation: {reason}"
+                );
+            }
+            other => panic!("expected Unavailable, got {other:?}"),
+        }
+        assert!(
+            catalog.focus_app_calls.lock().await.is_empty(),
+            "must not focus when paste target is missing"
+        );
+    }
+
+    #[tokio::test]
     async fn warmup_seeds_last_seen_without_capturing_pasteboard() {
         let repo = test_repo();
         let pb = Arc::new(MemPb(TokioMutex::new(Some("pre-existing-secret".into()))));

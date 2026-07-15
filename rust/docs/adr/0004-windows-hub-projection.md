@@ -16,8 +16,9 @@ favorites) is retired from the empty-prompt Hub; those flows stay available via 
    default **on**. Lists visible windows; primary action `focus`.
 2. **Hub projection** — empty prompt shows **all visible windows** (terminals / Luma
    filtered out), sorted by app then title. Enter focuses immediately (does not fill the
-   prompt). Hard cap **15** rows; overflow is a single `N more → win` row that opens the
-   full module. Row labels include `title · app` for disambiguation.
+   prompt). Default cap **15** rows (`hub_windows_max`, clamped 5–50); overflow is a single
+   `N more → win` row that opens the full module. Row labels include `title · app` for
+   disambiguation. When any title is `Untitled`, Hub status hints to grant Screen Recording.
 3. **Hub pins removed** — empty-prompt Hub no longer shows Notes shortcuts or Clipboard
    favorites. Clipboard pin/unpin and purge-keeps-pinned remain inside `clip`. Notes shortcuts
    stay available via `n …`.

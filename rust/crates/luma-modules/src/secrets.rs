@@ -7,18 +7,26 @@ use luma_domain::{
     ActionDescriptor, ActionId, ActionRisk, FailureKind, ModuleId, Query, SearchItem,
 };
 use luma_protocol::{Event, SearchItemDto, UiIntent};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
+use tokio::sync::Mutex;
+use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
 use crate::clipboard_privacy::ClipboardSuppression;
+
+const DEFAULT_IDLE_LOCK_SECS: u32 = 300;
 
 /// Secrets is last / default-off. Values never enter search results.
 /// Unlock / lock / copy always require confirmation (search DTO and `actions()` agree).
 pub struct SecretsModule {
     manifest: ModuleManifest,
-    unlocked: AtomicBool,
+    unlocked: Arc<AtomicBool>,
+    idle_lock_secs: Arc<AtomicU32>,
+    last_activity: Arc<Mutex<Instant>>,
+    idle_cancel: Mutex<Option<CancellationToken>>,
+    idle_handle: Mutex<Option<JoinHandle<()>>>,
     keychain: Arc<dyn KeychainPort>,
     pasteboard: Arc<dyn PasteboardPort>,
     suppression: Arc<ClipboardSuppression>,
@@ -47,10 +55,58 @@ impl SecretsModule {
                     supports_browse: false,
                 },
             },
-            unlocked: AtomicBool::new(false),
+            unlocked: Arc::new(AtomicBool::new(false)),
+            idle_lock_secs: Arc::new(AtomicU32::new(DEFAULT_IDLE_LOCK_SECS)),
+            last_activity: Arc::new(Mutex::new(Instant::now())),
+            idle_cancel: Mutex::new(None),
+            idle_handle: Mutex::new(None),
             keychain,
             pasteboard,
             suppression,
+        }
+    }
+
+    async fn touch_activity(&self) {
+        *self.last_activity.lock().await = Instant::now();
+    }
+
+    async fn start_idle_poller(&self, parent: CancellationToken) {
+        self.stop_idle_poller().await;
+        let cancel = parent.child_token();
+        let unlocked = self.unlocked.clone();
+        let idle_lock_secs = self.idle_lock_secs.clone();
+        let last_activity = self.last_activity.clone();
+        let token = cancel.clone();
+        let handle = tokio::spawn(async move {
+            loop {
+                tokio::select! {
+                    _ = token.cancelled() => break,
+                    _ = tokio::time::sleep(Duration::from_secs(1)) => {
+                        if !unlocked.load(Ordering::SeqCst) {
+                            continue;
+                        }
+                        let secs = idle_lock_secs.load(Ordering::Relaxed);
+                        if secs == 0 {
+                            continue;
+                        }
+                        let elapsed = last_activity.lock().await.elapsed().as_secs();
+                        if elapsed >= u64::from(secs) {
+                            unlocked.store(false, Ordering::SeqCst);
+                        }
+                    }
+                }
+            }
+        });
+        *self.idle_cancel.lock().await = Some(cancel);
+        *self.idle_handle.lock().await = Some(handle);
+    }
+
+    async fn stop_idle_poller(&self) {
+        if let Some(cancel) = self.idle_cancel.lock().await.take() {
+            cancel.cancel();
+        }
+        if let Some(handle) = self.idle_handle.lock().await.take() {
+            let _ = handle.await;
         }
     }
 }
@@ -60,7 +116,10 @@ impl LumaModule for SecretsModule {
     fn manifest(&self) -> &ModuleManifest {
         &self.manifest
     }
-    async fn warmup(&self, _ctx: WarmupContext) -> ModuleState {
+    async fn warmup(&self, ctx: WarmupContext) -> ModuleState {
+        if !ctx.cancel.is_cancelled() {
+            self.start_idle_poller(ctx.cancel).await;
+        }
         match self.keychain.list_labels().await {
             Ok(_) => ModuleState::Ready,
             Err(err) => ModuleState::Failed(err.to_string()),
@@ -71,6 +130,9 @@ impl LumaModule for SecretsModule {
             return;
         }
         let unlocked = self.unlocked.load(Ordering::SeqCst);
+        if unlocked {
+            self.touch_activity().await;
+        }
         let mut upserts = vec![SearchItemDto {
             id: "sec:vault".into(),
             module_id: "luma.secrets".into(),
@@ -221,6 +283,7 @@ impl LumaModule for SecretsModule {
             // Secret values are still fetched via KeychainPort on confirmed copy.
             "unlock" => {
                 self.unlocked.store(true, Ordering::SeqCst);
+                self.touch_activity().await;
                 ActionOutcome::Success {
                     message: Some("unlocked".into()),
                 }
@@ -249,16 +312,17 @@ impl LumaModule for SecretsModule {
                 };
                 match self.keychain.copy_password(account).await {
                     Ok(secret) => {
-                        // Lease exact value so clipboard history never stores it, even
-                        // when heuristic `looks_secret` would miss a plain token.
-                        // Personal daily driver: keep copied secrets out of clipboard history
-                        // for the rest of the session (24h lease; process exit clears in-memory map).
                         self.suppression
                             .suppress(&secret, Duration::from_secs(86_400));
                         match self.pasteboard.write_text(&secret).await {
-                            Ok(()) => ActionOutcome::Success {
-                                message: Some("copied (suppressed from clipboard history)".into()),
-                            },
+                            Ok(()) => {
+                                self.touch_activity().await;
+                                ActionOutcome::Success {
+                                    message: Some(
+                                        "copied (suppressed from clipboard history)".into(),
+                                    ),
+                                }
+                            }
                             Err(err) => ActionOutcome::Failed {
                                 kind: FailureKind::Unavailable {
                                     reason: err.to_string(),
@@ -282,8 +346,15 @@ impl LumaModule for SecretsModule {
             },
         }
     }
+
+    async fn apply_settings(&self, settings: &luma_application::AppSettings) {
+        self.idle_lock_secs
+            .store(settings.secrets_idle_lock_secs, Ordering::Relaxed);
+    }
+
     async fn teardown(&self) {
         self.unlocked.store(false, Ordering::SeqCst);
+        self.stop_idle_poller().await;
     }
 }
 
@@ -306,6 +377,35 @@ mod tests {
         async fn write_text(&self, text: &str) -> Result<(), PasteboardError> {
             *self.0.lock().await = Some(text.into());
             Ok(())
+        }
+    }
+
+    fn unlock_request() -> ActionRequest {
+        ActionRequest {
+            result: SearchItem {
+                id: luma_domain::ResultId::new("sec:vault"),
+                module_id: ModuleId::new("luma.secrets"),
+                title: "Secrets vault locked".into(),
+                subtitle: None,
+                kind: "secrets".into(),
+                score: 1.0,
+                primary_action: ActionDescriptor {
+                    id: ActionId::new("unlock"),
+                    label: "Unlock".into(),
+                    risk: ActionRisk::Confirm,
+                    confirmation: true,
+                },
+                secondary_actions: vec![],
+                ui_intent: None,
+                action_payload: None,
+            },
+            action: ActionDescriptor {
+                id: ActionId::new("unlock"),
+                label: "Unlock".into(),
+                risk: ActionRisk::Confirm,
+                confirmation: true,
+            },
+            confirmation: true,
         }
     }
 
@@ -357,8 +457,7 @@ mod tests {
         let (tx, mut rx) = mpsc::channel(4);
         m.search(Query::parse("sec ", 10), tx, CancellationToken::new())
             .await;
-        let ev = rx.recv().await.unwrap();
-        let Event::ResultsChunk { upserts, .. } = ev else {
+        let Event::ResultsChunk { upserts, .. } = rx.recv().await.unwrap() else {
             panic!("chunk");
         };
         assert_eq!(upserts.len(), 1);
@@ -382,8 +481,7 @@ mod tests {
         let (tx, mut rx) = mpsc::channel(4);
         m.search(Query::parse("sec ", 10), tx, CancellationToken::new())
             .await;
-        let ev = rx.recv().await.unwrap();
-        let Event::ResultsChunk { upserts, .. } = ev else {
+        let Event::ResultsChunk { upserts, .. } = rx.recv().await.unwrap() else {
             panic!("chunk");
         };
         assert!(upserts.iter().any(|u| u.kind == "not_configured"));
@@ -416,10 +514,79 @@ mod tests {
         let (tx, mut rx) = mpsc::channel(4);
         m.search(Query::parse("sec ", 10), tx, CancellationToken::new())
             .await;
-        let ev = rx.recv().await.unwrap();
-        let Event::ResultsChunk { upserts, .. } = ev else {
+        let Event::ResultsChunk { upserts, .. } = rx.recv().await.unwrap() else {
             panic!("chunk");
         };
         assert!(upserts.iter().any(|u| u.kind == "unavailable"));
+    }
+
+    #[tokio::test]
+    async fn idle_lock_locks_after_timeout() {
+        let kc = Arc::new(FakeKeychain {
+            unlocked: true,
+            entries: TokioMutex::new(Default::default()),
+        });
+        let pb = Arc::new(MemPb(TokioMutex::new(None)));
+        let m = SecretsModule::with_deps(kc, pb, Arc::new(ClipboardSuppression::new()));
+        m.idle_lock_secs.store(1, Ordering::Relaxed);
+        let cancel = CancellationToken::new();
+        m.start_idle_poller(cancel.clone()).await;
+        let outcome = m.perform(unlock_request(), CancellationToken::new()).await;
+        assert!(matches!(outcome, ActionOutcome::Success { .. }));
+        assert!(m.unlocked.load(Ordering::SeqCst));
+        tokio::time::sleep(Duration::from_millis(1200)).await;
+        assert!(
+            !m.unlocked.load(Ordering::SeqCst),
+            "vault should auto-lock after idle timeout"
+        );
+        m.teardown().await;
+    }
+
+    #[tokio::test]
+    async fn copy_requires_unlock() {
+        let kc = Arc::new(FakeKeychain {
+            unlocked: true,
+            entries: TokioMutex::new([("api".into(), "tok".into())].into_iter().collect()),
+        });
+        let pb = Arc::new(MemPb(TokioMutex::new(None)));
+        let m = SecretsModule::with_deps(kc, pb.clone(), Arc::new(ClipboardSuppression::new()));
+        let outcome = m
+            .perform(
+                ActionRequest {
+                    result: SearchItem {
+                        id: luma_domain::ResultId::new("sec:api"),
+                        module_id: ModuleId::new("luma.secrets"),
+                        title: "api".into(),
+                        subtitle: None,
+                        kind: "secret".into(),
+                        score: 1.0,
+                        primary_action: ActionDescriptor {
+                            id: ActionId::new("copy"),
+                            label: "Copy".into(),
+                            risk: ActionRisk::Confirm,
+                            confirmation: true,
+                        },
+                        secondary_actions: vec![],
+                        ui_intent: None,
+                        action_payload: None,
+                    },
+                    action: ActionDescriptor {
+                        id: ActionId::new("copy"),
+                        label: "Copy".into(),
+                        risk: ActionRisk::Confirm,
+                        confirmation: true,
+                    },
+                    confirmation: true,
+                },
+                CancellationToken::new(),
+            )
+            .await;
+        assert!(matches!(
+            outcome,
+            ActionOutcome::Failed {
+                kind: FailureKind::SecurityDenied { .. }
+            }
+        ));
+        assert!(pb.0.lock().await.is_none());
     }
 }

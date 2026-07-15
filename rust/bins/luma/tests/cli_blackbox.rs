@@ -37,10 +37,10 @@ fn doctor_json_ok_on_isolated_root() {
     let (code, stdout, stderr) = run_luma(&support, &logs, &["doctor", "--json"]);
     assert_eq!(code, 0, "stderr={stderr}");
     let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
-    assert!(
-        v.get("modules").is_some() || v.get("doctor").is_some() || v.get("ok").is_some(),
-        "{stdout}"
-    );
+    assert_eq!(v["doctor"], true, "{stdout}");
+    assert!(v.get("modules").is_some(), "{stdout}");
+    assert!(v.get("probes").is_some(), "{stdout}");
+    assert!(v.get("accessibility").is_some(), "{stdout}");
 }
 
 #[test]
@@ -141,6 +141,27 @@ fn doctor_includes_config_commands_and_skipped_modules_array() {
         "{stdout}"
     );
     assert_eq!(v["stores"]["settings"], "ok", "{stdout}");
+    assert!(
+        v.get("accessibility").is_some(),
+        "missing accessibility: {stdout}"
+    );
+    assert!(
+        v["accessibility"]["trusted"].is_boolean(),
+        "accessibility.trusted shape: {stdout}"
+    );
+    assert!(v.get("probes").is_some(), "missing probes: {stdout}");
+    assert!(
+        v["probes"]["windows.list"].get("ok").is_some(),
+        "probes.windows.list.ok: {stdout}"
+    );
+    assert!(
+        v["probes"]["ax.trusted"].is_boolean(),
+        "probes.ax.trusted shape: {stdout}"
+    );
+    assert_eq!(
+        v["ax_trusted"], v["accessibility"]["trusted"],
+        "ax_trusted should mirror accessibility.trusted: {stdout}"
+    );
 }
 
 #[test]

@@ -111,7 +111,17 @@ impl Engine {
                 "notes_index": "unconfigured",
             })
         };
-        let diagnostic = serde_json::json!({
+        let platform = if let Some(probe) = &self.platform_probe {
+            tokio::task::spawn_blocking({
+                let probe = probe.clone();
+                move || probe.probe_platform()
+            })
+            .await
+            .unwrap_or_else(|_| serde_json::json!({"error": "platform probe task failed"}))
+        } else {
+            serde_json::Value::Null
+        };
+        let mut diagnostic = serde_json::json!({
             "doctor": true,
             "modules": modules,
             "skipped_modules": skipped,
@@ -125,6 +135,8 @@ impl Engine {
                 "projects_roots": settings_snapshot.as_ref().map(|s| s.projects_roots.clone()).unwrap_or_default(),
                 "notes_exclude_patterns": settings_snapshot.as_ref().map(|s| s.notes_exclude_patterns.clone()).unwrap_or_default(),
                 "clipboard_retention_days": settings_snapshot.as_ref().map(|s| s.clipboard_retention_days),
+                "secrets_idle_lock_secs": settings_snapshot.as_ref().map(|s| s.secrets_idle_lock_secs),
+                "hub_windows_max": settings_snapshot.as_ref().map(|s| s.hub_windows_max),
             },
             "config_commands": {
                 "notes_root": "luma config set --notes-root ~/Notes",
@@ -141,6 +153,17 @@ impl Engine {
             },
             "remediation": remediation,
         });
+        if let Some(obj) = diagnostic.as_object_mut() {
+            if let Some(accessibility) = platform.get("accessibility") {
+                obj.insert("accessibility".into(), accessibility.clone());
+            }
+            if let Some(probes) = platform.get("probes") {
+                obj.insert("probes".into(), probes.clone());
+            }
+            if let Some(ax_trusted) = platform.get("ax_trusted") {
+                obj.insert("ax_trusted".into(), ax_trusted.clone());
+            }
+        }
         let _ = self.emit(Event::DiagnosticRaised { diagnostic }).await;
     }
 }

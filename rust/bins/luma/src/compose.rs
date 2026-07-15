@@ -4,9 +4,9 @@
 //! listed in Settings but do not warm up or appear on the Hub.
 
 use luma_application::{
-    CapabilityPort, ModuleRegistry, RegistryError as ModuleRegistryError, SettingsRepository,
-    SqliteClipboardHistory, SqliteNotesIndex, SqliteQuicklinksRepository, SqliteSnippetsRepository,
-    StorageProbePort, TomlSettingsRepository,
+    CapabilityPort, ModuleRegistry, PlatformProbePort, RegistryError as ModuleRegistryError,
+    SettingsRepository, SqliteClipboardHistory, SqliteNotesIndex, SqliteQuicklinksRepository,
+    SqliteSnippetsRepository, StorageProbePort, TomlSettingsRepository,
 };
 use luma_modules::{
     AppsModule, ClipboardModule, ClipboardSuppression, FakeEchoModule, NotesModule, ProjectsModule,
@@ -45,6 +45,7 @@ pub struct RegistryLoad {
     pub registry: ModuleRegistry,
     pub settings: Arc<dyn SettingsRepository>,
     pub storage_probe: Arc<dyn StorageProbePort>,
+    pub platform_probe: Arc<dyn PlatformProbePort>,
     pub skipped: Vec<SkippedModule>,
 }
 
@@ -92,6 +93,51 @@ impl StorageProbePort for ComposeStorageProbe {
             "quicklinks": quicklinks,
             "snippets": snippets,
             "notes_index": notes_index,
+        })
+    }
+}
+
+/// Doctor platform probes (Accessibility + window list).
+pub struct ComposePlatformProbe;
+
+impl PlatformProbePort for ComposePlatformProbe {
+    fn probe_platform(&self) -> serde_json::Value {
+        let ax_trusted = MacAccessibility::probe_trusted();
+        let parent_pid = std::os::unix::process::parent_id();
+        let parent_name = std::process::Command::new("ps")
+            .args(["-p", &parent_pid.to_string(), "-o", "comm="])
+            .output()
+            .ok()
+            .filter(|o| o.status.success())
+            .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+            .filter(|s| !s.is_empty());
+        let host = parent_name
+            .clone()
+            .unwrap_or_else(|| "the app that launched Luma".into());
+        let guidance = if ax_trusted {
+            format!("Accessibility trusted for current session (host: {host})")
+        } else {
+            format!(
+                "Grant Accessibility to {host} in System Settings → Privacy & Security → Accessibility"
+            )
+        };
+        let windows_list = match luma_platform_macos::probe_windows_list() {
+            Ok(count) => serde_json::json!({ "ok": true, "count": count }),
+            Err(err) => serde_json::json!({ "ok": false, "error": err }),
+        };
+        serde_json::json!({
+            "accessibility": {
+                "trusted": ax_trusted,
+                "launch_executable": std::env::current_exe().ok().map(|p| p.display().to_string()),
+                "parent_pid": parent_pid,
+                "parent_name": parent_name,
+                "guidance": guidance,
+            },
+            "ax_trusted": ax_trusted,
+            "probes": {
+                "windows.list": windows_list,
+                "ax.trusted": ax_trusted,
+            },
         })
     }
 }
@@ -165,6 +211,7 @@ pub fn registry_from_settings(
                 settings.notes_exclude_patterns.clone(),
             )),
             pasteboard.clone(),
+            settings.notes_exclude_patterns.clone(),
         )))?;
     } else {
         let reason = "notes index store unavailable".into();
@@ -285,10 +332,12 @@ pub fn load_registry_with_settings() -> Result<RegistryLoad, RegistryError> {
         snippets,
         notes_scanner: notes_index,
     });
+    let platform_probe: Arc<dyn PlatformProbePort> = Arc::new(ComposePlatformProbe);
     Ok(RegistryLoad {
         registry,
         settings: settings_repo,
         storage_probe,
+        platform_probe,
         skipped,
     })
 }

@@ -11,13 +11,16 @@ use luma_domain::{
     ActionDescriptor, ActionId, ActionRisk, FailureKind, ModuleId, Query, SearchItem,
 };
 use luma_protocol::{Event, SearchItemDto};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::RwLock;
 use tokio_util::sync::CancellationToken;
 
-/// Hard cap for Hub window rows (ADR-0004).
+/// Default hard cap for Hub window rows (ADR-0004); overridable via settings.
 pub const HUB_WINDOWS_MAX: usize = 15;
+const HUB_WINDOWS_MAX_MIN: usize = 5;
+const HUB_WINDOWS_MAX_MAX: usize = 50;
 
 /// Soft TTL for `win` search cache — Hub always lists fresh via `hub_windows`.
 const WINDOWS_CACHE_TTL: Duration = Duration::from_secs(2);
@@ -27,6 +30,7 @@ pub struct WindowsModule {
     catalog: Arc<dyn WindowCatalogPort>,
     cache: Arc<RwLock<Vec<WindowEntry>>>,
     cache_at: Arc<RwLock<Option<Instant>>>,
+    hub_max: AtomicUsize,
 }
 
 impl WindowsModule {
@@ -49,7 +53,14 @@ impl WindowsModule {
             catalog,
             cache: Arc::new(RwLock::new(Vec::new())),
             cache_at: Arc::new(RwLock::new(None)),
+            hub_max: AtomicUsize::new(HUB_WINDOWS_MAX),
         }
+    }
+
+    fn hub_cap(&self) -> usize {
+        self.hub_max
+            .load(Ordering::Relaxed)
+            .clamp(HUB_WINDOWS_MAX_MIN, HUB_WINDOWS_MAX_MAX)
     }
 
     fn result_id(entry: &WindowEntry) -> String {
@@ -331,26 +342,37 @@ impl LumaModule for WindowsModule {
             }
         };
         // Keep catalog order (front-to-back on macOS) so recent apps stay near the top.
+        let hub_max = self.hub_cap();
+        let has_untitled = list.iter().any(|e| e.title == "Untitled");
         let total = list.len();
-        let more = if total > HUB_WINDOWS_MAX {
-            Some((total - HUB_WINDOWS_MAX) as u32)
+        let more = if total > hub_max {
+            Some((total - hub_max) as u32)
         } else {
             None
         };
         let windows = list
             .into_iter()
-            .take(HUB_WINDOWS_MAX)
+            .take(hub_max)
             .map(|e| HubWindowRow {
                 id: Self::result_id(&e),
                 // Disambiguate across apps on the Hub.
                 title: format!("{} · {}", e.title, e.app_name),
             })
             .collect();
+        let status = if has_untitled {
+            Some(HubWindowsStatus {
+                kind: "unavailable".into(),
+                title: "Some window titles are Untitled".into(),
+                subtitle: Some("Grant Screen Recording in System Settings for full titles".into()),
+            })
+        } else {
+            None
+        };
         Some(HubWindowsSlice {
             app_name: "all".into(),
             windows,
             more,
-            status: None,
+            status,
         })
     }
 
@@ -399,13 +421,19 @@ impl LumaModule for WindowsModule {
         self.cache.write().await.clear();
         *self.cache_at.write().await = None;
     }
+
+    async fn apply_settings(&self, settings: &luma_application::AppSettings) {
+        let max =
+            (settings.hub_windows_max as usize).clamp(HUB_WINDOWS_MAX_MIN, HUB_WINDOWS_MAX_MAX);
+        self.hub_max.store(max, Ordering::Relaxed);
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use luma_application::FakeWindowCatalog;
-    use luma_domain::{ActionId, Query};
+    use luma_domain::{ActionDescriptor, ActionId, ActionRisk, ModuleId, Query, SearchItem};
     use tokio::sync::mpsc;
 
     fn sample(id: &str, app: &str, title: &str) -> WindowEntry {
@@ -510,6 +538,11 @@ mod tests {
             catalog.focus_calls.lock().await.as_slice(),
             &["pid:1|num:1".to_string()]
         );
+        assert_eq!(
+            catalog.paste_target_app().await.as_deref(),
+            Some("Cursor"),
+            "successful focus should update paste target"
+        );
     }
 
     #[tokio::test]
@@ -556,5 +589,97 @@ mod tests {
         assert!(slice.windows.is_empty());
         let status = slice.status.unwrap();
         assert_eq!(status.kind, "permission_required");
+    }
+
+    #[tokio::test]
+    async fn hub_windows_hints_untitled_needs_screen_recording() {
+        let catalog = Arc::new(FakeWindowCatalog::with_entries(
+            vec![sample("pid:1|num:1", "Cursor", "Untitled")],
+            Some("Cursor".into()),
+        ));
+        let m = WindowsModule::with_catalog(catalog);
+        let slice = m.hub_windows().await.unwrap();
+        let status = slice.status.expect("untitled should set hub status");
+        assert!(status.title.contains("Untitled"));
+        assert!(status
+            .subtitle
+            .as_deref()
+            .unwrap_or("")
+            .contains("Screen Recording"));
+    }
+
+    #[tokio::test]
+    async fn hub_windows_respects_settings_cap() {
+        let mut entries = Vec::new();
+        for i in 0..12 {
+            entries.push(sample(
+                &format!("pid:1|num:{i}"),
+                "Cursor",
+                &format!("w{i}"),
+            ));
+        }
+        let catalog = Arc::new(FakeWindowCatalog::with_entries(
+            entries,
+            Some("Cursor".into()),
+        ));
+        let m = WindowsModule::with_catalog(catalog);
+        let settings = luma_application::AppSettings {
+            hub_windows_max: 8,
+            ..Default::default()
+        };
+        m.apply_settings(&settings).await;
+        let slice = m.hub_windows().await.unwrap();
+        assert_eq!(slice.windows.len(), 8);
+        assert_eq!(slice.more, Some(4));
+    }
+
+    #[tokio::test]
+    async fn hub_focus_via_hub_row_id_matches_search_focus() {
+        let catalog = Arc::new(FakeWindowCatalog::with_entries(
+            vec![sample("pid:1|num:1", "Cursor", "Luma")],
+            Some("Cursor".into()),
+        ));
+        let m = WindowsModule::with_catalog(catalog.clone());
+        let slice = m.hub_windows().await.unwrap();
+        assert_eq!(slice.windows.len(), 1);
+        let row = &slice.windows[0];
+        assert!(row.id.starts_with("win:"));
+        let outcome = m
+            .perform(
+                ActionRequest {
+                    result: SearchItem {
+                        id: luma_domain::ResultId::new(row.id.clone()),
+                        module_id: ModuleId::new("luma.windows"),
+                        title: row.title.clone(),
+                        subtitle: Some("Cursor".into()),
+                        kind: "window".into(),
+                        score: 1.0,
+                        primary_action: ActionDescriptor {
+                            id: ActionId::new("focus"),
+                            label: "Focus".into(),
+                            risk: ActionRisk::Safe,
+                            confirmation: false,
+                        },
+                        secondary_actions: vec![],
+                        ui_intent: None,
+                        action_payload: None,
+                    },
+                    action: ActionDescriptor {
+                        id: ActionId::new("focus"),
+                        label: "Focus".into(),
+                        risk: ActionRisk::Safe,
+                        confirmation: false,
+                    },
+                    confirmation: false,
+                },
+                CancellationToken::new(),
+            )
+            .await;
+        assert!(matches!(outcome, ActionOutcome::Success { .. }));
+        assert_eq!(
+            catalog.focus_calls.lock().await.as_slice(),
+            &["pid:1|num:1".to_string()]
+        );
+        assert_eq!(catalog.paste_target_app().await.as_deref(), Some("Cursor"));
     }
 }

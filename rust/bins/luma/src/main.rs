@@ -5,7 +5,8 @@ use clap::{Parser, Subcommand};
 use cli_output::{action_exit_code, format_doctor_summary};
 use compose::{load_registry, load_registry_with_settings};
 use luma_application::{
-    list_modules_json, run_action, run_doctor, run_query, Engine, KeychainPort,
+    list_modules_json, run_action, run_doctor_with_options, run_query, Engine, EngineOptions,
+    KeychainPort,
 };
 use luma_storage::{
     dry_run_legacy_dir, import_clipboard_fixture_with_ledger,
@@ -116,6 +117,12 @@ struct ConfigSetArgs {
     disable_module: Vec<String>,
     #[arg(long)]
     clipboard_retention_days: Option<u32>,
+    /// Lock Secrets vault after N idle seconds (`0` disables).
+    #[arg(long)]
+    secrets_idle_lock_secs: Option<u32>,
+    /// Max Hub window rows (clamped 5–50).
+    #[arg(long)]
+    hub_windows_max: Option<u32>,
     /// CAS guard: fail unless settings.toml is at this settings_version.
     #[arg(long = "expected-version")]
     expected_version: Option<u64>,
@@ -243,6 +250,7 @@ async fn main() -> anyhow::Result<()> {
                     settings: Some(load.settings),
                     diagnostics,
                     storage_probe: Some(load.storage_probe),
+                    platform_probe: Some(load.platform_probe),
                     skipped_modules: load.skipped.into_iter().map(|s| (s.id, s.reason)).collect(),
                 },
             ));
@@ -372,31 +380,22 @@ async fn main() -> anyhow::Result<()> {
         }
         Some(Commands::Doctor { json, raw }) => {
             let mut diag = match load_registry_with_settings() {
-                Ok(load) => {
-                    let mut d = run_doctor(load.registry, Some(load.settings))
-                        .await
-                        .map_err(anyhow::Error::msg)?;
-                    d["skipped_modules"] = serde_json::json!(load
-                        .skipped
-                        .iter()
-                        .map(|s| serde_json::json!({ "id": s.id, "reason": s.reason }))
-                        .collect::<Vec<_>>());
-                    if !load.skipped.is_empty() {
-                        let mut remediation = d
-                            .get("remediation")
-                            .and_then(|v| v.as_array())
-                            .cloned()
-                            .unwrap_or_default();
-                        for s in &load.skipped {
-                            remediation.push(serde_json::json!(format!(
-                                "Repair store for {} ({}), then restart Luma",
-                                s.id, s.reason
-                            )));
-                        }
-                        d["remediation"] = serde_json::Value::Array(remediation);
-                    }
-                    d
-                }
+                Ok(load) => run_doctor_with_options(
+                    load.registry,
+                    EngineOptions {
+                        settings: Some(load.settings),
+                        diagnostics: None,
+                        storage_probe: Some(load.storage_probe),
+                        platform_probe: Some(load.platform_probe),
+                        skipped_modules: load
+                            .skipped
+                            .into_iter()
+                            .map(|s| (s.id, s.reason))
+                            .collect(),
+                    },
+                )
+                .await
+                .map_err(anyhow::Error::msg)?,
                 Err(err) => serde_json::json!({
                     "ok": false,
                     "registry_error": err.to_string(),
@@ -413,15 +412,21 @@ async fn main() -> anyhow::Result<()> {
                         diag["projects_roots"] = settings.projects_roots.clone().into();
                         diag["notes_exclude_patterns"] =
                             settings.notes_exclude_patterns.clone().into();
-                        diag["settings"] = serde_json::json!({
-                            "configured": true,
-                            "settings_version": settings.settings_version,
-                            "notes_root_configured": settings.notes_root.is_some(),
-                            "notes_root": settings.notes_root,
-                            "projects_roots": settings.projects_roots,
-                            "notes_exclude_patterns": settings.notes_exclude_patterns,
-                            "clipboard_retention_days": settings.clipboard_retention_days,
-                        });
+                        if let Some(settings_obj) =
+                            diag.get_mut("settings").and_then(|v| v.as_object_mut())
+                        {
+                            settings_obj.insert("configured".into(), true.into());
+                            settings_obj.insert(
+                                "clipboard_retention_days".into(),
+                                settings.clipboard_retention_days.into(),
+                            );
+                            settings_obj.insert(
+                                "secrets_idle_lock_secs".into(),
+                                settings.secrets_idle_lock_secs.into(),
+                            );
+                            settings_obj
+                                .insert("hub_windows_max".into(), settings.hub_windows_max.into());
+                        }
                         if let Some(stores) = diag.get_mut("stores").and_then(|v| v.as_object_mut())
                         {
                             stores.insert("settings".into(), serde_json::json!("ok"));
@@ -431,42 +436,8 @@ async fn main() -> anyhow::Result<()> {
                             "projects_roots": "luma config set --projects-root ~/dev",
                             "notes_exclude": "luma config set --notes-exclude 'private/*'",
                             "clear_notes_excludes": "luma config set --clear-notes-excludes",
-                        });
-                        let ax_trusted = luma_platform_macos::MacAccessibility::probe_trusted();
-                        let parent_pid = std::os::unix::process::parent_id();
-                        let parent_name = std::process::Command::new("ps")
-                            .args(["-p", &parent_pid.to_string(), "-o", "comm="])
-                            .output()
-                            .ok()
-                            .filter(|o| o.status.success())
-                            .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
-                            .filter(|s| !s.is_empty());
-                        let host = parent_name
-                            .clone()
-                            .unwrap_or_else(|| "the app that launched Luma".into());
-                        let guidance = if ax_trusted {
-                            format!("Accessibility trusted for current session (host: {host})")
-                        } else {
-                            format!(
-                                "Grant Accessibility to {host} in System Settings → Privacy & Security → Accessibility"
-                            )
-                        };
-                        diag["accessibility"] = serde_json::json!({
-                            "trusted": ax_trusted,
-                            "launch_executable": std::env::current_exe().ok().map(|p| p.display().to_string()),
-                            "parent_pid": parent_pid,
-                            "parent_name": parent_name,
-                            "guidance": guidance,
-                        });
-                        // Legacy top-level mirror for scripts.
-                        diag["ax_trusted"] = ax_trusted.into();
-                        let windows_list = match luma_platform_macos::probe_windows_list() {
-                            Ok(count) => serde_json::json!({ "ok": true, "count": count }),
-                            Err(err) => serde_json::json!({ "ok": false, "error": err }),
-                        };
-                        diag["probes"] = serde_json::json!({
-                            "windows.list": windows_list,
-                            "ax.trusted": ax_trusted,
+                            "secrets_idle_lock_secs": "luma config set --secrets-idle-lock-secs 300",
+                            "hub_windows_max": "luma config set --hub-windows-max 15",
                         });
                         if settings.notes_root.is_none() {
                             let mut remediation = diag
@@ -518,6 +489,8 @@ async fn main() -> anyhow::Result<()> {
                     "clipboard_retention_days={}",
                     settings.clipboard_retention_days
                 );
+                println!("secrets_idle_lock_secs={}", settings.secrets_idle_lock_secs);
+                println!("hub_windows_max={}", settings.hub_windows_max);
             }
         }
         Some(Commands::Config {
@@ -531,6 +504,8 @@ async fn main() -> anyhow::Result<()> {
                 enable_module,
                 disable_module,
                 clipboard_retention_days,
+                secrets_idle_lock_secs,
+                hub_windows_max,
                 expected_version,
                 json,
             } = args;
@@ -559,6 +534,12 @@ async fn main() -> anyhow::Result<()> {
                 }
                 if let Some(days) = clipboard_retention_days {
                     next.clipboard_retention_days = days;
+                }
+                if let Some(secs) = secrets_idle_lock_secs {
+                    next.secrets_idle_lock_secs = secs;
+                }
+                if let Some(max) = hub_windows_max {
+                    next.hub_windows_max = max.clamp(5, 50);
                 }
             }) {
                 Ok(s) => s,

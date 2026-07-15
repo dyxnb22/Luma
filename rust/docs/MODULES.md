@@ -19,7 +19,7 @@ Personal daily-driver status. Prefer honest `unavailable` / `permission_required
 | --- | --- | --- | --- |
 | Apps | `app` / `apps` | Available — fuzzy + session MRU; launch / reveal / copy path | on |
 | Windows | `win` / `window` / `windows` | Available — list+focus; Hub 1–9 quick focus; `win` digits only when List is focused; prompt digits are preserved; hard cap 15 | on |
-| Proxy | `proxy` / `px` | Available — controller-first Mihomo status, groups/nodes, mode, local macOS HTTP/SOCKS proxy controls, and safe Luma Profile import/list/use/delete; Clash Verge Profiles are read-only unless Luma-owned | on |
+| Proxy | `proxy` / `px` | Available — controller-first Mihomo status, groups/nodes, mode, local macOS HTTP/SOCKS proxy controls, and safe Luma Profile import/list/use/delete/refresh; Clash Verge Profiles are read-only unless Luma-owned. See [Proxy](./PROXY.md). | on |
 | Clipboard | `clip` / `cb` | Available — history, pin/unpin, `clip clear`, paste needs AX | on |
 | Notes | `n` / `note` / `notes` | Available — FTS/CJK index; `n new` / `n daily` / `n browse` / `n recent` / `n status` / `n issues` / `n check` / `n reindex`; excludes via `--notes-exclude` | on |
 | Quicklinks | `ql` / `quicklinks` | Available — add/overwrite, open, copy URL, delete | on |

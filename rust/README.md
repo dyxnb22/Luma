@@ -42,6 +42,8 @@ Optional local hygiene: `bash scripts/check_architecture.sh`.
 **Fixtures:** `fixtures/notes-workspaces/` for Notes scan/index tests; `fixtures/legacy/` for migrate blackbox.
 
 See [`docs/MODULES.md`](docs/MODULES.md) for module status.
+See [`docs/PROXY.md`](docs/PROXY.md) for Mihomo/Clash Verge Profile behavior, safety boundaries,
+supported subscription formats, and rollback semantics.
 
 ## Data roots
 

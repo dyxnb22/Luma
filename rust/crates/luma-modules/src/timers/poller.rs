@@ -1,9 +1,7 @@
 use super::TimersModule;
 use luma_application::{ClockPort, SpeechAccent, SpeechPort, TimerEntry, TimersRepository};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Arc;
-use tokio::sync::{Mutex, RwLock};
-use tokio::task::JoinHandle;
+use tokio::sync::RwLock;
 use tokio_util::sync::CancellationToken;
 
 impl TimersModule {

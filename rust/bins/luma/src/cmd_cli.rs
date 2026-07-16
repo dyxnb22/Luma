@@ -1,4 +1,4 @@
-use compose::load_registry_with_settings;
+use crate::compose::load_registry_with_settings;
 use luma_application::{
     recipe_in_scope, recipe_runnable, resolve_steps, run_action, CommandRecipesRepository,
     CommandRunnerPort, RecipeEnvironmentPort,

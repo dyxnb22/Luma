@@ -2,6 +2,7 @@
 //! Unsafe FFI is confined here with safety comments.
 
 use async_trait::async_trait;
+#[cfg(target_os = "macos")]
 use std::ffi::c_void;
 
 pub use luma_application::{
@@ -35,8 +36,11 @@ extern "C" {
     fn CFRelease(cf: *const c_void);
 }
 
+#[cfg(target_os = "macos")]
 const K_CG_HID_EVENT_TAP: u32 = 0;
+#[cfg(target_os = "macos")]
 const K_CG_EVENT_FLAG_MASK_COMMAND: u64 = 0x0010_0000;
+#[cfg(target_os = "macos")]
 const KEYCODE_V: u16 = 9;
 
 impl MacAccessibility {

@@ -1,8 +1,7 @@
 use super::preview::imported_index;
-use super::Project;
 use super::ProjectsModule;
 use crate::cancel::await_unless_cancelled;
-use luma_application::{ImportedProject, ProjectDirectoryListing, ProjectWorkspaceError, SearchSink};
+use luma_application::{ProjectDirectoryListing, ProjectWorkspaceError, SearchSink};
 use luma_domain::{ActionRisk, Query};
 use luma_protocol::{Event, SearchItemDto, UiIntent};
 use std::path::{Path, PathBuf};
@@ -18,7 +17,12 @@ impl ProjectsModule {
             .any(|project| project.path == canonical_path)
     }
 
-    pub(super) async fn search_projects(&self, query: Query, sink: SearchSink, cancel: CancellationToken) {
+    pub(super) async fn search_projects(
+        &self,
+        query: Query,
+        sink: SearchSink,
+        cancel: CancellationToken,
+    ) {
         let roots = self.roots.read().await.clone();
         let imported = self.imported.read().await.clone();
         let rest_norm = query

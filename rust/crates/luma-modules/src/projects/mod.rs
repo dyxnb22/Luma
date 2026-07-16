@@ -4,7 +4,7 @@ use luma_application::{
     OpenPathPort, ProjectWorkspacePort, SearchMode, SearchSink, WarmupContext,
 };
 use luma_domain::{ActionDescriptor, ModuleId, Query, SearchItem};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tokio_util::sync::CancellationToken;

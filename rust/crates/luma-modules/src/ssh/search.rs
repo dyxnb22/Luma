@@ -1,8 +1,10 @@
-use luma_protocol::{Event, SearchItemDto};
 use super::rename::parse_rename_query;
 use super::SshModule;
-use luma_application::{format_connection_subtitle, ResolvedSshHost, SearchSink, SshConfigState, SshHostMeta};
+use luma_application::{
+    format_connection_subtitle, ResolvedSshHost, SearchSink, SshConfigState, SshHostMeta,
+};
 use luma_domain::{ActionDescriptor, ActionId, ActionRisk, ModuleId, Query, SearchItem};
+use luma_protocol::{Event, SearchItemDto};
 use tokio_util::sync::CancellationToken;
 
 impl SshModule {
@@ -133,7 +135,12 @@ impl SshModule {
         )
     }
 
-    pub(super) async fn emit_results(&self, sink: &SearchSink, items: Vec<SearchItem>, removed: Vec<String>) {
+    pub(super) async fn emit_results(
+        &self,
+        sink: &SearchSink,
+        items: Vec<SearchItem>,
+        removed: Vec<String>,
+    ) {
         let dtos: Vec<SearchItemDto> = items.iter().map(SearchItemDto::from).collect();
         let _ = sink
             .send(Event::ResultsChunk {
@@ -145,7 +152,12 @@ impl SshModule {
             .await;
     }
 
-    pub(super) fn status_row(id: &str, kind: &str, title: &str, subtitle: Option<String>) -> SearchItem {
+    pub(super) fn status_row(
+        id: &str,
+        kind: &str,
+        title: &str,
+        subtitle: Option<String>,
+    ) -> SearchItem {
         SearchItem {
             id: luma_domain::ResultId::new(id),
             module_id: ModuleId::new("luma.ssh"),
@@ -199,7 +211,12 @@ impl SshModule {
         }
     }
 
-    pub(super) async fn search_hosts(&self, query: Query, sink: SearchSink, cancel: CancellationToken) {
+    pub(super) async fn search_hosts(
+        &self,
+        query: Query,
+        sink: SearchSink,
+        _cancel: CancellationToken,
+    ) {
         self.refresh().await;
         match self.config.config_state() {
             SshConfigState::NotConfigured => {

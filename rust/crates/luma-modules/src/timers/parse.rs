@@ -1,5 +1,3 @@
-use luma_application::TimerEntry;
-
 pub(super) const DEFAULT_POMO_MINUTES: u32 = 25;
 pub(super) const MAX_COUNTDOWN_MINUTES: u32 = 24 * 60;
 

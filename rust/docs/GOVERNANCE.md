@@ -96,16 +96,17 @@ Do **not** open a PR whose only purpose is splitting a file you are not changing
 
 ## 4. Hygiene backlog (friction-ordered)
 
-Execute only when the area is already being changed, or when daily use is blocked by
-navigability.
+One-shot navigability cleanup (2026-07-16) completed the queued splits below. Ongoing rule:
+prefer splits only when the area is already being changed, or when daily use is blocked by
+navigability — do not open purity-only follow-ups.
 
-| Priority | Item | Why |
+| Priority | Item | Status |
 | --- | --- | --- |
-| P0 | Keep `MODULES.md` ↔ compose ↔ README In list in sync | Wrong inventory wastes daily time |
-| P1 | When next editing proxy profiles: split `profile_store.rs` parse vs store | ~2k-line adapter is the worst platform hotspot |
-| P1 | When next editing TUI update paths: carve one message family out of `reducer.rs` | Largest navigation tax |
-| P2 | When next editing `proxy` / `ssh` / `projects` / `timers` modules: subdirectory split | Crossed soft limit; still usable as-is |
-| P3 | Opportunistic `with_deps` rename on touched modules | Cosmetic consistency |
+| P0 | Keep `MODULES.md` ↔ compose ↔ README In list in sync | Done (and standing rule §2) |
+| P1 | Split `profile_store` into parse / fetch / clash / fs / store | Done → `profile_store/` |
+| P1 | Carve wordbook review out of TUI `reducer` | Done → `reducer/wordbook.rs` |
+| P2 | Subdirectory-split `proxy` / `ssh` / `projects` / `timers` | Done |
+| P3 | `ProjectsModule::with_settings` → `with_deps` on touched module | Done (`with_roots` kept as thin helper) |
 | — | Explicitly **not** queued | Stub revival, doctor, crate splits for purity, release gates |
 
 ## 5. Verify (enough for personal)

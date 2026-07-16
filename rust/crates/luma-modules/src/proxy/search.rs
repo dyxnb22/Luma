@@ -1,6 +1,4 @@
-use super::profiles::{
-    action_dto, profile_error_item, profile_item, profile_unavailable,
-};
+use super::profiles::{action_dto, profile_error_item, profile_item, profile_unavailable};
 use super::redact::{opaque_component, redact_label};
 use super::{ImportIntent, ProxyModule, MODULE_ID};
 use crate::cancel::await_unless_cancelled;

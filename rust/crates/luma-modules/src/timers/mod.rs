@@ -4,7 +4,6 @@
 //! On teardown, running timers are paused so state stays honest across restarts.
 
 use async_trait::async_trait;
-use crate::cancel::await_unless_cancelled;
 use luma_application::{
     ActionOutcome, ActionRequest, ClockPort, LumaModule, ModuleManifest, ModuleState, SearchMode,
     SearchSink, SpeechPort, TimerEntry, TimersRepository, WarmupContext, WorkbenchMeta,
@@ -26,7 +25,9 @@ mod poller;
 
 use format::{format_hms, primary_for, timer_subtitle, timer_title};
 use mutate::{payload_str, payload_u64, timer_id_from_item};
-use parse::{parse_countdown_spec, parse_minutes_token, parse_stopwatch_name, DEFAULT_POMO_MINUTES, MAX_COUNTDOWN_MINUTES};
+use parse::{
+    parse_countdown_spec, parse_minutes_token, parse_stopwatch_name, DEFAULT_POMO_MINUTES,
+};
 
 pub struct TimersModule {
     manifest: ModuleManifest,

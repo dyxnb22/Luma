@@ -39,7 +39,11 @@ impl SshModule {
         }
     }
 
-    pub(super) async fn copy_alias(&self, alias: &str, cancel: &CancellationToken) -> ActionOutcome {
+    pub(super) async fn copy_alias(
+        &self,
+        alias: &str,
+        cancel: &CancellationToken,
+    ) -> ActionOutcome {
         match await_unless_cancelled(cancel, self.pasteboard.write_text(alias)).await {
             Some(Ok(())) => ActionOutcome::Success {
                 message: Some("copied alias".into()),

@@ -122,7 +122,11 @@ impl ProjectsModule {
             .or_else(|| Some(result.title.clone()))
     }
 
-    pub(super) async fn module_perform(&self, action: ActionRequest, cancel: CancellationToken) -> ActionOutcome {
+    pub(super) async fn module_perform(
+        &self,
+        action: ActionRequest,
+        cancel: CancellationToken,
+    ) -> ActionOutcome {
         if cancel.is_cancelled() {
             return ActionOutcome::Cancelled;
         }

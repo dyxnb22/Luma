@@ -1,5 +1,5 @@
-use async_trait::async_trait;
 use crate::cancel::await_unless_cancelled;
+use async_trait::async_trait;
 use luma_application::{
     sanitize_identity_display, sftp_args, ssh_connect_args, ActionOutcome, ActionRequest,
     ClockPort, LumaModule, ModuleManifest, ModuleState, PasteboardPort, ResolvedSshHost,
@@ -8,7 +8,6 @@ use luma_application::{
 use luma_domain::{
     ActionDescriptor, ActionId, ActionRisk, FailureKind, ModuleId, Query, SearchItem,
 };
-use luma_protocol::{Event, SearchItemDto};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -283,8 +282,8 @@ impl LumaModule for SshModule {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::rename::parse_rename_query;
+    use super::*;
     use luma_application::FixedClock;
     use luma_application::{
         FakePasteboard, FakeSshConfigPort, MemorySshMetaRepository, ResolvedSshHost, SshConfigState,

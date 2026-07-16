@@ -2,12 +2,8 @@
 
 use async_trait::async_trait;
 use luma_application::{WindowCatalogPort, WindowEntry, WindowError};
-use std::sync::Mutex;
 
-pub struct MacWindowCatalog {
-    previous_frontmost: Mutex<Option<String>>,
-    paste_target: Mutex<Option<String>>,
-}
+pub struct MacWindowCatalog;
 
 impl Default for MacWindowCatalog {
     fn default() -> Self {
@@ -17,10 +13,12 @@ impl Default for MacWindowCatalog {
 
 impl MacWindowCatalog {
     pub fn new() -> Self {
-        Self {
-            previous_frontmost: Mutex::new(None),
-            paste_target: Mutex::new(None),
-        }
+        Self
+    }
+
+    /// Sync snapshot for composition root (before async runtime is attached).
+    pub fn snapshot_previous_frontmost_app_sync(&self) -> Result<Option<String>, WindowError> {
+        Err(unavailable())
     }
 }
 

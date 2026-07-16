@@ -157,7 +157,8 @@ pub fn update(state: &mut AppState, msg: Msg) -> Vec<Effect> {
                 }
                 // Meta commands are local navigation. They must win over a pending
                 // search debounce so one Enter opens the requested surface.
-                if let Some(queue) = wordbook::wordbook_review_queue_from_prompt(state.prompt.trim())
+                if let Some(queue) =
+                    wordbook::wordbook_review_queue_from_prompt(state.prompt.trim())
                 {
                     return wordbook::begin_wordbook_review(state, queue);
                 }

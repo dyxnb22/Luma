@@ -358,6 +358,8 @@ impl ProxyModule {
             return;
         };
         if normalized_rest == "import" || normalized_rest.starts_with("import ") {
+            // Keep only the current import intent — previous browse entries must not accumulate.
+            self.import_keys.write().await.clear();
             let source = raw_rest
                 .split_once(|character: char| character.is_whitespace())
                 .map(|(_, source)| source.trim())
@@ -1128,6 +1130,8 @@ impl LumaModule for ProxyModule {
 
     async fn teardown(&self) {
         *self.last_status.write().await = None;
+        self.selection_keys.write().await.clear();
+        self.import_keys.write().await.clear();
     }
 }
 

@@ -14,6 +14,8 @@ use tracing::warn;
 
 const SEARCH_CANCEL_BOUND: Duration = Duration::from_millis(750);
 const OPERATION_CANCEL_BOUND: Duration = Duration::from_millis(750);
+/// Cap concurrent in-flight ExecuteAction tasks.
+pub(crate) const MAX_OPERATIONS: usize = 32;
 /// Soft bound for module search completion; partial results are kept.
 #[cfg(test)]
 pub(crate) const SEARCH_COMPLETION_BOUND: Duration = Duration::from_millis(300);
@@ -54,6 +56,8 @@ pub(crate) struct EngineInner {
     /// Search registered under lifecycle but not yet promoted to `searches`.
     pending_searches: HashMap<String, CancellationToken>,
     operations: HashMap<String, OperationTask>,
+    /// Newest LoadPreview id; stale preview work skips emit.
+    latest_preview_id: u64,
     results_by_id: HashMap<String, luma_domain::SearchItem>,
     /// Insertion order for LRU eviction of cached search results.
     result_order: VecDeque<String>,
@@ -110,6 +114,7 @@ impl Engine {
                 cancel_intents: HashMap::new(),
                 pending_searches: HashMap::new(),
                 operations: HashMap::new(),
+                latest_preview_id: 0,
                 results_by_id: HashMap::new(),
                 result_order: VecDeque::new(),
                 module_states: HashMap::new(),

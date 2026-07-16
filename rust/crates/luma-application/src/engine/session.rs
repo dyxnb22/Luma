@@ -2,6 +2,12 @@ use super::*;
 
 impl Engine {
     pub async fn start_session(&self) {
+        {
+            let mut g = self.inner.lock().await;
+            if g.session_cancel.is_cancelled() {
+                g.session_cancel = CancellationToken::new();
+            }
+        }
         if let Some(repo) = &self.settings {
             if let Ok(settings) = repo.load_or_default() {
                 let modules = {
@@ -236,6 +242,9 @@ impl Engine {
                 }
             }
             g.operations.clear();
+            g.cancel_intents.clear();
+            g.clear_results();
+            g.latest_preview_id = 0;
             (g.registry.all_modules(), op_handles)
         };
         for handle in op_handles {

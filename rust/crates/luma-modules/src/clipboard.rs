@@ -8,6 +8,7 @@ use luma_domain::{
     ActionDescriptor, ActionId, ActionRisk, FailureKind, ModuleId, Query, SearchItem,
 };
 use luma_protocol::{Event, SearchItemDto};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use tokio::sync::{Mutex, RwLock};
 use tokio::task::JoinHandle;
@@ -28,6 +29,8 @@ pub struct ClipboardModule {
     last_seen_text: Arc<Mutex<Option<String>>>,
     index: Arc<RwLock<Vec<ClipboardEntry>>>,
     store_error: Arc<RwLock<Option<String>>>,
+    /// Bumped on teardown so in-flight capture/refresh cannot resurrect caches.
+    refresh_generation: Arc<AtomicU64>,
     poll_cancel: Mutex<Option<CancellationToken>>,
     poll_handle: Mutex<Option<JoinHandle<()>>>,
 }
@@ -64,6 +67,7 @@ impl ClipboardModule {
             last_seen_text: Arc::new(Mutex::new(None)),
             index: Arc::new(RwLock::new(Vec::new())),
             store_error: Arc::new(RwLock::new(None)),
+            refresh_generation: Arc::new(AtomicU64::new(0)),
             poll_cancel: Mutex::new(None),
             poll_handle: Mutex::new(None),
         }
@@ -77,20 +81,31 @@ impl ClipboardModule {
         store: &dyn ClipboardHistoryRepository,
         index: &RwLock<Vec<ClipboardEntry>>,
         store_error: &RwLock<Option<String>>,
+        generation: u64,
+        refresh_generation: &AtomicU64,
     ) -> Result<(), ClipboardRepoError> {
+        if refresh_generation.load(Ordering::SeqCst) != generation {
+            return Ok(());
+        }
         match store.list_page(0, 64) {
             Ok(rows) => {
+                if refresh_generation.load(Ordering::SeqCst) != generation {
+                    return Ok(());
+                }
                 *index.write().await = rows;
                 *store_error.write().await = None;
                 Ok(())
             }
             Err(err) => {
-                *store_error.write().await = Some(err.to_string());
+                if refresh_generation.load(Ordering::SeqCst) == generation {
+                    *store_error.write().await = Some(err.to_string());
+                }
                 Err(err)
             }
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn capture_once(
         store: &dyn ClipboardHistoryRepository,
         index: &RwLock<Vec<ClipboardEntry>>,
@@ -99,16 +114,29 @@ impl ClipboardModule {
         suppression: &ClipboardSuppression,
         last_seen_text: &Mutex<Option<String>>,
         retention_days: u32,
+        generation: u64,
+        refresh_generation: &AtomicU64,
     ) {
+        if refresh_generation.load(Ordering::SeqCst) != generation {
+            return;
+        }
         if let Ok(Some(text)) = pasteboard.read_text().await {
+            if refresh_generation.load(Ordering::SeqCst) != generation {
+                return;
+            }
             if looks_secret(&text) || suppression.is_suppressed(&text) {
                 let mut last = last_seen_text.lock().await;
-                *last = Some(text);
+                if refresh_generation.load(Ordering::SeqCst) == generation {
+                    *last = Some(text);
+                }
                 return;
             }
             {
                 let mut last = last_seen_text.lock().await;
                 if last.as_ref() == Some(&text) {
+                    return;
+                }
+                if refresh_generation.load(Ordering::SeqCst) != generation {
                     return;
                 }
                 *last = Some(text.clone());
@@ -119,14 +147,25 @@ impl ClipboardModule {
                 }
             }
             if let Err(err) = store.purge_older_than_days(retention_days) {
-                *store_error.write().await = Some(format!("purge failed: {err}"));
+                if refresh_generation.load(Ordering::SeqCst) == generation {
+                    *store_error.write().await = Some(format!("purge failed: {err}"));
+                }
             }
             match store.insert(&text, false) {
                 Ok(_) => {
-                    let _ = Self::refresh_index(store, index, store_error).await;
+                    let _ = Self::refresh_index(
+                        store,
+                        index,
+                        store_error,
+                        generation,
+                        refresh_generation,
+                    )
+                    .await;
                 }
                 Err(err) => {
-                    *store_error.write().await = Some(format!("insert failed: {err}"));
+                    if refresh_generation.load(Ordering::SeqCst) == generation {
+                        *store_error.write().await = Some(format!("insert failed: {err}"));
+                    }
                 }
             }
         }
@@ -142,6 +181,8 @@ impl ClipboardModule {
         let suppression = self.suppression.clone();
         let last_seen_text = self.last_seen_text.clone();
         let retention_days = self.retention_days.clone();
+        let refresh_generation = self.refresh_generation.clone();
+        let generation = refresh_generation.load(Ordering::SeqCst);
         let token = cancel.clone();
         let handle = tokio::spawn(async move {
             loop {
@@ -157,6 +198,8 @@ impl ClipboardModule {
                             &suppression,
                             &last_seen_text,
                             days,
+                            generation,
+                            &refresh_generation,
                         ).await;
                     }
                 }
@@ -164,6 +207,18 @@ impl ClipboardModule {
         });
         *self.poll_cancel.lock().await = Some(cancel);
         *self.poll_handle.lock().await = Some(handle);
+    }
+
+    async fn refresh_index_now(&self) -> Result<(), ClipboardRepoError> {
+        let generation = self.refresh_generation.load(Ordering::SeqCst);
+        Self::refresh_index(
+            self.store.as_ref(),
+            &self.index,
+            &self.store_error,
+            generation,
+            &self.refresh_generation,
+        )
+        .await
     }
 
     async fn stop_poller(&self) {
@@ -184,9 +239,7 @@ impl LumaModule for ClipboardModule {
 
     async fn warmup(&self, ctx: WarmupContext) -> ModuleState {
         if !ctx.cancel.is_cancelled() {
-            if let Err(err) =
-                Self::refresh_index(self.store.as_ref(), &self.index, &self.store_error).await
-            {
+            if let Err(err) = self.refresh_index_now().await {
                 return ModuleState::Failed(err.to_string());
             }
             // Seed last_seen from the current pasteboard without capturing into history.
@@ -575,13 +628,7 @@ impl LumaModule for ClipboardModule {
                     };
                 };
                 match self.store.set_pinned(id, true) {
-                    Ok(()) => match Self::refresh_index(
-                        self.store.as_ref(),
-                        &self.index,
-                        &self.store_error,
-                    )
-                    .await
-                    {
+                    Ok(()) => match self.refresh_index_now().await {
                         Ok(()) => ActionOutcome::Success {
                             message: Some("pinned".into()),
                         },
@@ -608,13 +655,7 @@ impl LumaModule for ClipboardModule {
                     };
                 };
                 match self.store.set_pinned(id, false) {
-                    Ok(()) => match Self::refresh_index(
-                        self.store.as_ref(),
-                        &self.index,
-                        &self.store_error,
-                    )
-                    .await
-                    {
+                    Ok(()) => match self.refresh_index_now().await {
                         Ok(()) => ActionOutcome::Success {
                             message: Some("unpinned".into()),
                         },
@@ -640,13 +681,7 @@ impl LumaModule for ClipboardModule {
                     };
                 }
                 match self.store.clear_unpinned() {
-                    Ok(n) => match Self::refresh_index(
-                        self.store.as_ref(),
-                        &self.index,
-                        &self.store_error,
-                    )
-                    .await
-                    {
+                    Ok(n) => match self.refresh_index_now().await {
                         Ok(()) => ActionOutcome::Success {
                             message: Some(format!("cleared {n} unpinned item(s)")),
                         },
@@ -680,13 +715,7 @@ impl LumaModule for ClipboardModule {
                     };
                 };
                 match self.store.delete(id) {
-                    Ok(()) => match Self::refresh_index(
-                        self.store.as_ref(),
-                        &self.index,
-                        &self.store_error,
-                    )
-                    .await
-                    {
+                    Ok(()) => match self.refresh_index_now().await {
                         Ok(()) => ActionOutcome::Success {
                             message: Some("deleted".into()),
                         },
@@ -717,6 +746,7 @@ impl LumaModule for ClipboardModule {
     }
 
     async fn teardown(&self) {
+        self.refresh_generation.fetch_add(1, Ordering::SeqCst);
         self.stop_poller().await;
         *self.index.write().await = Vec::new();
         *self.store_error.write().await = None;

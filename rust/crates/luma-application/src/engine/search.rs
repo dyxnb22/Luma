@@ -301,6 +301,8 @@ impl Engine {
             }
         });
 
+        let engine_for_supervisor = engine.clone();
+        let request_for_supervisor = request_id.clone();
         let supervisor = tokio::spawn(async move {
             let deadline = tokio::time::sleep(SEARCH_COMPLETION_BOUND);
             tokio::pin!(deadline);
@@ -333,6 +335,9 @@ impl Engine {
                 } => {}
             }
             let _ = collector_handle.await;
+            // Drop completed search entry so `searches` does not retain finished tasks.
+            let mut g = engine_for_supervisor.lock().await;
+            g.searches.remove(&request_for_supervisor);
         });
 
         {

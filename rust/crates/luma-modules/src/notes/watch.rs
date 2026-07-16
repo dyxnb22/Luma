@@ -24,6 +24,7 @@ impl MarkdownWatchPort for NullMarkdownWatcher {
 impl NotesModule {
     pub async fn set_root(&self, root: Option<PathBuf>) {
         self.stop_watch().await;
+        self.stop_exclude_rebuild().await;
         *self.root.write().await = root.clone();
         if let Some(root) = root {
             let _ = self.rebuild_index(&root, None).await;

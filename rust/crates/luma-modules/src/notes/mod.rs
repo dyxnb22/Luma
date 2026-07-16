@@ -31,6 +31,9 @@ pub struct NotesModule {
     index_generation: Arc<RwLock<u64>>,
     watch_cancel: Mutex<Option<CancellationToken>>,
     watch_handle: Mutex<Option<JoinHandle<()>>>,
+    /// Background exclude-pattern rebuild (settings apply); cancelled on teardown / newer rebuild.
+    rebuild_cancel: Mutex<Option<CancellationToken>>,
+    rebuild_handle: Mutex<Option<JoinHandle<()>>>,
     watch_warning: Arc<Mutex<Option<String>>>,
     opener: Arc<dyn OpenPathPort>,
     pasteboard: Arc<dyn PasteboardPort>,
@@ -116,6 +119,8 @@ impl NotesModule {
             index_generation: Arc::new(RwLock::new(0)),
             watch_cancel: Mutex::new(None),
             watch_handle: Mutex::new(None),
+            rebuild_cancel: Mutex::new(None),
+            rebuild_handle: Mutex::new(None),
             watch_warning: Arc::new(Mutex::new(None)),
             opener,
             pasteboard,
@@ -165,6 +170,115 @@ impl NotesModule {
             },
             Vec::new(),
         )
+    }
+
+    async fn start_exclude_rebuild(&self, root: PathBuf) {
+        self.stop_exclude_rebuild().await;
+        let cancel = CancellationToken::new();
+        let token = cancel.clone();
+        let index = self.index.clone();
+        let generation = self.index_generation.clone();
+        let watch_warning = self.watch_warning.clone();
+        let handle = tokio::spawn(async move {
+            let (flag, mut bridge) = NotesModule::scan_cancel_bridge(&token);
+            const MAX_ATTEMPTS: u32 = 4;
+            for attempt in 0..MAX_ATTEMPTS {
+                if token.is_cancelled() {
+                    break;
+                }
+                let docs = match index.document_count() {
+                    Ok(n) => n,
+                    Err(err) => {
+                        if !token.is_cancelled() {
+                            *watch_warning.lock().await = Some(format!(
+                                "Notes exclude rebuild failed ({err}); run `n check`"
+                            ));
+                        }
+                        break;
+                    }
+                };
+                let fts = index.fts_count().unwrap_or(0);
+                let need_full = docs == 0 || (docs > 0 && (fts == 0 || fts != docs));
+                let index_for_scan = index.clone();
+                let root_for_scan = root.clone();
+                let flag_for_scan = flag.clone();
+                let report = tokio::task::spawn_blocking(move || {
+                    if need_full {
+                        index_for_scan.full_scan(&root_for_scan, Some(flag_for_scan))
+                    } else {
+                        index_for_scan.incremental_check(&root_for_scan, Some(flag_for_scan))
+                    }
+                })
+                .await;
+                if token.is_cancelled() {
+                    break;
+                }
+                match report {
+                    Ok(Ok(report)) if !report.cancelled => {
+                        let mut gen = generation.write().await;
+                        *gen = gen.saturating_add(1);
+                        let mut warn = watch_warning.lock().await;
+                        if warn
+                            .as_deref()
+                            .is_some_and(|m| m.starts_with("Notes exclude rebuild"))
+                        {
+                            *warn = None;
+                        }
+                        break;
+                    }
+                    Ok(Ok(_)) => {
+                        if !token.is_cancelled() {
+                            *watch_warning.lock().await =
+                                Some("Notes exclude rebuild cancelled; run `n check`".into());
+                        }
+                        break;
+                    }
+                    Ok(Err(err)) => {
+                        let msg = err.to_string();
+                        let busy = msg.contains("already running") || msg.contains("Busy");
+                        if busy && attempt + 1 < MAX_ATTEMPTS && !token.is_cancelled() {
+                            tokio::time::sleep(Duration::from_millis(150 * (attempt + 1) as u64))
+                                .await;
+                            continue;
+                        }
+                        if !token.is_cancelled() {
+                            *watch_warning.lock().await = Some(format!(
+                                "Notes exclude rebuild failed ({msg}); run `n check`"
+                            ));
+                        }
+                        break;
+                    }
+                    Err(err) => {
+                        if !token.is_cancelled() {
+                            *watch_warning.lock().await = Some(format!(
+                                "Notes exclude rebuild failed ({err}); run `n check`"
+                            ));
+                        }
+                        break;
+                    }
+                }
+            }
+            if let Some(b) = bridge.take() {
+                b.abort();
+            }
+        });
+        *self.rebuild_cancel.lock().await = Some(cancel);
+        *self.rebuild_handle.lock().await = Some(handle);
+    }
+
+    pub(super) async fn stop_exclude_rebuild(&self) {
+        if let Some(cancel) = self.rebuild_cancel.lock().await.take() {
+            cancel.cancel();
+        }
+        if let Some(handle) = self.rebuild_handle.lock().await.take() {
+            let abort = handle.abort_handle();
+            if tokio::time::timeout(Duration::from_secs(2), handle)
+                .await
+                .is_err()
+            {
+                abort.abort();
+            }
+        }
     }
 }
 
@@ -499,81 +613,13 @@ impl LumaModule for NotesModule {
             }
             // Exclude patterns changed under the same root → rebuild in background
             // so Settings apply does not stall the session on large vaults.
-            let index = self.index.clone();
-            let generation = self.index_generation.clone();
-            let watch_warning = self.watch_warning.clone();
-            tokio::spawn(async move {
-                const MAX_ATTEMPTS: u32 = 4;
-                for attempt in 0..MAX_ATTEMPTS {
-                    let docs = match index.document_count() {
-                        Ok(n) => n,
-                        Err(err) => {
-                            *watch_warning.lock().await = Some(format!(
-                                "Notes exclude rebuild failed ({err}); run `n check`"
-                            ));
-                            return;
-                        }
-                    };
-                    let fts = index.fts_count().unwrap_or(0);
-                    let need_full = docs == 0 || (docs > 0 && (fts == 0 || fts != docs));
-                    let index_for_scan = index.clone();
-                    let root_for_scan = root.clone();
-                    let report = tokio::task::spawn_blocking(move || {
-                        if need_full {
-                            index_for_scan.full_scan(&root_for_scan, None)
-                        } else {
-                            index_for_scan.incremental_check(&root_for_scan, None)
-                        }
-                    })
-                    .await;
-                    match report {
-                        Ok(Ok(report)) if !report.cancelled => {
-                            let mut gen = generation.write().await;
-                            *gen = gen.saturating_add(1);
-                            // Clear only exclude-rebuild warnings so watcher warnings survive.
-                            let mut warn = watch_warning.lock().await;
-                            if warn
-                                .as_deref()
-                                .is_some_and(|m| m.starts_with("Notes exclude rebuild"))
-                            {
-                                *warn = None;
-                            }
-                            return;
-                        }
-                        Ok(Ok(_)) => {
-                            *watch_warning.lock().await =
-                                Some("Notes exclude rebuild cancelled; run `n check`".into());
-                            return;
-                        }
-                        Ok(Err(err)) => {
-                            let msg = err.to_string();
-                            let busy = msg.contains("already running") || msg.contains("Busy");
-                            if busy && attempt + 1 < MAX_ATTEMPTS {
-                                tokio::time::sleep(Duration::from_millis(
-                                    150 * (attempt + 1) as u64,
-                                ))
-                                .await;
-                                continue;
-                            }
-                            *watch_warning.lock().await = Some(format!(
-                                "Notes exclude rebuild failed ({msg}); run `n check`"
-                            ));
-                            return;
-                        }
-                        Err(err) => {
-                            *watch_warning.lock().await = Some(format!(
-                                "Notes exclude rebuild failed ({err}); run `n check`"
-                            ));
-                            return;
-                        }
-                    }
-                }
-            });
+            self.start_exclude_rebuild(root).await;
         }
     }
 
     async fn teardown(&self) {
         self.stop_watch().await;
+        self.stop_exclude_rebuild().await;
         *self.watch_warning.lock().await = None;
     }
 }

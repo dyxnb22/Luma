@@ -59,9 +59,9 @@ impl MacAccessibility {
     fn synthesize_cmd_v() -> Result<(), AccessibilityError> {
         #[cfg(not(target_os = "macos"))]
         {
-            return Err(AccessibilityError::PasteFailed(
+            Err(AccessibilityError::PasteFailed(
                 "macOS accessibility APIs are unavailable on this platform".into(),
-            ));
+            ))
         }
         #[cfg(target_os = "macos")]
         {

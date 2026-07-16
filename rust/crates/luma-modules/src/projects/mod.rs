@@ -109,7 +109,7 @@ mod tests {
         ProjectWorkspaceError,
     };
     use luma_domain::{ActionId, ActionRisk, FailureKind, Query};
-    use luma_protocol::{Event, SearchItemDto, UiIntent};
+    use luma_protocol::{Event, UiIntent};
     use tokio::sync::mpsc;
     use tokio_util::sync::CancellationToken;
 

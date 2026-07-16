@@ -72,6 +72,8 @@ pub(super) fn parse_stopwatch_name(rest: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
     fn parse_countdown_variants() {
         assert_eq!(parse_countdown_spec(""), Some((25, "Pomodoro".into())));
         assert_eq!(parse_countdown_spec("pomo"), Some((25, "Pomodoro".into())));

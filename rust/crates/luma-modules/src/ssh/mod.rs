@@ -288,6 +288,7 @@ mod tests {
     use luma_application::{
         FakePasteboard, FakeSshConfigPort, MemorySshMetaRepository, ResolvedSshHost, SshConfigState,
     };
+    use luma_protocol::{Event, SearchItemDto};
     use tokio::sync::mpsc;
 
     fn sample_host(alias: &str) -> ResolvedSshHost {

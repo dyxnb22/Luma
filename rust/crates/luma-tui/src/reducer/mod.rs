@@ -5,6 +5,8 @@ use crate::view_model::{
 };
 use luma_protocol::{ActionDescriptorDto, Event, UiIntent};
 
+mod wordbook;
+
 const PAGE_SIZE: usize = 5;
 
 fn resolve_ui_intent(item: &luma_domain::SearchItem) -> Option<UiIntent> {
@@ -155,8 +157,10 @@ pub fn update(state: &mut AppState, msg: Msg) -> Vec<Effect> {
                 }
                 // Meta commands are local navigation. They must win over a pending
                 // search debounce so one Enter opens the requested surface.
-                if let Some(queue) = wordbook_review_queue_from_prompt(state.prompt.trim()) {
-                    return begin_wordbook_review(state, queue);
+                if let Some(queue) =
+                    wordbook::wordbook_review_queue_from_prompt(state.prompt.trim())
+                {
+                    return wordbook::begin_wordbook_review(state, queue);
                 }
                 if state.prompt.trim() == ":settings" {
                     state.overlay_restore_prompt = Some(state.prompt.clone());
@@ -190,7 +194,7 @@ pub fn update(state: &mut AppState, msg: Msg) -> Vec<Effect> {
             }
             Route::Settings => toggle_setting(state),
             Route::Commands => run_command_selection(state),
-            Route::WordbookReview => wordbook_reveal(state),
+            Route::WordbookReview => wordbook::wordbook_reveal(state),
         },
         Msg::OpenActions => {
             if let Some(effects) = flush_pending_search_or_continue(state) {
@@ -321,9 +325,9 @@ pub fn update(state: &mut AppState, msg: Msg) -> Vec<Effect> {
             submit_picker_selection(state)
         }
         Msg::PickWindowDigit(digit) => pick_window_digit(state, digit),
-        Msg::WordbookReveal => wordbook_reveal(state),
-        Msg::WordbookGrade { action_id } => wordbook_grade(state, action_id),
-        Msg::WordbookReviewExit => exit_wordbook_review(state),
+        Msg::WordbookReveal => wordbook::wordbook_reveal(state),
+        Msg::WordbookGrade { action_id } => wordbook::wordbook_grade(state, action_id),
+        Msg::WordbookReviewExit => wordbook::exit_wordbook_review(state),
         Msg::OpenHelp => {
             state.route = Route::Help;
             state.help_scroll = 0;
@@ -678,8 +682,8 @@ fn request_primary_actions(state: &mut AppState) -> Vec<Effect> {
         state.status.set("no result selected", StatusTone::Warning);
         return vec![Effect::None];
     };
-    if let Some(queue) = wordbook_review_queue_from_item(&item) {
-        return begin_wordbook_review(state, queue);
+    if let Some(queue) = wordbook::wordbook_review_queue_from_item(&item) {
+        return wordbook::begin_wordbook_review(state, queue);
     }
     if let Some(intent) = resolve_ui_intent(&item) {
         return apply_ui_intent(state, &item, intent);
@@ -961,7 +965,7 @@ fn submit_picker_selection(state: &mut AppState) -> Vec<Effect> {
     }
 }
 
-fn execute_action(
+pub(super) fn execute_action(
     state: &mut AppState,
     result_id: String,
     action: ActionDescriptorDto,
@@ -1026,53 +1030,6 @@ fn begin_primary_or_confirm(
     }
 }
 
-fn wordbook_review_queue_from_prompt(prompt: &str) -> Option<String> {
-    let lower = prompt.to_ascii_lowercase();
-    if lower == "wb review" || lower == "wb review due" {
-        return Some("due".into());
-    }
-    if lower == "wb review new" {
-        return Some("new".into());
-    }
-    if lower == "wb review wrong" {
-        return Some("wrong".into());
-    }
-    None
-}
-
-fn wordbook_review_queue_from_item(item: &luma_domain::SearchItem) -> Option<String> {
-    if item.primary_action.id.as_str() == "start_review" {
-        return item
-            .action_payload
-            .as_ref()
-            .and_then(|p| p.get("queue"))
-            .and_then(|v| v.as_str())
-            .map(str::to_string)
-            .or_else(|| {
-                item.id
-                    .as_str()
-                    .strip_prefix("wb:review:")
-                    .map(str::to_string)
-            });
-    }
-    item.id
-        .as_str()
-        .strip_prefix("wb:review:")
-        .map(str::to_string)
-}
-
-fn begin_wordbook_review(state: &mut AppState, queue: String) -> Vec<Effect> {
-    state.overlay_restore_prompt = Some(state.prompt.clone());
-    state.clear_prompt();
-    state.search_debounce_deadline = None;
-    state.route = Route::WordbookReview;
-    state.wordbook_review = None;
-    state
-        .status
-        .set(format!("loading review ({queue})…"), StatusTone::Progress);
-    vec![Effect::LoadWordbookReview { queue }]
-}
-
 fn pick_window_digit(state: &mut AppState, digit: usize) -> Vec<Effect> {
     if digit == 0 || !state.should_intercept_window_digit() {
         return vec![Effect::None];
@@ -1095,96 +1052,13 @@ fn pick_window_digit(state: &mut AppState, digit: usize) -> Vec<Effect> {
     )
 }
 
-fn wordbook_reveal(state: &mut AppState) -> Vec<Effect> {
-    if state.route != Route::WordbookReview {
-        return vec![Effect::None];
-    }
-    if let Some(review) = state.wordbook_review.as_mut() {
-        if !review.finished {
-            review.revealed = true;
-        }
-    }
-    vec![Effect::None]
-}
-
-fn wordbook_grade(state: &mut AppState, action_id: String) -> Vec<Effect> {
-    if state.route != Route::WordbookReview {
-        return vec![Effect::None];
-    }
-    let Some(review) = state.wordbook_review.as_ref() else {
-        return vec![Effect::None];
-    };
-    if review.finished || state.active_operation.is_some() {
-        return vec![Effect::None];
-    }
-    let Some(word_id) = review.words.get(review.index).map(|w| w.id) else {
-        return vec![Effect::None];
-    };
-    let revealed = review.revealed;
-    if action_id == "skip" {
-        if let Some(review) = state.wordbook_review.as_mut() {
-            review.stats.session_skipped += 1;
-            review.revealed = false;
-            review.index += 1;
-            if review.index >= review.words.len() {
-                review.finished = true;
-            }
-        }
-        if state.wordbook_review.as_ref().is_some_and(|r| r.finished) {
-            state
-                .status
-                .set("review done · skipped", StatusTone::Success);
-        }
-        return vec![Effect::None];
-    }
-    if !revealed {
-        return vec![Effect::None];
-    }
-    let result_id = format!("wb:{word_id}");
-    let mastered = action_id == "mastered";
-    let action = luma_protocol::ActionDescriptorDto {
-        id: action_id.clone(),
-        label: action_id.clone(),
-        risk: if mastered {
-            luma_domain::ActionRisk::Confirm
-        } else {
-            luma_domain::ActionRisk::Safe
-        },
-        confirmation: mastered,
-    };
-    if let Some(review) = state.wordbook_review.as_mut() {
-        review.pending_grade = Some(action_id.clone());
-    }
-    if mastered {
-        state.pending_action = Some(PendingAction { result_id, action });
-        state.route = Route::ConfirmAction;
-        state
-            .status
-            .set("confirm mastered? Enter=yes Esc=no", StatusTone::Warning);
-        return vec![Effect::None];
-    }
-    execute_action(state, result_id, action, false)
-}
-
-fn exit_wordbook_review(state: &mut AppState) -> Vec<Effect> {
-    state.wordbook_review = None;
-    state.route = Route::Search;
-    if let Some(prompt) = state.overlay_restore_prompt.take() {
-        state.prompt = prompt;
-        state.prompt_cursor = state.prompt_char_len();
-    }
-    state.focus = FocusZone::Prompt;
-    state.status.set("review ended", StatusTone::Neutral);
-    vec![Effect::None]
-}
-
 fn cancel_msg(state: &mut AppState) -> Vec<Effect> {
     if let Some(operation_id) = state.active_operation.clone() {
         state.status.set("cancelling action…", StatusTone::Progress);
         return vec![Effect::CancelOperation { operation_id }];
     }
     if state.route == Route::WordbookReview {
-        return exit_wordbook_review(state);
+        return wordbook::exit_wordbook_review(state);
     }
     if matches!(state.route, Route::ConfirmAction | Route::ActionPicker) {
         clear_action_ui(state);
@@ -1577,7 +1451,7 @@ mod tests {
     use super::*;
     use crate::view_model::StatusTone;
     use luma_domain::{ActionDescriptor, ActionId, ActionRisk, ModuleId, ResultId, SearchItem};
-    use luma_protocol::{ActionDescriptorDto, ActionOutcomeDto, Event, SearchItemDto};
+    use luma_protocol::{ActionDescriptorDto, Event, SearchItemDto};
 
     #[test]
     fn typing_schedules_search_then_flush_cancels_old() {
@@ -2736,136 +2610,6 @@ mod tests {
         assert!(state.hub_refresh_deadline.is_none());
     }
 
-    fn sample_wordbook_review(words: Vec<(i64, &str)>) -> AppState {
-        let mut state = AppState::default();
-        state.route = Route::WordbookReview;
-        state.wordbook_review = Some(crate::view_model::WordbookReviewState {
-            words: words
-                .into_iter()
-                .map(|(id, term)| crate::view_model::WordbookReviewWord {
-                    id,
-                    term: term.into(),
-                    phonetic: String::new(),
-                    meaning: format!("meaning-{term}"),
-                    example: String::new(),
-                })
-                .collect(),
-            index: 0,
-            revealed: false,
-            stats: crate::view_model::WordbookReviewStats {
-                queue: "due".into(),
-                due: 2,
-                goal: 20,
-                reviewed_today: 7,
-                remaining_goal: 13,
-                ..Default::default()
-            },
-            finished: false,
-            pending_grade: None,
-        });
-        state
-    }
-
-    #[test]
-    fn wordbook_review_starts_from_prompt() {
-        let mut state = AppState::default();
-        state.prompt = "wb review due".into();
-        state.prompt_cursor = state.prompt_char_len();
-        let effects = update(&mut state, Msg::Submit);
-        assert_eq!(state.route, Route::WordbookReview);
-        assert!(state.prompt.is_empty());
-        assert!(effects.iter().any(|e| matches!(
-            e,
-            Effect::LoadWordbookReview { queue } if queue == "due"
-        )));
-    }
-
-    #[test]
-    fn wordbook_grade_blocks_before_reveal() {
-        let mut state = sample_wordbook_review(vec![(1, "alpha")]);
-        let effects = update(
-            &mut state,
-            Msg::WordbookGrade {
-                action_id: "known".into(),
-            },
-        );
-        assert_eq!(effects, vec![Effect::None]);
-        assert_eq!(state.wordbook_review.as_ref().unwrap().index, 0);
-    }
-
-    #[test]
-    fn wordbook_reveal_then_known_advances() {
-        let mut state = sample_wordbook_review(vec![(1, "alpha"), (2, "beta")]);
-        let _ = update(&mut state, Msg::WordbookReveal);
-        assert!(state.wordbook_review.as_ref().unwrap().revealed);
-        let effects = update(
-            &mut state,
-            Msg::WordbookGrade {
-                action_id: "known".into(),
-            },
-        );
-        assert!(effects.iter().any(|e| matches!(
-            e,
-            Effect::ExecuteAction { result_id, action_id, .. }
-            if result_id == "wb:1" && action_id == "known"
-        )));
-        state.active_operation = Some("op-1".into());
-        let _ = state.apply_engine_event(Event::ActionFinished {
-            operation_id: "op-1".into(),
-            outcome: ActionOutcomeDto::Success {
-                message: Some("ok".into()),
-            },
-        });
-        let review = state.wordbook_review.as_ref().unwrap();
-        assert_eq!(review.index, 1);
-        assert!(!review.revealed);
-        assert_eq!(review.stats.session_known, 1);
-        assert_eq!(review.stats.reviewed_today, 7);
-        let _ = state.apply_engine_event(Event::WordbookReviewStatsUpdated {
-            stats: luma_protocol::WordbookStatsDto {
-                due: 2,
-                new_count: 0,
-                wrong: 0,
-                goal: 20,
-                reviewed_today: 8,
-                remaining_goal: 12,
-            },
-        });
-        assert_eq!(
-            state.wordbook_review.as_ref().unwrap().stats.reviewed_today,
-            8
-        );
-    }
-
-    #[test]
-    fn wordbook_skip_advances_without_action() {
-        let mut state = sample_wordbook_review(vec![(1, "alpha"), (2, "beta")]);
-        let effects = update(
-            &mut state,
-            Msg::WordbookGrade {
-                action_id: "skip".into(),
-            },
-        );
-        assert_eq!(effects, vec![Effect::None]);
-        let review = state.wordbook_review.as_ref().unwrap();
-        assert_eq!(review.index, 1);
-        assert_eq!(review.stats.session_skipped, 1);
-    }
-
-    #[test]
-    fn wordbook_skip_completion_sets_done_status() {
-        let mut state = sample_wordbook_review(vec![(1, "alpha")]);
-        let _ = update(
-            &mut state,
-            Msg::WordbookGrade {
-                action_id: "skip".into(),
-            },
-        );
-        assert!(state.wordbook_review.as_ref().unwrap().finished);
-        assert_eq!(state.status.tone, StatusTone::Success);
-        assert!(state.status.text.starts_with("review done"));
-    }
-
     #[test]
     fn help_cancel_from_hub_restores_ready_status() {
         let mut state = AppState::default();
@@ -2926,97 +2670,6 @@ mod tests {
         );
         assert!(state.status.text.contains("directory kept"));
         assert_eq!(state.status.tone, StatusTone::Success);
-    }
-
-    #[test]
-    fn wordbook_mastered_requires_confirm() {
-        let mut state = sample_wordbook_review(vec![(1, "alpha")]);
-        let _ = update(&mut state, Msg::WordbookReveal);
-        let effects = update(
-            &mut state,
-            Msg::WordbookGrade {
-                action_id: "mastered".into(),
-            },
-        );
-        assert_eq!(effects, vec![Effect::None]);
-        assert_eq!(state.route, Route::ConfirmAction);
-        assert!(state.pending_action.is_some());
-        let confirm_effects = update(&mut state, Msg::Submit);
-        assert!(confirm_effects.iter().any(|e| matches!(
-            e,
-            Effect::ExecuteAction { result_id, action_id, confirmation: true, .. }
-            if result_id == "wb:1" && action_id == "mastered"
-        )));
-        assert_eq!(state.route, Route::WordbookReview);
-    }
-
-    #[test]
-    fn wordbook_esc_exits_review() {
-        let mut state = sample_wordbook_review(vec![(1, "alpha")]);
-        state.overlay_restore_prompt = Some("wb review".into());
-        let _ = update(&mut state, Msg::Cancel);
-        assert_eq!(state.route, Route::Search);
-        assert!(state.wordbook_review.is_none());
-        assert_eq!(state.prompt, "wb review");
-    }
-
-    #[test]
-    fn wordbook_esc_cancels_active_grade_before_exiting() {
-        let mut state = sample_wordbook_review(vec![(1, "alpha")]);
-        state.active_operation = Some("op-1".into());
-        state.wordbook_review.as_mut().unwrap().pending_grade = Some("known".into());
-        let effects = update(&mut state, Msg::Cancel);
-        assert_eq!(state.route, Route::WordbookReview);
-        assert_eq!(
-            effects,
-            vec![Effect::CancelOperation {
-                operation_id: "op-1".into()
-            }]
-        );
-
-        let applied = state.apply_engine_event(Event::ActionFinished {
-            operation_id: "op-1".into(),
-            outcome: ActionOutcomeDto::Cancelled,
-        });
-        assert!(applied);
-        assert!(state
-            .wordbook_review
-            .as_ref()
-            .unwrap()
-            .pending_grade
-            .is_none());
-        assert_eq!(state.route, Route::WordbookReview);
-    }
-
-    #[test]
-    fn wordbook_review_starts_from_search_result() {
-        let mut state = AppState::default();
-        state.prompt = "wb review".into();
-        state.prompt_cursor = state.prompt_char_len();
-        state.results.items.push(SearchItem {
-            id: ResultId::new("wb:review:due"),
-            module_id: ModuleId::new("luma.wordbook"),
-            title: "Start review (due)".into(),
-            subtitle: None,
-            kind: "command".into(),
-            score: 100.0,
-            primary_action: ActionDescriptor {
-                id: ActionId::new("start_review"),
-                label: "Start review".into(),
-                risk: ActionRisk::Safe,
-                confirmation: false,
-            },
-            secondary_actions: vec![],
-            ui_intent: None,
-            action_payload: Some(serde_json::json!({ "queue": "due" })),
-        });
-        state.results.selected_id = Some("wb:review:due".into());
-        let effects = update(&mut state, Msg::Submit);
-        assert_eq!(state.route, Route::WordbookReview);
-        assert!(effects.iter().any(|e| matches!(
-            e,
-            Effect::LoadWordbookReview { queue } if queue == "due"
-        )));
     }
 
     #[test]

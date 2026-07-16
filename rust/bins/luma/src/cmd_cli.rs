@@ -1,4 +1,4 @@
-use compose::load_registry_with_settings;
+use crate::compose::load_registry_with_settings;
 use luma_application::{
     recipe_in_scope, recipe_runnable, resolve_steps, run_action, CommandRecipesRepository,
     CommandRunnerPort, RecipeEnvironmentPort,
@@ -148,11 +148,9 @@ fn cmd_show(
             "error": "当前项目不适用",
         }),
     };
-    if json {
-        println!("{}", serde_json::to_string_pretty(&payload)?);
-    } else {
-        println!("{}", serde_json::to_string_pretty(&payload)?);
-    }
+    // Show and list both emit JSON today (human table not wired yet).
+    let _ = json;
+    println!("{}", serde_json::to_string_pretty(&payload)?);
     Ok(())
 }
 

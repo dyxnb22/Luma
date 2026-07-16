@@ -71,6 +71,7 @@ impl CapabilityPort for ComposeCapabilities {
 
 /// Build registry from settings + optionally opened stores.
 /// Missing stores skip the corresponding module instead of failing the launcher.
+#[allow(clippy::too_many_arguments)]
 pub fn registry_from_settings(
     settings: &LumaSettings,
     clipboard: Option<Arc<ClipboardStore>>,
@@ -230,7 +231,7 @@ pub fn registry_from_settings(
             reason,
         });
     }
-    reg.register(Arc::new(ProjectsModule::with_settings(
+    reg.register(Arc::new(ProjectsModule::with_deps(
         project_roots,
         settings.imported_projects.clone(),
         opener.clone(),

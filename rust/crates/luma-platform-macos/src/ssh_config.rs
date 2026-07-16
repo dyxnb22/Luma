@@ -1,4 +1,4 @@
-use crate::ports::{ResolvedSshHost, SshConfigError, SshConfigPort, SshConfigState};
+use luma_application::{ResolvedSshHost, SshConfigError, SshConfigPort, SshConfigState};
 use luma_storage::collect_aliases_from_file;
 use std::path::{Path, PathBuf};
 use std::process::Command;

@@ -17,6 +17,10 @@ mod recipe_environment;
 mod speech;
 mod ssh_config;
 mod system_proxy;
+#[cfg(target_os = "macos")]
+mod window;
+#[cfg(not(target_os = "macos"))]
+#[path = "window_stub.rs"]
 mod window;
 
 pub use accessibility::{Accessibility, AccessibilityError, FakeAccessibility, MacAccessibility};

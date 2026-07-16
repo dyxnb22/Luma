@@ -78,7 +78,7 @@ luma action run --query "ssh rename prod Production" --action-id rename
 | Kind | When |
 | --- | --- |
 | `not_configured` | `~/.ssh/config` missing |
-| `unavailable` | Config parse/Include failure, or `ssh` / `sftp` binary missing |
+| `unavailable` | Config parse/Include failure, `ssh` / `sftp` binary missing, or `ssh_meta.sqlite` open/read failure (hosts may still list; metadata actions fail until fixed) |
 | `status` | Empty favorites/recent, no matches, or usage hints |
 
 No centralized `doctor` — remediation text is on the row itself.

@@ -54,7 +54,7 @@ Read-only launcher over OpenSSH — not a full SSH client:
 - **Metadata:** `~/Library/Application Support/LumaNext/ssh_meta.sqlite` — favorites, local display names, `last_connected_at`, `connection_count`. Luma does not write back to `~/.ssh/config`.
 - **Resolve:** macOS adapter runs `ssh -G <alias>` (cached per session; `ssh reload` clears cache).
 - **Connect:** TUI suspends → `ssh <alias>` or `sftp <alias>` in the current terminal → resume. Successful exit (`0`) records connection metadata.
-- **Queries:** `ssh`, `ssh <needle>`, `ssh fav`, `ssh recent`, `ssh reload`, `ssh rename ALIAS NAME`.
+- **Queries:** `ssh`, `ssh <needle>`, `ssh fav`, `ssh recent`, `ssh reload`, `ssh rename ALIAS NAME` (case-insensitive `rename` prefix; name may contain spaces).
 - **CLI:** `luma ssh list|connect|sftp|favorite|unfavorite|rename`.
 - **Search honesty:** missing config → `not_configured`; parse or `ssh` binary errors → `unavailable`. Preview never shows private key contents.
 - **Details:** [SSH.md](./SSH.md).

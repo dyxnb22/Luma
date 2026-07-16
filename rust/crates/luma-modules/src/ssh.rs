@@ -83,6 +83,7 @@ impl SshModule {
                 }
                 Err(err) => {
                     *self.meta_error.write().await = Some(err.to_string());
+                    *self.meta_cache.write().await = HashMap::new();
                 }
             }
         }
@@ -683,6 +684,9 @@ impl LumaModule for SshModule {
             let Some(meta) = &self.meta else {
                 return ActionOutcome::Success { message: None };
             };
+            if !self.alias_is_known(&alias).await {
+                return ActionOutcome::Success { message: None };
+            }
             let now = match self.clock.now_rfc3339() {
                 Ok(ts) => ts,
                 Err(err) => {
@@ -1196,6 +1200,42 @@ mod tests {
                 kind: FailureKind::InvalidInput { .. },
             }
         ));
+    }
+
+    #[tokio::test]
+    async fn meta_read_failure_clears_stale_cache() {
+        let meta = Arc::new(MemorySshMetaRepository::new());
+        meta.set_favorite("production", true).unwrap();
+        let module = SshModule::with_deps(
+            Arc::new(
+                FakeSshConfigPort::new()
+                    .with_aliases(vec!["production"], vec![sample_host("production")]),
+            ),
+            Some(meta.clone()),
+            Arc::new(FakePasteboard::new()),
+            Arc::new(FixedClock::new("2026-01-01", "2026-01-01T00:00:00Z")),
+        );
+        let items = collect_search(&module, "ssh").await;
+        let production = items
+            .iter()
+            .find(|i| i.id == "ssh:production")
+            .expect("production row");
+        assert!(production
+            .subtitle
+            .as_ref()
+            .is_some_and(|s| s.contains('★')));
+
+        meta.set_list_error(Some("disk error".into()));
+        let items = collect_search(&module, "ssh").await;
+        assert!(items.iter().any(|i| i.id == "ssh:meta-unavailable"));
+        let production = items
+            .iter()
+            .find(|i| i.id == "ssh:production")
+            .expect("production row");
+        assert!(!production
+            .subtitle
+            .as_ref()
+            .is_some_and(|s| s.contains('★')));
     }
 
     #[tokio::test]

@@ -1066,17 +1066,25 @@ impl SshConfigPort for FakeSshConfigPort {
 #[derive(Default)]
 pub struct MemorySshMetaRepository {
     rows: Mutex<BTreeMap<String, SshHostMeta>>,
+    list_error: Mutex<Option<String>>,
 }
 
 impl MemorySshMetaRepository {
     pub fn new() -> Self {
         Self::default()
     }
+
+    pub fn set_list_error(&self, error: Option<String>) {
+        *self.list_error.lock().expect("lock") = error;
+    }
 }
 
 #[async_trait]
 impl SshMetaRepository for MemorySshMetaRepository {
     fn list(&self) -> Result<Vec<SshHostMeta>, SshMetaRepoError> {
+        if let Some(err) = self.list_error.lock().expect("lock").clone() {
+            return Err(SshMetaRepoError::msg(err));
+        }
         Ok(self.rows.lock().expect("lock").values().cloned().collect())
     }
 

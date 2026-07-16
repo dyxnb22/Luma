@@ -161,10 +161,13 @@ impl Engine {
             Self::resolve_enabled_module(&g, &result_id)
         };
         let body = match (item, module) {
-            (Some(result), Some(module)) => module
-                .preview(&result)
-                .await
-                .unwrap_or_else(|| result.title.clone()),
+            (Some(result), Some(module)) => {
+                let raw = module
+                    .preview(&result)
+                    .await
+                    .unwrap_or_else(|| result.title.clone());
+                super::preview::truncate_preview_body(&raw)
+            }
             _ => String::new(),
         };
         let _ = self

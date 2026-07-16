@@ -928,6 +928,8 @@ impl LumaModule for TimersModule {
     async fn teardown(&self) {
         self.stop_poller().await;
         self.pause_all_running().await;
+        *self.index.write().await = Vec::new();
+        *self.store_error.write().await = None;
     }
 }
 

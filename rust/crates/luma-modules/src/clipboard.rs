@@ -718,6 +718,9 @@ impl LumaModule for ClipboardModule {
 
     async fn teardown(&self) {
         self.stop_poller().await;
+        *self.index.write().await = Vec::new();
+        *self.store_error.write().await = None;
+        *self.last_seen_text.lock().await = None;
     }
 
     async fn apply_settings(&self, settings: &luma_application::AppSettings) {
@@ -954,6 +957,29 @@ mod tests {
             repo.list_page(0, 10).unwrap().is_empty(),
             "warmup must not insert pasteboard contents into history"
         );
+        m.teardown().await;
+    }
+
+    #[tokio::test]
+    async fn teardown_releases_runtime_caches() {
+        let repo = test_repo();
+        repo.insert("cached clip", false).unwrap();
+        let m = ClipboardModule::with_deps(
+            repo,
+            Arc::new(MemPb(TokioMutex::new(None))),
+            denied_ax(),
+            test_catalog(),
+            Arc::new(ClipboardSuppression::new()),
+        );
+        m.warmup(WarmupContext {
+            cancel: CancellationToken::new(),
+        })
+        .await;
+        assert!(!m.index.read().await.is_empty());
+        m.teardown().await;
+        assert!(m.index.read().await.is_empty());
+        assert!(m.store_error.read().await.is_none());
+        assert!(m.last_seen_text.lock().await.is_none());
         m.teardown().await;
     }
 

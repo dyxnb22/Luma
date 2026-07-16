@@ -566,7 +566,8 @@ impl LumaModule for AppsModule {
 
     async fn teardown(&self) {
         let mut g = self.cache.write().await;
-        g.apps.clear();
+        g.apps = Vec::new();
+        g.launch_counts = std::collections::HashMap::new();
         g.warming = false;
         g.catalog_error = None;
     }

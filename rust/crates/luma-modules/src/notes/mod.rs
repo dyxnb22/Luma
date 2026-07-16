@@ -574,6 +574,7 @@ impl LumaModule for NotesModule {
 
     async fn teardown(&self) {
         self.stop_watch().await;
+        *self.watch_warning.lock().await = None;
     }
 }
 

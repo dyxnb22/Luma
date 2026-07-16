@@ -418,7 +418,7 @@ impl LumaModule for WindowsModule {
     }
 
     async fn teardown(&self) {
-        self.cache.write().await.clear();
+        *self.cache.write().await = Vec::new();
         *self.cache_at.write().await = None;
     }
 

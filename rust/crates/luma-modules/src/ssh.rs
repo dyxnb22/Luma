@@ -775,7 +775,12 @@ impl LumaModule for SshModule {
         }
     }
 
-    async fn teardown(&self) {}
+    async fn teardown(&self) {
+        *self.aliases.write().await = Vec::new();
+        *self.resolved_cache.write().await = std::collections::HashMap::new();
+        *self.meta_cache.write().await = std::collections::HashMap::new();
+        *self.meta_error.write().await = None;
+    }
 }
 
 impl SshModule {

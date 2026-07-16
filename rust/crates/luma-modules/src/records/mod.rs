@@ -990,7 +990,9 @@ impl LumaModule for RecordsModule {
         *self.import_root.write().await = root;
     }
 
-    async fn teardown(&self) {}
+    async fn teardown(&self) {
+        *self.store_error.write().await = None;
+    }
 }
 
 #[cfg(test)]

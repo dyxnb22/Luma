@@ -127,7 +127,7 @@ impl Engine {
                     .map(|(id, _)| id.clone())
                     .collect();
                 for id in &removed_ids {
-                    g.results_by_id.remove(id);
+                    g.remove_result(id);
                 }
                 g.module_states
                     .insert(module_id.to_string(), "disabled".into());

@@ -454,7 +454,10 @@ impl LumaModule for SnippetsModule {
             },
         }
     }
-    async fn teardown(&self) {}
+    async fn teardown(&self) {
+        *self.index.write().await = Vec::new();
+        *self.store_error.write().await = None;
+    }
 }
 
 fn truncate_snippet_subtitle(body: &str) -> String {
@@ -469,5 +472,35 @@ fn truncate_snippet_subtitle(body: &str) -> String {
         let mut out: String = one_line.chars().take(69).collect();
         out.push('…');
         out
+    }
+}
+
+#[cfg(test)]
+mod teardown_tests {
+    use super::*;
+    use luma_application::MemorySnippetsRepository;
+
+    #[tokio::test]
+    async fn teardown_releases_runtime_caches() {
+        let store = Arc::new(MemorySnippetsRepository::new());
+        store.upsert("hello", "world").unwrap();
+        let m = SnippetsModule::with_store(
+            store,
+            Arc::new(luma_application::FakePasteboard::new()),
+            Arc::new(luma_application::FakeAccessibility {
+                trusted: false,
+                paste_ok: false,
+            }),
+            Arc::new(luma_application::FakeWindowCatalog::default()),
+        );
+        m.warmup(WarmupContext {
+            cancel: CancellationToken::new(),
+        })
+        .await;
+        assert!(!m.index.read().await.is_empty());
+        m.teardown().await;
+        assert!(m.index.read().await.is_empty());
+        assert!(m.store_error.read().await.is_none());
+        m.teardown().await;
     }
 }

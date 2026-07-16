@@ -8,7 +8,8 @@ references only (prompt editing, discovery, previews, command surfaces, and clea
 do not copy their conversational-agent, autonomous-planning, or tool-orchestration product shape.
 
 Prefer: fix friction in core modules (including Windows switcher, Wordbook, Projects, Records, and SSH), keep tests green, stay on LumaNext paths.
-Avoid: release packaging, long soak campaigns, stub-module growth (Window layouts / Menu / Browser tabs remain stubs), architecture busywork without a personal benefit;
+Follow: [`rust/docs/GOVERNANCE.md`](rust/docs/GOVERNANCE.md) for inventory sync, soft file-size triggers, and what not to “clean up.”
+Avoid: release packaging, long soak campaigns, reviving deferred stubs (Window layouts / Menu / Browser tabs — keep out of tree), architecture busywork without a personal benefit;
 AI/LLM chat, autonomous agents, task planning/execution loops, background agent daemons, or multi-session orchestration
 unless the user explicitly changes this product boundary.
 

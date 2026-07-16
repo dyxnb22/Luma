@@ -17,7 +17,7 @@ cargo test -p luma --test cli_blackbox
 | In | Out |
 | --- | --- |
 | Local TUI + CLI on your Mac | App Store / notarized shipping |
-| Apps, Windows, Clipboard, Notes, Quicklinks, Snippets, Wordbook, Projects, Records, SSH | Media, Window layouts, Menu search, Browser tabs, signed-host Translate |
+| Apps, Windows, Proxy, Clipboard, Notes, Quicklinks, Snippets, Wordbook, Projects, Records, Command Recipes, SSH, Timers, Secrets | Window layouts, Menu search, Browser tabs, signed-host Translate |
 | Honest permission / unavailable states | Release soak, deny-as-policy, marketing docs |
 | Module-local status and remediation rows | Centralized `doctor` command or diagnostics overlay |
 
@@ -27,6 +27,7 @@ cargo test -p luma --test cli_blackbox
 | --- | --- |
 | Operator guide | [`rust/README.md`](rust/README.md) |
 | Module status | [`rust/docs/MODULES.md`](rust/docs/MODULES.md) |
+| Codebase governance | [`rust/docs/GOVERNANCE.md`](rust/docs/GOVERNANCE.md) |
 | SSH Connections | [`rust/docs/SSH.md`](rust/docs/SSH.md) |
 | Proxy (Mihomo) | [`rust/docs/PROXY.md`](rust/docs/PROXY.md) |
 | Empty Hub and keyboard behavior | [`rust/docs/hub.md`](rust/docs/hub.md) |

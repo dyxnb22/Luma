@@ -9,5 +9,6 @@ pub fn action_exit_code(outcome: &ActionOutcomeDto) -> i32 {
         ActionOutcomeDto::Failed { .. } => 1,
         ActionOutcomeDto::Cancelled => 2,
         ActionOutcomeDto::InteractiveRecipeRun { .. } => 0,
+        ActionOutcomeDto::InteractiveTerminal { .. } => 1,
     }
 }

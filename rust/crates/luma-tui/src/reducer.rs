@@ -1281,6 +1281,28 @@ fn browse_query_parent(prompt: &str) -> Option<String> {
 }
 
 fn apply_engine(state: &mut AppState, event: Event) -> Vec<Effect> {
+    if let Event::ActionFinished {
+        outcome:
+            luma_protocol::ActionOutcomeDto::InteractiveTerminal {
+                program,
+                args,
+                record_alias,
+            },
+        operation_id,
+    } = &event
+    {
+        if state.active_operation.as_deref() == Some(operation_id.as_str()) {
+            state
+                .status
+                .set(format!("starting {program}…"), StatusTone::Progress);
+            return vec![Effect::RunInteractiveTerminal {
+                program: program.clone(),
+                args: args.clone(),
+                record_alias: record_alias.clone(),
+                operation_id: operation_id.clone(),
+            }];
+        }
+    }
     if let Event::DiagnosticRaised { diagnostic } = &event {
         let settings_conflict =
             diagnostic.get("settings_update").and_then(|v| v.as_str()) == Some("failed");

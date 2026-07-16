@@ -10,11 +10,23 @@ pub enum ClockError {
 pub trait ClockPort: Send + Sync {
     /// Returns `YYYY-MM-DD` in the local timezone, or an error (never a silent epoch fallback).
     fn today_ymd(&self) -> Result<String, ClockError>;
+    /// Returns an RFC3339 UTC timestamp for connection metadata.
+    fn now_rfc3339(&self) -> Result<String, ClockError>;
 }
 
 /// Fixed date for tests.
 pub struct FixedClock {
     pub ymd: String,
+    pub now: String,
+}
+
+impl FixedClock {
+    pub fn new(ymd: &str, now: &str) -> Self {
+        Self {
+            ymd: ymd.into(),
+            now: now.into(),
+        }
+    }
 }
 
 impl ClockPort for FixedClock {
@@ -27,5 +39,15 @@ impl ClockPort for FixedClock {
                 self.ymd
             )))
         }
+    }
+
+    fn now_rfc3339(&self) -> Result<String, ClockError> {
+        if !self.now.is_empty() {
+            return Ok(self.now.clone());
+        }
+        if self.ymd.len() == 10 {
+            return Ok(format!("{}T00:00:00Z", self.ymd));
+        }
+        Err(ClockError::Unavailable("fixed clock now unset".into()))
     }
 }

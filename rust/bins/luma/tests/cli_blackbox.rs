@@ -679,3 +679,43 @@ fn records_rollback_does_not_touch_unrelated_support_files() {
         b"clipboard sentinel"
     );
 }
+
+#[test]
+fn ssh_query_not_configured_without_ssh_config() {
+    let dir = tempdir().unwrap();
+    let support = dir.path().join("support");
+    let logs = dir.path().join("logs");
+    fs::create_dir_all(&support).unwrap();
+    fs::create_dir_all(&logs).unwrap();
+    let (code, stdout, stderr) = run_luma(&support, &logs, &["query", "ssh", "--json"]);
+    assert_eq!(code, 0, "stderr={stderr}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    let results = v["results"].as_array().expect("results");
+    assert!(
+        results.iter().any(|r| r["kind"] == "not_configured"),
+        "expected not_configured row: {stdout}"
+    );
+    let blob = stdout.to_lowercase();
+    assert!(!blob.contains("-----begin"));
+    assert!(!blob.contains("private-key"));
+}
+
+#[test]
+fn modules_list_includes_ssh() {
+    let dir = tempdir().unwrap();
+    let support = dir.path().join("support");
+    let logs = dir.path().join("logs");
+    fs::create_dir_all(&support).unwrap();
+    fs::create_dir_all(&logs).unwrap();
+    let (code, stdout, stderr) = run_luma(&support, &logs, &["modules", "list", "--json"]);
+    assert_eq!(code, 0, "stderr={stderr}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert!(
+        v["modules"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|m| m["id"] == "luma.ssh"),
+        "expected luma.ssh in modules list: {stdout}"
+    );
+}

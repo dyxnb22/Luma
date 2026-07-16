@@ -9,6 +9,10 @@ impl ClockPort for MacClock {
     fn today_ymd(&self) -> Result<String, ClockError> {
         today_ymd_local()
     }
+
+    fn now_rfc3339(&self) -> Result<String, ClockError> {
+        now_rfc3339_utc()
+    }
 }
 
 #[cfg(unix)]
@@ -64,6 +68,11 @@ fn format_local_date(year: i32, month: i32, day: i32) -> Result<String, ClockErr
         )));
     }
     Ok(format!("{year:04}-{month:02}-{day:02}"))
+}
+
+fn now_rfc3339_utc() -> Result<String, ClockError> {
+    use chrono::Utc;
+    Ok(Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string())
 }
 
 #[cfg(test)]

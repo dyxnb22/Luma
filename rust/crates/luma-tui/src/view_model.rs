@@ -1252,6 +1252,7 @@ fn status_tone_for_outcome(outcome: &ActionOutcomeDto) -> StatusTone {
         ActionOutcomeDto::Cancelled => StatusTone::Warning,
         ActionOutcomeDto::Failed { kind, .. } => status_tone_for_failure(kind),
         ActionOutcomeDto::InteractiveRecipeRun { .. } => StatusTone::Progress,
+        ActionOutcomeDto::InteractiveTerminal { .. } => StatusTone::Progress,
     }
 }
 

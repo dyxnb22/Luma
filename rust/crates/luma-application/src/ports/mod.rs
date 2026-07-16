@@ -25,6 +25,8 @@ mod records_repo;
 mod settings;
 mod snippets_repo;
 mod speech;
+mod ssh_config;
+mod ssh_meta_repo;
 mod system_proxy;
 mod window;
 mod wordbook_repo;
@@ -45,8 +47,9 @@ pub use fake_recipe_environment::FakeRecipeEnvironment;
 pub use keychain::{FakeKeychain, KeychainError, KeychainPort, SecretLabel};
 pub use markdown_watch::{FakeMarkdownWatcher, MarkdownWatchPort};
 pub use memory_repos::{
-    MemoryClipboardHistory, MemoryNotesIndex, MemoryQuicklinksRepository, MemoryRecordsRepository,
-    MemorySnippetsRepository, MemoryWordbookRepository,
+    FakeSshConfigPort, MemoryClipboardHistory, MemoryNotesIndex, MemoryQuicklinksRepository,
+    MemoryRecordsRepository, MemorySnippetsRepository, MemorySshMetaRepository,
+    MemoryWordbookRepository,
 };
 pub use notes_repo::{
     NotesDocument, NotesIndexError, NotesIndexRepository, NotesIssue, NotesLink, NotesScanReport,
@@ -81,6 +84,11 @@ pub use records_repo::{
 pub use settings::{AppSettings, SettingsError, SettingsRepository};
 pub use snippets_repo::{SnippetEntry, SnippetsRepoError, SnippetsRepository};
 pub use speech::{FakeSpeech, SpeechAccent, SpeechError, SpeechPort};
+pub use ssh_config::{
+    format_connection_subtitle, sanitize_identity_display, ResolvedSshHost, SshConfigError,
+    SshConfigPort, SshConfigState,
+};
+pub use ssh_meta_repo::{SshHostMeta, SshMetaRepoError, SshMetaRepository};
 pub use system_proxy::{
     FakeSystemProxy, SystemProxyError, SystemProxyPort, SystemProxySetting, SystemProxyStatus,
 };

@@ -18,6 +18,13 @@ cargo run -p luma -- query "win" --json
 cargo run -p luma -- query "cmd test" --json
 cargo run -p luma -- cmd list --json
 cargo run -p luma -- cmd show git-status --json
+cargo run -p luma -- query "ssh production" --json
+cargo run -p luma -- ssh list --json
+cargo run -p luma -- ssh connect production
+cargo run -p luma -- ssh sftp production
+cargo run -p luma -- ssh favorite production
+cargo run -p luma -- ssh unfavorite production
+cargo run -p luma -- ssh rename production "Prod server"
 printf '%s' 'secret' | cargo run -p luma -- secrets set my-label
 cargo run -p luma -- modules list --json
 cargo run -p luma -- config get --json
@@ -46,6 +53,7 @@ Optional local hygiene: `bash scripts/check_architecture.sh`.
 
 See [`docs/MODULES.md`](docs/MODULES.md) for module status.
 See [`docs/COMMAND_RECIPES.md`](docs/COMMAND_RECIPES.md) for command templates, TOML config, and safety.
+See [`docs/SSH.md`](docs/SSH.md) for SSH Connections (`~/.ssh/config` launcher, metadata, CLI).
 See [`docs/PROXY.md`](docs/PROXY.md) for Mihomo/Clash Verge Profile behavior, safety boundaries,
 supported subscription formats, and rollback semantics.
 
@@ -53,10 +61,11 @@ supported subscription formats, and rollback semantics.
 
 | Path | Role |
 | --- | --- |
-| `~/Library/Application Support/LumaNext/` | Active settings / stores |
+| `~/Library/Application Support/LumaNext/` | Active settings / stores (`ssh_meta.sqlite`, clipboard, records, …) |
 | `~/Library/Application Support/LumaNext/command-recipes.toml` | User command recipe definitions |
 | `~/Library/Application Support/LumaNext/command-recipes-meta.sqlite` | Recipe favorites / usage metadata |
 | `~/Library/Logs/LumaNext/` | Logs |
+| `~/.ssh/config` | OpenSSH Host aliases — read by `luma.ssh` only (not modified) |
 
 Tests must use tempfile + `LUMA_NEXT_SUPPORT_DIR` / `LUMA_NEXT_LOGS_DIR`.
 
@@ -70,6 +79,7 @@ backup, and migration ledger, never the Markdown source files.
 - `wb due`, `wb new`, `wb wrong`: normal lists. `wb review due|new|wrong`: Enter/Space reveals, `1/2/3` grades, `m` masters after confirmation, `s` skips, Esc exits. `wb import PATH` accepts a regular non-symlink UTF-8 CSV up to 512 KiB.
 - `rec`: searches Records. Use `rec browse`, `rec add CATEGORY NAME | rating | note`, `rec rate ID SCORE`, and `rec note ID TEXT`.
 - `proj`: plain search shows only manually imported projects. Use `proj add/import PATH`, `proj remove NAME|PATH`, and `proj browse`.
+- `ssh`: lists Host aliases from `~/.ssh/config`; Enter runs `ssh <alias>` in the current terminal (TUI suspends first); `ssh fav` / `ssh recent` / `ssh rename ALIAS NAME` / `ssh reload`; action picker: Open SFTP, Copy alias, Favorite/Unfavorite, Delete local metadata. See [`docs/SSH.md`](docs/SSH.md).
 - There is no `luma doctor`, `:doctor`, or diagnostics overlay. Modules report `permission`, `unavailable`, or `not_configured` locally when applicable.
 
 Optional importers: `luma migrate …` with an explicit legacy path (dry-run by default).

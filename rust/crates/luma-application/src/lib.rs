@@ -2,6 +2,7 @@
 
 mod adapters;
 mod engine;
+mod interactive_terminal;
 mod module;
 mod paste;
 mod port;
@@ -11,9 +12,14 @@ mod registry;
 pub use adapters::{
     MemoryCommandRecipesRepository, SqliteClipboardHistory, SqliteCommandRecipesRepository,
     SqliteNotesIndex, SqliteQuicklinksRepository, SqliteRecordsRepository,
-    SqliteSnippetsRepository, SqliteWordbookRepository, TomlSettingsRepository,
+    SqliteSnippetsRepository, SqliteSshMetaRepository, SqliteWordbookRepository,
+    TomlSettingsRepository,
 };
 pub use engine::{list_modules_json, run_action, run_query, Engine, EngineOptions};
+pub use interactive_terminal::{
+    run_interactive_terminal, sftp_args, ssh_connect_args, InteractiveTerminalError,
+    InteractiveTerminalRequest,
+};
 pub use luma_storage::ImportedProject;
 pub use module::{
     ActionOutcome, ActionRequest, HubWindowRow, HubWindowsSlice, HubWindowsStatus, LumaModule,
@@ -22,18 +28,19 @@ pub use module::{
 pub use paste::{paste_to_target_app, AX_PASTE_TIMEOUT, NO_PASTE_TARGET_REASON};
 pub use port::EnginePort;
 pub use ports::{
-    filter_env_output, is_filtered_env_step, looks_secret, recipe_in_scope, recipe_runnable,
-    resolve_steps, select_best_variant, AccessibilityError, AccessibilityPort, AppEntry,
-    AppLaunchError, AppSettings, AppsCatalogPort, BoundedUtf8FileReadError,
-    BoundedUtf8FileReaderPort, CapabilityPort, ClipboardEntry, ClipboardHistoryRepository,
-    ClipboardRepoError, ClockError, ClockPort, CommandRecipesRepoError, CommandRecipesRepository,
-    CommandRunnerPort, ContentImportReport, ExternalControllerStatus, FakeAccessibility,
-    FakeBoundedUtf8FileReader, FakeCapabilities, FakeCommandRunner, FakeKeychain,
-    FakeMarkdownWatcher, FakeNotesWorkspace, FakeOpenPath, FakePasteboard, FakeProjectWorkspace,
-    FakeProxyCore, FakeRecipeEnvironment, FakeSpeech, FakeSystemProxy, FakeWindowCatalog,
-    FixedClock, KeychainError, KeychainPort, MarkdownWatchPort, MemoryClipboardHistory,
-    MemoryNotesIndex, MemoryQuicklinksRepository, MemoryRecordsRepository,
-    MemorySnippetsRepository, MemoryWordbookRepository, NotesDirectoryEntry,
+    filter_env_output, format_connection_subtitle, is_filtered_env_step, looks_secret,
+    recipe_in_scope, recipe_runnable, resolve_steps, sanitize_identity_display,
+    select_best_variant, AccessibilityError, AccessibilityPort, AppEntry, AppLaunchError,
+    AppSettings, AppsCatalogPort, BoundedUtf8FileReadError, BoundedUtf8FileReaderPort,
+    CapabilityPort, ClipboardEntry, ClipboardHistoryRepository, ClipboardRepoError, ClockError,
+    ClockPort, CommandRecipesRepoError, CommandRecipesRepository, CommandRunnerPort,
+    ContentImportReport, ExternalControllerStatus, FakeAccessibility, FakeBoundedUtf8FileReader,
+    FakeCapabilities, FakeCommandRunner, FakeKeychain, FakeMarkdownWatcher, FakeNotesWorkspace,
+    FakeOpenPath, FakePasteboard, FakeProjectWorkspace, FakeProxyCore, FakeRecipeEnvironment,
+    FakeSpeech, FakeSshConfigPort, FakeSystemProxy, FakeWindowCatalog, FixedClock, KeychainError,
+    KeychainPort, MarkdownWatchPort, MemoryClipboardHistory, MemoryNotesIndex,
+    MemoryQuicklinksRepository, MemoryRecordsRepository, MemorySnippetsRepository,
+    MemorySshMetaRepository, MemoryWordbookRepository, NotesDirectoryEntry,
     NotesDirectoryEntryKind, NotesDirectoryListing, NotesDocument, NotesIndexError,
     NotesIndexRepository, NotesIssue, NotesLink, NotesScanReport, NotesScanStatusView,
     NotesSearchHit, NotesWorkspaceError, NotesWorkspacePath, NotesWorkspacePort,
@@ -44,10 +51,11 @@ pub use ports::{
     ProxyPorts, ProxyStatus, QuicklinkEntry, QuicklinksRepoError, QuicklinksRepository,
     RecipeEnvironmentError, RecipeEnvironmentPort, RecordCategory, RecordEntry,
     RecordImportPreviewView, RecordImportReportView, RecordsRepoError, RecordsRepository,
-    RecordsStatsView, SecretLabel, SettingsError, SettingsRepository, SnippetEntry,
-    SnippetsRepoError, SnippetsRepository, SpeechAccent, SpeechError, SpeechPort, SystemProxyError,
-    SystemProxyPort, SystemProxySetting, SystemProxyStatus, WindowCatalogPort, WindowEntry,
-    WindowError, WordContentInput, WordEntry, WordbookRepoError, WordbookRepository,
-    WordbookStatsView,
+    RecordsStatsView, ResolvedSshHost, SecretLabel, SettingsError, SettingsRepository,
+    SnippetEntry, SnippetsRepoError, SnippetsRepository, SpeechAccent, SpeechError, SpeechPort,
+    SshConfigError, SshConfigPort, SshConfigState, SshHostMeta, SshMetaRepoError,
+    SshMetaRepository, SystemProxyError, SystemProxyPort, SystemProxySetting, SystemProxyStatus,
+    WindowCatalogPort, WindowEntry, WindowError, WordContentInput, WordEntry, WordbookRepoError,
+    WordbookRepository, WordbookStatsView,
 };
 pub use registry::{ModuleRegistry, RegistryError};

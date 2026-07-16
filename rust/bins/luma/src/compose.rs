@@ -7,23 +7,23 @@ use luma_application::{
     CapabilityPort, CommandRecipesRepository, ModuleRegistry, RegistryError as ModuleRegistryError,
     SettingsRepository, SqliteClipboardHistory, SqliteCommandRecipesRepository, SqliteNotesIndex,
     SqliteQuicklinksRepository, SqliteRecordsRepository, SqliteSnippetsRepository,
-    SqliteWordbookRepository, TomlSettingsRepository, WordbookRepository,
+    SqliteSshMetaRepository, SqliteWordbookRepository, TomlSettingsRepository, WordbookRepository,
 };
 use luma_modules::{
     AppsModule, ClipboardModule, ClipboardSuppression, CommandRecipesModule, FakeEchoModule,
     NotesModule, NotesServices, ProjectsModule, ProxyModule, QuicklinksModule, RecordsModule,
-    SecretsModule, SnippetsModule, WindowsModule, WordbookModule,
+    SecretsModule, SnippetsModule, SshModule, WindowsModule, WordbookModule,
 };
 use luma_platform_macos::{
     FilesystemAppsCatalog, MacAccessibility, MacBoundedUtf8FileReader, MacClock, MacKeychain,
     MacMarkdownWatcher, MacMihomoProxyCore, MacNotesWorkspace, MacOpenPath, MacPasteboard,
-    MacProfileStore, MacProjectWorkspace, MacRecipeEnvironment, MacSpeech, MacSystemProxy,
-    MacWindowCatalog,
+    MacProfileStore, MacProjectWorkspace, MacRecipeEnvironment, MacSpeech, MacSshConfig,
+    MacSystemProxy, MacWindowCatalog,
 };
 use luma_storage::{
     luma_next_support_dir, ClipboardStore, CommandRecipesMetaStore, ConfigError, ConfigStore,
     LumaSettings, NotesIndexStore, NotesScanner, QuicklinksStore, RecordsStore, SnippetsStore,
-    WordbookStore,
+    SshMetaStore, WordbookStore,
 };
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -254,6 +254,22 @@ pub fn registry_from_settings(
             reason,
         });
     }
+    let ssh_meta = match SshMetaStore::luma_next_default() {
+        Ok(s) => Some(Arc::new(s)),
+        Err(err) => {
+            warn!(%err, "failed to open ssh metadata store");
+            None
+        }
+    };
+    reg.register(Arc::new(SshModule::with_deps(
+        Arc::new(MacSshConfig::system_default()),
+        ssh_meta.map(|s| {
+            Arc::new(SqliteSshMetaRepository::new(s))
+                as Arc<dyn luma_application::SshMetaRepository>
+        }),
+        pasteboard.clone(),
+        Arc::new(MacClock),
+    )))?;
     reg.register(Arc::new(SecretsModule::with_deps(
         keychain,
         pasteboard,

@@ -11,7 +11,8 @@ and a background agent/daemon are not, unless the user explicitly changes this b
 
 1. `rust/README.md`
 2. `rust/docs/MODULES.md`
-3. `rust/docs/adr/`
+3. `rust/docs/SSH.md` (when touching `luma.ssh`)
+4. `rust/docs/adr/`
 
 ## Rules
 

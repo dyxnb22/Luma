@@ -195,6 +195,13 @@ pub enum ActionOutcomeDto {
     InteractiveRecipeRun {
         plan: Box<luma_domain::RecipeRunPlan>,
     },
+    /// TUI-owned: run program with args in the current terminal (no shell).
+    InteractiveTerminal {
+        program: String,
+        args: Vec<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        record_alias: Option<String>,
+    },
 }
 
 impl ActionOutcomeDto {
@@ -211,7 +218,12 @@ impl ActionOutcomeDto {
             }
             Self::Cancelled => "cancelled".into(),
             Self::InteractiveRecipeRun { .. } => "interactive recipe run".into(),
+            Self::InteractiveTerminal { .. } => "interactive terminal".into(),
         }
+    }
+
+    pub fn is_interactive_terminal(&self) -> bool {
+        matches!(self, Self::InteractiveTerminal { .. })
     }
 
     /// TUI status copy (prefer explicit message, else FailureKind::user_message).
@@ -233,6 +245,7 @@ impl ActionOutcomeDto {
                 .unwrap_or_else(|| kind.user_message()),
             Self::Cancelled => "Cancelled".into(),
             Self::InteractiveRecipeRun { .. } => "Running recipe…".into(),
+            Self::InteractiveTerminal { .. } => "connecting…".into(),
         }
     }
 }

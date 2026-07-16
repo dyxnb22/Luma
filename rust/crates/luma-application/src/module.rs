@@ -70,6 +70,12 @@ pub enum ActionOutcome {
         kind: FailureKind,
     },
     Cancelled,
+    /// Request TUI to run an interactive subprocess in the current terminal.
+    InteractiveTerminal {
+        program: String,
+        args: Vec<String>,
+        record_alias: Option<String>,
+    },
     /// Request a settings.toml CAS update (handled by the engine).
     SettingsMutation {
         patch: serde_json::Value,

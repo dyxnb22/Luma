@@ -15,6 +15,7 @@ mod project_workspace;
 mod proxy_core;
 mod recipe_environment;
 mod speech;
+mod ssh_config;
 mod system_proxy;
 mod window;
 
@@ -33,5 +34,6 @@ pub use project_workspace::MacProjectWorkspace;
 pub use proxy_core::MacMihomoProxyCore;
 pub use recipe_environment::{MacCommandRunner, MacRecipeEnvironment};
 pub use speech::MacSpeech;
+pub use ssh_config::MacSshConfig;
 pub use system_proxy::MacSystemProxy;
 pub use window::MacWindowCatalog;

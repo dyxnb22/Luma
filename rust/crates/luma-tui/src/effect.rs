@@ -39,6 +39,13 @@ pub enum Effect {
         result: luma_domain::RecipeRunOutcome,
         now_unix: i64,
     },
+    /// Run an interactive subprocess in the current terminal (TUI main thread only).
+    RunInteractiveTerminal {
+        program: String,
+        args: Vec<String>,
+        record_alias: Option<String>,
+        operation_id: String,
+    },
     /// No-op placeholder for redraw coalescing.
     None,
 }

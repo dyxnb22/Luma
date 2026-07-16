@@ -5,9 +5,11 @@ use crate::render::render;
 use crate::terminal::{install_panic_hook, TerminalGuard};
 use crate::view_model::{AppState, Route, StatusTone};
 use crossterm::event::{self, Event as CEvent, KeyCode, KeyEventKind, KeyModifiers};
+use luma_application::run_interactive_terminal;
 use luma_application::{CommandRunnerPort, EnginePort};
 use luma_domain::RecipeRunOutcome;
 use luma_protocol::Command;
+use std::process::ExitStatus;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio_util::sync::CancellationToken;
@@ -112,7 +114,9 @@ pub async fn run_tui_with_engine(
         for msg in msgs {
             let effects = update(&mut state, msg);
             for effect in effects {
-                dispatch_effect(engine.clone(), effect);
+                if !handle_effect_sync(engine.clone(), &mut guard, &mut state, effect.clone()) {
+                    dispatch_effect(engine.clone(), effect);
+                }
             }
         }
 
@@ -140,7 +144,7 @@ fn run_recipe_in_terminal(
     state: &mut AppState,
     plan: luma_domain::RecipeRunPlan,
 ) {
-    guard.suspend();
+    guard.suspend().ok();
     println!(
         "\n=== Recipe: {} ({}) ===",
         plan.recipe_title, plan.recipe_id
@@ -311,6 +315,114 @@ fn map_key(code: KeyCode, modifiers: KeyModifiers, state: &AppState) -> Msg {
     }
 }
 
+fn handle_effect_sync(
+    engine: Arc<dyn EnginePort>,
+    guard: &mut TerminalGuard,
+    state: &mut AppState,
+    effect: Effect,
+) -> bool {
+    match effect {
+        Effect::RunInteractiveTerminal {
+            program,
+            args,
+            record_alias,
+            operation_id,
+        } => {
+            run_interactive_terminal_effect(
+                engine,
+                guard,
+                state,
+                program,
+                args,
+                record_alias,
+                operation_id,
+            );
+            true
+        }
+        _ => false,
+    }
+}
+
+fn run_interactive_terminal_effect(
+    engine: Arc<dyn EnginePort>,
+    guard: &mut TerminalGuard,
+    state: &mut AppState,
+    program: String,
+    args: Vec<String>,
+    record_alias: Option<String>,
+    operation_id: String,
+) {
+    let resume_err = guard.suspend().err();
+    let spawn_result = if resume_err.is_none() {
+        run_interactive_terminal(&program, &args)
+    } else {
+        Err(luma_application::InteractiveTerminalError::spawn(
+            &program,
+            std::io::Error::other("failed to suspend TUI"),
+        ))
+    };
+
+    let (status, message, tone) = match spawn_result {
+        Ok(status) => interactive_status(&program, status),
+        Err(err) => (
+            None,
+            format!("failed to start {program}: {err}"),
+            StatusTone::Error,
+        ),
+    };
+
+    if let Err(err) = guard.resume() {
+        state
+            .status
+            .set(format!("failed to restore TUI: {err}"), StatusTone::Error);
+        state.dirty = true;
+    } else {
+        state.status.set(message, tone);
+        state.dirty = true;
+    }
+
+    if state.active_operation.as_deref() == Some(operation_id.as_str()) {
+        state.active_operation = None;
+    }
+
+    if let (Some(alias), Some(status)) = (record_alias, status) {
+        if status.success() {
+            if state.prompt.trim_start().starts_with("ssh") {
+                state.search_debounce_deadline = Some(std::time::Instant::now());
+            }
+            let engine_record = engine.clone();
+            tokio::spawn(async move {
+                let _ = engine_record
+                    .submit(Command::SshSessionEnded {
+                        alias,
+                        exit_code: status.code().unwrap_or(1),
+                    })
+                    .await;
+            });
+        }
+    }
+}
+
+fn interactive_status(
+    program: &str,
+    status: ExitStatus,
+) -> (Option<ExitStatus>, String, StatusTone) {
+    if status.success() {
+        (
+            Some(status),
+            format!("{program} exited"),
+            StatusTone::Success,
+        )
+    } else {
+        let code = status.code().unwrap_or(1);
+        (
+            Some(status),
+            format!("{program} exited with code {code}"),
+            StatusTone::Warning,
+        )
+    }
+}
+
 fn dispatch_effect(engine: Arc<dyn EnginePort>, effect: Effect) {
     match effect {
         Effect::Search { request_id, query } => {
@@ -422,6 +534,11 @@ fn dispatch_effect(engine: Arc<dyn EnginePort>, effect: Effect) {
             });
         }
         Effect::None => {}
+        Effect::RunInteractiveTerminal { .. } => {
+            warn!(
+                "RunInteractiveTerminal reached async dispatch — should be handled synchronously"
+            );
+        }
     }
 }
 

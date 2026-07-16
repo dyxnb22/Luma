@@ -1,6 +1,6 @@
 use luma_application::{
-    filter_env_output, ports::CommandRunnerPort, ports::PathKind, ports::RecipeEnvironmentError,
-    ports::RecipeEnvironmentPort, select_best_variant,
+    filter_env_output, is_filtered_env_step, select_best_variant, CommandRunnerPort, PathKind,
+    RecipeEnvironmentError, RecipeEnvironmentPort,
 };
 use luma_domain::{RecipeVariant, ResolvedCommandStep, StepRunResult, VariantMatch};
 use std::path::{Component, Path, PathBuf};
@@ -14,16 +14,35 @@ impl MacRecipeEnvironment {
         Self
     }
 
-    fn join_relative(base: &Path, relative: &str) -> PathBuf {
+    fn join_relative(base: &Path, relative: &str) -> Result<PathBuf, RecipeEnvironmentError> {
         let mut out = base.to_path_buf();
         for component in Path::new(relative).components() {
             match component {
                 Component::CurDir => {}
                 Component::Normal(part) => out.push(part),
-                _ => {}
+                Component::ParentDir => {
+                    return Err(RecipeEnvironmentError::msg(format!(
+                        "cwd denied (parent dir): {relative}"
+                    )));
+                }
+                Component::RootDir | Component::Prefix(_) => {
+                    return Err(RecipeEnvironmentError::msg(format!(
+                        "cwd denied (absolute): {relative}"
+                    )));
+                }
             }
         }
-        out
+        Ok(out)
+    }
+
+    fn contained_in_base(base: &Path, path: &Path) -> bool {
+        let Ok(base_canon) = std::fs::canonicalize(base) else {
+            return false;
+        };
+        let Ok(path_canon) = std::fs::canonicalize(path) else {
+            return false;
+        };
+        path_canon.starts_with(&base_canon)
     }
 
     fn safe_metadata(path: &Path, want_dir: bool) -> bool {
@@ -55,7 +74,9 @@ impl RecipeEnvironmentPort for MacRecipeEnvironment {
     }
 
     fn path_exists(&self, base: &Path, relative: &str, kind: PathKind) -> bool {
-        let path = Self::join_relative(base, relative);
+        let Ok(path) = Self::join_relative(base, relative) else {
+            return false;
+        };
         match kind {
             PathKind::File => Self::safe_metadata(&path, false),
             PathKind::Directory => Self::safe_metadata(&path, true),
@@ -81,7 +102,7 @@ impl RecipeEnvironmentPort for MacRecipeEnvironment {
         let path = if step_cwd == "current" {
             base.to_path_buf()
         } else {
-            Self::join_relative(base, step_cwd)
+            Self::join_relative(base, step_cwd)?
         };
         if std::fs::symlink_metadata(&path)
             .map(|m| m.file_type().is_symlink())
@@ -95,6 +116,12 @@ impl RecipeEnvironmentPort for MacRecipeEnvironment {
         if !path.is_dir() {
             return Err(RecipeEnvironmentError::msg(format!(
                 "cwd not found: {}",
+                path.display()
+            )));
+        }
+        if !Self::contained_in_base(base, &path) {
+            return Err(RecipeEnvironmentError::msg(format!(
+                "cwd outside project: {}",
                 path.display()
             )));
         }
@@ -117,6 +144,22 @@ impl MacCommandRunner {
     pub fn new() -> Self {
         Self
     }
+
+    fn validate_step_cwd(step: &ResolvedCommandStep) -> Result<(), String> {
+        if std::fs::symlink_metadata(&step.cwd)
+            .map(|meta| meta.file_type().is_symlink())
+            .unwrap_or(true)
+        {
+            return Err(format!("cwd denied (symlink): {}", step.cwd.display()));
+        }
+        if !step.cwd.is_dir() {
+            return Err(format!("cwd not found: {}", step.cwd.display()));
+        }
+        if !MacRecipeEnvironment::contained_in_base(&step.root, &step.cwd) {
+            return Err(format!("cwd outside project: {}", step.cwd.display()));
+        }
+        Ok(())
+    }
 }
 
 impl Default for MacCommandRunner {
@@ -136,7 +179,16 @@ impl CommandRunnerPort for MacCommandRunner {
             };
         }
 
-        if step.program == "env" && step.args.is_empty() {
+        if let Err(message) = Self::validate_step_cwd(step) {
+            return StepRunResult {
+                step_id: step.id.clone(),
+                exit_code: None,
+                started: false,
+                message: Some(message),
+            };
+        }
+
+        if is_filtered_env_step(step) {
             let mut lines = Vec::new();
             for (key, value) in std::env::vars() {
                 let line = format!("{key}={value}");

@@ -1369,6 +1369,16 @@ fn apply_engine(state: &mut AppState, event: Event) -> Vec<Effect> {
         if state.active_operation.as_deref() == Some(operation_id.as_str())
             && matches!(outcome, luma_protocol::ActionOutcomeDto::Success { .. })
             && records_query_active(&state.prompt));
+    let cmd_favorite_success = matches!(&event, Event::ActionFinished { operation_id, outcome }
+        if state.active_operation.as_deref() == Some(operation_id.as_str())
+            && matches!(
+                outcome,
+                luma_protocol::ActionOutcomeDto::Success {
+                    message: Some(message),
+                    ..
+                } if message == "favorited" || message == "unfavorited"
+            )
+            && command_recipes_query_active(&state.prompt));
     let refresh_review_stats = matches!(&event, Event::ActionFinished { outcome, .. }
         if matches!(outcome, luma_protocol::ActionOutcomeDto::Success { .. })
             && matches!(state.route, Route::WordbookReview)
@@ -1424,6 +1434,9 @@ fn apply_engine(state: &mut AppState, event: Event) -> Vec<Effect> {
     if records_mutation_success && !state.prompt.trim().is_empty() {
         return begin_search(state);
     }
+    if cmd_favorite_success && !state.prompt.trim().is_empty() {
+        return begin_search(state);
+    }
     if let Some(sel) = state.results.selected_id.as_deref() {
         let have_body =
             state.preview_result_id.as_deref() == Some(sel) && state.preview_body.is_some();
@@ -1441,6 +1454,13 @@ fn records_query_active(prompt: &str) -> bool {
     matches!(
         lower.split_whitespace().next(),
         Some("rec") | Some("record")
+    )
+}
+
+pub fn command_recipes_query_active(prompt: &str) -> bool {
+    matches!(
+        prompt.split_whitespace().next(),
+        Some("cmd") | Some("recipe") | Some("recipes")
     )
 }
 

@@ -1,17 +1,16 @@
 use crate::cancel::await_unless_cancelled;
 use async_trait::async_trait;
 use luma_application::{
-    resolve_steps, ActionOutcome, ActionRequest, CommandRecipesRepository, LumaModule,
-    ModuleManifest, ModuleState, OpenPathPort, PasteboardPort, RecipeEnvironmentPort, SearchMode,
-    SearchSink, WarmupContext,
+    recipe_in_scope, recipe_runnable, resolve_steps, ActionOutcome, ActionRequest,
+    CommandRecipesRepository, LumaModule, ModuleManifest, ModuleState, OpenPathPort,
+    PasteboardPort, RecipeEnvironmentPort, SearchMode, SearchSink, WarmupContext,
 };
 use luma_domain::{
     ActionDescriptor, ActionId, ActionRisk, FailureKind, ModuleId, Query, Recipe, RecipeMetadata,
-    RecipeRisk, RecipeRunPlan, RecipeScope, SearchItem, VariantMatch,
+    RecipeRisk, RecipeRunPlan, SearchItem, VariantMatch,
 };
 use luma_protocol::{Event, SearchItemDto};
 use std::sync::Arc;
-use tokio::sync::RwLock;
 use tokio_util::sync::CancellationToken;
 
 const MODULE_ID: &str = "luma.command_recipes";
@@ -22,7 +21,6 @@ pub struct CommandRecipesModule {
     env: Arc<dyn RecipeEnvironmentPort>,
     pasteboard: Arc<dyn PasteboardPort>,
     opener: Arc<dyn OpenPathPort>,
-    catalog_error: RwLock<Option<String>>,
 }
 
 impl CommandRecipesModule {
@@ -51,24 +49,11 @@ impl CommandRecipesModule {
             env,
             pasteboard,
             opener,
-            catalog_error: RwLock::new(None),
         }
     }
 
-    async fn refresh_catalog(&self) -> luma_domain::RecipeCatalog {
-        let catalog = self.repo.load_catalog();
-        if catalog.issues.is_empty() {
-            *self.catalog_error.write().await = None;
-        } else {
-            let msg = catalog
-                .issues
-                .iter()
-                .map(|i| format!("{}: {}", i.location, i.message))
-                .collect::<Vec<_>>()
-                .join(" · ");
-            *self.catalog_error.write().await = Some(msg);
-        }
-        catalog
+    fn refresh_catalog(&self) -> luma_domain::RecipeCatalog {
+        self.repo.load_catalog()
     }
 
     fn recipe_id_from_result(result_id: &str) -> Option<String> {
@@ -84,11 +69,7 @@ impl CommandRecipesModule {
     }
 
     fn scope_visible(&self, recipe: &Recipe, base: &std::path::Path) -> bool {
-        match recipe.scope {
-            RecipeScope::Global => true,
-            RecipeScope::CurrentProject => true,
-            RecipeScope::LumaRepository => self.env.is_luma_repository(base),
-        }
+        recipe_in_scope(self.env.as_ref(), base, &recipe.scope)
     }
 
     fn format_subtitle(
@@ -158,6 +139,12 @@ impl CommandRecipesModule {
                 reason: e.0,
                 retryable: false,
             })?;
+        recipe_runnable(self.env.as_ref(), &base, recipe).map_err(|message| {
+            FailureKind::InvalidInput {
+                field: "recipe".into(),
+                message,
+            }
+        })?;
         let variant = match self.env.match_variant(&base, &recipe.variants) {
             VariantMatch::Matched(v) => v,
             VariantMatch::NoMatch => {
@@ -237,7 +224,7 @@ impl LumaModule for CommandRecipesModule {
     }
 
     async fn warmup(&self, ctx: WarmupContext) -> ModuleState {
-        if await_unless_cancelled(&ctx.cancel, self.refresh_catalog())
+        if await_unless_cancelled(&ctx.cancel, async { self.refresh_catalog() })
             .await
             .is_none()
         {
@@ -250,12 +237,12 @@ impl LumaModule for CommandRecipesModule {
         if cancel.is_cancelled() {
             return;
         }
-        let catalog = self.refresh_catalog().await;
+        let catalog = self.refresh_catalog();
         if cancel.is_cancelled() {
             return;
         }
 
-        if !catalog.issues.is_empty() {
+        if catalog.has_fatal_issues() {
             let issue = catalog.issues.first().cloned();
             let subtitle = issue
                 .as_ref()
@@ -323,13 +310,9 @@ impl LumaModule for CommandRecipesModule {
             if !filter.is_empty() && score < 60.0 {
                 continue;
             }
-            let matched = matches!(
-                self.env.match_variant(&base, &recipe.variants),
-                VariantMatch::Matched(_)
-            );
-            let variant_id = match self.env.match_variant(&base, &recipe.variants) {
-                VariantMatch::Matched(v) => Some(v.id.clone()),
-                VariantMatch::NoMatch => None,
+            let (matched, variant_id) = match self.env.match_variant(&base, &recipe.variants) {
+                VariantMatch::Matched(v) => (true, Some(v.id.clone())),
+                VariantMatch::NoMatch => (false, None),
             };
             let kind = if matched { "recipe" } else { "no_match" };
             let primary = ActionDescriptor {
@@ -370,6 +353,26 @@ impl LumaModule for CommandRecipesModule {
                 .unwrap_or(std::cmp::Ordering::Equal)
         });
 
+        let warnings: Vec<_> = catalog.warnings().cloned().collect();
+        if !warnings.is_empty() {
+            let subtitle = warnings
+                .iter()
+                .map(|issue| format!("{}: {}", issue.location, issue.message))
+                .collect::<Vec<_>>()
+                .join(" · ");
+            upserts.push(SearchItemDto {
+                id: "cmd:config-warning".into(),
+                module_id: MODULE_ID.into(),
+                title: "Command Recipes config warning".into(),
+                subtitle: Some(subtitle),
+                kind: "warning".into(),
+                score: 1.0,
+                primary_action_id: "noop".into(),
+                primary_action_label: "Warning".into(),
+                ..Default::default()
+            });
+        }
+
         let _ = sink
             .send(Event::ResultsChunk {
                 request_id: String::new(),
@@ -396,12 +399,13 @@ impl LumaModule for CommandRecipesModule {
         let Some(recipe) = catalog.recipe_by_id(&recipe_id) else {
             return vec![];
         };
-        let matched = result
-            .action_payload
-            .as_ref()
-            .and_then(|p| p.get("matched"))
-            .and_then(|v| v.as_bool())
-            .unwrap_or(false);
+        let matched = match self.env.working_directory() {
+            Ok(base) => matches!(
+                self.env.match_variant(&base, &recipe.variants),
+                VariantMatch::Matched(_)
+            ),
+            Err(_) => false,
+        };
         let meta = self.repo.get_metadata(&recipe_id).unwrap_or_default();
         let run_risk = Self::risk_to_action(&recipe.risk);
         let mut actions = vec![
@@ -667,6 +671,7 @@ mod tests {
                 program: "cargo".into(),
                 args: vec!["test".into()],
                 cwd: PathBuf::from("/tmp"),
+                root: PathBuf::from("/tmp"),
                 continue_on_error: false,
             }],
         };

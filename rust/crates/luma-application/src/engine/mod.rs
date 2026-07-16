@@ -430,7 +430,13 @@ impl Engine {
                 now_unix,
             } => {
                 if let Some(repo) = &self.command_recipes {
-                    let _ = repo.record_run(&recipe_id, result, now_unix);
+                    if let Err(err) = repo.record_run(&recipe_id, result, now_unix) {
+                        warn!(
+                            recipe_id = %recipe_id,
+                            error = %err,
+                            "failed to record recipe run"
+                        );
+                    }
                 }
             }
             Command::RefreshWordbookReviewStats => {

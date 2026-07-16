@@ -1,6 +1,6 @@
 use crate::effect::Effect;
 use crate::msg::Msg;
-use crate::reducer::update;
+use crate::reducer::{command_recipes_query_active, update};
 use crate::render::render;
 use crate::terminal::{install_panic_hook, TerminalGuard};
 use crate::view_model::{AppState, Route, StatusTone};
@@ -47,6 +47,12 @@ pub async fn run_tui_with_engine(
                 &mut state,
                 plan,
             );
+            if command_recipes_query_active(&state.prompt) && !state.prompt.trim().is_empty() {
+                let effects = update(&mut state, Msg::FlushSearch);
+                for effect in effects {
+                    dispatch_effect(engine.clone(), effect);
+                }
+            }
         }
 
         if state.dirty {
@@ -162,7 +168,11 @@ fn run_recipe_in_terminal(
                 outcome = RecipeRunOutcome::Failed;
                 break;
             }
-        } else if !result.started {
+        } else if result.started {
+            println!("exit code: (signal)");
+            outcome = RecipeRunOutcome::Failed;
+            break;
+        } else {
             println!(
                 "failed to start: {}",
                 result.message.unwrap_or_else(|| "unknown error".into())

@@ -79,10 +79,40 @@ pub fn resolve_steps(
                 program: step.program.clone(),
                 args: step.args.clone(),
                 cwd: env.resolve_cwd(base, &step.cwd)?,
+                root: base.to_path_buf(),
                 continue_on_error: step.continue_on_error,
             })
         })
         .collect()
+}
+
+pub fn recipe_in_scope(
+    env: &dyn RecipeEnvironmentPort,
+    base: &Path,
+    scope: &luma_domain::RecipeScope,
+) -> bool {
+    use luma_domain::RecipeScope;
+    match scope {
+        RecipeScope::Global | RecipeScope::CurrentProject => true,
+        RecipeScope::LumaRepository => env.is_luma_repository(base),
+    }
+}
+
+pub fn recipe_runnable(
+    env: &dyn RecipeEnvironmentPort,
+    base: &Path,
+    recipe: &luma_domain::Recipe,
+) -> Result<(), String> {
+    if !recipe.enabled {
+        return Err(format!("recipe `{}` is disabled", recipe.id));
+    }
+    if !recipe_in_scope(env, base, &recipe.scope) {
+        return Err(format!(
+            "recipe `{}` is not in scope for this directory",
+            recipe.id
+        ));
+    }
+    Ok(())
 }
 
 pub trait CommandRunnerPort: Send + Sync {

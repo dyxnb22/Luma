@@ -30,13 +30,33 @@ fn recipe(
     scope: RecipeScope,
     variants: Vec<RecipeVariant>,
 ) -> Recipe {
+    recipe_with_risk(
+        id,
+        title,
+        description,
+        tags,
+        scope,
+        RecipeRisk::Safe,
+        variants,
+    )
+}
+
+fn recipe_with_risk(
+    id: &str,
+    title: &str,
+    description: &str,
+    tags: &[&str],
+    scope: RecipeScope,
+    risk: RecipeRisk,
+    variants: Vec<RecipeVariant>,
+) -> Recipe {
     Recipe {
         id: id.into(),
         title: title.into(),
         description: description.into(),
         tags: tags.iter().map(|t| (*t).to_string()).collect(),
         scope,
-        risk: RecipeRisk::Safe,
+        risk,
         variants,
         enabled: true,
     }
@@ -395,12 +415,13 @@ pub fn builtin_recipes() -> Vec<Recipe> {
                 "git root",
             )],
         ),
-        recipe(
+        recipe_with_risk(
             "show-env",
             "Show environment",
             "Print env vars (secrets redacted)",
             &["dev", "env"],
             RecipeScope::Global,
+            RecipeRisk::Confirm,
             vec![RecipeVariant {
                 id: "env".into(),
                 description: "Print environment".into(),

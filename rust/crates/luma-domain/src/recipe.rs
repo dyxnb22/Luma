@@ -20,6 +20,17 @@ impl RecipeRisk {
         }
     }
 
+    /// Pick the more conservative risk level (Destructive > Confirm > Safe).
+    pub fn max(a: Self, b: Self) -> Self {
+        if matches!(a, Self::Destructive) || matches!(b, Self::Destructive) {
+            Self::Destructive
+        } else if matches!(a, Self::Confirm) || matches!(b, Self::Confirm) {
+            Self::Confirm
+        } else {
+            Self::Safe
+        }
+    }
+
     pub fn as_str(&self) -> &'static str {
         match self {
             Self::Safe => "safe",
@@ -135,6 +146,8 @@ pub struct ResolvedCommandStep {
     pub program: String,
     pub args: Vec<String>,
     pub cwd: PathBuf,
+    /// Project root used to validate cwd containment at execution time.
+    pub root: PathBuf,
     pub continue_on_error: bool,
 }
 
@@ -159,6 +172,8 @@ pub enum VariantMatch {
 pub struct ConfigIssue {
     pub location: String,
     pub message: String,
+    /// When true, the module cannot load user config at all (parse/read failure).
+    pub fatal: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Default)]
@@ -171,6 +186,14 @@ pub struct RecipeCatalog {
 impl RecipeCatalog {
     pub fn recipe_by_id(&self, id: &str) -> Option<&Recipe> {
         self.recipes.iter().find(|r| r.id == id)
+    }
+
+    pub fn has_fatal_issues(&self) -> bool {
+        self.issues.iter().any(|issue| issue.fatal)
+    }
+
+    pub fn warnings(&self) -> impl Iterator<Item = &ConfigIssue> {
+        self.issues.iter().filter(|issue| !issue.fatal)
     }
 }
 

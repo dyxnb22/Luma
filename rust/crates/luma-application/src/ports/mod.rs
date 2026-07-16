@@ -40,7 +40,7 @@ pub use clipboard_repo::{
 };
 pub use clock::{ClockError, ClockPort, FixedClock};
 pub use command_recipes_repo::{CommandRecipesRepoError, CommandRecipesRepository};
-pub use command_runner::{filter_env_output, FakeCommandRunner};
+pub use command_runner::{filter_env_output, is_filtered_env_step, FakeCommandRunner};
 pub use fake_recipe_environment::FakeRecipeEnvironment;
 pub use keychain::{FakeKeychain, KeychainError, KeychainPort, SecretLabel};
 pub use markdown_watch::{FakeMarkdownWatcher, MarkdownWatchPort};
@@ -71,8 +71,8 @@ pub use proxy_core::{
 };
 pub use quicklinks_repo::{QuicklinkEntry, QuicklinksRepoError, QuicklinksRepository};
 pub use recipe_environment::{
-    resolve_steps, select_best_variant, CommandRunnerPort, PathKind, RecipeEnvironmentError,
-    RecipeEnvironmentPort,
+    recipe_in_scope, recipe_runnable, resolve_steps, select_best_variant, CommandRunnerPort,
+    PathKind, RecipeEnvironmentError, RecipeEnvironmentPort,
 };
 pub use records_repo::{
     RecordCategory, RecordEntry, RecordImportPreviewView, RecordImportReportView, RecordsRepoError,

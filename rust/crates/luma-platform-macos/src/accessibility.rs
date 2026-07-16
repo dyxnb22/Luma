@@ -11,11 +11,13 @@ pub use luma_application::{
 /// Live macOS adapter using ApplicationServices + CoreGraphics.
 pub struct MacAccessibility;
 
+#[cfg(target_os = "macos")]
 #[link(name = "ApplicationServices", kind = "framework")]
 extern "C" {
     fn AXIsProcessTrusted() -> bool;
 }
 
+#[cfg(target_os = "macos")]
 #[link(name = "CoreGraphics", kind = "framework")]
 extern "C" {
     fn CGEventCreateKeyboardEvent(
@@ -27,6 +29,7 @@ extern "C" {
     fn CGEventPost(tap: u32, event: *mut c_void);
 }
 
+#[cfg(target_os = "macos")]
 #[link(name = "CoreFoundation", kind = "framework")]
 extern "C" {
     fn CFRelease(cf: *const c_void);
@@ -39,34 +42,50 @@ const KEYCODE_V: u16 = 9;
 impl MacAccessibility {
     /// SAFETY: `AXIsProcessTrusted` is a pure query with no pointer args.
     pub fn probe_trusted() -> bool {
-        unsafe { AXIsProcessTrusted() }
+        #[cfg(target_os = "macos")]
+        {
+            return unsafe { AXIsProcessTrusted() };
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            false
+        }
     }
 
     fn synthesize_cmd_v() -> Result<(), AccessibilityError> {
-        // SAFETY: CGEventCreateKeyboardEvent returns a retained CF object or null.
-        // We release each non-null event after posting. Flags/keycodes are constants.
-        unsafe {
-            let down = CGEventCreateKeyboardEvent(std::ptr::null(), KEYCODE_V, true);
-            let up = CGEventCreateKeyboardEvent(std::ptr::null(), KEYCODE_V, false);
-            if down.is_null() || up.is_null() {
-                if !down.is_null() {
-                    CFRelease(down);
-                }
-                if !up.is_null() {
-                    CFRelease(up);
-                }
-                return Err(AccessibilityError::PasteFailed(
-                    "CGEventCreateKeyboardEvent returned null".into(),
-                ));
-            }
-            CGEventSetFlags(down, K_CG_EVENT_FLAG_MASK_COMMAND);
-            CGEventSetFlags(up, K_CG_EVENT_FLAG_MASK_COMMAND);
-            CGEventPost(K_CG_HID_EVENT_TAP, down);
-            CGEventPost(K_CG_HID_EVENT_TAP, up);
-            CFRelease(down);
-            CFRelease(up);
+        #[cfg(not(target_os = "macos"))]
+        {
+            return Err(AccessibilityError::PasteFailed(
+                "macOS accessibility APIs are unavailable on this platform".into(),
+            ));
         }
-        Ok(())
+        #[cfg(target_os = "macos")]
+        {
+            // SAFETY: CGEventCreateKeyboardEvent returns a retained CF object or null.
+            // We release each non-null event after posting. Flags/keycodes are constants.
+            unsafe {
+                let down = CGEventCreateKeyboardEvent(std::ptr::null(), KEYCODE_V, true);
+                let up = CGEventCreateKeyboardEvent(std::ptr::null(), KEYCODE_V, false);
+                if down.is_null() || up.is_null() {
+                    if !down.is_null() {
+                        CFRelease(down);
+                    }
+                    if !up.is_null() {
+                        CFRelease(up);
+                    }
+                    return Err(AccessibilityError::PasteFailed(
+                        "CGEventCreateKeyboardEvent returned null".into(),
+                    ));
+                }
+                CGEventSetFlags(down, K_CG_EVENT_FLAG_MASK_COMMAND);
+                CGEventSetFlags(up, K_CG_EVENT_FLAG_MASK_COMMAND);
+                CGEventPost(K_CG_HID_EVENT_TAP, down);
+                CGEventPost(K_CG_HID_EVENT_TAP, up);
+                CFRelease(down);
+                CFRelease(up);
+            }
+            Ok(())
+        }
     }
 }
 

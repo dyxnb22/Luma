@@ -13,6 +13,14 @@ impl ClockPort for MacClock {
     fn now_rfc3339(&self) -> Result<String, ClockError> {
         now_rfc3339_utc()
     }
+
+    fn now_unix_ms(&self) -> Result<i64, ClockError> {
+        use std::time::{SystemTime, UNIX_EPOCH};
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_millis() as i64)
+            .map_err(|e| ClockError::Unavailable(e.to_string()))
+    }
 }
 
 #[cfg(unix)]

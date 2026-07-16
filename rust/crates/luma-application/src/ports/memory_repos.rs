@@ -5,12 +5,13 @@ use crate::ports::{
     RecordCategory, RecordEntry, RecordImportPreviewView, RecordImportReportView, RecordsRepoError,
     RecordsRepository, RecordsStatsView, ResolvedSshHost, SnippetEntry, SnippetsRepoError,
     SnippetsRepository, SshConfigError, SshConfigPort, SshConfigState, SshHostMeta,
-    SshMetaRepoError, SshMetaRepository, WordContentInput, WordEntry, WordbookRepoError,
-    WordbookRepository, WordbookStatsView,
+    SshMetaRepoError, SshMetaRepository, TimerEntry, TimersRepoError, TimersRepository,
+    WordContentInput, WordEntry, WordbookRepoError, WordbookRepository, WordbookStatsView,
 };
 use async_trait::async_trait;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
 
 /// In-memory clipboard history for module tests (no SQLite).
@@ -1148,5 +1149,64 @@ impl SshMetaRepository for MemorySshMetaRepository {
     fn delete(&self, alias: &str) -> Result<(), SshMetaRepoError> {
         self.rows.lock().expect("lock").remove(alias);
         Ok(())
+    }
+}
+
+/// In-memory timers for module tests.
+#[derive(Default)]
+pub struct MemoryTimersRepository {
+    rows: Mutex<BTreeMap<String, TimerEntry>>,
+    next: AtomicU64,
+}
+
+impl MemoryTimersRepository {
+    pub fn new() -> Self {
+        Self::default()
+    }
+}
+
+impl TimersRepository for MemoryTimersRepository {
+    fn list(&self) -> Result<Vec<TimerEntry>, TimersRepoError> {
+        let mut rows: Vec<_> = self.rows.lock().expect("lock").values().cloned().collect();
+        rows.sort_by(|a, b| {
+            b.updated_at_ms
+                .cmp(&a.updated_at_ms)
+                .then_with(|| a.name.cmp(&b.name))
+        });
+        Ok(rows)
+    }
+
+    fn get(&self, id: &str) -> Result<Option<TimerEntry>, TimersRepoError> {
+        Ok(self.rows.lock().expect("lock").get(id).cloned())
+    }
+
+    fn insert(&self, entry: &TimerEntry) -> Result<(), TimersRepoError> {
+        self.rows
+            .lock()
+            .expect("lock")
+            .insert(entry.id.clone(), entry.clone());
+        Ok(())
+    }
+
+    fn update(&self, entry: &TimerEntry) -> Result<(), TimersRepoError> {
+        let mut rows = self.rows.lock().expect("lock");
+        if !rows.contains_key(&entry.id) {
+            return Err(TimersRepoError::msg(format!(
+                "timer not found: {}",
+                entry.id
+            )));
+        }
+        rows.insert(entry.id.clone(), entry.clone());
+        Ok(())
+    }
+
+    fn delete(&self, id: &str) -> Result<(), TimersRepoError> {
+        self.rows.lock().expect("lock").remove(id);
+        Ok(())
+    }
+
+    fn new_id(&self) -> String {
+        let n = self.next.fetch_add(1, Ordering::SeqCst) + 1;
+        format!("tm-mem-{n}")
     }
 }

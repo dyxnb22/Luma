@@ -29,6 +29,7 @@ Personal daily-driver status. Prefer honest `unavailable` / `permission_required
 | Projects | `p` / `proj` / `project` | Available — only manually imported projects appear in plain search; `proj add/import PATH`, `proj remove NAME\|PATH`, `proj browse`; canonical existing non-symlink paths, duplicate rejection, config-only removal | on |
 | Command Recipes | `cmd` / `recipe` / `recipes` | Available — semantic templates with project variants; ordered `program + args`; TUI runs in current terminal; user TOML + built-ins. See [Command Recipes](./COMMAND_RECIPES.md). | on |
 | SSH | `ssh` | Available — reads `~/.ssh/config` Host aliases; `ssh fav` / `ssh recent` / `ssh rename`; favorite/recent metadata in `ssh_meta.sqlite`; Enter connects in current terminal; SFTP + copy alias actions. See [SSH](./SSH.md). | on |
+| Timers | `tm` / `timer` / `timers` | Available — stopwatch + countdown/Pomodoro; `tm pomo [min] [name]`, `tm sw [name]`, `tm 25`; start/pause/resume/reset/delete; state in `timers.sqlite`; speech alert on completion while Luma is running (no daemon — quitting pauses running timers) | on |
 | Secrets | `sec` / `secret` / `secrets` | Copy-only for pre-provisioned labels; `luma secrets set` bootstrap; unlock is in-process UX only (no Touch ID); copy confirm | **off** (enable in Settings after bootstrap) |
 | Fake | — | Test/demo module for CLI blackbox | **off** |
 
@@ -59,6 +60,16 @@ Read-only launcher over OpenSSH — not a full SSH client:
 - **CLI:** `luma ssh list|connect|sftp|favorite|unfavorite|rename`.
 - **Search honesty:** missing config → `not_configured`; parse or `ssh` binary errors → `unavailable`. Preview never shows private key contents.
 - **Details:** [SSH.md](./SSH.md).
+
+### Timers
+
+In-session stopwatch and countdown (Pomodoro) — no background daemon:
+
+- **Store:** `~/Library/Application Support/LumaNext/timers.sqlite`
+- **Queries:** `tm ` lists timers; `tm pomo [minutes] [name]`, `tm 25`, `tm sw [name]` / `tm start [name]` create+start rows.
+- **Actions:** Start / Pause / Resume / Reset; Delete (confirm).
+- **Alerts:** speech (“… done”) when a countdown finishes **while Luma is running**. Quitting pauses running timers so elapsed time does not advance silently offline.
+- **Honesty:** store/clock failures surface as `unavailable` rows.
 
 ## Product rules
 

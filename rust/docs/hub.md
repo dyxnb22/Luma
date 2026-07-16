@@ -14,6 +14,7 @@ Empty prompt shows:
 | Wordbook | `wb due` — due words; use `wb review due` for the review session |
 | Records | `rec ` — categories or imported media records |
 | SSH | `ssh ` — Host aliases from `~/.ssh/config` |
+| Timers | `tm ` — stopwatch / Pomodoro list |
 | Secrets | `sec ` — vault labels (unlock/copy) |
 | Apps / Clipboard / Snippets / Quicklinks / Windows / Proxy | `app ` / `clip ` / `s ` / `ql ` / `win ` / `proxy ` — list dump |
 

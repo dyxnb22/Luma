@@ -28,6 +28,7 @@ mod speech;
 mod ssh_config;
 mod ssh_meta_repo;
 mod system_proxy;
+mod timers_repo;
 mod window;
 mod wordbook_repo;
 
@@ -40,7 +41,7 @@ pub use capability::{CapabilityPort, FakeCapabilities};
 pub use clipboard_repo::{
     looks_secret, ClipboardEntry, ClipboardHistoryRepository, ClipboardRepoError,
 };
-pub use clock::{ClockError, ClockPort, FixedClock};
+pub use clock::{ClockError, ClockPort, ControllableClock, FixedClock};
 pub use command_recipes_repo::{CommandRecipesRepoError, CommandRecipesRepository};
 pub use command_runner::{filter_env_output, is_filtered_env_step, FakeCommandRunner};
 pub use fake_recipe_environment::FakeRecipeEnvironment;
@@ -49,7 +50,7 @@ pub use markdown_watch::{FakeMarkdownWatcher, MarkdownWatchPort};
 pub use memory_repos::{
     FakeSshConfigPort, MemoryClipboardHistory, MemoryNotesIndex, MemoryQuicklinksRepository,
     MemoryRecordsRepository, MemorySnippetsRepository, MemorySshMetaRepository,
-    MemoryWordbookRepository,
+    MemoryTimersRepository, MemoryWordbookRepository,
 };
 pub use notes_repo::{
     NotesDocument, NotesIndexError, NotesIndexRepository, NotesIssue, NotesLink, NotesScanReport,
@@ -92,6 +93,7 @@ pub use ssh_meta_repo::{SshHostMeta, SshMetaRepoError, SshMetaRepository};
 pub use system_proxy::{
     FakeSystemProxy, SystemProxyError, SystemProxyPort, SystemProxySetting, SystemProxyStatus,
 };
+pub use timers_repo::{TimerEntry, TimersRepoError, TimersRepository};
 pub use window::{FakeWindowCatalog, WindowCatalogPort, WindowEntry, WindowError};
 pub use wordbook_repo::{
     ContentImportReport, WordContentInput, WordEntry, WordbookRepoError, WordbookRepository,

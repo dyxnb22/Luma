@@ -140,10 +140,7 @@ impl NotesModule {
             Arc::new(MemoryNotesIndex::new()),
             Arc::new(FakePasteboard::new()),
             NotesServices {
-                clock: Arc::new(FixedClock {
-                    ymd: "2026-07-13".into(),
-                    now: String::new(),
-                }),
+                clock: Arc::new(FixedClock::new("2026-07-13", "")),
                 workspace: Arc::new(FakeNotesWorkspace::new()),
             },
             Vec::new(),
@@ -163,10 +160,7 @@ impl NotesModule {
             Arc::new(MemoryNotesIndex::new()),
             Arc::new(FakePasteboard::new()),
             NotesServices {
-                clock: Arc::new(FixedClock {
-                    ymd: "2026-07-13".into(),
-                    now: String::new(),
-                }),
+                clock: Arc::new(FixedClock::new("2026-07-13", "")),
                 workspace: Arc::new(FakeNotesWorkspace::new()),
             },
             Vec::new(),
@@ -609,10 +603,7 @@ mod tests {
             index,
             Arc::new(FakePasteboard::new()),
             NotesServices {
-                clock: Arc::new(FixedClock {
-                    ymd: "2026-07-13".into(),
-                    now: String::new(),
-                }),
+                clock: Arc::new(FixedClock::new("2026-07-13", "")),
                 workspace,
             },
             Vec::new(),

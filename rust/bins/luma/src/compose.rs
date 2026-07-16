@@ -7,12 +7,13 @@ use luma_application::{
     CapabilityPort, CommandRecipesRepository, ModuleRegistry, RegistryError as ModuleRegistryError,
     SettingsRepository, SqliteClipboardHistory, SqliteCommandRecipesRepository, SqliteNotesIndex,
     SqliteQuicklinksRepository, SqliteRecordsRepository, SqliteSnippetsRepository,
-    SqliteSshMetaRepository, SqliteWordbookRepository, TomlSettingsRepository, WordbookRepository,
+    SqliteSshMetaRepository, SqliteTimersRepository, SqliteWordbookRepository,
+    TomlSettingsRepository, WordbookRepository,
 };
 use luma_modules::{
     AppsModule, ClipboardModule, ClipboardSuppression, CommandRecipesModule, FakeEchoModule,
     NotesModule, NotesServices, ProjectsModule, ProxyModule, QuicklinksModule, RecordsModule,
-    SecretsModule, SnippetsModule, SshModule, WindowsModule, WordbookModule,
+    SecretsModule, SnippetsModule, SshModule, TimersModule, WindowsModule, WordbookModule,
 };
 use luma_platform_macos::{
     FilesystemAppsCatalog, MacAccessibility, MacBoundedUtf8FileReader, MacClock, MacKeychain,
@@ -23,7 +24,7 @@ use luma_platform_macos::{
 use luma_storage::{
     luma_next_support_dir, ClipboardStore, CommandRecipesMetaStore, ConfigError, ConfigStore,
     LumaSettings, NotesIndexStore, NotesScanner, QuicklinksStore, RecordsStore, SnippetsStore,
-    SshMetaStore, WordbookStore,
+    SshMetaStore, TimersStore, WordbookStore,
 };
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -79,6 +80,7 @@ pub fn registry_from_settings(
     records: Option<Arc<RecordsStore>>,
     notes_index: Option<Arc<NotesScanner>>,
     command_recipes_meta: Option<Arc<CommandRecipesMetaStore>>,
+    timers: Option<Arc<TimersStore>>,
     support_dir: PathBuf,
 ) -> Result<(ModuleRegistry, Vec<SkippedModule>), ModuleRegistryError> {
     let notes_root = settings.notes_root.as_ref().map(PathBuf::from);
@@ -270,6 +272,20 @@ pub fn registry_from_settings(
         pasteboard.clone(),
         Arc::new(MacClock),
     )))?;
+    if let Some(timers) = timers {
+        reg.register(Arc::new(TimersModule::with_deps(
+            Arc::new(SqliteTimersRepository::new(timers)),
+            Arc::new(MacClock),
+            Arc::new(MacSpeech),
+        )))?;
+    } else {
+        let reason = "timers store unavailable".into();
+        warn!("{reason} — Timers module not registered");
+        skipped.push(SkippedModule {
+            id: "luma.timers".into(),
+            reason,
+        });
+    }
     reg.register(Arc::new(SecretsModule::with_deps(
         keychain,
         pasteboard,
@@ -360,6 +376,13 @@ pub fn load_registry_with_settings() -> Result<RegistryLoad, RegistryError> {
             None
         }
     };
+    let timers = match TimersStore::luma_next_default() {
+        Ok(s) => Some(Arc::new(s)),
+        Err(err) => {
+            warn!(%err, "failed to open timers store");
+            None
+        }
+    };
     let (registry, skipped) = registry_from_settings(
         &settings,
         clipboard.clone(),
@@ -369,6 +392,7 @@ pub fn load_registry_with_settings() -> Result<RegistryLoad, RegistryError> {
         records.clone(),
         notes_index.clone(),
         command_recipes_meta.clone(),
+        timers.clone(),
         support_dir.clone(),
     )?;
     let settings_repo: Arc<dyn SettingsRepository> = Arc::new(TomlSettingsRepository::new(store));

@@ -74,6 +74,14 @@ fn modules_list_json() {
             .any(|m| m["id"] == "luma.command_recipes"),
         "expected luma.command_recipes in modules list: {stdout}"
     );
+    assert!(
+        v["modules"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|m| m["id"] == "luma.timers"),
+        "expected luma.timers in modules list: {stdout}"
+    );
 }
 
 #[test]
@@ -717,5 +725,52 @@ fn modules_list_includes_ssh() {
             .iter()
             .any(|m| m["id"] == "luma.ssh"),
         "expected luma.ssh in modules list: {stdout}"
+    );
+}
+
+#[test]
+fn timers_query_and_start_pomodoro() {
+    let dir = tempdir().unwrap();
+    let support = dir.path().join("support");
+    let logs = dir.path().join("logs");
+    fs::create_dir_all(&support).unwrap();
+    fs::create_dir_all(&logs).unwrap();
+
+    let (code, stdout, stderr) = run_luma(&support, &logs, &["query", "tm pomo 1 focus", "--json"]);
+    assert_eq!(code, 0, "stderr={stderr}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    let results = v["results"].as_array().expect("results");
+    assert!(
+        results.iter().any(|r| {
+            r["primary_action_id"] == "create_countdown"
+                && r["title"].as_str().unwrap_or("").contains("focus")
+        }),
+        "expected create_countdown row: {stdout}"
+    );
+
+    let (code, stdout, stderr) = run_luma(
+        &support,
+        &logs,
+        &[
+            "action",
+            "run",
+            "--query",
+            "tm pomo 1 focus",
+            "--action-id",
+            "create_countdown",
+            "--json",
+        ],
+    );
+    assert_eq!(code, 0, "stderr={stderr} stdout={stdout}");
+
+    let (code, stdout, stderr) = run_luma(&support, &logs, &["query", "tm ", "--json"]);
+    assert_eq!(code, 0, "stderr={stderr}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    let results = v["results"].as_array().expect("results");
+    assert!(
+        results
+            .iter()
+            .any(|r| r["kind"] == "timer" && r["title"].as_str().unwrap_or("").contains("focus")),
+        "expected running timer row: {stdout}"
     );
 }

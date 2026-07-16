@@ -74,6 +74,14 @@ fn modules_list_json() {
             .any(|m| m["id"] == "luma.command_recipes"),
         "expected luma.command_recipes in modules list: {stdout}"
     );
+    assert!(
+        v["modules"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|m| m["id"] == "luma.resume"),
+        "expected luma.resume in modules list: {stdout}"
+    );
 }
 
 #[test]
@@ -717,5 +725,24 @@ fn modules_list_includes_ssh() {
             .iter()
             .any(|m| m["id"] == "luma.ssh"),
         "expected luma.ssh in modules list: {stdout}"
+    );
+}
+
+#[test]
+fn query_resume_empty_not_configured() {
+    let dir = tempdir().unwrap();
+    let support = dir.path().join("support");
+    let logs = dir.path().join("logs");
+    fs::create_dir_all(&support).unwrap();
+    fs::create_dir_all(&logs).unwrap();
+    let (code, stdout, stderr) = run_luma(&support, &logs, &["query", "resume", "--json"]);
+    assert_eq!(code, 0, "stderr={stderr}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    let results = v["results"].as_array().expect("results");
+    assert!(
+        results
+            .iter()
+            .any(|r| { r["kind"] == "not_configured" && r["id"].as_str() == Some("resume:empty") }),
+        "expected resume empty not_configured row: {stdout}"
     );
 }

@@ -192,8 +192,8 @@ fn parse_window_id(id: &str) -> Option<(u32, i64)> {
 }
 
 fn raise_window(app: AXUIElementRef, target: &WindowEntry) -> Result<(), WindowError> {
-    let set_front =
-        unsafe { AXUIElementSetAttributeValue(app, ax_frontmost(), kCFBooleanTrue as CFTypeRef) };
+    let true_val = cf_boolean_true();
+    let set_front = unsafe { AXUIElementSetAttributeValue(app, ax_frontmost(), true_val) };
     if set_front != 0 {
         return Err(map_ax_error(
             set_front,
@@ -400,11 +400,13 @@ const K_CG_WINDOW_LIST_EXCLUDE_DESKTOP_ELEMENTS: u32 = 1 << 4;
 const K_CF_STRING_ENCODING_UTF8: u32 = 0x0800_0100;
 const K_CF_NUMBER_SINT64_TYPE: i32 = 4;
 
+#[cfg(target_os = "macos")]
 #[link(name = "CoreGraphics", kind = "framework")]
 extern "C" {
     fn CGWindowListCopyWindowInfo(option: u32, relative_to_window: u32) -> CFArrayRef;
 }
 
+#[cfg(target_os = "macos")]
 #[link(name = "CoreFoundation", kind = "framework")]
 extern "C" {
     fn CFRelease(cf: *const c_void);
@@ -432,6 +434,7 @@ extern "C" {
     static kCFBooleanTrue: *const c_void;
 }
 
+#[cfg(target_os = "macos")]
 #[link(name = "ApplicationServices", kind = "framework")]
 extern "C" {
     fn AXIsProcessTrusted() -> bool;
@@ -447,6 +450,116 @@ extern "C" {
         value: CFTypeRef,
     ) -> AXError;
     fn AXUIElementPerformAction(element: AXUIElementRef, action: CFStringRef) -> AXError;
+}
+
+#[cfg(not(target_os = "macos"))]
+#[allow(non_snake_case)]
+mod window_ffi_stubs {
+    use super::{
+        AXError, AXUIElementRef, CFArrayRef, CFDictionaryRef, CFIndex, CFStringRef, CFTypeRef,
+    };
+    use std::ffi::c_void;
+    use std::ptr;
+
+    pub unsafe fn CGWindowListCopyWindowInfo(_option: u32, _relative_to_window: u32) -> CFArrayRef {
+        ptr::null()
+    }
+    pub unsafe fn CFRelease(_cf: *const c_void) {}
+    pub unsafe fn CFArrayGetCount(_the_array: CFArrayRef) -> CFIndex {
+        0
+    }
+    pub unsafe fn CFArrayGetValueAtIndex(_the_array: CFArrayRef, _idx: CFIndex) -> *const c_void {
+        ptr::null()
+    }
+    pub unsafe fn CFDictionaryGetValue(
+        _the_dict: CFDictionaryRef,
+        _key: *const c_void,
+    ) -> *const c_void {
+        ptr::null()
+    }
+    pub unsafe fn CFStringCreateWithCString(
+        _alloc: *const c_void,
+        _c_str: *const i8,
+        _encoding: u32,
+    ) -> CFStringRef {
+        ptr::null()
+    }
+    pub unsafe fn CFStringGetTypeID() -> usize {
+        0
+    }
+    pub unsafe fn CFGetTypeID(_cf: *const c_void) -> usize {
+        0
+    }
+    pub unsafe fn CFStringGetCStringPtr(_the_string: CFStringRef, _encoding: u32) -> *const i8 {
+        ptr::null()
+    }
+    pub unsafe fn CFStringGetLength(_the_string: CFStringRef) -> CFIndex {
+        0
+    }
+    pub unsafe fn CFStringGetMaximumSizeForEncoding(_length: CFIndex, _encoding: u32) -> CFIndex {
+        0
+    }
+    pub unsafe fn CFStringGetCString(
+        _the_string: CFStringRef,
+        _buffer: *mut i8,
+        _buffer_size: CFIndex,
+        _encoding: u32,
+    ) -> bool {
+        false
+    }
+    pub unsafe fn CFNumberGetValue(
+        _number: *const c_void,
+        _the_type: i32,
+        _value_ptr: *mut c_void,
+    ) -> bool {
+        false
+    }
+    pub unsafe fn CFBooleanGetValue(_boolean: *const c_void) -> bool {
+        false
+    }
+    pub fn k_cf_boolean_true() -> *const c_void {
+        ptr::null()
+    }
+    pub unsafe fn AXIsProcessTrusted() -> bool {
+        false
+    }
+    pub unsafe fn AXUIElementCreateApplication(_pid: i32) -> AXUIElementRef {
+        ptr::null_mut()
+    }
+    pub unsafe fn AXUIElementCopyAttributeValue(
+        _element: AXUIElementRef,
+        _attribute: CFStringRef,
+        _value: *mut CFTypeRef,
+    ) -> AXError {
+        -1
+    }
+    pub unsafe fn AXUIElementSetAttributeValue(
+        _element: AXUIElementRef,
+        _attribute: CFStringRef,
+        _value: CFTypeRef,
+    ) -> AXError {
+        -1
+    }
+    pub unsafe fn AXUIElementPerformAction(
+        _element: AXUIElementRef,
+        _action: CFStringRef,
+    ) -> AXError {
+        -1
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+use window_ffi_stubs::*;
+
+fn cf_boolean_true() -> CFTypeRef {
+    #[cfg(target_os = "macos")]
+    {
+        unsafe { kCFBooleanTrue as CFTypeRef }
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        k_cf_boolean_true() as CFTypeRef
+    }
 }
 
 fn intern_cf_str(key: &'static str) -> CFStringRef {

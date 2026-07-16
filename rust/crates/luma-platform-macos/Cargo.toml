@@ -8,6 +8,7 @@ description = "macOS system adapters (apps, pasteboard, …). Unsafe FFI only he
 
 [dependencies]
 async-trait = { workspace = true }
+luma-domain = { workspace = true }
 luma-storage = { workspace = true }
 luma-application = { workspace = true }
 chrono = { workspace = true }

@@ -16,6 +16,7 @@ mod paths;
 mod quicklinks_store;
 mod records_parse;
 mod records_store;
+mod resume_store;
 mod snippets_store;
 mod sqlite;
 mod ssh_config_parse;
@@ -61,6 +62,11 @@ pub use records_store::{
     import_records_with_ledger, now_iso as records_now_iso, preview_import_from_dir,
     RecordCategoryRow, RecordImportApplyReport, RecordImportPreview, RecordRow,
     RecordsImportLedgerReport, RecordsStats, RecordsStore, RecordsStoreError,
+};
+pub use resume_store::{
+    new_blank_context, normalize_name, normalize_path_for_store, now_iso as resume_now_iso,
+    sort_contexts_by_recency, ResumeContext, ResumeEditor, ResumeRecipeRef, ResumeStore,
+    ResumeStoreError, RESUME_SCHEMA_VERSION, RESUME_STORE_FILENAME,
 };
 pub use snippets_store::{SnippetRow, SnippetsStore, SnippetsStoreError};
 pub use ssh_config_parse::{

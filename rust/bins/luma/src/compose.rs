@@ -4,26 +4,27 @@
 //! listed in Settings but do not warm up or appear on the Hub.
 
 use luma_application::{
-    CapabilityPort, CommandRecipesRepository, ModuleRegistry, RegistryError as ModuleRegistryError,
-    SettingsRepository, SqliteClipboardHistory, SqliteCommandRecipesRepository, SqliteNotesIndex,
-    SqliteQuicklinksRepository, SqliteRecordsRepository, SqliteSnippetsRepository,
-    SqliteSshMetaRepository, SqliteWordbookRepository, TomlSettingsRepository, WordbookRepository,
+    CapabilityPort, CommandRecipesRepository, JsonResumeContextsRepository, ModuleRegistry,
+    RegistryError as ModuleRegistryError, SettingsRepository, SqliteClipboardHistory,
+    SqliteCommandRecipesRepository, SqliteNotesIndex, SqliteQuicklinksRepository,
+    SqliteRecordsRepository, SqliteSnippetsRepository, SqliteSshMetaRepository,
+    SqliteWordbookRepository, TomlSettingsRepository, WordbookRepository,
 };
 use luma_modules::{
     AppsModule, ClipboardModule, ClipboardSuppression, CommandRecipesModule, FakeEchoModule,
     NotesModule, NotesServices, ProjectsModule, ProxyModule, QuicklinksModule, RecordsModule,
-    SecretsModule, SnippetsModule, SshModule, WindowsModule, WordbookModule,
+    ResumeModule, SecretsModule, SnippetsModule, SshModule, WindowsModule, WordbookModule,
 };
 use luma_platform_macos::{
-    FilesystemAppsCatalog, MacAccessibility, MacBoundedUtf8FileReader, MacClock, MacKeychain,
-    MacMarkdownWatcher, MacMihomoProxyCore, MacNotesWorkspace, MacOpenPath, MacPasteboard,
-    MacProfileStore, MacProjectWorkspace, MacRecipeEnvironment, MacSpeech, MacSshConfig,
-    MacSystemProxy, MacWindowCatalog,
+    FilesystemAppsCatalog, MacAccessibility, MacBoundedUtf8FileReader, MacClock, MacGitInfo,
+    MacKeychain, MacMarkdownWatcher, MacMihomoProxyCore, MacNotesWorkspace, MacOpenEditor,
+    MacOpenPath, MacPasteboard, MacProfileStore, MacProjectWorkspace, MacRecipeEnvironment,
+    MacSpeech, MacSshConfig, MacSystemProxy, MacWindowCatalog,
 };
 use luma_storage::{
     luma_next_support_dir, ClipboardStore, CommandRecipesMetaStore, ConfigError, ConfigStore,
-    LumaSettings, NotesIndexStore, NotesScanner, QuicklinksStore, RecordsStore, SnippetsStore,
-    SshMetaStore, WordbookStore,
+    LumaSettings, NotesIndexStore, NotesScanner, QuicklinksStore, RecordsStore, ResumeStore,
+    SnippetsStore, SshMetaStore, WordbookStore,
 };
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -70,6 +71,7 @@ impl CapabilityPort for ComposeCapabilities {
 
 /// Build registry from settings + optionally opened stores.
 /// Missing stores skip the corresponding module instead of failing the launcher.
+#[allow(clippy::too_many_arguments)]
 pub fn registry_from_settings(
     settings: &LumaSettings,
     clipboard: Option<Arc<ClipboardStore>>,
@@ -227,6 +229,24 @@ pub fn registry_from_settings(
             id: "luma.records".into(),
             reason,
         });
+    }
+    match ResumeStore::luma_next_default() {
+        Ok(store) => {
+            reg.register(Arc::new(ResumeModule::with_deps(
+                Arc::new(JsonResumeContextsRepository::new(Arc::new(store))),
+                opener.clone(),
+                Arc::new(MacOpenEditor),
+                Arc::new(MacGitInfo),
+            )))?;
+        }
+        Err(err) => {
+            let reason = format!("resume store unavailable: {err}");
+            warn!("{reason} — Resume module not registered");
+            skipped.push(SkippedModule {
+                id: "luma.resume".into(),
+                reason,
+            });
+        }
     }
     reg.register(Arc::new(ProjectsModule::with_settings(
         project_roots,

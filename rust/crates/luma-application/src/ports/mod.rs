@@ -16,6 +16,8 @@ mod notes_repo;
 mod notes_workspace;
 mod open_path;
 mod pasteboard;
+mod ports_meta_repo;
+mod process_catalog;
 mod profile;
 mod project_workspace;
 mod proxy_core;
@@ -47,9 +49,9 @@ pub use fake_recipe_environment::FakeRecipeEnvironment;
 pub use keychain::{FakeKeychain, KeychainError, KeychainPort, SecretLabel};
 pub use markdown_watch::{FakeMarkdownWatcher, MarkdownWatchPort};
 pub use memory_repos::{
-    FakeSshConfigPort, MemoryClipboardHistory, MemoryNotesIndex, MemoryQuicklinksRepository,
-    MemoryRecordsRepository, MemorySnippetsRepository, MemorySshMetaRepository,
-    MemoryWordbookRepository,
+    FakeSshConfigPort, MemoryClipboardHistory, MemoryNotesIndex, MemoryPortsMetaRepository,
+    MemoryQuicklinksRepository, MemoryRecordsRepository, MemorySnippetsRepository,
+    MemorySshMetaRepository, MemoryWordbookRepository,
 };
 pub use notes_repo::{
     NotesDocument, NotesIndexError, NotesIndexRepository, NotesIssue, NotesLink, NotesScanReport,
@@ -61,6 +63,10 @@ pub use notes_workspace::{
 };
 pub use open_path::{FakeOpenPath, OpenPathError, OpenPathPort};
 pub use pasteboard::{FakePasteboard, PasteboardError, PasteboardPort};
+pub use ports_meta_repo::{PortMeta, PortsMetaRepoError, PortsMetaRepository};
+pub use process_catalog::{
+    FakeProcessCatalog, KillSignal, ListeningEndpoint, ProcessCatalogError, ProcessCatalogPort,
+};
 pub use profile::{
     ProfileImportResult, ProfileSource, ProfileStoreError, ProfileStorePort, ProfileSummary,
 };

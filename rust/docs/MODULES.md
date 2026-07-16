@@ -29,6 +29,7 @@ Personal daily-driver status. Prefer honest `unavailable` / `permission_required
 | Projects | `p` / `proj` / `project` | Available — only manually imported projects appear in plain search; `proj add/import PATH`, `proj remove NAME\|PATH`, `proj browse`; canonical existing non-symlink paths, duplicate rejection, config-only removal | on |
 | Command Recipes | `cmd` / `recipe` / `recipes` | Available — semantic templates with project variants; ordered `program + args`; TUI runs in current terminal; user TOML + built-ins. See [Command Recipes](./COMMAND_RECIPES.md). | on |
 | SSH | `ssh` | Available — reads `~/.ssh/config` Host aliases; `ssh fav` / `ssh recent` / `ssh rename`; favorite/recent metadata in `ssh_meta.sqlite`; Enter connects in current terminal; SFTP + copy alias actions. See [SSH](./SSH.md). | on |
+| Ports | `port` / `ports` / `kill` | Available — lists listening TCP ports via `lsof`; search by port/process/name; preview PID/command; kill requires confirm (`SIGTERM` / force `SIGKILL`); local names/favorites in `ports_meta.sqlite`. Not a Docker manager. | on |
 | Secrets | `sec` / `secret` / `secrets` | Copy-only for pre-provisioned labels; `luma secrets set` bootstrap; unlock is in-process UX only (no Touch ID); copy confirm | **off** (enable in Settings after bootstrap) |
 | Fake | — | Test/demo module for CLI blackbox | **off** |
 

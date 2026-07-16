@@ -15,7 +15,7 @@ Empty prompt shows:
 | Records | `rec ` — categories or imported media records |
 | SSH | `ssh ` — Host aliases from `~/.ssh/config` |
 | Secrets | `sec ` — vault labels (unlock/copy) |
-| Apps / Clipboard / Snippets / Quicklinks / Windows / Proxy | `app ` / `clip ` / `s ` / `ql ` / `win ` / `proxy ` — list dump |
+| Apps / Clipboard / Snippets / Quicklinks / Windows / Proxy / Ports | `app ` / `clip ` / `s ` / `ql ` / `win ` / `proxy ` / `port ` — list dump |
 
 Bare triggers without a trailing space (`n`, `clip`) do not search — add a space to enter the module.
 

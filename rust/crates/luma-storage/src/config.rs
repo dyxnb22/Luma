@@ -232,6 +232,7 @@ impl Default for LumaSettings {
         enabled_modules.insert("luma.clipboard".into(), true);
         enabled_modules.insert("luma.notes".into(), true);
         enabled_modules.insert("luma.records".into(), true);
+        enabled_modules.insert("luma.ports".into(), true);
         enabled_modules.insert("luma.secrets".into(), false);
         enabled_modules.insert("luma.fake".into(), false);
         Self {

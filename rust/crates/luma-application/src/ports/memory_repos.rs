@@ -1,12 +1,13 @@
 use crate::ports::{
     ClipboardEntry, ClipboardHistoryRepository, ClipboardRepoError, ContentImportReport,
     NotesDocument, NotesIndexError, NotesIndexRepository, NotesIssue, NotesScanReport,
-    NotesScanStatusView, NotesSearchHit, QuicklinkEntry, QuicklinksRepoError, QuicklinksRepository,
-    RecordCategory, RecordEntry, RecordImportPreviewView, RecordImportReportView, RecordsRepoError,
-    RecordsRepository, RecordsStatsView, ResolvedSshHost, SnippetEntry, SnippetsRepoError,
-    SnippetsRepository, SshConfigError, SshConfigPort, SshConfigState, SshHostMeta,
-    SshMetaRepoError, SshMetaRepository, WordContentInput, WordEntry, WordbookRepoError,
-    WordbookRepository, WordbookStatsView,
+    NotesScanStatusView, NotesSearchHit, PortMeta, PortsMetaRepoError, PortsMetaRepository,
+    QuicklinkEntry, QuicklinksRepoError, QuicklinksRepository, RecordCategory, RecordEntry,
+    RecordImportPreviewView, RecordImportReportView, RecordsRepoError, RecordsRepository,
+    RecordsStatsView, ResolvedSshHost, SnippetEntry, SnippetsRepoError, SnippetsRepository,
+    SshConfigError, SshConfigPort, SshConfigState, SshHostMeta, SshMetaRepoError,
+    SshMetaRepository, WordContentInput, WordEntry, WordbookRepoError, WordbookRepository,
+    WordbookStatsView,
 };
 use async_trait::async_trait;
 use std::collections::BTreeMap;
@@ -1147,6 +1148,102 @@ impl SshMetaRepository for MemorySshMetaRepository {
 
     fn delete(&self, alias: &str) -> Result<(), SshMetaRepoError> {
         self.rows.lock().expect("lock").remove(alias);
+        Ok(())
+    }
+}
+
+/// In-memory ports metadata for module tests.
+#[derive(Default)]
+pub struct MemoryPortsMetaRepository {
+    rows: Mutex<BTreeMap<u16, PortMeta>>,
+    list_error: Mutex<Option<String>>,
+}
+
+impl MemoryPortsMetaRepository {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn set_list_error(&self, error: Option<String>) {
+        *self.list_error.lock().expect("lock") = error;
+    }
+}
+
+#[async_trait]
+impl PortsMetaRepository for MemoryPortsMetaRepository {
+    fn list(&self) -> Result<Vec<PortMeta>, PortsMetaRepoError> {
+        if let Some(err) = self.list_error.lock().expect("lock").clone() {
+            return Err(PortsMetaRepoError::msg(err));
+        }
+        Ok(self.rows.lock().expect("lock").values().cloned().collect())
+    }
+
+    fn get(&self, port: u16) -> Result<Option<PortMeta>, PortsMetaRepoError> {
+        Ok(self.rows.lock().expect("lock").get(&port).cloned())
+    }
+
+    fn set_display_name(
+        &self,
+        port: u16,
+        display_name: Option<&str>,
+    ) -> Result<(), PortsMetaRepoError> {
+        let mut rows = self.rows.lock().expect("lock");
+        let entry = rows.entry(port).or_insert_with(|| PortMeta {
+            port,
+            display_name: None,
+            favorite: false,
+            last_seen_at: None,
+            kill_count: 0,
+        });
+        entry.display_name = display_name
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_string);
+        Ok(())
+    }
+
+    fn set_favorite(&self, port: u16, favorite: bool) -> Result<(), PortsMetaRepoError> {
+        let mut rows = self.rows.lock().expect("lock");
+        let entry = rows.entry(port).or_insert_with(|| PortMeta {
+            port,
+            display_name: None,
+            favorite: false,
+            last_seen_at: None,
+            kill_count: 0,
+        });
+        entry.favorite = favorite;
+        Ok(())
+    }
+
+    fn record_seen(&self, port: u16, seen_at: &str) -> Result<(), PortsMetaRepoError> {
+        let mut rows = self.rows.lock().expect("lock");
+        let entry = rows.entry(port).or_insert_with(|| PortMeta {
+            port,
+            display_name: None,
+            favorite: false,
+            last_seen_at: None,
+            kill_count: 0,
+        });
+        entry.last_seen_at = Some(seen_at.to_string());
+        Ok(())
+    }
+
+    fn record_kill(&self, port: u16, killed_at: &str) -> Result<(), PortsMetaRepoError> {
+        let mut rows = self.rows.lock().expect("lock");
+        let entry = rows.entry(port).or_insert_with(|| PortMeta {
+            port,
+            display_name: None,
+            favorite: false,
+            last_seen_at: None,
+            kill_count: 0,
+        });
+        entry.last_seen_at = Some(killed_at.to_string());
+        entry.kill_count += 1;
+        Ok(())
+    }
+
+    fn delete(&self, port: u16) -> Result<(), PortsMetaRepoError> {
+        self.rows.lock().expect("lock").remove(&port);
         Ok(())
     }
 }

@@ -17,7 +17,7 @@ cargo test -p luma --test cli_blackbox
 | In | Out |
 | --- | --- |
 | Local TUI + CLI on your Mac | App Store / notarized shipping |
-| Apps, Windows, Clipboard, Notes, Quicklinks, Snippets, Wordbook, Projects, Records, SSH | Media, Window layouts, Menu search, Browser tabs, signed-host Translate |
+| Apps, Windows, Clipboard, Notes, Quicklinks, Snippets, Wordbook, Projects, Records, SSH, Ports | Media, Window layouts, Menu search, Browser tabs, signed-host Translate |
 | Honest permission / unavailable states | Release soak, deny-as-policy, marketing docs |
 | Module-local status and remediation rows | Centralized `doctor` command or diagnostics overlay |
 
@@ -36,7 +36,7 @@ cargo test -p luma --test cli_blackbox
 
 | Path | Role |
 | --- | --- |
-| `~/Library/Application Support/LumaNext/` | Active app support (settings, `ssh_meta.sqlite`, stores) |
+| `~/Library/Application Support/LumaNext/` | Active app support (settings, `ssh_meta.sqlite`, `ports_meta.sqlite`, stores) |
 | `~/Library/Logs/LumaNext/` | Runtime logs |
 | `~/.ssh/config` | OpenSSH Host aliases (read-only for `luma.ssh`) |
 

@@ -11,9 +11,9 @@ mod registry;
 
 pub use adapters::{
     MemoryCommandRecipesRepository, SqliteClipboardHistory, SqliteCommandRecipesRepository,
-    SqliteNotesIndex, SqliteQuicklinksRepository, SqliteRecordsRepository,
-    SqliteSnippetsRepository, SqliteSshMetaRepository, SqliteWordbookRepository,
-    TomlSettingsRepository,
+    SqliteNotesIndex, SqlitePortsMetaRepository, SqliteQuicklinksRepository,
+    SqliteRecordsRepository, SqliteSnippetsRepository, SqliteSshMetaRepository,
+    SqliteWordbookRepository, TomlSettingsRepository,
 };
 pub use engine::{list_modules_json, run_action, run_query, Engine, EngineOptions};
 pub use interactive_terminal::{
@@ -36,15 +36,17 @@ pub use ports::{
     ClockPort, CommandRecipesRepoError, CommandRecipesRepository, CommandRunnerPort,
     ContentImportReport, ExternalControllerStatus, FakeAccessibility, FakeBoundedUtf8FileReader,
     FakeCapabilities, FakeCommandRunner, FakeKeychain, FakeMarkdownWatcher, FakeNotesWorkspace,
-    FakeOpenPath, FakePasteboard, FakeProjectWorkspace, FakeProxyCore, FakeRecipeEnvironment,
-    FakeSpeech, FakeSshConfigPort, FakeSystemProxy, FakeWindowCatalog, FixedClock, KeychainError,
-    KeychainPort, MarkdownWatchPort, MemoryClipboardHistory, MemoryNotesIndex,
+    FakeOpenPath, FakePasteboard, FakeProcessCatalog, FakeProjectWorkspace, FakeProxyCore,
+    FakeRecipeEnvironment, FakeSpeech, FakeSshConfigPort, FakeSystemProxy, FakeWindowCatalog,
+    FixedClock, KeychainError, KeychainPort, KillSignal, ListeningEndpoint, MarkdownWatchPort,
+    MemoryClipboardHistory, MemoryNotesIndex, MemoryPortsMetaRepository,
     MemoryQuicklinksRepository, MemoryRecordsRepository, MemorySnippetsRepository,
     MemorySshMetaRepository, MemoryWordbookRepository, NotesDirectoryEntry,
     NotesDirectoryEntryKind, NotesDirectoryListing, NotesDocument, NotesIndexError,
     NotesIndexRepository, NotesIssue, NotesLink, NotesScanReport, NotesScanStatusView,
     NotesSearchHit, NotesWorkspaceError, NotesWorkspacePath, NotesWorkspacePort,
     NotesWorkspacePreview, OpenPathError, OpenPathPort, PasteboardError, PasteboardPort, PathKind,
+    PortMeta, PortsMetaRepoError, PortsMetaRepository, ProcessCatalogError, ProcessCatalogPort,
     ProfileImportResult, ProfileSource, ProfileStoreError, ProfileStorePort, ProfileSummary,
     ProjectDirectoryEntry, ProjectDirectoryListing, ProjectOpenScope, ProjectWorkspaceError,
     ProjectWorkspacePort, ProxyCoreError, ProxyCorePort, ProxyGroup, ProxyMode, ProxyNode,

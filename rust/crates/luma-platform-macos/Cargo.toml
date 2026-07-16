@@ -10,6 +10,7 @@ description = "macOS system adapters (apps, pasteboard, …). Unsafe FFI only he
 async-trait = { workspace = true }
 luma-storage = { workspace = true }
 luma-application = { workspace = true }
+luma-domain = { workspace = true }
 chrono = { workspace = true }
 dirs = { workspace = true }
 notify = "7.0"

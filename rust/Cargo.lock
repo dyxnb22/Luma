@@ -845,6 +845,7 @@ dependencies = [
  "chrono",
  "dirs",
  "luma-application",
+ "luma-domain",
  "luma-storage",
  "notify",
  "serde",

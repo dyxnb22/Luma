@@ -813,6 +813,49 @@ fn seed_record_edit(
     vec![Effect::None]
 }
 
+fn seed_resume_set(
+    state: &mut AppState,
+    item: &luma_domain::SearchItem,
+    action_id: &str,
+) -> Vec<Effect> {
+    let Some(field) = action_id.strip_prefix("seed_set_") else {
+        return vec![Effect::None];
+    };
+    let name = item
+        .id
+        .as_str()
+        .strip_prefix("resume:")
+        .filter(|n| !n.is_empty() && !n.contains(':'))
+        .or_else(|| {
+            item.action_payload
+                .as_ref()
+                .and_then(|p| p.get("name"))
+                .and_then(|v| v.as_str())
+        });
+    let Some(name) = name else {
+        state
+            .status
+            .set("invalid resume context", StatusTone::Error);
+        return vec![Effect::None];
+    };
+    state.browse_nav_stack.clear();
+    state.prompt = format!("resume set {name} {field} ");
+    state.prompt_cursor = state.prompt_char_len();
+    state.focus = FocusZone::Prompt;
+    state.history_browse = None;
+    state.results.items.clear();
+    state.results.selected_id = None;
+    state.preview_body = None;
+    state.preview_result_id = None;
+    state.status.set(
+        "type value · Enter to save · Esc cancel",
+        StatusTone::Neutral,
+    );
+    state.search_debounce_deadline = None;
+    state.hub_refresh_deadline = None;
+    vec![Effect::None]
+}
+
 fn seed_module_config(state: &mut AppState, item: &luma_domain::SearchItem) -> Vec<Effect> {
     if item.id.as_str() == "proj:not-configured" {
         state.status.set(
@@ -827,6 +870,21 @@ fn seed_module_config(state: &mut AppState, item: &luma_domain::SearchItem) -> V
         "luma config set --projects-root ~/dev"
     } else if item.module_id.as_str().contains("secrets") {
         "luma secrets set <account>  (value from stdin)"
+    } else if item.module_id.as_str().contains("resume") {
+        state.browse_nav_stack.clear();
+        state.prompt = "resume save ".into();
+        state.prompt_cursor = state.prompt_char_len();
+        state.focus = FocusZone::Prompt;
+        state.history_browse = None;
+        state.results.items.clear();
+        state.results.selected_id = None;
+        state.status.set(
+            "type a name · Enter to save · or resume capture <name>",
+            StatusTone::Neutral,
+        );
+        state.search_debounce_deadline = None;
+        state.hub_refresh_deadline = None;
+        return vec![Effect::None];
     } else if let Some(sub) = item.subtitle.as_deref() {
         // Fall back to subtitle when it already carries a CLI hint.
         state.status.set(sub, StatusTone::Warning);
@@ -899,6 +957,18 @@ fn submit_picker_selection(state: &mut AppState) -> Vec<Effect> {
         {
             state.route = Route::Search;
             return seed_record_edit(state, &item, action.id.as_str());
+        }
+    }
+    if action.id.as_str().starts_with("seed_set_") {
+        if let Some(item) = state
+            .results
+            .items
+            .iter()
+            .find(|i| i.id.as_str() == result_id.as_str())
+            .cloned()
+        {
+            state.route = Route::Search;
+            return seed_resume_set(state, &item, action.id.as_str());
         }
     }
     if action.id == "browse" {

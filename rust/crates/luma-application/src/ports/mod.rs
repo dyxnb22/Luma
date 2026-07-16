@@ -9,11 +9,13 @@ mod clock;
 mod command_recipes_repo;
 mod command_runner;
 mod fake_recipe_environment;
+mod git_info;
 mod keychain;
 mod markdown_watch;
 mod memory_repos;
 mod notes_repo;
 mod notes_workspace;
+mod open_editor;
 mod open_path;
 mod pasteboard;
 mod profile;
@@ -22,6 +24,7 @@ mod proxy_core;
 mod quicklinks_repo;
 mod recipe_environment;
 mod records_repo;
+mod resume_repo;
 mod settings;
 mod snippets_repo;
 mod speech;
@@ -44,6 +47,7 @@ pub use clock::{ClockError, ClockPort, FixedClock};
 pub use command_recipes_repo::{CommandRecipesRepoError, CommandRecipesRepository};
 pub use command_runner::{filter_env_output, is_filtered_env_step, FakeCommandRunner};
 pub use fake_recipe_environment::FakeRecipeEnvironment;
+pub use git_info::{FakeGitInfo, GitInfoError, GitInfoPort, GitSnapshot};
 pub use keychain::{FakeKeychain, KeychainError, KeychainPort, SecretLabel};
 pub use markdown_watch::{FakeMarkdownWatcher, MarkdownWatchPort};
 pub use memory_repos::{
@@ -59,6 +63,7 @@ pub use notes_workspace::{
     FakeNotesWorkspace, NotesDirectoryEntry, NotesDirectoryEntryKind, NotesDirectoryListing,
     NotesWorkspaceError, NotesWorkspacePath, NotesWorkspacePort, NotesWorkspacePreview,
 };
+pub use open_editor::{FakeEditorCall, FakeOpenEditor, OpenEditorError, OpenEditorPort};
 pub use open_path::{FakeOpenPath, OpenPathError, OpenPathPort};
 pub use pasteboard::{FakePasteboard, PasteboardError, PasteboardPort};
 pub use profile::{
@@ -80,6 +85,9 @@ pub use recipe_environment::{
 pub use records_repo::{
     RecordCategory, RecordEntry, RecordImportPreviewView, RecordImportReportView, RecordsRepoError,
     RecordsRepository, RecordsStatsView,
+};
+pub use resume_repo::{
+    blank_context, MemoryResumeContextsRepository, ResumeContextsRepository, ResumeRepoError,
 };
 pub use settings::{AppSettings, SettingsError, SettingsRepository};
 pub use snippets_repo::{SnippetEntry, SnippetsRepoError, SnippetsRepository};

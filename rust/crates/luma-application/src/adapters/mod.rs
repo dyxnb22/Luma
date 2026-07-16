@@ -5,6 +5,7 @@ mod command_recipes_repo;
 mod notes_repo;
 mod quicklinks_repo;
 mod records_repo;
+mod resume_repo;
 mod settings_repo;
 mod snippets_repo;
 mod ssh_meta_repo;
@@ -15,6 +16,7 @@ pub use command_recipes_repo::{MemoryCommandRecipesRepository, SqliteCommandReci
 pub use notes_repo::SqliteNotesIndex;
 pub use quicklinks_repo::SqliteQuicklinksRepository;
 pub use records_repo::SqliteRecordsRepository;
+pub use resume_repo::JsonResumeContextsRepository;
 pub use settings_repo::TomlSettingsRepository;
 pub use snippets_repo::SqliteSnippetsRepository;
 pub use ssh_meta_repo::SqliteSshMetaRepository;

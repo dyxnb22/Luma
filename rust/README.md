@@ -61,7 +61,7 @@ backup, and migration ledger, never the Markdown source files.
 
 - Empty Hub: `1`–`9` focuses visible window rows; status, “more”, and module rows are not numbered.
 - `win`: `1`–`9` works only while the result list is focused. Digits typed in the prompt are never hijacked.
-- `wb due`, `wb new`, `wb wrong`: normal lists. `wb review due|new|wrong`: Enter/Space reveals, `1/2/3` grades, `m` masters after confirmation, `s` skips, Esc exits.
+- `wb due`, `wb new`, `wb wrong`: normal lists. `wb review due|new|wrong`: Enter/Space reveals, `1/2/3` grades, `m` masters after confirmation, `s` skips, Esc exits. `wb import PATH` accepts a regular non-symlink UTF-8 CSV up to 512 KiB.
 - `rec`: searches Records. Use `rec browse`, `rec add CATEGORY NAME | rating | note`, `rec rate ID SCORE`, and `rec note ID TEXT`.
 - `proj`: plain search shows only manually imported projects. Use `proj add/import PATH`, `proj remove NAME|PATH`, and `proj browse`.
 - There is no `luma doctor`, `:doctor`, or diagnostics overlay. Modules report `permission`, `unavailable`, or `not_configured` locally when applicable.

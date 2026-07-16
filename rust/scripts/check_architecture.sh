@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Architecture dependency allowlist for Luma crates.
-# Guards module/TUI boundaries; documents allowed edges (TUI → domain/protocol, compose → storage).
+# Guards module/TUI boundaries; documents allowed edges (TUI → application projections/ports,
+# composition → storage/platform adapters).
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
@@ -42,15 +43,18 @@ if rg -n 'ConfigStore::luma_next_default|MacPasteboard::|MacOpenPath|MacKeychain
   fail=1
 fi
 
-if rg -n 'Command::new\(' crates/luma-modules/src 2>/dev/null | head -20 | grep .; then
-  echo "FAIL: modules must not spawn processes via Command::new (use injected ports)"
-  fail=1
-fi
-
-if rg -n 'Command::new\("open"\)' crates/luma-modules/src 2>/dev/null | head -20 | grep .; then
-  echo "FAIL: modules must use OpenPathPort, not Command::new(\"open\")"
-  fail=1
-fi
+# Modules use application ports for filesystem, network, shell, and raw platform work. Adapter
+# integration tests may use host fixtures, so inspect only the production prefix of each module.
+while IFS= read -r module_source; do
+  module_production="$(sed '/^#\[cfg(test)\]$/,$d' "$module_source")"
+  if printf '%s\n' "$module_production" \
+    | rg -n 'use std::(fs|net|process)|std::fs::|tokio::fs::|std::net::|tokio::net::|std::process::Command|tokio::process::Command|Command::new\(|\b(reqwest|ureq)::|\.canonicalize\(|\.exists\(|\.is_dir\(|\.is_file\(|std::env::current_dir\(' \
+    | head -20 \
+    | grep .; then
+    echo "FAIL: module production code must use application ports for host I/O: $module_source"
+    fail=1
+  fi
+done < <(find crates/luma-modules/src -type f -name '*.rs' -print | sort)
 
 if [[ "$fail" -ne 0 ]]; then
   exit 1

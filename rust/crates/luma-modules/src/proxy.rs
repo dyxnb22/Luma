@@ -33,6 +33,7 @@ pub struct ProxyModule {
     import_keys: RwLock<HashMap<String, ImportIntent>>,
 }
 
+#[derive(Clone)]
 enum ImportIntent {
     Subscription(String),
     Local(PathBuf),
@@ -212,13 +213,14 @@ impl ProxyModule {
     }
 
     async fn search_ready(&self, query: &Query, sink: &SearchSink, cancel: &CancellationToken) {
-        let rest = query.rest_normalized();
-        if rest == "profile"
-            || rest.starts_with("profile ")
-            || rest == "import"
-            || rest.starts_with("import ")
+        let normalized_rest = query.rest_normalized();
+        if normalized_rest == "profile"
+            || normalized_rest.starts_with("profile ")
+            || normalized_rest == "import"
+            || normalized_rest.starts_with("import ")
         {
-            self.search_profiles(&rest, query.limit, sink).await;
+            self.search_profiles(&normalized_rest, query.rest_raw(), query.limit, sink)
+                .await;
             return;
         }
         let status = match await_unless_cancelled(cancel, self.core.get_status()).await {
@@ -258,8 +260,12 @@ impl ProxyModule {
             }
         };
         let mut items = vec![Self::status_item(&status, system.as_ref())];
-        if rest == "global" || rest == "rule" {
-            let mode = if rest == "global" { "global" } else { "rule" };
+        if normalized_rest == "global" || normalized_rest == "rule" {
+            let mode = if normalized_rest == "global" {
+                "global"
+            } else {
+                "rule"
+            };
             items.push(SearchItemDto {
                 id: format!("proxy:mode:{mode}"),
                 module_id: MODULE_ID.into(),
@@ -280,7 +286,7 @@ impl ProxyModule {
                 ..Default::default()
             });
         } else {
-            let requested_group = rest
+            let requested_group = normalized_rest
                 .strip_prefix("group ")
                 .map(str::trim)
                 .filter(|v| !v.is_empty());
@@ -333,7 +339,13 @@ impl ProxyModule {
             .await;
     }
 
-    async fn search_profiles(&self, rest: &str, limit: usize, sink: &SearchSink) {
+    async fn search_profiles(
+        &self,
+        normalized_rest: &str,
+        raw_rest: &str,
+        limit: usize,
+        sink: &SearchSink,
+    ) {
         let Some(store) = &self.profiles else {
             let _ = sink
                 .send(Event::ResultsChunk {
@@ -345,8 +357,11 @@ impl ProxyModule {
                 .await;
             return;
         };
-        if rest == "import" || rest.starts_with("import ") {
-            let source = rest.strip_prefix("import ").unwrap_or("").trim();
+        if normalized_rest == "import" || normalized_rest.starts_with("import ") {
+            let source = raw_rest
+                .split_once(|character: char| character.is_whitespace())
+                .map(|(_, source)| source.trim())
+                .unwrap_or("");
             let item = if source.is_empty() {
                 SearchItemDto {
                     id: "proxy:profile:import-help".into(),
@@ -395,7 +410,7 @@ impl ProxyModule {
                 .await;
             return;
         }
-        let filter = rest
+        let filter = normalized_rest
             .strip_prefix("profile")
             .unwrap_or("")
             .trim()
@@ -406,7 +421,7 @@ impl ProxyModule {
                 let items = profiles
                     .into_iter()
                     .filter(|p| {
-                        (refresh_mode && p.owned_by_luma)
+                        (refresh_mode && p.owned_by_luma && p.source == ProfileSource::Subscription)
                             || (!refresh_mode
                                 && (filter.is_empty() || p.name.to_lowercase().contains(&filter)))
                     })
@@ -473,34 +488,61 @@ fn profile_item(profile: ProfileSummary) -> SearchItemDto {
             if profile.current { " · current" } else { "" }
         )
     };
+    let owned_by_luma = profile.owned_by_luma;
+    let external_uid_in_name = !owned_by_luma
+        && profile
+            .name
+            .to_lowercase()
+            .contains(&profile.id.to_lowercase());
+    let title = if external_uid_in_name {
+        // Clash Verge's UID is an internal identifier. Do not let a user-controlled display name
+        // smuggle it back into UI when this item is deliberately read-only.
+        "Clash Verge Profile".into()
+    } else {
+        redact_label(&profile.name)
+    };
+    let mut secondary_actions = Vec::new();
+    if owned_by_luma {
+        secondary_actions.push(action_dto(
+            "delete_profile",
+            "Delete",
+            ActionRisk::Confirm,
+            true,
+        ));
+        if profile.source == ProfileSource::Subscription {
+            secondary_actions.push(action_dto(
+                "refresh_profile",
+                "Refresh",
+                ActionRisk::Safe,
+                false,
+            ));
+        }
+    }
     SearchItemDto {
-        id: format!("proxy:profile:{}", profile.id),
+        id: if owned_by_luma {
+            format!("proxy:profile:{}", profile.id)
+        } else {
+            format!("proxy:profile:readonly:{}", opaque_component(&profile.id))
+        },
         module_id: MODULE_ID.into(),
-        title: redact_label(&profile.name),
+        title,
         subtitle: Some(details),
         kind: "profile".into(),
         score: if profile.current { 100.0 } else { 85.0 },
         primary_action_id: primary.into(),
-        primary_action_label: if profile.owned_by_luma {
+        primary_action_label: if owned_by_luma {
             "Use".into()
         } else {
             "Read-only".into()
         },
-        primary_action_risk: if profile.owned_by_luma {
+        primary_action_risk: if owned_by_luma {
             ActionRisk::Confirm
         } else {
             ActionRisk::Safe
         },
-        primary_action_confirmation: profile.owned_by_luma,
-        secondary_actions: if profile.owned_by_luma {
-            vec![
-                action_dto("delete_profile", "Delete", ActionRisk::Confirm, true),
-                action_dto("refresh_profile", "Refresh", ActionRisk::Safe, false),
-            ]
-        } else {
-            vec![]
-        },
-        action_payload: Some(serde_json::json!({"profile_id": profile.id})),
+        primary_action_confirmation: owned_by_luma,
+        secondary_actions,
+        action_payload: owned_by_luma.then(|| serde_json::json!({"profile_id": profile.id})),
         ..Default::default()
     }
 }
@@ -629,15 +671,21 @@ fn proxy_failure(error: ProxyCoreError) -> FailureKind {
             capability: "mihomo_controller".into(),
             guidance,
         },
-        ProxyCoreError::Timeout(operation) => FailureKind::Timeout { operation },
+        // Controller paths can include provider, group, or node labels. Keep adapter details out
+        // of ActionOutcome, which is rendered and may be retained by callers.
+        ProxyCoreError::Timeout(_) => FailureKind::Timeout {
+            operation: "Mihomo controller request".into(),
+        },
         ProxyCoreError::InvalidInput { field, message } => {
             FailureKind::InvalidInput { field, message }
         }
-        ProxyCoreError::NotFound(entity) => FailureKind::NotFound { entity },
+        ProxyCoreError::NotFound(_) => FailureKind::NotFound {
+            entity: "Proxy item".into(),
+        },
         ProxyCoreError::SecurityDenied(reason) => FailureKind::SecurityDenied { reason },
         ProxyCoreError::NotConfigured(remediation) => FailureKind::NotConfigured { remediation },
-        ProxyCoreError::Unavailable(reason) => FailureKind::Unavailable {
-            reason,
+        ProxyCoreError::Unavailable(_) => FailureKind::Unavailable {
+            reason: "Mihomo controller is unavailable".into(),
             retryable: true,
         },
     }
@@ -752,18 +800,10 @@ impl LumaModule for ProxyModule {
                     confirmation: result.primary_action.confirmation,
                 }];
                 if result.primary_action.id.as_str() == "use_profile" {
-                    actions.push(ActionDescriptor {
-                        id: ActionId::new("delete_profile"),
-                        label: "Delete".into(),
-                        risk: ActionRisk::Confirm,
-                        confirmation: true,
-                    });
-                    actions.push(ActionDescriptor {
-                        id: ActionId::new("refresh_profile"),
-                        label: "Refresh".into(),
-                        risk: ActionRisk::Safe,
-                        confirmation: false,
-                    });
+                    actions.extend(result.secondary_actions.iter().filter_map(|action| {
+                        matches!(action.id.as_str(), "delete_profile" | "refresh_profile")
+                            .then_some(action.clone())
+                    }));
                 }
                 actions
             }
@@ -1025,7 +1065,10 @@ impl LumaModule for ProxyModule {
                 };
                 match self
                     .system_proxy
-                    .enable(status.ports.http, status.ports.socks)
+                    .enable(
+                        status.ports.http.or(status.ports.mixed),
+                        status.ports.socks.or(status.ports.mixed),
+                    )
                     .await
                 {
                     Ok(_) => ActionOutcome::Success {
@@ -1098,7 +1141,7 @@ mod tests {
     use luma_test_support::collect_search_items;
     use std::path::Path;
 
-    fn module() -> (ProxyModule, Arc<FakeProxyCore>) {
+    fn module() -> (ProxyModule, Arc<FakeProxyCore>, Arc<FakeSystemProxy>) {
         let core = FakeProxyCore::new(
             ProxyStatus {
                 running: true,
@@ -1129,13 +1172,17 @@ mod tests {
             http: SystemProxySetting::default(),
             socks: SystemProxySetting::default(),
         });
-        let module = ProxyModule::with_deps(core.clone(), system, Arc::new(FakePasteboard::new()));
-        (module, core)
+        let module = ProxyModule::with_deps(
+            core.clone(),
+            system.clone(),
+            Arc::new(FakePasteboard::new()),
+        );
+        (module, core, system)
     }
 
     #[tokio::test]
     async fn search_redacts_uuid_and_shows_status_and_selected_node() {
-        let (module, _) = module();
+        let (module, _, _) = module();
         let items = collect_search_items(&module, Query::parse("proxy ", 20)).await;
         assert!(items
             .iter()
@@ -1147,7 +1194,7 @@ mod tests {
 
     #[tokio::test]
     async fn selecting_node_is_safe_and_calls_core() {
-        let (module, core) = module();
+        let (module, core, _) = module();
         let items = collect_search_items(&module, Query::parse("proxy group AI-VPS", 20)).await;
         let node = items
             .iter()
@@ -1168,6 +1215,72 @@ mod tests {
             .await;
         assert!(matches!(outcome, ActionOutcome::Success { .. }));
         assert_eq!(core.selected.lock().await.len(), 1);
+    }
+
+    #[test]
+    fn controller_failure_details_never_reach_action_outcomes() {
+        let detail = "request /proxies/group-123e4567-e89b-12d3-a456-426614174000";
+        let timeout = proxy_failure(ProxyCoreError::Timeout(detail.into()));
+        let missing = proxy_failure(ProxyCoreError::NotFound(detail.into()));
+        let unavailable = proxy_failure(ProxyCoreError::Unavailable(detail.into()));
+        for failure in [&timeout, &missing, &unavailable] {
+            assert!(!format!("{failure:?}").contains(detail));
+        }
+        assert!(matches!(
+            timeout,
+            FailureKind::Timeout { ref operation } if operation == "Mihomo controller request"
+        ));
+        assert!(matches!(
+            missing,
+            FailureKind::NotFound { ref entity } if entity == "Proxy item"
+        ));
+        assert!(matches!(
+            unavailable,
+            FailureKind::Unavailable { ref reason, retryable: true }
+                if reason == "Mihomo controller is unavailable"
+        ));
+    }
+
+    #[tokio::test]
+    async fn fake_controller_timeout_is_redacted_from_action_outcome() {
+        let (module, core, _) = module();
+        let detail = "request /proxies/node-123e4567-e89b-12d3-a456-426614174000";
+        core.set_error(Some(ProxyCoreError::Timeout(detail.into())))
+            .await;
+        let result = SearchItemDto {
+            id: "proxy:mode:global".into(),
+            module_id: MODULE_ID.into(),
+            title: "Set Global mode".into(),
+            kind: "proxy_mode".into(),
+            primary_action_id: "set_global".into(),
+            primary_action_label: "Set Global".into(),
+            primary_action_risk: ActionRisk::Confirm,
+            primary_action_confirmation: true,
+            ..Default::default()
+        }
+        .into_domain();
+        let outcome = module
+            .perform(
+                ActionRequest {
+                    result,
+                    action: ActionDescriptor {
+                        id: ActionId::new("set_global"),
+                        label: "Set Global".into(),
+                        risk: ActionRisk::Confirm,
+                        confirmation: true,
+                    },
+                    confirmation: true,
+                },
+                CancellationToken::new(),
+            )
+            .await;
+        assert!(!format!("{outcome:?}").contains(detail));
+        assert!(matches!(
+            outcome,
+            ActionOutcome::Failed {
+                kind: FailureKind::Timeout { ref operation }
+            } if operation == "Mihomo controller request"
+        ));
     }
 
     struct TestProfiles {
@@ -1229,7 +1342,7 @@ mod tests {
 
     #[tokio::test]
     async fn profile_search_and_import_never_echo_subscription_url_or_credentials() {
-        let (base, _) = module();
+        let (base, _, _) = module();
         let profiles = Arc::new(TestProfiles {
             summary: ProfileSummary {
                 id: "p-0123456789abcdef0123".into(),
@@ -1263,5 +1376,133 @@ mod tests {
         assert!(refresh_items
             .iter()
             .any(|item| item.primary_action.id.as_str() == "refresh_profile"));
+    }
+
+    #[tokio::test]
+    async fn import_preserves_case_in_subscription_url_and_local_path() {
+        let (base, _, _) = module();
+        let profiles = Arc::new(TestProfiles {
+            summary: ProfileSummary {
+                id: "p-0123456789abcdef0123".into(),
+                name: "subscription-name".into(),
+                node_count: 0,
+                group_count: 0,
+                rule_count: 0,
+                metadata_available: true,
+                updated_at: None,
+                source: ProfileSource::Subscription,
+                owned_by_luma: true,
+                current: false,
+            },
+        });
+        let module = base.with_profile_store(profiles);
+        let url = "https://Example.invalid/Profile/Case?Tag=AbC";
+        let items =
+            collect_search_items(&module, Query::parse(format!("proxy import {url}"), 20)).await;
+        let intent = module
+            .import_keys
+            .read()
+            .await
+            .get(items[0].id.as_str())
+            .cloned();
+        assert!(matches!(intent, Some(ImportIntent::Subscription(value)) if value == url));
+
+        let path = "/tmp/ProfileCase.YAML";
+        let items =
+            collect_search_items(&module, Query::parse(format!("proxy import {path}"), 20)).await;
+        let intent = module
+            .import_keys
+            .read()
+            .await
+            .get(items[0].id.as_str())
+            .cloned();
+        assert!(matches!(intent, Some(ImportIntent::Local(value)) if value == *path));
+    }
+
+    #[test]
+    fn external_clash_uid_is_never_exposed_in_result_id_payload_or_ui() {
+        let uid = "external-profile-uid";
+        let uuid = "123e4567-e89b-12d3-a456-426614174000";
+        let item = profile_item(ProfileSummary {
+            id: uid.into(),
+            name: format!("{uid} {uuid}"),
+            node_count: 0,
+            group_count: 0,
+            rule_count: 0,
+            metadata_available: false,
+            updated_at: None,
+            source: ProfileSource::ClashVerge,
+            owned_by_luma: false,
+            current: false,
+        });
+        let serialized = serde_json::to_string(&item).unwrap();
+        assert!(!serialized.contains(uid));
+        assert!(!serialized.contains(uuid));
+        assert!(item.id.starts_with("proxy:profile:readonly:"));
+        assert_eq!(item.primary_action_id, "noop");
+        assert!(item.secondary_actions.is_empty());
+        assert!(item.action_payload.is_none());
+    }
+
+    #[test]
+    fn only_subscription_profiles_offer_refresh() {
+        let profile = |source| ProfileSummary {
+            id: "p-0123456789abcdef0123".into(),
+            name: "Safe Profile".into(),
+            node_count: 0,
+            group_count: 0,
+            rule_count: 0,
+            metadata_available: true,
+            updated_at: None,
+            source,
+            owned_by_luma: true,
+            current: false,
+        };
+        let local = profile_item(profile(ProfileSource::LumaLocal));
+        let subscription = profile_item(profile(ProfileSource::Subscription));
+        assert!(!local
+            .secondary_actions
+            .iter()
+            .any(|action| action.id == "refresh_profile"));
+        assert!(subscription
+            .secondary_actions
+            .iter()
+            .any(|action| action.id == "refresh_profile"));
+    }
+
+    #[tokio::test]
+    async fn enabling_system_proxy_uses_mixed_port_when_dedicated_ports_are_absent() {
+        let (module, core, system) = module();
+        core.status.lock().await.ports = ProxyPorts {
+            http: None,
+            mixed: Some(7897),
+            socks: None,
+        };
+        let status = collect_search_items(&module, Query::parse("proxy ", 20))
+            .await
+            .into_iter()
+            .find(|item| item.kind == "status")
+            .unwrap();
+        let action = module
+            .actions(&status)
+            .await
+            .into_iter()
+            .find(|action| action.id.as_str() == "enable_system_proxy")
+            .unwrap();
+        let outcome = module
+            .perform(
+                ActionRequest {
+                    result: status,
+                    action,
+                    confirmation: true,
+                },
+                CancellationToken::new(),
+            )
+            .await;
+        assert!(matches!(outcome, ActionOutcome::Success { .. }));
+        assert_eq!(
+            *system.enable_calls.lock().await,
+            vec![(Some(7897), Some(7897))]
+        );
     }
 }

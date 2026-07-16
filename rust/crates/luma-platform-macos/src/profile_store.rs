@@ -13,12 +13,15 @@ use luma_storage::luma_next_support_dir;
 use serde::{Deserialize, Serialize};
 use serde_yaml::{Mapping, Value};
 use std::fs;
+use std::io::Write;
 use std::path::{Component, Path, PathBuf};
 use std::process::Stdio;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use tokio::io::AsyncWriteExt;
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt};
 use tokio::process::Command;
+use tokio::sync::Mutex;
 
 #[async_trait]
 trait RuntimeApplyPort: Send + Sync {
@@ -37,6 +40,16 @@ impl RuntimeApplyPort for crate::MacMihomoProxyCore {
 const MAX_PROFILE_BYTES: u64 = 512 * 1024;
 const MAX_REDIRECTS: &str = "3";
 const URL_ACCOUNT_PREFIX: &str = "proxy-profile-url:";
+static ATOMIC_WRITE_SEQUENCE: AtomicU64 = AtomicU64::new(0);
+const SUPPORTED_PROFILE_ROOT_KEYS: &[&str] = &[
+    "name",
+    "proxies",
+    "proxy-groups",
+    "proxy-providers",
+    "rule-providers",
+    "rules",
+    "sub-rules",
+];
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 struct StoredProfile {
@@ -54,6 +67,14 @@ struct ProfileIndex {
     profiles: Vec<StoredProfile>,
 }
 
+/// Previous subscription reference kept only while a file/index transaction is in progress.
+/// It deliberately has no Debug implementation so a URL cannot be printed accidentally.
+#[derive(Clone)]
+enum SubscriptionUrlSnapshot {
+    Missing,
+    Present(String),
+}
+
 struct ClashSnapshot {
     manifest: PathBuf,
     old_manifest: Vec<u8>,
@@ -66,6 +87,8 @@ pub struct MacProfileStore {
     clash_root: Option<PathBuf>,
     keychain: Arc<dyn KeychainPort>,
     runtime: Option<Arc<dyn RuntimeApplyPort>>,
+    /// Serializes multi-file/Profile-Keychain mutations within one Luma process.
+    operation_lock: Mutex<()>,
 }
 
 impl MacProfileStore {
@@ -81,6 +104,7 @@ impl MacProfileStore {
             clash_root: default_clash_root(),
             keychain,
             runtime: Some(runtime),
+            operation_lock: Mutex::new(()),
         })
     }
 
@@ -95,6 +119,7 @@ impl MacProfileStore {
             clash_root,
             keychain,
             runtime: None,
+            operation_lock: Mutex::new(()),
         }
     }
 
@@ -129,6 +154,52 @@ impl MacProfileStore {
             }),
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(ProfileIndex::default()),
             Err(e) => Err(io_error(e)),
+        }
+    }
+
+    fn subscription_account(id: &str) -> String {
+        format!("{URL_ACCOUNT_PREFIX}{id}")
+    }
+
+    async fn snapshot_subscription_url(
+        &self,
+        id: &str,
+    ) -> Result<SubscriptionUrlSnapshot, ProfileStoreError> {
+        match self
+            .keychain
+            .copy_password(&Self::subscription_account(id))
+            .await
+        {
+            Ok(url) => Ok(SubscriptionUrlSnapshot::Present(url)),
+            Err(KeychainError::NotFound(_)) => Ok(SubscriptionUrlSnapshot::Missing),
+            Err(_) => Err(ProfileStoreError::Unavailable(
+                "subscription address could not be read from Keychain".into(),
+            )),
+        }
+    }
+
+    async fn restore_subscription_url(
+        &self,
+        id: &str,
+        snapshot: &SubscriptionUrlSnapshot,
+    ) -> Result<(), ProfileStoreError> {
+        let account = Self::subscription_account(id);
+        match snapshot {
+            SubscriptionUrlSnapshot::Present(url) => self
+                .keychain
+                .set_password(&account, url)
+                .await
+                .map_err(|_| {
+                    ProfileStoreError::Unavailable(
+                        "subscription address could not be restored in Keychain".into(),
+                    )
+                }),
+            SubscriptionUrlSnapshot::Missing => match self.keychain.delete(&account).await {
+                Ok(()) | Err(KeychainError::NotFound(_)) => Ok(()),
+                Err(_) => Err(ProfileStoreError::Unavailable(
+                    "subscription address could not be restored in Keychain".into(),
+                )),
+            },
         }
     }
 
@@ -200,8 +271,14 @@ impl MacProfileStore {
             .map(str::to_string)
             .unwrap_or_else(|| new_id(&raw, &name));
         let source_path = self.source_path(&id)?;
+        let index_path = self.index_path();
+        let old_source = read_optional_file(&source_path)?;
+        let old_index = read_optional_file(&index_path)?;
         let previous_index = self.read_index()?;
-        let old_source = fs::read(&source_path).ok();
+        let previous_url = match url {
+            Some(_) => Some(self.snapshot_subscription_url(&id).await?),
+            None => None,
+        };
         atomic_write(&source_path, raw.as_bytes(), true)?;
         let mut index = previous_index.clone();
         let updated_at = Some(now());
@@ -220,32 +297,46 @@ impl MacProfileStore {
         };
         index.profiles.retain(|p| p.id != id);
         index.profiles.push(stored.clone());
-        if let Err(error) = atomic_json(&self.index_path(), &index) {
-            let rollback = restore_file(&source_path, old_source.as_deref());
+        if let Err(error) = atomic_json(&index_path, &index) {
+            let rollback = restore_file(&source_path, old_source.as_deref())
+                .and_then(|_| restore_file(&index_path, old_index.as_deref()));
             return Err(rollback_failure(error, rollback));
         }
         if let Some(url) = url {
             if self
                 .keychain
-                .set_password(&format!("{URL_ACCOUNT_PREFIX}{id}"), url)
+                .set_password(&Self::subscription_account(&id), url)
                 .await
                 .is_err()
             {
-                let rollback = restore_file(&source_path, old_source.as_deref())
-                    .and_then(|_| atomic_json(&self.index_path(), &previous_index));
+                let file_rollback = restore_file(&source_path, old_source.as_deref())
+                    .and_then(|_| restore_file(&index_path, old_index.as_deref()));
+                let keychain_rollback = match previous_url.as_ref() {
+                    Some(snapshot) => self.restore_subscription_url(&id, snapshot).await,
+                    None => Err(ProfileStoreError::Conflict(
+                        "subscription transaction was missing its Keychain snapshot".into(),
+                    )),
+                };
                 return Err(rollback_failure(
                     ProfileStoreError::Unavailable(
                         "subscription address could not be stored in Keychain".into(),
                     ),
-                    rollback,
+                    combine_rollbacks(file_rollback, keychain_rollback),
                 ));
             }
         }
         if fixed_id.is_some() {
             if let Err(error) = self.sync_registered_clash(&stored, &source_path) {
-                let rollback = restore_file(&source_path, old_source.as_deref())
-                    .and_then(|_| atomic_json(&self.index_path(), &previous_index));
-                return Err(rollback_failure(error, rollback));
+                let file_rollback = restore_file(&source_path, old_source.as_deref())
+                    .and_then(|_| restore_file(&index_path, old_index.as_deref()));
+                let keychain_rollback = match &previous_url {
+                    Some(snapshot) => self.restore_subscription_url(&id, snapshot).await,
+                    None => Ok(()),
+                };
+                return Err(rollback_failure(
+                    error,
+                    combine_rollbacks(file_rollback, keychain_rollback),
+                ));
             }
         }
         Ok(ProfileImportResult {
@@ -264,57 +355,60 @@ impl MacProfileStore {
                 "only HTTPS or loopback HTTP subscriptions are allowed".into(),
             ));
         }
-        let protocol = if https { "=https" } else { "=http" };
         let mut command = Command::new("curl");
         command
-            .args([
-                "--silent",
-                "--show-error",
-                "--fail",
-                "--location",
-                "--max-redirs",
-                MAX_REDIRECTS,
-                "--proto",
-                protocol,
-                "--connect-timeout",
-                "5",
-                "--max-time",
-                "20",
-                "--max-filesize",
-                "524288",
-                "--config",
-                "-",
-            ])
+            .args(subscription_curl_args(https))
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
+            // Errors are deliberately generic, so retaining arbitrary curl stderr only creates
+            // another unbounded buffer with no user-facing value.
+            .stderr(Stdio::null())
+            .kill_on_drop(true);
         let mut child = command
             .spawn()
             .map_err(|_| ProfileStoreError::Unavailable("subscription request failed".into()))?;
         let escaped_url = curl_config_escape(url)?;
-        if let Some(mut stdin) = child.stdin.take() {
-            stdin
-                .write_all(format!("url = \"{}\"\n", escaped_url).as_bytes())
-                .await
-                .map_err(|_| {
-                    ProfileStoreError::Unavailable("subscription request failed".into())
-                })?;
-        }
-        let output = tokio::time::timeout(Duration::from_secs(25), child.wait_with_output())
-            .await
-            .map_err(|_| ProfileStoreError::Timeout)?
-            .map_err(|_| ProfileStoreError::Unavailable("subscription request failed".into()))?;
-        if !output.status.success() {
+        let Some(mut stdin) = child.stdin.take() else {
             return Err(ProfileStoreError::Unavailable(
                 "subscription request failed".into(),
             ));
-        }
-        if output.stdout.len() as u64 > MAX_PROFILE_BYTES {
-            return Err(ProfileStoreError::SecurityDenied(
-                "profile response exceeds the size limit".into(),
+        };
+        stdin
+            .write_all(format!("url = \"{}\"\n", escaped_url).as_bytes())
+            .await
+            .map_err(|_| ProfileStoreError::Unavailable("subscription request failed".into()))?;
+        drop(stdin);
+        let Some(mut stdout) = child.stdout.take() else {
+            return Err(ProfileStoreError::Unavailable(
+                "subscription request failed".into(),
             ));
+        };
+
+        let completed = tokio::time::timeout(Duration::from_secs(25), async {
+            let output = read_bounded_output(&mut stdout, MAX_PROFILE_BYTES as usize).await?;
+            let status = child.wait().await.map_err(|_| {
+                ProfileStoreError::Unavailable("subscription request failed".into())
+            })?;
+            if !status.success() {
+                return Err(ProfileStoreError::Unavailable(
+                    "subscription request failed".into(),
+                ));
+            }
+            Ok(output)
+        })
+        .await;
+
+        match completed {
+            Ok(Ok(output)) => Ok(output),
+            Ok(Err(error)) => {
+                let _ = child.kill().await;
+                Err(error)
+            }
+            Err(_) => {
+                let _ = child.kill().await;
+                Err(ProfileStoreError::Timeout)
+            }
         }
-        Ok(output.stdout)
     }
 
     async fn apply_stored(&self, id: &str) -> Result<ProfileImportResult, ProfileStoreError> {
@@ -354,18 +448,35 @@ impl MacProfileStore {
     }
 
     fn read_current_uid(&self) -> Result<Option<String>, ProfileStoreError> {
-        let Some(root) = &self.clash_root else {
+        let Some(path) = self.checked_clash_manifest()? else {
             return Ok(None);
         };
-        let path = root.join("profiles.yaml");
-        if !path.exists() {
-            return Ok(None);
-        }
         let value = read_yaml_file(&path)?;
         Ok(value
             .get("current")
             .and_then(Value::as_str)
             .map(str::to_string))
+    }
+
+    fn checked_clash_manifest(&self) -> Result<Option<PathBuf>, ProfileStoreError> {
+        let Some(root) = &self.clash_root else {
+            return Ok(None);
+        };
+        let manifest = root.join("profiles.yaml");
+        if !manifest.exists() {
+            return Ok(None);
+        }
+        ensure_contained(root, &manifest)?;
+        if fs::symlink_metadata(&manifest)
+            .map_err(io_error)?
+            .file_type()
+            .is_symlink()
+        {
+            return Err(ProfileStoreError::SecurityDenied(
+                "Clash Verge manifest symlinks are not supported".into(),
+            ));
+        }
+        Ok(Some(manifest))
     }
 
     fn register_clash(
@@ -456,7 +567,7 @@ impl MacProfileStore {
             ));
         }
         let bytes = fs::read(source_path).map_err(io_error)?;
-        let old_target = fs::read(&target).ok();
+        let old_target = read_optional_file(&target)?;
         let old_manifest = fs::read(&manifest).map_err(io_error)?;
         atomic_write(&target, &bytes, true)?;
         if let Err(error) = atomic_yaml(&manifest, &value, true) {
@@ -552,7 +663,7 @@ impl MacProfileStore {
                 "Clash Verge Profile symlinks are not supported".into(),
             ));
         }
-        let old_target = fs::read(&target).ok();
+        let old_target = read_optional_file(&target)?;
         remove_file_if_exists(&target)?;
         if let Err(error) = atomic_yaml(&manifest, &value, true) {
             let rollback = restore_file(&target, old_target.as_deref())
@@ -579,6 +690,16 @@ impl MacProfileStore {
         if !manifest.exists() {
             return Ok(());
         }
+        ensure_contained(root, &manifest)?;
+        if fs::symlink_metadata(&manifest)
+            .map_err(io_error)?
+            .file_type()
+            .is_symlink()
+        {
+            return Err(ProfileStoreError::SecurityDenied(
+                "Clash Verge manifest symlinks are not supported".into(),
+            ));
+        }
         let value = read_yaml_file(&manifest)?;
         let Some(items) = value.get("items").and_then(Value::as_sequence) else {
             return Err(unsupported_schema());
@@ -602,13 +723,20 @@ impl MacProfileStore {
                 "Clash Verge Profile symlinks are not supported".into(),
             ));
         }
-        atomic_write(&target, &fs::read(source_path).map_err(io_error)?, true)
+        let old_target = read_optional_file(&target)?;
+        let bytes = fs::read(source_path).map_err(io_error)?;
+        if let Err(error) = atomic_write(&target, &bytes, true) {
+            let rollback = restore_file(&target, old_target.as_deref());
+            return Err(rollback_failure(error, rollback));
+        }
+        Ok(())
     }
 }
 
 #[async_trait]
 impl ProfileStorePort for MacProfileStore {
     async fn list_profiles(&self) -> Result<Vec<ProfileSummary>, ProfileStoreError> {
+        let _operation = self.operation_lock.lock().await;
         let current = self.read_current_uid()?;
         let index = self.read_index()?;
         let mut out: Vec<_> = index
@@ -617,8 +745,7 @@ impl ProfileStorePort for MacProfileStore {
             .map(|p| Self::to_summary(p.clone(), current.as_deref() == Some(p.id.as_str())))
             .collect();
         if let Some(root) = &self.clash_root {
-            let path = root.join("profiles.yaml");
-            if path.exists() {
+            if let Some(path) = self.checked_clash_manifest()? {
                 let value = read_yaml_file(&path)?;
                 if let (Some(current), Some(items)) = (
                     value.get("current").and_then(Value::as_str),
@@ -673,6 +800,7 @@ impl ProfileStorePort for MacProfileStore {
         url: &str,
         suggested_name: Option<&str>,
     ) -> Result<ProfileImportResult, ProfileStoreError> {
+        let _operation = self.operation_lock.lock().await;
         let bytes = self.fetch_url(url).await?;
         self.import_bytes(
             bytes,
@@ -689,6 +817,7 @@ impl ProfileStorePort for MacProfileStore {
         path: &Path,
         suggested_name: Option<&str>,
     ) -> Result<ProfileImportResult, ProfileStoreError> {
+        let _operation = self.operation_lock.lock().await;
         let safe = canonical_local_file(path)?;
         let meta = fs::metadata(&safe).map_err(io_error)?;
         if meta.len() > MAX_PROFILE_BYTES {
@@ -707,13 +836,26 @@ impl ProfileStorePort for MacProfileStore {
     }
 
     async fn use_profile(&self, id: &str) -> Result<ProfileImportResult, ProfileStoreError> {
+        let _operation = self.operation_lock.lock().await;
         self.apply_stored(id).await
     }
 
     async fn refresh_profile(&self, id: &str) -> Result<ProfileImportResult, ProfileStoreError> {
+        let _operation = self.operation_lock.lock().await;
+        let existing = self
+            .read_index()?
+            .profiles
+            .into_iter()
+            .find(|p| p.id == id)
+            .ok_or_else(|| ProfileStoreError::NotFound("Luma Profile".into()))?;
+        if existing.source != "subscription" {
+            return Err(ProfileStoreError::NotConfigured(
+                "this Profile has no stored subscription source".into(),
+            ));
+        }
         let url = self
             .keychain
-            .copy_password(&format!("{URL_ACCOUNT_PREFIX}{id}"))
+            .copy_password(&Self::subscription_account(id))
             .await
             .map_err(|_| {
                 ProfileStoreError::NotConfigured(
@@ -721,12 +863,6 @@ impl ProfileStorePort for MacProfileStore {
                 )
             })?;
         let bytes = self.fetch_url(&url).await?;
-        let existing = self
-            .read_index()?
-            .profiles
-            .into_iter()
-            .find(|p| p.id == id)
-            .ok_or_else(|| ProfileStoreError::NotFound("Luma Profile".into()))?;
         self.import_bytes(
             bytes,
             Some(&existing.name),
@@ -738,50 +874,122 @@ impl ProfileStorePort for MacProfileStore {
     }
 
     async fn delete_profile(&self, id: &str) -> Result<(), ProfileStoreError> {
+        let _operation = self.operation_lock.lock().await;
         let mut index = self.read_index()?;
-        if !index.profiles.iter().any(|p| p.id == id) {
-            return Err(ProfileStoreError::SecurityDenied(
-                "only Luma-owned Profiles can be deleted".into(),
-            ));
-        }
+        let stored = index
+            .profiles
+            .iter()
+            .find(|profile| profile.id == id)
+            .cloned()
+            .ok_or_else(|| {
+                ProfileStoreError::SecurityDenied("only Luma-owned Profiles can be deleted".into())
+            })?;
         let path = self.source_path(id)?;
-        let old_source = fs::read(&path).ok();
-        let old_index = fs::read(self.index_path()).ok();
+        let index_path = self.index_path();
+        let old_source = read_optional_file(&path)?;
+        let old_index = read_optional_file(&index_path)?;
+        let previous_url = if stored.source == "subscription" {
+            Some(self.snapshot_subscription_url(id).await?)
+        } else {
+            None
+        };
         let clash_snapshot = self.unregister_clash(id)?;
-        remove_file_if_exists(&path)?;
-        index.profiles.retain(|p| p.id != id);
-        if let Err(error) = atomic_json(&self.index_path(), &index) {
-            let rollback = restore_file(&path, old_source.as_deref())
-                .and_then(|_| restore_file(&self.index_path(), old_index.as_deref()))
-                .and_then(|_| {
-                    clash_snapshot
-                        .map(|snapshot| self.restore_clash(snapshot))
-                        .unwrap_or(Ok(()))
-                });
+        if let Err(error) = remove_file_if_exists(&path) {
+            let rollback = clash_snapshot
+                .map(|snapshot| self.restore_clash(snapshot))
+                .unwrap_or(Ok(()));
             return Err(rollback_failure(error, rollback));
         }
-        if let Err(error) = self
-            .keychain
-            .delete(&format!("{URL_ACCOUNT_PREFIX}{id}"))
-            .await
-        {
-            if !matches!(error, KeychainError::NotFound(_)) {
-                let rollback = restore_file(&path, old_source.as_deref())
-                    .and_then(|_| restore_file(&self.index_path(), old_index.as_deref()))
-                    .and_then(|_| {
-                        clash_snapshot
-                            .map(|snapshot| self.restore_clash(snapshot))
-                            .unwrap_or(Ok(()))
-                    });
-                return Err(rollback_failure(
-                    ProfileStoreError::Unavailable(
-                        "subscription address could not be removed from Keychain".into(),
-                    ),
-                    rollback,
-                ));
+        index.profiles.retain(|p| p.id != id);
+        if let Err(error) = atomic_json(&index_path, &index) {
+            let files_rollback = restore_file(&path, old_source.as_deref())
+                .and_then(|_| restore_file(&index_path, old_index.as_deref()));
+            let clash_rollback = clash_snapshot
+                .map(|snapshot| self.restore_clash(snapshot))
+                .unwrap_or(Ok(()));
+            return Err(rollback_failure(
+                error,
+                combine_rollbacks(files_rollback, clash_rollback),
+            ));
+        }
+        if let Some(previous_url) = previous_url {
+            if let Err(error) = self.keychain.delete(&Self::subscription_account(id)).await {
+                if !matches!(error, KeychainError::NotFound(_)) {
+                    let files_rollback = restore_file(&path, old_source.as_deref())
+                        .and_then(|_| restore_file(&index_path, old_index.as_deref()));
+                    let clash_rollback = clash_snapshot
+                        .map(|snapshot| self.restore_clash(snapshot))
+                        .unwrap_or(Ok(()));
+                    let keychain_rollback = self.restore_subscription_url(id, &previous_url).await;
+                    return Err(rollback_failure(
+                        ProfileStoreError::Unavailable(
+                            "subscription address could not be removed from Keychain".into(),
+                        ),
+                        combine_rollbacks(
+                            combine_rollbacks(files_rollback, clash_rollback),
+                            keychain_rollback,
+                        ),
+                    ));
+                }
             }
         }
         Ok(())
+    }
+}
+
+/// Curl receives the URL through stdin, never argv. HTTPS may redirect only to HTTPS; loopback
+/// HTTP deliberately rejects redirects so a local endpoint cannot bounce a subscription request
+/// to a LAN or public address.
+fn subscription_curl_args(https: bool) -> Vec<&'static str> {
+    let protocol = if https { "=https" } else { "=http" };
+    let max_redirects = if https { MAX_REDIRECTS } else { "0" };
+    vec![
+        // curl only honors this when it is its first option; do not inherit user curlrc behavior
+        // that could weaken TLS or write a subscription URL to a trace file.
+        "--disable",
+        "--silent",
+        "--show-error",
+        "--fail",
+        "--location",
+        "--max-redirs",
+        max_redirects,
+        "--proto",
+        protocol,
+        "--proto-redir",
+        protocol,
+        "--connect-timeout",
+        "5",
+        "--max-time",
+        "20",
+        // Keep curl's early Content-Length rejection as a second line of defense. The streaming
+        // reader below remains authoritative for chunked or lengthless responses.
+        "--max-filesize",
+        "524288",
+        "--config",
+        "-",
+    ]
+}
+
+async fn read_bounded_output<R: AsyncRead + Unpin>(
+    reader: &mut R,
+    limit: usize,
+) -> Result<Vec<u8>, ProfileStoreError> {
+    let mut output = Vec::new();
+    let mut buffer = [0_u8; 8192];
+    loop {
+        let read = reader
+            .read(&mut buffer)
+            .await
+            .map_err(|_| ProfileStoreError::Unavailable("subscription request failed".into()))?;
+        if read == 0 {
+            return Ok(output);
+        }
+        if output.len().saturating_add(read) > limit {
+            return Err(ProfileStoreError::SecurityDenied(
+                "profile response exceeds the size limit".into(),
+            ));
+        }
+        output.extend_from_slice(&buffer[..read]);
     }
 }
 
@@ -1127,52 +1335,26 @@ fn validate_profile(value: &Value) -> Result<(), ProfileStoreError> {
             message: "profile root must be a mapping".into(),
         });
     };
-    for key in ["script", "script-providers", "merge", "javascript"] {
-        if map.contains_key(Value::String(key.into())) {
-            return Err(ProfileStoreError::Unsupported(format!(
-                "{key} profiles are not supported"
-            )));
-        }
-    }
-    for key in [
-        "external-controller",
-        "external-controller-unix",
-        "secret",
-        "authentication",
-        "external-ui",
-        "listeners",
-        "bind-address",
-    ] {
-        if map.contains_key(Value::String(key.into())) {
-            return Err(ProfileStoreError::SecurityDenied(format!(
-                "imported Profile cannot configure {key}; Luma keeps controller settings trusted"
-            )));
-        }
-    }
-    if map.get("allow-lan").and_then(Value::as_bool) == Some(true) {
-        return Err(ProfileStoreError::SecurityDenied(
-            "imported Profile cannot enable allow-lan".into(),
-        ));
-    }
-    if let Some(controller) = map.get("external-controller").and_then(Value::as_str) {
-        if !controller.starts_with("127.0.0.1:")
-            && !controller.starts_with("localhost:")
-            && !controller.starts_with("[::1]:")
-        {
+    let mut has_runtime_content = false;
+    for key in map.keys() {
+        let Some(key) = key.as_str() else {
             return Err(ProfileStoreError::SecurityDenied(
-                "imported Profile must use a loopback external-controller".into(),
+                "imported Profile contains unsupported root settings".into(),
+            ));
+        };
+        if !SUPPORTED_PROFILE_ROOT_KEYS.contains(&key) {
+            // Do not echo an untrusted key. It can itself contain a credential or URL.
+            return Err(ProfileStoreError::SecurityDenied(
+                "imported Profile contains unsupported root settings".into(),
             ));
         }
+        has_runtime_content |= key != "name";
     }
-    if map
-        .get("tun")
-        .and_then(|v| v.get("enable"))
-        .and_then(Value::as_bool)
-        == Some(true)
-    {
-        return Err(ProfileStoreError::Unsupported(
-            "TUN is not supported for imported Profiles".into(),
-        ));
+    if !has_runtime_content {
+        return Err(ProfileStoreError::InvalidInput {
+            field: "yaml".into(),
+            message: "profile has no supported proxy or rule content".into(),
+        });
     }
     Ok(())
 }
@@ -1377,11 +1559,65 @@ fn atomic_write(path: &Path, bytes: &[u8], backup: bool) -> Result<(), ProfileSt
         fs::copy(path, &backup_path).map_err(io_error)?;
         set_private_file_mode(&backup_path)?;
     }
-    let tmp = path.with_extension("tmp");
-    fs::write(&tmp, bytes).map_err(io_error)?;
-    set_private_file_mode(&tmp)?;
-    fs::rename(&tmp, path).map_err(io_error)?;
-    set_private_file_mode(path)
+    let tmp = write_private_temp(path, bytes)?;
+    if let Err(error) = fs::rename(&tmp, path) {
+        let _ = fs::remove_file(&tmp);
+        return Err(io_error(error));
+    }
+    set_private_file_mode(path)?;
+    // The rename is the atomic commit. Syncing the containing directory is best effort: a
+    // failure after a successful rename must not make the caller retry a completed transaction.
+    if let Some(parent) = path.parent() {
+        let _ = fs::File::open(parent).and_then(|directory| directory.sync_all());
+    }
+    Ok(())
+}
+
+/// Write a same-directory, private temporary file without reusing the old fixed `.tmp` name.
+/// A per-process counter plus pid also prevents concurrent Luma processes from clobbering one
+/// another's staging file. The eventual rename remains atomic because the file stays in `path`'s
+/// directory.
+fn write_private_temp(path: &Path, bytes: &[u8]) -> Result<PathBuf, ProfileStoreError> {
+    let file_name = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .ok_or_else(|| ProfileStoreError::Unavailable("Profile storage path is invalid".into()))?;
+    for _ in 0..16 {
+        let sequence = ATOMIC_WRITE_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+        let tmp = path.with_file_name(format!(
+            ".{file_name}.{}.{}.tmp",
+            std::process::id(),
+            sequence
+        ));
+        let mut options = fs::OpenOptions::new();
+        options.write(true).create_new(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.mode(0o600);
+        }
+        let mut file = match options.open(&tmp) {
+            Ok(file) => file,
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(error) => return Err(io_error(error)),
+        };
+        let result = file.write_all(bytes).and_then(|_| file.sync_all());
+        drop(file);
+        if let Err(error) = result {
+            let _ = fs::remove_file(&tmp);
+            return Err(io_error(error));
+        }
+        // Keep the explicit mode check for platforms where the requested creation mode is
+        // filtered or ignored. On macOS this also makes test and restore writes consistent.
+        if let Err(error) = set_private_file_mode(&tmp) {
+            let _ = fs::remove_file(&tmp);
+            return Err(error);
+        }
+        return Ok(tmp);
+    }
+    Err(ProfileStoreError::Unavailable(
+        "Profile storage could not allocate a temporary file".into(),
+    ))
 }
 fn atomic_json<T: Serialize>(path: &Path, value: &T) -> Result<(), ProfileStoreError> {
     let bytes = serde_json::to_vec_pretty(value).map_err(|_| {
@@ -1392,6 +1628,14 @@ fn atomic_json<T: Serialize>(path: &Path, value: &T) -> Result<(), ProfileStoreE
 fn atomic_yaml(path: &Path, value: &Value, backup: bool) -> Result<(), ProfileStoreError> {
     let bytes = serde_yaml::to_string(value).map_err(|_| unsupported_schema())?;
     atomic_write(path, bytes.as_bytes(), backup)
+}
+
+fn read_optional_file(path: &Path) -> Result<Option<Vec<u8>>, ProfileStoreError> {
+    match fs::read(path) {
+        Ok(bytes) => Ok(Some(bytes)),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(io_error(error)),
+    }
 }
 
 fn remove_file_if_exists(path: &Path) -> Result<(), ProfileStoreError> {
@@ -1416,6 +1660,16 @@ fn rollback_failure(
     match rollback {
         Ok(()) => original,
         Err(error) => ProfileStoreError::Conflict(format!("{original}; rollback failed: {error}")),
+    }
+}
+
+fn combine_rollbacks(
+    first: Result<(), ProfileStoreError>,
+    second: Result<(), ProfileStoreError>,
+) -> Result<(), ProfileStoreError> {
+    match (first, second) {
+        (Ok(()), Ok(())) => Ok(()),
+        (Err(error), _) | (_, Err(error)) => Err(error),
     }
 }
 
@@ -1457,7 +1711,7 @@ fn is_system_alias(path: &Path) -> bool {
 mod tests {
     use super::*;
     use async_trait::async_trait;
-    use luma_application::{FakeKeychain, ProfileStorePort};
+    use luma_application::{FakeKeychain, KeychainPort, ProfileStorePort, SecretLabel};
     use std::collections::BTreeMap;
 
     fn keychain() -> Arc<FakeKeychain> {
@@ -1465,6 +1719,83 @@ mod tests {
             unlocked: true,
             entries: tokio::sync::Mutex::new(BTreeMap::new()),
         })
+    }
+
+    struct FailOnceSetKeychain {
+        entries: tokio::sync::Mutex<BTreeMap<String, String>>,
+        fail_next_set: tokio::sync::Mutex<bool>,
+        fail_next_delete: tokio::sync::Mutex<bool>,
+    }
+
+    impl FailOnceSetKeychain {
+        fn new() -> Arc<Self> {
+            Arc::new(Self {
+                entries: tokio::sync::Mutex::new(BTreeMap::new()),
+                fail_next_set: tokio::sync::Mutex::new(false),
+                fail_next_delete: tokio::sync::Mutex::new(false),
+            })
+        }
+
+        async fn fail_next_set(&self) {
+            *self.fail_next_set.lock().await = true;
+        }
+
+        async fn fail_next_delete(&self) {
+            *self.fail_next_delete.lock().await = true;
+        }
+    }
+
+    #[async_trait]
+    impl KeychainPort for FailOnceSetKeychain {
+        async fn list_labels(&self) -> Result<Vec<SecretLabel>, KeychainError> {
+            Ok(self
+                .entries
+                .lock()
+                .await
+                .keys()
+                .map(|account| SecretLabel {
+                    account: account.clone(),
+                })
+                .collect())
+        }
+
+        async fn copy_password(&self, account: &str) -> Result<String, KeychainError> {
+            self.entries
+                .lock()
+                .await
+                .get(account)
+                .cloned()
+                .ok_or_else(|| KeychainError::NotFound(account.into()))
+        }
+
+        async fn set_password(&self, account: &str, password: &str) -> Result<(), KeychainError> {
+            let mut fail_next_set = self.fail_next_set.lock().await;
+            if *fail_next_set {
+                *fail_next_set = false;
+                return Err(KeychainError::Unavailable("test failure".into()));
+            }
+            drop(fail_next_set);
+            self.entries
+                .lock()
+                .await
+                .insert(account.into(), password.into());
+            Ok(())
+        }
+
+        async fn delete(&self, account: &str) -> Result<(), KeychainError> {
+            let mut fail_next_delete = self.fail_next_delete.lock().await;
+            if *fail_next_delete {
+                *fail_next_delete = false;
+                return Err(KeychainError::Unavailable("test failure".into()));
+            }
+            drop(fail_next_delete);
+            self.entries
+                .lock()
+                .await
+                .remove(account)
+                .map(|_| ())
+                .ok_or_else(|| KeychainError::NotFound(account.into()))
+        }
     }
 
     struct FailingRuntime;
@@ -1494,7 +1825,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn rejects_merge_script_and_dangerous_runtime_settings() {
+    async fn rejects_merge_script_and_dangerous_runtime_settings_before_persistence() {
         let dir = tempfile::tempdir().unwrap();
         let store = MacProfileStore::with_paths(dir.path().join("profiles"), None, keychain());
         for (name, yaml) in [
@@ -1502,12 +1833,22 @@ mod tests {
             ("merge.yaml", "merge:\n  - x.yaml\n"),
             ("lan.yaml", "allow-lan: true\n"),
             ("tun.yaml", "tun:\n  enable: true\n"),
+            ("port.yaml", "port: 7890\nproxies: []\n"),
+            ("mixed.yaml", "mixed-port: 7890\nproxies: []\n"),
+            ("socks.yaml", "socks-port: 7891\nproxies: []\n"),
+            ("dns.yaml", "dns:\n  enable: true\nproxies: []\n"),
+            ("mode.yaml", "mode: global\nproxies: []\n"),
+            (
+                "controller.yaml",
+                "external-controller: 127.0.0.1:9090\nproxies: []\n",
+            ),
         ] {
             let path = dir.path().join(name);
             fs::write(&path, yaml).unwrap();
             let error = store.import_local_file(&path, None).await.unwrap_err();
             assert!(!error.to_string().contains(name));
         }
+        assert!(!dir.path().join("profiles").exists());
     }
 
     #[tokio::test]
@@ -1626,6 +1967,169 @@ items:
         assert_eq!(fs::read(source).unwrap(), old);
     }
 
+    #[tokio::test]
+    async fn subscription_update_rolls_back_files_and_keychain_after_keychain_failure() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("profiles");
+        let keychain = FailOnceSetKeychain::new();
+        let store = MacProfileStore::with_paths(root.clone(), None, keychain.clone());
+        let old_url = "https://example.invalid/old";
+        let imported = store
+            .import_bytes(
+                b"name: Old\nproxies: []\n".to_vec(),
+                None,
+                ProfileSource::Subscription,
+                Some(old_url),
+                None,
+            )
+            .await
+            .unwrap();
+        let id = imported.summary.id;
+        let source_path = root.join(format!("{id}.yaml"));
+        let index_path = root.join("profiles.json");
+        let old_source = fs::read(&source_path).unwrap();
+        let old_index = fs::read(&index_path).unwrap();
+        keychain.fail_next_set().await;
+
+        let error = store
+            .import_bytes(
+                b"name: New\nproxies: []\n".to_vec(),
+                None,
+                ProfileSource::Subscription,
+                Some("https://example.invalid/new"),
+                Some(&id),
+            )
+            .await
+            .unwrap_err();
+
+        assert!(!error.to_string().contains("example.invalid"));
+        assert_eq!(fs::read(source_path).unwrap(), old_source);
+        assert_eq!(fs::read(index_path).unwrap(), old_index);
+        assert_eq!(
+            keychain
+                .copy_password(&MacProfileStore::subscription_account(&id))
+                .await
+                .unwrap(),
+            old_url
+        );
+    }
+
+    #[tokio::test]
+    async fn subscription_refresh_sync_failure_restores_files_and_keychain() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("profiles");
+        let clash = dir.path().join("clash");
+        let keychain = keychain();
+        let store =
+            MacProfileStore::with_paths(root.clone(), Some(clash.clone()), keychain.clone());
+        let old_url = "https://example.invalid/old";
+        let imported = store
+            .import_bytes(
+                b"name: Old\nproxies: []\n".to_vec(),
+                None,
+                ProfileSource::Subscription,
+                Some(old_url),
+                None,
+            )
+            .await
+            .unwrap();
+        let id = imported.summary.id;
+        let source_path = root.join(format!("{id}.yaml"));
+        let index_path = root.join("profiles.json");
+        let old_source = fs::read(&source_path).unwrap();
+        let old_index = fs::read(&index_path).unwrap();
+        fs::create_dir_all(&clash).unwrap();
+        let manifest = clash.join("profiles.yaml");
+        fs::write(
+            &manifest,
+            format!(
+                "current: {id}\nitems:\n  - uid: {id}\n    type: local\n    name: Old\n    file: {id}.yaml\n"
+            ),
+        )
+        .unwrap();
+        let old_manifest = fs::read(&manifest).unwrap();
+        // A directory at the managed target makes the fake Clash sync fail before it can write.
+        fs::create_dir(clash.join(format!("{id}.yaml"))).unwrap();
+
+        let error = store
+            .import_bytes(
+                b"name: New\nproxies: []\n".to_vec(),
+                None,
+                ProfileSource::Subscription,
+                Some("https://example.invalid/new"),
+                Some(&id),
+            )
+            .await
+            .unwrap_err();
+
+        assert!(!error.to_string().contains("example.invalid"));
+        assert_eq!(fs::read(source_path).unwrap(), old_source);
+        assert_eq!(fs::read(index_path).unwrap(), old_index);
+        assert_eq!(fs::read(manifest).unwrap(), old_manifest);
+        assert_eq!(
+            keychain
+                .copy_password(&MacProfileStore::subscription_account(&id))
+                .await
+                .unwrap(),
+            old_url
+        );
+    }
+
+    #[tokio::test]
+    async fn subscription_delete_keychain_failure_restores_files_clash_and_url() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("profiles");
+        let clash = dir.path().join("clash");
+        let keychain = FailOnceSetKeychain::new();
+        let store =
+            MacProfileStore::with_paths(root.clone(), Some(clash.clone()), keychain.clone());
+        let old_url = "https://example.invalid/old";
+        let imported = store
+            .import_bytes(
+                b"name: Old\nproxies: []\n".to_vec(),
+                None,
+                ProfileSource::Subscription,
+                Some(old_url),
+                None,
+            )
+            .await
+            .unwrap();
+        let id = imported.summary.id;
+        let source_path = root.join(format!("{id}.yaml"));
+        let index_path = root.join("profiles.json");
+        let old_source = fs::read(&source_path).unwrap();
+        let old_index = fs::read(&index_path).unwrap();
+        fs::create_dir_all(&clash).unwrap();
+        let manifest = clash.join("profiles.yaml");
+        fs::write(
+            &manifest,
+            format!(
+                "current: {id}\nitems:\n  - uid: {id}\n    type: local\n    name: Old\n    file: {id}.yaml\n"
+            ),
+        )
+        .unwrap();
+        let target = clash.join(format!("{id}.yaml"));
+        fs::write(&target, b"old target").unwrap();
+        let old_manifest = fs::read(&manifest).unwrap();
+        let old_target = fs::read(&target).unwrap();
+        keychain.fail_next_delete().await;
+
+        let error = store.delete_profile(&id).await.unwrap_err();
+
+        assert!(!error.to_string().contains("example.invalid"));
+        assert_eq!(fs::read(source_path).unwrap(), old_source);
+        assert_eq!(fs::read(index_path).unwrap(), old_index);
+        assert_eq!(fs::read(manifest).unwrap(), old_manifest);
+        assert_eq!(fs::read(target).unwrap(), old_target);
+        assert_eq!(
+            keychain
+                .copy_password(&MacProfileStore::subscription_account(&id))
+                .await
+                .unwrap(),
+            old_url
+        );
+    }
+
     #[test]
     fn rejects_controller_and_listener_fields_before_persistence() {
         for key in [
@@ -1654,6 +2158,64 @@ items:
         assert!(!is_loopback_http_url("http://192.168.1.2:8080/profile"));
     }
 
+    #[test]
+    fn subscription_curl_policy_blocks_protocol_downgrades_and_user_curlrc() {
+        let https = subscription_curl_args(true);
+        assert_eq!(https.first(), Some(&"--disable"));
+        assert!(https
+            .windows(2)
+            .any(|arguments| arguments == ["--proto", "=https"]));
+        assert!(https
+            .windows(2)
+            .any(|arguments| arguments == ["--proto-redir", "=https"]));
+        assert!(https
+            .windows(2)
+            .any(|arguments| arguments == ["--max-redirs", "3"]));
+
+        let loopback_http = subscription_curl_args(false);
+        assert!(loopback_http
+            .windows(2)
+            .any(|arguments| arguments == ["--proto", "=http"]));
+        assert!(loopback_http
+            .windows(2)
+            .any(|arguments| arguments == ["--proto-redir", "=http"]));
+        assert!(loopback_http
+            .windows(2)
+            .any(|arguments| arguments == ["--max-redirs", "0"]));
+    }
+
+    #[tokio::test]
+    async fn bounded_subscription_reader_rejects_lengthless_oversized_output() {
+        let (mut writer, mut reader) = tokio::io::duplex(1024);
+        let writer = tokio::spawn(async move {
+            let _ = writer
+                .write_all(&vec![b'x'; MAX_PROFILE_BYTES as usize + 1])
+                .await;
+        });
+        assert!(matches!(
+            read_bounded_output(&mut reader, MAX_PROFILE_BYTES as usize).await,
+            Err(ProfileStoreError::SecurityDenied(_))
+        ));
+        writer.await.unwrap();
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn list_profiles_rejects_a_symlinked_clash_manifest() {
+        let dir = tempfile::tempdir().unwrap();
+        let clash = dir.path().join("clash");
+        fs::create_dir_all(&clash).unwrap();
+        let safe_target = clash.join("other.yaml");
+        fs::write(&safe_target, "current: old\nitems: []\n").unwrap();
+        std::os::unix::fs::symlink(&safe_target, clash.join("profiles.yaml")).unwrap();
+        let store =
+            MacProfileStore::with_paths(dir.path().join("profiles"), Some(clash), keychain());
+        assert!(matches!(
+            store.list_profiles().await,
+            Err(ProfileStoreError::SecurityDenied(_))
+        ));
+    }
+
     #[tokio::test]
     async fn converts_base64_and_common_node_uri_subscriptions() {
         let dir = tempfile::tempdir().unwrap();
@@ -1672,6 +2234,20 @@ items:
         let encoded = b"cHJveGllczogW10K".to_vec();
         let converted = normalize_subscription_bytes(encoded).unwrap();
         assert_eq!(String::from_utf8(converted).unwrap(), "proxies: []\n");
+    }
+
+    #[test]
+    fn atomic_write_does_not_reuse_a_legacy_fixed_temp_path() {
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("profile.yaml");
+        // Older builds used `profile.tmp`; a stale directory there made every later write fail.
+        let legacy_temp = target.with_extension("tmp");
+        fs::create_dir(&legacy_temp).unwrap();
+
+        atomic_write(&target, b"proxies: []\n", false).unwrap();
+
+        assert_eq!(fs::read(&target).unwrap(), b"proxies: []\n");
+        assert!(legacy_temp.is_dir());
     }
 
     #[cfg(unix)]

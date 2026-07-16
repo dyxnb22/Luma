@@ -433,7 +433,6 @@ fn flock_exclusive(_file: &File) -> Result<(), ConfigError> {
 }
 
 struct SettingsLock {
-    path: PathBuf,
     _file: File,
     _data: Option<File>,
 }
@@ -444,7 +443,9 @@ impl SettingsLock {
         if let Some(parent) = lock_path.parent() {
             fs::create_dir_all(parent)?;
         }
-        // Blocking flock: wait for any other Luma process holding this lock.
+        // Blocking flock: wait for any other Luma process holding this lock. Keep this
+        // pathname after release: unlinking it while another process waits on the old
+        // inode would let a third process create and lock a new, independent inode.
         let mut file = OpenOptions::new()
             .write(true)
             .create(true)
@@ -464,16 +465,9 @@ impl SettingsLock {
             None
         };
         Ok(Self {
-            path: lock_path,
             _file: file,
             _data: data,
         })
-    }
-}
-
-impl Drop for SettingsLock {
-    fn drop(&mut self) {
-        let _ = fs::remove_file(&self.path);
     }
 }
 
@@ -484,7 +478,7 @@ mod tests {
     use std::thread;
     use tempfile::tempdir;
 
-    /// Config lock/CAS tests share PID-based lock cleanup; serialize to avoid cross-test races.
+    /// Serialize lock/CAS tests that deliberately coordinate competing file descriptors.
     static CONFIG_FILE_TEST_LOCK: Mutex<()> = Mutex::new(());
 
     fn config_test_lock() -> std::sync::MutexGuard<'static, ()> {
@@ -517,7 +511,7 @@ mod tests {
     }
 
     #[test]
-    fn stale_lock_from_dead_pid_is_removed() {
+    fn stale_lock_metadata_does_not_block_and_lock_file_is_retained() {
         let _guard = config_test_lock();
         let dir = tempdir().unwrap();
         let settings = dir.path().join("settings.toml");
@@ -526,7 +520,88 @@ mod tests {
         let store = ConfigStore::with_path(settings);
         let loaded = store.load_or_default().unwrap();
         assert_eq!(loaded.settings_version, 1);
-        assert!(!lock.exists());
+        // `flock` is released when a process exits; the PID text is only diagnostic.
+        // The stable lock pathname must remain so all contenders lock one inode.
+        assert!(lock.exists());
+        assert_eq!(store.load_or_default().unwrap().settings_version, 1);
+        assert!(lock.exists());
+    }
+
+    #[cfg(unix)]
+    fn flock_exclusive_nonblocking(file: &File) -> std::io::Result<()> {
+        use std::os::unix::io::AsRawFd;
+
+        extern "C" {
+            fn flock(fd: std::os::fd::RawFd, operation: i32) -> i32;
+        }
+
+        const LOCK_EX: i32 = 0x2;
+        const LOCK_NB: i32 = 0x4;
+        if unsafe { flock(file.as_raw_fd(), LOCK_EX | LOCK_NB) } == 0 {
+            Ok(())
+        } else {
+            Err(std::io::Error::last_os_error())
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn lock_inode_stays_stable_across_waiter_and_third_contender() {
+        use std::os::unix::fs::MetadataExt;
+        use std::sync::mpsc;
+        use std::time::Duration;
+
+        let _guard = config_test_lock();
+        let dir = tempdir().unwrap();
+        let settings = dir.path().join("settings.toml");
+        let lock_path = settings.with_extension("toml.lock");
+
+        let first = SettingsLock::acquire(&settings).unwrap();
+        let initial_inode = fs::metadata(&lock_path).unwrap().ino();
+
+        // Open the waiter before releasing `first`, so it holds a descriptor for the
+        // original inode while waiting on its flock.
+        let (waiter_opened_tx, waiter_opened_rx) = mpsc::channel();
+        let (waiter_acquired_tx, waiter_acquired_rx) = mpsc::channel();
+        let (release_waiter_tx, release_waiter_rx) = mpsc::channel();
+        let waiter_path = lock_path.clone();
+        let waiter = thread::spawn(move || {
+            let file = OpenOptions::new().write(true).open(&waiter_path).unwrap();
+            waiter_opened_tx.send(()).unwrap();
+            flock_exclusive(&file).unwrap();
+            waiter_acquired_tx.send(()).unwrap();
+            let _ = release_waiter_rx.recv();
+        });
+        waiter_opened_rx
+            .recv_timeout(Duration::from_secs(2))
+            .expect("waiter should open the original lock inode");
+
+        drop(first);
+        waiter_acquired_rx
+            .recv_timeout(Duration::from_secs(2))
+            .expect("waiter should acquire after the first holder releases");
+
+        let current_inode = fs::metadata(&lock_path)
+            .expect("lock pathname must remain while a waiter holds it")
+            .ino();
+        assert_eq!(
+            current_inode, initial_inode,
+            "lock inode changed during handoff"
+        );
+
+        // A third contender must open that same inode and observe the waiter's flock.
+        // The old Drop-based unlink allowed this open to create a second inode instead.
+        let third = OpenOptions::new().write(true).open(&lock_path).unwrap();
+        let err = flock_exclusive_nonblocking(&third)
+            .expect_err("third contender must not acquire a parallel lock inode");
+        assert_eq!(err.kind(), std::io::ErrorKind::WouldBlock);
+        drop(third);
+
+        release_waiter_tx.send(()).unwrap();
+        waiter.join().unwrap();
+
+        drop(SettingsLock::acquire(&settings).unwrap());
+        assert!(lock_path.exists());
     }
 
     #[test]

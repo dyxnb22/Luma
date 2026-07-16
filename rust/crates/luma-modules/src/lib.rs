@@ -20,7 +20,7 @@ pub use apps::AppsModule;
 pub use clipboard::ClipboardModule;
 pub use clipboard_privacy::ClipboardSuppression;
 pub use fake::FakeEchoModule;
-pub use notes::NotesModule;
+pub use notes::{NotesModule, NotesServices};
 pub use projects::ProjectsModule;
 pub use proxy::ProxyModule;
 pub use quicklinks::QuicklinksModule;

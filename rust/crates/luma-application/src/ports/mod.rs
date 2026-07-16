@@ -2,6 +2,7 @@
 
 mod accessibility;
 mod apps;
+mod bounded_file_reader;
 mod capability;
 mod clipboard_repo;
 mod clock;
@@ -9,9 +10,11 @@ mod keychain;
 mod markdown_watch;
 mod memory_repos;
 mod notes_repo;
+mod notes_workspace;
 mod open_path;
 mod pasteboard;
 mod profile;
+mod project_workspace;
 mod proxy_core;
 mod quicklinks_repo;
 mod records_repo;
@@ -24,11 +27,14 @@ mod wordbook_repo;
 
 pub use accessibility::{AccessibilityError, AccessibilityPort, FakeAccessibility};
 pub use apps::{AppEntry, AppLaunchError, AppsCatalogPort};
+pub use bounded_file_reader::{
+    BoundedUtf8FileReadError, BoundedUtf8FileReaderPort, FakeBoundedUtf8FileReader,
+};
 pub use capability::{CapabilityPort, FakeCapabilities};
 pub use clipboard_repo::{
     looks_secret, ClipboardEntry, ClipboardHistoryRepository, ClipboardRepoError,
 };
-pub use clock::{ClockError, ClockPort, FixedClock, SystemClock};
+pub use clock::{ClockError, ClockPort, FixedClock};
 pub use keychain::{FakeKeychain, KeychainError, KeychainPort, SecretLabel};
 pub use markdown_watch::{FakeMarkdownWatcher, MarkdownWatchPort};
 pub use memory_repos::{
@@ -39,10 +45,18 @@ pub use notes_repo::{
     NotesDocument, NotesIndexError, NotesIndexRepository, NotesIssue, NotesLink, NotesScanReport,
     NotesScanStatusView, NotesSearchHit,
 };
+pub use notes_workspace::{
+    FakeNotesWorkspace, NotesDirectoryEntry, NotesDirectoryEntryKind, NotesDirectoryListing,
+    NotesWorkspaceError, NotesWorkspacePath, NotesWorkspacePort, NotesWorkspacePreview,
+};
 pub use open_path::{FakeOpenPath, OpenPathError, OpenPathPort};
 pub use pasteboard::{FakePasteboard, PasteboardError, PasteboardPort};
 pub use profile::{
     ProfileImportResult, ProfileSource, ProfileStoreError, ProfileStorePort, ProfileSummary,
+};
+pub use project_workspace::{
+    FakeProjectWorkspace, ProjectDirectoryEntry, ProjectDirectoryListing, ProjectOpenScope,
+    ProjectWorkspaceError, ProjectWorkspacePort,
 };
 pub use proxy_core::{
     ExternalControllerStatus, FakeProxyCore, ProxyCoreError, ProxyCorePort, ProxyGroup, ProxyMode,

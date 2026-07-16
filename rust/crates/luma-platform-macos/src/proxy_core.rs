@@ -282,17 +282,27 @@ impl MacMihomoProxyCore {
     }
 
     async fn controller_secret(&self) -> Result<Option<String>, ProxyCoreError> {
-        if let Some(secret) = &self.secret {
-            return Ok(Some(secret.clone()));
-        }
-        let (Some(keychain), Some(account)) = (&self.secret_keychain, &self.secret_account) else {
-            return Ok(None);
+        let secret = if let Some(secret) = &self.secret {
+            Some(secret.clone())
+        } else {
+            let (Some(keychain), Some(account)) = (&self.secret_keychain, &self.secret_account)
+            else {
+                return Ok(None);
+            };
+            Some(keychain.copy_password(account).await.map_err(|_| {
+                ProxyCoreError::Unavailable("controller secret is unavailable".into())
+            })?)
         };
-        keychain
-            .copy_password(account)
-            .await
-            .map(Some)
-            .map_err(|_| ProxyCoreError::Unavailable("controller secret is unavailable".into()))
+        if secret
+            .as_deref()
+            .is_some_and(|value| value.contains('\r') || value.contains('\n'))
+        {
+            return Err(ProxyCoreError::InvalidInput {
+                field: "proxy_controller_secret".into(),
+                message: "controller secret contains an invalid line break".into(),
+            });
+        }
+        Ok(secret)
     }
 
     async fn request_endpoint(
@@ -367,14 +377,14 @@ impl MacMihomoProxyCore {
         path: &str,
         body: Option<Value>,
     ) -> Result<Value, ProxyCoreError> {
-        let bytes = self
-            .request(
-                method,
-                path,
-                body.map(|v| serde_json::to_vec(&v).unwrap_or_default())
-                    .as_deref(),
-            )
-            .await?;
+        let body = body
+            .map(|value| {
+                serde_json::to_vec(&value).map_err(|_| {
+                    ProxyCoreError::Unavailable("could not encode controller request".into())
+                })
+            })
+            .transpose()?;
+        let bytes = self.request(method, path, body.as_deref()).await?;
         serde_json::from_slice(&bytes)
             .map_err(|_| ProxyCoreError::Unavailable("Mihomo returned an invalid response".into()))
     }
@@ -496,12 +506,25 @@ async fn read_response<S: AsyncReadExt + Unpin>(stream: &mut S) -> Result<(u16, 
         .and_then(|line| line.split_whitespace().nth(1))
         .and_then(|s| s.parse::<u16>().ok())
         .ok_or_else(|| "invalid controller status line".to_string())?;
-    let content_length = header.lines().find_map(|line| {
-        let (name, value) = line.split_once(':')?;
-        name.eq_ignore_ascii_case("content-length")
-            .then(|| value.trim().parse::<usize>().ok())
-            .flatten()
-    });
+    let mut content_length = None;
+    for line in header.lines() {
+        let Some((name, value)) = line.split_once(':') else {
+            continue;
+        };
+        if !name.eq_ignore_ascii_case("content-length") {
+            continue;
+        }
+        let parsed = value
+            .trim()
+            .parse::<usize>()
+            .map_err(|_| "invalid controller content length".to_string())?;
+        if content_length
+            .replace(parsed)
+            .is_some_and(|previous| previous != parsed)
+        {
+            return Err("conflicting controller content lengths".into());
+        }
+    }
     let chunked = header.lines().any(|line| {
         let (name, value) = line.split_once(':').unwrap_or(("", ""));
         name.eq_ignore_ascii_case("transfer-encoding")
@@ -511,6 +534,22 @@ async fn read_response<S: AsyncReadExt + Unpin>(stream: &mut S) -> Result<(u16, 
     });
     if matches!(status, 100..=199 | 204 | 304) {
         return Ok((status, Vec::new()));
+    }
+    // RFC 9112 gives Transfer-Encoding precedence over Content-Length. Mihomo normally closes
+    // this connection, but accepting both headers correctly prevents us from returning raw chunk
+    // framing as JSON when an intermediary includes a Content-Length too.
+    if chunked {
+        loop {
+            let n = stream.read(&mut buffer).await.map_err(|e| e.to_string())?;
+            if n == 0 {
+                break;
+            }
+            bytes.extend_from_slice(&buffer[..n]);
+            if bytes.len() - header_end > MAX_RESPONSE_BYTES {
+                return Err("controller response exceeded the size limit".into());
+            }
+        }
+        return decode_chunked(&bytes[header_end..]).map(|body| (status, body));
     }
     if let Some(want) = content_length {
         if want > MAX_RESPONSE_BYTES {
@@ -538,12 +577,7 @@ async fn read_response<S: AsyncReadExt + Unpin>(stream: &mut S) -> Result<(u16, 
             return Err("controller response exceeded the size limit".into());
         }
     }
-    let body = &bytes[header_end..];
-    if chunked {
-        decode_chunked(body).map(|body| (status, body))
-    } else {
-        Ok((status, body.to_vec()))
-    }
+    Ok((status, bytes[header_end..].to_vec()))
 }
 
 fn decode_chunked(raw: &[u8]) -> Result<Vec<u8>, String> {
@@ -560,7 +594,19 @@ fn decode_chunked(raw: &[u8]) -> Result<Vec<u8>, String> {
             .map_err(|_| "invalid chunked response size".to_string())?;
         cursor = line_end + 2;
         if size == 0 {
-            return Ok(decoded);
+            loop {
+                let Some(trailer_end) = raw[cursor..].windows(2).position(|w| w == b"\r\n") else {
+                    return Err("chunked response was truncated".into());
+                };
+                let trailer_end = cursor + trailer_end;
+                if trailer_end == cursor {
+                    return Ok(decoded);
+                }
+                if !raw[cursor..trailer_end].contains(&b':') {
+                    return Err("invalid chunked response trailer".into());
+                }
+                cursor = trailer_end + 2;
+            }
         }
         if size > MAX_RESPONSE_BYTES || decoded.len() + size > MAX_RESPONSE_BYTES {
             return Err("controller response exceeded the size limit".into());
@@ -880,11 +926,44 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn chunked_transfer_encoding_takes_precedence_over_content_length() {
+        let response = wire_response(
+            b"HTTP/1.1 200 OK\r\nContent-Length: 999\r\nTransfer-Encoding: chunked\r\n\r\n4\r\nWiki\r\n5\r\npedia\r\n0\r\n\r\n",
+        )
+        .await
+        .unwrap();
+        assert_eq!(response, (200, b"Wikipedia".to_vec()));
+    }
+
+    #[tokio::test]
+    async fn rejects_chunked_response_without_terminal_trailer_line() {
+        let error = wire_response(
+            b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n4\r\nWiki\r\n0\r\n",
+        )
+        .await
+        .unwrap_err();
+        assert!(error.contains("truncated"));
+    }
+
+    #[tokio::test]
     async fn rejects_truncated_content_length_body() {
         let error = wire_response(b"HTTP/1.1 200 OK\r\nContent-Length: 4\r\n\r\nno")
             .await
             .unwrap_err();
         assert!(error.contains("truncated"));
+    }
+
+    #[tokio::test]
+    async fn rejects_controller_secret_line_break_before_connecting() {
+        let secret = format!("controller{}injected", "\r\n");
+        let core = MacMihomoProxyCore::with_unix_socket("/tmp/luma-missing.sock".into())
+            .with_secret(Some(secret));
+        let error = core.get_status().await.unwrap_err();
+        assert!(matches!(
+            &error,
+            ProxyCoreError::InvalidInput { ref field, .. } if field == "proxy_controller_secret"
+        ));
+        assert!(!error.to_string().contains("injected"));
     }
 
     #[tokio::test]

@@ -28,6 +28,8 @@ not public-product integrations and do not introduce an agent, watcher, or backg
 - Plain `proj` search contains only directories explicitly imported by the user.
 - Import requires an existing canonical directory with no user-controlled symlink component and
   rejects duplicates. `imported_projects` has a serde default so old settings remain readable.
+- Path validation, containment checks, and bounded directory enumeration are performed through
+  the `ProjectWorkspacePort` macOS adapter; the Projects module does not perform filesystem I/O.
 - `proj add/import`, `proj remove`, and `config set --import-project/--remove-project` mutate
   settings through the application settings CAS. Removing a project removes only its config
   entry; it never deletes the directory.

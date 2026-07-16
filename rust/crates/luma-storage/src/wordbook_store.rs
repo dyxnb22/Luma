@@ -1068,8 +1068,10 @@ mod tests {
     #[test]
     fn backup_writes_under_lumanext_override() {
         let dir = tempdir().unwrap();
-        std::env::set_var("LUMA_NEXT_SUPPORT_DIR", dir.path());
-        std::env::set_var("LUMA_NEXT_LOGS_DIR", dir.path().join("logs"));
+        let _env = crate::paths::LumaNextTestEnvGuard::override_paths(
+            dir.path(),
+            &dir.path().join("logs"),
+        );
         let store = WordbookStore::luma_next_default().unwrap();
         store
             .upsert_content(&WordContent {
@@ -1083,8 +1085,6 @@ mod tests {
         let backup = store.backup().unwrap();
         assert!(backup.exists());
         assert!(backup.to_string_lossy().contains("wordbook-backup-"));
-        std::env::remove_var("LUMA_NEXT_SUPPORT_DIR");
-        std::env::remove_var("LUMA_NEXT_LOGS_DIR");
     }
 
     #[test]

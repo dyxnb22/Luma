@@ -240,7 +240,10 @@ struct MemNote {
     size_bytes: i64,
 }
 
-/// Lightweight in-memory notes index for module tests (no SQLite).
+/// Pure in-memory notes index for module tests (no SQLite and no host filesystem).
+///
+/// Call [`Self::insert_document`] to seed it. Keeping this fake memory-only matters because the
+/// production application crate must not hide filesystem access behind a type named "memory".
 pub struct MemoryNotesIndex {
     docs: Mutex<BTreeMap<String, MemNote>>,
     status: Mutex<NotesScanStatusView>,
@@ -260,75 +263,24 @@ impl MemoryNotesIndex {
         }
     }
 
-    fn scan_into(docs: &mut BTreeMap<String, MemNote>, root: &Path) {
-        docs.clear();
-        let mut stack = vec![root.to_path_buf()];
-        while let Some(dir) = stack.pop() {
-            let Ok(entries) = std::fs::read_dir(&dir) else {
-                continue;
-            };
-            for entry in entries.flatten() {
-                let path = entry.path();
-                let Ok(meta) = std::fs::symlink_metadata(&path) else {
-                    continue;
-                };
-                if meta.file_type().is_symlink() {
-                    continue;
-                }
-                if meta.is_dir() {
-                    if path
-                        .file_name()
-                        .and_then(|n| n.to_str())
-                        .is_some_and(|n| n.starts_with('.'))
-                    {
-                        continue;
-                    }
-                    stack.push(path);
-                    continue;
-                }
-                let is_md = path
-                    .extension()
-                    .and_then(|e| e.to_str())
-                    .is_some_and(|e| e.eq_ignore_ascii_case("md"));
-                if !is_md {
-                    continue;
-                }
-                let Ok(rel) = path.strip_prefix(root) else {
-                    continue;
-                };
-                let rel = rel.to_string_lossy().replace('\\', "/");
-                let content = std::fs::read_to_string(&path).unwrap_or_default();
-                let title = content
-                    .lines()
-                    .find_map(|l| {
-                        let t = l.trim();
-                        t.strip_prefix('#').map(|rest| rest.trim().to_string())
-                    })
-                    .filter(|t| !t.is_empty())
-                    .unwrap_or_else(|| {
-                        path.file_stem()
-                            .and_then(|s| s.to_str())
-                            .unwrap_or("note")
-                            .to_string()
-                    });
-                let mtime = meta
-                    .modified()
-                    .ok()
-                    .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-                    .map(|d| d.as_secs() as i64)
-                    .unwrap_or(0);
-                docs.insert(
-                    rel.clone(),
-                    MemNote {
-                        relative_path: rel,
-                        title,
-                        body: content,
-                        mtime_unix: mtime,
-                        size_bytes: meta.len() as i64,
-                    },
-                );
-            }
-        }
+    pub fn insert_document(
+        &self,
+        relative_path: impl Into<String>,
+        title: impl Into<String>,
+        body: impl Into<String>,
+    ) {
+        let relative_path = relative_path.into();
+        let body = body.into();
+        self.docs.lock().expect("lock").insert(
+            relative_path.clone(),
+            MemNote {
+                relative_path,
+                title: title.into(),
+                size_bytes: body.len() as i64,
+                body,
+                mtime_unix: 0,
+            },
+        );
     }
 }
 
@@ -418,7 +370,7 @@ impl NotesIndexRepository for MemoryNotesIndex {
 
     fn full_scan(
         &self,
-        root: &Path,
+        _root: &Path,
         cancel: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
     ) -> Result<NotesScanReport, NotesIndexError> {
         if cancel
@@ -433,9 +385,7 @@ impl NotesIndexRepository for MemoryNotesIndex {
                 cancelled: true,
             });
         }
-        let mut docs = self.docs.lock().expect("lock");
-        Self::scan_into(&mut docs, root);
-        let n = docs.len();
+        let n = self.docs.lock().expect("lock").len();
         *self.status.lock().expect("lock") = NotesScanStatusView::Completed {
             mode: "full".into(),
             processed: n,

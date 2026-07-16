@@ -404,8 +404,8 @@ mod tests {
         let dir = tempdir().unwrap();
         let support = dir.path().join("LumaNext");
         fs::create_dir_all(&support).unwrap();
-        std::env::set_var("LUMA_NEXT_SUPPORT_DIR", &support);
-        std::env::set_var("LUMA_NEXT_LOGS_DIR", dir.path().join("logs"));
+        let _env =
+            crate::paths::LumaNextTestEnvGuard::override_paths(&support, &dir.path().join("logs"));
 
         let fixture = dir.path().join("clip.json");
         fs::write(&fixture, r#"[{"text":"fixture-alpha"}]"#).unwrap();
@@ -429,8 +429,5 @@ mod tests {
         // Re-open store after file restore
         let store2 = ClipboardStore::with_path(support.join("clipboard.sqlite")).unwrap();
         assert_eq!(store2.count().unwrap(), 0);
-
-        std::env::remove_var("LUMA_NEXT_SUPPORT_DIR");
-        std::env::remove_var("LUMA_NEXT_LOGS_DIR");
     }
 }

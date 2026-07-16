@@ -1,7 +1,8 @@
 use async_trait::async_trait;
 use luma_application::{
-    validate_import_project_path, ActionOutcome, ActionRequest, ImportedProject, LumaModule,
-    ModuleManifest, ModuleState, OpenPathPort, SearchMode, SearchSink, WarmupContext,
+    ActionOutcome, ActionRequest, ImportedProject, LumaModule, ModuleManifest, ModuleState,
+    OpenPathPort, ProjectDirectoryListing, ProjectOpenScope, ProjectWorkspaceError,
+    ProjectWorkspacePort, SearchMode, SearchSink, WarmupContext,
 };
 use luma_domain::{
     ActionDescriptor, ActionId, ActionRisk, FailureKind, ModuleId, Query, SearchItem,
@@ -11,6 +12,8 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tokio_util::sync::CancellationToken;
+
+use crate::cancel::await_unless_cancelled;
 
 #[derive(Clone)]
 struct Project {
@@ -24,17 +27,23 @@ pub struct ProjectsModule {
     roots: Arc<RwLock<Vec<PathBuf>>>,
     imported: Arc<RwLock<Vec<ImportedProject>>>,
     opener: Arc<dyn OpenPathPort>,
+    workspace: Arc<dyn ProjectWorkspacePort>,
 }
 
 impl ProjectsModule {
-    pub fn with_roots(roots: Vec<PathBuf>, opener: Arc<dyn OpenPathPort>) -> Self {
-        Self::with_settings(roots, Vec::new(), opener)
+    pub fn with_roots(
+        roots: Vec<PathBuf>,
+        opener: Arc<dyn OpenPathPort>,
+        workspace: Arc<dyn ProjectWorkspacePort>,
+    ) -> Self {
+        Self::with_settings(roots, Vec::new(), opener, workspace)
     }
 
     pub fn with_settings(
         roots: Vec<PathBuf>,
         imported: Vec<ImportedProject>,
         opener: Arc<dyn OpenPathPort>,
+        workspace: Arc<dyn ProjectWorkspacePort>,
     ) -> Self {
         Self {
             manifest: ModuleManifest {
@@ -56,32 +65,27 @@ impl ProjectsModule {
             roots: Arc::new(RwLock::new(roots)),
             imported: Arc::new(RwLock::new(imported)),
             opener,
+            workspace,
         }
     }
 
     async fn is_imported_path(&self, path: &Path) -> bool {
-        let Ok(canon) = path.canonicalize() else {
-            return false;
-        };
-        let canon_str = canon.display().to_string();
+        let canonical_path = path.display().to_string();
         self.imported
             .read()
             .await
             .iter()
-            .any(|p| p.path == canon_str)
+            .any(|project| project.path == canonical_path)
     }
 }
 
-fn resolve_import_path(path: &Path) -> Result<PathBuf, String> {
-    validate_import_project_path(path)
-}
-
-fn imported_index(imported: &[ImportedProject]) -> Vec<Project> {
+fn imported_index(imported: &[ImportedProject], statuses: &[bool]) -> Vec<Project> {
     imported
         .iter()
-        .map(|p| {
+        .enumerate()
+        .map(|(index, p)| {
             let path = PathBuf::from(&p.path);
-            let missing = !path.exists();
+            let missing = !statuses.get(index).copied().unwrap_or(false);
             let name = p.name.clone().unwrap_or_else(|| {
                 path.file_name()
                     .and_then(|s| s.to_str())
@@ -97,59 +101,26 @@ fn imported_index(imported: &[ImportedProject]) -> Vec<Project> {
         .collect()
 }
 
-fn list_children(dir: &PathBuf, cancel: &CancellationToken) -> Vec<(String, PathBuf, bool)> {
-    let Ok(rd) = std::fs::read_dir(dir) else {
-        return Vec::new();
-    };
-    let mut out = Vec::new();
-    for entry in rd.flatten() {
-        if cancel.is_cancelled() {
-            break;
-        }
-        let path = entry.path();
-        let Ok(meta) = std::fs::symlink_metadata(&path) else {
-            continue;
-        };
-        // Never follow or enumerate symlinks during browse.
-        if meta.file_type().is_symlink() {
-            continue;
-        }
-        let is_dir = meta.file_type().is_dir();
-        let name = path
-            .file_name()
-            .and_then(|s| s.to_str())
-            .unwrap_or("?")
-            .to_string();
-        if name.starts_with('.') {
-            continue;
-        }
-        out.push((name, path, is_dir));
-    }
-    out.sort_by(|a, b| match (b.2, a.2) {
-        (true, false) => std::cmp::Ordering::Less,
-        (false, true) => std::cmp::Ordering::Greater,
-        _ => a.0.to_lowercase().cmp(&b.0.to_lowercase()),
-    });
-    out
-}
-
-fn format_projects_directory_preview(dir: &Path) -> String {
+fn format_projects_directory_preview(listing: ProjectDirectoryListing) -> String {
     const MAX: usize = 40;
-    let children = list_children(&dir.to_path_buf(), &CancellationToken::new());
-    if children.is_empty() {
+    if listing.entries.is_empty() && !listing.truncated {
         return "Empty folder".into();
     }
     let mut dirs = Vec::new();
     let mut files = Vec::new();
-    for (name, _, is_dir) in children {
-        if is_dir {
-            dirs.push(name);
+    for entry in listing.entries {
+        if entry.is_directory {
+            dirs.push(entry.name);
         } else {
-            files.push(name);
+            files.push(entry.name);
         }
     }
     let total = dirs.len() + files.len();
-    let mut out = format!("{total} item(s):\n");
+    let mut out = if listing.truncated {
+        format!("At least {total} item(s):\n")
+    } else {
+        format!("{total} item(s):\n")
+    };
     let mut shown = 0usize;
     for d in &dirs {
         if shown >= MAX {
@@ -167,101 +138,10 @@ fn format_projects_directory_preview(dir: &Path) -> String {
     }
     if shown < total {
         out.push_str(&format!("  … +{} more\n", total - shown));
+    } else if listing.truncated {
+        out.push_str("  … more not shown\n");
     }
     out.trim_end().to_string()
-}
-
-/// Reject `..` components and require the path (after canonicalize when it exists)
-/// to sit under at least one configured root.
-///
-/// Relative paths are tried under each configured root (`proj browse empty-dir`).
-#[allow(clippy::ptr_arg)]
-fn resolve_under_roots(path: &PathBuf, roots: &[PathBuf]) -> Result<PathBuf, String> {
-    for c in path.components() {
-        if matches!(c, std::path::Component::ParentDir) {
-            return Err("path escapes project roots (..)".into());
-        }
-    }
-    let candidates: Vec<PathBuf> = if path.is_absolute() {
-        vec![path.clone()]
-    } else {
-        roots.iter().map(|r| r.join(path)).collect()
-    };
-    if candidates.is_empty() {
-        return Err("no accessible project roots".into());
-    }
-    let mut last_err = "path escapes project roots".to_string();
-    for candidate in candidates {
-        match resolve_candidate_under_roots(&candidate, roots) {
-            Ok(resolved) => return Ok(resolved),
-            Err(err) => last_err = err,
-        }
-    }
-    Err(last_err)
-}
-
-#[allow(clippy::ptr_arg)]
-fn resolve_candidate_under_roots(path: &PathBuf, roots: &[PathBuf]) -> Result<PathBuf, String> {
-    let root_canons: Vec<PathBuf> = roots.iter().filter_map(|r| r.canonicalize().ok()).collect();
-    if root_canons.is_empty() {
-        return Err("no accessible project roots".into());
-    }
-    // Resolve through longest existing ancestor (macOS /var vs /private/var).
-    let mut existing = path.clone();
-    let mut missing: Vec<std::ffi::OsString> = Vec::new();
-    while !existing.as_os_str().is_empty() && !existing.exists() {
-        match existing.file_name() {
-            Some(name) => {
-                missing.push(name.to_os_string());
-                existing.pop();
-            }
-            None => break,
-        }
-    }
-    if !existing.exists() {
-        return Err("path has no existing ancestor under project roots".into());
-    }
-    {
-        let Ok(meta) = std::fs::symlink_metadata(&existing) else {
-            return Err("cannot stat path".into());
-        };
-        if meta.file_type().is_symlink() {
-            return Err("symlink not allowed under project browse".into());
-        }
-    }
-    let mut resolved = existing
-        .canonicalize()
-        .map_err(|e| format!("cannot resolve path: {e}"))?;
-    if !root_canons.iter().any(|r| resolved.starts_with(r)) {
-        return Err("path escapes project roots".into());
-    }
-    for part in missing.into_iter().rev() {
-        if part == ".." {
-            return Err("path escapes project roots (..)".into());
-        }
-        if part == "." {
-            continue;
-        }
-        resolved.push(part);
-        if resolved.exists() {
-            let Ok(meta) = std::fs::symlink_metadata(&resolved) else {
-                return Err("cannot stat path".into());
-            };
-            if meta.file_type().is_symlink() {
-                return Err("symlink not allowed under project browse".into());
-            }
-            let canon = resolved
-                .canonicalize()
-                .map_err(|e| format!("cannot resolve path: {e}"))?;
-            if !root_canons.iter().any(|r| canon.starts_with(r)) {
-                return Err("path escapes project roots".into());
-            }
-            resolved = canon;
-        } else if !root_canons.iter().any(|r| resolved.starts_with(r)) {
-            return Err("path escapes project roots".into());
-        }
-    }
-    Ok(resolved)
 }
 
 #[async_trait]
@@ -331,36 +211,87 @@ impl LumaModule for ProjectsModule {
                 .map(|p| p.display().to_string())
                 .unwrap_or_else(|| "project roots".into());
             let mut upserts = Vec::new();
+            let mut listing_truncated = false;
             if let Some(dir) = target {
                 let denied_label = dir.display().to_string();
-                let Ok(dir) = resolve_under_roots(&dir, &roots) else {
-                    let _ = sink
-                        .send(Event::ResultsChunk {
-                            request_id: String::new(),
-                            sequence: 1,
-                            upserts: vec![SearchItemDto {
-                                id: "proj:denied".into(),
-                                module_id: "luma.projects".into(),
-                                title: "Path outside project roots".into(),
-                                subtitle: Some(denied_label),
-                                kind: "unavailable".into(),
-                                score: 0.0,
-                                primary_action_id: "noop".into(),
-                                primary_action_label: "Unavailable".into(),
-                                ..Default::default()
-                            }],
-                            removed_ids: vec![],
-                        })
-                        .await;
-                    return;
+                let dir = match await_unless_cancelled(
+                    &cancel,
+                    self.workspace
+                        .resolve_browse_path(dir, roots.clone(), cancel.clone()),
+                )
+                .await
+                {
+                    None | Some(Err(ProjectWorkspaceError::Cancelled)) => return,
+                    Some(Ok(dir)) => dir,
+                    Some(Err(_)) => {
+                        let _ = sink
+                            .send(Event::ResultsChunk {
+                                request_id: String::new(),
+                                sequence: 1,
+                                upserts: vec![SearchItemDto {
+                                    id: "proj:denied".into(),
+                                    module_id: "luma.projects".into(),
+                                    title: "Path outside project roots".into(),
+                                    subtitle: Some(denied_label),
+                                    kind: "unavailable".into(),
+                                    score: 0.0,
+                                    primary_action_id: "noop".into(),
+                                    primary_action_label: "Unavailable".into(),
+                                    ..Default::default()
+                                }],
+                                removed_ids: vec![],
+                            })
+                            .await;
+                        return;
+                    }
                 };
-                for (name, path, is_dir) in list_children(&dir, &cancel) {
-                    if is_dir {
+                let listing = match await_unless_cancelled(
+                    &cancel,
+                    self.workspace.list_directory(dir, cancel.clone()),
+                )
+                .await
+                {
+                    None | Some(Err(ProjectWorkspaceError::Cancelled)) => return,
+                    Some(Ok(listing)) => listing,
+                    // Preserve browse's historical empty-folder result for a missing drill-down
+                    // target; it remains safely contained because resolution happened first.
+                    Some(Err(ProjectWorkspaceError::NotFound(_))) => {
+                        ProjectDirectoryListing::default()
+                    }
+                    Some(Err(error)) => {
+                        let _ = sink
+                            .send(Event::ResultsChunk {
+                                request_id: String::new(),
+                                sequence: 1,
+                                upserts: vec![SearchItemDto {
+                                    id: "proj:browse-unavailable".into(),
+                                    module_id: "luma.projects".into(),
+                                    title: "Project folder unavailable".into(),
+                                    subtitle: Some(error.to_string()),
+                                    kind: "unavailable".into(),
+                                    score: 0.0,
+                                    primary_action_id: "noop".into(),
+                                    primary_action_label: "Unavailable".into(),
+                                    ..Default::default()
+                                }],
+                                removed_ids: vec![],
+                            })
+                            .await;
+                        return;
+                    }
+                };
+                listing_truncated = listing.truncated;
+                for entry in listing.entries {
+                    if cancel.is_cancelled() {
+                        return;
+                    }
+                    let path = entry.path;
+                    if entry.is_directory {
                         let imported = self.is_imported_path(&path).await;
                         upserts.push(SearchItemDto {
                             id: format!("browse:proj:{}", path.display()),
                             module_id: "luma.projects".into(),
-                            title: format!("{name}/"),
+                            title: format!("{}/", entry.name),
                             subtitle: Some(path.display().to_string()),
                             kind: if imported {
                                 "imported".into()
@@ -386,7 +317,7 @@ impl LumaModule for ProjectsModule {
                         upserts.push(SearchItemDto {
                             id: format!("proj:{}", path.display()),
                             module_id: "luma.projects".into(),
-                            title: name,
+                            title: entry.name,
                             subtitle: Some(path.display().to_string()),
                             kind: "file".into(),
                             score: 70.0,
@@ -418,9 +349,17 @@ impl LumaModule for ProjectsModule {
             }
             if upserts.is_empty() {
                 upserts.push(SearchItemDto {
-                    id: "proj:browse-empty".into(),
+                    id: if listing_truncated {
+                        "proj:browse-truncated".into()
+                    } else {
+                        "proj:browse-empty".into()
+                    },
                     module_id: "luma.projects".into(),
-                    title: "Empty folder".into(),
+                    title: if listing_truncated {
+                        "Folder listing is limited".into()
+                    } else {
+                        "Empty folder".into()
+                    },
                     subtitle: Some(browse_label),
                     kind: "status".into(),
                     score: 50.0,
@@ -477,8 +416,14 @@ impl LumaModule for ProjectsModule {
                 return;
             }
             let path = PathBuf::from(path_str);
-            match resolve_import_path(&path) {
-                Ok(canon) => {
+            match await_unless_cancelled(
+                &cancel,
+                self.workspace.resolve_import_path(path, cancel.clone()),
+            )
+            .await
+            {
+                None | Some(Err(ProjectWorkspaceError::Cancelled)) => return,
+                Some(Ok(canon)) => {
                     let title = canon
                         .file_name()
                         .and_then(|s| s.to_str())
@@ -506,7 +451,7 @@ impl LumaModule for ProjectsModule {
                         })
                         .await;
                 }
-                Err(err) => {
+                Some(Err(err)) => {
                     let _ = sink
                         .send(Event::ResultsChunk {
                             request_id: String::new(),
@@ -515,7 +460,7 @@ impl LumaModule for ProjectsModule {
                                 id: "proj:import-denied".into(),
                                 module_id: "luma.projects".into(),
                                 title: "Cannot import project".into(),
-                                subtitle: Some(err),
+                                subtitle: Some(err.to_string()),
                                 kind: "unavailable".into(),
                                 score: 0.0,
                                 primary_action_id: "noop".into(),
@@ -608,7 +553,42 @@ impl LumaModule for ProjectsModule {
             return;
         }
 
-        let index = imported_index(&imported);
+        let imported_paths = imported
+            .iter()
+            .map(|project| PathBuf::from(&project.path))
+            .collect();
+        let statuses = match await_unless_cancelled(
+            &cancel,
+            self.workspace
+                .imported_project_statuses(imported_paths, cancel.clone()),
+        )
+        .await
+        {
+            None | Some(Err(ProjectWorkspaceError::Cancelled)) => return,
+            Some(Ok(statuses)) => statuses,
+            Some(Err(error)) => {
+                let _ = sink
+                    .send(Event::ResultsChunk {
+                        request_id: String::new(),
+                        sequence: 1,
+                        upserts: vec![SearchItemDto {
+                            id: "proj:workspace-unavailable".into(),
+                            module_id: "luma.projects".into(),
+                            title: "Project workspace unavailable".into(),
+                            subtitle: Some(error.to_string()),
+                            kind: "unavailable".into(),
+                            score: 0.0,
+                            primary_action_id: "noop".into(),
+                            primary_action_label: "Unavailable".into(),
+                            ..Default::default()
+                        }],
+                        removed_ids: vec![],
+                    })
+                    .await;
+                return;
+            }
+        };
+        let index = imported_index(&imported, &statuses);
         let mut upserts = Vec::new();
         for p in index {
             if cancel.is_cancelled() {
@@ -776,7 +756,19 @@ impl LumaModule for ProjectsModule {
                 .split(" — ")
                 .next()
                 .unwrap_or("");
-            return Some(format_projects_directory_preview(Path::new(path_part)));
+            let cancel = CancellationToken::new();
+            let roots = self.roots.read().await.clone();
+            let directory = self
+                .workspace
+                .resolve_browse_path(PathBuf::from(path_part), roots, cancel.clone())
+                .await
+                .ok()?;
+            let listing = match self.workspace.list_directory(directory, cancel).await {
+                Ok(listing) => listing,
+                Err(ProjectWorkspaceError::NotFound(_)) => ProjectDirectoryListing::default(),
+                Err(_) => return None,
+            };
+            return Some(format_projects_directory_preview(listing));
         }
         result
             .subtitle
@@ -826,14 +818,23 @@ impl LumaModule for ProjectsModule {
                         },
                     };
                 };
-                match resolve_import_path(Path::new(path_str)) {
-                    Ok(canon) => ActionOutcome::SettingsMutation {
+                match await_unless_cancelled(
+                    &cancel,
+                    self.workspace
+                        .resolve_import_path(PathBuf::from(path_str), cancel.clone()),
+                )
+                .await
+                {
+                    None | Some(Err(ProjectWorkspaceError::Cancelled)) => ActionOutcome::Cancelled,
+                    Some(Ok(canon)) => ActionOutcome::SettingsMutation {
                         patch: serde_json::json!({
                             "import_project": canon.display().to_string()
                         }),
                     },
-                    Err(err) => ActionOutcome::Failed {
-                        kind: FailureKind::SecurityDenied { reason: err },
+                    Some(Err(error)) => ActionOutcome::Failed {
+                        kind: FailureKind::SecurityDenied {
+                            reason: error.to_string(),
+                        },
                     },
                 }
             }
@@ -880,43 +881,52 @@ impl LumaModule for ProjectsModule {
                 let path = PathBuf::from(path_str);
                 let imported = self.imported.read().await.clone();
                 let is_imported = imported.iter().any(|p| p.path == path_str);
-                let open_path = if is_imported {
-                    match resolve_import_path(&path) {
-                        Ok(p) => p,
-                        Err(_) => path,
-                    }
+                let scope = if is_imported {
+                    ProjectOpenScope::ImportedProject
                 } else {
-                    let roots = self.roots.read().await.clone();
-                    match resolve_under_roots(&path, &roots) {
-                        Ok(p) => p,
-                        Err(reason) => {
-                            return ActionOutcome::Failed {
-                                kind: FailureKind::SecurityDenied { reason },
-                            };
-                        }
+                    ProjectOpenScope::ProjectRoots
+                };
+                let roots = self.roots.read().await.clone();
+                let open_path = match await_unless_cancelled(
+                    &cancel,
+                    self.workspace
+                        .resolve_open_path(path, scope, roots, cancel.clone()),
+                )
+                .await
+                {
+                    None | Some(Err(ProjectWorkspaceError::Cancelled)) => {
+                        return ActionOutcome::Cancelled;
+                    }
+                    Some(Ok(path)) => path,
+                    Some(Err(ProjectWorkspaceError::Denied(reason))) => {
+                        return ActionOutcome::Failed {
+                            kind: FailureKind::SecurityDenied { reason },
+                        };
+                    }
+                    Some(Err(ProjectWorkspaceError::NotFound(_))) => {
+                        return ActionOutcome::Failed {
+                            kind: FailureKind::NotFound {
+                                entity: path_str.into(),
+                            },
+                        };
+                    }
+                    Some(Err(ProjectWorkspaceError::Unavailable(reason))) => {
+                        return ActionOutcome::Failed {
+                            kind: FailureKind::Unavailable {
+                                reason,
+                                retryable: true,
+                            },
+                        };
                     }
                 };
-                let Ok(meta) = std::fs::symlink_metadata(&open_path) else {
-                    return ActionOutcome::Failed {
-                        kind: FailureKind::NotFound {
-                            entity: open_path.display().to_string(),
-                        },
-                    };
-                };
-                if meta.file_type().is_symlink() {
-                    return ActionOutcome::Failed {
-                        kind: FailureKind::SecurityDenied {
-                            reason: "refusing to open symlink".into(),
-                        },
-                    };
-                }
-                match self.opener.open(&open_path).await {
-                    Ok(()) => ActionOutcome::Success {
+                match await_unless_cancelled(&cancel, self.opener.open(&open_path)).await {
+                    None => ActionOutcome::Cancelled,
+                    Some(Ok(())) => ActionOutcome::Success {
                         message: Some("opened".into()),
                     },
-                    Err(e) => ActionOutcome::Failed {
+                    Some(Err(error)) => ActionOutcome::Failed {
                         kind: FailureKind::Unavailable {
-                            reason: e.to_string(),
+                            reason: error.to_string(),
                             retryable: true,
                         },
                     },
@@ -944,60 +954,23 @@ impl LumaModule for ProjectsModule {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use luma_application::FakeOpenPath;
+    use luma_application::{
+        FakeOpenPath, FakeProjectWorkspace, ProjectDirectoryEntry, ProjectDirectoryListing,
+    };
     use luma_domain::Query;
-    use std::os::unix::fs::symlink;
     use tokio::sync::mpsc;
     use tokio_util::sync::CancellationToken;
 
-    #[test]
-    fn resolve_rejects_parent_dir_escape() {
-        let dir = tempfile::tempdir().unwrap();
-        let root = dir.path().to_path_buf();
-        let escape = root.join("..").join("outside");
-        let err = resolve_under_roots(&escape, &[root]).unwrap_err();
-        assert!(err.contains("..") || err.contains("escape"), "{err}");
-    }
-
-    #[test]
-    fn resolve_rejects_symlink_file_outside() {
-        let root = tempfile::tempdir().unwrap();
-        let outside = tempfile::tempdir().unwrap();
-        let secret = outside.path().join("secret.txt");
-        std::fs::write(&secret, "leak").unwrap();
-        let link = root.path().join("secret.txt");
-        symlink(&secret, &link).unwrap();
-        let err = resolve_under_roots(&link, &[root.path().to_path_buf()]).unwrap_err();
-        assert!(err.contains("symlink") || err.contains("escape"), "{err}");
-    }
-
-    #[test]
-    fn list_children_skips_symlinks() {
-        let root = tempfile::tempdir().unwrap();
-        let outside = tempfile::tempdir().unwrap();
-        std::fs::write(outside.path().join("x.md"), "x").unwrap();
-        let link = root.path().join("escape-link");
-        symlink(outside.path(), &link).unwrap();
-        std::fs::create_dir(root.path().join("real")).unwrap();
-        let kids = list_children(&root.path().to_path_buf(), &CancellationToken::new());
-        assert!(kids.iter().all(|(n, _, _)| n != "escape-link"));
-        assert!(kids.iter().any(|(n, _, d)| n == "real" && *d));
-    }
-
     #[tokio::test]
     async fn browse_dotdot_yields_denied_row() {
-        let root = tempfile::tempdir().unwrap();
-        std::fs::create_dir(root.path().join("App")).unwrap();
-        std::fs::write(root.path().join("App").join("Cargo.toml"), "").unwrap();
+        let root = PathBuf::from("/workspace");
         let module = ProjectsModule::with_roots(
-            vec![root.path().to_path_buf()],
+            vec![root.clone()],
             Arc::new(FakeOpenPath::new()),
+            Arc::new(FakeProjectWorkspace::new()),
         );
         let (tx, mut rx) = mpsc::channel(8);
-        let q = Query::parse(
-            format!("proj browse {}/../outside", root.path().display()),
-            20,
-        );
+        let q = Query::parse(format!("proj browse {}/../outside", root.display()), 20);
         module.search(q, tx, CancellationToken::new()).await;
         let ev = rx.recv().await.expect("chunk");
         let Event::ResultsChunk { upserts, .. } = ev else {
@@ -1008,13 +981,12 @@ mod tests {
 
     #[tokio::test]
     async fn browse_preserves_path_case_from_rest_raw() {
-        let root = tempfile::tempdir().unwrap();
-        let mixed = root.path().join("MyApp");
-        std::fs::create_dir(&mixed).unwrap();
-        std::fs::write(mixed.join("Cargo.toml"), "").unwrap();
+        let root = PathBuf::from("/workspace");
+        let mixed = root.join("MyApp");
         let module = ProjectsModule::with_roots(
-            vec![root.path().to_path_buf()],
+            vec![root],
             Arc::new(FakeOpenPath::new()),
+            Arc::new(FakeProjectWorkspace::new()),
         );
         let (tx, mut rx) = mpsc::channel(8);
         let path = mixed.display().to_string();
@@ -1033,12 +1005,11 @@ mod tests {
 
     #[tokio::test]
     async fn browse_relative_name_resolves_under_root() {
-        let root = tempfile::tempdir().unwrap();
-        let empty = root.path().join("empty-dir");
-        std::fs::create_dir(&empty).unwrap();
+        let root = PathBuf::from("/workspace");
         let module = ProjectsModule::with_roots(
-            vec![root.path().to_path_buf()],
+            vec![root],
             Arc::new(FakeOpenPath::new()),
+            Arc::new(FakeProjectWorkspace::new()),
         );
         let (tx, mut rx) = mpsc::channel(8);
         let q = Query::parse("proj browse empty-dir", 20);
@@ -1056,7 +1027,11 @@ mod tests {
 
     #[tokio::test]
     async fn perform_browse_is_not_success() {
-        let module = ProjectsModule::with_roots(vec![], Arc::new(FakeOpenPath::new()));
+        let module = ProjectsModule::with_roots(
+            vec![],
+            Arc::new(FakeOpenPath::new()),
+            Arc::new(FakeProjectWorkspace::new()),
+        );
         let outcome = module
             .perform(
                 ActionRequest {
@@ -1093,10 +1068,10 @@ mod tests {
 
     #[tokio::test]
     async fn empty_proj_lists_not_configured() {
-        let root = tempfile::tempdir().unwrap();
         let module = ProjectsModule::with_roots(
-            vec![root.path().to_path_buf()],
+            vec![PathBuf::from("/workspace")],
             Arc::new(FakeOpenPath::new()),
+            Arc::new(FakeProjectWorkspace::new()),
         );
         let (tx, mut rx) = mpsc::channel(8);
         let q = Query::parse("proj", 20);
@@ -1110,13 +1085,37 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn proj_add_emits_import_action() {
-        let root = tempfile::tempdir().unwrap();
-        let project = root.path().join("myapp");
-        std::fs::create_dir(&project).unwrap();
-        let module = ProjectsModule::with_roots(
-            vec![root.path().to_path_buf()],
+    async fn imported_project_availability_comes_from_workspace_port() {
+        let path = PathBuf::from("/workspace/missing-project");
+        let workspace = Arc::new(FakeProjectWorkspace::new());
+        workspace.mark_missing(path.clone());
+        let module = ProjectsModule::with_settings(
+            vec![PathBuf::from("/workspace")],
+            vec![ImportedProject {
+                path: path.display().to_string(),
+                name: Some("missing-project".into()),
+            }],
             Arc::new(FakeOpenPath::new()),
+            workspace,
+        );
+        let (tx, mut rx) = mpsc::channel(8);
+        module
+            .search(Query::parse("proj", 20), tx, CancellationToken::new())
+            .await;
+        let Event::ResultsChunk { upserts, .. } = rx.recv().await.unwrap() else {
+            panic!("expected chunk");
+        };
+        assert_eq!(upserts[0].kind, "unavailable");
+        assert_eq!(upserts[0].primary_action_id, "remove_project");
+    }
+
+    #[tokio::test]
+    async fn proj_add_emits_import_action() {
+        let project = PathBuf::from("/workspace/myapp");
+        let module = ProjectsModule::with_roots(
+            vec![PathBuf::from("/workspace")],
+            Arc::new(FakeOpenPath::new()),
+            Arc::new(FakeProjectWorkspace::new()),
         );
         let (tx, mut rx) = mpsc::channel(8);
         let q = Query::parse(format!("proj add {}", project.display()), 20);
@@ -1133,10 +1132,10 @@ mod tests {
 
     #[tokio::test]
     async fn proj_add_without_path_shows_usage() {
-        let root = tempfile::tempdir().unwrap();
         let module = ProjectsModule::with_roots(
-            vec![root.path().to_path_buf()],
+            vec![PathBuf::from("/workspace")],
             Arc::new(FakeOpenPath::new()),
+            Arc::new(FakeProjectWorkspace::new()),
         );
         let (tx, mut rx) = mpsc::channel(8);
         module
@@ -1154,18 +1153,30 @@ mod tests {
 
     #[tokio::test]
     async fn browse_rows_have_real_primary_actions() {
-        let root = tempfile::tempdir().unwrap();
-        let project = root.path().join("myapp");
-        std::fs::create_dir(&project).unwrap();
+        let root = PathBuf::from("/workspace");
+        let project = root.join("myapp");
+        let workspace = Arc::new(FakeProjectWorkspace::new());
+        workspace.set_listing(
+            root.clone(),
+            ProjectDirectoryListing {
+                entries: vec![ProjectDirectoryEntry {
+                    name: "myapp".into(),
+                    path: project.clone(),
+                    is_directory: true,
+                }],
+                truncated: false,
+            },
+        );
 
         let module = ProjectsModule::with_roots(
-            vec![root.path().to_path_buf()],
+            vec![root.clone()],
             Arc::new(FakeOpenPath::new()),
+            workspace.clone(),
         );
         let (tx, mut rx) = mpsc::channel(8);
         module
             .search(
-                Query::parse(format!("proj browse {}", root.path().display()), 20),
+                Query::parse(format!("proj browse {}", root.display()), 20),
                 tx,
                 CancellationToken::new(),
             )
@@ -1178,17 +1189,18 @@ mod tests {
         assert!(candidate.ui_intent.is_none());
 
         let imported_module = ProjectsModule::with_settings(
-            vec![root.path().to_path_buf()],
+            vec![root.clone()],
             vec![ImportedProject {
-                path: project.canonicalize().unwrap().display().to_string(),
+                path: project.display().to_string(),
                 name: Some("myapp".into()),
             }],
             Arc::new(FakeOpenPath::new()),
+            workspace,
         );
         let (tx, mut rx) = mpsc::channel(8);
         imported_module
             .search(
-                Query::parse(format!("proj browse {}", root.path().display()), 20),
+                Query::parse(format!("proj browse {}", root.display()), 20),
                 tx,
                 CancellationToken::new(),
             )
@@ -1199,5 +1211,94 @@ mod tests {
         let imported = upserts.iter().find(|item| item.title == "myapp/").unwrap();
         assert_eq!(imported.primary_action_id, "browse");
         assert_eq!(imported.ui_intent, Some(UiIntent::Browse));
+    }
+
+    #[tokio::test]
+    async fn browse_is_driven_by_the_workspace_fake_not_host_filesystem() {
+        let root = PathBuf::from("/workspace");
+        let project = root.join("CaseSensitiveProject");
+        let workspace = Arc::new(FakeProjectWorkspace::new());
+        workspace.set_listing(
+            root.clone(),
+            ProjectDirectoryListing {
+                entries: vec![ProjectDirectoryEntry {
+                    name: "CaseSensitiveProject".into(),
+                    path: project.clone(),
+                    is_directory: true,
+                }],
+                truncated: false,
+            },
+        );
+        let module = ProjectsModule::with_roots(
+            vec![root.clone()],
+            Arc::new(FakeOpenPath::new()),
+            workspace,
+        );
+        let (tx, mut rx) = mpsc::channel(8);
+        module
+            .search(
+                Query::parse(format!("proj browse {}", root.display()), 20),
+                tx,
+                CancellationToken::new(),
+            )
+            .await;
+        let Event::ResultsChunk { upserts, .. } = rx.recv().await.unwrap() else {
+            panic!("expected chunk");
+        };
+        let project_label = project.display().to_string();
+        assert!(upserts.iter().any(|item| {
+            item.title == "CaseSensitiveProject/"
+                && item.subtitle.as_deref() == Some(project_label.as_str())
+        }));
+    }
+
+    #[tokio::test]
+    async fn denied_open_never_reaches_the_open_path_port() {
+        let root = PathBuf::from("/workspace");
+        let path = root.join("unsafe");
+        let workspace = Arc::new(FakeProjectWorkspace::new());
+        workspace.fail_open(
+            path.clone(),
+            ProjectWorkspaceError::Denied("symlink not allowed".into()),
+        );
+        let opener = Arc::new(FakeOpenPath::new());
+        let module = ProjectsModule::with_roots(vec![root], opener.clone(), workspace);
+        let action = ActionDescriptor {
+            id: ActionId::new("open"),
+            label: "Open".into(),
+            risk: ActionRisk::Safe,
+            confirmation: false,
+        };
+        let outcome = module
+            .perform(
+                ActionRequest {
+                    result: SearchItem {
+                        id: luma_domain::ResultId::new(format!("proj:{}", path.display())),
+                        module_id: ModuleId::new("luma.projects"),
+                        title: "unsafe".into(),
+                        subtitle: Some(path.display().to_string()),
+                        kind: "file".into(),
+                        score: 1.0,
+                        primary_action: action.clone(),
+                        secondary_actions: vec![],
+                        ui_intent: None,
+                        action_payload: None,
+                    },
+                    action,
+                    confirmation: false,
+                },
+                CancellationToken::new(),
+            )
+            .await;
+        assert!(matches!(
+            outcome,
+            ActionOutcome::Failed {
+                kind: FailureKind::SecurityDenied { .. }
+            }
+        ));
+        assert_eq!(
+            opener.open_count.load(std::sync::atomic::Ordering::SeqCst),
+            0
+        );
     }
 }

@@ -7,11 +7,15 @@ use async_trait::async_trait;
 use luma_application::{SystemProxyError, SystemProxyPort, SystemProxySetting, SystemProxyStatus};
 use luma_storage::luma_next_support_dir;
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
+use std::fs::{self, OpenOptions};
+use std::io::Write;
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use tokio::process::Command;
 use tokio::sync::Mutex;
 
 const MAX_COMMAND_OUTPUT: usize = 32 * 1024;
+static JOURNAL_WRITE_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
 pub struct MacSystemProxy {
     configured_service: Option<String>,
@@ -24,6 +28,32 @@ pub struct MacSystemProxy {
 struct ProxyJournal {
     saved: SystemProxyStatus,
     applied: SystemProxyStatus,
+}
+
+/// Settings that Luma deliberately does not own because restoring them could require retaining
+/// credentials or PAC URLs. When any are active, leave the service untouched.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+struct UnsupportedProxyFeatures {
+    http_authentication: bool,
+    secure_web_proxy: bool,
+    socks_authentication: bool,
+    auto_proxy_url: bool,
+    proxy_auto_discovery: bool,
+}
+
+impl UnsupportedProxyFeatures {
+    fn any(&self) -> bool {
+        self.http_authentication
+            || self.secure_web_proxy
+            || self.socks_authentication
+            || self.auto_proxy_url
+            || self.proxy_auto_discovery
+    }
+}
+
+struct SystemProxySnapshot {
+    status: SystemProxyStatus,
+    unsupported: UnsupportedProxyFeatures,
 }
 
 impl Default for MacSystemProxy {
@@ -82,15 +112,38 @@ impl MacSystemProxy {
         Ok(service)
     }
 
-    async fn read_status(&self) -> Result<SystemProxyStatus, SystemProxyError> {
+    async fn read_snapshot(&self) -> Result<SystemProxySnapshot, SystemProxyError> {
         let service = self.current_service().await?;
-        let http = parse_setting(&run_networksetup(&["-getwebproxy", &service]).await?);
-        let socks = parse_setting(&run_networksetup(&["-getsocksfirewallproxy", &service]).await?);
-        Ok(SystemProxyStatus {
-            service,
-            http,
-            socks,
+        let http_output = run_networksetup(&["-getwebproxy", &service]).await?;
+        let secure_web_output = run_networksetup(&["-getsecurewebproxy", &service]).await?;
+        let socks_output = run_networksetup(&["-getsocksfirewallproxy", &service]).await?;
+        let auto_proxy_url = run_networksetup(&["-getautoproxyurl", &service]).await?;
+        let proxy_auto_discovery = run_networksetup(&["-getproxyautodiscovery", &service]).await?;
+        Ok(SystemProxySnapshot {
+            status: SystemProxyStatus {
+                service,
+                http: parse_setting(&http_output),
+                socks: parse_setting(&socks_output),
+            },
+            unsupported: UnsupportedProxyFeatures {
+                http_authentication: authenticated_proxy_enabled(&http_output),
+                // HTTPS has an independent `networksetup` setting. Luma intentionally owns
+                // only HTTP and SOCKS, so an enabled secure Web proxy makes a partial snapshot
+                // unsafe to take over or restore.
+                secure_web_proxy: enabled_setting(&secure_web_output),
+                socks_authentication: authenticated_proxy_enabled(&socks_output),
+                auto_proxy_url: enabled_setting(&auto_proxy_url),
+                proxy_auto_discovery: enabled_setting(&proxy_auto_discovery),
+            },
         })
+    }
+
+    async fn read_status(&self) -> Result<SystemProxyStatus, SystemProxyError> {
+        let snapshot = self.read_snapshot().await?;
+        if snapshot.unsupported.any() {
+            return Err(SystemProxyError::Conflict);
+        }
+        Ok(snapshot.status)
     }
 
     async fn set_setting(
@@ -332,10 +385,69 @@ fn persist_journal(
         applied: applied.clone(),
     })
     .map_err(|_| SystemProxyError::Unavailable("could not persist system proxy state".into()))?;
-    let temp = path.with_extension("json.tmp");
-    std::fs::write(&temp, bytes)
-        .and_then(|_| std::fs::rename(&temp, &path))
-        .map_err(|_| SystemProxyError::Unavailable("could not persist system proxy state".into()))
+    write_journal_atomically(&path, &bytes)
+}
+
+/// Journal state is a rollback safety boundary, so never reuse a predictable staging path that
+/// another process or stale directory entry could block. The same-directory rename is atomic.
+fn write_journal_atomically(path: &Path, bytes: &[u8]) -> Result<(), SystemProxyError> {
+    let parent = path.parent().ok_or_else(|| {
+        SystemProxyError::Unavailable("could not persist system proxy state".into())
+    })?;
+    fs::create_dir_all(parent).map_err(|_| {
+        SystemProxyError::Unavailable("could not persist system proxy state".into())
+    })?;
+    let file_name = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .ok_or_else(|| {
+            SystemProxyError::Unavailable("could not persist system proxy state".into())
+        })?;
+    for _ in 0..16 {
+        let sequence = JOURNAL_WRITE_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+        let temporary = path.with_file_name(format!(
+            ".{file_name}.{}.{}.tmp",
+            std::process::id(),
+            sequence
+        ));
+        let mut options = OpenOptions::new();
+        options.write(true).create_new(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.mode(0o600);
+        }
+        let mut file = match options.open(&temporary) {
+            Ok(file) => file,
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(_) => {
+                return Err(SystemProxyError::Unavailable(
+                    "could not persist system proxy state".into(),
+                ));
+            }
+        };
+        let write_result = file.write_all(bytes).and_then(|_| file.sync_all());
+        drop(file);
+        if write_result.is_err() {
+            let _ = fs::remove_file(&temporary);
+            return Err(SystemProxyError::Unavailable(
+                "could not persist system proxy state".into(),
+            ));
+        }
+        if fs::rename(&temporary, path).is_err() {
+            let _ = fs::remove_file(&temporary);
+            return Err(SystemProxyError::Unavailable(
+                "could not persist system proxy state".into(),
+            ));
+        }
+        // The commit succeeded if rename succeeded. Do not retry it merely because a best-effort
+        // directory sync is unsupported by this filesystem.
+        let _ = fs::File::open(parent).and_then(|directory| directory.sync_all());
+        return Ok(());
+    }
+    Err(SystemProxyError::Unavailable(
+        "could not persist system proxy state".into(),
+    ))
 }
 
 fn clear_journal() -> Result<(), SystemProxyError> {
@@ -352,14 +464,7 @@ fn clear_journal() -> Result<(), SystemProxyError> {
 }
 
 fn parse_setting(output: &str) -> SystemProxySetting {
-    let enabled = output.lines().any(|line| {
-        let (key, value) = line.split_once(':').unwrap_or(("", ""));
-        key.trim().eq_ignore_ascii_case("enabled")
-            && matches!(
-                value.trim().to_ascii_lowercase().as_str(),
-                "yes" | "on" | "1"
-            )
-    });
+    let enabled = enabled_setting(output);
     let server = output.lines().find_map(|line| {
         let (key, value) = line.split_once(':')?;
         (key.trim().eq_ignore_ascii_case("server") && !value.trim().is_empty())
@@ -377,6 +482,29 @@ fn parse_setting(output: &str) -> SystemProxySetting {
         server,
         port,
     }
+}
+
+fn enabled_setting(output: &str) -> bool {
+    output.lines().any(|line| {
+        let (key, value) = line.split_once(':').unwrap_or(("", ""));
+        key.trim().eq_ignore_ascii_case("enabled")
+            && matches!(
+                value.trim().to_ascii_lowercase().as_str(),
+                "yes" | "on" | "1"
+            )
+    })
+}
+
+fn authenticated_proxy_enabled(output: &str) -> bool {
+    output.lines().any(|line| {
+        let (key, value) = line.split_once(':').unwrap_or(("", ""));
+        key.trim()
+            .eq_ignore_ascii_case("authenticated proxy enabled")
+            && matches!(
+                value.trim().to_ascii_lowercase().as_str(),
+                "yes" | "on" | "1"
+            )
+    })
 }
 
 fn same_settings(a: &SystemProxyStatus, b: &SystemProxyStatus) -> bool {
@@ -407,6 +535,24 @@ mod tests {
     }
 
     #[test]
+    fn detects_proxy_features_luma_cannot_safely_restore() {
+        assert!(authenticated_proxy_enabled(
+            "Enabled: Yes\nAuthenticated Proxy Enabled: 1\n"
+        ));
+        assert!(enabled_setting(
+            "URL: https://pac.invalid/config\nEnabled: Yes\n"
+        ));
+        let features = UnsupportedProxyFeatures {
+            http_authentication: true,
+            secure_web_proxy: true,
+            socks_authentication: false,
+            auto_proxy_url: true,
+            proxy_auto_discovery: false,
+        };
+        assert!(features.any());
+    }
+
+    #[test]
     fn selects_network_service_for_default_route_interface() {
         let order = "(1) Wi-Fi\n(Hardware Port: Wi-Fi, Device: en0)\n(2) USB 10/100/1000 LAN\n(Hardware Port: USB, Device: en5)\n";
         assert_eq!(
@@ -414,5 +560,16 @@ mod tests {
             Some("USB 10/100/1000 LAN")
         );
         assert_eq!(service_for_interface(order, "en9"), None);
+    }
+
+    #[test]
+    fn journal_write_does_not_reuse_legacy_fixed_temp_path() {
+        let directory = tempfile::tempdir().expect("tempdir");
+        let journal = directory.path().join("proxy-system-state.json");
+        std::fs::create_dir(journal.with_extension("json.tmp")).expect("stale legacy temp");
+
+        write_journal_atomically(&journal, b"{}\n").expect("atomic journal write");
+
+        assert_eq!(std::fs::read(&journal).expect("journal"), b"{}\n");
     }
 }

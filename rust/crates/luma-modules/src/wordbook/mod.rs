@@ -4,9 +4,10 @@ use crate::cancel::await_unless_cancelled;
 use async_trait::async_trait;
 use import_parse::{parse_csv, parse_text};
 use luma_application::{
-    ActionOutcome, ActionRequest, FakeSpeech, LumaModule, ModuleManifest, ModuleState,
-    PasteboardPort, SearchMode, SearchSink, SpeechAccent, SpeechPort, WarmupContext,
-    WordContentInput, WordEntry, WordbookRepository,
+    ActionOutcome, ActionRequest, BoundedUtf8FileReadError, BoundedUtf8FileReaderPort,
+    FakeBoundedUtf8FileReader, FakeSpeech, LumaModule, ModuleManifest, ModuleState, PasteboardPort,
+    SearchMode, SearchSink, SpeechAccent, SpeechPort, WarmupContext, WordContentInput, WordEntry,
+    WordbookRepository,
 };
 use luma_domain::{
     ActionDescriptor, ActionId, ActionRisk, FailureKind, ModuleId, Query, SearchItem,
@@ -17,11 +18,14 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 use tokio_util::sync::CancellationToken;
 
+const CSV_IMPORT_MAX_BYTES: usize = 512 * 1024;
+
 pub struct WordbookModule {
     manifest: ModuleManifest,
     store: Arc<dyn WordbookRepository>,
     pasteboard: Arc<dyn PasteboardPort>,
     speech: Arc<dyn SpeechPort>,
+    file_reader: Arc<dyn BoundedUtf8FileReaderPort>,
     store_error: RwLock<Option<String>>,
 }
 
@@ -30,6 +34,7 @@ impl WordbookModule {
         store: Arc<dyn WordbookRepository>,
         pasteboard: Arc<dyn PasteboardPort>,
         speech: Arc<dyn SpeechPort>,
+        file_reader: Arc<dyn BoundedUtf8FileReaderPort>,
     ) -> Self {
         Self {
             manifest: ModuleManifest {
@@ -51,6 +56,7 @@ impl WordbookModule {
             store,
             pasteboard,
             speech,
+            file_reader,
             store_error: RwLock::new(None),
         }
     }
@@ -60,7 +66,12 @@ impl WordbookModule {
         store: Arc<dyn WordbookRepository>,
         pasteboard: Arc<dyn PasteboardPort>,
     ) -> Self {
-        Self::with_deps(store, pasteboard, Arc::new(FakeSpeech::new()))
+        Self::with_deps(
+            store,
+            pasteboard,
+            Arc::new(FakeSpeech::new()),
+            Arc::new(FakeBoundedUtf8FileReader::default()),
+        )
     }
 
     fn word_dto(word: &WordEntry, score: f64) -> SearchItemDto {
@@ -148,6 +159,31 @@ impl WordbookModule {
                 retryable: true,
             },
         }
+    }
+
+    fn csv_read_failure(error: BoundedUtf8FileReadError) -> ActionOutcome {
+        let kind = match error {
+            BoundedUtf8FileReadError::Unavailable => FailureKind::Unavailable {
+                reason: "CSV file is unavailable".into(),
+                retryable: true,
+            },
+            BoundedUtf8FileReadError::InvalidFile => FailureKind::InvalidInput {
+                field: "csv".into(),
+                message: "CSV must be a regular non-symlink file".into(),
+            },
+            BoundedUtf8FileReadError::TooLarge => FailureKind::InvalidInput {
+                field: "csv".into(),
+                message: format!(
+                    "CSV exceeds the {} KiB import limit",
+                    CSV_IMPORT_MAX_BYTES / 1024
+                ),
+            },
+            BoundedUtf8FileReadError::InvalidUtf8 => FailureKind::InvalidInput {
+                field: "csv".into(),
+                message: "CSV must be valid UTF-8".into(),
+            },
+        };
+        ActionOutcome::Failed { kind }
     }
 
     fn get_word_or_outcome(
@@ -766,15 +802,15 @@ impl LumaModule for WordbookModule {
                     };
                 };
                 let path = PathBuf::from(path);
-                let text = match std::fs::read_to_string(&path) {
-                    Ok(t) => t,
-                    Err(err) => {
-                        return ActionOutcome::Failed {
-                            kind: FailureKind::Io {
-                                context: err.to_string(),
-                            },
-                        };
-                    }
+                let text = match await_unless_cancelled(
+                    &cancel,
+                    self.file_reader.read_utf8(&path, CSV_IMPORT_MAX_BYTES),
+                )
+                .await
+                {
+                    None => return ActionOutcome::Cancelled,
+                    Some(Ok(text)) => text,
+                    Some(Err(error)) => return Self::csv_read_failure(error),
                 };
                 let parsed = parse_csv(&text);
                 if parsed.rows.is_empty() {
@@ -1076,5 +1112,132 @@ fn truncate(s: &str, max: usize) -> String {
         let mut out: String = s.chars().take(max.saturating_sub(1)).collect();
         out.push('…');
         out
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use luma_application::{
+        FakeBoundedUtf8FileReader, FakePasteboard, FakeSpeech, MemoryWordbookRepository,
+        WordbookRepository,
+    };
+    use luma_domain::{ActionDescriptor, ActionId, ActionRisk, ResultId, SearchItem};
+    use std::path::PathBuf;
+    use std::sync::Arc;
+
+    fn import_request(path: &str) -> ActionRequest {
+        let action = ActionDescriptor {
+            id: ActionId::new("import_csv"),
+            label: "Import".into(),
+            risk: ActionRisk::Safe,
+            confirmation: false,
+        };
+        ActionRequest {
+            result: SearchItem {
+                id: ResultId::new(format!("wb:import:{path}")),
+                module_id: ModuleId::new("luma.wordbook"),
+                title: "Import CSV".into(),
+                subtitle: None,
+                kind: "command".into(),
+                score: 1.0,
+                primary_action: action.clone(),
+                secondary_actions: vec![],
+                ui_intent: None,
+                action_payload: None,
+            },
+            action,
+            confirmation: false,
+        }
+    }
+
+    fn module_with_reader(
+        reader: Arc<FakeBoundedUtf8FileReader>,
+    ) -> (WordbookModule, Arc<MemoryWordbookRepository>) {
+        let store = Arc::new(MemoryWordbookRepository::new());
+        let module = WordbookModule::with_deps(
+            store.clone(),
+            Arc::new(FakePasteboard::new()),
+            Arc::new(FakeSpeech::new()),
+            reader,
+        );
+        (module, store)
+    }
+
+    #[tokio::test]
+    async fn csv_import_read_failure_is_sanitized_and_does_not_write() {
+        let reader = Arc::new(FakeBoundedUtf8FileReader::with_error(
+            BoundedUtf8FileReadError::Unavailable,
+        ));
+        let (module, store) = module_with_reader(reader.clone());
+        let path = "/restricted/hidden-words.csv";
+
+        let outcome = module
+            .perform(import_request(path), CancellationToken::new())
+            .await;
+
+        match outcome {
+            ActionOutcome::Failed {
+                kind: FailureKind::Unavailable { reason, retryable },
+            } => {
+                assert_eq!(reason, "CSV file is unavailable");
+                assert!(retryable);
+                assert!(!reason.contains(path));
+            }
+            other => panic!("expected sanitized unavailable outcome, got {other:?}"),
+        }
+        assert!(store.get_by_term("latency").unwrap().is_none());
+        assert_eq!(reader.calls.lock().expect("lock").len(), 1);
+    }
+
+    #[tokio::test]
+    async fn csv_import_rejects_oversized_input_without_writing() {
+        let reader = Arc::new(FakeBoundedUtf8FileReader::with_error(
+            BoundedUtf8FileReadError::TooLarge,
+        ));
+        let (module, store) = module_with_reader(reader);
+
+        let outcome = module
+            .perform(import_request("large.csv"), CancellationToken::new())
+            .await;
+
+        match outcome {
+            ActionOutcome::Failed {
+                kind: FailureKind::InvalidInput { field, message },
+            } => {
+                assert_eq!(field, "csv");
+                assert_eq!(message, "CSV exceeds the 512 KiB import limit");
+            }
+            other => panic!("expected oversized CSV failure, got {other:?}"),
+        }
+        assert!(store.get_by_term("latency").unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn csv_import_uses_fake_reader_and_imports_content() {
+        let reader = Arc::new(FakeBoundedUtf8FileReader::with_text(
+            "term,meaning\nlatency,\u{5ef6}\u{8fdf}\n",
+        ));
+        let (module, store) = module_with_reader(reader.clone());
+
+        let outcome = module
+            .perform(import_request("words.csv"), CancellationToken::new())
+            .await;
+
+        assert_eq!(
+            outcome,
+            ActionOutcome::Success {
+                message: Some("imported +1 ~0 skip 0".into()),
+            }
+        );
+        let word = store
+            .get_by_term("latency")
+            .unwrap()
+            .expect("imported word");
+        assert_eq!(word.meaning, "\u{5ef6}\u{8fdf}");
+        assert_eq!(
+            reader.calls.lock().expect("lock").as_slice(),
+            &[(PathBuf::from("words.csv"), CSV_IMPORT_MAX_BYTES)]
+        );
     }
 }

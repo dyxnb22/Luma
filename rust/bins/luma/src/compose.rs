@@ -9,13 +9,14 @@ use luma_application::{
     SqliteSnippetsRepository, SqliteWordbookRepository, TomlSettingsRepository, WordbookRepository,
 };
 use luma_modules::{
-    AppsModule, ClipboardModule, ClipboardSuppression, FakeEchoModule, NotesModule, ProjectsModule,
-    ProxyModule, QuicklinksModule, RecordsModule, SecretsModule, SnippetsModule, WindowsModule,
-    WordbookModule,
+    AppsModule, ClipboardModule, ClipboardSuppression, FakeEchoModule, NotesModule, NotesServices,
+    ProjectsModule, ProxyModule, QuicklinksModule, RecordsModule, SecretsModule, SnippetsModule,
+    WindowsModule, WordbookModule,
 };
 use luma_platform_macos::{
-    FilesystemAppsCatalog, MacAccessibility, MacKeychain, MacMarkdownWatcher, MacMihomoProxyCore,
-    MacOpenPath, MacPasteboard, MacProfileStore, MacSpeech, MacSystemProxy, MacWindowCatalog,
+    FilesystemAppsCatalog, MacAccessibility, MacBoundedUtf8FileReader, MacClock, MacKeychain,
+    MacMarkdownWatcher, MacMihomoProxyCore, MacNotesWorkspace, MacOpenPath, MacPasteboard,
+    MacProfileStore, MacProjectWorkspace, MacSpeech, MacSystemProxy, MacWindowCatalog,
 };
 use luma_storage::{
     ClipboardStore, ConfigError, ConfigStore, LumaSettings, NotesIndexStore, NotesScanner,
@@ -98,9 +99,14 @@ pub fn registry_from_settings(
         settings,
         keychain.clone(),
     ));
-    let proxy_store = MacProfileStore::new(keychain.clone(), proxy_core.clone())
-        .ok()
-        .map(|store| Arc::new(store) as Arc<dyn luma_application::ProfileStorePort>);
+    // Profile subscription references must remain private: they are not Secret-module labels
+    // and must never become copyable UI entries.
+    let proxy_store = MacProfileStore::new(
+        Arc::new(MacKeychain::private_references()),
+        proxy_core.clone(),
+    )
+    .ok()
+    .map(|store| Arc::new(store) as Arc<dyn luma_application::ProfileStorePort>);
     let mut proxy_module = ProxyModule::with_deps(
         proxy_core,
         Arc::new(MacSystemProxy::with_service(
@@ -145,6 +151,10 @@ pub fn registry_from_settings(
                 settings.notes_exclude_patterns.clone(),
             )),
             pasteboard.clone(),
+            NotesServices {
+                clock: Arc::new(MacClock),
+                workspace: Arc::new(MacNotesWorkspace),
+            },
             settings.notes_exclude_patterns.clone(),
         )))?;
     } else {
@@ -189,6 +199,7 @@ pub fn registry_from_settings(
             Arc::new(SqliteWordbookRepository::new(wordbook)),
             pasteboard.clone(),
             Arc::new(MacSpeech),
+            Arc::new(MacBoundedUtf8FileReader),
         )))?;
     } else {
         let reason = "wordbook store unavailable".into();
@@ -215,6 +226,7 @@ pub fn registry_from_settings(
         project_roots,
         settings.imported_projects.clone(),
         opener.clone(),
+        Arc::new(MacProjectWorkspace),
     )))?;
     reg.register(Arc::new(SecretsModule::with_deps(
         keychain,

@@ -1,10 +1,14 @@
 use super::rows::{status_row, unavailable_row};
 use super::NotesModule;
-use luma_application::{NotesScanStatusView, SearchSink};
+use luma_application::{
+    NotesDirectoryEntryKind, NotesScanStatusView, NotesWorkspaceError, SearchSink,
+};
 use luma_domain::Query;
 use luma_protocol::SearchItemDto;
 use std::path::PathBuf;
 use tokio_util::sync::CancellationToken;
+
+const BROWSE_MAX_ENTRIES: usize = 500;
 
 fn humanize_issue_type(issue_type: &str) -> &'static str {
     match issue_type {
@@ -32,38 +36,60 @@ fn short_issue_message(message: &str) -> String {
     }
 }
 
+fn scan_status_needs_row(status: &NotesScanStatusView) -> bool {
+    match status {
+        NotesScanStatusView::Running { .. } | NotesScanStatusView::Failed { .. } => true,
+        NotesScanStatusView::Completed { errors, .. } => *errors > 0,
+        NotesScanStatusView::Idle => false,
+    }
+}
+
+fn browse_argument<'a>(rest_raw: &'a str, rest_check: &str) -> Option<&'a str> {
+    if rest_check.is_empty() || rest_check == "browse" {
+        return Some("");
+    }
+    let trimmed = rest_raw.trim();
+    trimmed
+        .strip_prefix("browse")
+        .or_else(|| trimmed.strip_prefix("Browse"))
+        .or_else(|| trimmed.strip_prefix("ls"))
+        .or_else(|| trimmed.strip_prefix("LS"))
+        .map(str::trim)
+}
+
 impl NotesModule {
     pub(super) async fn search(&self, query: Query, sink: SearchSink, cancel: CancellationToken) {
         let root = self.root.read().await.clone();
         let Some(root) = root else {
-            let row = SearchItemDto {
-                id: "notes:configure".into(),
-                module_id: "luma.notes".into(),
-                title: "Choose a Notes root folder".into(),
-                subtitle: Some("Run: luma config set --notes-root ~/Notes".into()),
-                kind: "not_configured".into(),
-                score: 0.0,
-                primary_action_id: "seed_config".into(),
-                primary_action_label: "Show command".into(),
-                ..Default::default()
-            };
-            {
-                let upserts = vec![row];
-                self.emit_results(&sink, upserts, vec![]).await;
-            }
+            self.emit_results(
+                &sink,
+                vec![SearchItemDto {
+                    id: "notes:configure".into(),
+                    module_id: "luma.notes".into(),
+                    title: "Choose a Notes root folder".into(),
+                    subtitle: Some("Run: luma config set --notes-root ~/Notes".into()),
+                    kind: "not_configured".into(),
+                    score: 0.0,
+                    primary_action_id: "seed_config".into(),
+                    primary_action_label: "Show command".into(),
+                    ..Default::default()
+                }],
+                vec![],
+            )
+            .await;
             return;
         };
 
         let rest = query.rest_normalized();
-
         if rest == "new" {
             let stamp = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
-                .map(|d| d.as_nanos())
+                .map(|duration| duration.as_nanos())
                 .unwrap_or(0);
             let path = root.join("Inbox").join(format!("note-{stamp}.md"));
-            {
-                let upserts = vec![SearchItemDto {
+            self.emit_results(
+                &sink,
+                vec![SearchItemDto {
                     id: format!("note:{}", path.display()),
                     module_id: "luma.notes".into(),
                     title: "Create note".into(),
@@ -73,37 +99,61 @@ impl NotesModule {
                     primary_action_id: "create".into(),
                     primary_action_label: "Create".into(),
                     ..Default::default()
-                }];
-                self.emit_results(&sink, upserts, vec![]).await;
-            }
+                }],
+                vec![],
+            )
+            .await;
             return;
         }
 
         if rest == "daily" || rest == "today" {
             let date = match self.clock.today_ymd() {
-                Ok(d) => d,
-                Err(err) => {
-                    {
-                        let upserts = vec![SearchItemDto {
+                Ok(date) => date,
+                Err(error) => {
+                    self.emit_results(
+                        &sink,
+                        vec![SearchItemDto {
                             id: "note:clock-error".into(),
                             module_id: "luma.notes".into(),
                             title: "Daily note unavailable".into(),
-                            subtitle: Some(crate::ux::friendly_store_error(&err.to_string())),
+                            subtitle: Some(crate::ux::friendly_store_error(&error.to_string())),
                             kind: "unavailable".into(),
                             score: 0.0,
                             primary_action_id: "noop".into(),
                             primary_action_label: "Unavailable".into(),
                             ..Default::default()
-                        }];
-                        self.emit_results(&sink, upserts, vec![]).await;
-                    }
+                        }],
+                        vec![],
+                    )
+                    .await;
                     return;
                 }
             };
-            let path = root.join("Daily").join(format!("{date}.md"));
-            let exists = path.exists();
+            let candidate = root.join("Daily").join(format!("{date}.md"));
+            let existing = match self
+                .workspace
+                .existing_note(root.clone(), candidate.clone(), cancel.clone())
+                .await
             {
-                let upserts = vec![SearchItemDto {
+                Ok(existing) => existing,
+                Err(NotesWorkspaceError::Cancelled) => return,
+                Err(error) => {
+                    self.emit_results(
+                        &sink,
+                        vec![unavailable_row("Daily note unavailable", error.to_string())],
+                        vec![],
+                    )
+                    .await;
+                    return;
+                }
+            };
+            let (path, exists) = match existing {
+                Some(path) => (path.path, true),
+                None => (candidate, false),
+            };
+            self.emit_results(
+                &sink,
+                vec![SearchItemDto {
                     id: format!("note:{}", path.display()),
                     module_id: "luma.notes".into(),
                     title: if exists {
@@ -112,26 +162,15 @@ impl NotesModule {
                         format!("Create daily note ({date})")
                     },
                     subtitle: Some(path.display().to_string()),
-                    kind: if exists {
-                        "note".into()
-                    } else {
-                        "create".into()
-                    },
+                    kind: if exists { "note" } else { "create" }.into(),
                     score: 100.0,
-                    primary_action_id: if exists {
-                        "open".into()
-                    } else {
-                        "create".into()
-                    },
-                    primary_action_label: if exists {
-                        "Open".into()
-                    } else {
-                        "Create".into()
-                    },
+                    primary_action_id: if exists { "open" } else { "create" }.into(),
+                    primary_action_label: if exists { "Open" } else { "Create" }.into(),
                     ..Default::default()
-                }];
-                self.emit_results(&sink, upserts, vec![]).await;
-            }
+                }],
+                vec![],
+            )
+            .await;
             return;
         }
 
@@ -140,58 +179,53 @@ impl NotesModule {
 
         if rest_check == "recent" {
             let index = self.index.clone();
-            let limit = 20;
-            let handle = tokio::task::spawn_blocking(move || index.list_recent(limit));
+            let handle = tokio::task::spawn_blocking(move || index.list_recent(20));
             let abort = handle.abort_handle();
             let hits = tokio::select! {
-                            _ = cancel.cancelled() => {
-                                abort.abort();
-                                return;
-                            }
-                            result = handle => match result {
-                                Ok(Ok(hits)) => hits,
-                                Ok(Err(e)) => {
-                                    {
-                let upserts = vec![unavailable_row(
-                                                "Notes recent unavailable",
-                                                e.to_string(),
-                                            )];
-                self.emit_results(&sink, upserts, vec![]).await;
-            }
-                                    return;
-                                }
-                                Err(e) => {
-                                    {
-                let upserts = vec![unavailable_row(
-                                                "Notes recent unavailable",
-                                                e.to_string(),
-                                            )];
-                self.emit_results(&sink, upserts, vec![]).await;
-            }
-                                    return;
-                                }
-                            },
-                        };
+                _ = cancel.cancelled() => {
+                    abort.abort();
+                    return;
+                }
+                result = handle => match result {
+                    Ok(Ok(hits)) => hits,
+                    Ok(Err(error)) => {
+                        self.emit_results(&sink, vec![unavailable_row("Notes recent unavailable", error.to_string())], vec![]).await;
+                        return;
+                    }
+                    Err(error) => {
+                        self.emit_results(&sink, vec![unavailable_row("Notes recent unavailable", error.to_string())], vec![]).await;
+                        return;
+                    }
+                },
+            };
             let status = self.index.scan_status();
             let mut upserts = Vec::new();
-            let show_status = match &status {
-                NotesScanStatusView::Running { .. } | NotesScanStatusView::Failed { .. } => true,
-                NotesScanStatusView::Completed { errors, .. } => *errors > 0,
-                NotesScanStatusView::Idle => false,
-            };
-            if show_status {
+            if scan_status_needs_row(&status) {
                 upserts.push(status_row(&status));
             }
             for hit in hits {
-                let abs = root.join(&hit.relative_path);
-                if NotesModule::resolve_under_root(&root, &abs).is_err() {
-                    continue;
+                if cancel.is_cancelled() {
+                    return;
                 }
+                let path = match self
+                    .workspace
+                    .resolve_path(
+                        root.clone(),
+                        PathBuf::from(&hit.relative_path),
+                        false,
+                        cancel.clone(),
+                    )
+                    .await
+                {
+                    Ok(path) => path.path,
+                    Err(NotesWorkspaceError::Cancelled) => return,
+                    Err(_) => continue,
+                };
                 upserts.push(SearchItemDto {
-                    id: format!("note:{}", abs.display()),
+                    id: format!("note:{}", path.display()),
                     module_id: "luma.notes".into(),
                     title: hit.title,
-                    subtitle: Some(abs.display().to_string()),
+                    subtitle: Some(path.display().to_string()),
                     kind: "note".into(),
                     score: 80.0,
                     primary_action_id: "open".into(),
@@ -206,16 +240,17 @@ impl NotesModule {
         if rest_check == "status" {
             let status = self.index.scan_status();
             let count_label = match self.index.document_count() {
-                Ok(n) => format!("{n} documents indexed"),
-                Err(e) => format!("document count unavailable: {e}"),
+                Ok(count) => format!("{count} documents indexed"),
+                Err(error) => format!("document count unavailable: {error}"),
             };
             let count_kind = if count_label.starts_with("document count") {
                 "unavailable"
             } else {
                 "status"
             };
-            {
-                let upserts = vec![
+            self.emit_results(
+                &sink,
+                vec![
                     status_row(&status),
                     SearchItemDto {
                         id: "notes:doc-count".into(),
@@ -232,9 +267,10 @@ impl NotesModule {
                         },
                         ..Default::default()
                     },
-                ];
-                self.emit_results(&sink, upserts, vec![]).await;
-            }
+                ],
+                vec![],
+            )
+            .await;
             return;
         }
 
@@ -243,77 +279,71 @@ impl NotesModule {
             let handle = tokio::task::spawn_blocking(move || index.list_issues());
             let abort = handle.abort_handle();
             let issues = tokio::select! {
-                            _ = cancel.cancelled() => {
-                                abort.abort();
-                                return;
-                            }
-                            result = handle => match result {
-                                Ok(Ok(issues)) => issues,
-                                Ok(Err(e)) => {
-                                    {
-                let upserts = vec![unavailable_row(
-                                                "Notes issues unavailable",
-                                                e.to_string(),
-                                            )];
-                self.emit_results(&sink, upserts, vec![]).await;
-            }
-                                    return;
-                                }
-                                Err(e) => {
-                                    {
-                let upserts = vec![unavailable_row(
-                                                "Notes issues unavailable",
-                                                e.to_string(),
-                                            )];
-                self.emit_results(&sink, upserts, vec![]).await;
-            }
-                                    return;
-                                }
-                            },
-                        };
-            let upserts: Vec<_> = issues
-                .into_iter()
-                .take(query.limit)
-                .filter_map(|i| {
-                    let abs = root.join(&i.relative_path);
-                    if NotesModule::resolve_under_root(&root, &abs).is_err() {
-                        return None;
+                _ = cancel.cancelled() => {
+                    abort.abort();
+                    return;
+                }
+                result = handle => match result {
+                    Ok(Ok(issues)) => issues,
+                    Ok(Err(error)) => {
+                        self.emit_results(&sink, vec![unavailable_row("Notes issues unavailable", error.to_string())], vec![]).await;
+                        return;
                     }
-                    Some(SearchItemDto {
-                        id: format!("note:{}", abs.display()),
-                        module_id: "luma.notes".into(),
-                        title: format!(
-                            "{} — {}",
-                            humanize_issue_type(&i.issue_type),
-                            i.relative_path
-                        ),
-                        subtitle: Some(short_issue_message(&i.message)),
-                        kind: "issue".into(),
-                        score: 50.0,
-                        primary_action_id: "open".into(),
-                        primary_action_label: "Open".into(),
-                        ..Default::default()
-                    })
-                })
-                .collect();
-            {
-                let upserts = if upserts.is_empty() {
-                    vec![SearchItemDto {
-                        id: "notes:issues-empty".into(),
-                        module_id: "luma.notes".into(),
-                        title: "No scan issues".into(),
-                        subtitle: Some("Index looks clean".into()),
-                        kind: "status".into(),
-                        score: 50.0,
-                        primary_action_id: "noop".into(),
-                        primary_action_label: "OK".into(),
-                        ..Default::default()
-                    }]
-                } else {
-                    upserts
+                    Err(error) => {
+                        self.emit_results(&sink, vec![unavailable_row("Notes issues unavailable", error.to_string())], vec![]).await;
+                        return;
+                    }
+                },
+            };
+            let mut upserts = Vec::new();
+            for issue in issues.into_iter().take(query.limit) {
+                if cancel.is_cancelled() {
+                    return;
+                }
+                let path = match self
+                    .workspace
+                    .resolve_path(
+                        root.clone(),
+                        PathBuf::from(&issue.relative_path),
+                        false,
+                        cancel.clone(),
+                    )
+                    .await
+                {
+                    Ok(path) => path.path,
+                    Err(NotesWorkspaceError::Cancelled) => return,
+                    Err(_) => continue,
                 };
-                self.emit_results(&sink, upserts, vec![]).await;
+                upserts.push(SearchItemDto {
+                    id: format!("note:{}", path.display()),
+                    module_id: "luma.notes".into(),
+                    title: format!(
+                        "{} — {}",
+                        humanize_issue_type(&issue.issue_type),
+                        issue.relative_path
+                    ),
+                    subtitle: Some(short_issue_message(&issue.message)),
+                    kind: "issue".into(),
+                    score: 50.0,
+                    primary_action_id: "open".into(),
+                    primary_action_label: "Open".into(),
+                    ..Default::default()
+                });
             }
+            if upserts.is_empty() {
+                upserts.push(SearchItemDto {
+                    id: "notes:issues-empty".into(),
+                    module_id: "luma.notes".into(),
+                    title: "No scan issues".into(),
+                    subtitle: Some("Index looks clean".into()),
+                    kind: "status".into(),
+                    score: 50.0,
+                    primary_action_id: "noop".into(),
+                    primary_action_label: "OK".into(),
+                    ..Default::default()
+                });
+            }
+            self.emit_results(&sink, upserts, vec![]).await;
             return;
         }
 
@@ -334,20 +364,26 @@ impl NotesModule {
                 bridge.abort();
             }
             let (title, kind, label) = match report {
-                Ok(Ok(r)) if r.cancelled => ("Scan cancelled".into(), "unavailable", "Cancelled"),
-                Ok(Ok(r)) => {
-                    let title = if r.errors == 0 {
-                        format!("Checked {} notes", r.processed)
+                Ok(Ok(report)) if report.cancelled => {
+                    ("Scan cancelled".into(), "unavailable", "Cancelled")
+                }
+                Ok(Ok(report)) => {
+                    let title = if report.errors == 0 {
+                        format!("Checked {} notes", report.processed)
                     } else {
-                        format!("Checked {} notes · {} issue(s)", r.processed, r.errors)
+                        format!(
+                            "Checked {} notes · {} issue(s)",
+                            report.processed, report.errors
+                        )
                     };
                     (title, "status", "Done")
                 }
-                Ok(Err(e)) => (format!("Scan failed: {e}"), "unavailable", "Failed"),
-                Err(e) => (format!("Scan failed: {e}"), "unavailable", "Failed"),
+                Ok(Err(error)) => (format!("Scan failed: {error}"), "unavailable", "Failed"),
+                Err(error) => (format!("Scan failed: {error}"), "unavailable", "Failed"),
             };
-            {
-                let upserts = vec![SearchItemDto {
+            self.emit_results(
+                &sink,
+                vec![SearchItemDto {
                     id: "notes:scan-report".into(),
                     module_id: "luma.notes".into(),
                     title,
@@ -357,131 +393,107 @@ impl NotesModule {
                     primary_action_id: "noop".into(),
                     primary_action_label: label.into(),
                     ..Default::default()
-                }];
-                self.emit_results(&sink, upserts, vec![]).await;
-            }
+                }],
+                vec![],
+            )
+            .await;
             return;
         }
 
         // Empty rest (`n `) and explicit browse both open the notes directory tree.
-        if rest_check.is_empty()
-            || rest_check == "browse"
-            || rest_check.starts_with("browse ")
-            || rest_check.starts_with("ls ")
-        {
-            let path_arg = if rest_check.is_empty() {
-                ""
-            } else {
-                rest_raw
-                    .trim()
-                    .strip_prefix("browse")
-                    .or_else(|| rest_raw.trim().strip_prefix("Browse"))
-                    .or_else(|| rest_raw.trim().strip_prefix("ls"))
-                    .or_else(|| rest_raw.trim().strip_prefix("LS"))
-                    .unwrap_or("")
-                    .trim()
-            };
-            let dir = if path_arg.is_empty() {
+        if let Some(path_arg) = browse_argument(rest_raw, &rest_check) {
+            let candidate = if path_arg.is_empty() {
                 root.clone()
             } else {
-                let candidate = PathBuf::from(path_arg);
-                match NotesModule::resolve_under_root_for_browse(&root, &candidate) {
-                    Ok(p) => p,
-                    Err(err) => {
-                        {
-                            let upserts = vec![SearchItemDto {
-                                id: "notes:browse-denied".into(),
-                                module_id: "luma.notes".into(),
-                                title: "Path outside notes root".into(),
-                                subtitle: Some(err),
-                                kind: "unavailable".into(),
-                                score: 0.0,
-                                primary_action_id: "noop".into(),
-                                primary_action_label: "Unavailable".into(),
-                                ..Default::default()
-                            }];
-                            self.emit_results(&sink, upserts, vec![]).await;
-                        }
-                        return;
-                    }
+                PathBuf::from(path_arg)
+            };
+            let (directory, listing) = match self
+                .workspace
+                .list_directory(root.clone(), candidate, BROWSE_MAX_ENTRIES, cancel.clone())
+                .await
+            {
+                Ok(listing) => listing,
+                Err(NotesWorkspaceError::Cancelled) => return,
+                Err(NotesWorkspaceError::OutsideWorkspace) => {
+                    self.emit_results(
+                        &sink,
+                        vec![SearchItemDto {
+                            id: "notes:browse-denied".into(),
+                            module_id: "luma.notes".into(),
+                            title: "Path outside notes root".into(),
+                            subtitle: Some(
+                                "Notes paths must stay inside the configured root".into(),
+                            ),
+                            kind: "unavailable".into(),
+                            score: 0.0,
+                            primary_action_id: "noop".into(),
+                            primary_action_label: "Unavailable".into(),
+                            ..Default::default()
+                        }],
+                        vec![],
+                    )
+                    .await;
+                    return;
+                }
+                Err(error) => {
+                    self.emit_results(
+                        &sink,
+                        vec![unavailable_row("Cannot read folder", error.to_string())],
+                        vec![],
+                    )
+                    .await;
+                    return;
                 }
             };
-            let Ok(rd) = std::fs::read_dir(&dir) else {
-                {
-                    let upserts = vec![unavailable_row(
-                        "Cannot read folder",
-                        dir.display().to_string(),
-                    )];
-                    self.emit_results(&sink, upserts, vec![]).await;
-                }
-                return;
-            };
-            let mut upserts = Vec::new();
-            // Surface index problems on the default Notes surface (browse / `n `).
             let status = self.index.scan_status();
-            let show_status = match &status {
-                NotesScanStatusView::Running { .. } | NotesScanStatusView::Failed { .. } => true,
-                NotesScanStatusView::Completed { errors, .. } => *errors > 0,
-                NotesScanStatusView::Idle => false,
-            };
-            if show_status {
+            let mut upserts = Vec::new();
+            if scan_status_needs_row(&status) {
                 upserts.push(status_row(&status));
             }
-            let mut entries: Vec<_> = rd.flatten().collect();
-            entries.sort_by_key(|e| e.file_name());
-            for entry in entries {
+            if listing.truncated {
+                upserts.push(SearchItemDto {
+                    id: "notes:browse-truncated".into(),
+                    module_id: "luma.notes".into(),
+                    title: "Directory listing is limited".into(),
+                    subtitle: Some(format!("Showing up to {BROWSE_MAX_ENTRIES} entries")),
+                    kind: "status".into(),
+                    score: 84.0,
+                    primary_action_id: "noop".into(),
+                    primary_action_label: "OK".into(),
+                    ..Default::default()
+                });
+            }
+            for entry in listing.entries {
                 if cancel.is_cancelled() {
                     return;
                 }
-                let path = entry.path();
-                let Ok(meta) = std::fs::symlink_metadata(&path) else {
-                    continue;
-                };
-                // Never follow or enumerate symlinks during browse.
-                if meta.file_type().is_symlink() {
-                    continue;
-                }
-                let name = path
-                    .file_name()
-                    .and_then(|s| s.to_str())
-                    .unwrap_or("?")
-                    .to_string();
-                if name.starts_with('.') {
-                    continue;
-                }
-                if meta.file_type().is_dir() {
-                    upserts.push(SearchItemDto {
+                let path = entry.path.path;
+                match entry.kind {
+                    NotesDirectoryEntryKind::Directory => upserts.push(SearchItemDto {
                         id: format!("browse:n:{}", path.display()),
                         module_id: "luma.notes".into(),
-                        title: format!("{name}/"),
+                        title: format!("{}/", entry.name),
                         subtitle: Some(path.display().to_string()),
                         kind: "directory".into(),
                         score: 85.0,
                         primary_action_id: "browse".into(),
                         primary_action_label: "Browse".into(),
                         ..Default::default()
-                    });
-                } else if meta.file_type().is_file() && name.to_ascii_lowercase().ends_with(".md") {
-                    let title = if let Some(stem) = name
-                        .get(..name.len().saturating_sub(3))
-                        .filter(|_| name.len() >= 3)
-                    {
-                        // Preserve stem casing; strip any .md/.MD/.Md suffix length 3.
-                        stem.to_string()
-                    } else {
-                        name.clone()
-                    };
-                    upserts.push(SearchItemDto {
-                        id: format!("note:{}", path.display()),
-                        module_id: "luma.notes".into(),
-                        title,
-                        subtitle: Some(path.display().to_string()),
-                        kind: "note".into(),
-                        score: 75.0,
-                        primary_action_id: "open".into(),
-                        primary_action_label: "Open".into(),
-                        ..Default::default()
-                    });
+                    }),
+                    NotesDirectoryEntryKind::MarkdownFile => {
+                        let title = entry.name[..entry.name.len().saturating_sub(3)].to_string();
+                        upserts.push(SearchItemDto {
+                            id: format!("note:{}", path.display()),
+                            module_id: "luma.notes".into(),
+                            title,
+                            subtitle: Some(path.display().to_string()),
+                            kind: "note".into(),
+                            score: 75.0,
+                            primary_action_id: "open".into(),
+                            primary_action_label: "Open".into(),
+                            ..Default::default()
+                        });
+                    }
                 }
             }
             if upserts.is_empty() {
@@ -489,7 +501,7 @@ impl NotesModule {
                     id: "notes:browse-empty".into(),
                     module_id: "luma.notes".into(),
                     title: "Empty folder".into(),
-                    subtitle: Some(dir.display().to_string()),
+                    subtitle: Some(directory.path.display().to_string()),
                     kind: "status".into(),
                     score: 50.0,
                     primary_action_id: "noop".into(),
@@ -508,45 +520,49 @@ impl NotesModule {
         let handle = tokio::task::spawn_blocking(move || index.search(&needle_for_search, limit));
         let abort = handle.abort_handle();
         let hits = tokio::select! {
-                    _ = cancel.cancelled() => {
-                        abort.abort();
-                        return;
-                    }
-                    result = handle => match result {
-                        Ok(Ok(hits)) => hits,
-                        Ok(Err(e)) => {
-                            {
-            let upserts = vec![unavailable_row("Notes search unavailable", e.to_string())];
-            self.emit_results(&sink, upserts, vec![]).await;
-        }
-                            return;
-                        }
-                        Err(e) => {
-                            {
-            let upserts = vec![unavailable_row("Notes search unavailable", e.to_string())];
-            self.emit_results(&sink, upserts, vec![]).await;
-        }
-                            return;
-                        }
-                    },
-                };
+            _ = cancel.cancelled() => {
+                abort.abort();
+                return;
+            }
+            result = handle => match result {
+                Ok(Ok(hits)) => hits,
+                Ok(Err(error)) => {
+                    self.emit_results(&sink, vec![unavailable_row("Notes search unavailable", error.to_string())], vec![]).await;
+                    return;
+                }
+                Err(error) => {
+                    self.emit_results(&sink, vec![unavailable_row("Notes search unavailable", error.to_string())], vec![]).await;
+                    return;
+                }
+            },
+        };
         let mut upserts = Vec::new();
         for hit in hits {
             if cancel.is_cancelled() {
                 return;
             }
-            let abs = root.join(&hit.relative_path);
-            if NotesModule::resolve_under_root(&root, &abs).is_err() {
-                continue;
-            }
+            let path = match self
+                .workspace
+                .resolve_path(
+                    root.clone(),
+                    PathBuf::from(&hit.relative_path),
+                    false,
+                    cancel.clone(),
+                )
+                .await
+            {
+                Ok(path) => path.path,
+                Err(NotesWorkspaceError::Cancelled) => return,
+                Err(_) => continue,
+            };
             upserts.push(SearchItemDto {
-                id: format!("note:{}", abs.display()),
+                id: format!("note:{}", path.display()),
                 module_id: "luma.notes".into(),
                 title: hit.title,
                 subtitle: Some(if hit.snippet.is_empty() {
-                    abs.display().to_string()
+                    path.display().to_string()
                 } else {
-                    format!("{} — {}", abs.display(), hit.snippet)
+                    format!("{} — {}", path.display(), hit.snippet)
                 }),
                 kind: "note".into(),
                 // bm25 is lower-is-better (often negative); invert for Luma descending score.

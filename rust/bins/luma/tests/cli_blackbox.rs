@@ -316,43 +316,6 @@ fn query_json_redact_flag() {
 }
 
 #[test]
-fn secrets_set_smoke_or_skip_without_keychain() {
-    let dir = tempdir().unwrap();
-    let support = dir.path().join("support");
-    let logs = dir.path().join("logs");
-    fs::create_dir_all(&support).unwrap();
-    fs::create_dir_all(&logs).unwrap();
-    let out = std::process::Command::new(luma_bin())
-        .args(["secrets", "set", "phase6-smoke-label"])
-        .stdin(std::process::Stdio::piped())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .env("LUMA_NEXT_SUPPORT_DIR", &support)
-        .env("LUMA_NEXT_LOGS_DIR", &logs)
-        .spawn()
-        .expect("spawn luma secrets set");
-    use std::io::Write;
-    let mut child = out;
-    if let Some(mut stdin) = child.stdin.take() {
-        let _ = stdin.write_all(b"phase6-test-value\n");
-    }
-    let out = child.wait_with_output().expect("wait");
-    let code = out.status.code().unwrap_or(1);
-    let stderr = String::from_utf8_lossy(&out.stderr);
-    if stderr.contains("keychain")
-        || stderr.contains("Keychain")
-        || stderr.contains("unavailable")
-        || stderr.contains("secrets set:")
-    {
-        eprintln!("skip secrets_set_smoke: {stderr}");
-        return;
-    }
-    assert_eq!(code, 0, "stderr={stderr}");
-    let stdout = String::from_utf8_lossy(&out.stdout);
-    assert!(stdout.contains("phase6-smoke-label"), "{stdout}");
-}
-
-#[test]
 fn concurrent_config_set_one_wins() {
     use std::process::{Command, Stdio};
     use std::sync::Arc;

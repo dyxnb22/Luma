@@ -1,9 +1,10 @@
 use crate::cancel::await_unless_cancelled;
 use async_trait::async_trait;
 use luma_application::{
-    ActionOutcome, ActionRequest, ClockPort, FakePasteboard, FixedClock, LumaModule,
-    MarkdownWatchPort, MemoryNotesIndex, ModuleManifest, ModuleState, NotesIndexRepository,
-    OpenPathPort, PasteboardPort, SearchMode, SearchSink, SystemClock, WarmupContext,
+    ActionOutcome, ActionRequest, ClockPort, FakeNotesWorkspace, FakePasteboard, FixedClock,
+    LumaModule, MarkdownWatchPort, MemoryNotesIndex, ModuleManifest, ModuleState,
+    NotesIndexRepository, NotesWorkspaceError, NotesWorkspacePort, OpenPathPort, PasteboardPort,
+    SearchMode, SearchSink, WarmupContext,
 };
 use luma_domain::{
     ActionDescriptor, ActionId, ActionRisk, FailureKind, ModuleId, Query, SearchItem,
@@ -15,7 +16,6 @@ use tokio::sync::{Mutex, RwLock};
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
-mod path_security;
 mod preview;
 mod rows;
 mod search;
@@ -36,36 +36,60 @@ pub struct NotesModule {
     pasteboard: Arc<dyn PasteboardPort>,
     watcher: Arc<dyn MarkdownWatchPort>,
     clock: Arc<dyn ClockPort>,
+    workspace: Arc<dyn NotesWorkspacePort>,
+}
+
+/// Platform-facing services supplied by the composition root. Grouping these keeps the module
+/// constructor readable while preserving explicit port injection for both production and tests.
+pub struct NotesServices {
+    pub clock: Arc<dyn ClockPort>,
+    pub workspace: Arc<dyn NotesWorkspacePort>,
 }
 
 impl NotesModule {
-    /// Production constructor used by the composition root.
+    fn workspace_failure(error: NotesWorkspaceError) -> ActionOutcome {
+        match error {
+            NotesWorkspaceError::Cancelled => ActionOutcome::Cancelled,
+            NotesWorkspaceError::OutsideWorkspace => ActionOutcome::Failed {
+                kind: FailureKind::SecurityDenied {
+                    reason: "notes path is outside the configured workspace".into(),
+                },
+            },
+            NotesWorkspaceError::InvalidItem => ActionOutcome::Failed {
+                kind: FailureKind::SecurityDenied {
+                    reason: "refusing a symlink or non-regular notes item".into(),
+                },
+            },
+            NotesWorkspaceError::NotFound => ActionOutcome::Failed {
+                kind: FailureKind::NotFound {
+                    entity: "note".into(),
+                },
+            },
+            NotesWorkspaceError::AlreadyExists => ActionOutcome::Failed {
+                kind: FailureKind::InvalidInput {
+                    field: "path".into(),
+                    message: "note already exists".into(),
+                },
+            },
+            NotesWorkspaceError::RootUnavailable | NotesWorkspaceError::Unavailable => {
+                ActionOutcome::Failed {
+                    kind: FailureKind::Unavailable {
+                        reason: error.to_string(),
+                        retryable: true,
+                    },
+                }
+            }
+        }
+    }
+
+    /// Constructor used by the composition root with an injected local-clock adapter.
     pub fn with_root(
         root: Option<PathBuf>,
         opener: Arc<dyn OpenPathPort>,
         watcher: Arc<dyn MarkdownWatchPort>,
         index: Arc<dyn NotesIndexRepository>,
         pasteboard: Arc<dyn PasteboardPort>,
-        exclude_patterns: Vec<String>,
-    ) -> Self {
-        Self::with_root_clock(
-            root,
-            opener,
-            watcher,
-            index,
-            pasteboard,
-            Arc::new(SystemClock),
-            exclude_patterns,
-        )
-    }
-
-    pub fn with_root_clock(
-        root: Option<PathBuf>,
-        opener: Arc<dyn OpenPathPort>,
-        watcher: Arc<dyn MarkdownWatchPort>,
-        index: Arc<dyn NotesIndexRepository>,
-        pasteboard: Arc<dyn PasteboardPort>,
-        clock: Arc<dyn ClockPort>,
+        services: NotesServices,
         exclude_patterns: Vec<String>,
     ) -> Self {
         Self {
@@ -96,7 +120,8 @@ impl NotesModule {
             opener,
             pasteboard,
             watcher,
-            clock,
+            clock: services.clock,
+            workspace: services.workspace,
         }
     }
 
@@ -108,15 +133,18 @@ impl NotesModule {
 
     /// Test helper: real opener mock + no-op markdown watcher + memory index.
     pub fn with_root_and_opener(root: Option<PathBuf>, opener: Arc<dyn OpenPathPort>) -> Self {
-        Self::with_root_clock(
+        Self::with_root(
             root,
             opener,
             Arc::new(watch::NullMarkdownWatcher),
             Arc::new(MemoryNotesIndex::new()),
             Arc::new(FakePasteboard::new()),
-            Arc::new(FixedClock {
-                ymd: "2026-07-13".into(),
-            }),
+            NotesServices {
+                clock: Arc::new(FixedClock {
+                    ymd: "2026-07-13".into(),
+                }),
+                workspace: Arc::new(FakeNotesWorkspace::new()),
+            },
             Vec::new(),
         )
     }
@@ -127,15 +155,18 @@ impl NotesModule {
         watcher: Arc<dyn MarkdownWatchPort>,
     ) -> Self {
         use luma_application::FakeOpenPath;
-        Self::with_root_clock(
+        Self::with_root(
             root,
             Arc::new(FakeOpenPath::new()),
             watcher,
             Arc::new(MemoryNotesIndex::new()),
             Arc::new(FakePasteboard::new()),
-            Arc::new(FixedClock {
-                ymd: "2026-07-13".into(),
-            }),
+            NotesServices {
+                clock: Arc::new(FixedClock {
+                    ymd: "2026-07-13".into(),
+                }),
+                workspace: Arc::new(FakeNotesWorkspace::new()),
+            },
             Vec::new(),
         )
     }
@@ -292,40 +323,27 @@ impl LumaModule for NotesModule {
                     .strip_prefix("note:")
                     .map(PathBuf::from)
                     .unwrap_or_else(|| PathBuf::from("Inbox/new.md"));
-                let (path, mut file) = match Self::create_new_contained(&root, &raw) {
-                    Ok(v) => v,
-                    Err(reason) => {
-                        return ActionOutcome::Failed {
-                            kind: FailureKind::SecurityDenied { reason },
-                        };
-                    }
+                let is_daily = raw
+                    .parent()
+                    .and_then(|parent| parent.file_name())
+                    .is_some_and(|name| name == "Daily");
+                let body = if is_daily {
+                    let date = raw
+                        .file_stem()
+                        .and_then(|stem| stem.to_str())
+                        .unwrap_or("today");
+                    format!("# {date}\n\n")
+                } else {
+                    "# New note\n".into()
                 };
-                if let Err(err) = {
-                    use std::io::Write;
-                    let body = if path.to_string_lossy().contains("/Daily/") {
-                        let date = path.file_stem().and_then(|s| s.to_str()).unwrap_or("today");
-                        format!("# {date}\n\n")
-                    } else {
-                        "# New note\n".into()
-                    };
-                    file.write_all(body.as_bytes())
-                } {
-                    let _ = std::fs::remove_file(&path);
-                    return ActionOutcome::Failed {
-                        kind: FailureKind::Io {
-                            context: format!("write note: {err}"),
-                        },
-                    };
-                }
-                // Re-check containment after write (defense in depth).
-                if !Self::contained(&root, &path) {
-                    let _ = std::fs::remove_file(&path);
-                    return ActionOutcome::Failed {
-                        kind: FailureKind::SecurityDenied {
-                            reason: "created path escaped notes root".into(),
-                        },
-                    };
-                }
+                let path = match self
+                    .workspace
+                    .create_note(root.clone(), raw, body, cancel.clone())
+                    .await
+                {
+                    Ok(path) => path.path,
+                    Err(error) => return Self::workspace_failure(error),
+                };
                 self.rebuild_index(&root, None).await.ok();
                 // Durable create committed — do not report Cancelled after this point.
                 match await_unless_cancelled(&cancel, self.opener.open(&path)).await {
@@ -355,8 +373,16 @@ impl LumaModule for NotesModule {
                     .strip_prefix("note:")
                     .map(PathBuf::from)
                 else {
-                    // Opening workspace root directory.
-                    return match await_unless_cancelled(&cancel, self.opener.open(&root)).await {
+                    let path = match self
+                        .workspace
+                        .prepare_open(root.clone(), root.clone(), true, cancel.clone())
+                        .await
+                    {
+                        Ok(path) => path.path,
+                        Err(error) => return Self::workspace_failure(error),
+                    };
+                    // Opening the vetted workspace root directory.
+                    return match await_unless_cancelled(&cancel, self.opener.open(&path)).await {
                         None => ActionOutcome::Cancelled,
                         Some(Ok(())) => ActionOutcome::Success {
                             message: Some("opened notes workspace".into()),
@@ -369,50 +395,14 @@ impl LumaModule for NotesModule {
                         },
                     };
                 };
-                let path = match Self::resolve_under_root(&root, &raw) {
-                    Ok(p) => p,
-                    Err(reason) => {
-                        return ActionOutcome::Failed {
-                            kind: FailureKind::SecurityDenied { reason },
-                        };
-                    }
+                let path = match self
+                    .workspace
+                    .prepare_open(root.clone(), raw, false, cancel.clone())
+                    .await
+                {
+                    Ok(path) => path.path,
+                    Err(error) => return Self::workspace_failure(error),
                 };
-                if !path.exists() {
-                    return ActionOutcome::Failed {
-                        kind: FailureKind::NotFound {
-                            entity: path.display().to_string(),
-                        },
-                    };
-                }
-                if !Self::contained(&root, &path) {
-                    return ActionOutcome::Failed {
-                        kind: FailureKind::SecurityDenied {
-                            reason: "path escapes notes root".into(),
-                        },
-                    };
-                }
-                // Re-check immediately before open to shrink symlink-swap window.
-                let Ok(meta) = std::fs::symlink_metadata(&path) else {
-                    return ActionOutcome::Failed {
-                        kind: FailureKind::NotFound {
-                            entity: path.display().to_string(),
-                        },
-                    };
-                };
-                if meta.file_type().is_symlink() {
-                    return ActionOutcome::Failed {
-                        kind: FailureKind::SecurityDenied {
-                            reason: "refusing to open symlink".into(),
-                        },
-                    };
-                }
-                if !Self::contained(&root, &path) {
-                    return ActionOutcome::Failed {
-                        kind: FailureKind::SecurityDenied {
-                            reason: "path escapes notes root".into(),
-                        },
-                    };
-                }
                 match await_unless_cancelled(&cancel, self.opener.open(&path)).await {
                     None => ActionOutcome::Cancelled,
                     Some(Ok(())) => ActionOutcome::Success {
@@ -451,13 +441,13 @@ impl LumaModule for NotesModule {
                         },
                     };
                 };
-                let path = match Self::resolve_under_root(&root, &raw) {
-                    Ok(p) => p,
-                    Err(reason) => {
-                        return ActionOutcome::Failed {
-                            kind: FailureKind::SecurityDenied { reason },
-                        };
-                    }
+                let path = match self
+                    .workspace
+                    .prepare_open(root.clone(), raw, false, cancel.clone())
+                    .await
+                {
+                    Ok(path) => path.path,
+                    Err(error) => return Self::workspace_failure(error),
                 };
                 match await_unless_cancelled(
                     &cancel,
@@ -594,15 +584,52 @@ impl LumaModule for NotesModule {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use luma_application::{FakeOpenPath, MemoryNotesIndex};
+    use luma_application::{
+        FakeOpenPath, MemoryNotesIndex, NotesDirectoryEntry, NotesDirectoryEntryKind,
+        NotesDirectoryListing, NotesWorkspacePath, NotesWorkspacePreview,
+    };
     use luma_domain::{ActionDescriptor, ActionId, ActionRisk, ResultId, SearchItem};
     use luma_protocol::Event;
-    use std::fs;
-    use std::os::unix::fs::symlink;
     use std::path::Path;
     use std::time::Duration;
-    use tempfile::tempdir;
     use tokio::sync::mpsc;
+
+    fn test_module(
+        root: Option<PathBuf>,
+        opener: Arc<dyn OpenPathPort>,
+        index: Arc<dyn NotesIndexRepository>,
+        workspace: Arc<FakeNotesWorkspace>,
+    ) -> NotesModule {
+        NotesModule::with_root(
+            root,
+            opener,
+            Arc::new(watch::NullMarkdownWatcher),
+            index,
+            Arc::new(FakePasteboard::new()),
+            NotesServices {
+                clock: Arc::new(FixedClock {
+                    ymd: "2026-07-13".into(),
+                }),
+                workspace,
+            },
+            Vec::new(),
+        )
+    }
+
+    fn listing_entry(
+        root: &Path,
+        name: &str,
+        kind: NotesDirectoryEntryKind,
+    ) -> NotesDirectoryEntry {
+        NotesDirectoryEntry {
+            name: name.into(),
+            path: NotesWorkspacePath {
+                path: root.join(name),
+                relative_path: name.into(),
+            },
+            kind,
+        }
+    }
 
     fn create_request(path: &Path) -> ActionRequest {
         ActionRequest {
@@ -667,10 +694,14 @@ mod tests {
 
     #[tokio::test]
     async fn search_memory_index() {
-        let dir = tempdir().unwrap();
-        fs::write(dir.path().join("hello.md"), "# hi").unwrap();
-        let m = NotesModule::with_root_for_tests(None);
-        m.set_root_for_tests(dir.path().to_path_buf()).await;
+        let index = Arc::new(MemoryNotesIndex::new());
+        index.insert_document("hello.md", "hi", "# hi");
+        let m = test_module(
+            Some(PathBuf::from("/notes")),
+            Arc::new(FakeOpenPath::new()),
+            index,
+            Arc::new(FakeNotesWorkspace::new()),
+        );
         let (tx, mut rx) = mpsc::channel(2);
         m.search(Query::parse("n hi", 10), tx, CancellationToken::new())
             .await;
@@ -686,75 +717,17 @@ mod tests {
         }
     }
 
-    #[test]
-    fn containment_helper_requires_canonical() {
-        let dir = tempdir().unwrap();
-        fs::write(dir.path().join("safe.md"), "x").unwrap();
-        assert!(NotesModule::contained(
-            dir.path(),
-            &dir.path().join("safe.md")
-        ));
-    }
-
-    #[test]
-    fn rejects_parent_dir_escape() {
-        let dir = tempdir().unwrap();
-        let outside = dir.path().join("escape.md");
-        let err =
-            NotesModule::resolve_under_root(dir.path(), Path::new("../escape.md")).unwrap_err();
-        assert!(err.contains("escape") || err.contains(".."), "{err}");
-        assert!(!outside.exists());
-    }
-
-    #[test]
-    fn rejects_absolute_outside_root() {
-        let dir = tempdir().unwrap();
-        let outside = tempdir().unwrap();
-        let target = outside.path().join("evil.md");
-        let err = NotesModule::resolve_under_root(dir.path(), &target).unwrap_err();
-        assert!(err.contains("escape"), "{err}");
-    }
-
-    #[test]
-    fn rejects_symlink_escape() {
-        let dir = tempdir().unwrap();
-        let outside = tempdir().unwrap();
-        fs::write(outside.path().join("secret.md"), "nope").unwrap();
-        let link = dir.path().join("link");
-        symlink(outside.path(), &link).unwrap();
-        let err = NotesModule::resolve_under_root(dir.path(), &link.join("secret.md")).unwrap_err();
-        assert!(err.contains("escape") || err.contains("symlink"), "{err}");
-    }
-
-    #[test]
-    fn scan_skips_directory_symlink_outside_root() {
-        let dir = tempdir().unwrap();
-        let outside = tempdir().unwrap();
-        fs::write(outside.path().join("secret.md"), "nope").unwrap();
-        fs::write(dir.path().join("safe.md"), "ok").unwrap();
-        let link = dir.path().join("escape-link");
-        symlink(outside.path(), &link).unwrap();
-        let index = MemoryNotesIndex::new();
-        index.full_scan(dir.path(), None).unwrap();
-        let hits = index.search("safe", 20).unwrap();
-        assert!(!hits.is_empty(), "expected in-root note");
-        let secret = index.search("secret", 20).unwrap();
-        assert!(
-            secret.is_empty(),
-            "directory symlink must not index outside root: {secret:?}"
-        );
-    }
-
     #[tokio::test]
-    async fn create_rejects_dotdot_before_write() {
-        let dir = tempdir().unwrap();
-        let outside = dir
-            .path()
-            .parent()
-            .unwrap()
-            .join(format!("luma-notes-escape-{}.md", std::process::id()));
+    async fn create_rejects_workspace_escape_without_host_io() {
+        let root = PathBuf::from("/notes");
         let fake = Arc::new(FakeOpenPath::new());
-        let m = NotesModule::with_root_and_opener(Some(dir.path().to_path_buf()), fake);
+        let workspace = Arc::new(FakeNotesWorkspace::new());
+        let m = test_module(
+            Some(root),
+            fake,
+            Arc::new(MemoryNotesIndex::new()),
+            workspace.clone(),
+        );
         let req = create_request(&PathBuf::from("../escaped.md"));
         // Use relative escape via result id
         let req = ActionRequest {
@@ -771,18 +744,21 @@ mod tests {
             } => {}
             other => panic!("expected security deny, got {other:?}"),
         }
-        assert!(!outside.exists() || !outside.ends_with("escaped.md"));
-        // Ensure nothing written beside root as ../escaped.md relative to root's parent.
-        let sibling = dir.path().parent().unwrap().join("escaped.md");
-        assert!(!sibling.exists(), "escaped file must not be created");
+        assert!(workspace.created_notes().is_empty());
     }
 
     #[tokio::test]
     async fn create_success_even_if_open_fails() {
-        let dir = tempdir().unwrap();
+        let root = PathBuf::from("/notes");
         let fake = Arc::new(FakeOpenPath::with_failure());
-        let m = NotesModule::with_root_and_opener(Some(dir.path().to_path_buf()), fake.clone());
-        let path = dir.path().join("Inbox").join("a.md");
+        let workspace = Arc::new(FakeNotesWorkspace::new());
+        let m = test_module(
+            Some(root.clone()),
+            fake.clone(),
+            Arc::new(MemoryNotesIndex::new()),
+            workspace.clone(),
+        );
+        let path = root.join("Inbox").join("a.md");
         let out = m
             .perform(create_request(&path), CancellationToken::new())
             .await;
@@ -794,21 +770,28 @@ mod tests {
             }
             other => panic!("{other:?}"),
         }
-        assert!(path.exists());
+        assert_eq!(
+            workspace.created_notes(),
+            vec![(path, "# New note\n".into())]
+        );
         assert_eq!(fake.open_count.load(std::sync::atomic::Ordering::SeqCst), 1);
     }
 
     #[tokio::test]
     async fn open_failure_is_not_success() {
-        let dir = tempdir().unwrap();
-        fs::write(dir.path().join("a.md"), "x").unwrap();
+        let root = PathBuf::from("/notes");
+        let path = root.join("a.md");
         let fake = Arc::new(FakeOpenPath::with_failure());
-        let m = NotesModule::with_root_and_opener(Some(dir.path().to_path_buf()), fake);
+        let workspace = Arc::new(FakeNotesWorkspace::new());
+        workspace.mark_existing(path.clone());
+        let m = test_module(
+            Some(root),
+            fake,
+            Arc::new(MemoryNotesIndex::new()),
+            workspace,
+        );
         let out = m
-            .perform(
-                open_request(&dir.path().join("a.md")),
-                CancellationToken::new(),
-            )
+            .perform(open_request(&path), CancellationToken::new())
             .await;
         match out {
             ActionOutcome::Failed {
@@ -820,10 +803,15 @@ mod tests {
 
     #[tokio::test]
     async fn create_under_inbox_ok() {
-        let dir = tempdir().unwrap();
+        let root = PathBuf::from("/notes");
         let fake = Arc::new(FakeOpenPath::new());
-        let m = NotesModule::with_root_and_opener(Some(dir.path().to_path_buf()), fake);
-        let path = PathBuf::from("Inbox/hello.md");
+        let workspace = Arc::new(FakeNotesWorkspace::new());
+        let m = test_module(
+            Some(root.clone()),
+            fake,
+            Arc::new(MemoryNotesIndex::new()),
+            workspace.clone(),
+        );
         let req = ActionRequest {
             result: SearchItem {
                 id: ResultId::new("note:Inbox/hello.md"),
@@ -852,27 +840,34 @@ mod tests {
         };
         let out = m.perform(req, CancellationToken::new()).await;
         assert!(matches!(out, ActionOutcome::Success { .. }), "{out:?}");
-        assert!(dir.path().join("Inbox/hello.md").exists());
-        let _ = path;
-    }
-
-    #[test]
-    fn browse_resolve_allows_notes_root() {
-        let dir = tempdir().unwrap();
-        let resolved = NotesModule::resolve_under_root_for_browse(dir.path(), dir.path()).unwrap();
-        assert_eq!(resolved, dir.path().canonicalize().unwrap());
-        let err = NotesModule::resolve_under_root(dir.path(), dir.path()).unwrap_err();
-        assert!(err.contains("overwrite") || err.contains("root"), "{err}");
+        assert_eq!(
+            workspace.created_notes(),
+            vec![(root.join("Inbox/hello.md"), "# New note\n".into())]
+        );
     }
 
     #[tokio::test]
     async fn browse_root_lists_children() {
-        let dir = tempdir().unwrap();
-        fs::create_dir(dir.path().join("Inbox")).unwrap();
-        fs::write(dir.path().join("root-note.md"), "# root").unwrap();
-        let m = NotesModule::with_root_for_tests(Some(dir.path().to_path_buf()));
+        let root = PathBuf::from("/notes");
+        let workspace = Arc::new(FakeNotesWorkspace::new());
+        workspace.set_listing(
+            root.clone(),
+            NotesDirectoryListing {
+                entries: vec![
+                    listing_entry(&root, "Inbox", NotesDirectoryEntryKind::Directory),
+                    listing_entry(&root, "root-note.md", NotesDirectoryEntryKind::MarkdownFile),
+                ],
+                truncated: false,
+            },
+        );
+        let m = test_module(
+            Some(root.clone()),
+            Arc::new(FakeOpenPath::new()),
+            Arc::new(MemoryNotesIndex::new()),
+            workspace,
+        );
         let (tx, mut rx) = mpsc::channel(4);
-        let q = Query::parse(format!("n browse {}", dir.path().display()), 20);
+        let q = Query::parse(format!("n browse {}", root.display()), 20);
         m.search(q, tx, CancellationToken::new()).await;
         let ev = rx.recv().await.expect("chunk");
         let Event::ResultsChunk { upserts, .. } = ev else {
@@ -888,10 +883,14 @@ mod tests {
 
     #[tokio::test]
     async fn browse_empty_folder_emits_status_row() {
-        let dir = tempdir().unwrap();
-        let empty = dir.path().join("Empty");
-        fs::create_dir(&empty).unwrap();
-        let m = NotesModule::with_root_for_tests(Some(dir.path().to_path_buf()));
+        let root = PathBuf::from("/notes");
+        let empty = root.join("Empty");
+        let m = test_module(
+            Some(root),
+            Arc::new(FakeOpenPath::new()),
+            Arc::new(MemoryNotesIndex::new()),
+            Arc::new(FakeNotesWorkspace::new()),
+        );
         let (tx, mut rx) = mpsc::channel(4);
         let q = Query::parse(format!("n browse {}", empty.display()), 20);
         m.search(q, tx, CancellationToken::new()).await;
@@ -906,10 +905,12 @@ mod tests {
 
     #[tokio::test]
     async fn search_no_matches_emits_status_row() {
-        let dir = tempdir().unwrap();
-        fs::write(dir.path().join("alpha.md"), "# alpha\nhello").unwrap();
-        let m = NotesModule::with_root_for_tests(Some(dir.path().to_path_buf()));
-        m.set_root_for_tests(dir.path().to_path_buf()).await;
+        let m = test_module(
+            Some(PathBuf::from("/notes")),
+            Arc::new(FakeOpenPath::new()),
+            Arc::new(MemoryNotesIndex::new()),
+            Arc::new(FakeNotesWorkspace::new()),
+        );
         let (tx, mut rx) = mpsc::channel(4);
         m.search(
             Query::parse("n zzz-not-a-real-note-xyz", 20),
@@ -928,17 +929,26 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn browse_skips_symlink_escape() {
-        let dir = tempdir().unwrap();
-        let outside = tempdir().unwrap();
-        fs::write(outside.path().join("secret.md"), "LEAK").unwrap();
-        symlink(
-            outside.path().join("secret.md"),
-            dir.path().join("secret.md"),
-        )
-        .unwrap();
-        fs::write(dir.path().join("safe.md"), "ok").unwrap();
-        let m = NotesModule::with_root_for_tests(Some(dir.path().to_path_buf()));
+    async fn browse_only_renders_vetted_adapter_entries() {
+        let root = PathBuf::from("/notes");
+        let workspace = Arc::new(FakeNotesWorkspace::new());
+        workspace.set_listing(
+            root.clone(),
+            NotesDirectoryListing {
+                entries: vec![listing_entry(
+                    &root,
+                    "safe.md",
+                    NotesDirectoryEntryKind::MarkdownFile,
+                )],
+                truncated: false,
+            },
+        );
+        let m = test_module(
+            Some(root),
+            Arc::new(FakeOpenPath::new()),
+            Arc::new(MemoryNotesIndex::new()),
+            workspace,
+        );
         let (tx, mut rx) = mpsc::channel(4);
         m.search(Query::parse("n browse", 20), tx, CancellationToken::new())
             .await;
@@ -947,23 +957,37 @@ mod tests {
             panic!("expected chunk");
         };
         assert!(
-            upserts.iter().all(|u| !u.title.contains("secret")),
-            "symlink must not appear in browse: {upserts:?}"
+            upserts.iter().all(|u| !u.title.contains("unvetted")),
+            "module must render only adapter-provided entries: {upserts:?}"
         );
         assert!(upserts.iter().any(|u| u.title == "safe"));
     }
 
     #[tokio::test]
     async fn preview_directory_lists_children() {
-        let dir = tempdir().unwrap();
-        fs::create_dir(dir.path().join("Backend")).unwrap();
-        fs::write(dir.path().join("readme.md"), "# hi").unwrap();
-        let m = NotesModule::with_root_for_tests(Some(dir.path().to_path_buf()));
+        let root = PathBuf::from("/notes");
+        let workspace = Arc::new(FakeNotesWorkspace::new());
+        workspace.set_preview(
+            root.clone(),
+            NotesWorkspacePreview::Directory(NotesDirectoryListing {
+                entries: vec![
+                    listing_entry(&root, "Backend", NotesDirectoryEntryKind::Directory),
+                    listing_entry(&root, "readme.md", NotesDirectoryEntryKind::MarkdownFile),
+                ],
+                truncated: false,
+            }),
+        );
+        let m = test_module(
+            Some(root.clone()),
+            Arc::new(FakeOpenPath::new()),
+            Arc::new(MemoryNotesIndex::new()),
+            workspace,
+        );
         let item = SearchItem {
-            id: ResultId::new(format!("browse:n:{}", dir.path().display())),
+            id: ResultId::new(format!("browse:n:{}", root.display())),
             module_id: ModuleId::new("luma.notes"),
             title: "Learning/".into(),
-            subtitle: Some(dir.path().display().to_string()),
+            subtitle: Some(root.display().to_string()),
             kind: "directory".into(),
             score: 1.0,
             primary_action: ActionDescriptor {
@@ -980,25 +1004,28 @@ mod tests {
         assert!(preview.contains("Backend/"));
         assert!(preview.contains("readme.md"));
         assert!(
-            !preview.contains(dir.path().to_str().unwrap()),
+            !preview.contains(&root.display().to_string()),
             "directory preview should list children, not repeat the path: {preview}"
         );
     }
 
     #[tokio::test]
-    async fn preview_does_not_leak_symlink_outside() {
-        let dir = tempdir().unwrap();
-        let outside = tempdir().unwrap();
-        let secret = outside.path().join("secret.md");
-        fs::write(&secret, "TOPSECRET").unwrap();
-        let link = dir.path().join("secret.md");
-        symlink(&secret, &link).unwrap();
-        let m = NotesModule::with_root_for_tests(Some(dir.path().to_path_buf()));
+    async fn preview_hides_adapter_rejected_item() {
+        let root = PathBuf::from("/notes");
+        let rejected = root.join("rejected.md");
+        let workspace = Arc::new(FakeNotesWorkspace::new());
+        workspace.fail_path(rejected.clone(), NotesWorkspaceError::InvalidItem);
+        let m = test_module(
+            Some(root.clone()),
+            Arc::new(FakeOpenPath::new()),
+            Arc::new(MemoryNotesIndex::new()),
+            workspace,
+        );
         let item = SearchItem {
-            id: ResultId::new(format!("note:{}", link.display())),
+            id: ResultId::new(format!("note:{}", rejected.display())),
             module_id: ModuleId::new("luma.notes"),
-            title: "secret".into(),
-            subtitle: Some(link.display().to_string()),
+            title: "rejected".into(),
+            subtitle: Some(rejected.display().to_string()),
             kind: "note".into(),
             score: 1.0,
             primary_action: ActionDescriptor {
@@ -1013,26 +1040,28 @@ mod tests {
         };
         let preview = m.preview(&item).await;
         assert!(
-            preview
-                .as_deref()
-                .map(|p| !p.contains("TOPSECRET"))
-                .unwrap_or(true),
-            "preview must not leak symlink target: {preview:?}"
+            preview.is_none(),
+            "rejected item must not have a preview: {preview:?}"
         );
     }
 
     #[tokio::test]
     async fn perform_browse_is_not_success() {
-        let dir = tempdir().unwrap();
-        let m = NotesModule::with_root_for_tests(Some(dir.path().to_path_buf()));
+        let root = PathBuf::from("/notes");
+        let m = test_module(
+            Some(root.clone()),
+            Arc::new(FakeOpenPath::new()),
+            Arc::new(MemoryNotesIndex::new()),
+            Arc::new(FakeNotesWorkspace::new()),
+        );
         let out = m
             .perform(
                 ActionRequest {
                     result: SearchItem {
-                        id: ResultId::new(format!("browse:n:{}", dir.path().display())),
+                        id: ResultId::new(format!("browse:n:{}", root.display())),
                         module_id: ModuleId::new("luma.notes"),
                         title: "Browse".into(),
-                        subtitle: Some(dir.path().display().to_string()),
+                        subtitle: Some(root.display().to_string()),
                         kind: "directory".into(),
                         score: 1.0,
                         primary_action: ActionDescriptor {
@@ -1063,12 +1092,12 @@ mod tests {
     async fn watcher_early_exit_surfaces_warning() {
         use luma_application::FakeMarkdownWatcher;
         use luma_domain::Query;
-        let dir = tempdir().unwrap();
+        let root = PathBuf::from("/notes");
         let watcher = Arc::new(FakeMarkdownWatcher {
             exit_immediately: true,
             ..Default::default()
         });
-        let m = NotesModule::with_root_watcher_for_tests(Some(dir.path().to_path_buf()), watcher);
+        let m = NotesModule::with_root_watcher_for_tests(Some(root), watcher);
         m.start_watch(CancellationToken::new()).await;
         // Auto-restart once, then surface warning on the second exit.
         tokio::time::sleep(Duration::from_millis(200)).await;
@@ -1091,8 +1120,7 @@ mod tests {
 
     #[tokio::test]
     async fn apply_settings_same_excludes_skips_background_rebuild() {
-        let dir = tempdir().unwrap();
-        let root = dir.path().to_path_buf();
+        let root = PathBuf::from("/notes");
         let m = NotesModule::with_root_for_tests(Some(root.clone()));
         let gen_before = *m.index_generation.read().await;
         let settings = luma_application::AppSettings {
@@ -1109,9 +1137,7 @@ mod tests {
 
     #[tokio::test]
     async fn apply_settings_exclude_change_rebuilds_in_background() {
-        let dir = tempdir().unwrap();
-        fs::write(dir.path().join("a.md"), "hello").unwrap();
-        let root = dir.path().to_path_buf();
+        let root = PathBuf::from("/notes");
         let m = NotesModule::with_root_for_tests(Some(root.clone()));
         let _ = m.rebuild_index(&root, None).await;
         let gen_before = *m.index_generation.read().await;

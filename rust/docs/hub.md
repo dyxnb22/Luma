@@ -13,8 +13,9 @@ Empty prompt shows:
 | Projects | `proj browse` — browse project roots (import from browse) |
 | Wordbook | `wb due` — due words; use `wb review due` for the review session |
 | Records | `rec ` — categories or imported media records |
+| SSH | `ssh ` — Host aliases from `~/.ssh/config` |
 | Secrets | `sec ` — vault labels (unlock/copy) |
-| Apps / Clipboard / Snippets / Quicklinks / Windows | `app ` / `clip ` / `s ` / `ql ` / `win ` — list dump |
+| Apps / Clipboard / Snippets / Quicklinks / Windows / Proxy | `app ` / `clip ` / `s ` / `ql ` / `win ` / `proxy ` — list dump |
 
 Bare triggers without a trailing space (`n`, `clip`) do not search — add a space to enter the module.
 

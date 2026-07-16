@@ -27,7 +27,7 @@ Personal daily-driver status. Prefer honest `unavailable` / `permission_required
 | Wordbook | `wb` / `wordbook` / `words` | Available — due/new/wrong lists; `wb review due\|new\|wrong` one-word session; Enter/Space reveal, 1/2/3 grade, m mastered with confirmation, s skip, Esc exit; queue uses remaining daily goal; `wb import PATH` accepts a regular non-symlink UTF-8 CSV up to 512 KiB; daily goal | on |
 | Records | `rec` / `record` | Available — SQLite-backed media log; `rec <query>` / `rec browse`; `rec add`, `rec rate`, `rec note`, ActionPicker edit/remove; CLI also has `record import`, `import-status`, `backup`; Markdown import is dry-run by default and `--apply` is ledger-backed with a LumaNext backup, source Markdown stays read-only | on |
 | Projects | `p` / `proj` / `project` | Available — only manually imported projects appear in plain search; `proj add/import PATH`, `proj remove NAME\|PATH`, `proj browse`; canonical existing non-symlink paths, duplicate rejection, config-only removal | on |
-| SSH | `ssh` | Available — reads `~/.ssh/config` Host aliases; `ssh fav` / `ssh recent` / `ssh rename`; favorite/recent metadata in `ssh_meta.sqlite`; Enter connects in current terminal; SFTP + copy alias actions | on |
+| SSH | `ssh` | Available — reads `~/.ssh/config` Host aliases; `ssh fav` / `ssh recent` / `ssh rename`; favorite/recent metadata in `ssh_meta.sqlite`; Enter connects in current terminal; SFTP + copy alias actions. See [SSH](./SSH.md). | on |
 | Secrets | `sec` / `secret` / `secrets` | Copy-only for pre-provisioned labels; `luma secrets set` bootstrap; unlock is in-process UX only (no Touch ID); copy confirm | **off** (enable in Settings after bootstrap) |
 | Fake | — | Test/demo module for CLI blackbox | **off** |
 
@@ -46,6 +46,19 @@ No provisioning UI. Labels come from a sidecar plus Keychain entries:
 - **Search honesty:** empty labels → `not_configured` row with bootstrap hint; sidecar/keychain errors → `unavailable`; values never appear in search (copy-only after unlock + confirm).
 - **Unlock:** in-process session gate only — not Touch ID, Keychain ACL, or an OS auth prompt. Locks on teardown/exit and after idle (`secrets_idle_lock_secs`, default 300; `0` disables).
 
+### SSH Connections
+
+Read-only launcher over OpenSSH — not a full SSH client:
+
+- **Config:** `~/.ssh/config` (concrete `Host` aliases; `Include` depth 8; wildcard patterns skipped). Override with `SSH_CONFIG` for tests.
+- **Metadata:** `~/Library/Application Support/LumaNext/ssh_meta.sqlite` — favorites, local display names, `last_connected_at`, `connection_count`. Luma does not write back to `~/.ssh/config`.
+- **Resolve:** macOS adapter runs `ssh -G <alias>` (cached per session; `ssh reload` clears cache).
+- **Connect:** TUI suspends → `ssh <alias>` or `sftp <alias>` in the current terminal → resume. Successful exit (`0`) records connection metadata.
+- **Queries:** `ssh`, `ssh <needle>`, `ssh fav`, `ssh recent`, `ssh reload`, `ssh rename ALIAS NAME`.
+- **CLI:** `luma ssh list|connect|sftp|favorite|unfavorite|rename`.
+- **Search honesty:** missing config → `not_configured`; parse or `ssh` binary errors → `unavailable`. Preview never shows private key contents.
+- **Details:** [SSH.md](./SSH.md).
+
 ## Product rules
 
 - UI is terminal CLI/TUI only.
@@ -61,4 +74,5 @@ No provisioning UI. Labels come from a sidecar plus Keychain entries:
   read-only; import is idempotent, DB edits win over changed source rows, and migration rollback
   restores only the artifact belonging to that migration kind.
 - Tests cover prompt digit routing, window row hints, review reveal/grade/confirmation/exit,
-  import CAS and path validation, Records parser edge cases, and CLI dry-run/apply behavior.
+  import CAS and path validation, Records parser edge cases, SSH config parse and metadata
+  round-trips, interactive-terminal contract, and CLI dry-run/apply behavior.

@@ -10,11 +10,32 @@ impl Engine {
         confirmation: bool,
     ) {
         let (item, module) = {
-            let g = self.inner.lock().await;
-            Self::resolve_enabled_module(&g, &result_id)
-        };
-        let cancel = {
             let mut g = self.inner.lock().await;
+            Self::resolve_enabled_module(&mut g, &result_id)
+        };
+
+        // Cancel any prior operation with the same id, and drop oldest ops if at capacity.
+        let superseded = {
+            let mut g = self.inner.lock().await;
+            let mut handles = Vec::new();
+            if let Some(mut old) = g.operations.remove(&operation_id) {
+                old.cancel.cancel();
+                if let Some(handle) = old.handle.take() {
+                    handles.push(handle);
+                }
+            }
+            while g.operations.len() >= MAX_OPERATIONS {
+                let oldest = g.operations.keys().next().cloned();
+                let Some(id) = oldest else {
+                    break;
+                };
+                if let Some(mut old) = g.operations.remove(&id) {
+                    old.cancel.cancel();
+                    if let Some(handle) = old.handle.take() {
+                        handles.push(handle);
+                    }
+                }
+            }
             let cancel = g.session_cancel.child_token();
             let module_id = item
                 .as_ref()
@@ -28,8 +49,13 @@ impl Engine {
                     handle: None,
                 },
             );
-            cancel
+            (cancel, handles)
         };
+        let (cancel, superseded_handles) = superseded;
+        for handle in superseded_handles {
+            let _ = Self::await_operation_handle(handle).await;
+        }
+
         let settings_repo = self.settings.clone();
         let inner = self.inner.clone();
         let engine = self.clone_inner();
@@ -137,8 +163,8 @@ impl Engine {
 
     pub(super) async fn handle_list_actions(&self, result_id: String) {
         let (item, module) = {
-            let g = self.inner.lock().await;
-            Self::resolve_enabled_module(&g, &result_id)
+            let mut g = self.inner.lock().await;
+            Self::resolve_enabled_module(&mut g, &result_id)
         };
         let actions = match (item, module) {
             (Some(result), Some(module)) => {
@@ -157,16 +183,27 @@ impl Engine {
 
     pub(super) async fn handle_load_preview(&self, result_id: String, preview_id: u64) {
         let (item, module) = {
-            let g = self.inner.lock().await;
-            Self::resolve_enabled_module(&g, &result_id)
+            let mut g = self.inner.lock().await;
+            g.latest_preview_id = preview_id;
+            Self::resolve_enabled_module(&mut g, &result_id)
         };
         let body = match (item, module) {
-            (Some(result), Some(module)) => module
-                .preview(&result)
-                .await
-                .unwrap_or_else(|| result.title.clone()),
+            (Some(result), Some(module)) => {
+                let raw = module
+                    .preview(&result)
+                    .await
+                    .unwrap_or_else(|| result.title.clone());
+                super::preview::truncate_preview_body(&raw)
+            }
             _ => String::new(),
         };
+        {
+            let g = self.inner.lock().await;
+            if g.latest_preview_id != preview_id {
+                // Newer LoadPreview superseded this work — do not emit stale body.
+                return;
+            }
+        }
         let _ = self
             .emit(Event::PreviewLoaded {
                 result_id,

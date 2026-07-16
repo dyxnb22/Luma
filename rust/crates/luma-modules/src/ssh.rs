@@ -63,13 +63,19 @@ impl SshModule {
     }
 
     async fn refresh(&self) {
-        match self.config.list_aliases() {
+        let aliases = match self.config.list_aliases() {
             Ok(aliases) => {
-                *self.aliases.write().await = aliases;
+                *self.aliases.write().await = aliases.clone();
+                aliases
             }
             Err(_) => {
                 *self.aliases.write().await = Vec::new();
+                Vec::new()
             }
+        };
+        {
+            let mut resolved = self.resolved_cache.write().await;
+            resolved.retain(|alias, _| aliases.iter().any(|a| a == alias));
         }
         if let Some(meta) = &self.meta {
             match meta.list() {
@@ -775,7 +781,12 @@ impl LumaModule for SshModule {
         }
     }
 
-    async fn teardown(&self) {}
+    async fn teardown(&self) {
+        *self.aliases.write().await = Vec::new();
+        *self.resolved_cache.write().await = std::collections::HashMap::new();
+        *self.meta_cache.write().await = std::collections::HashMap::new();
+        *self.meta_error.write().await = None;
+    }
 }
 
 impl SshModule {

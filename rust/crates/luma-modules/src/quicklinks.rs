@@ -521,7 +521,10 @@ impl LumaModule for QuicklinksModule {
             },
         }
     }
-    async fn teardown(&self) {}
+    async fn teardown(&self) {
+        *self.index.write().await = Vec::new();
+        *self.store_error.write().await = None;
+    }
 }
 
 #[cfg(test)]
@@ -702,5 +705,31 @@ mod tests {
                 kind: FailureKind::InvalidInput { .. }
             }
         ));
+    }
+}
+
+#[cfg(test)]
+mod teardown_tests {
+    use super::*;
+    use luma_application::MemoryQuicklinksRepository;
+
+    #[tokio::test]
+    async fn teardown_releases_runtime_caches() {
+        let store = Arc::new(MemoryQuicklinksRepository::new());
+        store.upsert("docs", "https://example.com").unwrap();
+        let m = QuicklinksModule::with_deps(
+            store,
+            Arc::new(luma_application::FakeOpenPath::new()),
+            Arc::new(luma_application::FakePasteboard::new()),
+        );
+        m.warmup(WarmupContext {
+            cancel: CancellationToken::new(),
+        })
+        .await;
+        assert!(!m.index.read().await.is_empty());
+        m.teardown().await;
+        assert!(m.index.read().await.is_empty());
+        assert!(m.store_error.read().await.is_none());
+        m.teardown().await;
     }
 }

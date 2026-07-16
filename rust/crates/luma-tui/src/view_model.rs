@@ -126,6 +126,11 @@ impl ResultsView {
                 .partial_cmp(&a.score)
                 .unwrap_or(std::cmp::Ordering::Equal)
         });
+        // Defense-in-depth: mirror engine result cap so lag/resync cannot grow UI unbounded.
+        const MAX_TUI_RESULTS: usize = 512;
+        if self.items.len() > MAX_TUI_RESULTS {
+            self.items.truncate(MAX_TUI_RESULTS);
+        }
         if self.selected_id.is_none() {
             self.selected_id = self.items.first().map(|i| i.id.as_str().to_string());
         } else if let Some(sel) = &self.selected_id {

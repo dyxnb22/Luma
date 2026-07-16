@@ -8,6 +8,7 @@ use luma_domain::{
     ActionDescriptor, ActionId, ActionRisk, FailureKind, ModuleId, Query, SearchItem,
 };
 use luma_protocol::{Event, SearchItemDto};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tokio_util::sync::CancellationToken;
@@ -26,6 +27,8 @@ pub struct AppsModule {
     catalog: Arc<dyn AppsCatalogPort>,
     pasteboard: Arc<dyn PasteboardPort>,
     cache: Arc<RwLock<AppsCache>>,
+    /// Bumped on teardown so in-flight catalog scans cannot resurrect the cache.
+    refresh_generation: AtomicU64,
 }
 
 impl AppsModule {
@@ -53,6 +56,42 @@ impl AppsModule {
                 catalog_error: None,
                 launch_counts: std::collections::HashMap::new(),
             })),
+            refresh_generation: AtomicU64::new(0),
+        }
+    }
+
+    fn begin_refresh(&self) -> u64 {
+        self.refresh_generation.load(Ordering::SeqCst)
+    }
+
+    fn refresh_still_valid(&self, generation: u64) -> bool {
+        self.refresh_generation.load(Ordering::SeqCst) == generation
+    }
+
+    async fn apply_refresh_result(
+        &self,
+        generation: u64,
+        listed: Result<Vec<AppEntry>, String>,
+    ) -> Option<Result<Vec<AppEntry>, String>> {
+        if !self.refresh_still_valid(generation) {
+            return None;
+        }
+        let mut g = self.cache.write().await;
+        if !self.refresh_still_valid(generation) {
+            return None;
+        }
+        match listed {
+            Ok(apps) => {
+                g.apps = apps.clone();
+                g.warming = false;
+                g.catalog_error = None;
+                Some(Ok(apps))
+            }
+            Err(err) => {
+                g.warming = false;
+                g.catalog_error = Some(err.clone());
+                Some(Err(err))
+            }
         }
     }
 
@@ -92,39 +131,39 @@ impl AppsModule {
                 return;
             }
         }
+        let generation = self.begin_refresh();
         {
             let mut g = self.cache.write().await;
+            if !self.refresh_still_valid(generation) {
+                return;
+            }
             if !g.apps.is_empty() || g.warming {
                 return;
             }
             g.warming = true;
         }
-        if cancel.is_cancelled() {
-            let mut g = self.cache.write().await;
-            g.warming = false;
+        if cancel.is_cancelled() || !self.refresh_still_valid(generation) {
+            if self.refresh_still_valid(generation) {
+                let mut g = self.cache.write().await;
+                if self.refresh_still_valid(generation) {
+                    g.warming = false;
+                }
+            }
             return;
         }
         let listed = tokio::select! {
             _ = cancel.cancelled() => {
-                let mut g = self.cache.write().await;
-                g.warming = false;
+                if self.refresh_still_valid(generation) {
+                    let mut g = self.cache.write().await;
+                    if self.refresh_still_valid(generation) {
+                        g.warming = false;
+                    }
+                }
                 return;
             }
             result = self.catalog.list_installed() => result,
         };
-        match listed {
-            Ok(apps) => {
-                let mut g = self.cache.write().await;
-                g.apps = apps;
-                g.warming = false;
-                g.catalog_error = None;
-            }
-            Err(err) => {
-                let mut g = self.cache.write().await;
-                g.warming = false;
-                g.catalog_error = Some(err);
-            }
-        }
+        let _ = self.apply_refresh_result(generation, listed).await;
     }
 }
 
@@ -209,8 +248,12 @@ impl LumaModule for AppsModule {
                 return;
             }
 
+            let generation = self.begin_refresh();
             {
                 let mut g = self.cache.write().await;
+                if !self.refresh_still_valid(generation) {
+                    return;
+                }
                 if g.warming || !g.apps.is_empty() {
                     return;
                 }
@@ -218,24 +261,20 @@ impl LumaModule for AppsModule {
             }
             let listed = tokio::select! {
                 _ = cancel.cancelled() => {
-                    let mut g = self.cache.write().await;
-                    g.warming = false;
+                    if self.refresh_still_valid(generation) {
+                        let mut g = self.cache.write().await;
+                        if self.refresh_still_valid(generation) {
+                            g.warming = false;
+                        }
+                    }
                     return;
                 }
                 result = self.catalog.list_installed() => result,
             };
-            match listed {
-                Ok(apps) => {
-                    let mut g = self.cache.write().await;
-                    g.apps = apps.clone();
-                    g.warming = false;
-                    g.catalog_error = None;
-                    apps
-                }
-                Err(err) => {
-                    let mut g = self.cache.write().await;
-                    g.warming = false;
-                    g.catalog_error = Some(err.clone());
+            match self.apply_refresh_result(generation, listed).await {
+                None => return,
+                Some(Ok(apps)) => apps,
+                Some(Err(err)) => {
                     let _ = sink
                         .send(Event::ResultsChunk {
                             request_id: String::new(),
@@ -565,8 +604,10 @@ impl LumaModule for AppsModule {
     }
 
     async fn teardown(&self) {
+        self.refresh_generation.fetch_add(1, Ordering::SeqCst);
         let mut g = self.cache.write().await;
-        g.apps.clear();
+        g.apps = Vec::new();
+        g.launch_counts = std::collections::HashMap::new();
         g.warming = false;
         g.catalog_error = None;
     }
@@ -830,5 +871,61 @@ mod tests {
                 ..
             }
         ));
+    }
+
+    #[tokio::test]
+    async fn teardown_blocks_in_flight_refresh_from_resurrecting_cache() {
+        use tokio::sync::Barrier;
+
+        struct SlowCatalog {
+            start: Arc<Barrier>,
+            release: Arc<Barrier>,
+            apps: Vec<AppEntry>,
+        }
+
+        #[async_trait]
+        impl AppsCatalogPort for SlowCatalog {
+            async fn list_installed(&self) -> Result<Vec<AppEntry>, String> {
+                self.start.wait().await;
+                self.release.wait().await;
+                Ok(self.apps.clone())
+            }
+            async fn launch(&self, _path: &Path) -> Result<(), AppLaunchError> {
+                Ok(())
+            }
+            async fn reveal(&self, _path: &Path) -> Result<(), AppLaunchError> {
+                Ok(())
+            }
+        }
+
+        let start = Arc::new(Barrier::new(2));
+        let release = Arc::new(Barrier::new(2));
+        let catalog = Arc::new(SlowCatalog {
+            start: start.clone(),
+            release: release.clone(),
+            apps: vec![AppEntry {
+                name: "Safari".into(),
+                path: PathBuf::from("/Applications/Safari.app"),
+                bundle_id: None,
+            }],
+        });
+        let module = Arc::new(AppsModule::new(catalog, mem_pb()));
+        let module_warm = module.clone();
+        let warm = tokio::spawn(async move {
+            module_warm
+                .warmup(WarmupContext {
+                    cancel: CancellationToken::new(),
+                })
+                .await
+        });
+        start.wait().await;
+        module.teardown().await;
+        release.wait().await;
+        let _ = warm.await;
+        assert!(
+            module.cache.read().await.apps.is_empty(),
+            "in-flight list_installed must not resurrect cache after teardown"
+        );
+        assert!(!module.cache.read().await.warming);
     }
 }

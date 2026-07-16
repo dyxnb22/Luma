@@ -11,7 +11,7 @@ use luma_domain::{
     ActionDescriptor, ActionId, ActionRisk, FailureKind, ModuleId, Query, SearchItem,
 };
 use luma_protocol::{Event, SearchItemDto};
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::RwLock;
@@ -31,6 +31,8 @@ pub struct WindowsModule {
     cache: Arc<RwLock<Vec<WindowEntry>>>,
     cache_at: Arc<RwLock<Option<Instant>>>,
     hub_max: AtomicUsize,
+    /// Bumped on teardown so in-flight refresh cannot resurrect the cache.
+    cache_generation: AtomicU64,
 }
 
 impl WindowsModule {
@@ -54,6 +56,7 @@ impl WindowsModule {
             cache: Arc::new(RwLock::new(Vec::new())),
             cache_at: Arc::new(RwLock::new(None)),
             hub_max: AtomicUsize::new(HUB_WINDOWS_MAX),
+            cache_generation: AtomicU64::new(0),
         }
     }
 
@@ -149,7 +152,11 @@ impl WindowsModule {
     }
 
     async fn refresh_cache(&self) -> Result<Vec<WindowEntry>, WindowError> {
+        let generation = self.cache_generation.load(Ordering::SeqCst);
         let list = self.catalog.list_windows().await?;
+        if self.cache_generation.load(Ordering::SeqCst) != generation {
+            return Ok(list);
+        }
         *self.cache.write().await = list.clone();
         *self.cache_at.write().await = Some(Instant::now());
         Ok(list)
@@ -418,7 +425,8 @@ impl LumaModule for WindowsModule {
     }
 
     async fn teardown(&self) {
-        self.cache.write().await.clear();
+        self.cache_generation.fetch_add(1, Ordering::SeqCst);
+        *self.cache.write().await = Vec::new();
         *self.cache_at.write().await = None;
     }
 

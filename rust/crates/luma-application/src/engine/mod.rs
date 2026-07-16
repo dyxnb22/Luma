@@ -4,9 +4,9 @@ use crate::registry::ModuleRegistry;
 use async_trait::async_trait;
 use luma_domain::{Query, QueryScope};
 use luma_protocol::{Command, Event, SearchItemDto};
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tokio::sync::{broadcast, mpsc, Mutex};
 use tokio::task::{JoinHandle, JoinSet};
 use tokio_util::sync::CancellationToken;
@@ -14,6 +14,8 @@ use tracing::warn;
 
 const SEARCH_CANCEL_BOUND: Duration = Duration::from_millis(750);
 const OPERATION_CANCEL_BOUND: Duration = Duration::from_millis(750);
+/// Cap concurrent in-flight ExecuteAction tasks.
+pub(crate) const MAX_OPERATIONS: usize = 32;
 /// Soft bound for module search completion; partial results are kept.
 #[cfg(test)]
 pub(crate) const SEARCH_COMPLETION_BOUND: Duration = Duration::from_millis(300);
@@ -25,6 +27,9 @@ fn is_meta_prefix(token: &str) -> bool {
 }
 
 mod actions;
+mod cancel_intents;
+mod preview;
+mod results;
 mod search;
 mod session;
 
@@ -47,11 +52,15 @@ pub(crate) struct EngineInner {
     session_cancel: CancellationToken,
     searches: HashMap<String, SearchTask>,
     /// Cancel arrived before Search registered — Search must abort on start.
-    cancel_intents: HashMap<String, ()>,
+    cancel_intents: HashMap<String, Instant>,
     /// Search registered under lifecycle but not yet promoted to `searches`.
     pending_searches: HashMap<String, CancellationToken>,
     operations: HashMap<String, OperationTask>,
+    /// Newest LoadPreview id; stale preview work skips emit.
+    latest_preview_id: u64,
     results_by_id: HashMap<String, luma_domain::SearchItem>,
+    /// Insertion order for LRU eviction of cached search results.
+    result_order: VecDeque<String>,
     /// Last known warmup/runtime state per module (for honesty / capability gating).
     module_states: HashMap<String, String>,
 }
@@ -105,7 +114,9 @@ impl Engine {
                 cancel_intents: HashMap::new(),
                 pending_searches: HashMap::new(),
                 operations: HashMap::new(),
+                latest_preview_id: 0,
                 results_by_id: HashMap::new(),
+                result_order: VecDeque::new(),
                 module_states: HashMap::new(),
             })),
             event_broadcast_tx,
@@ -230,11 +241,23 @@ impl Engine {
                         }
                     }
                 }
-                {
+                let evicted = {
                     let mut g = self.inner.lock().await;
-                    for item in seeded {
-                        g.results_by_id.insert(item.id.as_str().to_string(), item);
-                    }
+                    g.insert_results_batch(
+                        seeded
+                            .into_iter()
+                            .map(|item| (item.id.as_str().to_string(), item)),
+                    )
+                };
+                if !evicted.is_empty() {
+                    let _ = self
+                        .emit(Event::ResultsChunk {
+                            request_id: String::new(),
+                            sequence: 0,
+                            upserts: vec![],
+                            removed_ids: evicted,
+                        })
+                        .await;
                 }
                 let _ = self
                     .emit(Event::HubLoaded {
@@ -588,11 +611,23 @@ impl Engine {
                         example: word.example,
                     });
                 }
-                let mut inner = self.inner.lock().await;
-                for item in review_items {
-                    inner
-                        .results_by_id
-                        .insert(item.id.as_str().to_string(), item);
+                let evicted = {
+                    let mut g = self.inner.lock().await;
+                    g.insert_results_batch(
+                        review_items
+                            .into_iter()
+                            .map(|item| (item.id.as_str().to_string(), item)),
+                    )
+                };
+                if !evicted.is_empty() {
+                    let _ = self
+                        .emit(Event::ResultsChunk {
+                            request_id: String::new(),
+                            sequence: 0,
+                            upserts: vec![],
+                            removed_ids: evicted,
+                        })
+                        .await;
                 }
                 words
             }
@@ -1911,5 +1946,249 @@ mod tests {
             started.elapsed() < Duration::from_secs(2),
             "slow module search must not block past completion bound"
         );
+    }
+
+    struct BulkSearchModule {
+        manifest: ModuleManifest,
+        count: usize,
+    }
+
+    #[async_trait]
+    impl LumaModule for BulkSearchModule {
+        fn manifest(&self) -> &ModuleManifest {
+            &self.manifest
+        }
+
+        async fn warmup(&self, _ctx: WarmupContext) -> ModuleState {
+            ModuleState::Ready
+        }
+
+        async fn search(&self, _query: Query, sink: SearchSink, cancel: CancellationToken) {
+            if cancel.is_cancelled() {
+                return;
+            }
+            let upserts: Vec<_> = (0..self.count)
+                .map(|i| SearchItemDto {
+                    id: format!("bulk-{i}"),
+                    module_id: self.manifest.id.as_str().to_string(),
+                    title: format!("Item {i}"),
+                    subtitle: None,
+                    kind: "bulk".into(),
+                    score: i as f64,
+                    primary_action_id: "open".into(),
+                    primary_action_label: "Open".into(),
+                    ..Default::default()
+                })
+                .collect();
+            let _ = sink
+                .send(Event::ResultsChunk {
+                    request_id: String::new(),
+                    sequence: 1,
+                    upserts,
+                    removed_ids: vec![],
+                })
+                .await;
+        }
+
+        async fn actions(&self, _result: &SearchItem) -> Vec<ActionDescriptor> {
+            Vec::new()
+        }
+
+        async fn perform(
+            &self,
+            _action: ActionRequest,
+            _cancel: CancellationToken,
+        ) -> ActionOutcome {
+            ActionOutcome::Success { message: None }
+        }
+
+        async fn teardown(&self) {}
+    }
+
+    #[tokio::test]
+    async fn engine_evicts_oldest_results_beyond_cap() {
+        use super::results::MAX_ENGINE_RESULTS;
+
+        let mut registry = ModuleRegistry::new();
+        registry
+            .register(Arc::new(BulkSearchModule {
+                manifest: ModuleManifest {
+                    id: ModuleId::new("luma.bulk"),
+                    display_name: "Bulk".into(),
+                    triggers: vec!["bulk".into()],
+                    default_enabled: true,
+                    search_mode: SearchMode::TargetedOnly,
+                    required_capabilities: vec![],
+                    workbench: Default::default(),
+                },
+                count: MAX_ENGINE_RESULTS + 20,
+            }))
+            .unwrap();
+        let engine = Arc::new(Engine::new(registry));
+        let mut events = engine.subscribe();
+        engine.start_session().await;
+        while !matches!(events.recv().await, Ok(Event::SessionReady { .. })) {}
+        engine
+            .handle_command(Command::Search {
+                request_id: "bulk-1".into(),
+                query: "bulk x".into(),
+            })
+            .await;
+        while !matches!(events.recv().await, Ok(Event::SearchFinished { .. })) {}
+
+        engine.handle_command(Command::GetSnapshot).await;
+        let (cached, has_bulk_0) = loop {
+            if let Ok(Event::SnapshotLoaded { items, .. }) = events.recv().await {
+                break (items.len(), items.iter().any(|item| item.id == "bulk-0"));
+            }
+        };
+        assert_eq!(cached, MAX_ENGINE_RESULTS);
+        assert!(!has_bulk_0);
+    }
+
+    #[tokio::test]
+    async fn engine_eviction_emits_removed_ids() {
+        use super::results::MAX_ENGINE_RESULTS;
+
+        let mut registry = ModuleRegistry::new();
+        registry
+            .register(Arc::new(BulkSearchModule {
+                manifest: ModuleManifest {
+                    id: ModuleId::new("luma.bulk"),
+                    display_name: "Bulk".into(),
+                    triggers: vec!["bulk".into()],
+                    default_enabled: true,
+                    search_mode: SearchMode::TargetedOnly,
+                    required_capabilities: vec![],
+                    workbench: Default::default(),
+                },
+                count: MAX_ENGINE_RESULTS + 5,
+            }))
+            .unwrap();
+        let engine = Arc::new(Engine::new(registry));
+        let mut events = engine.subscribe();
+        engine.start_session().await;
+        while !matches!(events.recv().await, Ok(Event::SessionReady { .. })) {}
+        engine
+            .handle_command(Command::Search {
+                request_id: "bulk-2".into(),
+                query: "bulk x".into(),
+            })
+            .await;
+
+        let mut saw_removed = false;
+        loop {
+            match events.recv().await {
+                Ok(Event::ResultsChunk { removed_ids, .. }) => {
+                    if removed_ids.iter().any(|id| id.starts_with("bulk-")) {
+                        saw_removed = true;
+                    }
+                }
+                Ok(Event::SearchFinished { .. }) => break,
+                Ok(_) => {}
+                Err(_) => break,
+            }
+        }
+        assert!(saw_removed, "eviction must notify TUI via removed_ids");
+    }
+
+    #[tokio::test]
+    async fn preview_body_is_capped() {
+        use super::preview::MAX_PREVIEW_BODY_BYTES;
+
+        struct PreviewModule {
+            manifest: ModuleManifest,
+            body: String,
+        }
+
+        #[async_trait]
+        impl LumaModule for PreviewModule {
+            fn manifest(&self) -> &ModuleManifest {
+                &self.manifest
+            }
+
+            async fn warmup(&self, _ctx: WarmupContext) -> ModuleState {
+                ModuleState::Ready
+            }
+
+            async fn search(&self, _query: Query, sink: SearchSink, _cancel: CancellationToken) {
+                let _ = sink
+                    .send(Event::ResultsChunk {
+                        request_id: String::new(),
+                        sequence: 1,
+                        upserts: vec![SearchItemDto {
+                            id: "pv-1".into(),
+                            module_id: "luma.preview".into(),
+                            title: "Preview".into(),
+                            subtitle: None,
+                            kind: "preview".into(),
+                            score: 1.0,
+                            primary_action_id: "open".into(),
+                            primary_action_label: "Open".into(),
+                            ..Default::default()
+                        }],
+                        removed_ids: vec![],
+                    })
+                    .await;
+            }
+
+            async fn actions(&self, _result: &SearchItem) -> Vec<ActionDescriptor> {
+                Vec::new()
+            }
+
+            async fn perform(
+                &self,
+                _action: ActionRequest,
+                _cancel: CancellationToken,
+            ) -> ActionOutcome {
+                ActionOutcome::Success { message: None }
+            }
+
+            async fn preview(&self, _result: &SearchItem) -> Option<String> {
+                Some(self.body.clone())
+            }
+
+            async fn teardown(&self) {}
+        }
+
+        let huge = "x".repeat(MAX_PREVIEW_BODY_BYTES + 1024);
+        let mut registry = ModuleRegistry::new();
+        registry
+            .register(Arc::new(PreviewModule {
+                manifest: ModuleManifest {
+                    id: ModuleId::new("luma.preview"),
+                    display_name: "Preview".into(),
+                    triggers: vec!["pv".into()],
+                    default_enabled: true,
+                    search_mode: SearchMode::TargetedOnly,
+                    required_capabilities: vec![],
+                    workbench: Default::default(),
+                },
+                body: huge,
+            }))
+            .unwrap();
+        let engine = Engine::new(registry);
+        let mut events = engine.subscribe();
+        engine.start_session().await;
+        engine
+            .handle_command(Command::Search {
+                request_id: "pv-search".into(),
+                query: "pv x".into(),
+            })
+            .await;
+        while !matches!(events.recv().await, Ok(Event::SearchFinished { .. })) {}
+        engine
+            .handle_command(Command::LoadPreview {
+                result_id: "pv-1".into(),
+                preview_id: 1,
+            })
+            .await;
+        let body = loop {
+            if let Ok(Event::PreviewLoaded { body, .. }) = events.recv().await {
+                break body;
+            }
+        };
+        assert!(body.len() <= MAX_PREVIEW_BODY_BYTES + 32);
+        assert!(body.contains("[truncated]"));
     }
 }

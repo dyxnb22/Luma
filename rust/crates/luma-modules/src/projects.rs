@@ -946,9 +946,7 @@ impl LumaModule for ProjectsModule {
         *self.imported.write().await = settings.imported_projects.clone();
     }
 
-    async fn teardown(&self) {
-        self.imported.write().await.clear();
-    }
+    async fn teardown(&self) {}
 }
 
 #[cfg(test)]

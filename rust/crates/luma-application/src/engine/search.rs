@@ -74,7 +74,7 @@ impl Engine {
         // and emit now so clients are not left without a terminal event.
         {
             let mut g = self.inner.lock().await;
-            g.cancel_intents.insert(request_id.to_string(), ());
+            g.record_cancel_intent(request_id.to_string());
         }
         let _ = self
             .emit(Event::SearchCancelled {
@@ -115,7 +115,7 @@ impl Engine {
         let search_started = std::time::Instant::now();
         let pre_cancelled = {
             let mut g = self.inner.lock().await;
-            g.cancel_intents.remove(&request_id).is_some()
+            g.take_cancel_intent(&request_id)
         };
         if pre_cancelled {
             return;
@@ -147,7 +147,7 @@ impl Engine {
         self.cancel_all_searches_locked().await;
         {
             let mut g = self.inner.lock().await;
-            g.results_by_id.clear();
+            g.clear_results();
         }
 
         let cancel = {
@@ -262,14 +262,17 @@ impl Engine {
                             .into_iter()
                             .filter(|u| g.registry.is_enabled(&u.module_id))
                             .collect();
-                        for u in &upserts {
-                            g.results_by_id
-                                .insert(u.id.clone(), u.clone().into_domain());
+                        let mut all_removed = removed_ids;
+                        for id in &all_removed {
+                            g.remove_result(id);
                         }
-                        for id in &removed_ids {
-                            g.results_by_id.remove(id);
-                        }
-                        if upserts.is_empty() && removed_ids.is_empty() {
+                        let batch: Vec<_> = upserts
+                            .iter()
+                            .map(|u| (u.id.clone(), u.clone().into_domain()))
+                            .collect();
+                        let evicted = g.insert_results_batch(batch);
+                        all_removed.extend(evicted);
+                        if upserts.is_empty() && all_removed.is_empty() {
                             continue;
                         }
                         Self::emit_from_inner(
@@ -278,7 +281,7 @@ impl Engine {
                                 request_id: request_id.clone(),
                                 sequence,
                                 upserts,
-                                removed_ids,
+                                removed_ids: all_removed,
                             },
                         );
                     }
@@ -298,6 +301,8 @@ impl Engine {
             }
         });
 
+        let engine_for_supervisor = engine.clone();
+        let request_for_supervisor = request_id.clone();
         let supervisor = tokio::spawn(async move {
             let deadline = tokio::time::sleep(SEARCH_COMPLETION_BOUND);
             tokio::pin!(deadline);
@@ -330,6 +335,9 @@ impl Engine {
                 } => {}
             }
             let _ = collector_handle.await;
+            // Drop completed search entry so `searches` does not retain finished tasks.
+            let mut g = engine_for_supervisor.lock().await;
+            g.searches.remove(&request_for_supervisor);
         });
 
         {

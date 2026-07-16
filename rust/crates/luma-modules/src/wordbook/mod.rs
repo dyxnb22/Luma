@@ -1102,7 +1102,9 @@ impl LumaModule for WordbookModule {
         }
     }
 
-    async fn teardown(&self) {}
+    async fn teardown(&self) {
+        *self.store_error.write().await = None;
+    }
 }
 
 fn truncate(s: &str, max: usize) -> String {

@@ -13,6 +13,7 @@ use luma_domain::{
     ActionDescriptor, ActionId, ActionRisk, FailureKind, ModuleId, Query, SearchItem,
 };
 use luma_protocol::{Event, SearchItemDto};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use tokio::sync::{Mutex, RwLock};
 use tokio::task::JoinHandle;
@@ -28,6 +29,8 @@ pub struct TimersModule {
     speech: Arc<dyn SpeechPort>,
     index: Arc<RwLock<Vec<TimerEntry>>>,
     store_error: Arc<RwLock<Option<String>>>,
+    /// Bumped on teardown so in-flight poller ticks cannot resurrect the index.
+    refresh_generation: Arc<AtomicU64>,
     poll_cancel: Mutex<Option<CancellationToken>>,
     poll_handle: Mutex<Option<JoinHandle<()>>>,
 }
@@ -60,21 +63,28 @@ impl TimersModule {
             speech,
             index: Arc::new(RwLock::new(Vec::new())),
             store_error: Arc::new(RwLock::new(None)),
+            refresh_generation: Arc::new(AtomicU64::new(0)),
             poll_cancel: Mutex::new(None),
             poll_handle: Mutex::new(None),
         }
     }
 
     async fn refresh_index(&self) -> Result<(), String> {
+        let generation = self.refresh_generation.load(Ordering::SeqCst);
         match self.store.list() {
             Ok(rows) => {
+                if self.refresh_generation.load(Ordering::SeqCst) != generation {
+                    return Ok(());
+                }
                 *self.index.write().await = rows;
                 *self.store_error.write().await = None;
                 Ok(())
             }
             Err(err) => {
                 let msg = err.to_string();
-                *self.store_error.write().await = Some(msg.clone());
+                if self.refresh_generation.load(Ordering::SeqCst) == generation {
+                    *self.store_error.write().await = Some(msg.clone());
+                }
                 Err(msg)
             }
         }
@@ -88,6 +98,8 @@ impl TimersModule {
         let store_error = self.store_error.clone();
         let clock = self.clock.clone();
         let speech = self.speech.clone();
+        let refresh_generation = self.refresh_generation.clone();
+        let generation = refresh_generation.load(Ordering::SeqCst);
         let token = cancel.clone();
         let handle = tokio::spawn(async move {
             loop {
@@ -100,6 +112,8 @@ impl TimersModule {
                             &store_error,
                             clock.as_ref(),
                             speech.as_ref(),
+                            generation,
+                            &refresh_generation,
                         ).await;
                     }
                 }
@@ -124,7 +138,12 @@ impl TimersModule {
         store_error: &RwLock<Option<String>>,
         clock: &dyn ClockPort,
         speech: &dyn SpeechPort,
+        generation: u64,
+        refresh_generation: &AtomicU64,
     ) {
+        if refresh_generation.load(Ordering::SeqCst) != generation {
+            return;
+        }
         let Ok(now) = clock.now_unix_ms() else {
             return;
         };
@@ -149,13 +168,20 @@ impl TimersModule {
             let _ = speech.speak(&phrase, SpeechAccent::Default).await;
         }
         if changed {
+            if refresh_generation.load(Ordering::SeqCst) != generation {
+                return;
+            }
             match store.list() {
                 Ok(rows) => {
-                    *index.write().await = rows;
-                    *store_error.write().await = None;
+                    if refresh_generation.load(Ordering::SeqCst) == generation {
+                        *index.write().await = rows;
+                        *store_error.write().await = None;
+                    }
                 }
                 Err(err) => {
-                    *store_error.write().await = Some(err.to_string());
+                    if refresh_generation.load(Ordering::SeqCst) == generation {
+                        *store_error.write().await = Some(err.to_string());
+                    }
                 }
             }
         }
@@ -926,8 +952,11 @@ impl LumaModule for TimersModule {
     }
 
     async fn teardown(&self) {
+        self.refresh_generation.fetch_add(1, Ordering::SeqCst);
         self.stop_poller().await;
         self.pause_all_running().await;
+        *self.index.write().await = Vec::new();
+        *self.store_error.write().await = None;
     }
 }
 
@@ -1058,6 +1087,8 @@ mod tests {
             &m.store_error,
             clock.as_ref(),
             speech.as_ref(),
+            m.refresh_generation.load(Ordering::SeqCst),
+            &m.refresh_generation,
         )
         .await;
         let done = m.store.get(&entry.id).unwrap().unwrap();

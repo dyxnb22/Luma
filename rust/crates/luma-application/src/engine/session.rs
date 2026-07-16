@@ -2,6 +2,12 @@ use super::*;
 
 impl Engine {
     pub async fn start_session(&self) {
+        {
+            let mut g = self.inner.lock().await;
+            if g.session_cancel.is_cancelled() {
+                g.session_cancel = CancellationToken::new();
+            }
+        }
         if let Some(repo) = &self.settings {
             if let Ok(settings) = repo.load_or_default() {
                 let modules = {
@@ -127,7 +133,7 @@ impl Engine {
                     .map(|(id, _)| id.clone())
                     .collect();
                 for id in &removed_ids {
-                    g.results_by_id.remove(id);
+                    g.remove_result(id);
                 }
                 g.module_states
                     .insert(module_id.to_string(), "disabled".into());
@@ -205,9 +211,10 @@ impl Engine {
     }
 
     pub(super) fn resolve_enabled_module(
-        g: &EngineInner,
+        g: &mut EngineInner,
         result_id: &str,
     ) -> (Option<luma_domain::SearchItem>, Option<Arc<dyn LumaModule>>) {
+        g.touch_result(result_id);
         let item = g.results_by_id.get(result_id).cloned();
         let module = item.as_ref().and_then(|i| {
             if g.registry.is_enabled(i.module_id.as_str()) {
@@ -235,6 +242,9 @@ impl Engine {
                 }
             }
             g.operations.clear();
+            g.cancel_intents.clear();
+            g.clear_results();
+            g.latest_preview_id = 0;
             (g.registry.all_modules(), op_handles)
         };
         for handle in op_handles {

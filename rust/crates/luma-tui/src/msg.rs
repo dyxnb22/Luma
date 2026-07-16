@@ -57,4 +57,8 @@ pub enum Msg {
     WordbookReviewExit,
     /// Terminal regained focus (switch back to Luma).
     FocusGained,
+    /// Command Recipes module shortcut (`r` run, `c` copy, `f` favorite).
+    RecipeShortcut {
+        action_id: String,
+    },
 }

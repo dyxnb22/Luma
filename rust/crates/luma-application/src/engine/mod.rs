@@ -61,6 +61,7 @@ pub(crate) struct EngineInner {
 pub struct EngineOptions {
     pub settings: Option<Arc<dyn crate::ports::SettingsRepository>>,
     pub wordbook: Option<Arc<dyn crate::ports::WordbookRepository>>,
+    pub command_recipes: Option<Arc<dyn crate::ports::CommandRecipesRepository>>,
 }
 
 /// In-process engine: owns modules, searches, and operations.
@@ -69,6 +70,7 @@ pub struct Engine {
     event_broadcast_tx: broadcast::Sender<Event>,
     settings: Option<Arc<dyn crate::ports::SettingsRepository>>,
     wordbook: Option<Arc<dyn crate::ports::WordbookRepository>>,
+    command_recipes: Option<Arc<dyn crate::ports::CommandRecipesRepository>>,
     /// Serializes search setup so cancel→clear→register cannot interleave.
     search_lifecycle: Mutex<()>,
 }
@@ -87,6 +89,7 @@ impl Engine {
             EngineOptions {
                 settings,
                 wordbook: None,
+                command_recipes: None,
             },
         )
     }
@@ -108,6 +111,7 @@ impl Engine {
             event_broadcast_tx,
             settings: options.settings,
             wordbook: options.wordbook,
+            command_recipes: options.command_recipes,
             search_lifecycle: Mutex::new(()),
         }
     }
@@ -419,6 +423,15 @@ impl Engine {
             }
             Command::CancelOperation { operation_id } => {
                 self.handle_cancel_operation(operation_id).await;
+            }
+            Command::RecordRecipeRun {
+                recipe_id,
+                result,
+                now_unix,
+            } => {
+                if let Some(repo) = &self.command_recipes {
+                    let _ = repo.record_run(&recipe_id, result, now_unix);
+                }
             }
             Command::RefreshWordbookReviewStats => {
                 self.handle_refresh_wordbook_review_stats().await;
@@ -1530,6 +1543,7 @@ mod tests {
             EngineOptions {
                 settings: None,
                 wordbook: Some(store),
+                command_recipes: None,
             },
         );
         let mut events = engine.subscribe();
@@ -1582,6 +1596,7 @@ mod tests {
             EngineOptions {
                 settings: None,
                 wordbook: Some(store),
+                command_recipes: None,
             },
         );
         let mut events = engine.subscribe();

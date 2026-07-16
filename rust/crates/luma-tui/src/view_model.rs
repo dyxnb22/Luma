@@ -21,6 +21,8 @@ pub enum ActionsIntent {
     Primary,
     /// Ctrl-k: show full action picker.
     Picker,
+    /// Command Recipes shortcut (`r`/`c`/`f`).
+    RecipeShortcut { action_id: String },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -227,6 +229,8 @@ pub struct AppState {
     pub preview_pinned: bool,
     /// Help overlay scroll (line offset).
     pub help_scroll: usize,
+    /// Recipe run deferred to the TUI loop (terminal suspend/resume).
+    pub pending_recipe_run: Option<luma_domain::RecipeRunPlan>,
     /// Prompt to restore when leaving Commands / Settings / Help overlays.
     pub overlay_restore_prompt: Option<String>,
     /// Command palette selection.
@@ -365,6 +369,7 @@ impl Default for AppState {
             prompt_scroll: 0,
             preview_pinned: false,
             help_scroll: 0,
+            pending_recipe_run: None,
             overlay_restore_prompt: None,
             commands_selected: 0,
             preview_result_id: None,
@@ -387,6 +392,20 @@ impl AppState {
         matches!(self.route, Route::Search)
             && self.prompt.is_empty()
             && self.results.items.is_empty()
+    }
+
+    pub fn selected_search_item(&self) -> Option<&luma_domain::SearchItem> {
+        self.results.selected_id.as_ref().and_then(|id| {
+            self.results
+                .items
+                .iter()
+                .find(|item| item.id.as_str() == id.as_str())
+        })
+    }
+
+    pub fn command_recipes_selected(&self) -> bool {
+        self.selected_search_item()
+            .is_some_and(|item| item.module_id.as_str() == "luma.command_recipes")
     }
 
     /// Soft Hub windows refresh interval while Hub is visible.
@@ -1038,6 +1057,12 @@ impl AppState {
                     return false;
                 }
                 self.active_operation = None;
+                if let luma_protocol::ActionOutcomeDto::InteractiveRecipeRun { plan } = &outcome {
+                    self.pending_recipe_run = Some((**plan).clone());
+                    self.status
+                        .set("recipe ready — running in terminal…", StatusTone::Progress);
+                    return true;
+                }
                 if matches!(self.route, Route::WordbookReview) {
                     if matches!(outcome, luma_protocol::ActionOutcomeDto::Success { .. }) {
                         if let Some(review) = self.wordbook_review.as_mut() {
@@ -1226,6 +1251,7 @@ fn status_tone_for_outcome(outcome: &ActionOutcomeDto) -> StatusTone {
         ActionOutcomeDto::Success { .. } => StatusTone::Success,
         ActionOutcomeDto::Cancelled => StatusTone::Warning,
         ActionOutcomeDto::Failed { kind, .. } => status_tone_for_failure(kind),
+        ActionOutcomeDto::InteractiveRecipeRun { .. } => StatusTone::Progress,
     }
 }
 

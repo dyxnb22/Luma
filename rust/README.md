@@ -15,6 +15,9 @@ cargo run -p luma -- query "app safari" --json
 cargo run -p luma -- query "clip" --json   # bare trigger OK in CLI (targeted clip)
 cargo run -p luma -- query "n" --json      # bare trigger OK in CLI (targeted notes)
 cargo run -p luma -- query "win" --json
+cargo run -p luma -- query "cmd test" --json
+cargo run -p luma -- cmd list --json
+cargo run -p luma -- cmd show git-status --json
 printf '%s' 'secret' | cargo run -p luma -- secrets set my-label
 cargo run -p luma -- modules list --json
 cargo run -p luma -- config get --json
@@ -42,6 +45,7 @@ Optional local hygiene: `bash scripts/check_architecture.sh`.
 **Fixtures:** `fixtures/notes-workspaces/` for Notes scan/index tests; `fixtures/legacy/` for migrate blackbox.
 
 See [`docs/MODULES.md`](docs/MODULES.md) for module status.
+See [`docs/COMMAND_RECIPES.md`](docs/COMMAND_RECIPES.md) for command templates, TOML config, and safety.
 See [`docs/PROXY.md`](docs/PROXY.md) for Mihomo/Clash Verge Profile behavior, safety boundaries,
 supported subscription formats, and rollback semantics.
 
@@ -50,6 +54,8 @@ supported subscription formats, and rollback semantics.
 | Path | Role |
 | --- | --- |
 | `~/Library/Application Support/LumaNext/` | Active settings / stores |
+| `~/Library/Application Support/LumaNext/command-recipes.toml` | User command recipe definitions |
+| `~/Library/Application Support/LumaNext/command-recipes-meta.sqlite` | Recipe favorites / usage metadata |
 | `~/Library/Logs/LumaNext/` | Logs |
 
 Tests must use tempfile + `LUMA_NEXT_SUPPORT_DIR` / `LUMA_NEXT_LOGS_DIR`.

@@ -92,6 +92,9 @@ impl Engine {
                                 crate::module::ActionOutcome::Failed { kind } => {
                                     luma_protocol::ActionOutcomeDto::failed(kind)
                                 }
+                                crate::module::ActionOutcome::InteractiveRecipeRun { plan } => {
+                                    luma_protocol::ActionOutcomeDto::InteractiveRecipeRun { plan }
+                                }
                             }
                         }
                     } else {

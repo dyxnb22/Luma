@@ -4,23 +4,26 @@
 //! listed in Settings but do not warm up or appear on the Hub.
 
 use luma_application::{
-    CapabilityPort, ModuleRegistry, RegistryError as ModuleRegistryError, SettingsRepository,
-    SqliteClipboardHistory, SqliteNotesIndex, SqliteQuicklinksRepository, SqliteRecordsRepository,
-    SqliteSnippetsRepository, SqliteWordbookRepository, TomlSettingsRepository, WordbookRepository,
+    CapabilityPort, CommandRecipesRepository, ModuleRegistry, RegistryError as ModuleRegistryError,
+    SettingsRepository, SqliteClipboardHistory, SqliteCommandRecipesRepository, SqliteNotesIndex,
+    SqliteQuicklinksRepository, SqliteRecordsRepository, SqliteSnippetsRepository,
+    SqliteWordbookRepository, TomlSettingsRepository, WordbookRepository,
 };
 use luma_modules::{
-    AppsModule, ClipboardModule, ClipboardSuppression, FakeEchoModule, NotesModule, NotesServices,
-    ProjectsModule, ProxyModule, QuicklinksModule, RecordsModule, SecretsModule, SnippetsModule,
-    WindowsModule, WordbookModule,
+    AppsModule, ClipboardModule, ClipboardSuppression, CommandRecipesModule, FakeEchoModule,
+    NotesModule, NotesServices, ProjectsModule, ProxyModule, QuicklinksModule, RecordsModule,
+    SecretsModule, SnippetsModule, WindowsModule, WordbookModule,
 };
 use luma_platform_macos::{
     FilesystemAppsCatalog, MacAccessibility, MacBoundedUtf8FileReader, MacClock, MacKeychain,
     MacMarkdownWatcher, MacMihomoProxyCore, MacNotesWorkspace, MacOpenPath, MacPasteboard,
-    MacProfileStore, MacProjectWorkspace, MacSpeech, MacSystemProxy, MacWindowCatalog,
+    MacProfileStore, MacProjectWorkspace, MacRecipeEnvironment, MacSpeech, MacSystemProxy,
+    MacWindowCatalog,
 };
 use luma_storage::{
-    ClipboardStore, ConfigError, ConfigStore, LumaSettings, NotesIndexStore, NotesScanner,
-    QuicklinksStore, RecordsStore, SnippetsStore, WordbookStore,
+    luma_next_support_dir, ClipboardStore, CommandRecipesMetaStore, ConfigError, ConfigStore,
+    LumaSettings, NotesIndexStore, NotesScanner, QuicklinksStore, RecordsStore, SnippetsStore,
+    WordbookStore,
 };
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -47,6 +50,7 @@ pub struct RegistryLoad {
     pub registry: ModuleRegistry,
     pub settings: Arc<dyn SettingsRepository>,
     pub wordbook: Option<Arc<dyn WordbookRepository>>,
+    pub command_recipes: Option<Arc<dyn CommandRecipesRepository>>,
     #[allow(dead_code)]
     pub skipped: Vec<SkippedModule>,
 }
@@ -74,6 +78,8 @@ pub fn registry_from_settings(
     wordbook: Option<Arc<WordbookStore>>,
     records: Option<Arc<RecordsStore>>,
     notes_index: Option<Arc<NotesScanner>>,
+    command_recipes_meta: Option<Arc<CommandRecipesMetaStore>>,
+    support_dir: PathBuf,
 ) -> Result<(ModuleRegistry, Vec<SkippedModule>), ModuleRegistryError> {
     let notes_root = settings.notes_root.as_ref().map(PathBuf::from);
     let records_root = settings
@@ -228,6 +234,26 @@ pub fn registry_from_settings(
         opener.clone(),
         Arc::new(MacProjectWorkspace),
     )))?;
+    let recipe_env = Arc::new(MacRecipeEnvironment::new());
+    if let Some(meta) = command_recipes_meta {
+        let repo = Arc::new(SqliteCommandRecipesRepository::new(
+            meta,
+            support_dir.clone(),
+        ));
+        reg.register(Arc::new(CommandRecipesModule::with_deps(
+            repo,
+            recipe_env,
+            pasteboard.clone(),
+            opener.clone(),
+        )))?;
+    } else {
+        let reason = "command recipes meta store unavailable".into();
+        warn!("{reason} — Command Recipes module not registered");
+        skipped.push(SkippedModule {
+            id: "luma.command_recipes".into(),
+            reason,
+        });
+    }
     reg.register(Arc::new(SecretsModule::with_deps(
         keychain,
         pasteboard,
@@ -310,6 +336,14 @@ pub fn load_registry_with_settings() -> Result<RegistryLoad, RegistryError> {
             None
         }
     };
+    let support_dir = luma_next_support_dir().unwrap_or_else(|_| PathBuf::from("."));
+    let command_recipes_meta = match CommandRecipesMetaStore::luma_next_default() {
+        Ok(s) => Some(Arc::new(s)),
+        Err(err) => {
+            warn!(%err, "failed to open command recipes meta store");
+            None
+        }
+    };
     let (registry, skipped) = registry_from_settings(
         &settings,
         clipboard.clone(),
@@ -318,14 +352,22 @@ pub fn load_registry_with_settings() -> Result<RegistryLoad, RegistryError> {
         wordbook.clone(),
         records.clone(),
         notes_index.clone(),
+        command_recipes_meta.clone(),
+        support_dir.clone(),
     )?;
     let settings_repo: Arc<dyn SettingsRepository> = Arc::new(TomlSettingsRepository::new(store));
     let wordbook_repo: Option<Arc<dyn WordbookRepository>> =
         wordbook.map(|s| Arc::new(SqliteWordbookRepository::new(s)) as Arc<dyn WordbookRepository>);
+    let command_recipes_repo: Option<Arc<dyn CommandRecipesRepository>> =
+        command_recipes_meta.map(|meta| {
+            Arc::new(SqliteCommandRecipesRepository::new(meta, support_dir))
+                as Arc<dyn CommandRecipesRepository>
+        });
     Ok(RegistryLoad {
         registry,
         settings: settings_repo,
         wordbook: wordbook_repo,
+        command_recipes: command_recipes_repo,
         skipped,
     })
 }

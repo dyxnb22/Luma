@@ -66,6 +66,65 @@ fn modules_list_json() {
             .any(|m| m["id"] == "luma.records"),
         "expected luma.records in modules list: {stdout}"
     );
+    assert!(
+        v["modules"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|m| m["id"] == "luma.command_recipes"),
+        "expected luma.command_recipes in modules list: {stdout}"
+    );
+}
+
+#[test]
+fn cmd_list_json() {
+    let dir = tempdir().unwrap();
+    let support = dir.path().join("support");
+    let logs = dir.path().join("logs");
+    fs::create_dir_all(&support).unwrap();
+    fs::create_dir_all(&logs).unwrap();
+    let (code, stdout, stderr) = run_luma(&support, &logs, &["cmd", "list", "--json"]);
+    assert_eq!(code, 0, "stderr={stderr}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert!(v["recipes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|r| r["id"] == "git-status"));
+}
+
+#[test]
+fn query_cmd_test_json() {
+    let dir = tempdir().unwrap();
+    let support = dir.path().join("support");
+    let logs = dir.path().join("logs");
+    fs::create_dir_all(&support).unwrap();
+    fs::create_dir_all(&logs).unwrap();
+    let (code, stdout, stderr) = run_luma(&support, &logs, &["query", "cmd test", "--json"]);
+    assert_eq!(code, 0, "stderr={stderr}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(v["query"], "cmd test");
+    assert!(v["results"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|r| r["id"] == "cmd:test"));
+}
+
+#[test]
+fn cmd_show_missing_recipe_errors() {
+    let dir = tempdir().unwrap();
+    let support = dir.path().join("support");
+    let logs = dir.path().join("logs");
+    fs::create_dir_all(&support).unwrap();
+    fs::create_dir_all(&logs).unwrap();
+    let (code, _, stderr) = run_luma(
+        &support,
+        &logs,
+        &["cmd", "show", "no-such-recipe", "--json"],
+    );
+    assert_ne!(code, 0);
+    assert!(stderr.contains("not found") || stderr.contains("no-such-recipe"));
 }
 
 #[test]

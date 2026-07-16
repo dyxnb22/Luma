@@ -3,16 +3,21 @@ use crate::msg::Msg;
 use crate::reducer::update;
 use crate::render::render;
 use crate::terminal::{install_panic_hook, TerminalGuard};
-use crate::view_model::{AppState, Route};
+use crate::view_model::{AppState, Route, StatusTone};
 use crossterm::event::{self, Event as CEvent, KeyCode, KeyEventKind, KeyModifiers};
-use luma_application::EnginePort;
+use luma_application::{CommandRunnerPort, EnginePort};
+use luma_domain::RecipeRunOutcome;
 use luma_protocol::Command;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use tokio_util::sync::CancellationToken;
 use tracing::warn;
 
 /// Interactive TUI entry. Composition root (`bins/luma`) supplies the engine port.
-pub async fn run_tui_with_engine(engine: Arc<dyn EnginePort>) -> std::io::Result<()> {
+pub async fn run_tui_with_engine(
+    engine: Arc<dyn EnginePort>,
+    command_runner: Arc<dyn CommandRunnerPort>,
+) -> std::io::Result<()> {
     install_panic_hook();
     let mut guard = TerminalGuard::enter()?;
     let mut state = AppState::default();
@@ -21,12 +26,9 @@ pub async fn run_tui_with_engine(engine: Arc<dyn EnginePort>) -> std::io::Result
         state.term_height = height;
         state.sync_results_viewport();
     }
-    state
-        .status
-        .set("Starting…", crate::view_model::StatusTone::Progress);
+    state.status.set("Starting…", StatusTone::Progress);
     state.dirty = true;
 
-    // Paint once before warmup so the shell is interactive while modules warm.
     guard.terminal_mut().draw(|f| render(f, &state))?;
     state.dirty = false;
 
@@ -37,6 +39,16 @@ pub async fn run_tui_with_engine(engine: Arc<dyn EnginePort>) -> std::io::Result
     });
 
     loop {
+        if let Some(plan) = state.pending_recipe_run.take() {
+            run_recipe_in_terminal(
+                &mut guard,
+                command_runner.as_ref(),
+                engine.clone(),
+                &mut state,
+                plan,
+            );
+        }
+
         if state.dirty {
             guard.terminal_mut().draw(|f| render(f, &state))?;
             state.dirty = false;
@@ -46,8 +58,6 @@ pub async fn run_tui_with_engine(engine: Arc<dyn EnginePort>) -> std::io::Result
         let mut msgs: Vec<Msg> = Vec::new();
         let mut broadcast_lagged = false;
 
-        // Drain all available events. `Lagged` means skipped messages — continue
-        // so we still receive later terminal events (SearchFinished / ActionFinished).
         loop {
             match engine_rx.try_recv() {
                 Ok(ev) => msgs.push(Msg::Engine(ev)),
@@ -105,11 +115,90 @@ pub async fn run_tui_with_engine(engine: Arc<dyn EnginePort>) -> std::io::Result
         }
     }
 
-    // Restore terminal before awaiting shutdown so a hung teardown cannot
-    // leave the user stuck in raw mode / alternate screen.
     drop(guard);
     let _ = engine.submit(Command::ShutdownSession).await;
     Ok(())
+}
+
+fn now_unix() -> i64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| i64::try_from(d.as_secs()).unwrap_or(0))
+        .unwrap_or(0)
+}
+
+fn run_recipe_in_terminal(
+    guard: &mut TerminalGuard,
+    runner: &dyn CommandRunnerPort,
+    engine: Arc<dyn EnginePort>,
+    state: &mut AppState,
+    plan: luma_domain::RecipeRunPlan,
+) {
+    guard.suspend();
+    println!(
+        "\n=== Recipe: {} ({}) ===",
+        plan.recipe_title, plan.recipe_id
+    );
+    println!("Risk: {}", plan.risk.as_str());
+    println!("Working directory: {}", plan.working_dir.display());
+    println!(
+        "Variant: {} — {}",
+        plan.variant_id, plan.variant_description
+    );
+
+    let cancel = CancellationToken::new();
+    let mut outcome = RecipeRunOutcome::Success;
+
+    for step in &plan.steps {
+        if cancel.is_cancelled() {
+            outcome = RecipeRunOutcome::Cancelled;
+            break;
+        }
+        println!("\n→ {}", step.label);
+        let result = runner.run_step(step, &cancel);
+        if let Some(code) = result.exit_code {
+            println!("exit code: {code}");
+            if code != 0 && !step.continue_on_error {
+                outcome = RecipeRunOutcome::Failed;
+                break;
+            }
+        } else if !result.started {
+            println!(
+                "failed to start: {}",
+                result.message.unwrap_or_else(|| "unknown error".into())
+            );
+            outcome = RecipeRunOutcome::Failed;
+            break;
+        }
+    }
+
+    println!("\n=== Recipe finished ===\n");
+    if let Err(err) = guard.resume() {
+        state
+            .status
+            .set(format!("terminal resume failed: {err}"), StatusTone::Error);
+    } else {
+        let tone = match outcome {
+            RecipeRunOutcome::Success => StatusTone::Success,
+            RecipeRunOutcome::Failed => StatusTone::Error,
+            RecipeRunOutcome::Cancelled => StatusTone::Warning,
+        };
+        state
+            .status
+            .set(format!("recipe {} finished", plan.recipe_id), tone);
+    }
+    state.dirty = true;
+    let recipe_id = plan.recipe_id.clone();
+    let now = now_unix();
+    tokio::spawn(async move {
+        let _ = engine
+            .submit(Command::RecordRecipeRun {
+                recipe_id,
+                result: outcome,
+                now_unix: now,
+            })
+            .await;
+    });
 }
 
 fn map_key(code: KeyCode, modifiers: KeyModifiers, state: &AppState) -> Msg {
@@ -120,8 +209,6 @@ fn map_key(code: KeyCode, modifiers: KeyModifiers, state: &AppState) -> Msg {
             KeyCode::Char('c') => Msg::Quit,
             KeyCode::Char('l') => Msg::Redraw,
             KeyCode::Char('k') if matches!(state.route, Route::Search) => Msg::OpenActions,
-            // Many terminals encode Ctrl-/ as the ASCII unit separator, which
-            // crossterm reports as Ctrl-_. Accept both spellings.
             KeyCode::Char('/') | KeyCode::Char('_') | KeyCode::Char('\u{1f}')
                 if matches!(state.route, Route::Search) =>
             {
@@ -177,6 +264,22 @@ fn map_key(code: KeyCode, modifiers: KeyModifiers, state: &AppState) -> Msg {
             if matches!(state.route, Route::ActionPicker) && c.is_ascii_digit() && c != '0' =>
         {
             Msg::PickActionDigit(c.to_digit(10).unwrap_or(0) as usize)
+        }
+        KeyCode::Char(c)
+            if matches!(state.route, Route::Search)
+                && state.focus != FocusZone::Prompt
+                && state.command_recipes_selected()
+                && matches!(c, 'r' | 'c' | 'f') =>
+        {
+            let action_id = match c {
+                'r' => "run",
+                'c' => "copy",
+                'f' => "favorite",
+                _ => "run",
+            };
+            Msg::RecipeShortcut {
+                action_id: action_id.into(),
+            }
         }
         KeyCode::Char(' ') if matches!(state.route, Route::WordbookReview) => Msg::WordbookReveal,
         KeyCode::Char(' ') if matches!(state.route, Route::Settings) => Msg::ToggleSetting,
@@ -272,6 +375,21 @@ fn dispatch_effect(engine: Arc<dyn EnginePort>, effect: Effect) {
                     .await;
             });
         }
+        Effect::RecordRecipeRun {
+            recipe_id,
+            result,
+            now_unix,
+        } => {
+            tokio::spawn(async move {
+                let _ = engine
+                    .submit(Command::RecordRecipeRun {
+                        recipe_id,
+                        result,
+                        now_unix,
+                    })
+                    .await;
+            });
+        }
         Effect::GetSettings => {
             tokio::spawn(async move {
                 let _ = engine.submit(Command::GetSettings).await;
@@ -343,10 +461,8 @@ mod tests {
 
     #[test]
     fn drain_continues_after_lagged() {
-        // Mirrors the TUI drain loop: Lagged must not stop draining.
         let (tx, _rx) = tokio::sync::broadcast::channel::<u32>(2);
         let mut lagged_rx = tx.subscribe();
-        // Force lag by sending beyond capacity without receiving.
         for i in 0..20 {
             let _ = tx.send(i);
         }
@@ -359,9 +475,6 @@ mod tests {
                 | Err(tokio::sync::broadcast::error::TryRecvError::Closed) => break,
             }
         }
-        assert!(
-            !got.is_empty(),
-            "after Lagged, drain must continue and collect later events"
-        );
+        assert!(!got.is_empty());
     }
 }

@@ -192,6 +192,9 @@ pub enum ActionOutcomeDto {
         message: Option<String>,
     },
     Cancelled,
+    InteractiveRecipeRun {
+        plan: Box<luma_domain::RecipeRunPlan>,
+    },
 }
 
 impl ActionOutcomeDto {
@@ -207,6 +210,7 @@ impl ActionOutcomeDto {
                 message.clone().unwrap_or_else(|| kind.display_message())
             }
             Self::Cancelled => "cancelled".into(),
+            Self::InteractiveRecipeRun { .. } => "interactive recipe run".into(),
         }
     }
 
@@ -228,6 +232,7 @@ impl ActionOutcomeDto {
                 })
                 .unwrap_or_else(|| kind.user_message()),
             Self::Cancelled => "Cancelled".into(),
+            Self::InteractiveRecipeRun { .. } => "Running recipe…".into(),
         }
     }
 }

@@ -43,4 +43,9 @@ pub enum Command {
     RefreshWordbookReviewStats,
     GetSnapshot,
     ShutdownSession,
+    RecordRecipeRun {
+        recipe_id: String,
+        result: luma_domain::RecipeRunOutcome,
+        now_unix: i64,
+    },
 }

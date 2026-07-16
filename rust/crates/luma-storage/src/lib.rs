@@ -1,6 +1,9 @@
 //! Storage adapters for LumaNext application-support paths.
 
 mod clipboard_store;
+mod command_recipes_builtin;
+mod command_recipes_config;
+mod command_recipes_meta;
 mod config;
 mod importer;
 mod migration_ledger;
@@ -18,6 +21,11 @@ mod sqlite;
 mod wordbook_store;
 
 pub use clipboard_store::{looks_secret, ClipboardRow, ClipboardStore, ClipboardStoreError};
+pub use command_recipes_builtin::builtin_recipes;
+pub use command_recipes_config::{
+    command_recipes_config_path, load_recipe_catalog, CommandRecipesConfigError,
+};
+pub use command_recipes_meta::{CommandRecipesMetaError, CommandRecipesMetaStore};
 pub use config::{
     validate_import_project_path, ConfigError, ConfigStore, ImportedProject, LumaSettings,
 };

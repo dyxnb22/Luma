@@ -46,6 +46,7 @@ fn apply_ui_intent(
 pub fn update(state: &mut AppState, msg: Msg) -> Vec<Effect> {
     state.dirty = true;
     match msg {
+        Msg::RecipeShortcut { action_id } => recipe_shortcut(state, &action_id),
         Msg::KeyChar(c) => {
             if matches!(
                 state.route,
@@ -180,6 +181,10 @@ pub fn update(state: &mut AppState, msg: Msg) -> Vec<Effect> {
                 }
                 if let Some(effects) = flush_pending_search_or_continue(state) {
                     return effects;
+                }
+                if state.command_recipes_selected() && state.focus != FocusZone::Prompt {
+                    state.preview_pinned = true;
+                    return preview_effect(state);
                 }
                 request_primary_actions(state)
             }
@@ -633,6 +638,27 @@ fn clear_action_ui(state: &mut AppState) {
     state.action_choices.clear();
     state.action_result_id = None;
     state.action_selected = 0;
+}
+
+fn recipe_shortcut(state: &mut AppState, action_id: &str) -> Vec<Effect> {
+    let Some(item) = state.selected_search_item().cloned() else {
+        state.status.set("no result selected", StatusTone::Warning);
+        return vec![Effect::None];
+    };
+    if item.module_id.as_str() != "luma.command_recipes" {
+        return vec![Effect::None];
+    }
+    let result_id = item.id.as_str().to_string();
+    state.awaiting_actions = Some(AwaitingActions {
+        intent: ActionsIntent::RecipeShortcut {
+            action_id: action_id.to_string(),
+        },
+        result_id: result_id.clone(),
+    });
+    state
+        .status
+        .set(format!("resolving {action_id}…"), StatusTone::Progress);
+    vec![Effect::ListActions { result_id }]
 }
 
 fn request_primary_actions(state: &mut AppState) -> Vec<Effect> {
@@ -1286,6 +1312,36 @@ fn apply_engine(state: &mut AppState, event: Event) -> Vec<Effect> {
         match pending.intent {
             ActionsIntent::Primary => {
                 return begin_primary_or_confirm(state, result_id, actions);
+            }
+            ActionsIntent::RecipeShortcut { action_id } => {
+                let resolved = if action_id == "favorite" {
+                    actions
+                        .iter()
+                        .find(|a| a.id == "favorite" || a.id == "unfavorite")
+                        .cloned()
+                } else {
+                    actions.iter().find(|a| a.id == action_id).cloned()
+                };
+                let Some(action) = resolved else {
+                    state.status.set(
+                        format!("action `{action_id}` unavailable"),
+                        StatusTone::Warning,
+                    );
+                    return vec![Effect::None];
+                };
+                if action.needs_confirmation() {
+                    state.pending_action = Some(PendingAction {
+                        result_id,
+                        action: action.clone(),
+                    });
+                    state.route = Route::ConfirmAction;
+                    state.status.set(
+                        format!("confirm {}? Enter=yes Esc=no", action.label),
+                        StatusTone::Warning,
+                    );
+                    return vec![Effect::None];
+                }
+                return execute_action(state, result_id, action, false);
             }
             ActionsIntent::Picker => {
                 if actions.is_empty() {

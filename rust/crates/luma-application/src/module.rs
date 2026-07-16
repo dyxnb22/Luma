@@ -1,6 +1,6 @@
 use crate::ports::AppSettings;
 use async_trait::async_trait;
-use luma_domain::{ActionDescriptor, FailureKind, ModuleId, Query, SearchItem};
+use luma_domain::{ActionDescriptor, FailureKind, ModuleId, Query, RecipeRunPlan, SearchItem};
 use luma_protocol::Event;
 use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
@@ -73,6 +73,10 @@ pub enum ActionOutcome {
     /// Request a settings.toml CAS update (handled by the engine).
     SettingsMutation {
         patch: serde_json::Value,
+    },
+    /// Describe an interactive recipe run for the TUI to execute in the current terminal.
+    InteractiveRecipeRun {
+        plan: Box<RecipeRunPlan>,
     },
 }
 

@@ -788,8 +788,8 @@ dependencies = [
  "luma-tui",
  "serde_json",
  "tempfile",
- "thiserror",
  "tokio",
+ "tokio-util",
  "tracing",
  "tracing-subscriber",
 ]
@@ -829,6 +829,7 @@ dependencies = [
  "luma-application",
  "luma-domain",
  "luma-protocol",
+ "luma-storage",
  "luma-test-support",
  "serde_json",
  "tempfile",
@@ -908,6 +909,7 @@ dependencies = [
  "ratatui",
  "serde_json",
  "tokio",
+ "tokio-util",
  "tracing",
  "unicode-width 0.2.0",
 ]

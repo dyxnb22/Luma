@@ -27,6 +27,7 @@ Personal daily-driver status. Prefer honest `unavailable` / `permission_required
 | Wordbook | `wb` / `wordbook` / `words` | Available — due/new/wrong lists; `wb review due\|new\|wrong` one-word session; Enter/Space reveal, 1/2/3 grade, m mastered with confirmation, s skip, Esc exit; queue uses remaining daily goal; `wb import PATH` accepts a regular non-symlink UTF-8 CSV up to 512 KiB; daily goal | on |
 | Records | `rec` / `record` | Available — SQLite-backed media log; `rec <query>` / `rec browse`; `rec add`, `rec rate`, `rec note`, ActionPicker edit/remove; CLI also has `record import`, `import-status`, `backup`; Markdown import is dry-run by default and `--apply` is ledger-backed with a LumaNext backup, source Markdown stays read-only | on |
 | Projects | `p` / `proj` / `project` | Available — only manually imported projects appear in plain search; `proj add/import PATH`, `proj remove NAME\|PATH`, `proj browse`; canonical existing non-symlink paths, duplicate rejection, config-only removal | on |
+| Command Recipes | `cmd` / `recipe` / `recipes` | Available — semantic templates with project variants; ordered `program + args`; TUI runs in current terminal; user TOML + built-ins. See [Command Recipes](./COMMAND_RECIPES.md). | on |
 | Secrets | `sec` / `secret` / `secrets` | Copy-only for pre-provisioned labels; `luma secrets set` bootstrap; unlock is in-process UX only (no Touch ID); copy confirm | **off** (enable in Settings after bootstrap) |
 | Fake | — | Test/demo module for CLI blackbox | **off** |
 

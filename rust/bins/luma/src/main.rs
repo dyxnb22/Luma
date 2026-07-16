@@ -1,4 +1,5 @@
 mod cli_output;
+mod cmd_cli;
 mod compose;
 
 use clap::{Parser, Subcommand};
@@ -8,6 +9,7 @@ use luma_application::{
     list_modules_json, run_action, run_query, Engine, KeychainPort, RecordsRepository,
     SqliteRecordsRepository,
 };
+use luma_platform_macos::MacCommandRunner;
 use luma_storage::{
     dry_run_legacy_dir, get_migration, import_clipboard_fixture_with_ledger,
     import_notes_config_fixture_with_ledger, import_records_with_ledger, list_migrations,
@@ -72,6 +74,11 @@ enum Commands {
     Record {
         #[command(subcommand)]
         action: RecordCmd,
+    },
+    /// Command Recipes — semantic command templates.
+    Cmd {
+        #[command(subcommand)]
+        action: cmd_cli::CmdCmd,
     },
 }
 
@@ -361,9 +368,12 @@ async fn main() -> anyhow::Result<()> {
                 luma_application::EngineOptions {
                     settings: Some(load.settings),
                     wordbook: load.wordbook,
+                    command_recipes: load.command_recipes,
                 },
             ));
-            run_tui_with_engine(engine).await?;
+            let command_runner =
+                Arc::new(MacCommandRunner::new()) as Arc<dyn luma_application::CommandRunnerPort>;
+            run_tui_with_engine(engine, command_runner).await?;
         }
         Some(Commands::Query {
             query,
@@ -837,6 +847,7 @@ async fn main() -> anyhow::Result<()> {
             }
         }
         Some(Commands::Record { action }) => handle_record_command(action)?,
+        Some(Commands::Cmd { action }) => cmd_cli::handle_cmd_command(action).await?,
     }
     Ok(())
 }

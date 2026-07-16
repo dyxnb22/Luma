@@ -33,6 +33,12 @@ pub enum Effect {
     },
     /// Cancel an in-flight action operation.
     CancelOperation { operation_id: String },
+    /// Persist recipe run metadata after interactive execution.
+    RecordRecipeRun {
+        recipe_id: String,
+        result: luma_domain::RecipeRunOutcome,
+        now_unix: i64,
+    },
     /// No-op placeholder for redraw coalescing.
     None,
 }

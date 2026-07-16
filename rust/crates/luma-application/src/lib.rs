@@ -52,13 +52,13 @@ pub use ports::{
     ProxyCoreError, ProxyCorePort, ProxyGroup, ProxyMode, ProxyNode, ProxyPorts, ProxyStatus,
     QuicklinkEntry, QuicklinksRepoError, QuicklinksRepository, RecipeEnvironmentError,
     RecipeEnvironmentPort, RecordCategory, RecordEntry, RecordImportPreviewView,
-    RecordImportReportView, RecordsRepoError, RecordsRepository, RecordsStatsView,
-    ResolvedSshHost, ResumeContextsRepository, ResumeRepoError, SecretLabel, SettingsError,
-    SettingsRepository, SnippetEntry, SnippetsRepoError, SnippetsRepository, SpeechAccent,
-    SpeechError, SpeechPort, SshConfigError, SshConfigPort, SshConfigState, SshHostMeta,
-    SshMetaRepoError, SshMetaRepository, SystemProxyError, SystemProxyPort, SystemProxySetting,
-    SystemProxyStatus, WindowCatalogPort, WindowEntry, WindowError, WordContentInput, WordEntry,
-    WordbookRepoError, WordbookRepository, WordbookStatsView,
+    RecordImportReportView, RecordsRepoError, RecordsRepository, RecordsStatsView, ResolvedSshHost,
+    ResumeContextsRepository, ResumeRepoError, SecretLabel, SettingsError, SettingsRepository,
+    SnippetEntry, SnippetsRepoError, SnippetsRepository, SpeechAccent, SpeechError, SpeechPort,
+    SshConfigError, SshConfigPort, SshConfigState, SshHostMeta, SshMetaRepoError,
+    SshMetaRepository, SystemProxyError, SystemProxyPort, SystemProxySetting, SystemProxyStatus,
+    WindowCatalogPort, WindowEntry, WindowError, WordContentInput, WordEntry, WordbookRepoError,
+    WordbookRepository, WordbookStatsView,
 };
 pub use registry::{ModuleRegistry, RegistryError};
 

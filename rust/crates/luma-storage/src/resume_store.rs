@@ -141,11 +141,7 @@ impl ResumeStore {
 
     pub fn get(&self, name: &str) -> Result<Option<ResumeContext>, ResumeStoreError> {
         let key = normalize_name(name)?;
-        Ok(self
-            .load()?
-            .contexts
-            .into_iter()
-            .find(|c| c.name == key))
+        Ok(self.load()?.contexts.into_iter().find(|c| c.name == key))
     }
 
     /// Insert or replace by name. Paths in the context should already be normalized.

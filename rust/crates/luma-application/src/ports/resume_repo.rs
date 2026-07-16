@@ -78,7 +78,8 @@ impl ResumeContextsRepository for MemoryResumeContextsRepository {
     }
 
     fn upsert(&self, context: ResumeContext) -> Result<ResumeContext, ResumeRepoError> {
-        let key = luma_storage::normalize_name(&context.name).map_err(ResumeRepoError::from_store)?;
+        let key =
+            luma_storage::normalize_name(&context.name).map_err(ResumeRepoError::from_store)?;
         let mut guard = self.inner.lock().expect("lock");
         let mut saved = context;
         saved.name = key.clone();

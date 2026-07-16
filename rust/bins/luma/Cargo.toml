@@ -13,6 +13,7 @@ path = "src/main.rs"
 [dependencies]
 clap = { workspace = true }
 luma-application = { workspace = true }
+luma-domain = { workspace = true }
 luma-protocol = { workspace = true }
 luma-modules = { workspace = true }
 luma-storage = { workspace = true }
@@ -25,6 +26,7 @@ tracing-subscriber = { workspace = true }
 anyhow = { workspace = true }
 dirs = { workspace = true }
 tokio-util = { workspace = true }
+thiserror = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }

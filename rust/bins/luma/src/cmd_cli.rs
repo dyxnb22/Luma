@@ -1,4 +1,4 @@
-use compose::load_registry_with_settings;
+use crate::compose::load_registry_with_settings;
 use luma_application::{
     recipe_in_scope, recipe_runnable, resolve_steps, run_action, CommandRecipesRepository,
     CommandRunnerPort, RecipeEnvironmentPort,
@@ -133,9 +133,9 @@ fn cmd_show(
     let base = env.working_directory().map_err(|e| anyhow::anyhow!(e.0))?;
     recipe_runnable(env, &base, recipe).map_err(|e| anyhow::anyhow!(e))?;
     let variant = env.match_variant(&base, &recipe.variants);
-    let payload = match variant {
+    let payload = match &variant {
         VariantMatch::Matched(v) => {
-            let steps = resolve_steps(env, &base, &v).map_err(|e| anyhow::anyhow!(e.0))?;
+            let steps = resolve_steps(env, &base, v).map_err(|e| anyhow::anyhow!(e.0))?;
             json!({
                 "recipe": recipe,
                 "variant": v.id,
@@ -151,7 +151,18 @@ fn cmd_show(
     if json {
         println!("{}", serde_json::to_string_pretty(&payload)?);
     } else {
-        println!("{}", serde_json::to_string_pretty(&payload)?);
+        match variant {
+            VariantMatch::Matched(v) => {
+                println!("{} — {}", recipe.id, recipe.title);
+                println!("variant: {} · cwd: {}", v.id, base.display());
+                for step in &v.steps {
+                    println!("  {} {} {}", step.id, step.program, step.args.join(" "));
+                }
+            }
+            VariantMatch::NoMatch => {
+                println!("{} — {} (当前项目不适用)", recipe.id, recipe.title);
+            }
+        }
     }
     Ok(())
 }

@@ -1,8 +1,8 @@
 use async_trait::async_trait;
 use luma_storage::ResumeEditor;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
 use thiserror::Error;
 
 #[derive(Debug, Error, Clone, PartialEq, Eq)]
@@ -24,13 +24,8 @@ pub trait OpenEditorPort: Send + Sync {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum FakeEditorCall {
-    Open {
-        editor: ResumeEditor,
-        path: PathBuf,
-    },
-    Terminal {
-        cwd: PathBuf,
-    },
+    Open { editor: ResumeEditor, path: PathBuf },
+    Terminal { cwd: PathBuf },
 }
 
 /// Controllable fake for tests — never touches the GUI.

@@ -49,9 +49,7 @@ impl ResumeModule {
                 workbench: luma_application::WorkbenchMeta {
                     glyph: Some("R".into()),
                     suggested_query: Some("resume ".into()),
-                    empty_hint: Some(
-                        "resume · resume save <name> · resume capture <name>".into(),
-                    ),
+                    empty_hint: Some("resume · resume save <name> · resume capture <name>".into()),
                     supports_browse: false,
                 },
             },
@@ -246,16 +244,12 @@ impl ResumeModule {
                 "Save / update",
             )
         } else {
-            (
-                format!("Create resume context “{name}”"),
-                "create",
-                "Save",
-            )
+            (format!("Create resume context “{name}”"), "create", "Save")
         };
         SearchItemDto {
             id: format!("resume:save:{name}"),
             module_id: MODULE_ID.into(),
-            title: title.into(),
+            title,
             subtitle: Some(
                 "Enter to upsert · use resume capture <name> to fill from cwd/git".into(),
             ),
@@ -360,7 +354,12 @@ impl ResumeModule {
         if let Some(name) = Self::context_name_from_id(item.id.as_str()) {
             return Some(name.to_string());
         }
-        for prefix in ["resume:save:", "resume:capture:", "resume:delete:", "resume:missing:"] {
+        for prefix in [
+            "resume:save:",
+            "resume:capture:",
+            "resume:delete:",
+            "resume:missing:",
+        ] {
             if let Some(name) = item.id.as_str().strip_prefix(prefix) {
                 return normalize_resume_name(name).ok();
             }
@@ -428,7 +427,12 @@ impl ResumeModule {
         let mut any_ok = false;
 
         if self
-            .open_path_step("project", ctx.project_path.as_deref(), &cancel, &mut reports)
+            .open_path_step(
+                "project",
+                ctx.project_path.as_deref(),
+                &cancel,
+                &mut reports,
+            )
             .await
         {
             any_ok = true;
@@ -436,9 +440,9 @@ impl ResumeModule {
         if self
             .open_path_step(
                 "worktree",
-                ctx.worktree_path.as_deref().filter(|w| {
-                    ctx.project_path.as_deref() != Some(*w)
-                }),
+                ctx.worktree_path
+                    .as_deref()
+                    .filter(|w| ctx.project_path.as_deref() != Some(*w)),
                 &cancel,
                 &mut reports,
             )
@@ -630,7 +634,9 @@ impl ResumeModule {
             }
             Some(Err(GitInfoError::Unavailable(reason))) => {
                 ctx.project_path = Some(cwd_str.clone());
-                notes.push(format!("git: unavailable ({reason}) — saved cwd as project_path"));
+                notes.push(format!(
+                    "git: unavailable ({reason}) — saved cwd as project_path"
+                ));
             }
         }
 
@@ -660,11 +666,7 @@ impl ResumeModule {
         }
     }
 
-    fn apply_field(
-        ctx: &mut ResumeContext,
-        field: &str,
-        value: &str,
-    ) -> Result<(), FailureKind> {
+    fn apply_field(ctx: &mut ResumeContext, field: &str, value: &str) -> Result<(), FailureKind> {
         let path_fields = [
             "project_path",
             "worktree_path",
@@ -706,12 +708,12 @@ impl ResumeModule {
                 let normalized = if value.trim().is_empty() {
                     None
                 } else {
-                    Some(normalize_resume_path(value).map_err(|e| {
-                        FailureKind::InvalidInput {
+                    Some(
+                        normalize_resume_path(value).map_err(|e| FailureKind::InvalidInput {
                             field: f.to_string(),
                             message: e.to_string(),
-                        }
-                    })?)
+                        })?,
+                    )
                 };
                 match f {
                     "project_path" => ctx.project_path = normalized,
@@ -783,17 +785,22 @@ impl ResumeModule {
     }
 
     fn recipe_plan(ctx: &ResumeContext, index: usize) -> Result<RecipeRunPlan, FailureKind> {
-        let recipe = ctx.recipes.get(index).ok_or_else(|| FailureKind::NotFound {
-            entity: format!("recipe:{index}"),
-        })?;
-        let command = recipe.command.as_deref().filter(|c| !c.is_empty()).ok_or_else(|| {
-            FailureKind::NotConfigured {
+        let recipe = ctx
+            .recipes
+            .get(index)
+            .ok_or_else(|| FailureKind::NotFound {
+                entity: format!("recipe:{index}"),
+            })?;
+        let command = recipe
+            .command
+            .as_deref()
+            .filter(|c| !c.is_empty())
+            .ok_or_else(|| FailureKind::NotConfigured {
                 remediation: format!(
                     "recipe “{}” has no command — set with resume set {} recipes name=cmd",
                     recipe.name, ctx.name
                 ),
-            }
-        })?;
+            })?;
         let cwd = ctx
             .terminal_cwd
             .as_ref()
@@ -982,7 +989,7 @@ impl LumaModule for ResumeModule {
                         primary_action_label: "OK".into(),
                         ui_intent: None,
                         action_payload: None,
-                    ..Default::default()
+                        ..Default::default()
                     }],
                 )
                 .await;
@@ -1004,7 +1011,7 @@ impl LumaModule for ResumeModule {
                             primary_action_label: "OK".into(),
                             ui_intent: None,
                             action_payload: None,
-                        ..Default::default()
+                            ..Default::default()
                         }],
                     )
                     .await;
@@ -1033,14 +1040,15 @@ impl LumaModule for ResumeModule {
                         primary_action_label: "OK".into(),
                         ui_intent: None,
                         action_payload: None,
-                    ..Default::default()
+                        ..Default::default()
                     }],
                 )
                 .await;
                 return;
             }
             if let Ok(key) = normalize_resume_name(name) {
-                self.emit(&sink, vec![Self::capture_preview_row(&key)]).await;
+                self.emit(&sink, vec![Self::capture_preview_row(&key)])
+                    .await;
             }
             return;
         }
@@ -1132,7 +1140,7 @@ impl LumaModule for ResumeModule {
                             primary_action_label: "OK".into(),
                             ui_intent: None,
                             action_payload: None,
-                        ..Default::default()
+                            ..Default::default()
                         }],
                     )
                     .await;
@@ -1151,7 +1159,10 @@ impl LumaModule for ResumeModule {
         let name = rest.split_whitespace().next().unwrap_or("").trim();
         if let Ok(key) = normalize_resume_name(name) {
             match self.store.get(&key) {
-                Ok(Some(ctx)) => self.emit(&sink, vec![Self::dto_for_context(&ctx, 10.0)]).await,
+                Ok(Some(ctx)) => {
+                    self.emit(&sink, vec![Self::dto_for_context(&ctx, 10.0)])
+                        .await
+                }
                 Ok(None) => self.emit(&sink, vec![Self::not_found_row(&key)]).await,
                 Err(err) => {
                     self.emit(&sink, vec![Self::unavailable_row(err.to_string())])
@@ -1164,7 +1175,12 @@ impl LumaModule for ResumeModule {
     async fn actions(&self, result: &SearchItem) -> Vec<ActionDescriptor> {
         if result.id.as_str() == "resume:unavailable" {
             return vec![
-                action("rebuild_store", "Rebuild empty store", ActionRisk::Confirm, true),
+                action(
+                    "rebuild_store",
+                    "Rebuild empty store",
+                    ActionRisk::Confirm,
+                    true,
+                ),
                 action("noop", "Dismiss", ActionRisk::Safe, false),
             ];
         }
@@ -1183,12 +1199,7 @@ impl LumaModule for ResumeModule {
                     ActionRisk::Safe,
                     false,
                 ),
-                action(
-                    "connect_ssh",
-                    "Connect SSH",
-                    ActionRisk::Confirm,
-                    true,
-                ),
+                action("connect_ssh", "Connect SSH", ActionRisk::Confirm, true),
             ];
             if let Some(name) = Self::resolve_name_from_item(result) {
                 if let Ok(Some(ctx)) = self.store.get(&name) {
@@ -1309,18 +1320,9 @@ impl LumaModule for ResumeModule {
             }
             "set_field" => {
                 let payload = request.result.action_payload.clone().unwrap_or_default();
-                let name = payload
-                    .get("name")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("");
-                let field = payload
-                    .get("field")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("");
-                let value = payload
-                    .get("value")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("");
+                let name = payload.get("name").and_then(|v| v.as_str()).unwrap_or("");
+                let field = payload.get("field").and_then(|v| v.as_str()).unwrap_or("");
+                let value = payload.get("value").and_then(|v| v.as_str()).unwrap_or("");
                 self.perform_set(name, field, value).await
             }
             "delete" => {
@@ -1703,12 +1705,7 @@ mod tests {
         let opener = Arc::new(FakeOpenPath::new());
         let editor = Arc::new(FakeOpenEditor::new());
         let git = Arc::new(FakeGitInfo::with_error(GitInfoError::NotARepo));
-        let m = ResumeModule::with_deps(
-            store.clone(),
-            opener.clone(),
-            editor.clone(),
-            git,
-        );
+        let m = ResumeModule::with_deps(store.clone(), opener.clone(), editor.clone(), git);
         (m, store, opener, editor)
     }
 
@@ -1837,10 +1834,7 @@ mod tests {
             }
             other => panic!("unexpected {other:?}"),
         }
-        assert!(matches!(
-            outcome_actions_confirm(&m, &items[0]).await,
-            true
-        ));
+        assert!(outcome_actions_confirm(&m, &items[0]).await);
         // No InteractiveRecipeRun from primary resume.
         let _ = opener;
         let _ = editor;
@@ -1851,7 +1845,10 @@ mod tests {
 
     async fn outcome_actions_confirm(m: &ResumeModule, item: &SearchItem) -> bool {
         let actions = m.actions(item).await;
-        let ssh = actions.iter().find(|a| a.id.as_str() == "connect_ssh").unwrap();
+        let ssh = actions
+            .iter()
+            .find(|a| a.id.as_str() == "connect_ssh")
+            .unwrap();
         let recipe = actions
             .iter()
             .find(|a| a.id.as_str().starts_with("run_recipe:"))
@@ -1867,7 +1864,10 @@ mod tests {
         store.upsert(ctx).unwrap();
         let items = collect_search_items(&m, Query::parse("resume srv", 20)).await;
         let actions = m.actions(&items[0]).await;
-        let ssh = actions.iter().find(|a| a.id.as_str() == "connect_ssh").unwrap();
+        let ssh = actions
+            .iter()
+            .find(|a| a.id.as_str() == "connect_ssh")
+            .unwrap();
         assert!(ssh.confirmation);
         let cancelled = m
             .perform(
@@ -1958,7 +1958,10 @@ mod tests {
             }
             other => panic!("{other:?}"),
         }
-        assert_eq!(opener.open_count.load(std::sync::atomic::Ordering::SeqCst), 1);
+        assert_eq!(
+            opener.open_count.load(std::sync::atomic::Ordering::SeqCst),
+            1
+        );
     }
 
     #[tokio::test]

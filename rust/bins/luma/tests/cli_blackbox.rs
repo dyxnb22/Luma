@@ -740,10 +740,9 @@ fn query_resume_empty_not_configured() {
     let v: serde_json::Value = serde_json::from_str(&stdout).unwrap();
     let results = v["results"].as_array().expect("results");
     assert!(
-        results.iter().any(|r| {
-            r["kind"] == "not_configured"
-                && r["id"].as_str() == Some("resume:empty")
-        }),
+        results
+            .iter()
+            .any(|r| { r["kind"] == "not_configured" && r["id"].as_str() == Some("resume:empty") }),
         "expected resume empty not_configured row: {stdout}"
     );
 }

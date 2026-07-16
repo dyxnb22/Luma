@@ -26,6 +26,11 @@ pub trait SshMetaRepository: Send + Sync {
     fn list(&self) -> Result<Vec<SshHostMeta>, SshMetaRepoError>;
     fn get(&self, alias: &str) -> Result<Option<SshHostMeta>, SshMetaRepoError>;
     fn set_favorite(&self, alias: &str, favorite: bool) -> Result<(), SshMetaRepoError>;
+    fn set_display_name(
+        &self,
+        alias: &str,
+        display_name: Option<&str>,
+    ) -> Result<(), SshMetaRepoError>;
     fn record_connection(&self, alias: &str, connected_at: &str) -> Result<(), SshMetaRepoError>;
     fn delete(&self, alias: &str) -> Result<(), SshMetaRepoError>;
 }

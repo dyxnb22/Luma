@@ -19,6 +19,8 @@ cargo run -p luma -- query "ssh production" --json
 cargo run -p luma -- ssh list --json
 cargo run -p luma -- ssh connect production
 cargo run -p luma -- ssh sftp production
+cargo run -p luma -- ssh favorite production
+cargo run -p luma -- ssh rename production "Prod server"
 printf '%s' 'secret' | cargo run -p luma -- secrets set my-label
 cargo run -p luma -- modules list --json
 cargo run -p luma -- config get --json
@@ -68,7 +70,7 @@ backup, and migration ledger, never the Markdown source files.
 - `wb due`, `wb new`, `wb wrong`: normal lists. `wb review due|new|wrong`: Enter/Space reveals, `1/2/3` grades, `m` masters after confirmation, `s` skips, Esc exits. `wb import PATH` accepts a regular non-symlink UTF-8 CSV up to 512 KiB.
 - `rec`: searches Records. Use `rec browse`, `rec add CATEGORY NAME | rating | note`, `rec rate ID SCORE`, and `rec note ID TEXT`.
 - `proj`: plain search shows only manually imported projects. Use `proj add/import PATH`, `proj remove NAME|PATH`, and `proj browse`.
-- `ssh`: lists Host aliases from `~/.ssh/config`; Enter runs `ssh <alias>` in the current terminal (TUI suspends first); `ssh` action picker includes Open SFTP; favorites and connection counts live in LumaNext only.
+- `ssh`: lists Host aliases from `~/.ssh/config`; Enter runs `ssh <alias>` in the current terminal (TUI suspends first); `ssh fav` / `ssh recent` / `ssh rename ALIAS NAME`; action picker includes Open SFTP and Copy alias.
 - There is no `luma doctor`, `:doctor`, or diagnostics overlay. Modules report `permission`, `unavailable`, or `not_configured` locally when applicable.
 
 Optional importers: `luma migrate …` with an explicit legacy path (dry-run by default).

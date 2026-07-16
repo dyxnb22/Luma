@@ -71,12 +71,8 @@ fn format_local_date(year: i32, month: i32, day: i32) -> Result<String, ClockErr
 }
 
 fn now_rfc3339_utc() -> Result<String, ClockError> {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    let secs = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_err(|e| ClockError::Unavailable(e.to_string()))?
-        .as_secs();
-    Ok(format!("{secs}"))
+    use chrono::Utc;
+    Ok(Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string())
 }
 
 #[cfg(test)]

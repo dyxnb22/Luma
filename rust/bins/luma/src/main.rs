@@ -278,6 +278,12 @@ enum SshCmd {
     Connect { alias: String },
     /// Open SFTP in the current terminal.
     Sftp { alias: String },
+    /// Mark a host as favorite.
+    Favorite { alias: String },
+    /// Remove favorite from a host.
+    Unfavorite { alias: String },
+    /// Set a local display name for a host.
+    Rename { alias: String, name: String },
 }
 
 #[derive(Debug, Subcommand)]
@@ -1141,6 +1147,21 @@ async fn handle_ssh_command(action: SshCmd) -> anyhow::Result<()> {
             if !status.success() {
                 std::process::exit(status.code().unwrap_or(1));
             }
+        }
+        SshCmd::Favorite { alias } => {
+            ssh_cli::ssh_set_favorite(load.registry, Some(load.settings), &alias, true)
+                .await
+                .map_err(anyhow::Error::msg)?;
+        }
+        SshCmd::Unfavorite { alias } => {
+            ssh_cli::ssh_set_favorite(load.registry, Some(load.settings), &alias, false)
+                .await
+                .map_err(anyhow::Error::msg)?;
+        }
+        SshCmd::Rename { alias, name } => {
+            ssh_cli::ssh_set_display_name(load.registry, Some(load.settings), &alias, &name)
+                .await
+                .map_err(anyhow::Error::msg)?;
         }
     }
     Ok(())

@@ -274,6 +274,9 @@ fn run_interactive_terminal_effect(
 
     if let (Some(alias), Some(status)) = (record_alias, status) {
         if status.success() {
+            if state.prompt.trim_start().starts_with("ssh") {
+                state.search_debounce_deadline = Some(std::time::Instant::now());
+            }
             let engine_record = engine.clone();
             tokio::spawn(async move {
                 let _ = engine_record

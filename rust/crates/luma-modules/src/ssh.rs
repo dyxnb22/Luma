@@ -3,8 +3,8 @@ use async_trait::async_trait;
 use luma_application::{
     format_connection_subtitle, sanitize_identity_display, sftp_args, ssh_connect_args,
     ActionOutcome, ActionRequest, ClockPort, LumaModule, ModuleManifest, ModuleState,
-    ResolvedSshHost, SearchMode, SearchSink, SshConfigPort, SshConfigState, SshHostMeta,
-    SshMetaRepository, WarmupContext,
+    PasteboardPort, ResolvedSshHost, SearchMode, SearchSink, SshConfigPort, SshConfigState,
+    SshHostMeta, SshMetaRepository, WarmupContext,
 };
 use luma_domain::{
     ActionDescriptor, ActionId, ActionRisk, FailureKind, ModuleId, Query, SearchItem,
@@ -19,6 +19,7 @@ pub struct SshModule {
     manifest: ModuleManifest,
     config: Arc<dyn SshConfigPort>,
     meta: Option<Arc<dyn SshMetaRepository>>,
+    pasteboard: Arc<dyn PasteboardPort>,
     clock: Arc<dyn ClockPort>,
     aliases: RwLock<Vec<String>>,
     resolved_cache: RwLock<HashMap<String, ResolvedSshHost>>,
@@ -30,6 +31,7 @@ impl SshModule {
     pub fn with_deps(
         config: Arc<dyn SshConfigPort>,
         meta: Option<Arc<dyn SshMetaRepository>>,
+        pasteboard: Arc<dyn PasteboardPort>,
         clock: Arc<dyn ClockPort>,
     ) -> Self {
         Self {
@@ -43,12 +45,15 @@ impl SshModule {
                 workbench: luma_application::WorkbenchMeta {
                     glyph: Some("S".into()),
                     suggested_query: Some("ssh ".into()),
-                    empty_hint: Some("ssh · search configured hosts · Enter to connect".into()),
+                    empty_hint: Some(
+                        "ssh · fav · recent · rename ALIAS NAME · Enter to connect".into(),
+                    ),
                     supports_browse: false,
                 },
             },
             config,
             meta,
+            pasteboard,
             clock,
             aliases: RwLock::new(Vec::new()),
             resolved_cache: RwLock::new(HashMap::new()),
@@ -109,7 +114,13 @@ impl SshModule {
             .as_str()
             .strip_prefix("ssh:")
             .map(str::to_string)
-            .filter(|id| !id.contains(':'))
+            .filter(|id| {
+                !id.contains(':')
+                    && !matches!(
+                        id.as_str(),
+                        "reload" | "hint" | "empty" | "unavailable" | "not-configured"
+                    )
+            })
     }
 
     fn host_row_id(alias: &str) -> String {
@@ -161,6 +172,63 @@ impl SshModule {
             score += 15.0;
         }
         score
+    }
+
+    fn compare_last_connected(
+        a: Option<&SshHostMeta>,
+        b: Option<&SshHostMeta>,
+    ) -> std::cmp::Ordering {
+        let ts_a = a.and_then(|m| m.last_connected_at.as_deref()).unwrap_or("");
+        let ts_b = b.and_then(|m| m.last_connected_at.as_deref()).unwrap_or("");
+        ts_b.cmp(ts_a)
+    }
+
+    fn host_actions(favorite: bool) -> Vec<ActionDescriptor> {
+        vec![
+            ActionDescriptor {
+                id: ActionId::new("connect"),
+                label: "Connect".into(),
+                risk: ActionRisk::Safe,
+                confirmation: false,
+            },
+            ActionDescriptor {
+                id: ActionId::new("sftp"),
+                label: "Open SFTP".into(),
+                risk: ActionRisk::Safe,
+                confirmation: false,
+            },
+            ActionDescriptor {
+                id: ActionId::new("copy_alias"),
+                label: "Copy alias".into(),
+                risk: ActionRisk::Safe,
+                confirmation: false,
+            },
+            ActionDescriptor {
+                id: ActionId::new(if favorite { "unfavorite" } else { "favorite" }),
+                label: if favorite {
+                    "Unfavorite".into()
+                } else {
+                    "Favorite".into()
+                },
+                risk: ActionRisk::Safe,
+                confirmation: false,
+            },
+            ActionDescriptor {
+                id: ActionId::new("delete_metadata"),
+                label: "Delete local metadata".into(),
+                risk: ActionRisk::Destructive,
+                confirmation: true,
+            },
+        ]
+    }
+
+    async fn favorite_for_alias(&self, alias: &str) -> bool {
+        self.meta_cache
+            .read()
+            .await
+            .get(alias)
+            .map(|m| m.favorite)
+            .unwrap_or(false)
     }
 
     async fn emit_results(&self, sink: &SearchSink, items: Vec<SearchItem>, removed: Vec<String>) {
@@ -223,34 +291,30 @@ impl SshModule {
                 risk: ActionRisk::Safe,
                 confirmation: false,
             },
-            secondary_actions: vec![
-                ActionDescriptor {
-                    id: ActionId::new("sftp"),
-                    label: "Open SFTP".into(),
-                    risk: ActionRisk::Safe,
-                    confirmation: false,
-                },
-                ActionDescriptor {
-                    id: ActionId::new(if favorite { "unfavorite" } else { "favorite" }),
-                    label: if favorite {
-                        "Unfavorite".into()
-                    } else {
-                        "Favorite".into()
-                    },
-                    risk: ActionRisk::Safe,
-                    confirmation: false,
-                },
-                ActionDescriptor {
-                    id: ActionId::new("delete_metadata"),
-                    label: "Delete local metadata".into(),
-                    risk: ActionRisk::Destructive,
-                    confirmation: true,
-                },
-            ],
+            secondary_actions: Self::host_actions(favorite),
             ui_intent: None,
             action_payload: Some(serde_json::json!({ "alias": alias })),
         }
     }
+}
+
+struct RenamePayload {
+    alias: String,
+    display_name: String,
+}
+
+fn parse_rename_query(rest: &str) -> Option<RenamePayload> {
+    let stripped = rest.trim().strip_prefix("rename ")?;
+    let mut parts = stripped.splitn(2, char::is_whitespace);
+    let alias = parts.next()?.trim();
+    let display_name = parts.next()?.trim();
+    if alias.is_empty() || display_name.is_empty() {
+        return None;
+    }
+    Some(RenamePayload {
+        alias: alias.to_string(),
+        display_name: display_name.to_string(),
+    })
 }
 
 #[async_trait]
@@ -325,7 +389,73 @@ impl LumaModule for SshModule {
         let aliases = self.aliases.read().await.clone();
         let meta_map = self.meta_cache.read().await.clone();
         let rest = query.rest_raw().trim();
-        let needle = query.rest_normalized();
+        let rest_check = query.rest_normalized();
+
+        if rest_check == "reload" || rest_check == "refresh" {
+            self.emit_results(
+                &sink,
+                vec![SearchItem {
+                    id: luma_domain::ResultId::new("ssh:reload"),
+                    module_id: ModuleId::new("luma.ssh"),
+                    title: "Reload SSH config cache".into(),
+                    subtitle: Some("re-read ~/.ssh/config and ssh -G results".into()),
+                    kind: "status".into(),
+                    score: 90.0,
+                    primary_action: ActionDescriptor {
+                        id: ActionId::new("reload_config"),
+                        label: "Reload".into(),
+                        risk: ActionRisk::Safe,
+                        confirmation: false,
+                    },
+                    secondary_actions: vec![],
+                    ui_intent: None,
+                    action_payload: None,
+                }],
+                vec![],
+            )
+            .await;
+            return;
+        }
+
+        if let Some(payload) = parse_rename_query(rest) {
+            self.emit_results(
+                &sink,
+                vec![SearchItem {
+                    id: luma_domain::ResultId::new(format!("ssh:rename:{}", payload.alias)),
+                    module_id: ModuleId::new("luma.ssh"),
+                    title: format!("Rename {}", payload.alias),
+                    subtitle: Some(payload.display_name.clone()),
+                    kind: "update".into(),
+                    score: 95.0,
+                    primary_action: ActionDescriptor {
+                        id: ActionId::new("rename"),
+                        label: "Save display name".into(),
+                        risk: ActionRisk::Safe,
+                        confirmation: false,
+                    },
+                    secondary_actions: vec![],
+                    ui_intent: None,
+                    action_payload: Some(serde_json::json!({
+                        "alias": payload.alias,
+                        "display_name": payload.display_name,
+                    })),
+                }],
+                vec![],
+            )
+            .await;
+            return;
+        }
+
+        let favorites_only = matches!(
+            rest_check.as_str(),
+            "fav" | "favs" | "favorite" | "favorites"
+        );
+        let recent_only = rest_check == "recent";
+        let needle = if favorites_only || recent_only {
+            String::new()
+        } else {
+            rest_check.clone()
+        };
 
         let mut rows: Vec<(f64, String)> = Vec::new();
         for alias in &aliases {
@@ -334,6 +464,12 @@ impl LumaModule for SshModule {
                 None => continue,
             };
             let meta = meta_map.get(alias);
+            if favorites_only && !meta.is_some_and(|m| m.favorite) {
+                continue;
+            }
+            if recent_only && meta.and_then(|m| m.last_connected_at.as_ref()).is_none() {
+                continue;
+            }
             if !needle.is_empty() {
                 let matches = alias.to_lowercase().contains(&needle)
                     || meta
@@ -356,13 +492,33 @@ impl LumaModule for SshModule {
         }
 
         rows.sort_by(|a, b| {
-            b.0.partial_cmp(&a.0)
-                .unwrap_or(std::cmp::Ordering::Equal)
+            let meta_a = meta_map.get(&a.1);
+            let meta_b = meta_map.get(&b.1);
+            let fav_a = meta_a.is_some_and(|m| m.favorite);
+            let fav_b = meta_b.is_some_and(|m| m.favorite);
+            fav_b
+                .cmp(&fav_a)
+                .then_with(|| Self::compare_last_connected(meta_b, meta_a))
+                .then_with(|| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal))
                 .then_with(|| a.1.cmp(&b.1))
         });
 
         if rows.is_empty() {
-            let row = if needle.is_empty() {
+            let row = if favorites_only {
+                Self::status_row(
+                    "ssh:no-favorites",
+                    "status",
+                    "No favorite SSH hosts",
+                    Some("favorite a host from ssh list · ssh fav".into()),
+                )
+            } else if recent_only {
+                Self::status_row(
+                    "ssh:no-recent",
+                    "status",
+                    "No recent SSH connections",
+                    Some("connect to a host to build history · ssh recent".into()),
+                )
+            } else if needle.is_empty() {
                 Self::status_row(
                     "ssh:empty",
                     "status",
@@ -382,6 +538,14 @@ impl LumaModule for SshModule {
         }
 
         let mut items = Vec::new();
+        if needle.is_empty() && !favorites_only && !recent_only {
+            items.push(Self::status_row(
+                "ssh:hint",
+                "status",
+                "ssh fav · ssh recent · ssh rename ALIAS NAME",
+                Some("Enter connects in this terminal · reload with ssh reload".into()),
+            ));
+        }
         for (score, alias) in rows {
             if let Some(host) = self.resolve_host(&alias).await {
                 let meta = meta_map.get(&alias);
@@ -400,37 +564,11 @@ impl LumaModule for SshModule {
                 confirmation: false,
             }];
         }
-        let fav = result.subtitle.as_deref().is_some_and(|s| s.contains('★'));
-        vec![
-            ActionDescriptor {
-                id: ActionId::new("connect"),
-                label: "Connect".into(),
-                risk: ActionRisk::Safe,
-                confirmation: false,
-            },
-            ActionDescriptor {
-                id: ActionId::new("sftp"),
-                label: "Open SFTP".into(),
-                risk: ActionRisk::Safe,
-                confirmation: false,
-            },
-            ActionDescriptor {
-                id: ActionId::new(if fav { "unfavorite" } else { "favorite" }),
-                label: if fav {
-                    "Unfavorite".into()
-                } else {
-                    "Favorite".into()
-                },
-                risk: ActionRisk::Safe,
-                confirmation: false,
-            },
-            ActionDescriptor {
-                id: ActionId::new("delete_metadata"),
-                label: "Delete local metadata".into(),
-                risk: ActionRisk::Destructive,
-                confirmation: true,
-            },
-        ]
+        let Some(alias) = Self::alias_from_item(result) else {
+            return Self::host_actions(false);
+        };
+        let favorite = self.favorite_for_alias(&alias).await;
+        Self::host_actions(favorite)
     }
 
     async fn preview(&self, result: &SearchItem) -> Option<String> {
@@ -452,8 +590,17 @@ impl LumaModule for SshModule {
             format!("port: {}", host.port.unwrap_or(22)),
             format!("identity file: {identity}"),
             format!("proxy jump: {}", host.proxy_jump.as_deref().unwrap_or("-")),
+            format!(
+                "connect timeout: {}",
+                host.connect_timeout
+                    .map(|s| s.to_string())
+                    .unwrap_or_else(|| "-".into())
+            ),
         ];
         if let Some(m) = &meta {
+            if let Some(name) = &m.display_name {
+                lines.push(format!("display name: {name}"));
+            }
             lines.push(format!(
                 "favorite: {}",
                 if m.favorite { "yes" } else { "no" }
@@ -478,6 +625,12 @@ impl LumaModule for SshModule {
         let action_id = action.action.id.as_str();
         if action_id == "noop" {
             return ActionOutcome::Success { message: None };
+        }
+        if action_id == "reload_config" {
+            return self.reload_config().await;
+        }
+        if action_id == "rename" {
+            return self.apply_rename(&action.result).await;
         }
         if action_id == "record_connection" {
             let Some(alias) = action
@@ -567,6 +720,7 @@ impl LumaModule for SshModule {
             }
             "favorite" => self.set_favorite(&alias, true).await,
             "unfavorite" => self.set_favorite(&alias, false).await,
+            "copy_alias" => self.copy_alias(&alias, &cancel).await,
             "delete_metadata" => self.delete_metadata(&alias).await,
             _ => ActionOutcome::Failed {
                 kind: FailureKind::NotFound {
@@ -614,6 +768,80 @@ impl SshModule {
         }
     }
 
+    async fn copy_alias(&self, alias: &str, cancel: &CancellationToken) -> ActionOutcome {
+        match await_unless_cancelled(cancel, self.pasteboard.write_text(alias)).await {
+            Some(Ok(())) => ActionOutcome::Success {
+                message: Some("copied alias".into()),
+            },
+            Some(Err(err)) => ActionOutcome::Failed {
+                kind: FailureKind::Unavailable {
+                    reason: err.to_string(),
+                    retryable: false,
+                },
+            },
+            None => ActionOutcome::Cancelled,
+        }
+    }
+
+    async fn reload_config(&self) -> ActionOutcome {
+        self.resolved_cache.write().await.clear();
+        let _ = self.refresh().await;
+        ActionOutcome::Success {
+            message: Some("SSH config cache reloaded".into()),
+        }
+    }
+
+    async fn apply_rename(&self, result: &SearchItem) -> ActionOutcome {
+        let Some(payload) = &result.action_payload else {
+            return ActionOutcome::Failed {
+                kind: FailureKind::InvalidInput {
+                    field: "rename".into(),
+                    message: "missing rename payload".into(),
+                },
+            };
+        };
+        let alias = payload
+            .get("alias")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default()
+            .trim();
+        let display_name = payload
+            .get("display_name")
+            .and_then(|v| v.as_str())
+            .map(str::trim)
+            .filter(|s| !s.is_empty());
+        if alias.is_empty() {
+            return ActionOutcome::Failed {
+                kind: FailureKind::InvalidInput {
+                    field: "alias".into(),
+                    message: "missing alias".into(),
+                },
+            };
+        }
+        let Some(meta) = &self.meta else {
+            return ActionOutcome::Failed {
+                kind: FailureKind::Unavailable {
+                    reason: "ssh metadata store unavailable".into(),
+                    retryable: false,
+                },
+            };
+        };
+        match meta.set_display_name(alias, display_name) {
+            Ok(()) => {
+                let _ = self.refresh().await;
+                ActionOutcome::Success {
+                    message: Some("display name saved".into()),
+                }
+            }
+            Err(err) => ActionOutcome::Failed {
+                kind: FailureKind::Unavailable {
+                    reason: err.to_string(),
+                    retryable: false,
+                },
+            },
+        }
+    }
+
     async fn delete_metadata(&self, alias: &str) -> ActionOutcome {
         let Some(meta) = &self.meta else {
             return ActionOutcome::Failed {
@@ -645,7 +873,7 @@ mod tests {
     use super::*;
     use luma_application::FixedClock;
     use luma_application::{
-        FakeSshConfigPort, MemorySshMetaRepository, ResolvedSshHost, SshConfigState,
+        FakePasteboard, FakeSshConfigPort, MemorySshMetaRepository, ResolvedSshHost, SshConfigState,
     };
     use tokio::sync::mpsc;
 
@@ -680,6 +908,7 @@ mod tests {
         SshModule::with_deps(
             config,
             Some(Arc::new(MemorySshMetaRepository::new())),
+            Arc::new(FakePasteboard::new()),
             Arc::new(FixedClock::new("2026-01-01", "2026-01-01T00:00:00Z")),
         )
     }
@@ -709,6 +938,7 @@ mod tests {
         let module = SshModule::with_deps(
             config,
             None,
+            Arc::new(FakePasteboard::new()),
             Arc::new(FixedClock::new("2026-01-01", "2026-01-01T00:00:00Z")),
         );
         let items = collect_search(&module, "ssh").await;
@@ -839,6 +1069,73 @@ mod tests {
                 CancellationToken::new(),
             )
             .await;
-        assert!(matches!(record, ActionOutcome::Success { .. }));
+        match record {
+            ActionOutcome::Success { message } => {
+                assert_eq!(message.as_deref(), Some("connection recorded"));
+            }
+            other => panic!("expected success, got {other:?}"),
+        }
+
+        let preview_item = SearchItem {
+            id: luma_domain::ResultId::new("ssh:production"),
+            module_id: ModuleId::new("luma.ssh"),
+            title: "production".into(),
+            subtitle: None,
+            kind: "ssh_host".into(),
+            score: 1.0,
+            primary_action: ActionDescriptor {
+                id: ActionId::new("connect"),
+                label: "Connect".into(),
+                risk: ActionRisk::Safe,
+                confirmation: false,
+            },
+            secondary_actions: vec![],
+            ui_intent: None,
+            action_payload: Some(serde_json::json!({ "alias": "production" })),
+        };
+        let body = module.preview(&preview_item).await.unwrap();
+        assert!(body.contains("favorite: yes"));
+        assert!(body.contains("connection count: 1"));
+        assert!(body.contains("2026-01-01T00:00:00Z"));
+    }
+
+    #[tokio::test]
+    async fn favorites_filter_lists_only_starred() {
+        let module = test_module();
+        let item = SearchItem {
+            id: luma_domain::ResultId::new("ssh:production"),
+            module_id: ModuleId::new("luma.ssh"),
+            title: "production".into(),
+            subtitle: None,
+            kind: "ssh_host".into(),
+            score: 1.0,
+            primary_action: ActionDescriptor {
+                id: ActionId::new("favorite"),
+                label: "Favorite".into(),
+                risk: ActionRisk::Safe,
+                confirmation: false,
+            },
+            secondary_actions: vec![],
+            ui_intent: None,
+            action_payload: Some(serde_json::json!({ "alias": "production" })),
+        };
+        let _ = module
+            .perform(
+                ActionRequest {
+                    result: item,
+                    action: ActionDescriptor {
+                        id: ActionId::new("favorite"),
+                        label: "Favorite".into(),
+                        risk: ActionRisk::Safe,
+                        confirmation: false,
+                    },
+                    confirmation: false,
+                },
+                CancellationToken::new(),
+            )
+            .await;
+        let items = collect_search(&module, "ssh fav").await;
+        assert!(items.iter().any(|i| i.id == "ssh:production"));
+        assert!(!items.iter().any(|i| i.id == "ssh:staging"));
     }
 }

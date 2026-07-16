@@ -46,6 +46,16 @@ impl SshMetaRepository for SqliteSshMetaRepository {
             .map_err(|e| SshMetaRepoError::msg(e.to_string()))
     }
 
+    fn set_display_name(
+        &self,
+        alias: &str,
+        display_name: Option<&str>,
+    ) -> Result<(), SshMetaRepoError> {
+        self.store
+            .set_display_name(alias, display_name)
+            .map_err(|e| SshMetaRepoError::msg(e.to_string()))
+    }
+
     fn record_connection(&self, alias: &str, connected_at: &str) -> Result<(), SshMetaRepoError> {
         self.store
             .record_connection(alias, connected_at)

@@ -136,6 +136,19 @@ impl SshMetaStore {
         Ok(())
     }
 
+    pub fn set_display_name(
+        &self,
+        alias: &str,
+        display_name: Option<&str>,
+    ) -> Result<(), SshMetaStoreError> {
+        self.connect()?.execute(
+            "INSERT INTO ssh_host_meta (alias, display_name) VALUES (?1, ?2)
+             ON CONFLICT(alias) DO UPDATE SET display_name = excluded.display_name",
+            params![alias, display_name],
+        )?;
+        Ok(())
+    }
+
     pub fn record_connection(
         &self,
         alias: &str,
@@ -171,11 +184,13 @@ mod tests {
         let _env = LumaNextTestEnvGuard::override_paths(dir.path(), &dir.path().join("logs"));
         let store = SshMetaStore::luma_next_default().unwrap();
         store.set_favorite("prod", true).unwrap();
+        store.set_display_name("prod", Some("Production")).unwrap();
         store
             .record_connection("prod", "2026-01-01T00:00:00Z")
             .unwrap();
         let row = store.get("prod").unwrap().unwrap();
         assert!(row.favorite);
+        assert_eq!(row.display_name.as_deref(), Some("Production"));
         assert_eq!(row.connection_count, 1);
         store.delete("prod").unwrap();
         assert!(store.get("prod").unwrap().is_none());

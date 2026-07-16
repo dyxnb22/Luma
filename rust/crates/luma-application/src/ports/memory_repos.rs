@@ -1100,6 +1100,26 @@ impl SshMetaRepository for MemorySshMetaRepository {
         Ok(())
     }
 
+    fn set_display_name(
+        &self,
+        alias: &str,
+        display_name: Option<&str>,
+    ) -> Result<(), SshMetaRepoError> {
+        let mut rows = self.rows.lock().expect("lock");
+        let entry = rows
+            .entry(alias.to_string())
+            .or_insert_with(|| SshHostMeta {
+                alias: alias.to_string(),
+                display_name: None,
+                favorite: false,
+                tags: Vec::new(),
+                last_connected_at: None,
+                connection_count: 0,
+            });
+        entry.display_name = display_name.map(str::to_string);
+        Ok(())
+    }
+
     fn record_connection(&self, alias: &str, connected_at: &str) -> Result<(), SshMetaRepoError> {
         let mut rows = self.rows.lock().expect("lock");
         let entry = rows

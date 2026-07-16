@@ -316,7 +316,7 @@ async fn wordbook_review_row_starts_with_start_review_action() {
 #[tokio::test]
 async fn ssh_host_row_matches_actions_contract() {
     use luma_application::{
-        FakeSshConfigPort, FixedClock, MemorySshMetaRepository, ResolvedSshHost,
+        FakePasteboard, FakeSshConfigPort, FixedClock, MemorySshMetaRepository, ResolvedSshHost,
     };
     use luma_modules::SshModule;
 
@@ -335,6 +335,7 @@ async fn ssh_host_row_matches_actions_contract() {
     let m = SshModule::with_deps(
         config,
         Some(Arc::new(MemorySshMetaRepository::new())),
+        Arc::new(FakePasteboard::new()),
         Arc::new(FixedClock::new("2026-01-01", "2026-01-01T00:00:00Z")),
     );
     m.warmup(WarmupContext {

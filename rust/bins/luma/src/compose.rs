@@ -243,6 +243,7 @@ pub fn registry_from_settings(
             Arc::new(SqliteSshMetaRepository::new(s))
                 as Arc<dyn luma_application::SshMetaRepository>
         }),
+        pasteboard.clone(),
         Arc::new(MacClock),
     )))?;
     reg.register(Arc::new(SecretsModule::with_deps(

@@ -30,7 +30,7 @@ Override the config path for tests or tooling with `SSH_CONFIG`.
 | `ssh fav` / `ssh favorites` | Favorites only |
 | `ssh recent` | Hosts with a recorded connection |
 | `ssh reload` / `ssh refresh` | Re-read config and clear `ssh -G` cache |
-| `ssh rename ALIAS NAME` | Set a local display name (Enter or action picker to save) |
+| `ssh rename ALIAS NAME` | Set a local display name (Enter or action picker to save). Prefix is case-insensitive; `NAME` may contain spaces. |
 
 Sorting: **favorite first** → **most recently connected** → relevance score → alias.
 

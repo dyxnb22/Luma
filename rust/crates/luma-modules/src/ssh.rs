@@ -128,7 +128,7 @@ impl SshModule {
     }
 
     fn fuzzy_match(needle: &str, hay: &str) -> bool {
-        hay.to_lowercase().contains(needle)
+        hay.to_lowercase().contains(&needle.to_lowercase())
     }
 
     fn score_host(
@@ -222,6 +222,27 @@ impl SshModule {
         ]
     }
 
+    async fn alias_is_known(&self, alias: &str) -> bool {
+        let cached = self.aliases.read().await;
+        if !cached.is_empty() {
+            return cached.iter().any(|a| a == alias);
+        }
+        drop(cached);
+        self.config
+            .list_aliases()
+            .ok()
+            .is_some_and(|aliases| aliases.iter().any(|a| a == alias))
+    }
+
+    fn meta_unavailable_row(reason: String) -> SearchItem {
+        Self::status_row(
+            "ssh:meta-unavailable",
+            "unavailable",
+            "SSH metadata unavailable",
+            Some(reason),
+        )
+    }
+
     async fn favorite_for_alias(&self, alias: &str) -> bool {
         self.meta_cache
             .read()
@@ -304,8 +325,12 @@ struct RenamePayload {
 }
 
 fn parse_rename_query(rest: &str) -> Option<RenamePayload> {
-    let stripped = rest.trim().strip_prefix("rename ")?;
-    let mut parts = stripped.splitn(2, char::is_whitespace);
+    let rest = rest.trim();
+    if rest.len() < 7 || !rest[..7].eq_ignore_ascii_case("rename ") {
+        return None;
+    }
+    let after_prefix = rest[7..].trim_start();
+    let mut parts = after_prefix.splitn(2, char::is_whitespace);
     let alias = parts.next()?.trim();
     let display_name = parts.next()?.trim();
     if alias.is_empty() || display_name.is_empty() {
@@ -388,6 +413,7 @@ impl LumaModule for SshModule {
 
         let aliases = self.aliases.read().await.clone();
         let meta_map = self.meta_cache.read().await.clone();
+        let meta_error = self.meta_error.read().await.clone();
         let rest = query.rest_raw().trim();
         let rest_check = query.rest_normalized();
 
@@ -502,7 +528,6 @@ impl LumaModule for SshModule {
                 .then_with(|| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal))
                 .then_with(|| a.1.cmp(&b.1))
         });
-
         if rows.is_empty() {
             let row = if favorites_only {
                 Self::status_row(
@@ -533,11 +558,18 @@ impl LumaModule for SshModule {
                     Some(format!("no matches for `{rest}`")),
                 )
             };
-            self.emit_results(&sink, vec![row], vec![]).await;
+            let mut out = vec![row];
+            if let Some(reason) = meta_error.clone() {
+                out.insert(0, Self::meta_unavailable_row(reason));
+            }
+            self.emit_results(&sink, out, vec![]).await;
             return;
         }
 
         let mut items = Vec::new();
+        if let Some(reason) = meta_error {
+            items.push(Self::meta_unavailable_row(reason));
+        }
         if needle.is_empty() && !favorites_only && !recent_only {
             items.push(Self::status_row(
                 "ssh:hint",
@@ -687,6 +719,15 @@ impl LumaModule for SshModule {
             };
         };
 
+        if !self.alias_is_known(&alias).await {
+            return ActionOutcome::Failed {
+                kind: FailureKind::InvalidInput {
+                    field: "alias".into(),
+                    message: format!("unknown ssh host alias: {alias}"),
+                },
+            };
+        }
+
         match action_id {
             "connect" => {
                 if !self.config.ssh_available() {
@@ -815,6 +856,14 @@ impl SshModule {
                 kind: FailureKind::InvalidInput {
                     field: "alias".into(),
                     message: "missing alias".into(),
+                },
+            };
+        }
+        if !self.alias_is_known(alias).await {
+            return ActionOutcome::Failed {
+                kind: FailureKind::InvalidInput {
+                    field: "alias".into(),
+                    message: format!("unknown ssh host alias: {alias}"),
                 },
             };
         }
@@ -1097,6 +1146,56 @@ mod tests {
         assert!(body.contains("favorite: yes"));
         assert!(body.contains("connection count: 1"));
         assert!(body.contains("2026-01-01T00:00:00Z"));
+    }
+
+    #[test]
+    fn parse_rename_accepts_case_insensitive_prefix_and_multi_word_name() {
+        let p = parse_rename_query("Rename prod Production Server").unwrap();
+        assert_eq!(p.alias, "prod");
+        assert_eq!(p.display_name, "Production Server");
+    }
+
+    #[tokio::test]
+    async fn connect_rejects_unknown_alias() {
+        let module = test_module();
+        let item = SearchItem {
+            id: luma_domain::ResultId::new("ssh:unknown"),
+            module_id: ModuleId::new("luma.ssh"),
+            title: "unknown".into(),
+            subtitle: None,
+            kind: "ssh_host".into(),
+            score: 1.0,
+            primary_action: ActionDescriptor {
+                id: ActionId::new("connect"),
+                label: "Connect".into(),
+                risk: ActionRisk::Safe,
+                confirmation: false,
+            },
+            secondary_actions: vec![],
+            ui_intent: None,
+            action_payload: Some(serde_json::json!({ "alias": "unknown" })),
+        };
+        let outcome = module
+            .perform(
+                ActionRequest {
+                    result: item,
+                    action: ActionDescriptor {
+                        id: ActionId::new("connect"),
+                        label: "Connect".into(),
+                        risk: ActionRisk::Safe,
+                        confirmation: false,
+                    },
+                    confirmation: false,
+                },
+                CancellationToken::new(),
+            )
+            .await;
+        assert!(matches!(
+            outcome,
+            ActionOutcome::Failed {
+                kind: FailureKind::InvalidInput { .. },
+            }
+        ));
     }
 
     #[tokio::test]

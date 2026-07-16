@@ -106,6 +106,12 @@ impl SshConfigPort for MacSshConfig {
         if !self.ssh_available() {
             return Err(SshConfigError::msg("ssh command unavailable"));
         }
+        let aliases = self.collect_aliases()?;
+        if !aliases.iter().any(|a| a == alias) {
+            return Err(SshConfigError::msg(format!(
+                "unknown ssh host alias: {alias}"
+            )));
+        }
         let output = Command::new("ssh")
             .args(["-G", alias])
             .output()

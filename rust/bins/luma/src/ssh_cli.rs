@@ -10,9 +10,11 @@ async fn ssh_meta_action(
     registry: ModuleRegistry,
     settings: Option<Arc<dyn SettingsRepository>>,
     query: &str,
+    result_id: &str,
     action_id: &str,
 ) -> Result<(), String> {
-    let (_, outcome) = run_action(registry, query, None, action_id, false, settings).await?;
+    let (_, outcome) =
+        run_action(registry, query, Some(result_id), action_id, false, settings).await?;
     match outcome {
         luma_protocol::ActionOutcomeDto::Success { .. } => Ok(()),
         other => Err(other.display_message()),
@@ -26,7 +28,7 @@ pub async fn ssh_set_favorite(
     favorite: bool,
 ) -> Result<(), String> {
     let action = if favorite { "favorite" } else { "unfavorite" };
-    ssh_meta_action(registry, settings, &format!("ssh {alias}"), action).await
+    ssh_meta_action(registry, settings, "ssh", &format!("ssh:{alias}"), action).await
 }
 
 pub async fn ssh_set_display_name(
@@ -39,6 +41,7 @@ pub async fn ssh_set_display_name(
         registry,
         settings,
         &format!("ssh rename {alias} {name}"),
+        &format!("ssh:rename:{alias}"),
         "rename",
     )
     .await

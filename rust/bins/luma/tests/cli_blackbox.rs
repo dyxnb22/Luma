@@ -719,3 +719,65 @@ fn modules_list_includes_ssh() {
         "expected luma.ssh in modules list: {stdout}"
     );
 }
+
+#[test]
+fn modules_list_includes_ports() {
+    let dir = tempdir().unwrap();
+    let support = dir.path().join("support");
+    let logs = dir.path().join("logs");
+    fs::create_dir_all(&support).unwrap();
+    fs::create_dir_all(&logs).unwrap();
+    let (code, stdout, stderr) = run_luma(&support, &logs, &["modules", "list", "--json"]);
+    assert_eq!(code, 0, "stderr={stderr}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert!(
+        v["modules"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|m| m["id"] == "luma.ports"),
+        "expected luma.ports in modules list: {stdout}"
+    );
+}
+
+#[test]
+fn query_port_bare_trigger_json() {
+    let dir = tempdir().unwrap();
+    let support = dir.path().join("support");
+    let logs = dir.path().join("logs");
+    fs::create_dir_all(&support).unwrap();
+    fs::create_dir_all(&logs).unwrap();
+    let (code, stdout, stderr) = run_luma(&support, &logs, &["query", "port ", "--json"]);
+    assert_eq!(code, 0, "stderr={stderr}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    let results = v["results"].as_array().cloned().unwrap_or_default();
+    assert!(
+        !results.is_empty(),
+        "expected ports results (status or endpoints): {stdout}"
+    );
+    assert!(
+        results.iter().all(|r| {
+            let kind = r["kind"].as_str().unwrap_or("");
+            matches!(
+                kind,
+                "port" | "status" | "unavailable" | "permission_required"
+            )
+        }),
+        "unexpected kinds: {stdout}"
+    );
+}
+
+#[test]
+fn ports_kill_requires_yes() {
+    let dir = tempdir().unwrap();
+    let support = dir.path().join("support");
+    let logs = dir.path().join("logs");
+    fs::create_dir_all(&support).unwrap();
+    fs::create_dir_all(&logs).unwrap();
+    let (code, _stdout, stderr) = run_luma(&support, &logs, &["ports", "kill", "65535"]);
+    assert_ne!(code, 0, "expected failure without --yes");
+    assert!(
+        stderr.contains("yes") || stderr.contains("refusing"),
+        "stderr={stderr}"
+    );
+}

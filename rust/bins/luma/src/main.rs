@@ -1,6 +1,7 @@
 mod cli_output;
 mod cmd_cli;
 mod compose;
+mod ports_cli;
 mod ssh_cli;
 
 use clap::{Parser, Subcommand};
@@ -85,6 +86,11 @@ enum Commands {
     Ssh {
         #[command(subcommand)]
         action: SshCmd,
+    },
+    /// Listening TCP ports and safe process kill.
+    Ports {
+        #[command(subcommand)]
+        action: PortsCmd,
     },
 }
 
@@ -291,6 +297,32 @@ enum SshCmd {
     Unfavorite { alias: String },
     /// Set a local display name for a host.
     Rename { alias: String, name: String },
+}
+
+#[derive(Debug, Subcommand)]
+enum PortsCmd {
+    /// List listening TCP ports (optional filter).
+    List {
+        /// Port number, process name, or label needle.
+        needle: Option<String>,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Name a port for local display (`ports_meta.sqlite`).
+    Name { port: u16, name: String },
+    /// Favorite a listening port.
+    Favorite { port: u16 },
+    /// Unfavorite a port.
+    Unfavorite { port: u16 },
+    /// Kill the process listening on a port (requires --yes).
+    Kill {
+        /// Port number or process needle.
+        target: String,
+        #[arg(long)]
+        force: bool,
+        #[arg(long)]
+        yes: bool,
+    },
 }
 
 #[derive(Debug, Subcommand)]
@@ -874,6 +906,7 @@ async fn main() -> anyhow::Result<()> {
         Some(Commands::Record { action }) => handle_record_command(action)?,
         Some(Commands::Cmd { action }) => cmd_cli::handle_cmd_command(action).await?,
         Some(Commands::Ssh { action }) => handle_ssh_command(action).await?,
+        Some(Commands::Ports { action }) => handle_ports_command(action).await?,
     }
     Ok(())
 }
@@ -1173,6 +1206,55 @@ async fn handle_ssh_command(action: SshCmd) -> anyhow::Result<()> {
             ssh_cli::ssh_set_display_name(load.registry, Some(load.settings), &alias, &name)
                 .await
                 .map_err(anyhow::Error::msg)?;
+        }
+    }
+    Ok(())
+}
+
+async fn handle_ports_command(action: PortsCmd) -> anyhow::Result<()> {
+    let load = load_registry_with_settings().map_err(|e| anyhow::anyhow!("registry: {e}"))?;
+    match action {
+        PortsCmd::List { needle, json } => {
+            let payload =
+                ports_cli::ports_list_json(load.registry, Some(load.settings), needle.as_deref())
+                    .await
+                    .map_err(anyhow::Error::msg)?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&payload)?);
+            } else {
+                let results = payload["results"].as_array().cloned().unwrap_or_default();
+                for item in results {
+                    let title = item["title"].as_str().unwrap_or("");
+                    let subtitle = item["subtitle"].as_str().unwrap_or("");
+                    if subtitle.is_empty() {
+                        println!("{title}");
+                    } else {
+                        println!("{title}\t{subtitle}");
+                    }
+                }
+            }
+        }
+        PortsCmd::Name { port, name } => {
+            ports_cli::ports_name(load.registry, Some(load.settings), port, &name)
+                .await
+                .map_err(anyhow::Error::msg)?;
+        }
+        PortsCmd::Favorite { port } => {
+            ports_cli::ports_set_favorite(load.registry, Some(load.settings), port, true)
+                .await
+                .map_err(anyhow::Error::msg)?;
+        }
+        PortsCmd::Unfavorite { port } => {
+            ports_cli::ports_set_favorite(load.registry, Some(load.settings), port, false)
+                .await
+                .map_err(anyhow::Error::msg)?;
+        }
+        PortsCmd::Kill { target, force, yes } => {
+            let msg =
+                ports_cli::ports_kill(load.registry, Some(load.settings), &target, force, yes)
+                    .await
+                    .map_err(anyhow::Error::msg)?;
+            println!("{msg}");
         }
     }
     Ok(())

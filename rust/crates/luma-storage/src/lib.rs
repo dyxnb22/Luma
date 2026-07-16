@@ -13,6 +13,7 @@ mod notes_index_store;
 mod notes_parse;
 mod notes_scan;
 mod paths;
+mod ports_meta_store;
 mod quicklinks_store;
 mod records_parse;
 mod records_store;
@@ -56,6 +57,7 @@ pub use notes_scan::{
     DEFAULT_MAX_FILE_BYTES,
 };
 pub use paths::{ensure_luma_next_dirs, luma_next_logs_dir, luma_next_support_dir, PathsError};
+pub use ports_meta_store::{PortMetaRow, PortsMetaStore, PortsMetaStoreError};
 pub use quicklinks_store::{QuicklinkRow, QuicklinksStore, QuicklinksStoreError};
 pub use records_store::{
     import_records_with_ledger, now_iso as records_now_iso, preview_import_from_dir,

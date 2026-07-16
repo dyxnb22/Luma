@@ -11,19 +11,19 @@ use luma_application::{
 };
 use luma_modules::{
     AppsModule, ClipboardModule, ClipboardSuppression, CommandRecipesModule, FakeEchoModule,
-    NotesModule, NotesServices, ProjectsModule, ProxyModule, QuicklinksModule, RecordsModule,
-    SecretsModule, SnippetsModule, SshModule, WindowsModule, WordbookModule,
+    NotesModule, NotesServices, PortsModule, ProjectsModule, ProxyModule, QuicklinksModule,
+    RecordsModule, SecretsModule, SnippetsModule, SshModule, WindowsModule, WordbookModule,
 };
 use luma_platform_macos::{
     FilesystemAppsCatalog, MacAccessibility, MacBoundedUtf8FileReader, MacClock, MacKeychain,
     MacMarkdownWatcher, MacMihomoProxyCore, MacNotesWorkspace, MacOpenPath, MacPasteboard,
-    MacProfileStore, MacProjectWorkspace, MacRecipeEnvironment, MacSpeech, MacSshConfig,
-    MacSystemProxy, MacWindowCatalog,
+    MacProcessCatalog, MacProfileStore, MacProjectWorkspace, MacRecipeEnvironment, MacSpeech,
+    MacSshConfig, MacSystemProxy, MacWindowCatalog,
 };
 use luma_storage::{
     luma_next_support_dir, ClipboardStore, CommandRecipesMetaStore, ConfigError, ConfigStore,
-    LumaSettings, NotesIndexStore, NotesScanner, QuicklinksStore, RecordsStore, SnippetsStore,
-    SshMetaStore, WordbookStore,
+    LumaSettings, NotesIndexStore, NotesScanner, PortsMetaStore, QuicklinksStore, RecordsStore,
+    SnippetsStore, SshMetaStore, WordbookStore,
 };
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -266,6 +266,22 @@ pub fn registry_from_settings(
         ssh_meta.map(|s| {
             Arc::new(SqliteSshMetaRepository::new(s))
                 as Arc<dyn luma_application::SshMetaRepository>
+        }),
+        pasteboard.clone(),
+        Arc::new(MacClock),
+    )))?;
+    let ports_meta = match PortsMetaStore::luma_next_default() {
+        Ok(s) => Some(Arc::new(s)),
+        Err(err) => {
+            warn!(%err, "failed to open ports metadata store");
+            None
+        }
+    };
+    reg.register(Arc::new(PortsModule::with_deps(
+        Arc::new(MacProcessCatalog::new()),
+        ports_meta.map(|s| {
+            Arc::new(luma_application::SqlitePortsMetaRepository::new(s))
+                as Arc<dyn luma_application::PortsMetaRepository>
         }),
         pasteboard.clone(),
         Arc::new(MacClock),

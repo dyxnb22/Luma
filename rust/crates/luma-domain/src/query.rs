@@ -129,6 +129,12 @@ fn is_known_prefix(token: &str) -> bool {
             | "px"
             | "rec"
             | "record"
+            | "port"
+            | "ports"
+            | "kill"
+            | "cmd"
+            | "recipe"
+            | "recipes"
     )
 }
 

@@ -230,7 +230,7 @@ pub fn registry_from_settings(
             reason,
         });
     }
-    reg.register(Arc::new(ProjectsModule::with_settings(
+    reg.register(Arc::new(ProjectsModule::with_deps(
         project_roots,
         settings.imported_projects.clone(),
         opener.clone(),

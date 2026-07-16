@@ -205,9 +205,10 @@ impl Engine {
     }
 
     pub(super) fn resolve_enabled_module(
-        g: &EngineInner,
+        g: &mut EngineInner,
         result_id: &str,
     ) -> (Option<luma_domain::SearchItem>, Option<Arc<dyn LumaModule>>) {
+        g.touch_result(result_id);
         let item = g.results_by_id.get(result_id).cloned();
         let module = item.as_ref().and_then(|i| {
             if g.registry.is_enabled(i.module_id.as_str()) {

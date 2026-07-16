@@ -238,12 +238,11 @@ impl Engine {
                 }
                 let evicted = {
                     let mut g = self.inner.lock().await;
-                    let mut evicted = Vec::new();
-                    for item in seeded {
-                        let id = item.id.as_str().to_string();
-                        evicted.extend(g.insert_result(id, item));
-                    }
-                    evicted
+                    g.insert_results_batch(
+                        seeded
+                            .into_iter()
+                            .map(|item| (item.id.as_str().to_string(), item)),
+                    )
                 };
                 if !evicted.is_empty() {
                     let _ = self
@@ -607,14 +606,14 @@ impl Engine {
                         example: word.example,
                     });
                 }
-                let mut evicted = Vec::new();
-                {
+                let evicted = {
                     let mut g = self.inner.lock().await;
-                    for item in review_items {
-                        let id = item.id.as_str().to_string();
-                        evicted.extend(g.insert_result(id, item));
-                    }
-                }
+                    g.insert_results_batch(
+                        review_items
+                            .into_iter()
+                            .map(|item| (item.id.as_str().to_string(), item)),
+                    )
+                };
                 if !evicted.is_empty() {
                     let _ = self
                         .emit(Event::ResultsChunk {

@@ -262,15 +262,15 @@ impl Engine {
                             .into_iter()
                             .filter(|u| g.registry.is_enabled(&u.module_id))
                             .collect();
-                        let mut evicted = Vec::new();
-                        for u in &upserts {
-                            let id = u.id.clone();
-                            evicted.extend(g.insert_result(id, u.clone().into_domain()));
-                        }
-                        for id in &removed_ids {
+                        let mut all_removed = removed_ids;
+                        for id in &all_removed {
                             g.remove_result(id);
                         }
-                        let mut all_removed = removed_ids;
+                        let batch: Vec<_> = upserts
+                            .iter()
+                            .map(|u| (u.id.clone(), u.clone().into_domain()))
+                            .collect();
+                        let evicted = g.insert_results_batch(batch);
                         all_removed.extend(evicted);
                         if upserts.is_empty() && all_removed.is_empty() {
                             continue;

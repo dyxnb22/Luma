@@ -10,8 +10,8 @@ impl Engine {
         confirmation: bool,
     ) {
         let (item, module) = {
-            let g = self.inner.lock().await;
-            Self::resolve_enabled_module(&g, &result_id)
+            let mut g = self.inner.lock().await;
+            Self::resolve_enabled_module(&mut g, &result_id)
         };
         let cancel = {
             let mut g = self.inner.lock().await;
@@ -137,8 +137,8 @@ impl Engine {
 
     pub(super) async fn handle_list_actions(&self, result_id: String) {
         let (item, module) = {
-            let g = self.inner.lock().await;
-            Self::resolve_enabled_module(&g, &result_id)
+            let mut g = self.inner.lock().await;
+            Self::resolve_enabled_module(&mut g, &result_id)
         };
         let actions = match (item, module) {
             (Some(result), Some(module)) => {
@@ -157,8 +157,8 @@ impl Engine {
 
     pub(super) async fn handle_load_preview(&self, result_id: String, preview_id: u64) {
         let (item, module) = {
-            let g = self.inner.lock().await;
-            Self::resolve_enabled_module(&g, &result_id)
+            let mut g = self.inner.lock().await;
+            Self::resolve_enabled_module(&mut g, &result_id)
         };
         let body = match (item, module) {
             (Some(result), Some(module)) => {

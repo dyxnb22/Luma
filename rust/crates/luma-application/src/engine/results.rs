@@ -19,6 +19,36 @@ impl EngineInner {
         }
     }
 
+    /// Move an existing result to the end of the order queue (recently used).
+    /// Reduces chance that an actively selected result is FIFO-evicted by Hub/review inserts.
+    pub(crate) fn touch_result(&mut self, id: &str) {
+        if !self.results_by_id.contains_key(id) {
+            return;
+        }
+        if let Some(pos) = self.result_order.iter().position(|existing| existing == id) {
+            if let Some(owned) = self.result_order.remove(pos) {
+                self.result_order.push_back(owned);
+            }
+        }
+    }
+
+    /// Evict oldest results until there is room for `additional_new` new inserts without
+    /// mid-batch self-eviction (important for Wordbook review / Hub / large search chunks).
+    pub(crate) fn reserve_capacity(&mut self, additional_new: usize) -> Vec<String> {
+        let need = additional_new.min(MAX_ENGINE_RESULTS);
+        let target = MAX_ENGINE_RESULTS.saturating_sub(need);
+        let mut removed = Vec::new();
+        while self.results_by_id.len() > target {
+            let Some(oldest) = self.result_order.pop_front() else {
+                break;
+            };
+            if self.results_by_id.remove(&oldest).is_some() {
+                removed.push(oldest);
+            }
+        }
+        removed
+    }
+
     pub(crate) fn evict_overflow_results(&mut self) -> Vec<String> {
         let mut removed = Vec::new();
         while self.results_by_id.len() > MAX_ENGINE_RESULTS {
@@ -45,6 +75,24 @@ impl EngineInner {
             self.result_order.push_back(id);
         }
         self.evict_overflow_results()
+    }
+
+    /// Insert a batch of results, reserving capacity first so early items in the batch are not
+    /// evicted by later items in the same batch.
+    pub(crate) fn insert_results_batch(
+        &mut self,
+        items: impl IntoIterator<Item = (String, luma_domain::SearchItem)>,
+    ) -> Vec<String> {
+        let items: Vec<_> = items.into_iter().collect();
+        let new_count = items
+            .iter()
+            .filter(|(id, _)| !self.results_by_id.contains_key(id))
+            .count();
+        let mut removed = self.reserve_capacity(new_count);
+        for (id, item) in items {
+            removed.extend(self.insert_result(id, item));
+        }
+        removed
     }
 }
 
@@ -134,5 +182,58 @@ mod tests {
         inner.clear_results();
         assert!(inner.results_by_id.is_empty());
         assert!(inner.result_order.is_empty());
+    }
+
+    #[test]
+    fn touch_result_moves_to_end() {
+        let mut inner = test_inner();
+        inner.insert_result("a".into(), sample_item("a"));
+        inner.insert_result("b".into(), sample_item("b"));
+        inner.insert_result("c".into(), sample_item("c"));
+        inner.touch_result("a");
+        assert_eq!(
+            inner.result_order.iter().cloned().collect::<Vec<_>>(),
+            vec!["b".to_string(), "c".into(), "a".into()]
+        );
+    }
+
+    #[test]
+    fn batch_insert_preserves_early_items_when_cache_full() {
+        let mut inner = test_inner();
+        for i in 0..100 {
+            inner.insert_result(format!("old-{i}"), sample_item(&format!("old-{i}")));
+        }
+        let batch: Vec<_> = (0..500)
+            .map(|i| {
+                let id = format!("wb:{i}");
+                (id.clone(), sample_item(&id))
+            })
+            .collect();
+        let removed = inner.insert_results_batch(batch);
+        assert_eq!(inner.results_by_id.len(), MAX_ENGINE_RESULTS);
+        assert!(removed.iter().all(|id| id.starts_with("old-")));
+        assert!(inner.results_by_id.contains_key("wb:0"));
+        assert!(inner.results_by_id.contains_key("wb:499"));
+        assert_eq!(
+            (0..500)
+                .filter(|i| inner.results_by_id.contains_key(&format!("wb:{i}")))
+                .count(),
+            500
+        );
+    }
+
+    #[test]
+    fn touched_result_survives_overflow_eviction() {
+        let mut inner = test_inner();
+        for i in 0..MAX_ENGINE_RESULTS {
+            inner.insert_result(format!("r{i}"), sample_item(&format!("r{i}")));
+        }
+        inner.touch_result("r0");
+        let removed = inner.insert_result(
+            format!("r{}", MAX_ENGINE_RESULTS),
+            sample_item(&format!("r{}", MAX_ENGINE_RESULTS)),
+        );
+        assert_eq!(removed, vec!["r1".to_string()]);
+        assert!(inner.results_by_id.contains_key("r0"));
     }
 }

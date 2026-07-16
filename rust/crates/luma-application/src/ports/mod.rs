@@ -76,7 +76,7 @@ pub use proxy_core::{
 pub use quicklinks_repo::{QuicklinkEntry, QuicklinksRepoError, QuicklinksRepository};
 pub use recipe_environment::{
     recipe_in_scope, recipe_runnable, resolve_steps, select_best_variant, CommandRunnerPort,
-    PathKind, RecipeEnvironmentError, RecipeEnvironmentPort,
+    PathKind, RecipeEnvironmentError, RecipeEnvironmentPort, RecipeStdioMode,
 };
 pub use records_repo::{
     RecordCategory, RecordEntry, RecordImportPreviewView, RecordImportReportView, RecordsRepoError,

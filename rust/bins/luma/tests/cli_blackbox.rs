@@ -136,6 +136,70 @@ fn cmd_show_missing_recipe_errors() {
 }
 
 #[test]
+fn cmd_run_json_stdout_is_pure_json() {
+    let dir = tempdir().unwrap();
+    let support = dir.path().join("support");
+    let logs = dir.path().join("logs");
+    fs::create_dir_all(&support).unwrap();
+    fs::create_dir_all(&logs).unwrap();
+    // show-env would otherwise print env lines; --json must null child stdio.
+    let (code, stdout, stderr) = run_luma(
+        &support,
+        &logs,
+        &["cmd", "run", "show-env", "--confirmation", "--json"],
+    );
+    assert_eq!(code, 0, "stderr={stderr} stdout={stdout}");
+    let v: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap_or_else(|e| {
+        panic!("stdout must be pure JSON (no child stdio mix): {e}; stdout={stdout:?}");
+    });
+    assert_eq!(v["recipe_id"], "show-env");
+    assert_eq!(v["outcome"], "success");
+    assert!(
+        !stdout.contains("PATH="),
+        "child env output must not leak into --json stdout: {stdout}"
+    );
+}
+
+#[test]
+fn action_run_executes_recipe_not_silent_success() {
+    let dir = tempdir().unwrap();
+    let support = dir.path().join("support");
+    let logs = dir.path().join("logs");
+    fs::create_dir_all(&support).unwrap();
+    fs::create_dir_all(&logs).unwrap();
+    let (code, stdout, stderr) = run_luma(
+        &support,
+        &logs,
+        &[
+            "action",
+            "run",
+            "--query",
+            "cmd show-env",
+            "--action-id",
+            "run",
+            "--confirmation",
+            "--json",
+        ],
+    );
+    assert_eq!(code, 0, "stderr={stderr} stdout={stdout}");
+    let v: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap();
+    assert_eq!(v["action_id"], "run");
+    let outcome = &v["outcome"];
+    assert!(
+        outcome.get("interactive_recipe_run").is_none(),
+        "action run must execute recipe, not return bare InteractiveRecipeRun: {outcome}"
+    );
+    let message = outcome
+        .pointer("/success/message")
+        .and_then(|m| m.as_str())
+        .unwrap_or("");
+    assert!(
+        outcome.get("success").is_some() && message.contains("finished"),
+        "expected executed success outcome, got {outcome}"
+    );
+}
+
+#[test]
 fn config_get_and_set_round_trip() {
     let dir = tempdir().unwrap();
     let support = dir.path().join("support");
@@ -695,7 +759,18 @@ fn ssh_query_not_configured_without_ssh_config() {
     let logs = dir.path().join("logs");
     fs::create_dir_all(&support).unwrap();
     fs::create_dir_all(&logs).unwrap();
-    let (code, stdout, stderr) = run_luma(&support, &logs, &["query", "ssh", "--json"]);
+    // Isolate from the developer's real ~/.ssh/config (MacSshConfig honors SSH_CONFIG).
+    let missing_config = dir.path().join("missing-ssh-config");
+    let out = Command::new(luma_bin())
+        .args(["query", "ssh", "--json"])
+        .env("LUMA_NEXT_SUPPORT_DIR", &support)
+        .env("LUMA_NEXT_LOGS_DIR", &logs)
+        .env("SSH_CONFIG", &missing_config)
+        .output()
+        .expect("spawn luma");
+    let code = out.status.code().unwrap_or(1);
+    let stdout = String::from_utf8_lossy(&out.stdout).into_owned();
+    let stderr = String::from_utf8_lossy(&out.stderr).into_owned();
     assert_eq!(code, 0, "stderr={stderr}");
     let v: serde_json::Value = serde_json::from_str(&stdout).unwrap();
     let results = v["results"].as_array().expect("results");

@@ -14,6 +14,8 @@ pub trait AccessibilityPort: Send + Sync {
     fn is_trusted(&self) -> bool;
     /// Paste whatever is currently on the pasteboard via Cmd+V.
     async fn paste_clipboard(&self) -> Result<(), AccessibilityError>;
+    /// Invalidate pending AX work and wait for an already-started side effect to finish.
+    fn abandon_pending_ax_ops(&self) {}
 }
 
 /// Deterministic fake for module tests.

@@ -39,6 +39,14 @@ Related: [MODULES.md](./MODULES.md), [ADR-0001](./adr/0001-rust-tui-product-shap
    Modules do not call Mac APIs or open stores directly; they take ports/repos.
 6. **TUI I/O** — `update` / `render` stay pure; Effects own I/O (ADR-0001).
 7. **No doctor** — module-local status rows only.
+7a. **Freeze central Command/Event special-cases** — do not add new module-specific
+   arms to `Engine::handle_command` / protocol `Command` / `Event` for the next module.
+   Prefer module `perform` + ports, or an `engine/extensions/` helper if an existing
+   Wordbook / Recipes / SSH-style path must grow. Extract opportunistically when touching
+   those files; do not invent a plugin ABI.
+7b. **`enabled_modules` keys are sticky** — settings.toml stores enable flags by module id
+   string. Renaming a module id leaves the old key in place (no automatic migration);
+   update docs and clean stale keys when renaming.
 
 ### Docs that must stay true
 

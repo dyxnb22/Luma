@@ -1,14 +1,20 @@
-use crate::ports::CommandRunnerPort;
+use crate::ports::{CommandRunnerPort, RecipeStdioMode};
 use luma_domain::{looks_secret, ResolvedCommandStep, StepRunResult};
 use std::sync::{Arc, Mutex};
 use tokio_util::sync::CancellationToken;
 
 type RunnerCall = (String, String, Vec<String>);
 
+#[derive(Clone, Copy, Debug)]
+enum FakeStepOutcome {
+    Exit(i32),
+    Signal,
+}
+
 #[derive(Default)]
 pub struct FakeCommandRunner {
     pub calls: Arc<Mutex<Vec<RunnerCall>>>,
-    exit_codes: Mutex<Vec<i32>>,
+    outcomes: Mutex<Vec<FakeStepOutcome>>,
 }
 
 impl FakeCommandRunner {
@@ -17,23 +23,62 @@ impl FakeCommandRunner {
     }
 
     pub fn push_exit_code(&self, code: i32) {
-        self.exit_codes.lock().expect("lock").push(code);
+        self.outcomes
+            .lock()
+            .expect("lock")
+            .push(FakeStepOutcome::Exit(code));
+    }
+
+    pub fn push_signal_termination(&self) {
+        self.outcomes
+            .lock()
+            .expect("lock")
+            .push(FakeStepOutcome::Signal);
     }
 }
 
 impl CommandRunnerPort for FakeCommandRunner {
-    fn run_step(&self, step: &ResolvedCommandStep, _cancel: &CancellationToken) -> StepRunResult {
+    fn run_step(
+        &self,
+        step: &ResolvedCommandStep,
+        cancel: &CancellationToken,
+        _stdio: RecipeStdioMode,
+    ) -> StepRunResult {
+        if cancel.is_cancelled() {
+            return StepRunResult {
+                step_id: step.id.clone(),
+                exit_code: None,
+                started: false,
+                cancelled: true,
+                message: Some("cancelled".into()),
+            };
+        }
         self.calls.lock().expect("lock").push((
             step.id.clone(),
             step.program.clone(),
             step.args.clone(),
         ));
-        let code = self.exit_codes.lock().expect("lock").pop().unwrap_or(0);
-        StepRunResult {
-            step_id: step.id.clone(),
-            exit_code: Some(code),
-            started: true,
-            message: None,
+        match self
+            .outcomes
+            .lock()
+            .expect("lock")
+            .pop()
+            .unwrap_or(FakeStepOutcome::Exit(0))
+        {
+            FakeStepOutcome::Exit(code) => StepRunResult {
+                step_id: step.id.clone(),
+                exit_code: Some(code),
+                started: true,
+                cancelled: false,
+                message: None,
+            },
+            FakeStepOutcome::Signal => StepRunResult {
+                step_id: step.id.clone(),
+                exit_code: None,
+                started: true,
+                cancelled: true,
+                message: Some("terminated by signal".into()),
+            },
         }
     }
 }
@@ -151,8 +196,9 @@ mod tests {
             root: PathBuf::from("/tmp"),
             continue_on_error: false,
         };
-        let result = runner.run_step(&step, &CancellationToken::new());
+        let result = runner.run_step(&step, &CancellationToken::new(), RecipeStdioMode::Inherit);
         assert_eq!(result.exit_code, Some(0));
+        assert!(!result.cancelled);
         assert_eq!(runner.calls.lock().unwrap().len(), 1);
     }
 

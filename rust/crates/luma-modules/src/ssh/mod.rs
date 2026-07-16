@@ -397,7 +397,7 @@ mod tests {
         match outcome {
             ActionOutcome::InteractiveTerminal { program, args, .. } => {
                 assert_eq!(program, "ssh");
-                assert_eq!(args, vec!["production"]);
+                assert_eq!(args, vec!["--".to_string(), "production".to_string()]);
             }
             other => panic!("expected interactive, got {other:?}"),
         }

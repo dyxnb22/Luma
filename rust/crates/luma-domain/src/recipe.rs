@@ -202,5 +202,7 @@ pub struct StepRunResult {
     pub step_id: String,
     pub exit_code: Option<i32>,
     pub started: bool,
+    /// True when the step was cancelled (token or signal) rather than failed.
+    pub cancelled: bool,
     pub message: Option<String>,
 }

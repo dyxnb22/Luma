@@ -33,7 +33,7 @@ impl ActionDescriptorDto {
     }
 
     pub fn needs_confirmation(&self) -> bool {
-        self.confirmation || !matches!(self.risk, ActionRisk::Safe)
+        luma_domain::action_needs_confirmation(self.confirmation, &self.risk)
     }
 }
 
@@ -226,22 +226,17 @@ impl ActionOutcomeDto {
         matches!(self, Self::InteractiveTerminal { .. })
     }
 
-    /// TUI status copy (prefer explicit message, else FailureKind::user_message).
+    /// TUI status copy: prefer an explicit non-taxonomy message, else `FailureKind::user_message`.
+    ///
+    /// `failed()` stores `kind.display_message()` (taxonomy prefixes). Treat that as absent so
+    /// the UI shows the short user copy rather than filtering prefix strings.
     pub fn user_message(&self) -> String {
         match self {
             Self::Success { message } => message.clone().unwrap_or_else(|| "ok".into()),
             Self::Failed { message, kind } => message
-                .clone()
-                .filter(|m| {
-                    !m.starts_with("not_configured:")
-                        && !m.starts_with("permission_required")
-                        && !m.starts_with("unavailable")
-                        && !m.starts_with("invalid_input")
-                        && !m.starts_with("security_denied")
-                        && !m.starts_with("conflict:")
-                        && !m.starts_with("io:")
-                        && !m.starts_with("internal")
-                })
+                .as_ref()
+                .filter(|m| *m != &kind.display_message())
+                .cloned()
                 .unwrap_or_else(|| kind.user_message()),
             Self::Cancelled => "Cancelled".into(),
             Self::InteractiveRecipeRun { .. } => "Running recipe…".into(),
@@ -415,6 +410,26 @@ mod tests {
             .as_str()
             .unwrap()
             .contains("permission_required"));
+    }
+
+    #[test]
+    fn user_message_strips_taxonomy_display_message() {
+        let outcome = ActionOutcomeDto::failed(FailureKind::NotConfigured {
+            remediation: "bootstrap secrets".into(),
+        });
+        assert_eq!(outcome.user_message(), "bootstrap secrets");
+    }
+
+    #[test]
+    fn user_message_keeps_custom_non_taxonomy_message() {
+        let outcome = ActionOutcomeDto::Failed {
+            kind: FailureKind::Unavailable {
+                reason: "backend down".into(),
+                retryable: true,
+            },
+            message: Some("try again later".into()),
+        };
+        assert_eq!(outcome.user_message(), "try again later");
     }
 
     #[test]

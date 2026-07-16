@@ -130,6 +130,11 @@ pub trait LumaModule: Send + Sync {
             .or_else(|| Some(result.title.clone()))
     }
 
+    /// Cheap capability flag: LoadHub only awaits [`hub_windows`] when true.
+    fn supports_hub_windows(&self) -> bool {
+        false
+    }
+
     /// Optional Hub windows slice (previous-frontmost app). Default: none.
     async fn hub_windows(&self) -> Option<HubWindowsSlice> {
         None

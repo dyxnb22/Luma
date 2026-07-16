@@ -1,4 +1,7 @@
-//! macOS adapters. No business rules; modules call these via ports.
+//! macOS host adapters (filesystem catalogs, pasteboard, proxy, SSH config, AX, windows, …).
+//!
+//! No business rules — modules call these via ports. Most code is safe I/O and parsing;
+//! unsafe FFI is confined to accessibility/window helpers when the platform API requires it.
 
 mod accessibility;
 mod apps;

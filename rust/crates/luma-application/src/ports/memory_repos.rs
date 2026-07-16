@@ -1188,13 +1188,17 @@ impl TimersRepository for MemoryTimersRepository {
         Ok(())
     }
 
-    fn update(&self, entry: &TimerEntry) -> Result<(), TimersRepoError> {
+    fn update(
+        &self,
+        entry: &TimerEntry,
+        expected_updated_at_ms: i64,
+    ) -> Result<(), TimersRepoError> {
         let mut rows = self.rows.lock().expect("lock");
-        if !rows.contains_key(&entry.id) {
-            return Err(TimersRepoError::msg(format!(
-                "timer not found: {}",
-                entry.id
-            )));
+        let Some(existing) = rows.get(&entry.id) else {
+            return Err(TimersRepoError::Conflict);
+        };
+        if existing.updated_at_ms != expected_updated_at_ms {
+            return Err(TimersRepoError::Conflict);
         }
         rows.insert(entry.id.clone(), entry.clone());
         Ok(())

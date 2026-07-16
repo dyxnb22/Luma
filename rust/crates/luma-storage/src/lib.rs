@@ -65,8 +65,8 @@ pub use records_store::{
 };
 pub use snippets_store::{SnippetRow, SnippetsStore, SnippetsStoreError};
 pub use ssh_config_parse::{
-    collect_aliases_from_file, host_pattern_is_wildcard, parse_host_aliases, parse_include_paths,
-    resolve_include_path,
+    collect_aliases_from_file, host_alias_is_unsafe, host_pattern_is_wildcard, parse_host_aliases,
+    parse_include_paths, resolve_include_path,
 };
 pub use ssh_meta_store::{SshHostMetaRow, SshMetaStore, SshMetaStoreError};
 pub use timers_store::{TimerRow, TimersStore, TimersStoreError};

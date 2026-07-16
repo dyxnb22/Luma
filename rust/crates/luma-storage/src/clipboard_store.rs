@@ -6,6 +6,14 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use thiserror::Error;
 
+/// Soft cap on unpinned history rows. Pinned rows are never evicted and do not
+/// count toward this limit. Chosen for personal daily use (keeps DB small).
+pub const MAX_UNPINNED_ROWS: usize = 500;
+
+/// Max UTF-8 bytes accepted per clipboard entry on insert.
+/// Oversized pasteboard values are rejected (not truncated).
+pub const MAX_ENTRY_BYTES: usize = 256 * 1024;
+
 #[derive(Debug, Error)]
 pub enum ClipboardStoreError {
     #[error(transparent)]
@@ -14,6 +22,8 @@ pub enum ClipboardStoreError {
     Sqlite(#[from] rusqlite::Error),
     #[error("io: {0}")]
     Io(#[from] std::io::Error),
+    #[error("{0}")]
+    Msg(String),
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -71,16 +81,41 @@ impl ClipboardStore {
     }
 
     pub fn insert(&self, text: &str, pinned: bool) -> Result<i64, ClipboardStoreError> {
+        if text.len() > MAX_ENTRY_BYTES {
+            return Err(ClipboardStoreError::Msg(format!(
+                "clipboard entry exceeds max size ({MAX_ENTRY_BYTES} bytes)"
+            )));
+        }
         let conn = self.connect()?;
+        let tx = conn.unchecked_transaction()?;
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_secs() as i64)
             .unwrap_or(0);
-        conn.execute(
+        tx.execute(
             "INSERT INTO clipboard_entries (text, pinned, created_at) VALUES (?1, ?2, ?3)",
             params![text, pinned as i64, now],
         )?;
-        Ok(conn.last_insert_rowid())
+        let id = tx.last_insert_rowid();
+        // Evict oldest unpinned rows when over the soft cap (pinned exempt).
+        let unpinned: i64 = tx.query_row(
+            "SELECT COUNT(*) FROM clipboard_entries WHERE pinned = 0",
+            [],
+            |r| r.get(0),
+        )?;
+        if unpinned > MAX_UNPINNED_ROWS as i64 {
+            let excess = unpinned - MAX_UNPINNED_ROWS as i64;
+            tx.execute(
+                "DELETE FROM clipboard_entries WHERE id IN (
+                    SELECT id FROM clipboard_entries WHERE pinned = 0
+                    ORDER BY created_at ASC, id ASC
+                    LIMIT ?1
+                 )",
+                params![excess],
+            )?;
+        }
+        tx.commit()?;
+        Ok(id)
     }
 
     pub fn search(
@@ -276,5 +311,51 @@ mod tests {
         assert_eq!(store.purge_older_than_days(1).unwrap(), 1);
         assert_eq!(store.count().unwrap(), 1);
         assert_eq!(store.list_page(0, 10).unwrap()[0].text, "keep");
+    }
+
+    #[test]
+    fn insert_rejects_oversized_entry() {
+        let dir = tempdir().unwrap();
+        let store = ClipboardStore::with_path(dir.path().join("c.sqlite")).unwrap();
+        let huge = "x".repeat(MAX_ENTRY_BYTES + 1);
+        let err = store.insert(&huge, false).unwrap_err().to_string();
+        assert!(err.contains("max size"), "{err}");
+        assert_eq!(store.count().unwrap(), 0);
+    }
+
+    #[test]
+    fn insert_evicts_oldest_unpinned_over_cap() {
+        let dir = tempdir().unwrap();
+        let store = ClipboardStore::with_path(dir.path().join("c.sqlite")).unwrap();
+        // Seed just over the unpinned cap via direct SQL for speed, then insert once.
+        let conn = rusqlite::Connection::open(store.path()).unwrap();
+        for i in 0..MAX_UNPINNED_ROWS {
+            conn.execute(
+                "INSERT INTO clipboard_entries (text, pinned, created_at) VALUES (?1, 0, ?2)",
+                params![format!("row-{i}"), i as i64],
+            )
+            .unwrap();
+        }
+        conn.execute(
+            "INSERT INTO clipboard_entries (text, pinned, created_at) VALUES ('pinned-keep', 1, 0)",
+            [],
+        )
+        .unwrap();
+        drop(conn);
+
+        store.insert("newest", false).unwrap();
+        let unpinned: i64 = {
+            let conn = rusqlite::Connection::open(store.path()).unwrap();
+            conn.query_row(
+                "SELECT COUNT(*) FROM clipboard_entries WHERE pinned = 0",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap()
+        };
+        assert_eq!(unpinned, MAX_UNPINNED_ROWS as i64);
+        assert!(store.search("pinned-keep", 5).unwrap().len() == 1);
+        assert!(store.search("newest", 5).unwrap().len() == 1);
+        assert!(store.search("row-0", 5).unwrap().is_empty());
     }
 }

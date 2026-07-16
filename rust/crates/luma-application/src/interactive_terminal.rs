@@ -43,14 +43,14 @@ pub fn run_interactive_terminal(
         .map_err(|e| InteractiveTerminalError::spawn(program, e))
 }
 
-/// Build ssh connect args: `ssh <alias>` as discrete argv entries.
+/// Build ssh connect args: `ssh -- <alias>` as discrete argv entries.
 pub fn ssh_connect_args(alias: &str) -> Vec<String> {
-    vec![alias.to_string()]
+    vec!["--".into(), alias.to_string()]
 }
 
-/// Build sftp args: `sftp <alias>` as discrete argv entries.
+/// Build sftp args: `sftp -- <alias>` as discrete argv entries.
 pub fn sftp_args(alias: &str) -> Vec<String> {
-    vec![alias.to_string()]
+    vec!["--".into(), alias.to_string()]
 }
 
 #[cfg(test)]
@@ -58,19 +58,31 @@ mod tests {
     use super::*;
 
     #[test]
-    fn ssh_args_are_alias_only() {
-        assert_eq!(ssh_connect_args("production"), vec!["production"]);
-        assert_eq!(sftp_args("staging"), vec!["staging"]);
+    fn ssh_args_use_end_of_options_before_alias() {
+        assert_eq!(
+            ssh_connect_args("production"),
+            vec!["--".to_string(), "production".to_string()]
+        );
+        assert_eq!(
+            sftp_args("staging"),
+            vec!["--".to_string(), "staging".to_string()]
+        );
     }
 
     #[test]
     fn run_true_exits_zero() {
+        if !std::path::Path::new("/bin/true").exists() {
+            return;
+        }
         let status = run_interactive_terminal("/bin/true", &[]).expect("spawn");
         assert!(status.success());
     }
 
     #[test]
     fn run_false_exits_nonzero() {
+        if !std::path::Path::new("/bin/false").exists() {
+            return;
+        }
         let status = run_interactive_terminal("/bin/false", &[]).expect("spawn");
         assert!(!status.success());
     }

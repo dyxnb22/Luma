@@ -3,6 +3,12 @@ use rusqlite::{params, Connection};
 use std::path::PathBuf;
 use thiserror::Error;
 
+/// Max UTF-8 bytes for a snippet body on upsert (personal-use guardrail).
+pub const MAX_BODY_BYTES: usize = 64 * 1024;
+
+/// Max UTF-8 bytes for a snippet trigger on upsert.
+pub const MAX_TRIGGER_BYTES: usize = 1024;
+
 #[derive(Debug, Error)]
 pub enum SnippetsStoreError {
     #[error(transparent)]
@@ -11,6 +17,8 @@ pub enum SnippetsStoreError {
     Sqlite(#[from] rusqlite::Error),
     #[error("io: {0}")]
     Io(#[from] std::io::Error),
+    #[error("{0}")]
+    Msg(String),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -80,6 +88,16 @@ impl SnippetsStore {
     }
 
     pub fn upsert(&self, trigger: &str, body: &str) -> Result<(), SnippetsStoreError> {
+        if trigger.len() > MAX_TRIGGER_BYTES {
+            return Err(SnippetsStoreError::Msg(format!(
+                "snippet trigger exceeds max size ({MAX_TRIGGER_BYTES} bytes)"
+            )));
+        }
+        if body.len() > MAX_BODY_BYTES {
+            return Err(SnippetsStoreError::Msg(format!(
+                "snippet body exceeds max size ({MAX_BODY_BYTES} bytes)"
+            )));
+        }
         self.connect()?.execute(
             "INSERT INTO snippets (trigger, body) VALUES (?1, ?2)
              ON CONFLICT(trigger) DO UPDATE SET body = excluded.body",
@@ -92,5 +110,31 @@ impl SnippetsStore {
         self.connect()?
             .execute("DELETE FROM snippets WHERE trigger = ?1", params![trigger])?;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::tempdir;
+
+    #[test]
+    fn upsert_get_delete() {
+        let dir = tempdir().unwrap();
+        let store = SnippetsStore::with_path(dir.path().join("sn.sqlite")).unwrap();
+        store.upsert(";sig", "Thanks,\nMe").unwrap();
+        assert_eq!(store.get(";sig").unwrap().unwrap().body, "Thanks,\nMe");
+        store.delete(";sig").unwrap();
+        assert!(store.get(";sig").unwrap().is_none());
+    }
+
+    #[test]
+    fn upsert_rejects_oversized_body() {
+        let dir = tempdir().unwrap();
+        let store = SnippetsStore::with_path(dir.path().join("sn.sqlite")).unwrap();
+        let huge = "x".repeat(MAX_BODY_BYTES + 1);
+        let err = store.upsert(";big", &huge).unwrap_err().to_string();
+        assert!(err.contains("max size"), "{err}");
+        assert!(store.list().unwrap().is_empty());
     }
 }

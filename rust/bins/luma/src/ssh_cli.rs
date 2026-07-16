@@ -13,8 +13,18 @@ async fn ssh_meta_action(
     result_id: &str,
     action_id: &str,
 ) -> Result<(), String> {
-    let (_, outcome) =
-        run_action(registry, query, Some(result_id), action_id, false, settings).await?;
+    let (_, outcome) = run_action(
+        registry,
+        query,
+        Some(result_id),
+        action_id,
+        false,
+        luma_application::RunActionOptions {
+            settings,
+            ..Default::default()
+        },
+    )
+    .await?;
     match outcome {
         luma_protocol::ActionOutcomeDto::Success { .. } => Ok(()),
         other => Err(other.display_message()),

@@ -534,7 +534,14 @@ impl NotesIndexStore {
 
     pub fn clear_all(&self) -> Result<(), NotesIndexStoreError> {
         let conn = self.connect()?;
-        conn.execute_batch(
+        let tx = conn.unchecked_transaction()?;
+        Self::clear_all_tx(&tx)?;
+        tx.commit()?;
+        Ok(())
+    }
+
+    pub(crate) fn clear_all_tx(tx: &rusqlite::Transaction<'_>) -> Result<(), NotesIndexStoreError> {
+        tx.execute_batch(
             r#"
             DELETE FROM documents;
             DELETE FROM documents_fts;
@@ -566,7 +573,17 @@ impl NotesIndexStore {
     ) -> Result<(), NotesIndexStoreError> {
         let conn = self.connect()?;
         let tx = conn.unchecked_transaction()?;
-        // Latest-scan semantics: wipe prior issues, then insert this scan's set.
+        Self::replace_issues_for_scan_tx(&tx, scan_id, issues)?;
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// Latest-scan semantics: wipe prior issues, then insert this scan's set.
+    pub(crate) fn replace_issues_for_scan_tx(
+        tx: &rusqlite::Transaction<'_>,
+        scan_id: i64,
+        issues: &[ScanIssueRow],
+    ) -> Result<(), NotesIndexStoreError> {
         tx.execute("DELETE FROM scan_issues", [])?;
         for issue in issues {
             tx.execute(
@@ -582,7 +599,6 @@ impl NotesIndexStore {
                 ],
             )?;
         }
-        tx.commit()?;
         Ok(())
     }
 
@@ -755,18 +771,31 @@ impl NotesIndexStore {
     }
 
     pub fn prune_except(&self, keep: &[String]) -> Result<usize, NotesIndexStoreError> {
-        let existing = self.list_documents()?;
+        let conn = self.connect()?;
+        let tx = conn.unchecked_transaction()?;
+        let pruned = Self::prune_except_tx(&tx, keep)?;
+        tx.commit()?;
+        Ok(pruned)
+    }
+
+    pub(crate) fn prune_except_tx(
+        tx: &rusqlite::Transaction<'_>,
+        keep: &[String],
+    ) -> Result<usize, NotesIndexStoreError> {
+        let mut stmt = tx.prepare("SELECT relative_path FROM documents ORDER BY relative_path")?;
+        let existing: Vec<String> = stmt
+            .query_map([], |row| row.get(0))?
+            .collect::<Result<Vec<_>, _>>()?;
+        drop(stmt);
+
         let keep_set: std::collections::HashSet<&str> = keep.iter().map(|s| s.as_str()).collect();
         let stale: Vec<String> = existing
             .into_iter()
-            .filter(|doc| !keep_set.contains(doc.relative_path.as_str()))
-            .map(|doc| doc.relative_path)
+            .filter(|path| !keep_set.contains(path.as_str()))
             .collect();
         if stale.is_empty() {
             return Ok(0);
         }
-        let conn = self.connect()?;
-        let tx = conn.unchecked_transaction()?;
         for path in &stale {
             tx.execute(
                 "DELETE FROM documents WHERE relative_path = ?1",
@@ -785,7 +814,6 @@ impl NotesIndexStore {
                 params![path],
             )?;
         }
-        tx.commit()?;
         Ok(stale.len())
     }
 }
@@ -897,6 +925,44 @@ mod tests {
         let hits = store.search("touch", 10).unwrap();
         assert!(!hits.is_empty());
         assert_eq!(hits[0].relative_path, "alpha.md");
+    }
+
+    /// PERF-1: personal-scale FTS smoke (no criterion / soak). Seeds ~120 notes and searches.
+    #[test]
+    fn notes_fts_personal_scale_smoke() {
+        let (_dir, store) = temp_store();
+        let now = NotesIndexStore::now_unix();
+        const N: usize = 120;
+        for i in 0..N {
+            let path = format!("note-{i:03}.md");
+            let title = format!("Note {i}");
+            let body = format!("personal workbench note {i} keyword luma-fts-smoke marker-{i}");
+            store
+                .upsert_document(&DocumentRow {
+                    relative_path: path.clone(),
+                    title: title.clone(),
+                    file_name: path.clone(),
+                    size_bytes: body.len() as i64,
+                    mtime_unix: now,
+                    content_hash: None,
+                    updated_at_unix: now,
+                })
+                .unwrap();
+            store.upsert_fts(&path, &title, &path, "", &body).unwrap();
+        }
+        let start = std::time::Instant::now();
+        let hits = store.search("luma-fts-smoke", 20).unwrap();
+        let elapsed = start.elapsed();
+        assert!(
+            hits.len() >= 10,
+            "expected FTS hits for personal-scale corpus, got {}",
+            hits.len()
+        );
+        // Soft bound: personal corpus should stay well under a second on a laptop.
+        assert!(
+            elapsed.as_millis() < 2_000,
+            "notes FTS smoke took too long: {elapsed:?}"
+        );
     }
 
     #[test]

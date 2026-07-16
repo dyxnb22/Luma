@@ -1,10 +1,12 @@
 use luma_application::{
     filter_env_output, is_filtered_env_step, select_best_variant, CommandRunnerPort, PathKind,
-    RecipeEnvironmentError, RecipeEnvironmentPort,
+    RecipeEnvironmentError, RecipeEnvironmentPort, RecipeStdioMode,
 };
 use luma_domain::{RecipeVariant, ResolvedCommandStep, StepRunResult, VariantMatch};
 use std::path::{Component, Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::thread;
+use std::time::Duration;
 use tokio_util::sync::CancellationToken;
 
 pub struct MacRecipeEnvironment;
@@ -169,12 +171,18 @@ impl Default for MacCommandRunner {
 }
 
 impl CommandRunnerPort for MacCommandRunner {
-    fn run_step(&self, step: &ResolvedCommandStep, cancel: &CancellationToken) -> StepRunResult {
+    fn run_step(
+        &self,
+        step: &ResolvedCommandStep,
+        cancel: &CancellationToken,
+        stdio: RecipeStdioMode,
+    ) -> StepRunResult {
         if cancel.is_cancelled() {
             return StepRunResult {
                 step_id: step.id.clone(),
                 exit_code: None,
                 started: false,
+                cancelled: true,
                 message: Some("cancelled".into()),
             };
         }
@@ -184,6 +192,7 @@ impl CommandRunnerPort for MacCommandRunner {
                 step_id: step.id.clone(),
                 exit_code: None,
                 started: false,
+                cancelled: false,
                 message: Some(message),
             };
         }
@@ -198,36 +207,84 @@ impl CommandRunnerPort for MacCommandRunner {
                 lines.push(line);
             }
             lines.sort();
-            println!("{}", lines.join("\n"));
+            match stdio {
+                RecipeStdioMode::Inherit => println!("{}", lines.join("\n")),
+                RecipeStdioMode::Null => {}
+            }
             return StepRunResult {
                 step_id: step.id.clone(),
                 exit_code: Some(0),
                 started: true,
+                cancelled: false,
                 message: None,
             };
         }
 
         let mut command = Command::new(&step.program);
-        command
-            .args(&step.args)
-            .current_dir(&step.cwd)
-            .stdin(Stdio::inherit())
-            .stdout(Stdio::inherit())
-            .stderr(Stdio::inherit());
+        command.args(&step.args).current_dir(&step.cwd);
+        match stdio {
+            RecipeStdioMode::Inherit => {
+                command
+                    .stdin(Stdio::inherit())
+                    .stdout(Stdio::inherit())
+                    .stderr(Stdio::inherit());
+            }
+            RecipeStdioMode::Null => {
+                command
+                    .stdin(Stdio::null())
+                    .stdout(Stdio::null())
+                    .stderr(Stdio::null());
+            }
+        }
 
-        match command.status() {
-            Ok(status) => StepRunResult {
-                step_id: step.id.clone(),
-                exit_code: status.code(),
-                started: true,
-                message: None,
-            },
-            Err(err) => StepRunResult {
-                step_id: step.id.clone(),
-                exit_code: None,
-                started: false,
-                message: Some(err.to_string()),
-            },
+        let mut child = match command.spawn() {
+            Ok(child) => child,
+            Err(err) => {
+                return StepRunResult {
+                    step_id: step.id.clone(),
+                    exit_code: None,
+                    started: false,
+                    cancelled: false,
+                    message: Some(err.to_string()),
+                };
+            }
+        };
+
+        loop {
+            if cancel.is_cancelled() {
+                let _ = child.kill();
+                let _ = child.wait();
+                return StepRunResult {
+                    step_id: step.id.clone(),
+                    exit_code: None,
+                    started: true,
+                    cancelled: true,
+                    message: Some("cancelled".into()),
+                };
+            }
+            match child.try_wait() {
+                Ok(Some(status)) => {
+                    let exit_code = status.code();
+                    let cancelled = exit_code.is_none();
+                    return StepRunResult {
+                        step_id: step.id.clone(),
+                        exit_code,
+                        started: true,
+                        cancelled,
+                        message: cancelled.then(|| "terminated by signal".into()),
+                    };
+                }
+                Ok(None) => thread::sleep(Duration::from_millis(50)),
+                Err(err) => {
+                    return StepRunResult {
+                        step_id: step.id.clone(),
+                        exit_code: None,
+                        started: true,
+                        cancelled: false,
+                        message: Some(err.to_string()),
+                    };
+                }
+            }
         }
     }
 }

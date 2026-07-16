@@ -186,6 +186,8 @@ pub struct AppState {
     pub active_request: Option<String>,
     pub request_seq_seen: u64,
     pub search_generation: u64,
+    /// Monotonic counter for action operation ids (separate from search request ids).
+    pub operation_generation: u64,
     pub results: ResultsView,
     pub status: StatusLine,
     pub should_quit: bool,
@@ -344,6 +346,7 @@ impl Default for AppState {
             active_request: None,
             request_seq_seen: 0,
             search_generation: 0,
+            operation_generation: 0,
             results: ResultsView::default(),
             status: StatusLine::default(),
             should_quit: false,

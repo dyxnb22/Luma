@@ -1,7 +1,7 @@
 use luma_application::ProfileStoreError;
 use serde::Serialize;
 use serde_yaml::Value;
-use std::fs;
+use std::fs::{self, File, OpenOptions};
 use std::io::Write;
 use std::path::{Component, Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -155,11 +155,11 @@ pub(super) fn atomic_write(
         let _ = fs::remove_file(&tmp);
         return Err(io_error(error));
     }
-    set_private_file_mode(path)?;
-    // The rename is the atomic commit. Syncing the containing directory is best effort: a
+    // The rename is the atomic commit. Post-rename chmod and directory sync are best effort: a
     // failure after a successful rename must not make the caller retry a completed transaction.
+    let _ = set_private_file_mode(path);
     if let Some(parent) = path.parent() {
-        let _ = fs::File::open(parent).and_then(|directory| directory.sync_all());
+        let _ = File::open(parent).and_then(|directory| directory.sync_all());
     }
     Ok(())
 }
@@ -264,14 +264,112 @@ pub(super) fn combine_rollbacks(
 ) -> Result<(), ProfileStoreError> {
     match (first, second) {
         (Ok(()), Ok(())) => Ok(()),
-        (Err(error), _) | (_, Err(error)) => Err(error),
+        (Err(error), Ok(())) | (Ok(()), Err(error)) => Err(error),
+        (Err(first), Err(second)) => Err(ProfileStoreError::Conflict(format!(
+            "{first}; rollback failed: {second}"
+        ))),
+    }
+}
+
+/// Cross-process advisory lock for Profile store mutations. Mirrors settings.toml.lock:
+/// keep the pathname after release so waiters share one inode.
+pub(super) struct ProfileStoreLock {
+    _file: File,
+}
+
+impl ProfileStoreLock {
+    pub(super) fn acquire(root: &Path) -> Result<Self, ProfileStoreError> {
+        // Lock beside the store root (`proxy-profiles.lock`) so acquiring the flock does not
+        // create an empty profiles directory on validation-only failures.
+        let lock_path = root.with_extension("lock");
+        if let Some(parent) = lock_path.parent() {
+            fs::create_dir_all(parent).map_err(io_error)?;
+        }
+        // Blocking flock: wait for any other Luma process holding this lock. Keep this
+        // pathname after release: unlinking it while another process waits on the old
+        // inode would let a third process create and lock a new, independent inode.
+        let mut file = OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .open(&lock_path)
+            .map_err(io_error)?;
+        flock_exclusive(&file)?;
+        let _ = writeln!(file, "pid={}", std::process::id());
+        let _ = file.sync_all();
+        Ok(Self { _file: file })
     }
 }
 
 #[cfg(unix)]
+fn flock_exclusive(file: &File) -> Result<(), ProfileStoreError> {
+    use std::os::unix::io::AsRawFd;
+    extern "C" {
+        fn flock(fd: std::os::fd::RawFd, operation: i32) -> i32;
+    }
+    const LOCK_EX: i32 = 0x2;
+    let ret = unsafe { flock(file.as_raw_fd(), LOCK_EX) };
+    if ret == 0 {
+        Ok(())
+    } else {
+        Err(io_error(std::io::Error::last_os_error()))
+    }
+}
+
+#[cfg(not(unix))]
+fn flock_exclusive(_file: &File) -> Result<(), ProfileStoreError> {
+    Ok(())
+}
+
+#[cfg(unix)]
 pub(super) fn set_private_file_mode(path: &Path) -> Result<(), ProfileStoreError> {
+    #[cfg(test)]
+    {
+        TEST_PRIVATE_MODE_HOOK.with(|hook| {
+            let mut state = hook.borrow_mut();
+            if state.fail_after > 0 {
+                state.calls += 1;
+                if state.calls >= state.fail_after {
+                    return Err(ProfileStoreError::Unavailable(
+                        "forced private mode failure".into(),
+                    ));
+                }
+            }
+            Ok(())
+        })?;
+    }
     use std::os::unix::fs::PermissionsExt;
     fs::set_permissions(path, fs::Permissions::from_mode(0o600)).map_err(io_error)
+}
+
+#[cfg(test)]
+#[derive(Default)]
+struct PrivateModeHook {
+    calls: u64,
+    fail_after: u64,
+}
+
+#[cfg(test)]
+thread_local! {
+    static TEST_PRIVATE_MODE_HOOK: std::cell::RefCell<PrivateModeHook> =
+        const { std::cell::RefCell::new(PrivateModeHook { calls: 0, fail_after: 0 }) };
+}
+
+#[cfg(test)]
+fn fail_private_file_mode_after_n_calls(n: u64) {
+    TEST_PRIVATE_MODE_HOOK.with(|hook| {
+        *hook.borrow_mut() = PrivateModeHook {
+            calls: 0,
+            fail_after: n,
+        };
+    });
+}
+
+#[cfg(test)]
+fn clear_private_file_mode_test_hooks() {
+    TEST_PRIVATE_MODE_HOOK.with(|hook| {
+        *hook.borrow_mut() = PrivateModeHook::default();
+    });
 }
 
 #[cfg(unix)]
@@ -318,5 +416,77 @@ mod tests {
 
         assert_eq!(fs::read(&target).unwrap(), b"proxies: []\n");
         assert!(legacy_temp.is_dir());
+    }
+
+    #[test]
+    fn combine_rollbacks_merges_both_errors_when_dual_restore_fails() {
+        let first = Err(ProfileStoreError::Unavailable("files".into()));
+        let second = Err(ProfileStoreError::Unavailable("keychain".into()));
+        let combined = combine_rollbacks(first, second).unwrap_err();
+        let message = combined.to_string();
+        assert!(message.contains("files"), "{message}");
+        assert!(message.contains("keychain"), "{message}");
+        assert!(
+            message.contains("; rollback failed: "),
+            "expected rollback_failure-style merge, got {message}"
+        );
+    }
+
+    #[test]
+    fn combine_rollbacks_keeps_single_error_when_one_side_succeeds() {
+        let only_first =
+            combine_rollbacks(Err(ProfileStoreError::Unavailable("files".into())), Ok(()))
+                .unwrap_err();
+        assert!(only_first.to_string().contains("files"));
+        assert!(!only_first.to_string().contains("rollback failed"));
+
+        let only_second = combine_rollbacks(
+            Ok(()),
+            Err(ProfileStoreError::Unavailable("keychain".into())),
+        )
+        .unwrap_err();
+        assert!(only_second.to_string().contains("keychain"));
+        assert!(!only_second.to_string().contains("rollback failed"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn atomic_write_succeeds_when_post_rename_chmod_fails() {
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("profile.yaml");
+        // Without backup: call 1 = temp staging mode, call 2 = post-rename mode.
+        fail_private_file_mode_after_n_calls(2);
+        let result = atomic_write(&target, b"proxies: []\n", false);
+        clear_private_file_mode_test_hooks();
+        result.expect("rename commit must succeed even if post-rename chmod fails");
+        assert_eq!(fs::read(&target).unwrap(), b"proxies: []\n");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn profile_store_lock_blocks_a_second_nonblocking_contender() {
+        use std::os::unix::io::AsRawFd;
+
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("profiles");
+        let held = ProfileStoreLock::acquire(&root).unwrap();
+        let lock_path = root.with_extension("lock");
+        assert!(lock_path.exists());
+        assert!(
+            !root.exists(),
+            "lock acquire must not create the store root"
+        );
+
+        let contender = OpenOptions::new().write(true).open(&lock_path).unwrap();
+        extern "C" {
+            fn flock(fd: std::os::fd::RawFd, operation: i32) -> i32;
+        }
+        const LOCK_EX: i32 = 0x2;
+        const LOCK_NB: i32 = 0x4;
+        let ret = unsafe { flock(contender.as_raw_fd(), LOCK_EX | LOCK_NB) };
+        assert_ne!(ret, 0, "second process must not take a parallel flock");
+        drop(held);
+        let ret = unsafe { flock(contender.as_raw_fd(), LOCK_EX | LOCK_NB) };
+        assert_eq!(ret, 0, "lock should release with the holder");
     }
 }

@@ -7,6 +7,7 @@ mod module;
 mod paste;
 mod port;
 mod ports;
+mod recipe_runner;
 mod registry;
 
 pub use adapters::{
@@ -15,7 +16,9 @@ pub use adapters::{
     SqliteSnippetsRepository, SqliteSshMetaRepository, SqliteTimersRepository,
     SqliteWordbookRepository, TomlSettingsRepository,
 };
-pub use engine::{list_modules_json, run_action, run_query, Engine, EngineOptions};
+pub use engine::{
+    list_modules_json, run_action, run_query, Engine, EngineOptions, RunActionOptions,
+};
 pub use interactive_terminal::{
     run_interactive_terminal, sftp_args, ssh_connect_args, InteractiveTerminalError,
     InteractiveTerminalRequest,
@@ -49,8 +52,8 @@ pub use ports::{
     ProfileStorePort, ProfileSummary, ProjectDirectoryEntry, ProjectDirectoryListing,
     ProjectOpenScope, ProjectWorkspaceError, ProjectWorkspacePort, ProxyCoreError, ProxyCorePort,
     ProxyGroup, ProxyMode, ProxyNode, ProxyPorts, ProxyStatus, QuicklinkEntry, QuicklinksRepoError,
-    QuicklinksRepository, RecipeEnvironmentError, RecipeEnvironmentPort, RecordCategory,
-    RecordEntry, RecordImportPreviewView, RecordImportReportView, RecordsRepoError,
+    QuicklinksRepository, RecipeEnvironmentError, RecipeEnvironmentPort, RecipeStdioMode,
+    RecordCategory, RecordEntry, RecordImportPreviewView, RecordImportReportView, RecordsRepoError,
     RecordsRepository, RecordsStatsView, ResolvedSshHost, SecretLabel, SettingsError,
     SettingsRepository, SnippetEntry, SnippetsRepoError, SnippetsRepository, SpeechAccent,
     SpeechError, SpeechPort, SshConfigError, SshConfigPort, SshConfigState, SshHostMeta,
@@ -58,5 +61,10 @@ pub use ports::{
     SystemProxyStatus, TimerEntry, TimersRepoError, TimersRepository, WindowCatalogPort,
     WindowEntry, WindowError, WordContentInput, WordEntry, WordbookRepoError, WordbookRepository,
     WordbookStatsView,
+};
+pub use recipe_runner::{
+    execute_recipe_plan, execute_recipe_plan_with_hooks, now_unix, recipe_outcome_to_action_dto,
+    record_recipe_run_outcome, spawn_ctrl_c_cancel, RecipeExecuteError, RecipeExecuteOptions,
+    RecipeExecuteReport,
 };
 pub use registry::{ModuleRegistry, RegistryError};

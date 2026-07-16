@@ -11,6 +11,19 @@ use tokio::time::timeout;
 
 pub const AX_PASTE_TIMEOUT: Duration = Duration::from_secs(3);
 
+async fn abandon_ax(
+    catalog: Arc<dyn WindowCatalogPort>,
+    accessibility: Arc<dyn AccessibilityPort>,
+) {
+    // The platform adapters may need to wait for an already-started AX call to
+    // leave its side-effect gate. Keep that synchronous wait off the runtime.
+    let _ = tokio::task::spawn_blocking(move || {
+        catalog.abandon_pending_ax_ops();
+        accessibility.abandon_pending_ax_ops();
+    })
+    .await;
+}
+
 fn map_window_err(err: WindowError) -> FailureKind {
     match err {
         WindowError::PermissionRequired {
@@ -72,30 +85,39 @@ pub async fn paste_to_target_app(
             reason: e.to_string(),
             retryable: true,
         })?;
-    timeout(AX_PASTE_TIMEOUT, catalog.focus_app_by_name(&target))
-        .await
-        .map_err(|_| FailureKind::Timeout {
-            operation: "focus paste target".into(),
-        })?
-        .map_err(map_window_err)?;
-    let front = timeout(AX_PASTE_TIMEOUT, catalog.frontmost_app_name())
-        .await
-        .map_err(|_| FailureKind::Timeout {
-            operation: "verify paste target".into(),
-        })?
-        .map_err(map_window_err)?;
+    match timeout(AX_PASTE_TIMEOUT, catalog.focus_app_by_name(&target)).await {
+        Err(_) => {
+            abandon_ax(catalog.clone(), accessibility.clone()).await;
+            return Err(FailureKind::Timeout {
+                operation: "focus paste target".into(),
+            });
+        }
+        Ok(result) => result.map_err(map_window_err)?,
+    }
+    let front = match timeout(AX_PASTE_TIMEOUT, catalog.frontmost_app_name()).await {
+        Err(_) => {
+            abandon_ax(catalog.clone(), accessibility.clone()).await;
+            return Err(FailureKind::Timeout {
+                operation: "verify paste target".into(),
+            });
+        }
+        Ok(result) => result.map_err(map_window_err)?,
+    };
     if front.as_deref() != Some(target.as_str()) {
+        abandon_ax(catalog.clone(), accessibility.clone()).await;
         return Err(FailureKind::Unavailable {
             reason: format!("could not focus {target} for paste"),
             retryable: true,
         });
     }
-    timeout(AX_PASTE_TIMEOUT, accessibility.paste_clipboard())
-        .await
-        .map_err(|_| FailureKind::Timeout {
-            operation: "accessibility paste".into(),
-        })?
-        .map_err(|e: AccessibilityError| match e {
+    match timeout(AX_PASTE_TIMEOUT, accessibility.paste_clipboard()).await {
+        Err(_) => {
+            abandon_ax(catalog, accessibility).await;
+            Err(FailureKind::Timeout {
+                operation: "accessibility paste".into(),
+            })
+        }
+        Ok(result) => result.map_err(|e: AccessibilityError| match e {
             AccessibilityError::NotTrusted => FailureKind::PermissionRequired {
                 capability: "accessibility".into(),
                 guidance: "Grant Accessibility to paste into other apps".into(),
@@ -104,7 +126,8 @@ pub async fn paste_to_target_app(
                 reason,
                 retryable: true,
             },
-        })
+        }),
+    }
 }
 #[cfg(test)]
 mod tests {

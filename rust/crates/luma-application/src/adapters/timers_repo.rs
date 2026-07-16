@@ -63,10 +63,17 @@ impl TimersRepository for SqliteTimersRepository {
             .map_err(|e| TimersRepoError::msg(e.to_string()))
     }
 
-    fn update(&self, entry: &TimerEntry) -> Result<(), TimersRepoError> {
+    fn update(
+        &self,
+        entry: &TimerEntry,
+        expected_updated_at_ms: i64,
+    ) -> Result<(), TimersRepoError> {
         self.store
-            .update(&to_row(entry))
-            .map_err(|e| TimersRepoError::msg(e.to_string()))
+            .update(&to_row(entry), expected_updated_at_ms)
+            .map_err(|e| match e {
+                luma_storage::TimersStoreError::Conflict => TimersRepoError::Conflict,
+                other => TimersRepoError::msg(other.to_string()),
+            })
     }
 
     fn delete(&self, id: &str) -> Result<(), TimersRepoError> {

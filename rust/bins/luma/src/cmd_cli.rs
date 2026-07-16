@@ -1,15 +1,16 @@
 use crate::compose::load_registry_with_settings;
 use luma_application::{
-    recipe_in_scope, recipe_runnable, resolve_steps, run_action, CommandRecipesRepository,
-    CommandRunnerPort, RecipeEnvironmentPort,
+    execute_recipe_plan_with_hooks, now_unix, recipe_in_scope, recipe_runnable,
+    record_recipe_run_outcome, resolve_steps, run_action, spawn_ctrl_c_cancel,
+    CommandRecipesRepository, CommandRunnerPort, RecipeEnvironmentPort, RecipeExecuteOptions,
+    RecipeStdioMode,
 };
-use luma_domain::{RecipeRisk, RecipeRunOutcome, VariantMatch};
+use luma_domain::{RecipeRunOutcome, RecipeRunPlan, VariantMatch};
 use luma_platform_macos::{MacCommandRunner, MacRecipeEnvironment};
 use luma_protocol::ActionOutcomeDto;
 use serde_json::json;
 use std::sync::Arc;
-use std::time::{SystemTime, UNIX_EPOCH};
-use tracing::warn;
+use tokio_util::sync::CancellationToken;
 
 #[derive(Debug, clap::Subcommand)]
 pub enum CmdCmd {
@@ -173,92 +174,91 @@ async fn cmd_run(
         VariantMatch::NoMatch => anyhow::bail!("当前项目不适用"),
     };
     let steps = resolve_steps(env, &base, &variant).map_err(|e| anyhow::anyhow!(e.0))?;
-    let needs_confirm = !matches!(recipe.risk, RecipeRisk::Safe);
-    if needs_confirm && !confirmation {
-        anyhow::bail!(
-            "recipe `{}` requires --confirmation (risk: {})",
-            recipe.id,
-            recipe.risk.as_str()
-        );
+    let plan = RecipeRunPlan {
+        recipe_id: recipe.id.clone(),
+        recipe_title: recipe.title.clone(),
+        risk: recipe.risk.clone(),
+        working_dir: base.clone(),
+        variant_id: variant.id.clone(),
+        variant_description: variant.description.clone(),
+        steps,
+    };
+
+    let stdio = if json {
+        RecipeStdioMode::Null
+    } else {
+        RecipeStdioMode::Inherit
+    };
+    if !json {
+        println!("Running recipe: {} — {}", plan.recipe_title, plan.recipe_id);
+        println!("Risk: {}", plan.risk.as_str());
+        println!("Working directory: {}", plan.working_dir.display());
     }
 
-    if !json {
-        println!("Running recipe: {} — {}", recipe.title, recipe.id);
-        println!("Risk: {}", recipe.risk.as_str());
-        println!("Working directory: {}", base.display());
-    }
-    for step in &steps {
-        if !json {
-            println!("\n→ {}", step.label);
-        }
-        let result = runner.run_step(step, &tokio_util::sync::CancellationToken::new());
-        if !result.started {
-            if let Err(err) = repo.record_run(&recipe.id, RecipeRunOutcome::Failed, now_unix()) {
-                warn!(recipe_id = %recipe.id, error = %err, "failed to record recipe run");
+    let cancel = CancellationToken::new();
+    let cancel_task = spawn_ctrl_c_cancel(cancel.clone());
+    let report = execute_recipe_plan_with_hooks(
+        &plan,
+        runner,
+        &cancel,
+        RecipeExecuteOptions {
+            confirmation,
+            stdio,
+        },
+        |step| {
+            if !json {
+                println!("\n→ {}", step.label);
             }
-            let message = result.message.unwrap_or_else(|| "failed to start".into());
-            if json {
-                println!(
-                    "{}",
-                    serde_json::to_string_pretty(&json!({
-                        "recipe_id": recipe.id,
-                        "outcome": "failed",
-                        "error": message,
-                    }))?
-                );
-            } else {
-                eprintln!("{message}");
-            }
-            std::process::exit(1);
-        }
-        if let Some(code) = result.exit_code {
-            if code != 0 && !step.continue_on_error {
-                if let Err(err) = repo.record_run(&recipe.id, RecipeRunOutcome::Failed, now_unix())
-                {
-                    warn!(recipe_id = %recipe.id, error = %err, "failed to record recipe run");
+        },
+        |_, result| {
+            if !json {
+                if result.cancelled {
+                    println!("cancelled");
+                } else if let Some(code) = result.exit_code {
+                    println!("exit code: {code}");
+                } else if !result.started {
+                    eprintln!("{}", result.message.as_deref().unwrap_or("failed to start"));
                 }
-                if json {
-                    println!(
-                        "{}",
-                        serde_json::to_string_pretty(&json!({
-                            "recipe_id": recipe.id,
-                            "outcome": "failed",
-                            "exit_code": code,
-                        }))?
-                    );
-                }
-                std::process::exit(1);
             }
-        } else {
-            if let Err(err) = repo.record_run(&recipe.id, RecipeRunOutcome::Failed, now_unix()) {
-                warn!(recipe_id = %recipe.id, error = %err, "failed to record recipe run");
-            }
-            if json {
-                println!(
-                    "{}",
-                    serde_json::to_string_pretty(&json!({
-                        "recipe_id": recipe.id,
-                        "outcome": "failed",
-                        "error": "process terminated by signal",
-                    }))?
-                );
-            } else {
-                eprintln!("process terminated by signal");
-            }
-            std::process::exit(1);
-        }
-    }
-    if let Err(err) = repo.record_run(&recipe.id, RecipeRunOutcome::Success, now_unix()) {
-        warn!(recipe_id = %recipe.id, error = %err, "failed to record recipe run");
-    }
+        },
+    );
+    cancel_task.abort();
+
+    let report = match report {
+        Ok(report) => report,
+        Err(err) => anyhow::bail!(err),
+    };
+
+    record_recipe_run_outcome(repo, &plan.recipe_id, report.outcome.clone(), now_unix());
+
+    let exit = match report.outcome {
+        RecipeRunOutcome::Success => 0,
+        RecipeRunOutcome::Failed => 1,
+        RecipeRunOutcome::Cancelled => 2,
+    };
+
     if json {
-        println!(
-            "{}",
-            serde_json::to_string_pretty(&json!({
-                "recipe_id": recipe.id,
-                "outcome": "success",
-            }))?
-        );
+        let mut payload = json!({
+            "recipe_id": plan.recipe_id,
+            "outcome": match report.outcome {
+                RecipeRunOutcome::Success => "success",
+                RecipeRunOutcome::Failed => "failed",
+                RecipeRunOutcome::Cancelled => "cancelled",
+            },
+        });
+        if let Some(code) = report.last_exit_code {
+            payload["exit_code"] = json!(code);
+        }
+        if let Some(message) = &report.message {
+            payload["error"] = json!(message);
+        }
+        println!("{}", serde_json::to_string_pretty(&payload)?);
+    } else if matches!(report.outcome, RecipeRunOutcome::Cancelled) {
+        eprintln!("recipe cancelled");
+    }
+
+    if exit != 0 {
+        std::process::exit(exit);
     }
     Ok(())
 }
@@ -271,7 +271,10 @@ async fn cmd_copy(recipe_id: &str, json: bool) -> anyhow::Result<()> {
         None,
         "copy",
         false,
-        Some(load.settings),
+        luma_application::RunActionOptions {
+            settings: Some(load.settings),
+            ..Default::default()
+        },
     )
     .await
     .map_err(|e| anyhow::anyhow!(e))?;
@@ -294,11 +297,4 @@ async fn cmd_copy(recipe_id: &str, json: bool) -> anyhow::Result<()> {
         println!("{}", message.unwrap_or_else(|| "copied".into()));
     }
     Ok(())
-}
-
-fn now_unix() -> i64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| i64::try_from(d.as_secs()).unwrap_or(0))
-        .unwrap_or(0)
 }

@@ -11,6 +11,11 @@ pub fn host_pattern_is_wildcard(pattern: &str) -> bool {
     p.contains('*') || p.contains('?') || p.contains('%') || p.starts_with('!')
 }
 
+/// Host aliases that look like CLI flags must not be passed to `ssh`/`sftp` argv.
+pub fn host_alias_is_unsafe(alias: &str) -> bool {
+    alias.trim().starts_with('-')
+}
+
 /// Parse config text and collect concrete Host aliases (no wildcards).
 pub fn parse_host_aliases(content: &str) -> Vec<String> {
     let mut seen = HashSet::new();
@@ -32,7 +37,7 @@ pub fn parse_host_aliases(content: &str) -> Vec<String> {
                 continue;
             }
             let alias = pattern.trim().to_string();
-            if alias.is_empty() || seen.contains(&alias) {
+            if alias.is_empty() || host_alias_is_unsafe(&alias) || seen.contains(&alias) {
                 continue;
             }
             seen.insert(alias.clone());
@@ -165,5 +170,13 @@ Host dev* prod?
         assert!(host_pattern_is_wildcard("dev*"));
         assert!(host_pattern_is_wildcard("?"));
         assert!(!host_pattern_is_wildcard("production"));
+    }
+
+    #[test]
+    fn rejects_aliases_that_look_like_flags() {
+        let content = "Host production\nHost -oProxyCommand=evil\nHost --bad\n";
+        assert_eq!(parse_host_aliases(content), vec!["production"]);
+        assert!(host_alias_is_unsafe("-oProxyCommand=evil"));
+        assert!(host_alias_is_unsafe("--bad"));
     }
 }

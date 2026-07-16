@@ -1,16 +1,22 @@
 //! Visible window list + focus via CoreGraphics / Accessibility.
-//! Unsafe FFI is confined here. Tests must use [`luma_application::FakeWindowCatalog`], never real focus.
+//! Window listing/focus via Accessibility APIs. Unsafe FFI for AX calls lives in this file only.
+//! Tests must use [`luma_application::FakeWindowCatalog`], never real focus.
 
 use async_trait::async_trait;
 use luma_application::{WindowCatalogPort, WindowEntry, WindowError};
 use std::ffi::{c_void, CStr, CString};
 use std::ptr;
-use std::sync::{Mutex, OnceLock};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex, OnceLock};
 
 /// Live macOS adapter.
 pub struct MacWindowCatalog {
     previous_frontmost: Mutex<Option<String>>,
     paste_target: Mutex<Option<String>>,
+    /// Bumped when a paste/focus wait is abandoned.
+    ax_op_generation: Arc<AtomicU64>,
+    /// Serializes the final generation check with AX focus side effects.
+    ax_side_effect_gate: Arc<Mutex<()>>,
 }
 
 impl Default for MacWindowCatalog {
@@ -24,7 +30,13 @@ impl MacWindowCatalog {
         Self {
             previous_frontmost: Mutex::new(None),
             paste_target: Mutex::new(None),
+            ax_op_generation: Arc::new(AtomicU64::new(0)),
+            ax_side_effect_gate: Arc::new(Mutex::new(())),
         }
+    }
+
+    fn ax_op_still_valid(&self, generation: u64) -> bool {
+        self.ax_op_generation.load(Ordering::SeqCst) == generation
     }
 
     fn set_paste_target_locked(&self, label: Option<String>) {
@@ -192,8 +204,13 @@ fn parse_window_id(id: &str) -> Option<(u32, i64)> {
 }
 
 fn raise_window(app: AXUIElementRef, target: &WindowEntry) -> Result<(), WindowError> {
+    let frontmost = ax_frontmost()?;
+    let windows_attr = ax_windows()?;
+    let title_attr = ax_title()?;
+    let raise_attr = ax_raise()?;
+
     let set_front =
-        unsafe { AXUIElementSetAttributeValue(app, ax_frontmost(), kCFBooleanTrue as CFTypeRef) };
+        unsafe { AXUIElementSetAttributeValue(app, frontmost, kCFBooleanTrue as CFTypeRef) };
     if set_front != 0 {
         return Err(map_ax_error(
             set_front,
@@ -202,7 +219,7 @@ fn raise_window(app: AXUIElementRef, target: &WindowEntry) -> Result<(), WindowE
     }
 
     let mut windows_ref: CFTypeRef = ptr::null_mut();
-    let copy = unsafe { AXUIElementCopyAttributeValue(app, ax_windows(), &mut windows_ref) };
+    let copy = unsafe { AXUIElementCopyAttributeValue(app, windows_attr, &mut windows_ref) };
     if copy != 0 || windows_ref.is_null() {
         return Err(map_ax_error(
             if copy != 0 { copy } else { K_AX_ERROR_FAILURE },
@@ -220,7 +237,7 @@ fn raise_window(app: AXUIElementRef, target: &WindowEntry) -> Result<(), WindowE
             continue;
         }
         let mut title_ref: CFTypeRef = ptr::null_mut();
-        let ok = unsafe { AXUIElementCopyAttributeValue(win, ax_title(), &mut title_ref) };
+        let ok = unsafe { AXUIElementCopyAttributeValue(win, title_attr, &mut title_ref) };
         let title = if ok == 0 && !title_ref.is_null() {
             let s = cf_string_to_rust(title_ref as CFStringRef);
             unsafe { CFRelease(title_ref as *const c_void) };
@@ -285,7 +302,7 @@ fn raise_window(app: AXUIElementRef, target: &WindowEntry) -> Result<(), WindowE
         )));
     };
 
-    let raise = unsafe { AXUIElementPerformAction(win, ax_raise()) };
+    let raise = unsafe { AXUIElementPerformAction(win, raise_attr) };
     unsafe { CFRelease(windows_ref as *const c_void) };
     if raise != 0 {
         return Err(map_ax_error(raise, "AXRaise failed"));
@@ -338,10 +355,28 @@ impl WindowCatalogPort for MacWindowCatalog {
     }
 
     async fn focus_app_by_name(&self, app_name: &str) -> Result<(), WindowError> {
+        let generation = self.ax_op_generation.load(Ordering::SeqCst);
         let name = app_name.to_string();
-        tokio::task::spawn_blocking(move || MacWindowCatalog::focus_app_blocking(&name))
-            .await
-            .map_err(|e| WindowError::Unavailable(e.to_string()))??;
+        let op_generation = Arc::clone(&self.ax_op_generation);
+        let side_effect_gate = Arc::clone(&self.ax_side_effect_gate);
+        tokio::task::spawn_blocking(move || {
+            let _gate = side_effect_gate
+                .lock()
+                .map_err(|_| WindowError::Unavailable("window operation lock poisoned".into()))?;
+            if op_generation.load(Ordering::SeqCst) != generation {
+                return Err(WindowError::Unavailable(
+                    "paste focus abandoned after timeout".into(),
+                ));
+            }
+            MacWindowCatalog::focus_app_blocking(&name)
+        })
+        .await
+        .map_err(|e| WindowError::Unavailable(e.to_string()))??;
+        if !self.ax_op_still_valid(generation) {
+            return Err(WindowError::Unavailable(
+                "paste focus abandoned after timeout".into(),
+            ));
+        }
         self.set_paste_target_locked(Some(app_name.to_string()));
         Ok(())
     }
@@ -359,6 +394,7 @@ impl WindowCatalogPort for MacWindowCatalog {
     }
 
     async fn focus(&self, id: &str) -> Result<(), WindowError> {
+        let generation = self.ax_op_generation.load(Ordering::SeqCst);
         let id = id.to_string();
         let app_name = {
             let id_for_lookup = id.clone();
@@ -374,13 +410,37 @@ impl WindowCatalogPort for MacWindowCatalog {
             .await
             .map_err(|e| WindowError::Unavailable(e.to_string()))??
         };
-        tokio::task::spawn_blocking(move || MacWindowCatalog::focus_blocking(&id))
-            .await
-            .map_err(|e| WindowError::Unavailable(e.to_string()))??;
+        let op_generation = Arc::clone(&self.ax_op_generation);
+        let side_effect_gate = Arc::clone(&self.ax_side_effect_gate);
+        tokio::task::spawn_blocking(move || {
+            let _gate = side_effect_gate
+                .lock()
+                .map_err(|_| WindowError::Unavailable("window operation lock poisoned".into()))?;
+            if op_generation.load(Ordering::SeqCst) != generation {
+                return Err(WindowError::Unavailable(
+                    "window focus abandoned after timeout".into(),
+                ));
+            }
+            MacWindowCatalog::focus_blocking(&id)
+        })
+        .await
+        .map_err(|e| WindowError::Unavailable(e.to_string()))??;
+        if !self.ax_op_still_valid(generation) {
+            return Err(WindowError::Unavailable(
+                "window focus abandoned after timeout".into(),
+            ));
+        }
         if let Some(name) = app_name {
             self.set_paste_target_locked(Some(name));
         }
         Ok(())
+    }
+
+    fn abandon_pending_ax_ops(&self) {
+        self.ax_op_generation.fetch_add(1, Ordering::SeqCst);
+        // If focus already crossed the gate, wait for the OS call to finish
+        // before reporting the timeout to the caller.
+        drop(self.ax_side_effect_gate.lock());
     }
 }
 
@@ -449,42 +509,54 @@ extern "C" {
     fn AXUIElementPerformAction(element: AXUIElementRef, action: CFStringRef) -> AXError;
 }
 
-fn intern_cf_str(key: &'static str) -> CFStringRef {
+fn intern_cf_str(key: &'static str) -> Result<CFStringRef, WindowError> {
     static CACHE: OnceLock<Mutex<Vec<(String, usize)>>> = OnceLock::new();
     let cache = CACHE.get_or_init(|| Mutex::new(Vec::new()));
-    let mut guard = cache.lock().expect("cf str cache");
+    let mut guard = match cache.lock() {
+        Ok(g) => g,
+        Err(poisoned) => poisoned.into_inner(),
+    };
     if let Some((_, ptr)) = guard.iter().find(|(k, _)| k == key) {
-        return *ptr as CFStringRef;
+        return Ok(*ptr as CFStringRef);
     }
-    let c = CString::new(key).expect("key");
+    // Keys are static ASCII; CString::new only fails on interior NUL.
+    let c = CString::new(key)
+        .map_err(|_| WindowError::Unavailable(format!("CFString key contains NUL: {key}")))?;
     let s =
         unsafe { CFStringCreateWithCString(ptr::null(), c.as_ptr(), K_CF_STRING_ENCODING_UTF8) };
+    if s.is_null() {
+        return Err(WindowError::Unavailable(format!(
+            "CFStringCreateWithCString failed for {key}"
+        )));
+    }
     guard.push((key.to_string(), s as usize));
-    s
+    Ok(s)
 }
 
-fn ax_windows() -> CFStringRef {
+fn ax_windows() -> Result<CFStringRef, WindowError> {
     intern_cf_str("AXWindows")
 }
-fn ax_title() -> CFStringRef {
+fn ax_title() -> Result<CFStringRef, WindowError> {
     intern_cf_str("AXTitle")
 }
-fn ax_frontmost() -> CFStringRef {
+fn ax_frontmost() -> Result<CFStringRef, WindowError> {
     intern_cf_str("AXFrontmost")
 }
-fn ax_raise() -> CFStringRef {
+fn ax_raise() -> Result<CFStringRef, WindowError> {
     intern_cf_str("AXRaise")
 }
 
-fn with_cf_key<T>(key: &str, f: impl FnOnce(CFStringRef) -> T) -> T {
-    let c = CString::new(key).expect("key");
+fn with_cf_key<T>(key: &str, f: impl FnOnce(CFStringRef) -> T) -> Option<T> {
+    // Dictionary keys are static ASCII; interior NUL is treated as a miss.
+    let c = CString::new(key).ok()?;
     let s =
         unsafe { CFStringCreateWithCString(ptr::null(), c.as_ptr(), K_CF_STRING_ENCODING_UTF8) };
-    let out = f(s);
-    if !s.is_null() {
-        unsafe { CFRelease(s) };
+    if s.is_null() {
+        return None;
     }
-    out
+    let out = f(s);
+    unsafe { CFRelease(s) };
+    Some(out)
 }
 
 fn cf_dict_string(dict: CFDictionaryRef, key: &str) -> Option<String> {
@@ -495,6 +567,7 @@ fn cf_dict_string(dict: CFDictionaryRef, key: &str) -> Option<String> {
         }
         cf_string_to_rust(v as CFStringRef)
     })
+    .flatten()
 }
 
 fn cf_dict_i64(dict: CFDictionaryRef, key: &str) -> Option<i64> {
@@ -508,6 +581,7 @@ fn cf_dict_i64(dict: CFDictionaryRef, key: &str) -> Option<i64> {
             unsafe { CFNumberGetValue(v, K_CF_NUMBER_SINT64_TYPE, (&mut n as *mut i64).cast()) };
         ok.then_some(n)
     })
+    .flatten()
 }
 
 fn cf_dict_bool(dict: CFDictionaryRef, key: &str) -> Option<bool> {
@@ -518,6 +592,7 @@ fn cf_dict_bool(dict: CFDictionaryRef, key: &str) -> Option<bool> {
         }
         Some(unsafe { CFBooleanGetValue(v) })
     })
+    .flatten()
 }
 
 fn cf_string_to_rust(s: CFStringRef) -> Option<String> {

@@ -7,7 +7,7 @@ use async_trait::async_trait;
 use luma_application::{SystemProxyError, SystemProxyPort, SystemProxySetting, SystemProxyStatus};
 use luma_storage::luma_next_support_dir;
 use serde::{Deserialize, Serialize};
-use std::fs::{self, OpenOptions};
+use std::fs::{self, File, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -62,6 +62,63 @@ impl Default for MacSystemProxy {
     }
 }
 
+/// Holds the in-process mutex and the cross-process journal flock for one proxy operation.
+struct SystemProxyOpGuard<'a> {
+    _operation: tokio::sync::MutexGuard<'a, ()>,
+    _file: Option<JournalLock>,
+}
+
+/// Cross-process advisory lock for the system-proxy journal. Mirrors settings.toml.lock:
+/// keep the pathname after release so waiters share one inode.
+struct JournalLock {
+    _file: File,
+}
+
+impl JournalLock {
+    fn acquire(journal_path: &Path) -> Result<Self, SystemProxyError> {
+        let lock_path = journal_path.with_extension("json.lock");
+        if let Some(parent) = lock_path.parent() {
+            fs::create_dir_all(parent).map_err(|_| {
+                SystemProxyError::Unavailable("could not lock system proxy state".into())
+            })?;
+        }
+        let mut file = OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .open(&lock_path)
+            .map_err(|_| {
+                SystemProxyError::Unavailable("could not lock system proxy state".into())
+            })?;
+        flock_exclusive(&file)?;
+        let _ = writeln!(file, "pid={}", std::process::id());
+        let _ = file.sync_all();
+        Ok(Self { _file: file })
+    }
+}
+
+#[cfg(unix)]
+fn flock_exclusive(file: &File) -> Result<(), SystemProxyError> {
+    use std::os::unix::io::AsRawFd;
+    extern "C" {
+        fn flock(fd: std::os::fd::RawFd, operation: i32) -> i32;
+    }
+    const LOCK_EX: i32 = 0x2;
+    let ret = unsafe { flock(file.as_raw_fd(), LOCK_EX) };
+    if ret == 0 {
+        Ok(())
+    } else {
+        Err(SystemProxyError::Unavailable(
+            "could not lock system proxy state".into(),
+        ))
+    }
+}
+
+#[cfg(not(unix))]
+fn flock_exclusive(_file: &File) -> Result<(), SystemProxyError> {
+    Ok(())
+}
+
 impl MacSystemProxy {
     pub fn new() -> Self {
         let journal = load_journal();
@@ -77,6 +134,24 @@ impl MacSystemProxy {
         let mut adapter = Self::new();
         adapter.configured_service = service.filter(|service| !service.trim().is_empty());
         adapter
+    }
+
+    async fn lock_ops(&self) -> Result<SystemProxyOpGuard<'_>, SystemProxyError> {
+        let operation = self.operation_lock.lock().await;
+        let file = match journal_path() {
+            Some(path) => Some(
+                tokio::task::spawn_blocking(move || JournalLock::acquire(&path))
+                    .await
+                    .map_err(|err| {
+                        SystemProxyError::Unavailable(format!("proxy lock task failed: {err}"))
+                    })??,
+            ),
+            None => None,
+        };
+        Ok(SystemProxyOpGuard {
+            _operation: operation,
+            _file: file,
+        })
     }
 
     async fn current_service(&self) -> Result<String, SystemProxyError> {
@@ -188,7 +263,7 @@ impl MacSystemProxy {
 #[async_trait]
 impl SystemProxyPort for MacSystemProxy {
     async fn get_status(&self) -> Result<SystemProxyStatus, SystemProxyError> {
-        let _guard = self.operation_lock.lock().await;
+        let _guard = self.lock_ops().await?;
         self.read_status().await
     }
 
@@ -197,7 +272,7 @@ impl SystemProxyPort for MacSystemProxy {
         http_port: Option<u16>,
         socks_port: Option<u16>,
     ) -> Result<SystemProxyStatus, SystemProxyError> {
-        let _guard = self.operation_lock.lock().await;
+        let _guard = self.lock_ops().await?;
         if http_port.is_none() && socks_port.is_none() {
             return Err(SystemProxyError::InvalidInput {
                 field: "ports".into(),
@@ -266,7 +341,7 @@ impl SystemProxyPort for MacSystemProxy {
     }
 
     async fn disable(&self) -> Result<SystemProxyStatus, SystemProxyError> {
-        let _guard = self.operation_lock.lock().await;
+        let _guard = self.lock_ops().await?;
         let current = self.read_status().await?;
         let applied = self.applied.lock().await.clone();
         let Some(applied) = applied else {
@@ -571,5 +646,32 @@ mod tests {
         write_journal_atomically(&journal, b"{}\n").expect("atomic journal write");
 
         assert_eq!(std::fs::read(&journal).expect("journal"), b"{}\n");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn journal_lock_blocks_a_second_nonblocking_contender() {
+        use std::os::unix::io::AsRawFd;
+
+        let directory = tempfile::tempdir().expect("tempdir");
+        let journal = directory.path().join("proxy-system-state.json");
+        let held = JournalLock::acquire(&journal).expect("journal lock");
+        let lock_path = journal.with_extension("json.lock");
+        assert!(lock_path.exists());
+
+        let contender = OpenOptions::new()
+            .write(true)
+            .open(&lock_path)
+            .expect("open contender");
+        extern "C" {
+            fn flock(fd: std::os::fd::RawFd, operation: i32) -> i32;
+        }
+        const LOCK_EX: i32 = 0x2;
+        const LOCK_NB: i32 = 0x4;
+        let ret = unsafe { flock(contender.as_raw_fd(), LOCK_EX | LOCK_NB) };
+        assert_ne!(ret, 0, "second process must not take a parallel flock");
+        drop(held);
+        let ret = unsafe { flock(contender.as_raw_fd(), LOCK_EX | LOCK_NB) };
+        assert_eq!(ret, 0, "lock should release with the holder");
     }
 }

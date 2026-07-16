@@ -5,6 +5,7 @@ use async_trait::async_trait;
 use luma_domain::{Query, QueryScope};
 use luma_protocol::{Command, Event, SearchItemDto};
 use std::collections::{HashMap, VecDeque};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::{broadcast, mpsc, Mutex};
@@ -26,8 +27,10 @@ fn is_meta_prefix(token: &str) -> bool {
     matches!(token, "help")
 }
 
+// Freeze: do not add new module-specific Command arms here — see `extensions/` + GOVERNANCE §2.7a.
 mod actions;
 mod cancel_intents;
+mod extensions;
 mod preview;
 mod results;
 mod search;
@@ -200,7 +203,7 @@ impl Engine {
                 let mut windows_dto: Option<luma_protocol::HubWindowsDto> = None;
                 let mut seeded: Vec<luma_domain::SearchItem> = Vec::new();
                 for module in modules {
-                    if windows_dto.is_none() {
+                    if windows_dto.is_none() && module.supports_hub_windows() {
                         if let Some(slice) = module.hub_windows().await {
                             for row in &slice.windows {
                                 seeded.push(luma_domain::SearchItem {
@@ -324,64 +327,16 @@ impl Engine {
                     }
                 };
                 let mut next = current.clone();
-                if let Some(obj) = patch.get("enabled_modules").and_then(|v| v.as_object()) {
-                    for (id, value) in obj {
-                        if let Some(enabled) = value.as_bool() {
-                            next.enabled_modules.insert(id.clone(), enabled);
-                        }
-                    }
-                }
-                if let Some(root) = patch.get("notes_root") {
-                    if root.is_null() {
-                        next.notes_root = None;
-                    } else if let Some(s) = root.as_str() {
-                        next.notes_root = if s.is_empty() {
-                            None
-                        } else {
-                            Some(s.to_string())
-                        };
-                    }
-                }
-                if let Some(roots) = patch.get("projects_roots").and_then(|v| v.as_array()) {
-                    next.projects_roots = roots
-                        .iter()
-                        .filter_map(|v| v.as_str().map(str::to_string))
-                        .collect();
-                }
-                if let Some(path) = patch.get("import_project").and_then(|v| v.as_str()) {
-                    if let Err(err) = next.import_project_path(std::path::Path::new(path)) {
-                        let _ = self
-                            .emit(Event::DiagnosticRaised {
-                                diagnostic: serde_json::json!({
-                                    "settings_update": "failed",
-                                    "message": err,
-                                }),
-                            })
-                            .await;
-                        return;
-                    }
-                }
-                if let Some(name) = patch.get("remove_project").and_then(|v| v.as_str()) {
-                    if let Err(err) = next.remove_imported_project(name) {
-                        let _ = self
-                            .emit(Event::DiagnosticRaised {
-                                diagnostic: serde_json::json!({
-                                    "settings_update": "failed",
-                                    "message": err,
-                                }),
-                            })
-                            .await;
-                        return;
-                    }
-                }
-                if let Some(patterns) = patch
-                    .get("notes_exclude_patterns")
-                    .and_then(|v| v.as_array())
-                {
-                    next.notes_exclude_patterns = patterns
-                        .iter()
-                        .filter_map(|v| v.as_str().map(str::to_string))
-                        .collect();
+                if let Err(err) = next.apply_settings_patch(&patch) {
+                    let _ = self
+                        .emit(Event::DiagnosticRaised {
+                            diagnostic: serde_json::json!({
+                                "settings_update": "failed",
+                                "message": err,
+                            }),
+                        })
+                        .await;
+                    return;
                 }
                 let roots_changed = next.notes_root != current.notes_root
                     || next.records_root != current.records_root
@@ -452,15 +407,8 @@ impl Engine {
                 result,
                 now_unix,
             } => {
-                if let Some(repo) = &self.command_recipes {
-                    if let Err(err) = repo.record_run(&recipe_id, result, now_unix) {
-                        warn!(
-                            recipe_id = %recipe_id,
-                            error = %err,
-                            "failed to record recipe run"
-                        );
-                    }
-                }
+                self.handle_record_recipe_run(recipe_id, result, now_unix)
+                    .await;
             }
             Command::RefreshWordbookReviewStats => {
                 self.handle_refresh_wordbook_review_stats().await;
@@ -469,184 +417,6 @@ impl Engine {
                 self.handle_ssh_session_ended(alias, exit_code).await;
             }
         }
-    }
-
-    async fn handle_ssh_session_ended(&self, alias: String, exit_code: i32) {
-        if exit_code != 0 {
-            return;
-        }
-        let module = {
-            let g = self.inner.lock().await;
-            if !g.registry.is_enabled("luma.ssh") {
-                return;
-            }
-            g.registry.get("luma.ssh")
-        };
-        let Some(module) = module else {
-            return;
-        };
-        let result = luma_domain::SearchItem {
-            id: luma_domain::ResultId::new(format!("ssh:record:{alias}")),
-            module_id: luma_domain::ModuleId::new("luma.ssh"),
-            title: alias.clone(),
-            subtitle: None,
-            kind: "internal".into(),
-            score: 0.0,
-            primary_action: luma_domain::ActionDescriptor {
-                id: luma_domain::ActionId::new("record_connection"),
-                label: "Record".into(),
-                risk: luma_domain::ActionRisk::Safe,
-                confirmation: false,
-            },
-            secondary_actions: vec![],
-            ui_intent: None,
-            action_payload: Some(serde_json::json!({ "alias": alias })),
-        };
-        let action = luma_domain::ActionDescriptor {
-            id: luma_domain::ActionId::new("record_connection"),
-            label: "Record".into(),
-            risk: luma_domain::ActionRisk::Safe,
-            confirmation: false,
-        };
-        let cancel = self.inner.lock().await.session_cancel.child_token();
-        let _ = module
-            .perform(
-                crate::module::ActionRequest {
-                    result,
-                    action,
-                    confirmation: false,
-                },
-                cancel,
-            )
-            .await;
-    }
-
-    async fn handle_refresh_wordbook_review_stats(&self) {
-        use luma_protocol::WordbookStatsDto;
-        let Some(repo) = &self.wordbook else {
-            return;
-        };
-        let stats = repo.stats().unwrap_or_default();
-        let _ = self
-            .emit(Event::WordbookReviewStatsUpdated {
-                stats: WordbookStatsDto {
-                    due: stats.due,
-                    new_count: stats.new_count,
-                    wrong: stats.wrong,
-                    goal: stats.goal,
-                    reviewed_today: stats.reviewed_today,
-                    remaining_goal: stats.remaining_goal,
-                },
-            })
-            .await;
-    }
-
-    async fn handle_load_wordbook_review(&self, queue: String) {
-        use luma_protocol::{WordReviewWordDto, WordbookStatsDto};
-        let Some(repo) = &self.wordbook else {
-            let _ = self
-                .emit(Event::WordbookReviewLoaded {
-                    queue,
-                    words: vec![],
-                    stats: WordbookStatsDto {
-                        due: 0,
-                        new_count: 0,
-                        wrong: 0,
-                        goal: 0,
-                        reviewed_today: 0,
-                        remaining_goal: 0,
-                    },
-                })
-                .await;
-            return;
-        };
-        let stats = repo.stats().unwrap_or_default();
-        let queue_available = match queue.as_str() {
-            "new" => stats.new_count.max(0) as usize,
-            "wrong" => stats.wrong.max(0) as usize,
-            _ => stats.due.max(0) as usize,
-        };
-        let goal_batch = if stats.remaining_goal > 0 {
-            stats.remaining_goal as usize
-        } else {
-            stats.goal.max(1) as usize
-        };
-        let limit = goal_batch.min(queue_available.max(1)).clamp(1, 500);
-        let words_result = match queue.as_str() {
-            "new" => repo.list_new(limit),
-            "wrong" => repo.list_wrong(limit),
-            _ => repo.list_due(limit),
-        };
-        let words: Vec<WordReviewWordDto> = match words_result {
-            Ok(entries) => {
-                let mut words = Vec::with_capacity(entries.len());
-                let mut review_items = Vec::with_capacity(entries.len());
-                for (index, word) in entries.into_iter().enumerate() {
-                    // Review actions use the same `wb:<id>` result contract as
-                    // normal Wordbook search. Register the loaded words before
-                    // emitting the event so grading does not depend on a prior
-                    // search having populated the session cache.
-                    review_items.push(luma_domain::SearchItem {
-                        id: luma_domain::ResultId::new(format!("wb:{}", word.id)),
-                        module_id: luma_domain::ModuleId::new("luma.wordbook"),
-                        title: word.term.clone(),
-                        subtitle: Some(word.meaning.clone()),
-                        kind: "word".into(),
-                        score: 90.0 - index as f64 * 0.1,
-                        primary_action: luma_domain::ActionDescriptor {
-                            id: luma_domain::ActionId::new("known"),
-                            label: "Known".into(),
-                            risk: luma_domain::ActionRisk::Safe,
-                            confirmation: false,
-                        },
-                        secondary_actions: vec![],
-                        ui_intent: None,
-                        action_payload: None,
-                    });
-                    words.push(WordReviewWordDto {
-                        id: word.id,
-                        term: word.term,
-                        phonetic: word.phonetic,
-                        meaning: word.meaning,
-                        example: word.example,
-                    });
-                }
-                let evicted = {
-                    let mut g = self.inner.lock().await;
-                    g.insert_results_batch(
-                        review_items
-                            .into_iter()
-                            .map(|item| (item.id.as_str().to_string(), item)),
-                    )
-                };
-                if !evicted.is_empty() {
-                    let _ = self
-                        .emit(Event::ResultsChunk {
-                            request_id: String::new(),
-                            sequence: 0,
-                            upserts: vec![],
-                            removed_ids: evicted,
-                        })
-                        .await;
-                }
-                words
-            }
-            Err(_) => vec![],
-        };
-        let _ = self
-            .emit(Event::WordbookReviewLoaded {
-                queue,
-                words,
-                stats: WordbookStatsDto {
-                    due: stats.due,
-                    new_count: stats.new_count,
-                    wrong: stats.wrong,
-                    goal: stats.goal,
-                    reviewed_today: stats.reviewed_today,
-                    remaining_goal: stats.remaining_goal,
-                },
-            })
-            .await;
     }
 }
 
@@ -794,14 +564,27 @@ pub async fn run_query(
 }
 
 /// One-shot CLI action helper. Searches and executes within one engine session so result ids remain valid.
+/// Optional inputs for [`run_action`] beyond the core query/action selectors.
+#[derive(Default)]
+pub struct RunActionOptions {
+    pub settings: Option<Arc<dyn crate::ports::SettingsRepository>>,
+    pub command_runner: Option<Arc<dyn crate::ports::CommandRunnerPort>>,
+    pub recipe_stdio: crate::ports::RecipeStdioMode,
+}
+
 pub async fn run_action(
     registry: ModuleRegistry,
     query: &str,
     result_id: Option<&str>,
     action_id: &str,
     confirmation: bool,
-    settings: Option<Arc<dyn crate::ports::SettingsRepository>>,
+    options: RunActionOptions,
 ) -> Result<(SearchItemDto, luma_protocol::ActionOutcomeDto), String> {
+    let RunActionOptions {
+        settings,
+        command_runner,
+        recipe_stdio,
+    } = options;
     let triggers = registry.all_triggers();
     let query = luma_domain::Query::normalize_for_cli(query, |token| {
         is_meta_prefix(token) || triggers.iter().any(|t| t == token)
@@ -859,9 +642,14 @@ pub async fn run_action(
                 .ok_or_else(|| "query returned no actionable results".to_string())?
         }
     };
+    static CLI_ACTION_OP: AtomicU64 = AtomicU64::new(0);
+    let operation_id = format!(
+        "cli-action-{}",
+        CLI_ACTION_OP.fetch_add(1, Ordering::Relaxed) + 1
+    );
     engine
         .handle_command(Command::ExecuteAction {
-            operation_id: "cli-action-1".into(),
+            operation_id,
             result_id: selected.id.clone(),
             action_id: action_id.into(),
             confirmation,
@@ -874,20 +662,20 @@ pub async fn run_action(
             None => return Err("engine event channel closed".into()),
         }
     };
-    let outcome = match &outcome {
+    let outcome = match outcome {
         luma_protocol::ActionOutcomeDto::InteractiveTerminal {
             program,
             args,
             record_alias,
         } => {
             use crate::interactive_terminal::run_interactive_terminal;
-            match run_interactive_terminal(program, args) {
+            match run_interactive_terminal(&program, &args) {
                 Ok(status) => {
                     if status.success() {
                         if let Some(alias) = record_alias {
                             engine
                                 .handle_command(Command::SshSessionEnded {
-                                    alias: alias.clone(),
+                                    alias,
                                     exit_code: status.code().unwrap_or(0),
                                 })
                                 .await;
@@ -916,7 +704,59 @@ pub async fn run_action(
                 }
             }
         }
-        _ => outcome,
+        luma_protocol::ActionOutcomeDto::InteractiveRecipeRun { plan } => {
+            let Some(runner) = command_runner.as_ref() else {
+                return Ok((
+                    selected,
+                    luma_protocol::ActionOutcomeDto::failed(
+                        luma_domain::FailureKind::Unavailable {
+                            reason: format!(
+                                "recipe `{}` needs interactive execution; use `luma cmd run {}`",
+                                plan.recipe_id, plan.recipe_id
+                            ),
+                            retryable: false,
+                        },
+                    ),
+                ));
+            };
+            let cancel = CancellationToken::new();
+            let cancel_task = crate::recipe_runner::spawn_ctrl_c_cancel(cancel.clone());
+            let report_result = crate::recipe_runner::execute_recipe_plan(
+                &plan,
+                runner.as_ref(),
+                &cancel,
+                crate::recipe_runner::RecipeExecuteOptions {
+                    confirmation,
+                    stdio: recipe_stdio,
+                },
+            );
+            // JoinHandle::Drop detaches a Tokio task. Abort the one-shot signal
+            // listener explicitly, including the confirmation-error path below.
+            cancel_task.abort();
+            let report = match report_result {
+                Ok(report) => report,
+                Err(err) => {
+                    return Ok((
+                        selected,
+                        luma_protocol::ActionOutcomeDto::failed(
+                            luma_domain::FailureKind::InvalidInput {
+                                field: "confirmation".into(),
+                                message: err.to_string(),
+                            },
+                        ),
+                    ));
+                }
+            };
+            engine
+                .handle_command(Command::RecordRecipeRun {
+                    recipe_id: plan.recipe_id.clone(),
+                    result: report.outcome.clone(),
+                    now_unix: crate::recipe_runner::now_unix(),
+                })
+                .await;
+            crate::recipe_runner::recipe_outcome_to_action_dto(&plan.recipe_id, &report)
+        }
+        other => other,
     };
     engine.handle_command(Command::ShutdownSession).await;
     Ok((selected, outcome))
@@ -1263,9 +1103,16 @@ mod tests {
 
     #[tokio::test]
     async fn run_action_executes_fake_result() {
-        let (result, outcome) = run_action(fake_registry(), "hello", None, "open", false, None)
-            .await
-            .unwrap();
+        let (result, outcome) = run_action(
+            fake_registry(),
+            "hello",
+            None,
+            "open",
+            false,
+            RunActionOptions::default(),
+        )
+        .await
+        .unwrap();
         assert_eq!(result.id, "fake-1");
         assert!(matches!(
             outcome,

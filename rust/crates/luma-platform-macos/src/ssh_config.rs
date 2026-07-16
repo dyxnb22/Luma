@@ -112,8 +112,13 @@ impl SshConfigPort for MacSshConfig {
                 "unknown ssh host alias: {alias}"
             )));
         }
+        if alias.trim().starts_with('-') {
+            return Err(SshConfigError::msg(format!(
+                "refusing ssh host alias that looks like a flag: {alias}"
+            )));
+        }
         let output = Command::new("ssh")
-            .args(["-G", alias])
+            .args(["-G", "--", alias])
             .output()
             .map_err(|e| SshConfigError::msg(format!("ssh -G failed: {e}")))?;
         if !output.status.success() {

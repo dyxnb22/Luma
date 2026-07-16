@@ -538,12 +538,11 @@ impl LumaModule for TimersModule {
                         },
                     };
                 };
-                self.mutate_timer(&id, |entry, now| {
+                self.mutate_timer(&id, |entry, _now| {
                     entry.accumulated_ms = 0;
                     entry.started_at_ms = None;
                     entry.alerted = false;
                     entry.state = "idle".into();
-                    entry.updated_at_ms = now;
                     Ok(())
                 })
                 .await
@@ -600,6 +599,7 @@ impl LumaModule for TimersModule {
 
 #[cfg(test)]
 mod tests {
+    use super::poller::DeadlineTracker;
     use super::*;
     use luma_application::{ControllableClock, FakeSpeech, MemoryTimersRepository};
     use luma_test_support::collect_search_items;
@@ -719,6 +719,7 @@ mod tests {
             .await
             .unwrap();
         clock.advance_ms(2_500);
+        let mut deadlines = DeadlineTracker::default();
         TimersModule::tick_completions(
             m.store.as_ref(),
             &m.index,
@@ -727,6 +728,7 @@ mod tests {
             speech.as_ref(),
             m.refresh_generation.load(Ordering::SeqCst),
             &m.refresh_generation,
+            &mut deadlines,
         )
         .await;
         let done = m.store.get(&entry.id).unwrap().unwrap();
@@ -739,6 +741,89 @@ mod tests {
                 "expected speech alert, got {calls:?}"
             );
         }
+        m.teardown().await;
+    }
+
+    #[tokio::test]
+    async fn poller_skips_stale_cas_without_alert() {
+        let (m, clock, speech) = module_at(0);
+        m.warmup(WarmupContext {
+            cancel: CancellationToken::new(),
+        })
+        .await;
+        let entry = m
+            .create_and_start("Focus", "countdown", Some(2_000))
+            .await
+            .unwrap();
+        clock.advance_ms(2_500);
+
+        // Concurrent pause wins the CAS before the poller completes.
+        let mut paused = m.store.get(&entry.id).unwrap().unwrap();
+        let expected = paused.updated_at_ms;
+        paused.accumulated_ms = paused.elapsed_ms(clock.ms());
+        paused.started_at_ms = None;
+        paused.state = "paused".into();
+        paused.updated_at_ms = TimerEntry::next_updated_at_ms(clock.ms(), expected);
+        m.store.update(&paused, expected).unwrap();
+
+        let mut deadlines = DeadlineTracker::default();
+        TimersModule::tick_completions(
+            m.store.as_ref(),
+            &m.index,
+            &m.store_error,
+            clock.as_ref(),
+            speech.as_ref(),
+            m.refresh_generation.load(Ordering::SeqCst),
+            &m.refresh_generation,
+            &mut deadlines,
+        )
+        .await;
+
+        let got = m.store.get(&entry.id).unwrap().unwrap();
+        assert_eq!(got.state, "paused");
+        assert!(!got.alerted);
+        assert!(
+            speech.calls.lock().expect("lock").is_empty(),
+            "stale CAS must not speak"
+        );
+        m.teardown().await;
+    }
+
+    #[tokio::test]
+    async fn teardown_generation_blocks_poller_complete_and_alert() {
+        let (m, clock, speech) = module_at(0);
+        m.warmup(WarmupContext {
+            cancel: CancellationToken::new(),
+        })
+        .await;
+        let entry = m
+            .create_and_start("Quiet", "countdown", Some(2_000))
+            .await
+            .unwrap();
+        clock.advance_ms(2_500);
+        let stale_generation = m.refresh_generation.load(Ordering::SeqCst);
+        m.refresh_generation.fetch_add(1, Ordering::SeqCst);
+
+        let mut deadlines = DeadlineTracker::default();
+        TimersModule::tick_completions(
+            m.store.as_ref(),
+            &m.index,
+            &m.store_error,
+            clock.as_ref(),
+            speech.as_ref(),
+            stale_generation,
+            &m.refresh_generation,
+            &mut deadlines,
+        )
+        .await;
+
+        let still = m.store.get(&entry.id).unwrap().unwrap();
+        assert_eq!(still.state, "running");
+        assert!(!still.alerted);
+        assert!(
+            speech.calls.lock().expect("lock").is_empty(),
+            "teardown generation must block alert"
+        );
         m.teardown().await;
     }
 

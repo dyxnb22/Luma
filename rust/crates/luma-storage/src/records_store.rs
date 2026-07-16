@@ -8,6 +8,7 @@ use chrono::Utc;
 use rusqlite::{params, Connection, OptionalExtension};
 use std::path::{Path, PathBuf};
 use thiserror::Error;
+use uuid::Uuid;
 
 const SCHEMA_VERSION: i64 = 2;
 
@@ -412,6 +413,7 @@ impl RecordsStore {
         }
         let conn = self.connect()?;
         let now = now_iso();
+        let revision = new_revision();
         let tx = conn.unchecked_transaction()?;
         let category_id: i64 = tx
             .query_row(
@@ -430,7 +432,7 @@ impl RecordsStore {
             "INSERT INTO records (
                 category_id, category_name, name, name_normalized, rating, note,
                 source_file, source_key, source_hash, created_at, updated_at
-             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, '', '', '', ?7, ?7)",
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, '', '', '', ?7, ?8)",
             params![
                 category_id,
                 category_name.trim(),
@@ -438,7 +440,8 @@ impl RecordsStore {
                 norm,
                 rating,
                 note,
-                now
+                now,
+                revision
             ],
         )
         .map_err(|e| {
@@ -467,11 +470,24 @@ impl RecordsStore {
         let Some(existing) = self.get(id)? else {
             return Err(RecordsStoreError::Msg(format!("record {id} not found")));
         };
+        self.commit_update_record(existing, name, rating, note, category_name)
+    }
+
+    /// RMW write using a previously read snapshot (`updated_at` CAS).
+    fn commit_update_record(
+        &self,
+        existing: RecordRow,
+        name: Option<&str>,
+        rating: Option<Option<i64>>,
+        note: Option<&str>,
+        category_name: Option<&str>,
+    ) -> Result<RecordRow, RecordsStoreError> {
+        let id = existing.id;
         if let Some(Some(r)) = rating {
             self.validate_rating(Some(r))?;
         }
         let conn = self.connect()?;
-        let now = now_iso();
+        let revision = new_revision();
         let tx = conn.unchecked_transaction()?;
 
         let mut category_id = existing.category_id;
@@ -504,29 +520,36 @@ impl RecordsStore {
         };
         let new_note = note.unwrap_or(&existing.note);
 
-        tx.execute(
-            "UPDATE records SET
-                category_id = ?1, category_name = ?2, name = ?3, name_normalized = ?4,
-                rating = ?5, note = ?6, updated_at = ?7
-             WHERE id = ?8",
-            params![
-                category_id,
-                category_name_str,
-                new_name.trim(),
-                norm,
-                new_rating,
-                new_note,
-                now,
-                id
-            ],
-        )
-        .map_err(|e| {
-            if is_unique_violation(&e) {
-                RecordsStoreError::Msg("duplicate name in category".into())
-            } else {
-                RecordsStoreError::Sqlite(e)
-            }
-        })?;
+        let n = tx
+            .execute(
+                "UPDATE records SET
+                    category_id = ?1, category_name = ?2, name = ?3, name_normalized = ?4,
+                    rating = ?5, note = ?6, updated_at = ?7
+                 WHERE id = ?8 AND updated_at = ?9",
+                params![
+                    category_id,
+                    category_name_str,
+                    new_name.trim(),
+                    norm,
+                    new_rating,
+                    new_note,
+                    revision,
+                    id,
+                    existing.updated_at
+                ],
+            )
+            .map_err(|e| {
+                if is_unique_violation(&e) {
+                    RecordsStoreError::Msg("duplicate name in category".into())
+                } else {
+                    RecordsStoreError::Sqlite(e)
+                }
+            })?;
+        if n == 0 {
+            return Err(RecordsStoreError::Msg(format!(
+                "record {id} was modified concurrently; reload and retry"
+            )));
+        }
         tx.commit()?;
         self.get(id)?
             .ok_or_else(|| RecordsStoreError::Msg("update failed".into()))
@@ -924,6 +947,12 @@ pub fn now_iso() -> String {
     Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string()
 }
 
+/// Opaque optimistic-lock token. Keep the timestamp prefix for useful ordering,
+/// but add a UUID so two writers in the same second cannot share a CAS version.
+fn new_revision() -> String {
+    format!("{}~{}", now_iso(), Uuid::new_v4())
+}
+
 #[derive(Clone, Debug, serde::Serialize)]
 pub struct RecordsImportLedgerReport {
     pub preview: RecordImportPreview,
@@ -1011,6 +1040,60 @@ mod tests {
         assert_eq!(hits.len(), 1);
         store.delete(row.id).unwrap();
         assert!(store.get(row.id).unwrap().is_none());
+    }
+
+    #[test]
+    fn update_record_cas_rejects_stale_snapshot() {
+        let dir = tempdir().unwrap();
+        let store = RecordsStore::with_path(dir.path().join("records.sqlite")).unwrap();
+        seed_category(&store, "电影");
+        let row = store
+            .insert_record("电影", "沙丘", Some(8), "史诗")
+            .unwrap();
+        let snapshot = store.get(row.id).unwrap().unwrap();
+        // Concurrent writer with a distinct updated_at (second-precision now_iso can collide).
+        store
+            .connect()
+            .unwrap()
+            .execute(
+                "UPDATE records SET note = 'newer', updated_at = '2099-01-01T00:00:00Z' WHERE id = ?1",
+                params![row.id],
+            )
+            .unwrap();
+        let err = store
+            .commit_update_record(snapshot, None, None, Some("stale"), None)
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("concurrently"), "{err}");
+        assert_eq!(store.get(row.id).unwrap().unwrap().note, "newer");
+    }
+
+    #[test]
+    fn update_record_cas_rejects_same_second_stale_snapshot() {
+        let dir = tempdir().unwrap();
+        let store = RecordsStore::with_path(dir.path().join("records.sqlite")).unwrap();
+        seed_category(&store, "电影");
+        let row = store.insert_record("电影", "沙丘", None, "old").unwrap();
+        let snapshot = store.get(row.id).unwrap().unwrap();
+        let winner = store.set_note(row.id, "newer").unwrap();
+        assert_ne!(winner.updated_at, snapshot.updated_at);
+
+        let err = store
+            .commit_update_record(snapshot, None, None, Some("stale"), None)
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("concurrently"), "{err}");
+        assert_eq!(store.get(row.id).unwrap().unwrap().note, "newer");
+    }
+
+    #[test]
+    fn set_rating_round_trip() {
+        let dir = tempdir().unwrap();
+        let store = RecordsStore::with_path(dir.path().join("records.sqlite")).unwrap();
+        seed_category(&store, "电影");
+        let row = store.insert_record("电影", "沙丘", None, "").unwrap();
+        let updated = store.set_rating(row.id, Some(9)).unwrap();
+        assert_eq!(updated.rating, Some(9));
     }
 
     #[test]

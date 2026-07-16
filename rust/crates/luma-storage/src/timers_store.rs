@@ -12,6 +12,9 @@ pub enum TimersStoreError {
     Sqlite(#[from] rusqlite::Error),
     #[error("io: {0}")]
     Io(#[from] std::io::Error),
+    /// Optimistic-lock miss: row missing or `updated_at_ms` no longer matches.
+    #[error("timer update conflict (stale)")]
+    Conflict,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -149,7 +152,13 @@ impl TimersStore {
         Ok(())
     }
 
-    pub fn update(&self, row: &TimerRow) -> Result<(), TimersStoreError> {
+    /// Compare-and-swap update: succeeds only when `id` exists and
+    /// `updated_at_ms` still equals `expected_updated_at_ms`.
+    pub fn update(
+        &self,
+        row: &TimerRow,
+        expected_updated_at_ms: i64,
+    ) -> Result<(), TimersStoreError> {
         let n = self.connect()?.execute(
             "UPDATE timers SET
                 name = ?2,
@@ -160,7 +169,7 @@ impl TimersStore {
                 started_at_ms = ?7,
                 alerted = ?8,
                 updated_at_ms = ?9
-             WHERE id = ?1",
+             WHERE id = ?1 AND updated_at_ms = ?10",
             params![
                 row.id,
                 row.name,
@@ -171,12 +180,11 @@ impl TimersStore {
                 row.started_at_ms,
                 if row.alerted { 1 } else { 0 },
                 row.updated_at_ms,
+                expected_updated_at_ms,
             ],
         )?;
         if n == 0 {
-            return Err(TimersStoreError::Sqlite(
-                rusqlite::Error::QueryReturnedNoRows,
-            ));
+            return Err(TimersStoreError::Conflict);
         }
         Ok(())
     }
@@ -222,11 +230,12 @@ mod tests {
         assert_eq!(listed.len(), 1);
         assert_eq!(listed[0].name, "Focus");
 
+        let expected = row.updated_at_ms;
         row.state = "paused".into();
         row.accumulated_ms = 12_000;
         row.started_at_ms = None;
         row.updated_at_ms = 1_700_000_001_000;
-        store.update(&row).unwrap();
+        store.update(&row, expected).unwrap();
         let got = store.get(&row.id).unwrap().unwrap();
         assert_eq!(got.state, "paused");
         assert_eq!(got.accumulated_ms, 12_000);
@@ -234,5 +243,42 @@ mod tests {
 
         store.delete(&row.id).unwrap();
         assert!(store.list().unwrap().is_empty());
+    }
+
+    #[test]
+    fn update_rejects_stale_updated_at() {
+        let dir = tempdir().unwrap();
+        let store = TimersStore::with_path(dir.path().join("timers.sqlite")).unwrap();
+        let row = sample(1_700_000_000_000);
+        store.insert(&row).unwrap();
+
+        let mut winner = row.clone();
+        winner.state = "paused".into();
+        winner.updated_at_ms = row.updated_at_ms + 1_000;
+        store.update(&winner, row.updated_at_ms).unwrap();
+
+        let mut stale = row.clone();
+        stale.state = "completed".into();
+        stale.alerted = true;
+        stale.updated_at_ms = row.updated_at_ms + 2_000;
+        let err = store.update(&stale, row.updated_at_ms).unwrap_err();
+        assert!(
+            matches!(err, TimersStoreError::Conflict),
+            "expected Conflict, got {err:?}"
+        );
+
+        let got = store.get(&row.id).unwrap().unwrap();
+        assert_eq!(got.state, "paused");
+        assert!(!got.alerted);
+        assert_eq!(got.updated_at_ms, winner.updated_at_ms);
+    }
+
+    #[test]
+    fn update_rejects_missing_id_as_conflict() {
+        let dir = tempdir().unwrap();
+        let store = TimersStore::with_path(dir.path().join("timers.sqlite")).unwrap();
+        let row = sample(1_700_000_000_000);
+        let err = store.update(&row, row.updated_at_ms).unwrap_err();
+        assert!(matches!(err, TimersStoreError::Conflict));
     }
 }

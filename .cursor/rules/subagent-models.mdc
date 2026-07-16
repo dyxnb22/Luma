@@ -9,5 +9,7 @@ When launching Task / subagents with Composer 2.5:
 
 - Use `composer-2.5` (full).
 - Do **not** use `composer-2.5-fast`.
+- If the user explicitly selects another model for the current task (for example, Sonnet 5 for a
+  repository audit), follow that explicit selection instead of this default.
 
-Only pick another model when the user explicitly asks for it.
+Otherwise, only pick another model when the user explicitly asks for it.

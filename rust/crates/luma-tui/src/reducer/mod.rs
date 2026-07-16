@@ -978,8 +978,7 @@ pub(super) fn execute_action(
         );
         return vec![Effect::None];
     }
-    state.search_generation = state.search_generation.saturating_add(1);
-    let operation_id = format!("op-{}", state.search_generation);
+    let operation_id = next_operation_id(state);
     state.active_operation = Some(operation_id.clone());
     state
         .status
@@ -1443,6 +1442,11 @@ fn cancel_active(state: &mut AppState) -> Vec<Effect> {
 fn next_request_id(state: &mut AppState) -> String {
     state.search_generation = state.search_generation.saturating_add(1);
     format!("req-{}", state.search_generation)
+}
+
+fn next_operation_id(state: &mut AppState) -> String {
+    state.operation_generation = state.operation_generation.saturating_add(1);
+    format!("op-{}", state.operation_generation)
 }
 
 #[cfg(test)]

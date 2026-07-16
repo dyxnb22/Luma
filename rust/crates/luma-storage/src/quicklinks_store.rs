@@ -3,6 +3,12 @@ use rusqlite::{params, Connection};
 use std::path::PathBuf;
 use thiserror::Error;
 
+/// Max UTF-8 bytes for a quicklink URL on upsert (personal-use guardrail).
+pub const MAX_URL_BYTES: usize = 64 * 1024;
+
+/// Max UTF-8 bytes for a quicklink trigger on upsert.
+pub const MAX_TRIGGER_BYTES: usize = 1024;
+
 #[derive(Debug, Error)]
 pub enum QuicklinksStoreError {
     #[error(transparent)]
@@ -11,6 +17,8 @@ pub enum QuicklinksStoreError {
     Sqlite(#[from] rusqlite::Error),
     #[error("io: {0}")]
     Io(#[from] std::io::Error),
+    #[error("{0}")]
+    Msg(String),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -64,6 +72,16 @@ impl QuicklinksStore {
     }
 
     pub fn upsert(&self, trigger: &str, url: &str) -> Result<(), QuicklinksStoreError> {
+        if trigger.len() > MAX_TRIGGER_BYTES {
+            return Err(QuicklinksStoreError::Msg(format!(
+                "quicklink trigger exceeds max size ({MAX_TRIGGER_BYTES} bytes)"
+            )));
+        }
+        if url.len() > MAX_URL_BYTES {
+            return Err(QuicklinksStoreError::Msg(format!(
+                "quicklink url exceeds max size ({MAX_URL_BYTES} bytes)"
+            )));
+        }
         self.connect()?.execute(
             "INSERT INTO quicklinks (trigger, url) VALUES (?1, ?2)
              ON CONFLICT(trigger) DO UPDATE SET url = excluded.url",
@@ -78,5 +96,31 @@ impl QuicklinksStore {
             params![trigger],
         )?;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::tempdir;
+
+    #[test]
+    fn upsert_list_delete() {
+        let dir = tempdir().unwrap();
+        let store = QuicklinksStore::with_path(dir.path().join("ql.sqlite")).unwrap();
+        store.upsert("gh", "https://github.com/{query}").unwrap();
+        assert_eq!(store.list().unwrap().len(), 1);
+        store.delete("gh").unwrap();
+        assert!(store.list().unwrap().is_empty());
+    }
+
+    #[test]
+    fn upsert_rejects_oversized_url() {
+        let dir = tempdir().unwrap();
+        let store = QuicklinksStore::with_path(dir.path().join("ql.sqlite")).unwrap();
+        let huge = "x".repeat(MAX_URL_BYTES + 1);
+        let err = store.upsert("big", &huge).unwrap_err().to_string();
+        assert!(err.contains("max size"), "{err}");
+        assert!(store.list().unwrap().is_empty());
     }
 }

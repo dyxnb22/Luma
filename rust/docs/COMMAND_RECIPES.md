@@ -23,6 +23,7 @@ TUI shortcuts while a recipe row is selected:
 | `f` | Favorite / unfavorite |
 
 Run executes in the **current terminal** (TUI suspends, command output appears, then Luma resumes).
+CLI and TUI share one recipe runner in `luma-application` (step loop, risk gate, metadata record).
 
 ## CLI
 
@@ -32,9 +33,21 @@ luma cmd list [--json]
 luma cmd show <recipe-id> [--json]
 luma cmd run <recipe-id> [--confirmation] [--json]
 luma cmd copy <recipe-id> [--json]
+luma action run --query "cmd test" --action-id run [--confirmation] [--json]
 ```
 
-`run` inherits stdin/stdout/stderr. Non-safe recipes require `--confirmation`.
+### `cmd run` / `action run`
+
+- Interactive (no `--json`): child steps inherit stdin/stdout/stderr.
+- `--json`: child stdin/stdout/stderr are nullified so stdout is a single JSON document
+  (`outcome`: `success` / `failed` / `cancelled`). Step output is not mixed into that stream.
+- Non-safe recipes require `--confirmation`.
+- Ctrl+C cancels the run (exit code `2` / `cancelled`); signal-terminated steps are recorded as
+  cancelled, not failed.
+- `luma action run` with `--action-id run` **executes** the recipe via the shared runner (it does
+  not exit 0 on a bare plan). Prefer `luma cmd run <id>` for the dedicated surface.
+
+Exit codes for recipe runs: `0` success, `1` failed, `2` cancelled.
 
 ## Configuration
 
@@ -133,6 +146,7 @@ Confirm/destructive recipes require explicit confirmation in TUI and `--confirma
 - No new Terminal windows, AppleScript, or `open` for execution.
 - `show-env` filters names/values that look like secrets.
 - Command output is not persisted.
+- `--json` runs do not inherit child stdio into the JSON stream.
 
 ## Limits (v1)
 

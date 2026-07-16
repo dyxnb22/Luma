@@ -8,7 +8,8 @@ pub fn action_exit_code(outcome: &ActionOutcomeDto) -> i32 {
         ActionOutcomeDto::Success { .. } => 0,
         ActionOutcomeDto::Failed { .. } => 1,
         ActionOutcomeDto::Cancelled => 2,
-        ActionOutcomeDto::InteractiveRecipeRun { .. } => 0,
+        // Should not leak after `run_action` executes the plan; fail closed if it does.
+        ActionOutcomeDto::InteractiveRecipeRun { .. } => 1,
         ActionOutcomeDto::InteractiveTerminal { .. } => 1,
     }
 }

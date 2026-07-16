@@ -18,6 +18,19 @@ pub struct ActionDescriptor {
     pub confirmation: bool,
 }
 
+impl ActionDescriptor {
+    /// True when the TUI must confirm before ExecuteAction, or the engine must reject
+    /// an unconfirmed request (`confirmation` flag or non-Safe risk).
+    pub fn needs_confirmation(&self) -> bool {
+        action_needs_confirmation(self.confirmation, &self.risk)
+    }
+}
+
+/// Shared confirm predicate for domain actions and protocol DTOs.
+pub fn action_needs_confirmation(confirmation: bool, risk: &ActionRisk) -> bool {
+    confirmation || !matches!(risk, ActionRisk::Safe)
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct SearchItem {
     pub id: ResultId,

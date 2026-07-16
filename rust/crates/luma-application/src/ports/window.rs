@@ -52,6 +52,9 @@ pub trait WindowCatalogPort: Send + Sync {
     async fn list_windows(&self) -> Result<Vec<WindowEntry>, WindowError>;
 
     async fn focus(&self, id: &str) -> Result<(), WindowError>;
+
+    /// Invalidate pending AX work and wait for an already-started side effect to finish.
+    fn abandon_pending_ax_ops(&self) {}
 }
 
 /// Deterministic fake for module / engine tests. Never steals focus.

@@ -14,7 +14,7 @@ use tokio::sync::Mutex;
 use super::fs::{
     atomic_json, atomic_write, canonical_local_file, combine_rollbacks, io_error,
     read_optional_file, read_profile_stats, read_yaml_file, remove_file_if_exists, restore_file,
-    rollback_failure, safe_child, set_private_dir_mode,
+    rollback_failure, safe_child, set_private_dir_mode, ProfileStoreLock,
 };
 use super::parse::{
     new_id, normalize_subscription_bytes, now, safe_name, sequence_len, valid_id, validate_profile,
@@ -66,6 +66,12 @@ pub struct MacProfileStore {
     runtime: Option<Arc<dyn RuntimeApplyPort>>,
     /// Serializes multi-file/Profile-Keychain mutations within one Luma process.
     operation_lock: Mutex<()>,
+}
+
+/// Holds the in-process mutex and the cross-process flock for one Profile operation.
+struct StoreOpGuard<'a> {
+    _operation: tokio::sync::MutexGuard<'a, ()>,
+    _file: ProfileStoreLock,
 }
 
 impl MacProfileStore {
@@ -120,6 +126,21 @@ impl MacProfileStore {
     fn ensure_root(&self) -> Result<(), ProfileStoreError> {
         fs::create_dir_all(&self.root).map_err(io_error)?;
         set_private_dir_mode(&self.root)
+    }
+
+    /// In-process mutex plus cross-process flock on `profiles.lock`.
+    async fn lock_store(&self) -> Result<StoreOpGuard<'_>, ProfileStoreError> {
+        let operation = self.operation_lock.lock().await;
+        let root = self.root.clone();
+        let file = tokio::task::spawn_blocking(move || ProfileStoreLock::acquire(&root))
+            .await
+            .map_err(|err| {
+                ProfileStoreError::Unavailable(format!("profile lock task failed: {err}"))
+            })??;
+        Ok(StoreOpGuard {
+            _operation: operation,
+            _file: file,
+        })
     }
     fn read_index(&self) -> Result<ProfileIndex, ProfileStoreError> {
         let path = self.index_path();
@@ -355,7 +376,7 @@ impl MacProfileStore {
 #[async_trait]
 impl ProfileStorePort for MacProfileStore {
     async fn list_profiles(&self) -> Result<Vec<ProfileSummary>, ProfileStoreError> {
-        let _operation = self.operation_lock.lock().await;
+        let _guard = self.lock_store().await?;
         let current = self.read_current_uid()?;
         let index = self.read_index()?;
         let mut out: Vec<_> = index
@@ -419,7 +440,7 @@ impl ProfileStorePort for MacProfileStore {
         url: &str,
         suggested_name: Option<&str>,
     ) -> Result<ProfileImportResult, ProfileStoreError> {
-        let _operation = self.operation_lock.lock().await;
+        let _guard = self.lock_store().await?;
         let bytes = self.fetch_url(url).await?;
         self.import_bytes(
             bytes,
@@ -436,7 +457,7 @@ impl ProfileStorePort for MacProfileStore {
         path: &Path,
         suggested_name: Option<&str>,
     ) -> Result<ProfileImportResult, ProfileStoreError> {
-        let _operation = self.operation_lock.lock().await;
+        let _guard = self.lock_store().await?;
         let safe = canonical_local_file(path)?;
         let meta = fs::metadata(&safe).map_err(io_error)?;
         if meta.len() > MAX_PROFILE_BYTES {
@@ -455,12 +476,12 @@ impl ProfileStorePort for MacProfileStore {
     }
 
     async fn use_profile(&self, id: &str) -> Result<ProfileImportResult, ProfileStoreError> {
-        let _operation = self.operation_lock.lock().await;
+        let _guard = self.lock_store().await?;
         self.apply_stored(id).await
     }
 
     async fn refresh_profile(&self, id: &str) -> Result<ProfileImportResult, ProfileStoreError> {
-        let _operation = self.operation_lock.lock().await;
+        let _guard = self.lock_store().await?;
         let existing = self
             .read_index()?
             .profiles
@@ -493,7 +514,7 @@ impl ProfileStorePort for MacProfileStore {
     }
 
     async fn delete_profile(&self, id: &str) -> Result<(), ProfileStoreError> {
-        let _operation = self.operation_lock.lock().await;
+        let _guard = self.lock_store().await?;
         let mut index = self.read_index()?;
         let stored = index
             .profiles
@@ -981,6 +1002,118 @@ items:
             old_url
         );
     }
+
+    #[cfg(unix)]
+    fn set_uchg(path: &Path, enabled: bool) {
+        let flag = if enabled { "uchg" } else { "nouchg" };
+        let status = std::process::Command::new("chflags")
+            .args([flag, &path.to_string_lossy()])
+            .status()
+            .expect("chflags");
+        assert!(status.success(), "chflags {flag} failed");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn delete_source_remove_failure_restores_clash() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("profiles");
+        let clash = dir.path().join("clash");
+        let store = MacProfileStore::with_paths(root.clone(), Some(clash.clone()), keychain());
+        let imported = store
+            .import_bytes(
+                b"name: Old\nproxies: []\n".to_vec(),
+                None,
+                ProfileSource::LumaLocal,
+                None,
+                None,
+            )
+            .await
+            .unwrap();
+        let id = imported.summary.id;
+        fs::create_dir_all(&clash).unwrap();
+        let manifest = clash.join("profiles.yaml");
+        fs::write(
+            &manifest,
+            format!(
+                "current: {id}\nitems:\n  - uid: {id}\n    type: local\n    name: Old\n    file: {id}.yaml\n"
+            ),
+        )
+        .unwrap();
+        let target = clash.join(format!("{id}.yaml"));
+        fs::write(&target, b"old target").unwrap();
+        let old_manifest = fs::read(&manifest).unwrap();
+        let old_target = fs::read(&target).unwrap();
+        let source_path = root.join(format!("{id}.yaml"));
+        // Immutable source: read still works, unlink after Clash unregister fails.
+        set_uchg(&source_path, true);
+
+        let error = store.delete_profile(&id).await.unwrap_err();
+        set_uchg(&source_path, false);
+        assert!(
+            matches!(
+                error,
+                ProfileStoreError::Unavailable(_) | ProfileStoreError::Conflict(_)
+            ),
+            "{error}"
+        );
+        assert_eq!(fs::read(&manifest).unwrap(), old_manifest);
+        assert_eq!(fs::read(&target).unwrap(), old_target);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn delete_index_write_failure_restores_files_and_clash() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("profiles");
+        let clash = dir.path().join("clash");
+        let store = MacProfileStore::with_paths(root.clone(), Some(clash.clone()), keychain());
+        let imported = store
+            .import_bytes(
+                b"name: Old\nproxies: []\n".to_vec(),
+                None,
+                ProfileSource::LumaLocal,
+                None,
+                None,
+            )
+            .await
+            .unwrap();
+        let id = imported.summary.id;
+        let source_path = root.join(format!("{id}.yaml"));
+        let index_path = root.join("profiles.json");
+        let old_source = fs::read(&source_path).unwrap();
+        let old_index = fs::read(&index_path).unwrap();
+        fs::create_dir_all(&clash).unwrap();
+        let manifest = clash.join("profiles.yaml");
+        fs::write(
+            &manifest,
+            format!(
+                "current: {id}\nitems:\n  - uid: {id}\n    type: local\n    name: Old\n    file: {id}.yaml\n"
+            ),
+        )
+        .unwrap();
+        let target = clash.join(format!("{id}.yaml"));
+        fs::write(&target, b"old target").unwrap();
+        let old_manifest = fs::read(&manifest).unwrap();
+        let old_target = fs::read(&target).unwrap();
+        // Immutable index: rename-over during atomic_json fails after source delete.
+        set_uchg(&index_path, true);
+
+        let error = store.delete_profile(&id).await.unwrap_err();
+        set_uchg(&index_path, false);
+        assert!(
+            matches!(
+                error,
+                ProfileStoreError::Unavailable(_) | ProfileStoreError::Conflict(_)
+            ),
+            "{error}"
+        );
+        assert_eq!(fs::read(&source_path).unwrap(), old_source);
+        assert_eq!(fs::read(&index_path).unwrap(), old_index);
+        assert_eq!(fs::read(&manifest).unwrap(), old_manifest);
+        assert_eq!(fs::read(&target).unwrap(), old_target);
+    }
+
     #[cfg(unix)]
     #[tokio::test]
     async fn list_profiles_rejects_a_symlinked_clash_manifest() {

@@ -75,9 +75,7 @@ impl Engine {
                 (Some(result), Some(module)) => {
                     let actions = module.actions(&result).await;
                     if let Some(action) = actions.into_iter().find(|a| a.id.as_str() == action_id) {
-                        let needs_confirm = action.confirmation
-                            || !matches!(action.risk, luma_domain::ActionRisk::Safe);
-                        if needs_confirm && !confirmation {
+                        if action.needs_confirmation() && !confirmation {
                             luma_protocol::ActionOutcomeDto::failed(
                                 luma_domain::FailureKind::SecurityDenied {
                                     reason: "confirmation required".into(),

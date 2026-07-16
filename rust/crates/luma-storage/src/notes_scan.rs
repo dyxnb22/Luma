@@ -89,6 +89,8 @@ pub struct NotesScanner {
     status: Mutex<ScanStatus>,
     /// Test-only: relative paths that should fail reads (stable unreadable seam).
     force_unreadable: Mutex<HashSet<String>>,
+    /// Test-only: set cancel once `processed` reaches this count.
+    cancel_after_processed: Mutex<Option<usize>>,
 }
 
 impl NotesScanner {
@@ -98,12 +100,18 @@ impl NotesScanner {
             busy: Mutex::new(false),
             status: Mutex::new(ScanStatus::Idle),
             force_unreadable: Mutex::new(HashSet::new()),
+            cancel_after_processed: Mutex::new(None),
         }
     }
 
     /// Mark relative paths as unreadable for the next scan (tests only).
     pub fn force_unreadable_for_tests(&self, paths: impl IntoIterator<Item = impl Into<String>>) {
         *self.force_unreadable.lock().unwrap() = paths.into_iter().map(Into::into).collect();
+    }
+
+    /// Request cancel once `processed` reaches `n` (tests only).
+    pub fn cancel_after_processed_for_tests(&self, n: usize) {
+        *self.cancel_after_processed.lock().unwrap() = Some(n);
     }
 
     pub fn store(&self) -> &NotesIndexStore {
@@ -200,26 +208,28 @@ impl NotesScanner {
         self.try_begin(mode.clone(), total)?;
 
         let result = (|| -> Result<ScanReport, NotesScanError> {
-            // Cancel before destructive rebuild clear.
+            // Cancel before opening a destructive write transaction.
             if is_cancelled(cancel) {
                 return Err(NotesScanError::Cancelled);
             }
-            if clear_first {
-                self.store.clear_all()?;
-            }
 
+            // Allocate scan id outside the long-lived write tx (avoids cross-connection lock).
             let scan_id = self.store.next_scan_id()?;
             let mut seen = Vec::with_capacity(discovery.files.len());
             let mut processed = 0usize;
             let mut errors = 0usize;
             let mut issues = Vec::new();
             let now = NotesIndexStore::now_unix();
+
+            // One write tx for the whole scan: clear/upserts/prune/issues commit together.
+            // Cancel/error drops the tx and rolls back — no durable partial index.
             let scan_conn = self.store.connect()?;
-            let mut scan_tx = scan_conn
+            let scan_tx = scan_conn
                 .unchecked_transaction()
                 .map_err(NotesIndexStoreError::from)?;
-            let mut batch_writes = 0usize;
-            const SCAN_BATCH: usize = 32;
+            if clear_first {
+                NotesIndexStore::clear_all_tx(&scan_tx)?;
+            }
 
             for skip in &discovery.skipped {
                 if let Some(issue) = skipped_to_issue(skip, scan_id, now) {
@@ -230,7 +240,7 @@ impl NotesScanner {
 
             for abs in &discovery.files {
                 if is_cancelled(cancel) {
-                    let _ = self.store.replace_issues_for_scan(scan_id, &issues);
+                    // Leave scan_tx uncommitted so Drop rolls back.
                     return Err(NotesScanError::Cancelled);
                 }
 
@@ -246,7 +256,7 @@ impl NotesScanner {
                     scan_id,
                     mode == ScanMode::Incremental,
                     now,
-                    Some(&mut scan_tx),
+                    Some(&scan_tx),
                 ) {
                     Ok(file_issues) => {
                         errors += file_issues.len();
@@ -264,15 +274,6 @@ impl NotesScanner {
                     }
                 }
 
-                batch_writes += 1;
-                if batch_writes >= SCAN_BATCH {
-                    scan_tx.commit().map_err(NotesIndexStoreError::from)?;
-                    scan_tx = scan_conn
-                        .unchecked_transaction()
-                        .map_err(NotesIndexStoreError::from)?;
-                    batch_writes = 0;
-                }
-
                 processed += 1;
                 {
                     let mut status = self.status.lock().unwrap();
@@ -284,19 +285,32 @@ impl NotesScanner {
                         };
                     }
                 }
-            }
-
-            if batch_writes > 0 {
-                scan_tx.commit().map_err(NotesIndexStoreError::from)?;
+                let should_cancel = {
+                    let mut threshold = self.cancel_after_processed.lock().unwrap();
+                    if threshold.is_some_and(|threshold| processed >= threshold) {
+                        threshold.take();
+                        true
+                    } else {
+                        false
+                    }
+                };
+                if should_cancel {
+                    // This is a one-shot test seam. Do not make a later scan
+                    // unexpectedly self-cancel because the scanner is reused.
+                    if let Some(flag) = cancel {
+                        flag.store(true, Ordering::Relaxed);
+                    }
+                }
             }
 
             // Only prune after an authoritative complete enumeration.
             let pruned = if discovery.complete {
-                self.store.prune_except(&seen)?
+                NotesIndexStore::prune_except_tx(&scan_tx, &seen)?
             } else {
                 0
             };
-            self.store.replace_issues_for_scan(scan_id, &issues)?;
+            NotesIndexStore::replace_issues_for_scan_tx(&scan_tx, scan_id, &issues)?;
+            scan_tx.commit().map_err(NotesIndexStoreError::from)?;
 
             Ok(ScanReport {
                 mode: mode.clone(),
@@ -346,7 +360,7 @@ impl NotesScanner {
         scan_id: i64,
         incremental: bool,
         now: i64,
-        batch_tx: Option<&mut rusqlite::Transaction<'_>>,
+        batch_tx: Option<&rusqlite::Transaction<'_>>,
     ) -> Result<Vec<ScanIssueRow>, NotesScanError> {
         let meta = std::fs::symlink_metadata(abs)?;
         if meta.file_type().is_symlink() {
@@ -504,7 +518,7 @@ impl NotesScanner {
         tags: &[String],
         links: &[DocumentLinkRow],
         fts_body: &str,
-        batch_tx: Option<&mut rusqlite::Transaction<'_>>,
+        batch_tx: Option<&rusqlite::Transaction<'_>>,
     ) -> Result<(), NotesScanError> {
         match batch_tx {
             Some(tx) => NotesIndexStore::upsert_parsed_tx(tx, doc, tags, links, fts_body)
@@ -743,6 +757,68 @@ mod tests {
         let err = scanner.rebuild(&root, &options, Some(&cancel)).unwrap_err();
         assert!(matches!(err, NotesScanError::Cancelled));
         assert_eq!(scanner.store().document_count().unwrap(), 7);
+    }
+
+    #[test]
+    fn rebuild_cancel_after_progress_keeps_prior_index() {
+        let (_tmp, scanner) = temp_scanner();
+        let root = fixture_root("basic");
+        let options = NotesScanOptions::default();
+        scanner.full_scan(&root, &options, None).unwrap();
+        let prior_count = scanner.store().document_count().unwrap();
+        assert_eq!(prior_count, 7);
+
+        let cancel = AtomicBool::new(false);
+        scanner.cancel_after_processed_for_tests(1);
+        let err = scanner.rebuild(&root, &options, Some(&cancel)).unwrap_err();
+        assert!(matches!(err, NotesScanError::Cancelled));
+        assert!(
+            cancel.load(std::sync::atomic::Ordering::Relaxed),
+            "cancel flag should have been raised after progress"
+        );
+        assert_eq!(scanner.store().document_count().unwrap(), prior_count);
+        assert_eq!(scanner.store().fts_count().unwrap(), prior_count);
+    }
+
+    #[test]
+    fn cancel_mid_scan_does_not_persist_partial_batches() {
+        let (tmp, scanner) = temp_scanner();
+        let root = tmp.path().join("ws");
+        fs::create_dir_all(&root).unwrap();
+        for i in 0..40 {
+            fs::write(
+                root.join(format!("n{i:02}.md")),
+                format!("# Note {i}\n\nbody {i}\n"),
+            )
+            .unwrap();
+        }
+        let options = NotesScanOptions::default();
+        scanner.full_scan(&root, &options, None).unwrap();
+        let before_docs = scanner.store().list_documents().unwrap();
+        let before_fts = scanner.store().fts_count().unwrap();
+        let before_issues = scanner.store().list_issues(None).unwrap();
+        assert!(before_docs.len() >= 40);
+
+        // Mutate workspace so a resumed scan would write different rows if committed.
+        for i in 0..40 {
+            fs::write(
+                root.join(format!("n{i:02}.md")),
+                format!("# Changed {i}\n\nmutated {i}\n"),
+            )
+            .unwrap();
+        }
+
+        let cancel = AtomicBool::new(false);
+        scanner.cancel_after_processed_for_tests(33);
+        let err = scanner
+            .full_scan(&root, &options, Some(&cancel))
+            .unwrap_err();
+        assert!(matches!(err, NotesScanError::Cancelled));
+        assert!(cancel.load(std::sync::atomic::Ordering::Relaxed));
+
+        assert_eq!(scanner.store().list_documents().unwrap(), before_docs);
+        assert_eq!(scanner.store().fts_count().unwrap(), before_fts);
+        assert_eq!(scanner.store().list_issues(None).unwrap(), before_issues);
     }
 
     #[test]

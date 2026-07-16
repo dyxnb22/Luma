@@ -43,7 +43,7 @@ impl SecretsModule {
                 id: ModuleId::new("luma.secrets"),
                 display_name: "Secrets".into(),
                 triggers: vec!["sec".into(), "secret".into(), "secrets".into()],
-                default_enabled: true,
+                default_enabled: false,
                 search_mode: SearchMode::TargetedOnly,
                 required_capabilities: vec!["keychain".into()],
                 workbench: luma_application::WorkbenchMeta {

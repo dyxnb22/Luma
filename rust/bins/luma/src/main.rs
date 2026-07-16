@@ -459,13 +459,24 @@ async fn main() -> anyhow::Result<()> {
         }) => {
             let load =
                 load_registry_with_settings().map_err(|e| anyhow::anyhow!("registry: {e}"))?;
+            let command_runner =
+                Arc::new(MacCommandRunner::new()) as Arc<dyn luma_application::CommandRunnerPort>;
+            let recipe_stdio = if json {
+                luma_application::RecipeStdioMode::Null
+            } else {
+                luma_application::RecipeStdioMode::Inherit
+            };
             let (result, outcome) = run_action(
                 load.registry,
                 &query,
                 result_id.as_deref(),
                 &action_id,
                 confirmation,
-                Some(load.settings),
+                luma_application::RunActionOptions {
+                    settings: Some(load.settings),
+                    command_runner: Some(command_runner),
+                    recipe_stdio,
+                },
             )
             .await
             .map_err(anyhow::Error::msg)?;
@@ -592,75 +603,119 @@ async fn main() -> anyhow::Result<()> {
                 json,
             } = args;
             let store = ConfigStore::luma_next_default()?;
-            let saved = match store.try_mutate_settings(expected_version, |next| {
-                if let Some(root) = notes_root {
-                    next.notes_root = if root.is_empty() { None } else { Some(root) };
-                }
-                if let Some(root) = records_root {
-                    next.records_root = if root.is_empty() { None } else { Some(root) };
-                }
-                if !projects_root.is_empty() {
-                    next.projects_roots = projects_root;
-                }
-                if clear_notes_excludes {
-                    next.notes_exclude_patterns.clear();
-                }
-                if !notes_exclude.is_empty() {
-                    next.notes_exclude_patterns = notes_exclude
-                        .into_iter()
-                        .filter(|p| !p.is_empty())
-                        .collect();
-                }
-                for id in enable_module {
-                    next.enabled_modules.insert(id, true);
-                }
-                for id in disable_module {
-                    next.enabled_modules.insert(id, false);
-                }
-                if let Some(days) = clipboard_retention_days {
-                    next.clipboard_retention_days = days;
-                }
-                if let Some(secs) = secrets_idle_lock_secs {
-                    next.secrets_idle_lock_secs = secs;
-                }
-                if let Some(max) = hub_windows_max {
-                    next.hub_windows_max = max.clamp(5, 50);
-                }
-                if let Some(path) = proxy_controller_unix_socket {
-                    next.proxy_controller_unix_socket =
-                        if path.is_empty() { None } else { Some(path) };
-                }
-                if let Some(address) = proxy_controller_address {
-                    next.proxy_controller_address = if address.is_empty() {
-                        None
-                    } else {
-                        Some(address)
-                    };
-                }
-                if let Some(account) = proxy_controller_secret_account {
-                    next.proxy_controller_secret_account = if account.is_empty() {
-                        None
-                    } else {
-                        Some(account)
-                    };
-                }
-                if let Some(service) = proxy_network_service {
-                    next.proxy_network_service = if service.is_empty() {
-                        None
-                    } else {
-                        Some(service)
-                    };
-                }
-                for path in &import_project {
-                    next.import_project_path(std::path::Path::new(path))
-                        .map_err(|err| err.to_string())?;
-                }
-                for name in &remove_project {
-                    next.remove_imported_project(name)
-                        .map_err(|err| err.to_string())?;
-                }
-                Ok(())
-            }) {
+            let mut enabled = serde_json::Map::new();
+            for id in enable_module {
+                enabled.insert(id, serde_json::Value::Bool(true));
+            }
+            for id in disable_module {
+                enabled.insert(id, serde_json::Value::Bool(false));
+            }
+            let mut patch = serde_json::Map::new();
+            if let Some(root) = notes_root {
+                patch.insert("notes_root".into(), serde_json::Value::String(root));
+            }
+            if let Some(root) = records_root {
+                patch.insert("records_root".into(), serde_json::Value::String(root));
+            }
+            if !projects_root.is_empty() {
+                patch.insert(
+                    "projects_roots".into(),
+                    serde_json::Value::Array(
+                        projects_root
+                            .into_iter()
+                            .map(serde_json::Value::String)
+                            .collect(),
+                    ),
+                );
+            }
+            if clear_notes_excludes || !notes_exclude.is_empty() {
+                let patterns = if clear_notes_excludes && notes_exclude.is_empty() {
+                    Vec::new()
+                } else {
+                    notes_exclude
+                };
+                patch.insert(
+                    "notes_exclude_patterns".into(),
+                    serde_json::Value::Array(
+                        patterns
+                            .into_iter()
+                            .filter(|p| !p.is_empty())
+                            .map(serde_json::Value::String)
+                            .collect(),
+                    ),
+                );
+            }
+            if !enabled.is_empty() {
+                patch.insert("enabled_modules".into(), serde_json::Value::Object(enabled));
+            }
+            if let Some(days) = clipboard_retention_days {
+                patch.insert(
+                    "clipboard_retention_days".into(),
+                    serde_json::Value::Number(days.into()),
+                );
+            }
+            if let Some(secs) = secrets_idle_lock_secs {
+                patch.insert(
+                    "secrets_idle_lock_secs".into(),
+                    serde_json::Value::Number(secs.into()),
+                );
+            }
+            if let Some(max) = hub_windows_max {
+                patch.insert(
+                    "hub_windows_max".into(),
+                    serde_json::Value::Number(max.into()),
+                );
+            }
+            if let Some(path) = proxy_controller_unix_socket {
+                patch.insert(
+                    "proxy_controller_unix_socket".into(),
+                    serde_json::Value::String(path),
+                );
+            }
+            if let Some(address) = proxy_controller_address {
+                patch.insert(
+                    "proxy_controller_address".into(),
+                    serde_json::Value::String(address),
+                );
+            }
+            if let Some(account) = proxy_controller_secret_account {
+                patch.insert(
+                    "proxy_controller_secret_account".into(),
+                    serde_json::Value::String(account),
+                );
+            }
+            if let Some(service) = proxy_network_service {
+                patch.insert(
+                    "proxy_network_service".into(),
+                    serde_json::Value::String(service),
+                );
+            }
+            if !import_project.is_empty() {
+                patch.insert(
+                    "import_projects".into(),
+                    serde_json::Value::Array(
+                        import_project
+                            .into_iter()
+                            .map(serde_json::Value::String)
+                            .collect(),
+                    ),
+                );
+            }
+            if !remove_project.is_empty() {
+                patch.insert(
+                    "remove_projects".into(),
+                    serde_json::Value::Array(
+                        remove_project
+                            .into_iter()
+                            .map(serde_json::Value::String)
+                            .collect(),
+                    ),
+                );
+            }
+            let patch = serde_json::Value::Object(patch);
+            let saved = match store
+                .try_mutate_settings(expected_version, |next| next.apply_settings_patch(&patch))
+            {
                 Ok(s) => s,
                 Err(ConfigError::VersionConflict { expected, found }) => {
                     anyhow::bail!("version conflict: expected {expected}, found {found}");

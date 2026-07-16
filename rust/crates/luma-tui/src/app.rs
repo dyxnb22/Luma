@@ -6,12 +6,15 @@ use crate::terminal::{install_panic_hook, TerminalGuard};
 use crate::view_model::{AppState, Route, StatusTone};
 use crossterm::event::{self, Event as CEvent, KeyCode, KeyEventKind, KeyModifiers};
 use luma_application::run_interactive_terminal;
-use luma_application::{CommandRunnerPort, EnginePort};
+use luma_application::{
+    execute_recipe_plan_with_hooks, now_unix, spawn_ctrl_c_cancel, CommandRunnerPort, EnginePort,
+    RecipeExecuteOptions, RecipeStdioMode,
+};
 use luma_domain::RecipeRunOutcome;
 use luma_protocol::Command;
 use std::process::ExitStatus;
 use std::sync::Arc;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 use tokio_util::sync::CancellationToken;
 use tracing::warn;
 
@@ -130,13 +133,6 @@ pub async fn run_tui_with_engine(
     Ok(())
 }
 
-fn now_unix() -> i64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| i64::try_from(d.as_secs()).unwrap_or(0))
-        .unwrap_or(0)
-}
-
 fn run_recipe_in_terminal(
     guard: &mut TerminalGuard,
     runner: &dyn CommandRunnerPort,
@@ -157,34 +153,43 @@ fn run_recipe_in_terminal(
     );
 
     let cancel = CancellationToken::new();
-    let mut outcome = RecipeRunOutcome::Success;
-
-    for step in &plan.steps {
-        if cancel.is_cancelled() {
-            outcome = RecipeRunOutcome::Cancelled;
-            break;
-        }
-        println!("\n→ {}", step.label);
-        let result = runner.run_step(step, &cancel);
-        if let Some(code) = result.exit_code {
-            println!("exit code: {code}");
-            if code != 0 && !step.continue_on_error {
-                outcome = RecipeRunOutcome::Failed;
-                break;
+    let cancel_task = spawn_ctrl_c_cancel(cancel.clone());
+    // Confirmation already granted by TUI Confirm overlay / safe risk before ExecuteAction.
+    let report = execute_recipe_plan_with_hooks(
+        &plan,
+        runner,
+        &cancel,
+        RecipeExecuteOptions {
+            confirmation: true,
+            stdio: RecipeStdioMode::Inherit,
+        },
+        |step| {
+            println!("\n→ {}", step.label);
+        },
+        |_, result| {
+            if result.cancelled {
+                println!("cancelled");
+            } else if let Some(code) = result.exit_code {
+                println!("exit code: {code}");
+            } else if result.started {
+                println!("exit code: (signal)");
+            } else {
+                println!(
+                    "failed to start: {}",
+                    result
+                        .message
+                        .clone()
+                        .unwrap_or_else(|| "unknown error".into())
+                );
             }
-        } else if result.started {
-            println!("exit code: (signal)");
-            outcome = RecipeRunOutcome::Failed;
-            break;
-        } else {
-            println!(
-                "failed to start: {}",
-                result.message.unwrap_or_else(|| "unknown error".into())
-            );
-            outcome = RecipeRunOutcome::Failed;
-            break;
-        }
-    }
+        },
+    );
+    cancel_task.abort();
+
+    let outcome = match report {
+        Ok(report) => report.outcome,
+        Err(_) => RecipeRunOutcome::Failed,
+    };
 
     println!("\n=== Recipe finished ===\n");
     if let Err(err) = guard.resume() {
@@ -280,20 +285,18 @@ fn map_key(code: KeyCode, modifiers: KeyModifiers, state: &AppState) -> Msg {
             Msg::PickActionDigit(c.to_digit(10).unwrap_or(0) as usize)
         }
         KeyCode::Char(c)
-            if matches!(state.route, Route::Search)
-                && state.focus != FocusZone::Prompt
-                && state.command_recipes_selected()
-                && matches!(c, 'r' | 'c' | 'f') =>
+            if matches!(state.route, Route::Search) && state.focus != FocusZone::Prompt =>
         {
-            let action_id = match c {
-                'r' => "run",
-                'c' => "copy",
-                'f' => "favorite",
-                _ => "run",
-            };
-            Msg::RecipeShortcut {
-                action_id: action_id.into(),
+            if let Some(item) = state.selected_search_item() {
+                if let Some(action_id) =
+                    crate::module_shortcuts::list_shortcut_action(item.module_id.as_str(), c)
+                {
+                    return Msg::RecipeShortcut {
+                        action_id: action_id.into(),
+                    };
+                }
             }
+            Msg::KeyChar(c)
         }
         KeyCode::Char(' ') if matches!(state.route, Route::WordbookReview) => Msg::WordbookReveal,
         KeyCode::Char(' ') if matches!(state.route, Route::Settings) => Msg::ToggleSetting,
@@ -584,6 +587,41 @@ mod tests {
         };
         let msg = map_key(KeyCode::Char('1'), KeyModifiers::empty(), &state);
         assert!(matches!(msg, Msg::PickActionDigit(1)));
+    }
+
+    #[test]
+    fn map_key_module_list_shortcut_from_table() {
+        use crate::view_model::FocusZone;
+        use luma_domain::{ActionDescriptor, ActionId, ActionRisk, ModuleId, ResultId, SearchItem};
+
+        let mut state = AppState {
+            route: Route::Search,
+            focus: FocusZone::List,
+            ..Default::default()
+        };
+        state.results.items.push(SearchItem {
+            id: ResultId::new("recipe:1"),
+            module_id: ModuleId::new("luma.command_recipes"),
+            title: "Build".into(),
+            subtitle: None,
+            kind: "recipe".into(),
+            score: 1.0,
+            primary_action: ActionDescriptor {
+                id: ActionId::new("run"),
+                label: "Run".into(),
+                risk: ActionRisk::Safe,
+                confirmation: false,
+            },
+            secondary_actions: vec![],
+            ui_intent: None,
+            action_payload: None,
+        });
+        state.results.select_at(0);
+        let msg = map_key(KeyCode::Char('r'), KeyModifiers::empty(), &state);
+        assert!(matches!(
+            msg,
+            Msg::RecipeShortcut { action_id } if action_id == "run"
+        ));
     }
 
     #[test]

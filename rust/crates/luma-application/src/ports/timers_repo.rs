@@ -41,15 +41,28 @@ impl TimerEntry {
                 .duration_ms
                 .is_some_and(|d| self.elapsed_ms(now_ms) >= d)
     }
+
+    /// Next CAS version: wall clock, but always advances past the prior stamp.
+    pub fn next_updated_at_ms(now_ms: i64, expected_updated_at_ms: i64) -> i64 {
+        now_ms.max(expected_updated_at_ms.saturating_add(1))
+    }
 }
 
 #[derive(Debug, Error)]
-#[error("{0}")]
-pub struct TimersRepoError(pub String);
+pub enum TimersRepoError {
+    #[error("{0}")]
+    Msg(String),
+    #[error("timer update conflict (stale)")]
+    Conflict,
+}
 
 impl TimersRepoError {
     pub fn msg(s: impl Into<String>) -> Self {
-        Self(s.into())
+        Self::Msg(s.into())
+    }
+
+    pub fn is_conflict(&self) -> bool {
+        matches!(self, Self::Conflict)
     }
 }
 
@@ -57,7 +70,12 @@ pub trait TimersRepository: Send + Sync {
     fn list(&self) -> Result<Vec<TimerEntry>, TimersRepoError>;
     fn get(&self, id: &str) -> Result<Option<TimerEntry>, TimersRepoError>;
     fn insert(&self, entry: &TimerEntry) -> Result<(), TimersRepoError>;
-    fn update(&self, entry: &TimerEntry) -> Result<(), TimersRepoError>;
+    /// Compare-and-swap: fails with [`TimersRepoError::Conflict`] when stale.
+    fn update(
+        &self,
+        entry: &TimerEntry,
+        expected_updated_at_ms: i64,
+    ) -> Result<(), TimersRepoError>;
     fn delete(&self, id: &str) -> Result<(), TimersRepoError>;
     fn new_id(&self) -> String;
 }
@@ -88,5 +106,11 @@ mod tests {
         assert_eq!(e.remaining_ms(120_000), Some(30_000));
         assert!(!e.is_countdown_finished(120_000));
         assert!(e.is_countdown_finished(160_000));
+    }
+
+    #[test]
+    fn next_updated_at_always_advances() {
+        assert_eq!(TimerEntry::next_updated_at_ms(50, 100), 101);
+        assert_eq!(TimerEntry::next_updated_at_ms(200, 100), 200);
     }
 }

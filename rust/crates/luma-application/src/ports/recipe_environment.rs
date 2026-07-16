@@ -3,6 +3,16 @@ use std::path::{Path, PathBuf};
 use thiserror::Error;
 use tokio_util::sync::CancellationToken;
 
+/// How child step processes attach stdio.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum RecipeStdioMode {
+    /// Inherit stdin/stdout/stderr (interactive `cmd run`, TUI).
+    #[default]
+    Inherit,
+    /// Null child stdin/stdout/stderr so `--json` stdout stays a single JSON document.
+    Null,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PathKind {
     File,
@@ -116,5 +126,10 @@ pub fn recipe_runnable(
 }
 
 pub trait CommandRunnerPort: Send + Sync {
-    fn run_step(&self, step: &ResolvedCommandStep, cancel: &CancellationToken) -> StepRunResult;
+    fn run_step(
+        &self,
+        step: &ResolvedCommandStep,
+        cancel: &CancellationToken,
+        stdio: RecipeStdioMode,
+    ) -> StepRunResult;
 }

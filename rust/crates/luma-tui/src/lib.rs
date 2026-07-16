@@ -2,6 +2,7 @@
 
 mod app;
 mod effect;
+mod module_shortcuts;
 mod msg;
 mod reducer;
 mod render;

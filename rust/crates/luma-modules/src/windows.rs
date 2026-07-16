@@ -319,6 +319,10 @@ impl LumaModule for WindowsModule {
         }
     }
 
+    fn supports_hub_windows(&self) -> bool {
+        true
+    }
+
     async fn hub_windows(&self) -> Option<HubWindowsSlice> {
         let list = match self.catalog.list_windows().await {
             Ok(list) => list,

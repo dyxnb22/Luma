@@ -60,17 +60,23 @@ impl TimersModule {
                 };
             }
         };
+        let expected = entry.updated_at_ms;
         if let Err(kind) = f(&mut entry, now) {
             return ActionOutcome::Failed { kind };
         }
-        entry.updated_at_ms = now;
-        match self.store.update(&entry) {
+        entry.updated_at_ms = TimerEntry::next_updated_at_ms(now, expected);
+        match self.store.update(&entry, expected) {
             Ok(()) => {
                 let _ = self.refresh_index().await;
                 ActionOutcome::Success {
                     message: Some(format!("{} · {}", entry.name, entry.state)),
                 }
             }
+            Err(err) if err.is_conflict() => ActionOutcome::Failed {
+                kind: FailureKind::Conflict {
+                    reason: "timer changed concurrently — retry".into(),
+                },
+            },
             Err(err) => ActionOutcome::Failed {
                 kind: FailureKind::Io {
                     context: err.to_string(),

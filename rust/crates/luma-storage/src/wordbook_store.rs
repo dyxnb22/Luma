@@ -5,6 +5,7 @@ use chrono::{Duration, Local, Utc};
 use rusqlite::{params, Connection, OptionalExtension};
 use std::path::{Path, PathBuf};
 use thiserror::Error;
+use uuid::Uuid;
 
 const EBBINGHAUS_INTERVALS: [Duration; 9] = [
     Duration::minutes(5),
@@ -405,65 +406,31 @@ impl WordbookStore {
 
     /// Upsert content fields only — never resets SRS progress.
     pub fn upsert_content(&self, content: &WordContent) -> Result<bool, WordbookStoreError> {
-        let term = content.term.trim();
-        if term.is_empty() {
-            return Err(WordbookStoreError::Msg("term is required".into()));
-        }
         let conn = self.connect()?;
-        let now = now_iso();
-        let existing: Option<i64> = conn
-            .query_row("SELECT id FROM words WHERE term = ?1", params![term], |r| {
-                r.get(0)
-            })
-            .optional()?;
-        if let Some(_id) = existing {
-            conn.execute(
-                "UPDATE words SET phonetic = ?1, meaning = ?2, example = ?3, category = ?4, updated_at = ?5
-                 WHERE term = ?6",
-                params![
-                    content.phonetic,
-                    content.meaning,
-                    content.example,
-                    content.category,
-                    now,
-                    term
-                ],
-            )?;
-            Ok(false)
-        } else {
-            conn.execute(
-                "INSERT INTO words
-                 (term, phonetic, meaning, example, category, next_review_at, created_at, updated_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6, ?6)",
-                params![
-                    term,
-                    content.phonetic,
-                    content.meaning,
-                    content.example,
-                    content.category,
-                    now
-                ],
-            )?;
-            Ok(true)
-        }
+        upsert_content_on(&conn, content)
     }
 
+    /// Batch content upsert in a single transaction (CSV/paste import).
+    /// Mirrors the WordPet import commit path so a mid-batch failure rolls back.
     pub fn upsert_contents(
         &self,
         rows: &[WordContent],
     ) -> Result<ImportContentReport, WordbookStoreError> {
         let mut report = ImportContentReport::default();
+        let conn = self.connect()?;
+        let tx = conn.unchecked_transaction()?;
         for row in rows {
             if row.term.trim().is_empty() {
                 report.skipped += 1;
                 continue;
             }
-            if self.upsert_content(row)? {
+            if upsert_content_on(&tx, row)? {
                 report.inserted += 1;
             } else {
                 report.updated += 1;
             }
         }
+        tx.commit()?;
         Ok(report)
     }
 
@@ -477,6 +444,16 @@ impl WordbookStore {
         let word = self
             .get(id)?
             .ok_or_else(|| WordbookStoreError::Msg(format!("word {id} not found")))?;
+        self.commit_review(word, familiarity)
+    }
+
+    /// Apply a review using a previously read snapshot (`updated_at` CAS).
+    fn commit_review(
+        &self,
+        word: WordRow,
+        familiarity: &str,
+    ) -> Result<WordRow, WordbookStoreError> {
+        let id = word.id;
         if !word.mastered_at.is_empty() || word.familiarity == "mastered" {
             return Err(WordbookStoreError::Msg(format!(
                 "word {id} is mastered; unmaster before reviewing"
@@ -485,12 +462,13 @@ impl WordbookStore {
         let (stage, next_at, wrong_count, fam) =
             schedule_review(familiarity, word.review_stage, word.wrong_count)?;
         let now = now_iso();
+        let revision = new_revision();
         let conn = self.connect()?;
-        conn.execute(
+        let n = conn.execute(
             "UPDATE words SET familiarity = ?1, review_stage = ?2, review_count = ?3,
-                 wrong_count = ?4, last_review_at = ?5, next_review_at = ?6, updated_at = ?5,
+                 wrong_count = ?4, last_review_at = ?5, next_review_at = ?6, updated_at = ?7,
                  mastered_at = ''
-             WHERE id = ?7",
+             WHERE id = ?8 AND updated_at = ?9",
             params![
                 fam,
                 stage,
@@ -498,9 +476,16 @@ impl WordbookStore {
                 wrong_count,
                 now,
                 next_at,
-                id
+                revision,
+                id,
+                word.updated_at
             ],
         )?;
+        if n == 0 {
+            return Err(WordbookStoreError::Msg(format!(
+                "word {id} was modified concurrently; reload and retry"
+            )));
+        }
         if fam == "unknown" {
             self.bump_daily_wrong()?;
         }
@@ -512,24 +497,48 @@ impl WordbookStore {
         let word = self
             .get(id)?
             .ok_or_else(|| WordbookStoreError::Msg(format!("word {id} not found")))?;
+        self.commit_set_mastered(word, mastered)
+    }
+
+    /// Toggle mastered using a previously read snapshot (`updated_at` CAS).
+    fn commit_set_mastered(
+        &self,
+        word: WordRow,
+        mastered: bool,
+    ) -> Result<WordRow, WordbookStoreError> {
+        let id = word.id;
         let now = now_iso();
+        let revision = new_revision();
         let conn = self.connect()?;
-        if mastered {
+        let n = if mastered {
             let full_stage = EBBINGHAUS_INTERVALS.len() as i64;
             let review_count = (word.review_count + 1).max(full_stage);
             conn.execute(
                 "UPDATE words SET familiarity = 'mastered', review_stage = ?1, review_count = ?2,
-                     last_review_at = ?3, next_review_at = ?4, mastered_at = ?3, updated_at = ?3
-                 WHERE id = ?5",
-                params![full_stage, review_count, now, MASTERED_NEXT, id],
-            )?;
+                     last_review_at = ?3, next_review_at = ?4, mastered_at = ?3, updated_at = ?5
+                 WHERE id = ?6 AND updated_at = ?7",
+                params![
+                    full_stage,
+                    review_count,
+                    now,
+                    MASTERED_NEXT,
+                    revision,
+                    id,
+                    word.updated_at
+                ],
+            )?
         } else {
             conn.execute(
                 "UPDATE words SET familiarity = 'unknown', review_stage = 0, review_count = 0,
-                     last_review_at = '', next_review_at = ?1, mastered_at = '', updated_at = ?1
-                 WHERE id = ?2",
-                params![now, id],
-            )?;
+                     last_review_at = '', next_review_at = ?1, mastered_at = '', updated_at = ?2
+                 WHERE id = ?3 AND updated_at = ?4",
+                params![now, revision, id, word.updated_at],
+            )?
+        };
+        if n == 0 {
+            return Err(WordbookStoreError::Msg(format!(
+                "word {id} was modified concurrently; reload and retry"
+            )));
         }
         self.get(id)?
             .ok_or_else(|| WordbookStoreError::Msg(format!("word {id} missing after mastered")))
@@ -783,6 +792,55 @@ fn import_wordpet_inner(
     Ok(report)
 }
 
+/// Content-only upsert on an open connection/transaction. Returns `true` if inserted.
+fn upsert_content_on(
+    conn: &rusqlite::Connection,
+    content: &WordContent,
+) -> Result<bool, WordbookStoreError> {
+    let term = content.term.trim();
+    if term.is_empty() {
+        return Err(WordbookStoreError::Msg("term is required".into()));
+    }
+    let now = now_iso();
+    let revision = new_revision();
+    let existing: Option<i64> = conn
+        .query_row("SELECT id FROM words WHERE term = ?1", params![term], |r| {
+            r.get(0)
+        })
+        .optional()?;
+    if existing.is_some() {
+        conn.execute(
+            "UPDATE words SET phonetic = ?1, meaning = ?2, example = ?3, category = ?4, updated_at = ?5
+             WHERE term = ?6",
+            params![
+                content.phonetic,
+                content.meaning,
+                content.example,
+                content.category,
+                revision,
+                term
+            ],
+        )?;
+        Ok(false)
+    } else {
+        conn.execute(
+            "INSERT INTO words
+             (term, phonetic, meaning, example, category, next_review_at, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6, ?7)",
+            params![
+                term,
+                content.phonetic,
+                content.meaning,
+                content.example,
+                content.category,
+                now,
+                revision
+            ],
+        )?;
+        Ok(true)
+    }
+}
+
 fn upsert_full_row(
     conn: &rusqlite::Connection,
     row: &WordImportRow,
@@ -883,6 +941,12 @@ pub fn schedule_review(
 
 pub fn now_iso() -> String {
     Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string()
+}
+
+/// Opaque optimistic-lock token. Keep the timestamp prefix for useful ordering,
+/// but add a UUID so two writers in the same second cannot share a CAS version.
+fn new_revision() -> String {
+    format!("{}~{}", now_iso(), Uuid::new_v4())
 }
 
 fn today_start_iso() -> String {
@@ -1004,6 +1068,135 @@ mod tests {
         let stats = store.stats().unwrap();
         assert_eq!(stats.total, 1);
         assert_eq!(stats.goal, 30);
+    }
+
+    #[test]
+    fn upsert_contents_batch_inserts_and_updates() {
+        let dir = tempdir().unwrap();
+        let store = WordbookStore::with_path(dir.path().join("wb.sqlite")).unwrap();
+        let report = store
+            .upsert_contents(&[
+                WordContent {
+                    term: "alpha".into(),
+                    phonetic: "".into(),
+                    meaning: "a".into(),
+                    example: "".into(),
+                    category: "".into(),
+                },
+                WordContent {
+                    term: "".into(),
+                    phonetic: "".into(),
+                    meaning: "skip".into(),
+                    example: "".into(),
+                    category: "".into(),
+                },
+                WordContent {
+                    term: "beta".into(),
+                    phonetic: "".into(),
+                    meaning: "b".into(),
+                    example: "".into(),
+                    category: "".into(),
+                },
+            ])
+            .unwrap();
+        assert_eq!(report.inserted, 2);
+        assert_eq!(report.skipped, 1);
+        let again = store
+            .upsert_contents(&[WordContent {
+                term: "alpha".into(),
+                phonetic: "".into(),
+                meaning: "a2".into(),
+                example: "".into(),
+                category: "".into(),
+            }])
+            .unwrap();
+        assert_eq!(again.updated, 1);
+        assert_eq!(store.get_by_term("alpha").unwrap().unwrap().meaning, "a2");
+        assert_eq!(store.stats().unwrap().total, 2);
+    }
+
+    #[test]
+    fn review_cas_rejects_stale_snapshot() {
+        let dir = tempdir().unwrap();
+        let store = WordbookStore::with_path(dir.path().join("wb.sqlite")).unwrap();
+        store
+            .upsert_content(&WordContent {
+                term: "cas".into(),
+                phonetic: "".into(),
+                meaning: "x".into(),
+                example: "".into(),
+                category: "".into(),
+            })
+            .unwrap();
+        let snapshot = store.get_by_term("cas").unwrap().unwrap();
+        // Concurrent writer with a distinct updated_at (second-precision now_iso can collide).
+        store
+            .connect()
+            .unwrap()
+            .execute(
+                "UPDATE words SET updated_at = '2099-01-01T00:00:00Z' WHERE id = ?1",
+                params![snapshot.id],
+            )
+            .unwrap();
+        let err = store
+            .commit_review(snapshot, "known")
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("concurrently"), "{err}");
+    }
+
+    #[test]
+    fn review_cas_rejects_same_second_stale_snapshot() {
+        let dir = tempdir().unwrap();
+        let store = WordbookStore::with_path(dir.path().join("wb.sqlite")).unwrap();
+        store
+            .upsert_content(&WordContent {
+                term: "same-second".into(),
+                phonetic: "".into(),
+                meaning: "x".into(),
+                example: "".into(),
+                category: "".into(),
+            })
+            .unwrap();
+        let snapshot = store.get_by_term("same-second").unwrap().unwrap();
+        let winner = store.review(snapshot.id, "known").unwrap();
+        assert_ne!(winner.updated_at, snapshot.updated_at);
+
+        let err = store
+            .commit_review(snapshot, "known")
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("concurrently"), "{err}");
+        assert_eq!(store.get(winner.id).unwrap().unwrap().review_count, 1);
+    }
+
+    #[test]
+    fn set_mastered_cas_rejects_stale_snapshot() {
+        let dir = tempdir().unwrap();
+        let store = WordbookStore::with_path(dir.path().join("wb.sqlite")).unwrap();
+        store
+            .upsert_content(&WordContent {
+                term: "cas2".into(),
+                phonetic: "".into(),
+                meaning: "x".into(),
+                example: "".into(),
+                category: "".into(),
+            })
+            .unwrap();
+        let snapshot = store.get_by_term("cas2").unwrap().unwrap();
+        store
+            .connect()
+            .unwrap()
+            .execute(
+                "UPDATE words SET updated_at = '2099-01-01T00:00:00Z' WHERE id = ?1",
+                params![snapshot.id],
+            )
+            .unwrap();
+        let err = store
+            .commit_set_mastered(snapshot, true)
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("concurrently"), "{err}");
     }
 
     #[test]

@@ -213,6 +213,132 @@ impl LumaSettings {
         self.imported_projects.remove(matches[0]);
         Ok(())
     }
+
+    /// Apply a JSON settings patch (shared by engine `UpdateSettings` and CLI `config set`).
+    ///
+    /// Unknown keys are ignored. Empty strings clear optional path/string fields.
+    /// `enabled_modules` keys are sticky: this only upserts flags, never deletes ids.
+    pub fn apply_settings_patch(&mut self, patch: &serde_json::Value) -> Result<(), String> {
+        if let Some(obj) = patch.get("enabled_modules").and_then(|v| v.as_object()) {
+            for (id, value) in obj {
+                if let Some(enabled) = value.as_bool() {
+                    self.enabled_modules.insert(id.clone(), enabled);
+                }
+            }
+        }
+        if let Some(root) = patch.get("notes_root") {
+            if root.is_null() {
+                self.notes_root = None;
+            } else if let Some(s) = root.as_str() {
+                self.notes_root = if s.is_empty() {
+                    None
+                } else {
+                    Some(s.to_string())
+                };
+            }
+        }
+        if let Some(root) = patch.get("records_root") {
+            if root.is_null() {
+                self.records_root = None;
+            } else if let Some(s) = root.as_str() {
+                self.records_root = if s.is_empty() {
+                    None
+                } else {
+                    Some(s.to_string())
+                };
+            }
+        }
+        if let Some(roots) = patch.get("projects_roots").and_then(|v| v.as_array()) {
+            self.projects_roots = roots
+                .iter()
+                .filter_map(|v| v.as_str().map(str::to_string))
+                .collect();
+        }
+        if let Some(patterns) = patch
+            .get("notes_exclude_patterns")
+            .and_then(|v| v.as_array())
+        {
+            self.notes_exclude_patterns = patterns
+                .iter()
+                .filter_map(|v| v.as_str().map(str::to_string))
+                .filter(|p| !p.is_empty())
+                .collect();
+        }
+        if let Some(days) = patch
+            .get("clipboard_retention_days")
+            .and_then(|v| v.as_u64())
+        {
+            self.clipboard_retention_days = days as u32;
+        }
+        if let Some(secs) = patch.get("secrets_idle_lock_secs").and_then(|v| v.as_u64()) {
+            self.secrets_idle_lock_secs = secs as u32;
+        }
+        if let Some(max) = patch.get("hub_windows_max").and_then(|v| v.as_u64()) {
+            self.hub_windows_max = (max as u32).clamp(5, 50);
+        }
+        apply_optional_string_field(
+            patch,
+            "proxy_controller_unix_socket",
+            &mut self.proxy_controller_unix_socket,
+        );
+        apply_optional_string_field(
+            patch,
+            "proxy_controller_address",
+            &mut self.proxy_controller_address,
+        );
+        apply_optional_string_field(
+            patch,
+            "proxy_controller_secret_account",
+            &mut self.proxy_controller_secret_account,
+        );
+        apply_optional_string_field(
+            patch,
+            "proxy_network_service",
+            &mut self.proxy_network_service,
+        );
+
+        for path in patch_string_list(patch, "import_project", "import_projects") {
+            self.import_project_path(std::path::Path::new(&path))?;
+        }
+        for name in patch_string_list(patch, "remove_project", "remove_projects") {
+            self.remove_imported_project(&name)?;
+        }
+        Ok(())
+    }
+}
+
+fn apply_optional_string_field(patch: &serde_json::Value, key: &str, field: &mut Option<String>) {
+    let Some(value) = patch.get(key) else {
+        return;
+    };
+    if value.is_null() {
+        *field = None;
+    } else if let Some(s) = value.as_str() {
+        *field = if s.is_empty() {
+            None
+        } else {
+            Some(s.to_string())
+        };
+    }
+}
+
+fn patch_string_list(patch: &serde_json::Value, singular: &str, plural: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    if let Some(s) = patch.get(singular).and_then(|v| v.as_str()) {
+        if !s.is_empty() {
+            out.push(s.to_string());
+        }
+    }
+    if let Some(arr) = patch.get(plural).and_then(|v| v.as_array()) {
+        for v in arr {
+            if let Some(s) = v.as_str() {
+                if !s.is_empty() {
+                    out.push(s.to_string());
+                }
+            }
+        }
+    }
+    out
 }
 
 fn default_secrets_idle_lock_secs() -> u32 {
@@ -643,6 +769,28 @@ mod tests {
         );
         let final_settings = store.load_or_default().unwrap();
         assert_eq!(final_settings.settings_version, 2);
+    }
+
+    #[test]
+    fn apply_settings_patch_updates_modules_and_roots() {
+        let mut settings = LumaSettings::default();
+        settings
+            .apply_settings_patch(&serde_json::json!({
+                "enabled_modules": { "luma.fake": true },
+                "notes_root": "/tmp/notes",
+                "hub_windows_max": 99,
+                "notes_exclude_patterns": ["private/*", ""],
+            }))
+            .unwrap();
+        assert_eq!(settings.enabled_modules.get("luma.fake"), Some(&true));
+        assert_eq!(settings.notes_root.as_deref(), Some("/tmp/notes"));
+        assert_eq!(settings.hub_windows_max, 50);
+        assert_eq!(
+            settings.notes_exclude_patterns,
+            vec!["private/*".to_string()]
+        );
+        // Sticky: unrelated module keys remain.
+        assert_eq!(settings.enabled_modules.get("luma.apps"), Some(&true));
     }
 
     #[test]

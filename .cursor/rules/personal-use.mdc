@@ -16,11 +16,19 @@ tool-orchestration workflows.
 
 ## Do
 
-- Keep Apps / Clipboard / Notes / Quicklinks / Snippets / Windows / Wordbook / Projects / Records / SSH (and other Available modules in `docs/MODULES.md`) solid for local use.
+- Keep the currently registered modules solid for local use: Apps, Windows, Proxy, Clipboard,
+  Notes, Quicklinks, Snippets, Wordbook, Records, Projects, Command Recipes, SSH, Timers, and
+  Secrets. The Fake module is test/demo-only and default-off.
 - Prefer small fixes for real friction over roadmap/checklist completion.
-- Follow `docs/GOVERNANCE.md` for inventory sync and soft file-size triggers.
+- Follow `rust/docs/GOVERNANCE.md` for inventory sync, layering, honest states, and soft file-size
+  triggers.
 - Persist only under LumaNext (`LUMA_NEXT_*` in tests).
 - Use structured unavailable / permission / not-configured outcomes (no silent fake success).
+- Keep `rust/bins/luma/src/compose.rs` as the sole module/adapters registration root.
+- Keep TUI update/reducer and render pure; effects own I/O and async work.
+- When adding a module, prefer a module-local implementation plus ports/adapters, one compose
+  registration, contract tests, and documentation. Avoid central engine/reducer/render edits;
+  treat unavoidable central branching as an extensibility cost.
 
 ## Do not
 
@@ -32,6 +40,15 @@ tool-orchestration workflows.
   keep them out of tree. (`luma.windows` list+focus is allowed — not Window layouts.
   `luma.wordbook` vocab/SRS is allowed.)
 - Treat architecture purity (adapter moves, crate splits) as mandatory unless it unblocks personal use.
+
+## Audit expectations
+
+For a full audit, inspect architecture, all registered modules, business flows, TUI state and
+stale async results, docs, code smells, memory/task/FFI lifetimes, concurrency/cancellation,
+shutdown and crash recovery, migrations, security/privacy, performance/backpressure, CLI/JSON
+compatibility, extensibility, and test quality. Findings require severity, confidence, absolute
+file/line evidence, trigger, impact, root cause, suggested direction, and a regression test.
+Do not modify files during a first audit pass.
 
 ## Verify (enough for personal)
 

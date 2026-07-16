@@ -96,7 +96,7 @@ pub fn registry_from_settings(
     let opener = Arc::new(MacOpenPath);
     let pasteboard = Arc::new(MacPasteboard);
     let keychain = Arc::new(MacKeychain::luma_next());
-    let accessibility = Arc::new(MacAccessibility);
+    let accessibility = Arc::new(MacAccessibility::new());
     let clipboard_suppression = Arc::new(ClipboardSuppression::new());
     let window_catalog = Arc::new(MacWindowCatalog::new());
     if let Err(err) = window_catalog.snapshot_previous_frontmost_app_sync() {
@@ -305,6 +305,16 @@ pub fn registry_from_settings(
         .unwrap_or(false)
     {
         let _ = reg.set_enabled("luma.fake", false);
+    }
+    // Default-off until provisioned (ADR-0003). Missing key must not fall back to an
+    // accidental manifest true — same force-off pattern as luma.fake.
+    if !settings
+        .enabled_modules
+        .get("luma.secrets")
+        .copied()
+        .unwrap_or(false)
+    {
+        let _ = reg.set_enabled("luma.secrets", false);
     }
     for (id, reason) in reg.apply_capability_preflight(&ComposeCapabilities) {
         warn!("{id}: {reason} — module disabled");

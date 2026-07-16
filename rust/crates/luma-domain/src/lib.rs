@@ -15,4 +15,4 @@ pub use recipe::{
     CommandStep, ConfigIssue, Recipe, RecipeCatalog, RecipeMetadata, RecipeRisk, RecipeRunOutcome,
     RecipeRunPlan, RecipeScope, RecipeVariant, ResolvedCommandStep, StepRunResult, VariantMatch,
 };
-pub use result_item::{ActionDescriptor, ActionRisk, SearchItem};
+pub use result_item::{action_needs_confirmation, ActionDescriptor, ActionRisk, SearchItem};

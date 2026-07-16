@@ -8,5 +8,6 @@ pub fn action_exit_code(outcome: &ActionOutcomeDto) -> i32 {
         ActionOutcomeDto::Success { .. } => 0,
         ActionOutcomeDto::Failed { .. } => 1,
         ActionOutcomeDto::Cancelled => 2,
+        ActionOutcomeDto::InteractiveTerminal { .. } => 1,
     }
 }

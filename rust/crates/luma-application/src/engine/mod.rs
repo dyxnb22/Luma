@@ -423,7 +423,60 @@ impl Engine {
             Command::RefreshWordbookReviewStats => {
                 self.handle_refresh_wordbook_review_stats().await;
             }
+            Command::SshSessionEnded { alias, exit_code } => {
+                self.handle_ssh_session_ended(alias, exit_code).await;
+            }
         }
+    }
+
+    async fn handle_ssh_session_ended(&self, alias: String, exit_code: i32) {
+        if exit_code != 0 {
+            return;
+        }
+        let module = {
+            let g = self.inner.lock().await;
+            if !g.registry.is_enabled("luma.ssh") {
+                return;
+            }
+            g.registry.get("luma.ssh")
+        };
+        let Some(module) = module else {
+            return;
+        };
+        let result = luma_domain::SearchItem {
+            id: luma_domain::ResultId::new(format!("ssh:record:{alias}")),
+            module_id: luma_domain::ModuleId::new("luma.ssh"),
+            title: alias.clone(),
+            subtitle: None,
+            kind: "internal".into(),
+            score: 0.0,
+            primary_action: luma_domain::ActionDescriptor {
+                id: luma_domain::ActionId::new("record_connection"),
+                label: "Record".into(),
+                risk: luma_domain::ActionRisk::Safe,
+                confirmation: false,
+            },
+            secondary_actions: vec![],
+            ui_intent: None,
+            action_payload: Some(serde_json::json!({ "alias": alias })),
+        };
+        let action = luma_domain::ActionDescriptor {
+            id: luma_domain::ActionId::new("record_connection"),
+            label: "Record".into(),
+            risk: luma_domain::ActionRisk::Safe,
+            confirmation: false,
+        };
+        let cancel = self.inner.lock().await.session_cancel.child_token();
+        let _ = module
+            .perform(
+                crate::module::ActionRequest {
+                    result,
+                    action,
+                    confirmation: false,
+                },
+                cancel,
+            )
+            .await;
     }
 
     async fn handle_refresh_wordbook_review_stats(&self) {
@@ -766,6 +819,50 @@ pub async fn run_action(
             Some(_) => {}
             None => return Err("engine event channel closed".into()),
         }
+    };
+    let outcome = match &outcome {
+        luma_protocol::ActionOutcomeDto::InteractiveTerminal {
+            program,
+            args,
+            record_alias,
+        } => {
+            use crate::interactive_terminal::run_interactive_terminal;
+            match run_interactive_terminal(program, args) {
+                Ok(status) => {
+                    if status.success() {
+                        if let Some(alias) = record_alias {
+                            engine
+                                .handle_command(Command::SshSessionEnded {
+                                    alias: alias.clone(),
+                                    exit_code: status.code().unwrap_or(0),
+                                })
+                                .await;
+                        }
+                        luma_protocol::ActionOutcomeDto::Success {
+                            message: Some(format!("{program} exited")),
+                        }
+                    } else {
+                        luma_protocol::ActionOutcomeDto::Failed {
+                            kind: luma_domain::FailureKind::Unavailable {
+                                reason: format!(
+                                    "{program} exited with code {}",
+                                    status.code().unwrap_or(1)
+                                ),
+                                retryable: false,
+                            },
+                            message: None,
+                        }
+                    }
+                }
+                Err(err) => {
+                    luma_protocol::ActionOutcomeDto::failed(luma_domain::FailureKind::Unavailable {
+                        reason: err.to_string(),
+                        retryable: false,
+                    })
+                }
+            }
+        }
+        _ => outcome,
     };
     engine.handle_command(Command::ShutdownSession).await;
     Ok((selected, outcome))

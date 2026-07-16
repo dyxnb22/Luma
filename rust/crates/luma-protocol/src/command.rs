@@ -43,4 +43,9 @@ pub enum Command {
     RefreshWordbookReviewStats,
     GetSnapshot,
     ShutdownSession,
+    /// After an interactive SSH/SFTP session ends in the TUI.
+    SshSessionEnded {
+        alias: String,
+        exit_code: i32,
+    },
 }

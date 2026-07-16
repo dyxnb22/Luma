@@ -1,5 +1,6 @@
 mod cli_output;
 mod compose;
+mod ssh_cli;
 
 use clap::{Parser, Subcommand};
 use cli_output::action_exit_code;
@@ -72,6 +73,11 @@ enum Commands {
     Record {
         #[command(subcommand)]
         action: RecordCmd,
+    },
+    /// SSH host connections from ~/.ssh/config.
+    Ssh {
+        #[command(subcommand)]
+        action: SshCmd,
     },
 }
 
@@ -259,6 +265,19 @@ enum RecordCmd {
         #[arg(long)]
         json: bool,
     },
+}
+
+#[derive(Debug, Subcommand)]
+enum SshCmd {
+    /// List configured SSH hosts.
+    List {
+        #[arg(long)]
+        json: bool,
+    },
+    /// Connect via ssh in the current terminal.
+    Connect { alias: String },
+    /// Open SFTP in the current terminal.
+    Sftp { alias: String },
 }
 
 #[derive(Debug, Subcommand)]
@@ -837,6 +856,7 @@ async fn main() -> anyhow::Result<()> {
             }
         }
         Some(Commands::Record { action }) => handle_record_command(action)?,
+        Some(Commands::Ssh { action }) => handle_ssh_command(action).await?,
     }
     Ok(())
 }
@@ -1076,6 +1096,51 @@ fn print_record_import_report(
         }
         for e in &p.errors {
             println!("error: {e}");
+        }
+    }
+    Ok(())
+}
+
+async fn handle_ssh_command(action: SshCmd) -> anyhow::Result<()> {
+    let load = load_registry_with_settings().map_err(|e| anyhow::anyhow!("registry: {e}"))?;
+    match action {
+        SshCmd::List { json } => {
+            let payload = ssh_cli::ssh_list_json(load.registry, Some(load.settings))
+                .await
+                .map_err(anyhow::Error::msg)?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&payload)?);
+            } else {
+                let results = payload["results"].as_array().cloned().unwrap_or_default();
+                for item in results {
+                    let id = item["id"].as_str().unwrap_or("");
+                    let title = item["title"].as_str().unwrap_or("");
+                    let subtitle = item["subtitle"].as_str().unwrap_or("");
+                    if subtitle.is_empty() {
+                        println!("{id}\t{title}");
+                    } else {
+                        println!("{id}\t{title}\t{subtitle}");
+                    }
+                }
+            }
+        }
+        SshCmd::Connect { alias } => {
+            let status =
+                ssh_cli::ssh_connect_cli(load.registry, &alias, "ssh", Some(load.settings), None)
+                    .await
+                    .map_err(anyhow::Error::msg)?;
+            if !status.success() {
+                std::process::exit(status.code().unwrap_or(1));
+            }
+        }
+        SshCmd::Sftp { alias } => {
+            let status =
+                ssh_cli::ssh_connect_cli(load.registry, &alias, "sftp", Some(load.settings), None)
+                    .await
+                    .map_err(anyhow::Error::msg)?;
+            if !status.success() {
+                std::process::exit(status.code().unwrap_or(1));
+            }
         }
     }
     Ok(())

@@ -6,6 +6,7 @@ mod quicklinks_repo;
 mod records_repo;
 mod settings_repo;
 mod snippets_repo;
+mod ssh_meta_repo;
 mod wordbook_repo;
 
 pub use clipboard_repo::SqliteClipboardHistory;
@@ -14,4 +15,5 @@ pub use quicklinks_repo::SqliteQuicklinksRepository;
 pub use records_repo::SqliteRecordsRepository;
 pub use settings_repo::TomlSettingsRepository;
 pub use snippets_repo::SqliteSnippetsRepository;
+pub use ssh_meta_repo::SqliteSshMetaRepository;
 pub use wordbook_repo::SqliteWordbookRepository;

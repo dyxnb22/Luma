@@ -3,8 +3,10 @@ use crate::ports::{
     NotesDocument, NotesIndexError, NotesIndexRepository, NotesIssue, NotesScanReport,
     NotesScanStatusView, NotesSearchHit, QuicklinkEntry, QuicklinksRepoError, QuicklinksRepository,
     RecordCategory, RecordEntry, RecordImportPreviewView, RecordImportReportView, RecordsRepoError,
-    RecordsRepository, RecordsStatsView, SnippetEntry, SnippetsRepoError, SnippetsRepository,
-    WordContentInput, WordEntry, WordbookRepoError, WordbookRepository, WordbookStatsView,
+    RecordsRepository, RecordsStatsView, ResolvedSshHost, SnippetEntry, SnippetsRepoError,
+    SnippetsRepository, SshConfigError, SshConfigPort, SshConfigState, SshHostMeta,
+    SshMetaRepoError, SshMetaRepository, WordContentInput, WordEntry, WordbookRepoError,
+    WordbookRepository, WordbookStatsView,
 };
 use async_trait::async_trait;
 use std::collections::BTreeMap;
@@ -981,5 +983,142 @@ impl RecordsRepository for MemoryRecordsRepository {
 
     fn backup(&self) -> Result<std::path::PathBuf, RecordsRepoError> {
         Ok(PathBuf::from("/tmp/records-memory-backup.sqlite"))
+    }
+}
+
+/// In-memory SSH config for module tests.
+pub struct FakeSshConfigPort {
+    state: Mutex<SshConfigState>,
+    aliases: Mutex<Vec<String>>,
+    resolved: Mutex<BTreeMap<String, ResolvedSshHost>>,
+    ssh_available: Mutex<bool>,
+    sftp_available: Mutex<bool>,
+}
+
+impl Default for FakeSshConfigPort {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl FakeSshConfigPort {
+    pub fn new() -> Self {
+        Self {
+            state: Mutex::new(SshConfigState::Found),
+            aliases: Mutex::new(Vec::new()),
+            resolved: Mutex::new(BTreeMap::new()),
+            ssh_available: Mutex::new(true),
+            sftp_available: Mutex::new(true),
+        }
+    }
+
+    pub fn with_aliases(self, aliases: Vec<&str>, resolved: Vec<ResolvedSshHost>) -> Self {
+        *self.aliases.lock().expect("lock") = aliases.into_iter().map(str::to_string).collect();
+        let mut map = BTreeMap::new();
+        for host in resolved {
+            map.insert(host.alias.clone(), host);
+        }
+        *self.resolved.lock().expect("lock") = map;
+        self
+    }
+
+    pub fn set_state(&self, state: SshConfigState) {
+        *self.state.lock().expect("lock") = state;
+    }
+
+    pub fn set_sftp_available(&self, available: bool) {
+        *self.sftp_available.lock().expect("lock") = available;
+    }
+}
+
+impl SshConfigPort for FakeSshConfigPort {
+    fn config_state(&self) -> SshConfigState {
+        self.state.lock().expect("lock").clone()
+    }
+
+    fn list_aliases(&self) -> Result<Vec<String>, SshConfigError> {
+        match self.config_state() {
+            SshConfigState::NotConfigured => Err(SshConfigError::msg("ssh config not found")),
+            SshConfigState::Unavailable(reason) => Err(SshConfigError::msg(reason)),
+            SshConfigState::Found => Ok(self.aliases.lock().expect("lock").clone()),
+        }
+    }
+
+    fn resolve(&self, alias: &str) -> Result<ResolvedSshHost, SshConfigError> {
+        self.resolved
+            .lock()
+            .expect("lock")
+            .get(alias)
+            .cloned()
+            .ok_or_else(|| SshConfigError::msg(format!("unknown alias: {alias}")))
+    }
+
+    fn ssh_available(&self) -> bool {
+        *self.ssh_available.lock().expect("lock")
+    }
+
+    fn sftp_available(&self) -> bool {
+        *self.sftp_available.lock().expect("lock")
+    }
+}
+
+/// In-memory SSH host metadata for module tests.
+#[derive(Default)]
+pub struct MemorySshMetaRepository {
+    rows: Mutex<BTreeMap<String, SshHostMeta>>,
+}
+
+impl MemorySshMetaRepository {
+    pub fn new() -> Self {
+        Self::default()
+    }
+}
+
+#[async_trait]
+impl SshMetaRepository for MemorySshMetaRepository {
+    fn list(&self) -> Result<Vec<SshHostMeta>, SshMetaRepoError> {
+        Ok(self.rows.lock().expect("lock").values().cloned().collect())
+    }
+
+    fn get(&self, alias: &str) -> Result<Option<SshHostMeta>, SshMetaRepoError> {
+        Ok(self.rows.lock().expect("lock").get(alias).cloned())
+    }
+
+    fn set_favorite(&self, alias: &str, favorite: bool) -> Result<(), SshMetaRepoError> {
+        let mut rows = self.rows.lock().expect("lock");
+        let entry = rows
+            .entry(alias.to_string())
+            .or_insert_with(|| SshHostMeta {
+                alias: alias.to_string(),
+                display_name: None,
+                favorite: false,
+                tags: Vec::new(),
+                last_connected_at: None,
+                connection_count: 0,
+            });
+        entry.favorite = favorite;
+        Ok(())
+    }
+
+    fn record_connection(&self, alias: &str, connected_at: &str) -> Result<(), SshMetaRepoError> {
+        let mut rows = self.rows.lock().expect("lock");
+        let entry = rows
+            .entry(alias.to_string())
+            .or_insert_with(|| SshHostMeta {
+                alias: alias.to_string(),
+                display_name: None,
+                favorite: false,
+                tags: Vec::new(),
+                last_connected_at: None,
+                connection_count: 0,
+            });
+        entry.last_connected_at = Some(connected_at.to_string());
+        entry.connection_count += 1;
+        Ok(())
+    }
+
+    fn delete(&self, alias: &str) -> Result<(), SshMetaRepoError> {
+        self.rows.lock().expect("lock").remove(alias);
+        Ok(())
     }
 }

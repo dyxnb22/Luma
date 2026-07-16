@@ -142,6 +142,7 @@ impl NotesModule {
             NotesServices {
                 clock: Arc::new(FixedClock {
                     ymd: "2026-07-13".into(),
+                    now: String::new(),
                 }),
                 workspace: Arc::new(FakeNotesWorkspace::new()),
             },
@@ -164,6 +165,7 @@ impl NotesModule {
             NotesServices {
                 clock: Arc::new(FixedClock {
                     ymd: "2026-07-13".into(),
+                    now: String::new(),
                 }),
                 workspace: Arc::new(FakeNotesWorkspace::new()),
             },
@@ -609,6 +611,7 @@ mod tests {
             NotesServices {
                 clock: Arc::new(FixedClock {
                     ymd: "2026-07-13".into(),
+                    now: String::new(),
                 }),
                 workspace,
             },

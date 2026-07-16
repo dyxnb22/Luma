@@ -312,3 +312,35 @@ async fn wordbook_review_row_starts_with_start_review_action() {
     );
     m.teardown().await;
 }
+
+#[tokio::test]
+async fn ssh_host_row_matches_actions_contract() {
+    use luma_application::{
+        FakeSshConfigPort, FixedClock, MemorySshMetaRepository, ResolvedSshHost,
+    };
+    use luma_modules::SshModule;
+
+    let config = Arc::new(FakeSshConfigPort::new().with_aliases(
+        vec!["production"],
+        vec![ResolvedSshHost {
+            alias: "production".into(),
+            hostname: Some("203.0.113.10".into()),
+            user: Some("ubuntu".into()),
+            port: Some(22),
+            identity_file: None,
+            proxy_jump: None,
+            connect_timeout: None,
+        }],
+    ));
+    let m = SshModule::with_deps(
+        config,
+        Some(Arc::new(MemorySshMetaRepository::new())),
+        Arc::new(FixedClock::new("2026-01-01", "2026-01-01T00:00:00Z")),
+    );
+    m.warmup(WarmupContext {
+        cancel: CancellationToken::new(),
+    })
+    .await;
+    assert_primary_actions_resolvable(&m, Query::parse("ssh production", 20)).await;
+    m.teardown().await;
+}

@@ -75,6 +75,15 @@ impl Engine {
                                 crate::module::ActionOutcome::Cancelled => {
                                     luma_protocol::ActionOutcomeDto::Cancelled
                                 }
+                                crate::module::ActionOutcome::InteractiveTerminal {
+                                    program,
+                                    args,
+                                    record_alias,
+                                } => luma_protocol::ActionOutcomeDto::InteractiveTerminal {
+                                    program,
+                                    args,
+                                    record_alias,
+                                },
                                 crate::module::ActionOutcome::SettingsMutation { patch } => {
                                     match apply_settings_mutation(
                                         settings_repo.as_ref(),

@@ -17,7 +17,7 @@ cargo test -p luma --test cli_blackbox
 | In | Out |
 | --- | --- |
 | Local TUI + CLI on your Mac | App Store / notarized shipping |
-| Apps, Windows, Clipboard, Notes, Quicklinks, Snippets, Wordbook, Projects, Records | Stub/unavailable feature expansion |
+| Apps, Windows, Clipboard, Notes, Quicklinks, Snippets, Wordbook, Projects, Records, SSH | Stub/unavailable feature expansion |
 | Honest permission / unavailable states | Release soak, deny-as-policy, marketing docs |
 | Module-local status and remediation rows | Centralized `doctor` command or diagnostics overlay |
 

@@ -124,6 +124,11 @@ fn is_known_prefix(token: &str) -> bool {
             | "win"
             | "window"
             | "windows"
+            | "ssh"
+            | "proxy"
+            | "px"
+            | "rec"
+            | "record"
     )
 }
 

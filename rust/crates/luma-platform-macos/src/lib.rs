@@ -14,6 +14,7 @@ mod profile_store;
 mod project_workspace;
 mod proxy_core;
 mod speech;
+mod ssh_config;
 mod system_proxy;
 mod window;
 
@@ -31,5 +32,6 @@ pub use profile_store::MacProfileStore;
 pub use project_workspace::MacProjectWorkspace;
 pub use proxy_core::MacMihomoProxyCore;
 pub use speech::MacSpeech;
+pub use ssh_config::MacSshConfig;
 pub use system_proxy::MacSystemProxy;
 pub use window::MacWindowCatalog;

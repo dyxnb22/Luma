@@ -16,6 +16,7 @@ static TERMINAL_ACTIVE: AtomicBool = AtomicBool::new(false);
 /// RAII guard: always restore terminal on drop (normal exit, Ctrl-C path, drop on unwind).
 pub struct TerminalGuard {
     terminal: Terminal<CrosstermBackend<Stdout>>,
+    suspended: bool,
 }
 
 impl TerminalGuard {
@@ -31,17 +32,58 @@ impl TerminalGuard {
         let backend = CrosstermBackend::new(stdout);
         let terminal = Terminal::new(backend)?;
         TERMINAL_ACTIVE.store(true, Ordering::SeqCst);
-        Ok(Self { terminal })
+        Ok(Self {
+            terminal,
+            suspended: false,
+        })
     }
 
     pub fn terminal_mut(&mut self) -> &mut Terminal<CrosstermBackend<Stdout>> {
         &mut self.terminal
     }
+
+    /// Leave raw mode / alternate screen so an interactive child can use the terminal.
+    pub fn suspend(&mut self) -> io::Result<()> {
+        if self.suspended {
+            return Ok(());
+        }
+        restore_terminal();
+        self.suspended = true;
+        Ok(())
+    }
+
+    /// Re-enter TUI terminal state after an interactive child exits.
+    pub fn resume(&mut self) -> io::Result<()> {
+        if !self.suspended {
+            return Ok(());
+        }
+        enable_raw_mode()?;
+        let mut stdout = io::stdout();
+        execute!(
+            stdout,
+            EnterAlternateScreen,
+            EnableMouseCapture,
+            EnableFocusChange
+        )?;
+        TERMINAL_ACTIVE.store(true, Ordering::SeqCst);
+        self.terminal.clear()?;
+        self.suspended = false;
+        Ok(())
+    }
+
+    pub fn is_suspended(&self) -> bool {
+        self.suspended
+    }
 }
 
 impl Drop for TerminalGuard {
     fn drop(&mut self) {
-        restore_terminal();
+        if !self.suspended {
+            restore_terminal();
+        } else {
+            // Child session already restored normal terminal; avoid double-restore.
+            TERMINAL_ACTIVE.store(false, Ordering::SeqCst);
+        }
     }
 }
 

@@ -211,7 +211,7 @@ pub(super) fn render_overlay_help(
     // Shortcuts first (compact), then enabled modules — config tips last so narrow
     // terminals still see modules after a short scroll.
     let mut lines: Vec<String> = vec![
-        "Triggers need a trailing space (`n docker`) · Esc clears · empty Esc quits".to_string(),
+        "Triggers need a trailing space (`/n docker`) · Esc clears · empty Esc quits".to_string(),
         "Enter action · Ctrl-k actions · Ctrl-/ commands · Tab focus · S-Tab preview · ? help"
             .to_string(),
         format!(

@@ -186,8 +186,15 @@ impl Engine {
             Command::GetSnapshot => {
                 let (items, module_states) = {
                     let g = self.inner.lock().await;
-                    let items: Vec<SearchItemDto> =
+                    let mut items: Vec<SearchItemDto> =
                         g.results_by_id.values().map(SearchItemDto::from).collect();
+                    // HashMap iteration order is unstable; match search-chunk ranking.
+                    items.sort_by(|a, b| {
+                        b.score
+                            .partial_cmp(&a.score)
+                            .unwrap_or(std::cmp::Ordering::Equal)
+                            .then_with(|| a.id.cmp(&b.id))
+                    });
                     (items, g.module_states.clone())
                 };
                 let _ = self

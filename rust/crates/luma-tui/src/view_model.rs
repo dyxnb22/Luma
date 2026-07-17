@@ -411,6 +411,27 @@ impl AppState {
         })
     }
 
+    /// Slash-prefixed bare module trigger (`/n`, not `n` or `/n `).
+    /// Unprefixed input is always a global search under the strict command format.
+    pub fn incomplete_slash_trigger(&self) -> Option<String> {
+        let is_prefix = |token: &str| {
+            token == "help"
+                || self
+                    .module_catalog
+                    .iter()
+                    .any(|m| m.enabled && m.triggers.iter().any(|t| t.eq_ignore_ascii_case(token)))
+        };
+        let query = luma_domain::Query::parse_with_prefixes_strict(&self.prompt, 50, is_prefix);
+        if !query.is_incomplete_trigger(is_prefix) {
+            return None;
+        }
+        Some(
+            luma_domain::strip_command_prefix(&self.prompt)
+                .trim()
+                .to_ascii_lowercase(),
+        )
+    }
+
     pub fn command_recipes_selected(&self) -> bool {
         self.selected_search_item()
             .is_some_and(|item| item.module_id.as_str() == "luma.command_recipes")
@@ -902,7 +923,18 @@ impl AppState {
                 items,
                 module_states: _,
             } => {
-                self.results.items = items.into_iter().map(|d| d.into_domain()).collect();
+                // A newer search (or debounce) owns the list — ignore lag resync.
+                if self.active_request.is_some() || self.search_debounce_deadline.is_some() {
+                    return false;
+                }
+                let mut items: Vec<_> = items.into_iter().map(|d| d.into_domain()).collect();
+                items.sort_by(|a, b| {
+                    b.score
+                        .partial_cmp(&a.score)
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                        .then_with(|| a.id.as_str().cmp(b.id.as_str()))
+                });
+                self.results.items = items;
                 self.results.selected_id = self
                     .results
                     .items
@@ -966,18 +998,7 @@ impl AppState {
                 if self.active_request.as_deref() == Some(request_id.as_str()) {
                     // End the active request so Esc Clear works on the first press.
                     self.active_request = None;
-                    let incomplete = {
-                        let raw = luma_domain::strip_command_prefix(&self.prompt);
-                        let trimmed = raw.trim();
-                        !trimmed.is_empty()
-                            && !raw.ends_with(|c: char| c.is_whitespace())
-                            && !trimmed.chars().any(|c| c.is_whitespace())
-                            && self.module_catalog.iter().any(|m| {
-                                m.enabled
-                                    && m.triggers.iter().any(|t| t.eq_ignore_ascii_case(trimmed))
-                            })
-                    };
-                    let (text, tone) = if incomplete {
+                    let (text, tone) = if self.incomplete_slash_trigger().is_some() {
                         ("Add space to search".into(), StatusTone::Neutral)
                     } else if total == 0 {
                         ("No results".into(), StatusTone::Neutral)
@@ -1222,6 +1243,8 @@ impl AppState {
                     return false;
                 }
                 if self.results.selected_id.as_deref() != Some(result_id.as_str()) {
+                    // Matching generation but wrong selection — clear so preview can retry.
+                    self.pending_preview_id = None;
                     return false;
                 }
                 self.pending_preview_id = None;
@@ -1287,6 +1310,7 @@ fn status_tone_for_failure(kind: &FailureKind) -> StatusTone {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use luma_protocol::SearchItemDto;
 
     #[test]
     fn action_started_ignored_without_active_operation() {
@@ -1685,5 +1709,157 @@ mod tests {
         assert_eq!(review.stats.reviewed_today, 8);
         assert_eq!(review.stats.remaining_goal, 12);
         assert_eq!(review.stats.due, 5);
+    }
+
+    fn catalog_with_notes_trigger() -> Vec<ModuleCatalogEntry> {
+        vec![ModuleCatalogEntry {
+            id: "luma.notes".into(),
+            display_name: "Notes".into(),
+            enabled: true,
+            glyph: None,
+            suggested_query: Some("/n ".into()),
+            empty_hint: None,
+            supports_browse: true,
+            triggers: vec!["n".into(), "note".into(), "notes".into()],
+        }]
+    }
+
+    #[test]
+    fn bare_n_is_not_incomplete_slash_trigger() {
+        let state = AppState {
+            prompt: "n".into(),
+            module_catalog: catalog_with_notes_trigger(),
+            ..AppState::default()
+        };
+        assert!(state.incomplete_slash_trigger().is_none());
+    }
+
+    #[test]
+    fn slash_n_is_incomplete_slash_trigger() {
+        let state = AppState {
+            prompt: "/n".into(),
+            module_catalog: catalog_with_notes_trigger(),
+            ..AppState::default()
+        };
+        assert_eq!(state.incomplete_slash_trigger().as_deref(), Some("n"));
+    }
+
+    #[test]
+    fn snapshot_loaded_sorts_by_score() {
+        let mut state = AppState::default();
+        let applied = state.apply_engine_event(Event::SnapshotLoaded {
+            items: vec![
+                SearchItemDto {
+                    id: "low".into(),
+                    module_id: "luma.notes".into(),
+                    title: "low".into(),
+                    score: 1.0,
+                    ..SearchItemDto::default()
+                },
+                SearchItemDto {
+                    id: "high".into(),
+                    module_id: "luma.notes".into(),
+                    title: "high".into(),
+                    score: 9.0,
+                    ..SearchItemDto::default()
+                },
+            ],
+            module_states: Default::default(),
+        });
+        assert!(applied);
+        assert_eq!(state.results.items[0].id.as_str(), "high");
+        assert_eq!(state.results.selected_id.as_deref(), Some("high"));
+    }
+
+    #[test]
+    fn snapshot_loaded_ignored_during_active_search() {
+        let mut state = AppState {
+            active_request: Some("req-live".into()),
+            ..AppState::default()
+        };
+        state.results.items.push(luma_domain::SearchItem {
+            id: luma_domain::ResultId::new("keep"),
+            module_id: luma_domain::ModuleId::new("luma.notes"),
+            title: "keep".into(),
+            subtitle: None,
+            kind: "note".into(),
+            score: 1.0,
+            primary_action: luma_domain::ActionDescriptor {
+                id: luma_domain::ActionId::new("open"),
+                label: "Open".into(),
+                risk: luma_domain::ActionRisk::Safe,
+                confirmation: false,
+            },
+            secondary_actions: vec![],
+            ui_intent: None,
+            action_payload: None,
+        });
+        let applied = state.apply_engine_event(Event::SnapshotLoaded {
+            items: vec![SearchItemDto {
+                id: "stale".into(),
+                module_id: "luma.notes".into(),
+                title: "stale".into(),
+                score: 9.0,
+                ..SearchItemDto::default()
+            }],
+            module_states: Default::default(),
+        });
+        assert!(!applied);
+        assert_eq!(state.results.items[0].id.as_str(), "keep");
+    }
+
+    #[test]
+    fn preview_loaded_clears_pending_on_selection_mismatch() {
+        let mut state = AppState {
+            pending_preview_id: Some(3),
+            preview_result_id: Some("note:a".into()),
+            results: ResultsView {
+                selected_id: Some("note:b".into()),
+                ..ResultsView::default()
+            },
+            ..AppState::default()
+        };
+        let applied = state.apply_engine_event(Event::PreviewLoaded {
+            result_id: "note:a".into(),
+            preview_id: 3,
+            body: "body".into(),
+        });
+        assert!(!applied);
+        assert!(state.pending_preview_id.is_none());
+        assert!(state.preview_body.is_none());
+    }
+
+    #[test]
+    fn search_finished_bare_n_is_not_add_space_hint() {
+        let mut state = AppState {
+            prompt: "n".into(),
+            active_request: Some("req-1".into()),
+            module_catalog: catalog_with_notes_trigger(),
+            ..AppState::default()
+        };
+        let applied = state.apply_engine_event(Event::SearchFinished {
+            request_id: "req-1".into(),
+            total: 0,
+            elapsed_ms: 12,
+        });
+        assert!(applied);
+        assert_eq!(state.status.text, "No results");
+    }
+
+    #[test]
+    fn search_finished_slash_n_shows_add_space_hint() {
+        let mut state = AppState {
+            prompt: "/n".into(),
+            active_request: Some("req-1".into()),
+            module_catalog: catalog_with_notes_trigger(),
+            ..AppState::default()
+        };
+        let applied = state.apply_engine_event(Event::SearchFinished {
+            request_id: "req-1".into(),
+            total: 0,
+            elapsed_ms: 12,
+        });
+        assert!(applied);
+        assert_eq!(state.status.text, "Add space to search");
     }
 }

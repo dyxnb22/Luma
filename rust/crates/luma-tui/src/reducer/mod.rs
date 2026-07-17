@@ -98,6 +98,8 @@ pub fn update(state: &mut AppState, msg: Msg) -> Vec<Effect> {
                     | Route::QuitConfirm
             ) {
                 clear_action_ui(state);
+                // Typing abandons overlay restore (Esc is the restore path).
+                state.overlay_restore_prompt = None;
                 state.route = Route::Search;
             }
             state.focus = FocusZone::Prompt;
@@ -108,7 +110,9 @@ pub fn update(state: &mut AppState, msg: Msg) -> Vec<Effect> {
             schedule_search(state)
         }
         Msg::Backspace => {
-            if !matches!(state.route, Route::Search | Route::Help) {
+            if state.route == Route::Help {
+                dismiss_help_for_prompt_edit(state);
+            } else if state.route != Route::Search {
                 return vec![Effect::None];
             }
             state.focus = FocusZone::Prompt;
@@ -118,7 +122,9 @@ pub fn update(state: &mut AppState, msg: Msg) -> Vec<Effect> {
             schedule_search(state)
         }
         Msg::DeleteForward => {
-            if !matches!(state.route, Route::Search | Route::Help) {
+            if state.route == Route::Help {
+                dismiss_help_for_prompt_edit(state);
+            } else if state.route != Route::Search {
                 return vec![Effect::None];
             }
             state.focus = FocusZone::Prompt;
@@ -128,7 +134,10 @@ pub fn update(state: &mut AppState, msg: Msg) -> Vec<Effect> {
             schedule_search(state)
         }
         Msg::CursorLeft => {
-            if matches!(state.route, Route::Search | Route::Help) {
+            if state.route == Route::Help {
+                dismiss_help_for_prompt_edit(state);
+            }
+            if matches!(state.route, Route::Search) {
                 state.focus = FocusZone::Prompt;
                 state.clamp_prompt_cursor();
                 state.prompt_cursor = state.prompt_cursor.saturating_sub(1);
@@ -136,7 +145,10 @@ pub fn update(state: &mut AppState, msg: Msg) -> Vec<Effect> {
             vec![Effect::None]
         }
         Msg::CursorRight => {
-            if matches!(state.route, Route::Search | Route::Help) {
+            if state.route == Route::Help {
+                dismiss_help_for_prompt_edit(state);
+            }
+            if matches!(state.route, Route::Search) {
                 state.focus = FocusZone::Prompt;
                 state.clamp_prompt_cursor();
                 if state.prompt_cursor < state.prompt_char_len() {
@@ -146,14 +158,20 @@ pub fn update(state: &mut AppState, msg: Msg) -> Vec<Effect> {
             vec![Effect::None]
         }
         Msg::CursorHome => {
-            if matches!(state.route, Route::Search | Route::Help) {
+            if state.route == Route::Help {
+                dismiss_help_for_prompt_edit(state);
+            }
+            if matches!(state.route, Route::Search) {
                 state.focus = FocusZone::Prompt;
                 state.prompt_cursor = 0;
             }
             vec![Effect::None]
         }
         Msg::CursorEnd => {
-            if matches!(state.route, Route::Search | Route::Help) {
+            if state.route == Route::Help {
+                dismiss_help_for_prompt_edit(state);
+            }
+            if matches!(state.route, Route::Search) {
                 state.focus = FocusZone::Prompt;
                 state.prompt_cursor = state.prompt_char_len();
             }
@@ -367,6 +385,7 @@ pub fn update(state: &mut AppState, msg: Msg) -> Vec<Effect> {
         Msg::WordbookGrade { action_id } => wordbook::wordbook_grade(state, action_id),
         Msg::WordbookReviewExit => wordbook::exit_wordbook_review(state),
         Msg::OpenHelp => {
+            state.overlay_restore_prompt = Some(state.prompt.clone());
             state.route = Route::Help;
             state.help_scroll = 0;
             state.status.set("help", StatusTone::Neutral);
@@ -680,6 +699,11 @@ fn clear_action_ui(state: &mut AppState) {
     state.action_choices.clear();
     state.action_result_id = None;
     state.action_selected = 0;
+}
+
+fn dismiss_help_for_prompt_edit(state: &mut AppState) {
+    state.overlay_restore_prompt = None;
+    state.route = Route::Search;
 }
 
 fn recipe_shortcut(state: &mut AppState, action_id: &str) -> Vec<Effect> {
@@ -1176,11 +1200,15 @@ fn cancel_msg(state: &mut AppState) -> Vec<Effect> {
         state.status.set("browsing…", StatusTone::Progress);
         begin_search(state)
     } else if !state.prompt.is_empty() {
+        clear_action_ui(state);
         state.browse_nav_stack.clear();
         state.clear_prompt();
         state.search_debounce_deadline = None;
         state.results.items.clear();
         state.results.selected_id = None;
+        state.preview_body = None;
+        state.preview_result_id = None;
+        state.pending_preview_id = None;
         state.active_request = None;
         state.status.set("Ready", StatusTone::Neutral);
         state.schedule_hub_refresh();
@@ -1486,6 +1514,9 @@ fn begin_search(state: &mut AppState) -> Vec<Effect> {
         state.results.items.clear();
         state.results.selected_id = None;
         state.results.scroll = 0;
+        state.preview_body = None;
+        state.preview_result_id = None;
+        state.pending_preview_id = None;
         state.status.set("Ready", StatusTone::Neutral);
         state.schedule_hub_refresh();
         effects.push(Effect::LoadHub);
@@ -1498,6 +1529,10 @@ fn begin_search(state: &mut AppState) -> Vec<Effect> {
     state.request_seq_seen = 0;
     state.results.items.clear();
     state.results.selected_id = None;
+    // New search invalidates any in-flight preview for prior rows.
+    state.preview_body = None;
+    state.preview_result_id = None;
+    state.pending_preview_id = None;
     effects.push(Effect::Search {
         request_id,
         query: state.prompt.clone(),
@@ -2737,6 +2772,76 @@ mod tests {
         assert_eq!(state.route, Route::Search);
         assert!(state.showing_hub());
         assert_eq!(state.status.text, "Ready");
+    }
+
+    #[test]
+    fn esc_clear_prompt_clears_awaiting_actions() {
+        let mut state = AppState::default();
+        state.prompt = "clip ".into();
+        state.prompt_cursor = state.prompt_char_len();
+        state.awaiting_actions = Some(AwaitingActions {
+            intent: ActionsIntent::Picker,
+            result_id: "clip:1".into(),
+        });
+        let effects = update(&mut state, Msg::Cancel);
+        assert!(effects.iter().any(|e| matches!(e, Effect::LoadHub)));
+        assert!(state.awaiting_actions.is_none());
+        assert!(state.prompt.is_empty());
+    }
+
+    #[test]
+    fn begin_search_clears_pending_preview() {
+        let mut state = AppState::default();
+        state.prompt = "clip foo".into();
+        state.prompt_cursor = state.prompt_char_len();
+        state.pending_preview_id = Some(7);
+        state.preview_result_id = Some("clip:1".into());
+        state.preview_body = Some("old".into());
+        let _ = begin_search(&mut state);
+        assert!(state.pending_preview_id.is_none());
+        assert!(state.preview_result_id.is_none());
+        assert!(state.preview_body.is_none());
+    }
+
+    #[test]
+    fn open_help_saves_restore_prompt() {
+        let mut state = AppState::default();
+        state.prompt = "clip foo".into();
+        state.prompt_cursor = state.prompt_char_len();
+        let _ = update(&mut state, Msg::OpenHelp);
+        assert_eq!(state.route, Route::Help);
+        assert_eq!(state.overlay_restore_prompt.as_deref(), Some("clip foo"));
+        let _ = update(&mut state, Msg::Cancel);
+        assert_eq!(state.route, Route::Search);
+        assert_eq!(state.prompt, "clip foo");
+        assert!(state.overlay_restore_prompt.is_none());
+    }
+
+    #[test]
+    fn typing_from_help_discards_restore_prompt() {
+        let mut state = AppState::default();
+        state.prompt = "/help".into();
+        state.prompt_cursor = state.prompt_char_len();
+        let _ = update(&mut state, Msg::Submit);
+        assert_eq!(state.route, Route::Help);
+        assert_eq!(state.overlay_restore_prompt.as_deref(), Some("/help"));
+        let _ = update(&mut state, Msg::KeyChar('x'));
+        assert_eq!(state.route, Route::Search);
+        assert!(state.overlay_restore_prompt.is_none());
+        assert!(state.prompt.contains('x'));
+    }
+
+    #[test]
+    fn backspace_from_help_exits_to_search() {
+        let mut state = AppState::default();
+        state.prompt = "ab".into();
+        state.prompt_cursor = state.prompt_char_len();
+        state.overlay_restore_prompt = Some("ab".into());
+        state.route = Route::Help;
+        let _ = update(&mut state, Msg::Backspace);
+        assert_eq!(state.route, Route::Search);
+        assert!(state.overlay_restore_prompt.is_none());
+        assert_eq!(state.prompt, "a");
     }
 
     #[test]

@@ -542,22 +542,15 @@ fn empty_state_item(state: &AppState, theme: &Theme, symbols: &Symbols) -> ListI
     ])
 }
 
-/// Bare module trigger without trailing space (`n`, not `n `).
+/// Slash-prefixed bare module trigger without trailing space (`/n`, not `n` or `/n `).
 fn incomplete_trigger_hint(state: &AppState) -> Option<(String, Option<String>)> {
-    let raw = luma_domain::strip_command_prefix(&state.prompt);
-    let trimmed = raw.trim();
-    if trimmed.is_empty()
-        || raw.ends_with(|c: char| c.is_whitespace())
-        || trimmed.chars().any(|c| c.is_whitespace())
-    {
-        return None;
-    }
-    let token = trimmed.to_ascii_lowercase();
+    let token = state.incomplete_slash_trigger()?;
     let module = state
         .module_catalog
         .iter()
-        .find(|m| m.enabled && m.triggers.iter().any(|t| t.eq_ignore_ascii_case(&token)))?;
-    Some((token, module.empty_hint.clone()))
+        .find(|m| m.enabled && m.triggers.iter().any(|t| t.eq_ignore_ascii_case(&token)));
+    let display = format!("/{token}");
+    Some((display, module.and_then(|m| m.empty_hint.clone())))
 }
 
 /// Prefer the targeted module's `empty_hint` when the prompt starts with its trigger.

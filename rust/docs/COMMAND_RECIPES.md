@@ -8,10 +8,10 @@ an autonomous agent.
 
 | Query | Meaning |
 | --- | --- |
-| `cmd` | List recipes |
-| `cmd test` | Search recipes matching `test` |
-| `recipe test` | Alias for `cmd test` |
-| `recipes` | Alias trigger |
+| `/cmd ` | List recipes |
+| `/cmd test` | Search recipes matching `test` |
+| `/recipe test` | Alias for `/cmd test` |
+| `/recipes ` | Alias trigger |
 
 TUI shortcuts while a recipe row is selected:
 
@@ -28,12 +28,12 @@ CLI and TUI share one recipe runner in `luma-application` (step loop, risk gate,
 ## CLI
 
 ```bash
-luma query "cmd test" --json
+luma query "/cmd test" --json
 luma cmd list [--json]
 luma cmd show <recipe-id> [--json]
 luma cmd run <recipe-id> [--confirmation] [--json]
 luma cmd copy <recipe-id> [--json]
-luma action run --query "cmd test" --action-id run [--confirmation] [--json]
+luma action run --query "/cmd test" --action-id run [--confirmation] [--json]
 ```
 
 ### `cmd run` / `action run`

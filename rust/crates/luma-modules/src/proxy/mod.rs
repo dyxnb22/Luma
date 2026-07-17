@@ -57,8 +57,8 @@ impl ProxyModule {
                 required_capabilities: vec![],
                 workbench: luma_application::WorkbenchMeta {
                     glyph: Some("X".into()),
-                    suggested_query: Some("proxy ".into()),
-                    empty_hint: Some("proxy · inspect Mihomo and system proxy".into()),
+                    suggested_query: Some("/proxy ".into()),
+                    empty_hint: Some("/proxy · inspect Mihomo and system proxy".into()),
                     supports_browse: true,
                 },
             },

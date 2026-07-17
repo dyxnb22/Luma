@@ -3,7 +3,7 @@ use crate::view_model::{AppState, FocusZone, PendingAction, Route, StatusTone};
 use luma_protocol::ActionDescriptorDto;
 
 pub(super) fn wordbook_review_queue_from_prompt(prompt: &str) -> Option<String> {
-    let lower = prompt.to_ascii_lowercase();
+    let lower = super::command_prompt(prompt).to_ascii_lowercase();
     if lower == "wb review" || lower == "wb review due" {
         return Some("due".into());
     }
@@ -174,7 +174,7 @@ mod tests {
     #[test]
     fn wordbook_review_starts_from_prompt() {
         let mut state = AppState::default();
-        state.prompt = "wb review due".into();
+        state.prompt = "/wb review due".into();
         state.prompt_cursor = state.prompt_char_len();
         let effects = super::super::update(&mut state, Msg::Submit);
         assert_eq!(state.route, Route::WordbookReview);

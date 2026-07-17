@@ -214,7 +214,7 @@ impl NotesModule {
                             )
                             .await;
                             *watch_warning.lock().await = Some(
-                                "Notes file watcher stopped; Enter to restart, or run `n check`"
+                                "Notes file watcher stopped; Enter to restart, or run `/n check`"
                                     .into(),
                             );
                             break;

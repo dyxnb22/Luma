@@ -1,6 +1,6 @@
 use crate::effect::Effect;
 use crate::msg::Msg;
-use crate::reducer::{command_recipes_query_active, update};
+use crate::reducer::{command_prompt, command_recipes_query_active, update};
 use crate::render::render;
 use crate::terminal::{install_panic_hook, TerminalGuard};
 use crate::view_model::{AppState, Route, StatusTone};
@@ -423,7 +423,7 @@ fn run_interactive_terminal_effect(
 
     if let (Some(alias), Some(status)) = (record_alias, status) {
         if status.success() {
-            if state.prompt.trim_start().starts_with("ssh") {
+            if command_prompt(&state.prompt).starts_with("ssh") {
                 state.search_debounce_deadline = Some(std::time::Instant::now());
             }
             let engine_record = engine.clone();

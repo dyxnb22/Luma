@@ -53,9 +53,10 @@ impl ProjectsModule {
                 required_capabilities: vec![],
                 workbench: luma_application::WorkbenchMeta {
                     glyph: Some("P".into()),
-                    suggested_query: Some("proj browse".into()),
+                    suggested_query: Some("/proj browse".into()),
                     empty_hint: Some(
-                        "proj browse · proj add PATH · proj <name> · Hub Enter opens browse".into(),
+                        "/proj browse · /proj add PATH · /proj <name> · Hub Enter opens browse"
+                            .into(),
                     ),
                     supports_browse: true,
                 },
@@ -300,7 +301,7 @@ mod tests {
         assert!(upserts[0]
             .subtitle
             .as_deref()
-            .is_some_and(|text| text.contains("Usage: proj add")));
+            .is_some_and(|text| text.contains("Usage: /proj add")));
     }
 
     #[tokio::test]

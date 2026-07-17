@@ -388,14 +388,14 @@ impl SshModule {
                     "ssh:no-favorites",
                     "status",
                     "No favorite SSH hosts",
-                    Some("favorite a host from ssh list · ssh fav".into()),
+                    Some("favorite a host from /ssh list · /ssh fav".into()),
                 )
             } else if recent_only {
                 Self::status_row(
                     "ssh:no-recent",
                     "status",
                     "No recent SSH connections",
-                    Some("connect to a host to build history · ssh recent".into()),
+                    Some("connect to a host to build history · /ssh recent".into()),
                 )
             } else if needle.is_empty() {
                 Self::status_row(
@@ -428,8 +428,8 @@ impl SshModule {
             items.push(Self::status_row(
                 "ssh:hint",
                 "status",
-                "ssh fav · ssh recent · ssh rename ALIAS NAME",
-                Some("Enter connects in this terminal · reload with ssh reload".into()),
+                "/ssh fav · /ssh recent · /ssh rename ALIAS NAME",
+                Some("Enter connects in this terminal · reload with /ssh reload".into()),
             ));
         }
         for (score, alias) in rows {

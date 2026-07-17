@@ -310,7 +310,7 @@ impl ProxyModule {
                     id: "proxy:profile:import-help".into(),
                     module_id: MODULE_ID.into(),
                     title: "Import a Profile".into(),
-                    subtitle: Some("Use proxy import <HTTPS URL or local YAML path>".into()),
+                    subtitle: Some("Use /proxy import <HTTPS URL or local YAML path>".into()),
                     kind: "profile_import_help".into(),
                     score: 95.0,
                     ..Default::default()

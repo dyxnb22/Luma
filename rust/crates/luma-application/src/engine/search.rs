@@ -125,7 +125,7 @@ impl Engine {
         let incomplete = {
             let g = self.inner.lock().await;
             let triggers = g.registry.all_triggers();
-            let query = Query::parse_with_prefixes(&query_raw, 50, |token| {
+            let query = Query::parse_with_prefixes_strict(&query_raw, 50, |token| {
                 is_meta_prefix(token) || triggers.iter().any(|t| t == token)
             });
             query.is_incomplete_trigger(|token| {
@@ -182,7 +182,7 @@ impl Engine {
         let query = {
             let g = self.inner.lock().await;
             let triggers = g.registry.all_triggers();
-            Query::parse_with_prefixes(query_raw, 50, |token| {
+            Query::parse_with_prefixes_strict(query_raw, 50, |token| {
                 is_meta_prefix(token) || triggers.iter().any(|t| t == token)
             })
         };

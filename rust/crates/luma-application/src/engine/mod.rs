@@ -1110,6 +1110,15 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn slash_prefixed_query_targets_the_module() {
+        let (items, _events) = run_query(fake_registry(), "/fake hello", None)
+            .await
+            .unwrap();
+        assert_eq!(items.len(), 1);
+        assert!(items[0].title.contains("hello"));
+    }
+
+    #[tokio::test]
     async fn run_action_executes_fake_result() {
         let (result, outcome) = run_action(
             fake_registry(),
@@ -1477,7 +1486,7 @@ mod tests {
         engine
             .handle_command(Command::Search {
                 request_id: "r-rm".into(),
-                query: "rm x".into(),
+                query: "/rm x".into(),
             })
             .await;
         while !matches!(events.recv().await, Ok(Event::SearchFinished { .. })) {}
@@ -1886,7 +1895,7 @@ mod tests {
         engine
             .handle_command(Command::Search {
                 request_id: "bulk-1".into(),
-                query: "bulk x".into(),
+                query: "/bulk x".into(),
             })
             .await;
         while !matches!(events.recv().await, Ok(Event::SearchFinished { .. })) {}
@@ -1927,7 +1936,7 @@ mod tests {
         engine
             .handle_command(Command::Search {
                 request_id: "bulk-2".into(),
-                query: "bulk x".into(),
+                query: "/bulk x".into(),
             })
             .await;
 
@@ -2028,7 +2037,7 @@ mod tests {
         engine
             .handle_command(Command::Search {
                 request_id: "pv-search".into(),
-                query: "pv x".into(),
+                query: "/pv x".into(),
             })
             .await;
         while !matches!(events.recv().await, Ok(Event::SearchFinished { .. })) {}

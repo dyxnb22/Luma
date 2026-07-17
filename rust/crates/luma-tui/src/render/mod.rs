@@ -524,7 +524,7 @@ fn empty_state_item(state: &AppState, theme: &Theme, symbols: &Symbols) -> ListI
         (
             "Type to search".to_string(),
             format!(
-                "Try: app safari {} n browse {} clip",
+                "Try: /app safari {} /n browse {} /clip",
                 symbols.sep, symbols.sep
             ),
         )
@@ -544,7 +544,7 @@ fn empty_state_item(state: &AppState, theme: &Theme, symbols: &Symbols) -> ListI
 
 /// Bare module trigger without trailing space (`n`, not `n `).
 fn incomplete_trigger_hint(state: &AppState) -> Option<(String, Option<String>)> {
-    let raw = state.prompt.as_str();
+    let raw = luma_domain::strip_command_prefix(&state.prompt);
     let trimmed = raw.trim();
     if trimmed.is_empty()
         || raw.ends_with(|c: char| c.is_whitespace())
@@ -562,7 +562,10 @@ fn incomplete_trigger_hint(state: &AppState) -> Option<(String, Option<String>)>
 
 /// Prefer the targeted module's `empty_hint` when the prompt starts with its trigger.
 fn empty_hint_for_prompt(state: &AppState) -> Option<String> {
-    let token = state.prompt.split_whitespace().next()?.to_ascii_lowercase();
+    let token = crate::reducer::command_prompt(&state.prompt)
+        .split_whitespace()
+        .next()?
+        .to_ascii_lowercase();
     state
         .module_catalog
         .iter()

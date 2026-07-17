@@ -25,17 +25,17 @@ Override the config path for tests or tooling with `SSH_CONFIG`.
 
 | Query | Effect |
 | --- | --- |
-| `ssh` | List all configured hosts (hint row shows common verbs) |
-| `ssh <needle>` | Fuzzy match alias, display name, hostname, or user |
-| `ssh fav` / `ssh favorites` | Favorites only |
-| `ssh recent` | Hosts with a recorded connection |
-| `ssh reload` / `ssh refresh` | Re-read config and clear `ssh -G` cache |
-| `ssh rename ALIAS NAME` | Set a local display name (Enter or action picker to save). Prefix is case-insensitive; `NAME` may contain spaces. |
+| `/ssh ` | List all configured hosts (hint row shows common verbs) |
+| `/ssh <needle>` | Fuzzy match alias, display name, hostname, or user |
+| `/ssh fav` / `/ssh favorites` | Favorites only |
+| `/ssh recent` | Hosts with a recorded connection |
+| `/ssh reload` / `/ssh refresh` | Re-read config and clear `ssh -G` cache |
+| `/ssh rename ALIAS NAME` | Set a local display name (Enter or action picker to save). Prefix is case-insensitive; `NAME` may contain spaces. |
 
 Sorting: **favorite first** → **most recently connected** → relevance score → alias.
 
-Bare trigger `ssh` without a trailing space does not search — use `ssh ` (with space) or Hub
-Enter on the SSH module row.
+Unprefixed `ssh` text is a global search; use `/ssh ` (with space) or Hub Enter on the SSH
+module row.
 
 ## Actions
 
@@ -46,7 +46,7 @@ Enter on the SSH module row.
 | **Copy alias** | Writes the Host alias to the pasteboard |
 | **Favorite** / **Unfavorite** | Updates `ssh_meta.sqlite` |
 | **Delete local metadata** | Removes Luma row for alias (destructive, confirm) |
-| **Reload** (`ssh reload` row) | Clears alias / `ssh -G` caches |
+| **Reload** (`/ssh reload` row) | Clears alias / `ssh -G` caches |
 
 Preview shows resolved connection fields and metadata. Private key **contents** are never
 shown — only the identity file path (sanitized).
@@ -54,7 +54,7 @@ shown — only the identity file path (sanitized).
 ## CLI
 
 ```bash
-luma query "ssh production" --json
+luma query "/ssh production" --json
 luma ssh list --json
 luma ssh connect production
 luma ssh sftp production
@@ -69,8 +69,8 @@ metadata the same way as the TUI path.
 Favorites and rename can also be driven through the engine:
 
 ```bash
-luma action run --query "ssh production" --action-id favorite
-luma action run --query "ssh rename prod Production" --action-id rename
+luma action run --query "/ssh production" --action-id favorite
+luma action run --query "/ssh rename prod Production" --action-id rename
 ```
 
 ## Status rows

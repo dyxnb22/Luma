@@ -49,9 +49,9 @@ impl SecretsModule {
                 required_capabilities: vec!["keychain".into()],
                 workbench: luma_application::WorkbenchMeta {
                     glyph: Some("V".into()),
-                    suggested_query: Some("sec ".into()),
+                    suggested_query: Some("/sec ".into()),
                     empty_hint: Some(
-                        "sec · Enter unlocks vault (confirm) · labels only, never values".into(),
+                        "/sec · Enter unlocks vault (confirm) · labels only, never values".into(),
                     ),
                     supports_browse: false,
                 },

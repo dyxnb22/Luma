@@ -23,6 +23,9 @@ and a background agent/daemon are not, unless the user explicitly changes this b
 - Do not add release/CI/soak/notarization work or revive stub modules unless asked.
 - Do not add AI/LLM agent features, conversational workflows, autonomous task execution, or
   multi-session/background-agent infrastructure unless asked.
+- Interactive prompt commands require `/` (`/ssh`, `/rec browse`, `/cmd test`, `/settings`,
+  `/help`). Unprefixed text is global search; do not reintroduce bare-trigger or colon command
+  forms.
 
 ## Verification
 

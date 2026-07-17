@@ -47,8 +47,8 @@ impl WindowsModule {
                 required_capabilities: vec!["accessibility".into()],
                 workbench: luma_application::WorkbenchMeta {
                     glyph: Some("W".into()),
-                    suggested_query: Some("win ".into()),
-                    empty_hint: Some("win · focus a window".into()),
+                    suggested_query: Some("/win ".into()),
+                    empty_hint: Some("/win · focus a window".into()),
                     supports_browse: false,
                 },
             },

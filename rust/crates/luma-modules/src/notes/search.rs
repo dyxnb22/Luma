@@ -577,7 +577,7 @@ impl NotesModule {
                 id: "notes:no-matches".into(),
                 module_id: "luma.notes".into(),
                 title: format!("No notes matching \"{needle}\""),
-                subtitle: Some("Try another query · n browse · n recent".into()),
+                subtitle: Some("Try another query · /n browse · /n recent".into()),
                 kind: "status".into(),
                 score: 50.0,
                 primary_action_id: "noop".into(),

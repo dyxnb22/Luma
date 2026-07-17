@@ -46,9 +46,10 @@ impl WordbookModule {
                 required_capabilities: vec![],
                 workbench: luma_application::WorkbenchMeta {
                     glyph: Some("W".into()),
-                    suggested_query: Some("wb due".into()),
+                    suggested_query: Some("/wb due".into()),
                     empty_hint: Some(
-                        "wb due · wb new · wb wrong · wb status · wb add TERM | meaning".into(),
+                        "/wb due · /wb new · /wb wrong · /wb status · /wb add TERM | meaning"
+                            .into(),
                     ),
                     supports_browse: false,
                 },
@@ -253,7 +254,7 @@ impl LumaModule for WordbookModule {
             return;
         }
 
-        // wb add TERM | meaning [| example [| category]]
+        // /wb add TERM | meaning [| example [| category]]
         if let Some(payload) = rest
             .strip_prefix("add ")
             .or_else(|| rest.strip_prefix("add\t"))
@@ -318,7 +319,7 @@ impl LumaModule for WordbookModule {
             }
         }
 
-        // wb goal N
+        // /wb goal N
         if let Some(n) = rest_norm
             .strip_prefix("goal ")
             .map(str::trim)
@@ -346,7 +347,7 @@ impl LumaModule for WordbookModule {
             return;
         }
 
-        // wb import PATH
+        // /wb import PATH
         if let Some(path) = rest
             .strip_prefix("import ")
             .map(str::trim)
@@ -523,15 +524,18 @@ impl LumaModule for WordbookModule {
 
         if upserts.is_empty() {
             let (title, subtitle) = match mode {
-                "due" => ("No words due".into(), "Try `wb new` or `wb status`".into()),
+                "due" => (
+                    "No words due".into(),
+                    "Try `/wb new` or `/wb status`".into(),
+                ),
                 "new" => (
                     "No new words".into(),
-                    "Add with `wb add TERM | meaning`".into(),
+                    "Add with `/wb add TERM | meaning`".into(),
                 ),
                 "wrong" => ("No wrong words".into(), "Nice work".into()),
                 _ => (
                     format!("No words matching \"{rest}\""),
-                    "Try `wb due` or `wb add TERM | meaning`".into(),
+                    "Try `/wb due` or `/wb add TERM | meaning`".into(),
                 ),
             };
             upserts.push(SearchItemDto {

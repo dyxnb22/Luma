@@ -26,6 +26,8 @@ tool-orchestration workflows.
 - Use structured unavailable / permission / not-configured outcomes (no silent fake success).
 - Keep `rust/bins/luma/src/compose.rs` as the sole module/adapters registration root.
 - Keep TUI update/reducer and render pure; effects own I/O and async work.
+- Use `/` for every interactive module/local command (`/ssh`, `/rec browse`, `/settings`); bare
+  or colon-prefixed command forms are retired and unprefixed input is global search.
 - When adding a module, prefer a module-local implementation plus ports/adapters, one compose
   registration, contract tests, and documentation. Avoid central engine/reducer/render edits;
   treat unavoidable central branching as an extensibility cost.

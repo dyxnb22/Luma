@@ -108,10 +108,10 @@ fn query_cmd_test_json() {
     let logs = dir.path().join("logs");
     fs::create_dir_all(&support).unwrap();
     fs::create_dir_all(&logs).unwrap();
-    let (code, stdout, stderr) = run_luma(&support, &logs, &["query", "cmd test", "--json"]);
+    let (code, stdout, stderr) = run_luma(&support, &logs, &["query", "/cmd test", "--json"]);
     assert_eq!(code, 0, "stderr={stderr}");
     let v: serde_json::Value = serde_json::from_str(&stdout).unwrap();
-    assert_eq!(v["query"], "cmd test");
+    assert_eq!(v["query"], "/cmd test");
     assert!(v["results"]
         .as_array()
         .unwrap()
@@ -174,7 +174,7 @@ fn action_run_executes_recipe_not_silent_success() {
             "action",
             "run",
             "--query",
-            "cmd show-env",
+            "/cmd show-env",
             "--action-id",
             "run",
             "--confirmation",
@@ -253,7 +253,7 @@ fn notes_query_against_fixture_workspace() {
         ],
     );
     assert_eq!(code, 0, "stderr={stderr}");
-    let (code, stdout, stderr) = run_luma(&support, &logs, &["query", "n alpha", "--json"]);
+    let (code, stdout, stderr) = run_luma(&support, &logs, &["query", "/n alpha", "--json"]);
     assert_eq!(code, 0, "stderr={stderr} stdout={stdout}");
     let v: serde_json::Value = serde_json::from_str(&stdout).unwrap();
     let results = v["results"].as_array().expect("results array");
@@ -373,7 +373,7 @@ fn corrupt_config_blocks_query() {
     // First create valid config
     let _ = run_luma(&support, &logs, &["config", "get", "--json"]);
     fs::write(support.join("settings.toml"), "not = toml [[[").unwrap();
-    let (code, stdout, stderr) = run_luma(&support, &logs, &["query", "app", "--json"]);
+    let (code, stdout, stderr) = run_luma(&support, &logs, &["query", "/app ", "--json"]);
     assert_ne!(
         code, 0,
         "corrupt config must fail query; stdout={stdout} stderr={stderr}"
@@ -393,7 +393,7 @@ fn query_bare_fake_trigger_returns_results_in_cli() {
         &["config", "set", "--enable-module", "luma.fake", "--json"],
     );
     assert_eq!(code, 0, "stderr={stderr}");
-    let (code, stdout, stderr) = run_luma(&support, &logs, &["query", "fake", "--json"]);
+    let (code, stdout, stderr) = run_luma(&support, &logs, &["query", "/fake ", "--json"]);
     assert_eq!(code, 0, "stderr={stderr}");
     let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
     let n = v["results"].as_array().map(|a| a.len()).unwrap_or(0);
@@ -440,7 +440,7 @@ fn query_json_redact_flag() {
     fs::create_dir_all(&support).unwrap();
     fs::create_dir_all(&logs).unwrap();
     let (code, stdout, stderr) =
-        run_luma(&support, &logs, &["query", "clip", "--json", "--redact"]);
+        run_luma(&support, &logs, &["query", "/clip ", "--json", "--redact"]);
     assert_eq!(code, 0, "stderr={stderr}");
     let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
     assert_eq!(v["redacted"], true);
@@ -619,14 +619,14 @@ fn wordbook_import_wordpet_dry_run_then_commit() {
     let committed: serde_json::Value = serde_json::from_str(&stdout).unwrap();
     assert_eq!(committed["committed"], true);
 
-    let (code, stdout, stderr) = run_luma(&support, &logs, &["query", "wb status", "--json"]);
+    let (code, stdout, stderr) = run_luma(&support, &logs, &["query", "/wb status", "--json"]);
     assert_eq!(code, 0, "stderr={stderr} stdout={stdout}");
     assert!(
         stdout.contains("Today") || stdout.contains("wb:status") || stdout.contains("due"),
         "{stdout}"
     );
 
-    let (code, stdout, stderr) = run_luma(&support, &logs, &["query", "wb throughput", "--json"]);
+    let (code, stdout, stderr) = run_luma(&support, &logs, &["query", "/wb throughput", "--json"]);
     assert_eq!(code, 0, "stderr={stderr} stdout={stdout}");
     assert!(stdout.contains("throughput"), "{stdout}");
 }
@@ -681,7 +681,7 @@ fn records_import_dry_run_then_apply_and_query() {
     assert_eq!(code, 0, "stderr={stderr} stdout={stdout}");
     assert!(support.join("records.sqlite").exists());
 
-    let (code, stdout, stderr) = run_luma(&support, &logs, &["query", "rec 沙丘", "--json"]);
+    let (code, stdout, stderr) = run_luma(&support, &logs, &["query", "/rec 沙丘", "--json"]);
     assert_eq!(code, 0, "stderr={stderr} stdout={stdout}");
     assert!(stdout.contains("沙丘"), "{stdout}");
     assert!(stdout.contains("luma.records"), "{stdout}");
@@ -762,7 +762,7 @@ fn ssh_query_not_configured_without_ssh_config() {
     // Isolate from the developer's real ~/.ssh/config (MacSshConfig honors SSH_CONFIG).
     let missing_config = dir.path().join("missing-ssh-config");
     let out = Command::new(luma_bin())
-        .args(["query", "ssh", "--json"])
+        .args(["query", "/ssh ", "--json"])
         .env("LUMA_NEXT_SUPPORT_DIR", &support)
         .env("LUMA_NEXT_LOGS_DIR", &logs)
         .env("SSH_CONFIG", &missing_config)
@@ -811,7 +811,8 @@ fn timers_query_and_start_pomodoro() {
     fs::create_dir_all(&support).unwrap();
     fs::create_dir_all(&logs).unwrap();
 
-    let (code, stdout, stderr) = run_luma(&support, &logs, &["query", "tm pomo 1 focus", "--json"]);
+    let (code, stdout, stderr) =
+        run_luma(&support, &logs, &["query", "/tm pomo 1 focus", "--json"]);
     assert_eq!(code, 0, "stderr={stderr}");
     let v: serde_json::Value = serde_json::from_str(&stdout).unwrap();
     let results = v["results"].as_array().expect("results");
@@ -830,7 +831,7 @@ fn timers_query_and_start_pomodoro() {
             "action",
             "run",
             "--query",
-            "tm pomo 1 focus",
+            "/tm pomo 1 focus",
             "--action-id",
             "create_countdown",
             "--json",
@@ -838,7 +839,7 @@ fn timers_query_and_start_pomodoro() {
     );
     assert_eq!(code, 0, "stderr={stderr} stdout={stdout}");
 
-    let (code, stdout, stderr) = run_luma(&support, &logs, &["query", "tm ", "--json"]);
+    let (code, stdout, stderr) = run_luma(&support, &logs, &["query", "/tm ", "--json"]);
     assert_eq!(code, 0, "stderr={stderr}");
     let v: serde_json::Value = serde_json::from_str(&stdout).unwrap();
     let results = v["results"].as_array().expect("results");

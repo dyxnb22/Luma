@@ -31,9 +31,10 @@ impl RecordsModule {
                 required_capabilities: vec![],
                 workbench: luma_application::WorkbenchMeta {
                     glyph: Some("R".into()),
-                    suggested_query: Some("rec ".into()),
+                    suggested_query: Some("/rec ".into()),
                     empty_hint: Some(
-                        "rec <query> · rec 电影 browse · rec add 电影 NAME | rating | note".into(),
+                        "/rec <query> · /rec 电影 browse · /rec add 电影 NAME | rating | note"
+                            .into(),
                     ),
                     supports_browse: true,
                 },
@@ -361,7 +362,7 @@ impl LumaModule for RecordsModule {
                             id: "rec:add-usage".into(),
                             module_id: "luma.records".into(),
                             title: "Add a record".into(),
-                            subtitle: Some("Usage: rec add 电影 NAME | rating | note".into()),
+                            subtitle: Some("Usage: /rec add 电影 NAME | rating | note".into()),
                             kind: "status".into(),
                             score: 50.0,
                             primary_action_id: "noop".into(),
@@ -472,7 +473,7 @@ impl LumaModule for RecordsModule {
                         id: "rec:browse-empty".into(),
                         module_id: "luma.records".into(),
                         title: format!("No records in {cat}"),
-                        subtitle: Some("rec add {cat} NAME".into()),
+                        subtitle: Some("/rec add {cat} NAME".into()),
                         kind: "status".into(),
                         score: 50.0,
                         primary_action_id: "noop".into(),
@@ -548,7 +549,7 @@ impl LumaModule for RecordsModule {
                         id: format!("rec:cat:{}", cat.name),
                         module_id: "luma.records".into(),
                         title: cat.name.clone(),
-                        subtitle: Some("rec browse · rec <category> <query>".into()),
+                        subtitle: Some("/rec browse · /rec <category> <query>".into()),
                         kind: "category".into(),
                         score: 80.0 - i as f64,
                         primary_action_id: "browse".into(),
@@ -586,7 +587,7 @@ impl LumaModule for RecordsModule {
                                 id: "rec:browse-empty".into(),
                                 module_id: "luma.records".into(),
                                 title: format!("No records in {}", tokens[0]),
-                                subtitle: Some(format!("rec add {} NAME", tokens[0])),
+                                subtitle: Some(format!("/rec add {} NAME", tokens[0])),
                                 kind: "status".into(),
                                 score: 50.0,
                                 primary_action_id: "noop".into(),
@@ -627,7 +628,7 @@ impl LumaModule for RecordsModule {
                         id: "rec:no-matches".into(),
                         module_id: "luma.records".into(),
                         title: format!("No records matching \"{search_q}\""),
-                        subtitle: Some("rec add CATEGORY NAME · rec browse".into()),
+                        subtitle: Some("/rec add CATEGORY NAME · /rec browse".into()),
                         kind: "status".into(),
                         score: 50.0,
                         primary_action_id: "noop".into(),
@@ -766,7 +767,7 @@ impl LumaModule for RecordsModule {
             "browse" => ActionOutcome::Failed {
                 kind: FailureKind::InvalidInput {
                     field: "action".into(),
-                    message: "browse is search-driven; use `rec browse CATEGORY`".into(),
+                    message: "browse is search-driven; use `/rec browse CATEGORY`".into(),
                 },
             },
             "open" => ActionOutcome::Success {
@@ -868,7 +869,7 @@ impl LumaModule for RecordsModule {
                         kind: FailureKind::InvalidInput {
                             field: "rating".into(),
                             message: format!(
-                                "use `rec rate {} SCORE` in prompt (1-10 or clear)",
+                                "use `/rec rate {} SCORE` in prompt (1-10 or clear)",
                                 record.id
                             ),
                         },

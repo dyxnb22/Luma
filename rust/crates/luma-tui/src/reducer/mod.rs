@@ -3,11 +3,34 @@ use crate::msg::Msg;
 use crate::view_model::{
     ActionsIntent, AppState, AwaitingActions, FocusZone, PendingAction, Route, StatusTone,
 };
+use luma_domain::strip_command_prefix;
 use luma_protocol::{ActionDescriptorDto, Event, UiIntent};
 
 mod wordbook;
 
 const PAGE_SIZE: usize = 5;
+
+/// Trim an input prompt and remove its optional leading slash command marker.
+/// The displayed prompt remains unchanged; this helper is only for local TUI
+/// command decisions that should treat `/ssh` like the legacy `ssh` form.
+pub(crate) fn command_prompt(prompt: &str) -> &str {
+    strip_command_prefix(prompt).trim()
+}
+
+pub(crate) fn explicit_command_prompt(prompt: &str) -> Option<&str> {
+    prompt
+        .trim_start()
+        .starts_with('/')
+        .then(|| command_prompt(prompt))
+}
+
+fn command_marker(prompt: &str) -> &'static str {
+    if prompt.trim_start().starts_with('/') {
+        "/"
+    } else {
+        ""
+    }
+}
 
 fn resolve_ui_intent(item: &luma_domain::SearchItem) -> Option<UiIntent> {
     if let Some(tag) = item.ui_intent.as_deref() {
@@ -172,31 +195,31 @@ pub fn update(state: &mut AppState, msg: Msg) -> Vec<Effect> {
                 }
                 // Meta commands are local navigation. They must win over a pending
                 // search debounce so one Enter opens the requested surface.
-                if let Some(queue) =
-                    wordbook::wordbook_review_queue_from_prompt(state.prompt.trim())
-                {
-                    return wordbook::begin_wordbook_review(state, queue);
-                }
-                if state.prompt.trim() == ":settings" {
-                    state.overlay_restore_prompt = Some(state.prompt.clone());
-                    state.clear_prompt();
-                    state.search_debounce_deadline = None;
-                    return open_settings(state);
-                }
-                if state.prompt.trim() == ":help" || state.prompt.trim() == "?" {
-                    state.overlay_restore_prompt = Some(state.prompt.clone());
-                    state.clear_prompt();
-                    state.search_debounce_deadline = None;
-                    state.route = Route::Help;
-                    state.help_scroll = 0;
-                    state.status.set("help", StatusTone::Neutral);
-                    return vec![Effect::None];
-                }
-                if state.prompt.trim() == ":commands" {
-                    state.overlay_restore_prompt = Some(state.prompt.clone());
-                    state.clear_prompt();
-                    state.search_debounce_deadline = None;
-                    return open_commands(state);
+                if let Some(command) = explicit_command_prompt(&state.prompt) {
+                    if let Some(queue) = wordbook::wordbook_review_queue_from_prompt(command) {
+                        return wordbook::begin_wordbook_review(state, queue);
+                    }
+                    if command == "settings" {
+                        state.overlay_restore_prompt = Some(state.prompt.clone());
+                        state.clear_prompt();
+                        state.search_debounce_deadline = None;
+                        return open_settings(state);
+                    }
+                    if command == "help" {
+                        state.overlay_restore_prompt = Some(state.prompt.clone());
+                        state.clear_prompt();
+                        state.search_debounce_deadline = None;
+                        state.route = Route::Help;
+                        state.help_scroll = 0;
+                        state.status.set("help", StatusTone::Neutral);
+                        return vec![Effect::None];
+                    }
+                    if command == "commands" {
+                        state.overlay_restore_prompt = Some(state.prompt.clone());
+                        state.clear_prompt();
+                        state.search_debounce_deadline = None;
+                        return open_commands(state);
+                    }
                 }
                 if let Some(effects) = flush_pending_search_or_continue(state) {
                     return effects;
@@ -758,9 +781,10 @@ fn drill_into_browse(state: &mut AppState, item: &luma_domain::SearchItem) -> Ve
             })
             .or_else(|| item.id.as_str().strip_prefix("proj:").map(str::to_string))
     };
+    let marker = command_marker(&state.prompt);
     let query = match path {
-        Some(p) if !p.is_empty() => format!("{trigger} browse {p}"),
-        _ => format!("{trigger} browse"),
+        Some(p) if !p.is_empty() => format!("{marker}{trigger} browse {p}"),
+        _ => format!("{marker}{trigger} browse"),
     };
     let previous = state.prompt.clone();
     if !previous.is_empty() && previous != query {
@@ -779,7 +803,8 @@ fn drill_into_browse(state: &mut AppState, item: &luma_domain::SearchItem) -> Ve
 
 fn open_notes_issues(state: &mut AppState) -> Vec<Effect> {
     state.browse_nav_stack.clear();
-    state.prompt = "n issues".into();
+    let marker = command_marker(&state.prompt);
+    state.prompt = format!("{marker}n issues");
     state.prompt_cursor = state.prompt_char_len();
     state.focus = FocusZone::Prompt;
     state.history_browse = None;
@@ -803,7 +828,12 @@ fn seed_module_add(state: &mut AppState, item: &luma_domain::SearchItem) -> Vec<
         return vec![Effect::None];
     }
     state.browse_nav_stack.clear();
-    state.prompt = prompt.into();
+    let marker = command_marker(&state.prompt);
+    state.prompt = if marker.is_empty() {
+        prompt.into()
+    } else {
+        format!("{marker}{prompt}")
+    };
     state.prompt_cursor = state.prompt_char_len();
     state.focus = FocusZone::Prompt;
     state.history_browse = None;
@@ -829,9 +859,10 @@ fn seed_record_edit(
         return vec![Effect::None];
     };
     state.browse_nav_stack.clear();
+    let marker = command_marker(&state.prompt);
     state.prompt = match action {
-        "rate" => format!("rec rate {id} "),
-        "note" => format!("rec note {id} "),
+        "rate" => format!("{marker}rec rate {id} "),
+        "note" => format!("{marker}rec note {id} "),
         _ => return vec![Effect::None],
     };
     state.prompt_cursor = state.prompt_char_len();
@@ -1165,7 +1196,8 @@ fn cancel_msg(state: &mut AppState) -> Vec<Effect> {
 
 /// One directory up for `n|note|notes|proj browse <path>`; `None` at browse root / non-browse.
 fn browse_query_parent(prompt: &str) -> Option<String> {
-    let trimmed = prompt.trim();
+    let trimmed = command_prompt(prompt);
+    let marker = command_marker(prompt);
     let (trigger, after_trigger) = if let Some(rest) = trimmed.strip_prefix("notes ") {
         ("notes", rest)
     } else if let Some(rest) = trimmed.strip_prefix("note ") {
@@ -1189,9 +1221,9 @@ fn browse_query_parent(prompt: &str) -> Option<String> {
     let path = std::path::Path::new(path);
     match path.parent() {
         Some(parent) if !parent.as_os_str().is_empty() => {
-            Some(format!("{trigger} browse {}", parent.display()))
+            Some(format!("{marker}{trigger} browse {}", parent.display()))
         }
-        _ => Some(format!("{trigger} browse")),
+        _ => Some(format!("{marker}{trigger} browse")),
     }
 }
 
@@ -1387,7 +1419,7 @@ fn apply_engine(state: &mut AppState, event: Event) -> Vec<Effect> {
 }
 
 fn records_query_active(prompt: &str) -> bool {
-    let lower = prompt.to_ascii_lowercase();
+    let lower = command_prompt(prompt).to_ascii_lowercase();
     matches!(
         lower.split_whitespace().next(),
         Some("rec") | Some("record")
@@ -1396,13 +1428,13 @@ fn records_query_active(prompt: &str) -> bool {
 
 pub fn command_recipes_query_active(prompt: &str) -> bool {
     matches!(
-        prompt.split_whitespace().next(),
+        command_prompt(prompt).split_whitespace().next(),
         Some("cmd") | Some("recipe") | Some("recipes")
     )
 }
 
 fn project_remove_name(prompt: &str) -> Option<&str> {
-    let mut tokens = prompt.split_whitespace();
+    let mut tokens = command_prompt(prompt).split_whitespace();
     let trigger = tokens.next()?.to_ascii_lowercase();
     if !matches!(trigger.as_str(), "p" | "proj" | "project") {
         return None;
@@ -1693,7 +1725,17 @@ mod tests {
     #[test]
     fn help_meta_does_not_run_primary_status() {
         let mut state = AppState::default();
-        state.prompt = ":help".into();
+        state.prompt = "/help".into();
+        let effects = update(&mut state, Msg::Submit);
+        assert_eq!(effects, vec![Effect::None]);
+        assert_eq!(state.route, Route::Help);
+        assert_eq!(state.status.text, "help");
+    }
+
+    #[test]
+    fn slash_help_meta_opens_help_without_search() {
+        let mut state = AppState::default();
+        state.prompt = "/help".into();
         let effects = update(&mut state, Msg::Submit);
         assert_eq!(effects, vec![Effect::None]);
         assert_eq!(state.route, Route::Help);
@@ -1703,7 +1745,7 @@ mod tests {
     #[test]
     fn meta_command_does_not_require_enter_to_flush_debounce() {
         let mut state = AppState::default();
-        for c in ":commands".chars() {
+        for c in "/commands".chars() {
             let _ = update(&mut state, Msg::KeyChar(c));
         }
         assert!(state.search_debounce_deadline.is_some());
@@ -1713,14 +1755,14 @@ mod tests {
         assert_eq!(effects, vec![Effect::None]);
         assert_eq!(state.route, Route::Commands);
         assert!(state.prompt.is_empty());
-        assert_eq!(state.overlay_restore_prompt.as_deref(), Some(":commands"));
+        assert_eq!(state.overlay_restore_prompt.as_deref(), Some("/commands"));
         assert!(state.search_debounce_deadline.is_none());
     }
 
     #[test]
     fn esc_from_commands_restores_meta_prompt() {
         let mut state = AppState::default();
-        state.prompt = ":commands".into();
+        state.prompt = "/commands".into();
         state.prompt_cursor = state.prompt_char_len();
         let _ = update(&mut state, Msg::Submit);
         assert_eq!(state.route, Route::Commands);
@@ -1728,7 +1770,7 @@ mod tests {
 
         let _ = update(&mut state, Msg::Cancel);
         assert_eq!(state.route, Route::Search);
-        assert_eq!(state.prompt, ":commands");
+        assert_eq!(state.prompt, "/commands");
         assert!(state.overlay_restore_prompt.is_none());
     }
 
@@ -1779,6 +1821,10 @@ mod tests {
         assert_eq!(
             browse_query_parent("n browse /Notes"),
             Some("n browse /".into())
+        );
+        assert_eq!(
+            browse_query_parent("/n browse /Notes/Inbox"),
+            Some("/n browse /Notes".into())
         );
     }
 
@@ -2621,6 +2667,9 @@ mod tests {
         let rows = state.hub_rows();
         assert_eq!(rows[0].0, "window");
         assert!(rows.iter().any(|(k, ..)| k == "module"));
+        assert!(rows
+            .iter()
+            .any(|(kind, _, _, query)| { kind == "module" && query == "/app " }));
     }
 
     #[test]

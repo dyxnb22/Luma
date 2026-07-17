@@ -5,7 +5,7 @@ Keyboard-first **personal** launcher (Rust CLI/TUI). Built for solo daily use â€
 ```bash
 cd rust
 cargo run -p luma                 # interactive TUI
-cargo run -p luma -- query "app" --json
+cargo run -p luma -- query "/app " --json
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo test --workspace --all-features
@@ -42,6 +42,5 @@ cargo test -p luma --test cli_blackbox
 | `~/.ssh/config` | OpenSSH Host aliases (read-only for `luma.ssh`) |
 
 The empty Hub lists visible windows and modules. Press `1`â€“`9` to focus a numbered window;
-digits remain ordinary prompt input in search fields. `win` provides the same shortcut in its
-focused result list. `wb review due|new|wrong` starts the Wordbook review flow, `rec`
-searches the imported Records database, and `ssh ` lists Host aliases from `~/.ssh/config`.
+digits remain ordinary prompt input in search fields. Interactive commands require a leading
+`/`: `/win`, `/wb review due|new|wrong`, `/rec`, and `/ssh `; unprefixed input is global search.

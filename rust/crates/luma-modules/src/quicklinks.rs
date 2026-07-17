@@ -40,8 +40,8 @@ impl QuicklinksModule {
                 required_capabilities: vec![],
                 workbench: luma_application::WorkbenchMeta {
                     glyph: Some("Q".into()),
-                    suggested_query: Some("ql ".into()),
-                    empty_hint: Some("ql · ql add <trigger> <url>".into()),
+                    suggested_query: Some("/ql ".into()),
+                    empty_hint: Some("/ql · /ql add <trigger> <url>".into()),
                     supports_browse: false,
                 },
             },
@@ -273,7 +273,7 @@ impl LumaModule for QuicklinksModule {
                 } else {
                     "Add a quicklink".into()
                 },
-                subtitle: Some("Enter to type: ql add <trigger> <url>".into()),
+                subtitle: Some("Enter to type: /ql add <trigger> <url>".into()),
                 kind: if empty {
                     "onboarding".into()
                 } else {
@@ -459,7 +459,7 @@ impl LumaModule for QuicklinksModule {
             "seed_add" => ActionOutcome::Failed {
                 kind: FailureKind::InvalidInput {
                     field: "action".into(),
-                    message: "seed_add is search-driven; use `ql add <trigger> <url>`".into(),
+                    message: "seed_add is search-driven; use `/ql add <trigger> <url>`".into(),
                 },
             },
             "open" => {

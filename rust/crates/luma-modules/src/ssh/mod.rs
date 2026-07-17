@@ -46,9 +46,10 @@ impl SshModule {
                 required_capabilities: vec![],
                 workbench: luma_application::WorkbenchMeta {
                     glyph: Some("S".into()),
-                    suggested_query: Some("ssh ".into()),
+                    suggested_query: Some("/ssh ".into()),
                     empty_hint: Some(
-                        "ssh · fav · recent · rename ALIAS NAME · Enter to connect".into(),
+                        "/ssh · /ssh fav · /ssh recent · /ssh rename ALIAS NAME · Enter to connect"
+                            .into(),
                     ),
                     supports_browse: false,
                 },

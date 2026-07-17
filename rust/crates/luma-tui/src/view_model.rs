@@ -433,8 +433,7 @@ impl AppState {
         if !matches!(self.route, Route::Search) || self.results.items.is_empty() {
             return false;
         }
-        let token = self
-            .prompt
+        let token = luma_domain::strip_command_prefix(&self.prompt)
             .split_whitespace()
             .next()
             .unwrap_or("")
@@ -837,6 +836,11 @@ impl AppState {
                 };
                 format!("{trigger} ")
             });
+            let query = if query.trim_start().starts_with('/') {
+                query
+            } else {
+                format!("/{query}")
+            };
             rows.push(("module".into(), m.id.clone(), m.display_name.clone(), query));
         }
         rows
@@ -963,7 +967,7 @@ impl AppState {
                     // End the active request so Esc Clear works on the first press.
                     self.active_request = None;
                     let incomplete = {
-                        let raw = self.prompt.as_str();
+                        let raw = luma_domain::strip_command_prefix(&self.prompt);
                         let trimmed = raw.trim();
                         !trimmed.is_empty()
                             && !raw.ends_with(|c: char| c.is_whitespace())

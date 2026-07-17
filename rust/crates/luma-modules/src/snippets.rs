@@ -42,8 +42,8 @@ impl SnippetsModule {
                 required_capabilities: vec!["accessibility".into()],
                 workbench: luma_application::WorkbenchMeta {
                     glyph: Some("S".into()),
-                    suggested_query: Some("s ".into()),
-                    empty_hint: Some("s · snip add <trigger> <body>".into()),
+                    suggested_query: Some("/s ".into()),
+                    empty_hint: Some("/s · /snip add <trigger> <body>".into()),
                     supports_browse: false,
                 },
             },
@@ -105,7 +105,7 @@ impl LumaModule for SnippetsModule {
         }
     }
     async fn search(&self, query: Query, sink: SearchSink, cancel: CancellationToken) {
-        // snip add <trigger> <body…>
+        // /s add <trigger> <body…>
         let rest_for_add = query.rest_raw();
         if let Some(payload) = rest_for_add
             .strip_prefix("add ")
@@ -209,7 +209,7 @@ impl LumaModule for SnippetsModule {
                 id: "snip:empty".into(),
                 module_id: "luma.snippets".into(),
                 title: "No snippets yet".into(),
-                subtitle: Some("Enter to type: snip add <trigger> <body>".into()),
+                subtitle: Some("Enter to type: /s add <trigger> <body>".into()),
                 kind: "onboarding".into(),
                 score: 90.0,
                 primary_action_id: "seed_add".into(),
@@ -221,7 +221,7 @@ impl LumaModule for SnippetsModule {
                 id: "snip:no-matches".into(),
                 module_id: "luma.snippets".into(),
                 title: format!("No snippets matching \"{needle}\""),
-                subtitle: Some("Enter to type: snip add <trigger> <body>".into()),
+                subtitle: Some("Enter to type: /s add <trigger> <body>".into()),
                 kind: "status".into(),
                 score: 5.0,
                 primary_action_id: "seed_add".into(),
@@ -324,7 +324,7 @@ impl LumaModule for SnippetsModule {
             "seed_add" => ActionOutcome::Failed {
                 kind: FailureKind::InvalidInput {
                     field: "action".into(),
-                    message: "seed_add is search-driven; use `snip add <trigger> <body>`".into(),
+                    message: "seed_add is search-driven; use `/s add <trigger> <body>`".into(),
                 },
             },
             "add" => {

@@ -58,9 +58,9 @@ impl TimersModule {
                 required_capabilities: vec![],
                 workbench: WorkbenchMeta {
                     glyph: Some("T".into()),
-                    suggested_query: Some("tm ".into()),
+                    suggested_query: Some("/tm ".into()),
                     empty_hint: Some(
-                        "tm · tm pomo [min] [name] · tm sw [name] · start/pause/resume".into(),
+                        "/tm · /tm pomo [min] [name] · /tm sw [name] · start/pause/resume".into(),
                     ),
                     supports_browse: false,
                 },
@@ -261,7 +261,8 @@ impl LumaModule for TimersModule {
                     "New timer".into()
                 },
                 subtitle: Some(
-                    "tm pomo [min] [name] · tm sw [name] · tm 25 · alerts while Luma runs".into(),
+                    "/tm pomo [min] [name] · /tm sw [name] · /tm 25 · alerts while Luma runs"
+                        .into(),
                 ),
                 kind: if empty {
                     "onboarding".into()

@@ -27,6 +27,9 @@ and not an AI-agent product. Work under `rust/` and follow `AGENTS.md` plus
   them as half-implemented stubs.
 - Prefer real daily-use friction fixes in Apps, Windows, Proxy, Clipboard, Notes, Quicklinks,
   Snippets, Wordbook, Projects, Records, Command Recipes, SSH, Timers, and Secrets.
+- Interactive commands require a leading `/` (`/ssh`, `/rec browse`, `/cmd test`, `/settings`,
+  `/help`). Unprefixed input is global search; legacy bare-trigger and colon command forms are
+  retired.
 
 ## Architecture and data rules
 

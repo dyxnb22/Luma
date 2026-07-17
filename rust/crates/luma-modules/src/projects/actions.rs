@@ -142,7 +142,7 @@ impl ProjectsModule {
             "browse" => ActionOutcome::Failed {
                 kind: FailureKind::InvalidInput {
                     field: "action".into(),
-                    message: "browse is search-driven; use `proj browse <path>`".into(),
+                    message: "browse is search-driven; use `/proj browse <path>`".into(),
                 },
             },
             "import_project" => {

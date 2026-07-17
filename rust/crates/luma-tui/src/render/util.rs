@@ -36,7 +36,9 @@ pub(super) fn highlight_query(prompt: &str) -> String {
         "echo",
         "p",
     ];
-    let tokens: Vec<&str> = prompt.split_whitespace().collect();
+    let tokens: Vec<&str> = luma_domain::strip_command_prefix(prompt)
+        .split_whitespace()
+        .collect();
     if tokens.is_empty() {
         return String::new();
     }

@@ -259,9 +259,9 @@ impl ProjectsModule {
                 .unwrap_or("");
             if path_str.is_empty() {
                 let usage = if rest_check == "import" {
-                    "Usage: proj import /path/to/project"
+                    "Usage: /proj import /path/to/project"
                 } else {
-                    "Usage: proj add /path/to/project"
+                    "Usage: /proj add /path/to/project"
                 };
                 let _ = sink
                     .send(Event::ResultsChunk {
@@ -357,7 +357,7 @@ impl ProjectsModule {
                             id: "proj:remove-usage".into(),
                             module_id: "luma.projects".into(),
                             title: "Remove an imported project".into(),
-                            subtitle: Some("Usage: proj remove project-name".into()),
+                            subtitle: Some("Usage: /proj remove project-name".into()),
                             kind: "status".into(),
                             score: 50.0,
                             primary_action_id: "noop".into(),
@@ -404,7 +404,7 @@ impl ProjectsModule {
                         module_id: "luma.projects".into(),
                         title: "No imported projects".into(),
                         subtitle: Some(
-                            "proj add /path · proj browse · luma config set --projects-root ~/dev"
+                            "/proj add /path · /proj browse · luma config set --projects-root ~/dev"
                                 .into(),
                         ),
                         kind: "not_configured".into(),
@@ -500,12 +500,12 @@ impl ProjectsModule {
             let (title, subtitle) = if needle.is_empty() {
                 (
                     "No imported projects".into(),
-                    "proj add /path · proj browse".into(),
+                    "/proj add /path · /proj browse".into(),
                 )
             } else {
                 (
                     format!("No projects matching \"{needle}\""),
-                    "Try another query · proj browse".into(),
+                    "Try another query · /proj browse".into(),
                 )
             };
             upserts.push(SearchItemDto {

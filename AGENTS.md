@@ -15,3 +15,7 @@ unless the user explicitly changes this product boundary.
 
 Do not reintroduce a centralized `doctor` command, Doctor overlay, diagnostics export, or probe-port
 subsystem. Modules must report permission, unavailable, and not-configured states locally.
+
+Interactive command syntax is explicit: module commands and local surfaces use a leading `/`
+(`/ssh`, `/rec browse`, `/cmd test`, `/settings`, `/help`). Unprefixed prompt text is always a
+global search; do not document or restore the former bare-trigger/colon command forms.

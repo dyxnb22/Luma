@@ -26,7 +26,7 @@ pub(super) fn parse_countdown_spec(rest: &str) -> Option<(u32, String)> {
                 if let Some(m) = parse_minutes_token(t) {
                     (m, parts.collect())
                 } else {
-                    // `tm pomo deep work` — default minutes, name starts at first
+                    // `/tm pomo deep work` — default minutes, name starts at first
                     let mut name = vec![t];
                     name.extend(parts);
                     (DEFAULT_POMO_MINUTES, name)

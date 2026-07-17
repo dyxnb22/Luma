@@ -105,10 +105,10 @@ impl NotesModule {
                 required_capabilities: vec![],
                 workbench: luma_application::WorkbenchMeta {
                     glyph: Some("N".into()),
-                    // Directory-first: Hub / `n ` open the notes tree; `n recent` for flat recent.
-                    suggested_query: Some("n ".into()),
+                    // Directory-first: Hub / `/n ` open the notes tree; `/n recent` for flat recent.
+                    suggested_query: Some("/n ".into()),
                     empty_hint: Some(
-                        "n ␠ browse tree · n <query> search · n recent · n issues".into(),
+                        "/n ␠ browse tree · /n <query> search · /n recent · /n issues".into(),
                     ),
                     supports_browse: true,
                 },
@@ -191,7 +191,7 @@ impl NotesModule {
                     Err(err) => {
                         if !token.is_cancelled() {
                             *watch_warning.lock().await = Some(format!(
-                                "Notes exclude rebuild failed ({err}); run `n check`"
+                                "Notes exclude rebuild failed ({err}); run `/n check`"
                             ));
                         }
                         break;
@@ -229,7 +229,7 @@ impl NotesModule {
                     Ok(Ok(_)) => {
                         if !token.is_cancelled() {
                             *watch_warning.lock().await =
-                                Some("Notes exclude rebuild cancelled; run `n check`".into());
+                                Some("Notes exclude rebuild cancelled; run `/n check`".into());
                         }
                         break;
                     }
@@ -243,7 +243,7 @@ impl NotesModule {
                         }
                         if !token.is_cancelled() {
                             *watch_warning.lock().await = Some(format!(
-                                "Notes exclude rebuild failed ({msg}); run `n check`"
+                                "Notes exclude rebuild failed ({msg}); run `/n check`"
                             ));
                         }
                         break;
@@ -251,7 +251,7 @@ impl NotesModule {
                     Err(err) => {
                         if !token.is_cancelled() {
                             *watch_warning.lock().await = Some(format!(
-                                "Notes exclude rebuild failed ({err}); run `n check`"
+                                "Notes exclude rebuild failed ({err}); run `/n check`"
                             ));
                         }
                         break;
@@ -409,13 +409,13 @@ impl LumaModule for NotesModule {
             "browse" => ActionOutcome::Failed {
                 kind: FailureKind::InvalidInput {
                     field: "action".into(),
-                    message: "browse is search-driven; use `n browse <path>`".into(),
+                    message: "browse is search-driven; use `/n browse <path>`".into(),
                 },
             },
             "list_issues" => ActionOutcome::Failed {
                 kind: FailureKind::InvalidInput {
                     field: "action".into(),
-                    message: "list_issues is search-driven; use `n issues`".into(),
+                    message: "list_issues is search-driven; use `/n issues`".into(),
                 },
             },
             "create" => {

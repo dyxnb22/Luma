@@ -40,8 +40,8 @@ impl CommandRecipesModule {
                 required_capabilities: vec![],
                 workbench: luma_application::WorkbenchMeta {
                     glyph: Some("C".into()),
-                    suggested_query: Some("cmd ".into()),
-                    empty_hint: Some("cmd · recipe test · r run · c copy · f favorite".into()),
+                    suggested_query: Some("/cmd ".into()),
+                    empty_hint: Some("/cmd · /cmd test · r run · c copy · f favorite".into()),
                     supports_browse: false,
                 },
             },
@@ -293,12 +293,16 @@ impl LumaModule for CommandRecipesModule {
             }
         };
 
-        let filter = query
-            .normalized
-            .split_whitespace()
-            .skip(1)
-            .collect::<Vec<_>>()
-            .join(" ");
+        let filter = if query.is_command() {
+            query
+                .normalized
+                .split_whitespace()
+                .skip(1)
+                .collect::<Vec<_>>()
+                .join(" ")
+        } else {
+            query.normalized.clone()
+        };
 
         let mut upserts = Vec::new();
         for recipe in catalog.recipes.iter().filter(|r| r.enabled) {

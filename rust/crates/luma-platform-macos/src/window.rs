@@ -154,7 +154,7 @@ impl MacWindowCatalog {
         Self::focus_blocking(&target.id)
     }
 
-    fn frontmost_app_blocking() -> Result<Option<String>, WindowError> {
+    pub(crate) fn frontmost_app_blocking() -> Result<Option<String>, WindowError> {
         let entries = Self::list_windows_blocking()?;
         Ok(Self::snapshot_blocking(&entries))
     }

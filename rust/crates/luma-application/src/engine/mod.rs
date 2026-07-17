@@ -46,6 +46,8 @@ struct SearchTask {
 struct OperationTask {
     cancel: CancellationToken,
     module_id: String,
+    /// Distinguishes a replacement that reuses the same public operation id.
+    generation: u64,
     handle: Option<JoinHandle<()>>,
 }
 
@@ -59,6 +61,10 @@ pub(crate) struct EngineInner {
     /// Search registered under lifecycle but not yet promoted to `searches`.
     pending_searches: HashMap<String, CancellationToken>,
     operations: HashMap<String, OperationTask>,
+    /// Insertion order for FIFO eviction when `operations` hits `MAX_OPERATIONS`.
+    operation_order: VecDeque<String>,
+    /// Monotonic identity for operation lifetimes, independent of caller-provided ids.
+    next_operation_generation: u64,
     /// Newest LoadPreview id; stale preview work skips emit.
     latest_preview_id: u64,
     results_by_id: HashMap<String, luma_domain::SearchItem>,
@@ -117,6 +123,8 @@ impl Engine {
                 cancel_intents: HashMap::new(),
                 pending_searches: HashMap::new(),
                 operations: HashMap::new(),
+                operation_order: VecDeque::new(),
+                next_operation_generation: 0,
                 latest_preview_id: 0,
                 results_by_id: HashMap::new(),
                 result_order: VecDeque::new(),

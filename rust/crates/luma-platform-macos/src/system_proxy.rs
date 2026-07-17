@@ -154,6 +154,46 @@ impl MacSystemProxy {
         })
     }
 
+    /// Reload `saved`/`applied` from disk so a peer process's journal updates are visible.
+    async fn hydrate_from_journal(&self) {
+        let journal = load_journal();
+        *self.saved.lock().await = journal.as_ref().map(|j| j.saved.clone());
+        *self.applied.lock().await = journal.map(|j| j.applied);
+    }
+
+    /// If journal claims Luma ownership but live settings diverged (crash mid-apply),
+    /// force-restore the pre-Luma `saved` snapshot and clear the journal.
+    /// Returns `(live, restored)`.
+    async fn reconcile_if_diverged(
+        &self,
+        live: SystemProxyStatus,
+    ) -> Result<(SystemProxyStatus, bool), SystemProxyError> {
+        let applied = self.applied.lock().await.clone();
+        let Some(applied) = applied.as_ref() else {
+            return Ok((live, false));
+        };
+        if same_settings(&live, applied) {
+            return Ok((live, false));
+        }
+        // A changed service is an ownership ambiguity, not a half-apply. Never restore a
+        // snapshot captured for one network service onto whichever service is current now.
+        if live.service != applied.service {
+            return Err(SystemProxyError::Conflict);
+        }
+        let Some(previous) = self.saved.lock().await.clone() else {
+            return Err(SystemProxyError::Conflict);
+        };
+        if !should_force_restore(&live, applied, &previous) {
+            return Err(SystemProxyError::Conflict);
+        }
+        self.apply_pair(&live.service, &previous.http, &previous.socks)
+            .await?;
+        *self.saved.lock().await = None;
+        *self.applied.lock().await = None;
+        clear_journal()?;
+        Ok((self.read_status().await?, true))
+    }
+
     async fn current_service(&self) -> Result<String, SystemProxyError> {
         if let Some(service) = &self.configured_service {
             return Ok(service.clone());
@@ -273,6 +313,7 @@ impl SystemProxyPort for MacSystemProxy {
         socks_port: Option<u16>,
     ) -> Result<SystemProxyStatus, SystemProxyError> {
         let _guard = self.lock_ops().await?;
+        self.hydrate_from_journal().await;
         if http_port.is_none() && socks_port.is_none() {
             return Err(SystemProxyError::InvalidInput {
                 field: "ports".into(),
@@ -280,6 +321,7 @@ impl SystemProxyPort for MacSystemProxy {
             });
         }
         let before = self.read_status().await?;
+        let (before, _) = self.reconcile_if_diverged(before).await?;
         if let Some(applied) = self.applied.lock().await.clone() {
             if !same_settings(&before, &applied) {
                 return Err(SystemProxyError::Conflict);
@@ -342,7 +384,12 @@ impl SystemProxyPort for MacSystemProxy {
 
     async fn disable(&self) -> Result<SystemProxyStatus, SystemProxyError> {
         let _guard = self.lock_ops().await?;
+        self.hydrate_from_journal().await;
         let current = self.read_status().await?;
+        let (current, restored) = self.reconcile_if_diverged(current).await?;
+        if restored {
+            return Ok(current);
+        }
         let applied = self.applied.lock().await.clone();
         let Some(applied) = applied else {
             return Err(SystemProxyError::Conflict);
@@ -586,6 +633,32 @@ fn same_settings(a: &SystemProxyStatus, b: &SystemProxyStatus) -> bool {
     a.service == b.service && a.http == b.http && a.socks == b.socks
 }
 
+fn should_force_restore(
+    live: &SystemProxyStatus,
+    applied: &SystemProxyStatus,
+    saved: &SystemProxyStatus,
+) -> bool {
+    if live.service != applied.service || live.service != saved.service {
+        return false;
+    }
+    // A journal can safely identify the ordinary pre-apply and first-setting half-apply states.
+    // Any other divergence may be a user change while Luma owns the proxy, so leave it alone and
+    // report Conflict rather than overwriting it with the saved snapshot.
+    same_settings(live, saved)
+        || (live.http == applied.http && live.socks == saved.socks)
+        || (live.http == saved.http && live.socks == applied.socks)
+}
+
+#[cfg(test)]
+fn apply_journal_memory(
+    saved: &mut Option<SystemProxyStatus>,
+    applied: &mut Option<SystemProxyStatus>,
+    journal: Option<ProxyJournal>,
+) {
+    *saved = journal.as_ref().map(|j| j.saved.clone());
+    *applied = journal.map(|j| j.applied);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -646,6 +719,106 @@ mod tests {
         write_journal_atomically(&journal, b"{}\n").expect("atomic journal write");
 
         assert_eq!(std::fs::read(&journal).expect("journal"), b"{}\n");
+    }
+
+    #[test]
+    fn diverged_applied_should_force_restore() {
+        let saved = SystemProxyStatus {
+            service: "Wi-Fi".into(),
+            http: SystemProxySetting {
+                enabled: false,
+                server: None,
+                port: None,
+            },
+            socks: SystemProxySetting {
+                enabled: false,
+                server: None,
+                port: None,
+            },
+        };
+        let applied = SystemProxyStatus {
+            service: "Wi-Fi".into(),
+            http: SystemProxySetting {
+                enabled: true,
+                server: Some("127.0.0.1".into()),
+                port: Some(7890),
+            },
+            socks: SystemProxySetting {
+                enabled: true,
+                server: Some("127.0.0.1".into()),
+                port: Some(7891),
+            },
+        };
+        let half = SystemProxyStatus {
+            service: "Wi-Fi".into(),
+            http: applied.http.clone(),
+            socks: saved.socks.clone(),
+        };
+        assert!(should_force_restore(&half, &applied, &saved));
+        assert!(should_force_restore(&saved, &applied, &saved));
+        assert!(!should_force_restore(&applied, &applied, &saved));
+        let external = SystemProxyStatus {
+            service: "Wi-Fi".into(),
+            http: applied.http.clone(),
+            socks: SystemProxySetting {
+                enabled: true,
+                server: Some("192.0.2.1".into()),
+                port: Some(9999),
+            },
+        };
+        assert!(!should_force_restore(&external, &applied, &saved));
+    }
+
+    #[test]
+    fn hydrate_overwrites_stale_in_memory_state() {
+        let journal = ProxyJournal {
+            saved: SystemProxyStatus {
+                service: "Wi-Fi".into(),
+                http: SystemProxySetting {
+                    enabled: false,
+                    server: None,
+                    port: None,
+                },
+                socks: SystemProxySetting {
+                    enabled: false,
+                    server: None,
+                    port: None,
+                },
+            },
+            applied: SystemProxyStatus {
+                service: "Wi-Fi".into(),
+                http: SystemProxySetting {
+                    enabled: true,
+                    server: Some("127.0.0.1".into()),
+                    port: Some(1),
+                },
+                socks: SystemProxySetting {
+                    enabled: false,
+                    server: None,
+                    port: None,
+                },
+            },
+        };
+        let mut saved = None;
+        let mut applied = Some(SystemProxyStatus {
+            service: "stale".into(),
+            http: SystemProxySetting {
+                enabled: true,
+                server: Some("0.0.0.0".into()),
+                port: Some(9),
+            },
+            socks: SystemProxySetting {
+                enabled: false,
+                server: None,
+                port: None,
+            },
+        });
+        apply_journal_memory(&mut saved, &mut applied, Some(journal.clone()));
+        assert_eq!(saved.as_ref(), Some(&journal.saved));
+        assert_eq!(applied.as_ref(), Some(&journal.applied));
+        apply_journal_memory(&mut saved, &mut applied, None);
+        assert!(saved.is_none());
+        assert!(applied.is_none());
     }
 
     #[cfg(unix)]

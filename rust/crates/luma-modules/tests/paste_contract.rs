@@ -32,10 +32,7 @@ async fn snippets_paste_without_target_fails_unavailable() {
     let m = SnippetsModule::with_store(
         store,
         Arc::new(MemPb(Mutex::new(None))),
-        Arc::new(FakeAccessibility {
-            trusted: true,
-            paste_ok: true,
-        }),
+        Arc::new(FakeAccessibility::new(true, true)),
         catalog.clone(),
     );
     m.warmup(luma_application::WarmupContext {

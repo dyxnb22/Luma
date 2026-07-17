@@ -1,3 +1,4 @@
+use crate::cancel::await_unless_cancelled;
 use async_trait::async_trait;
 use luma_application::{
     looks_secret, paste_to_target_app, AccessibilityPort, ActionOutcome, ActionRequest,
@@ -550,22 +551,27 @@ impl LumaModule for ClipboardModule {
                     };
                 };
                 match self.store.get(id) {
-                    Ok(Some(row)) => match self.pasteboard.write_text(&row.text).await {
-                        Ok(()) => {
-                            *self.last_seen_text.lock().await = Some(row.text.clone());
-                            self.suppression
-                                .suppress(&row.text, std::time::Duration::from_secs(45));
-                            ActionOutcome::Success {
-                                message: Some("copied".into()),
+                    Ok(Some(row)) => {
+                        match await_unless_cancelled(&cancel, self.pasteboard.write_text(&row.text))
+                            .await
+                        {
+                            None => ActionOutcome::Cancelled,
+                            Some(Ok(())) => {
+                                *self.last_seen_text.lock().await = Some(row.text.clone());
+                                self.suppression
+                                    .suppress(&row.text, std::time::Duration::from_secs(45));
+                                ActionOutcome::Success {
+                                    message: Some("copied".into()),
+                                }
                             }
-                        }
-                        Err(err) => ActionOutcome::Failed {
-                            kind: FailureKind::Unavailable {
-                                reason: err.to_string(),
-                                retryable: true,
+                            Some(Err(err)) => ActionOutcome::Failed {
+                                kind: FailureKind::Unavailable {
+                                    reason: err.to_string(),
+                                    retryable: true,
+                                },
                             },
-                        },
-                    },
+                        }
+                    }
                     Ok(None) => ActionOutcome::Failed {
                         kind: FailureKind::NotFound {
                             entity: format!("clip:{id}"),
@@ -592,18 +598,22 @@ impl LumaModule for ClipboardModule {
                         *self.last_seen_text.lock().await = Some(row.text.clone());
                         self.suppression
                             .suppress(&row.text, std::time::Duration::from_secs(45));
-                        match paste_to_target_app(
-                            self.window_catalog.clone(),
-                            self.pasteboard.clone(),
-                            self.accessibility.clone(),
-                            &row.text,
+                        match await_unless_cancelled(
+                            &cancel,
+                            paste_to_target_app(
+                                self.window_catalog.clone(),
+                                self.pasteboard.clone(),
+                                self.accessibility.clone(),
+                                &row.text,
+                            ),
                         )
                         .await
                         {
-                            Ok(()) => ActionOutcome::Success {
+                            None => ActionOutcome::Cancelled,
+                            Some(Ok(())) => ActionOutcome::Success {
                                 message: Some("pasted".into()),
                             },
-                            Err(kind) => ActionOutcome::Failed { kind },
+                            Some(Err(kind)) => ActionOutcome::Failed { kind },
                         }
                     }
                     Ok(None) => ActionOutcome::Failed {
@@ -782,11 +792,29 @@ mod tests {
         }
     }
 
+    struct HangPb {
+        written: TokioMutex<Option<String>>,
+        started: tokio::sync::Notify,
+        release: TokioMutex<Option<tokio::sync::oneshot::Receiver<()>>>,
+    }
+
+    #[async_trait]
+    impl PasteboardPort for HangPb {
+        async fn read_text(&self) -> Result<Option<String>, PasteboardError> {
+            Ok(self.written.lock().await.clone())
+        }
+        async fn write_text(&self, text: &str) -> Result<(), PasteboardError> {
+            self.started.notify_waiters();
+            if let Some(rx) = self.release.lock().await.take() {
+                let _ = rx.await;
+            }
+            *self.written.lock().await = Some(text.into());
+            Ok(())
+        }
+    }
+
     fn denied_ax() -> Arc<dyn AccessibilityPort> {
-        Arc::new(FakeAccessibility {
-            trusted: false,
-            paste_ok: false,
-        })
+        Arc::new(FakeAccessibility::new(false, false))
     }
 
     fn test_catalog() -> Arc<dyn WindowCatalogPort> {
@@ -848,6 +876,67 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn clipboard_copy_cancelled_does_not_write_pasteboard() {
+        let repo = test_repo();
+        let id = repo.insert("hello clip", false).unwrap();
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        let pb = Arc::new(HangPb {
+            written: TokioMutex::new(None),
+            started: tokio::sync::Notify::new(),
+            release: TokioMutex::new(Some(rx)),
+        });
+        let m = ClipboardModule::with_deps(
+            repo,
+            pb.clone(),
+            denied_ax(),
+            test_catalog(),
+            Arc::new(ClipboardSuppression::new()),
+        );
+        let cancel = CancellationToken::new();
+        let cancel_c = cancel.clone();
+        let started = pb.started.notified();
+        tokio::pin!(started);
+        let perform = tokio::spawn(async move {
+            m.perform(
+                ActionRequest {
+                    result: SearchItem {
+                        id: luma_domain::ResultId::new(format!("clip:{id}")),
+                        module_id: ModuleId::new("luma.clipboard"),
+                        title: "hello".into(),
+                        subtitle: None,
+                        kind: "clip".into(),
+                        score: 1.0,
+                        primary_action: ActionDescriptor {
+                            id: ActionId::new("copy"),
+                            label: "Copy".into(),
+                            risk: ActionRisk::Safe,
+                            confirmation: false,
+                        },
+                        secondary_actions: vec![],
+                        ui_intent: None,
+                        action_payload: None,
+                    },
+                    action: ActionDescriptor {
+                        id: ActionId::new("copy"),
+                        label: "Copy".into(),
+                        risk: ActionRisk::Safe,
+                        confirmation: false,
+                    },
+                    confirmation: false,
+                },
+                cancel,
+            )
+            .await
+        });
+        started.await;
+        cancel_c.cancel();
+        let outcome = perform.await.unwrap();
+        assert!(matches!(outcome, ActionOutcome::Cancelled));
+        assert!(pb.written.lock().await.is_none());
+        let _ = tx.send(());
+    }
+
+    #[tokio::test]
     async fn paste_denied_is_not_success() {
         let repo = test_repo();
         let id = repo.insert("secret text", false).unwrap();
@@ -905,10 +994,7 @@ mod tests {
         let m = ClipboardModule::with_deps(
             repo,
             Arc::new(MemPb(TokioMutex::new(None))),
-            Arc::new(FakeAccessibility {
-                trusted: true,
-                paste_ok: true,
-            }),
+            Arc::new(FakeAccessibility::new(true, true)),
             catalog.clone(),
             Arc::new(ClipboardSuppression::new()),
         );

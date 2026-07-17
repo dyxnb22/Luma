@@ -1046,6 +1046,11 @@ impl SshConfigPort for FakeSshConfigPort {
     }
 
     fn resolve(&self, alias: &str) -> Result<ResolvedSshHost, SshConfigError> {
+        if alias.trim().starts_with('-') {
+            return Err(SshConfigError::msg(format!(
+                "refusing ssh host alias that looks like a flag: {alias}"
+            )));
+        }
         self.resolved
             .lock()
             .expect("lock")

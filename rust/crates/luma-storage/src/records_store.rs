@@ -6,11 +6,14 @@ use crate::records_parse::{
 };
 use chrono::Utc;
 use rusqlite::{params, Connection, OptionalExtension};
+use std::io::Read;
 use std::path::{Path, PathBuf};
 use thiserror::Error;
 use uuid::Uuid;
 
 const SCHEMA_VERSION: i64 = 2;
+/// Cap for per-file Markdown import (personal ledgers; avoids unbounded `fs::read`).
+const MAX_MARKDOWN_IMPORT_BYTES: u64 = 8 * 1024 * 1024;
 
 const RECORD_COLS: &str = "r.id, r.category_id, r.category_name, r.name, r.name_normalized,
     r.rating, r.note, r.source_file, r.source_key, r.source_hash,
@@ -703,13 +706,24 @@ fn scan_records_dir(root: &Path) -> Result<Vec<ParseFileReport>, RecordsStoreErr
             });
             continue;
         }
-        let bytes = match std::fs::read(&path) {
+        if meta.len() > MAX_MARKDOWN_IMPORT_BYTES {
+            files.push(ParseFileReport {
+                source_file: name.clone(),
+                category_name: category_from_filename(&name),
+                errors: vec![format!(
+                    "{name}: file exceeds {MAX_MARKDOWN_IMPORT_BYTES} byte import limit"
+                )],
+                ..Default::default()
+            });
+            continue;
+        }
+        let bytes = match read_markdown_bounded(&path) {
             Ok(b) => b,
             Err(e) => {
                 files.push(ParseFileReport {
                     source_file: name.clone(),
                     category_name: category_from_filename(&name),
-                    errors: vec![format!("{name}: read failed: {e}")],
+                    errors: vec![format!("{name}: {e}")],
                     ..Default::default()
                 });
                 continue;
@@ -733,6 +747,45 @@ fn category_from_filename(name: &str) -> String {
         .and_then(|s| s.to_str())
         .unwrap_or(name)
         .to_string()
+}
+
+fn read_markdown_bounded(path: &Path) -> Result<Vec<u8>, String> {
+    let file = open_records_file_nofollow(path).map_err(|e| format!("read failed: {e}"))?;
+    let mut bytes = Vec::new();
+    let mut bounded = file.take(MAX_MARKDOWN_IMPORT_BYTES.saturating_add(1));
+    bounded
+        .read_to_end(&mut bytes)
+        .map_err(|e| format!("read failed: {e}"))?;
+    if bytes.len() as u64 > MAX_MARKDOWN_IMPORT_BYTES {
+        return Err(format!(
+            "file exceeds {MAX_MARKDOWN_IMPORT_BYTES} byte import limit"
+        ));
+    }
+    Ok(bytes)
+}
+
+fn open_records_file_nofollow(path: &Path) -> Result<std::fs::File, std::io::Error> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+
+        // `symlink_metadata` is only a preflight check. Keep the actual open safe if a
+        // directory entry is replaced between that check and this read.
+        #[cfg(target_os = "macos")]
+        const O_NOFOLLOW: i32 = 0x0100;
+        #[cfg(all(unix, not(target_os = "macos")))]
+        const O_NOFOLLOW: i32 = 0o400000;
+
+        std::fs::OpenOptions::new()
+            .read(true)
+            .custom_flags(O_NOFOLLOW)
+            .open(path)
+    }
+
+    #[cfg(not(unix))]
+    {
+        std::fs::File::open(path)
+    }
 }
 
 fn upsert_category_tx(
@@ -1187,6 +1240,30 @@ mod tests {
             .get_by_category_and_name("电影", "沙丘")
             .unwrap()
             .is_none());
+    }
+
+    #[test]
+    fn records_import_rejects_oversize_markdown() {
+        let dir = tempdir().unwrap();
+        let root = dir.path().join("src");
+        std::fs::create_dir(&root).unwrap();
+        let oversized = vec![b'#'; MAX_MARKDOWN_IMPORT_BYTES as usize + 1];
+        std::fs::write(root.join("huge.md"), &oversized).unwrap();
+        let store = RecordsStore::with_path(dir.path().join("records.sqlite")).unwrap();
+        let preview = store.preview_import_dir(&root).unwrap();
+        assert_eq!(preview.files_found, 1);
+        assert!(
+            preview.errors.iter().any(|e| e.contains("import limit")),
+            "{:?}",
+            preview.errors
+        );
+        let err = store.import_dir(&root).unwrap_err().to_string();
+        assert!(
+            err.contains("import limit") || err.contains("aborted"),
+            "{err}"
+        );
+        assert_eq!(store.stats().unwrap().categories, 0);
+        assert_eq!(store.stats().unwrap().records, 0);
     }
 
     #[test]

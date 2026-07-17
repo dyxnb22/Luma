@@ -110,7 +110,7 @@ pub async fn paste_to_target_app(
             retryable: true,
         });
     }
-    match timeout(AX_PASTE_TIMEOUT, accessibility.paste_clipboard()).await {
+    match timeout(AX_PASTE_TIMEOUT, accessibility.paste_clipboard(&target)).await {
         Err(_) => {
             abandon_ax(catalog, accessibility).await;
             Err(FailureKind::Timeout {
@@ -132,8 +132,11 @@ pub async fn paste_to_target_app(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ports::{FakeAccessibility, FakePasteboard, FakeWindowCatalog, WindowEntry};
-    use std::sync::Arc;
+    use crate::ports::{
+        frontmost_matches_paste_target, FakeAccessibility, FakePasteboard, FakeWindowCatalog,
+        WindowEntry,
+    };
+    use std::sync::{Arc, Mutex};
 
     fn safari_catalog() -> Arc<FakeWindowCatalog> {
         Arc::new(FakeWindowCatalog::with_entries(
@@ -154,10 +157,7 @@ mod tests {
     async fn paste_success_when_target_focused() {
         let catalog = safari_catalog();
         let pasteboard = Arc::new(FakePasteboard::new());
-        let accessibility = Arc::new(FakeAccessibility {
-            trusted: true,
-            paste_ok: true,
-        });
+        let accessibility = Arc::new(FakeAccessibility::new(true, true));
         paste_to_target_app(catalog.clone(), pasteboard, accessibility, "hello")
             .await
             .expect("paste ok");
@@ -166,13 +166,30 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn paste_unavailable_without_target() {
-        let catalog = Arc::new(FakeWindowCatalog::default());
+    async fn paste_aborts_if_frontmost_changes_before_synthesis() {
+        assert!(frontmost_matches_paste_target(Some("Safari"), "Safari"));
+        assert!(!frontmost_matches_paste_target(Some("Mail"), "Safari"));
+        let catalog = safari_catalog();
         let pasteboard = Arc::new(FakePasteboard::new());
         let accessibility = Arc::new(FakeAccessibility {
             trusted: true,
             paste_ok: true,
+            frontmost_at_gate: Mutex::new(Some("Mail".into())),
         });
+        let err = paste_to_target_app(catalog, pasteboard, accessibility, "hello")
+            .await
+            .unwrap_err();
+        assert!(
+            matches!(err, FailureKind::Unavailable { ref reason, .. } if reason.contains("frontmost")),
+            "{err:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn paste_unavailable_without_target() {
+        let catalog = Arc::new(FakeWindowCatalog::default());
+        let pasteboard = Arc::new(FakePasteboard::new());
+        let accessibility = Arc::new(FakeAccessibility::new(true, true));
         let err = paste_to_target_app(catalog.clone(), pasteboard, accessibility, "x")
             .await
             .unwrap_err();
@@ -207,10 +224,7 @@ mod tests {
         // Clear cached paste target so paste must recover from previous_frontmost.
         catalog.set_paste_target_app(None).await;
         let pasteboard = Arc::new(FakePasteboard::new());
-        let accessibility = Arc::new(FakeAccessibility {
-            trusted: true,
-            paste_ok: true,
-        });
+        let accessibility = Arc::new(FakeAccessibility::new(true, true));
         paste_to_target_app(catalog.clone(), pasteboard, accessibility, "hello")
             .await
             .expect("paste from previous_frontmost");
@@ -233,10 +247,7 @@ mod tests {
             None,
         ));
         let pasteboard = Arc::new(FakePasteboard::new());
-        let accessibility = Arc::new(FakeAccessibility {
-            trusted: true,
-            paste_ok: true,
-        });
+        let accessibility = Arc::new(FakeAccessibility::new(true, true));
         let err = paste_to_target_app(catalog.clone(), pasteboard, accessibility, "x")
             .await
             .unwrap_err();
@@ -248,10 +259,7 @@ mod tests {
     async fn paste_not_trusted_is_permission_required() {
         let catalog = safari_catalog();
         let pasteboard = Arc::new(FakePasteboard::new());
-        let accessibility = Arc::new(FakeAccessibility {
-            trusted: false,
-            paste_ok: true,
-        });
+        let accessibility = Arc::new(FakeAccessibility::new(false, true));
         let err = paste_to_target_app(catalog, pasteboard, accessibility, "x")
             .await
             .unwrap_err();

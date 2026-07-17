@@ -803,11 +803,26 @@ fn render_status(
                     "1-9 focus {}{} move {} Enter open {} Ctrl-k actions {} Tab focus",
                     symbols.sep, symbols.up, symbols.sep, symbols.sep, symbols.sep
                 )
-            } else {
+            } else if !state.results.items.is_empty()
+                && state.focus == crate::view_model::FocusZone::List
+            {
                 format!(
-                    "{}{} move {} Enter search {} Ctrl-k actions {} Tab focus {} Esc back {} ? help",
+                    "{}{} move {} Enter run {} Ctrl-k actions {} Tab focus {} S-Tab preview {} Esc back {} ? help",
                     symbols.up,
                     symbols.down,
+                    symbols.sep,
+                    symbols.sep,
+                    symbols.sep,
+                    symbols.sep,
+                    symbols.sep,
+                    symbols.sep
+                )
+            } else {
+                format!(
+                    "{}{} move {} Enter search {} Ctrl-k actions {} Tab focus {} S-Tab preview {} Esc back {} ? help",
+                    symbols.up,
+                    symbols.down,
+                    symbols.sep,
                     symbols.sep,
                     symbols.sep,
                     symbols.sep,
@@ -821,7 +836,7 @@ fn render_status(
             symbols.up, symbols.down, symbols.sep, symbols.sep
         ),
         Route::Settings => format!(
-            "{}{} Space Toggle {} Esc Back",
+            "{}{} Enter/Space Toggle {} Esc Back",
             symbols.up, symbols.down, symbols.sep
         ),
         Route::Commands => format!("Enter Run {} Esc Back", symbols.sep),
@@ -1052,6 +1067,21 @@ mod tests {
         assert!(flat.contains("Safari"), "result title missing: {flat}");
         assert!(flat.contains("Apps"), "module label missing: {flat}");
         assert!(flat.contains("Launch"), "action hint missing: {flat}");
+    }
+
+    #[test]
+    fn footer_says_run_when_results_present_and_list_focused() {
+        let mut state = state_with_results();
+        state.focus = crate::view_model::FocusZone::List;
+        let (flat, _) = draw(&state, 100, 30);
+        assert!(
+            flat.contains("Enter run") || flat.contains("run"),
+            "expected Enter run in footer: {flat}"
+        );
+        assert!(
+            !flat.contains("Enter search"),
+            "should not say Enter search with list results: {flat}"
+        );
     }
 
     #[test]

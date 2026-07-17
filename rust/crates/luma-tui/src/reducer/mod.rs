@@ -10,11 +10,26 @@ mod wordbook;
 const PAGE_SIZE: usize = 5;
 
 fn resolve_ui_intent(item: &luma_domain::SearchItem) -> Option<UiIntent> {
+    if let Some(tag) = item.ui_intent.as_deref() {
+        if let Some(intent) = UiIntent::parse(tag) {
+            return Some(intent);
+        }
+    }
     legacy_ui_intent_from_action(item)
 }
 
+fn payload_str<'a>(item: &'a luma_domain::SearchItem, key: &str) -> Option<&'a str> {
+    item.action_payload
+        .as_ref()
+        .and_then(|p| p.get(key))
+        .and_then(|v| v.as_str())
+}
+
 fn legacy_ui_intent_from_action(item: &luma_domain::SearchItem) -> Option<UiIntent> {
-    if item.kind == "directory" || item.primary_action.id.as_str() == "browse" {
+    // The explicit intent/action is authoritative. A generic `directory` kind is not enough to
+    // decide navigation: a future module may expose a directory item whose primary action opens,
+    // imports, or previews it instead.
+    if item.primary_action.id.as_str() == "browse" {
         return Some(UiIntent::Browse);
     }
     match item.primary_action.id.as_str() {
@@ -698,22 +713,42 @@ fn request_primary_actions(state: &mut AppState) -> Vec<Effect> {
 }
 
 fn drill_into_browse(state: &mut AppState, item: &luma_domain::SearchItem) -> Vec<Effect> {
-    let is_records = item.module_id.as_str().contains("records");
-    let path = if is_records {
-        item.action_payload
-            .as_ref()
-            .and_then(|p| p.get("category"))
-            .and_then(|v| v.as_str())
-            .map(str::to_string)
-            .or_else(|| {
-                item.id
-                    .as_str()
-                    .strip_prefix("rec:cat:")
-                    .map(str::to_string)
-            })
+    // Prefer action_payload / id prefixes over module_id substring checks.
+    let records_category = payload_str(item, "category")
+        .map(str::to_string)
+        .or_else(|| {
+            item.id
+                .as_str()
+                .strip_prefix("rec:cat:")
+                .map(str::to_string)
+        });
+    let trigger = payload_str(item, "browse_trigger")
+        .filter(|trigger| !trigger.is_empty())
+        .or_else(|| {
+            if records_category.is_some() || item.id.as_str().starts_with("rec:cat:") {
+                Some("rec")
+            } else if item.id.as_str().starts_with("browse:n:") {
+                Some("n")
+            } else if item.id.as_str().starts_with("browse:proj:")
+                || item.id.as_str().starts_with("proj:")
+            {
+                Some("proj")
+            } else {
+                None
+            }
+        });
+    let Some(trigger) = trigger else {
+        state
+            .status
+            .set("browse metadata missing", StatusTone::Error);
+        return vec![Effect::None];
+    };
+    let path = if trigger == "rec" {
+        records_category
     } else {
-        item.subtitle
-            .clone()
+        payload_str(item, "path")
+            .map(str::to_string)
+            .or_else(|| item.subtitle.clone())
             .or_else(|| {
                 item.id
                     .as_str()
@@ -722,13 +757,6 @@ fn drill_into_browse(state: &mut AppState, item: &luma_domain::SearchItem) -> Ve
                     .map(str::to_string)
             })
             .or_else(|| item.id.as_str().strip_prefix("proj:").map(str::to_string))
-    };
-    let trigger = if is_records {
-        "rec"
-    } else if item.module_id.as_str().contains("notes") {
-        "n"
-    } else {
-        "proj"
     };
     let query = match path {
         Some(p) if !p.is_empty() => format!("{trigger} browse {p}"),
@@ -762,13 +790,18 @@ fn open_notes_issues(state: &mut AppState) -> Vec<Effect> {
 }
 
 fn seed_module_add(state: &mut AppState, item: &luma_domain::SearchItem) -> Vec<Effect> {
-    let prompt = if item.module_id.as_str().contains("quicklinks") {
-        "ql add "
-    } else if item.module_id.as_str().contains("snippets") {
-        "snip add "
-    } else {
+    let prompt = payload_str(item, "seed_prompt").unwrap_or_else(|| {
+        if item.id.as_str().starts_with("ql:") {
+            "ql add "
+        } else if item.id.as_str().starts_with("snip:") {
+            "snip add "
+        } else {
+            ""
+        }
+    });
+    if prompt.is_empty() {
         return vec![Effect::None];
-    };
+    }
     state.browse_nav_stack.clear();
     state.prompt = prompt.into();
     state.prompt_cursor = state.prompt_char_len();
@@ -825,25 +858,34 @@ fn seed_module_config(state: &mut AppState, item: &luma_domain::SearchItem) -> V
         );
         return vec![Effect::None];
     }
-    let cmd = if item.module_id.as_str().contains("notes") {
-        "luma config set --notes-root ~/Notes"
-    } else if item.module_id.as_str().contains("projects") {
-        "luma config set --projects-root ~/dev"
-    } else if item.module_id.as_str().contains("secrets") {
-        "luma secrets set <account>  (value from stdin)"
-    } else if let Some(sub) = item.subtitle.as_deref() {
-        // Fall back to subtitle when it already carries a CLI hint.
-        state.status.set(sub, StatusTone::Warning);
-        return vec![Effect::None];
-    } else {
+    if let Some(cmd) = payload_str(item, "config_hint") {
         state
             .status
-            .set("configure via: luma config", StatusTone::Warning);
+            .set(format!("run in terminal: {cmd}"), StatusTone::Warning);
         return vec![Effect::None];
+    }
+    let cmd = if item.id.as_str().starts_with("n:") || item.id.as_str().starts_with("notes:") {
+        Some("luma config set --notes-root ~/Notes")
+    } else if item.id.as_str().starts_with("proj:") {
+        Some("luma config set --projects-root ~/dev")
+    } else if item.id.as_str().starts_with("sec:") || item.kind == "secrets" {
+        Some("luma secrets set <account>  (value from stdin)")
+    } else {
+        None
     };
+    if let Some(cmd) = cmd {
+        state
+            .status
+            .set(format!("run in terminal: {cmd}"), StatusTone::Warning);
+        return vec![Effect::None];
+    }
+    if let Some(sub) = item.subtitle.as_deref() {
+        state.status.set(sub, StatusTone::Warning);
+        return vec![Effect::None];
+    }
     state
         .status
-        .set(format!("run in terminal: {cmd}"), StatusTone::Warning);
+        .set("configure via: luma config", StatusTone::Warning);
     vec![Effect::None]
 }
 
@@ -1065,7 +1107,7 @@ fn cancel_msg(state: &mut AppState) -> Vec<Effect> {
             review.pending_grade = None;
         }
         state.route = review_return_route(state);
-        state.status.set("cancelled", StatusTone::Warning);
+        state.status.set("Dismissed", StatusTone::Warning);
         return vec![Effect::None];
     }
     if state.route != Route::Search {
@@ -1078,7 +1120,7 @@ fn cancel_msg(state: &mut AppState) -> Vec<Effect> {
             return vec![Effect::None];
         }
         if state.showing_hub() {
-            state.status.set("Ready", StatusTone::Success);
+            state.status.set("Ready", StatusTone::Neutral);
             state.schedule_hub_refresh();
             return vec![Effect::LoadHub];
         }
@@ -1109,7 +1151,7 @@ fn cancel_msg(state: &mut AppState) -> Vec<Effect> {
         state.results.items.clear();
         state.results.selected_id = None;
         state.active_request = None;
-        state.status.set("Ready", StatusTone::Success);
+        state.status.set("Ready", StatusTone::Neutral);
         state.schedule_hub_refresh();
         vec![Effect::LoadHub]
     } else {
@@ -1384,7 +1426,7 @@ fn schedule_search(state: &mut AppState) -> Vec<Effect> {
         state.preview_body = None;
         state.preview_result_id = None;
         state.pending_preview_id = None;
-        state.status.set("Ready", StatusTone::Success);
+        state.status.set("Ready", StatusTone::Neutral);
         state.schedule_hub_refresh();
         effects.push(Effect::LoadHub);
         return effects;
@@ -1412,7 +1454,7 @@ fn begin_search(state: &mut AppState) -> Vec<Effect> {
         state.results.items.clear();
         state.results.selected_id = None;
         state.results.scroll = 0;
-        state.status.set("Ready", StatusTone::Success);
+        state.status.set("Ready", StatusTone::Neutral);
         state.schedule_hub_refresh();
         effects.push(Effect::LoadHub);
         return effects;
@@ -1765,6 +1807,30 @@ mod tests {
         assert!(effects
             .iter()
             .any(|e| matches!(e, Effect::Search { query, .. } if query == "rec browse 电影")));
+    }
+
+    #[test]
+    fn browse_works_from_id_prefix_without_module_id_substring() {
+        let mut state = AppState::default();
+        let item = SearchItem {
+            id: ResultId::new("rec:cat:纪录片"),
+            module_id: ModuleId::new("custom.ledger"),
+            title: "纪录片/".into(),
+            subtitle: None,
+            kind: "category".into(),
+            score: 1.0,
+            primary_action: ActionDescriptor {
+                id: ActionId::new("browse"),
+                label: "Browse".into(),
+                risk: ActionRisk::Safe,
+                confirmation: false,
+            },
+            secondary_actions: vec![],
+            ui_intent: Some("browse".into()),
+            action_payload: Some(serde_json::json!({ "category": "纪录片" })),
+        };
+        let _ = drill_into_browse(&mut state, &item);
+        assert_eq!(state.prompt, "rec browse 纪录片");
     }
 
     #[test]

@@ -242,6 +242,7 @@ impl Engine {
                 }
             }
             g.operations.clear();
+            g.operation_order.clear();
             g.cancel_intents.clear();
             g.clear_results();
             g.latest_preview_id = 0;

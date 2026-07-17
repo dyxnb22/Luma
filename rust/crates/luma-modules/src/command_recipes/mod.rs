@@ -501,17 +501,25 @@ impl LumaModule for CommandRecipesModule {
                 )),
             },
             "copy" => match self.build_plan(&recipe) {
-                Ok(plan) => match self.pasteboard.write_text(&Self::copy_text(&plan)).await {
-                    Ok(()) => ActionOutcome::Success {
-                        message: Some("copied recipe commands".into()),
-                    },
-                    Err(err) => ActionOutcome::Failed {
-                        kind: FailureKind::Unavailable {
-                            reason: err.to_string(),
-                            retryable: false,
+                Ok(plan) => {
+                    match await_unless_cancelled(
+                        &cancel,
+                        self.pasteboard.write_text(&Self::copy_text(&plan)),
+                    )
+                    .await
+                    {
+                        None => ActionOutcome::Cancelled,
+                        Some(Ok(())) => ActionOutcome::Success {
+                            message: Some("copied recipe commands".into()),
                         },
-                    },
-                },
+                        Some(Err(err)) => ActionOutcome::Failed {
+                            kind: FailureKind::Unavailable {
+                                reason: err.to_string(),
+                                retryable: false,
+                            },
+                        },
+                    }
+                }
                 Err(kind) => ActionOutcome::Failed { kind },
             },
             "favorite" => {

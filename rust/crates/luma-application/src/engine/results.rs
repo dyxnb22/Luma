@@ -131,6 +131,8 @@ mod tests {
             cancel_intents: HashMap::new(),
             pending_searches: HashMap::new(),
             operations: HashMap::new(),
+            operation_order: VecDeque::new(),
+            next_operation_generation: 0,
             latest_preview_id: 0,
             results_by_id: HashMap::new(),
             result_order: VecDeque::new(),

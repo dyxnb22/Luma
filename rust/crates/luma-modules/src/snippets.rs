@@ -487,10 +487,7 @@ mod teardown_tests {
         let m = SnippetsModule::with_store(
             store,
             Arc::new(luma_application::FakePasteboard::new()),
-            Arc::new(luma_application::FakeAccessibility {
-                trusted: false,
-                paste_ok: false,
-            }),
+            Arc::new(luma_application::FakeAccessibility::new(false, false)),
             Arc::new(luma_application::FakeWindowCatalog::default()),
         );
         m.warmup(WarmupContext {

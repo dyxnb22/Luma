@@ -1061,8 +1061,9 @@ fn handle_record_command(action: RecordCmd) -> anyhow::Result<()> {
         }
         RecordCmd::Import { root, apply, json } => {
             if apply {
-                let store = RecordsStore::luma_next_default()?;
-                let report = import_records_with_ledger(&root, &store, true)
+                // Same store + ledger path as TUI `SqliteRecordsRepository::import_dir`.
+                let repo = records_repo()?;
+                let report = import_records_with_ledger(&root, repo.store(), true)
                     .map_err(|e| anyhow::anyhow!("{e}"))?;
                 print_record_import_report(&report, &root, json)?;
             } else {
@@ -1118,8 +1119,8 @@ fn handle_record_command(action: RecordCmd) -> anyhow::Result<()> {
             }
         }
         RecordCmd::Backup { json } => {
-            let store = RecordsStore::luma_next_default()?;
-            let path = store.backup().map_err(|e| anyhow::anyhow!("{e}"))?;
+            let repo = records_repo()?;
+            let path = repo.backup().map_err(|e| anyhow::anyhow!("{e}"))?;
             if json {
                 println!(
                     "{}",
@@ -1197,19 +1198,33 @@ async fn handle_ssh_command(action: SshCmd) -> anyhow::Result<()> {
             }
         }
         SshCmd::Connect { alias } => {
-            let status =
-                ssh_cli::ssh_connect_cli(load.registry, &alias, "ssh", Some(load.settings), None)
-                    .await
-                    .map_err(anyhow::Error::msg)?;
+            let ssh_config = Arc::new(luma_platform_macos::MacSshConfig::system_default());
+            let status = ssh_cli::ssh_connect_cli(
+                load.registry,
+                &alias,
+                "ssh",
+                Some(load.settings),
+                None,
+                ssh_config,
+            )
+            .await
+            .map_err(anyhow::Error::msg)?;
             if !status.success() {
                 std::process::exit(status.code().unwrap_or(1));
             }
         }
         SshCmd::Sftp { alias } => {
-            let status =
-                ssh_cli::ssh_connect_cli(load.registry, &alias, "sftp", Some(load.settings), None)
-                    .await
-                    .map_err(anyhow::Error::msg)?;
+            let ssh_config = Arc::new(luma_platform_macos::MacSshConfig::system_default());
+            let status = ssh_cli::ssh_connect_cli(
+                load.registry,
+                &alias,
+                "sftp",
+                Some(load.settings),
+                None,
+                ssh_config,
+            )
+            .await
+            .map_err(anyhow::Error::msg)?;
             if !status.success() {
                 std::process::exit(status.code().unwrap_or(1));
             }

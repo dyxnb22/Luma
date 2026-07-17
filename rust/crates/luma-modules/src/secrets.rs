@@ -14,6 +14,7 @@ use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
+use crate::cancel::await_unless_cancelled;
 use crate::clipboard_privacy::ClipboardSuppression;
 
 const DEFAULT_IDLE_LOCK_SECS: u32 = 300;
@@ -310,12 +311,27 @@ impl LumaModule for SecretsModule {
                         },
                     };
                 };
-                match self.keychain.copy_password(account).await {
+                let secret = match await_unless_cancelled(
+                    &cancel,
+                    self.keychain.copy_password(account),
+                )
+                .await
+                {
+                    None => return ActionOutcome::Cancelled,
+                    Some(result) => result,
+                };
+                match secret {
                     Ok(secret) => {
-                        self.suppression
-                            .suppress(&secret, Duration::from_secs(86_400));
-                        match self.pasteboard.write_text(&secret).await {
-                            Ok(()) => {
+                        match await_unless_cancelled(
+                            &cancel,
+                            self.pasteboard.write_text(&secret),
+                        )
+                        .await
+                        {
+                            None => ActionOutcome::Cancelled,
+                            Some(Ok(())) => {
+                                self.suppression
+                                    .suppress(&secret, Duration::from_secs(86_400));
                                 self.touch_activity().await;
                                 ActionOutcome::Success {
                                     message: Some(
@@ -323,7 +339,7 @@ impl LumaModule for SecretsModule {
                                     ),
                                 }
                             }
-                            Err(err) => ActionOutcome::Failed {
+                            Some(Err(err)) => ActionOutcome::Failed {
                                 kind: FailureKind::Unavailable {
                                     reason: err.to_string(),
                                     retryable: true,
@@ -588,5 +604,91 @@ mod tests {
             }
         ));
         assert!(pb.0.lock().await.is_none());
+    }
+
+    struct HangPb {
+        written: TokioMutex<Option<String>>,
+        started: tokio::sync::Notify,
+        release: TokioMutex<Option<tokio::sync::oneshot::Receiver<()>>>,
+    }
+
+    #[async_trait]
+    impl PasteboardPort for HangPb {
+        async fn read_text(&self) -> Result<Option<String>, PasteboardError> {
+            Ok(self.written.lock().await.clone())
+        }
+        async fn write_text(&self, text: &str) -> Result<(), PasteboardError> {
+            self.started.notify_waiters();
+            if let Some(rx) = self.release.lock().await.take() {
+                let _ = rx.await;
+            }
+            *self.written.lock().await = Some(text.into());
+            Ok(())
+        }
+    }
+
+    #[tokio::test]
+    async fn secrets_copy_cancelled_does_not_write_pasteboard() {
+        let kc = Arc::new(FakeKeychain {
+            unlocked: true,
+            entries: TokioMutex::new(
+                [("api".into(), "secret-value".into())]
+                    .into_iter()
+                    .collect(),
+            ),
+        });
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        let pb = Arc::new(HangPb {
+            written: TokioMutex::new(None),
+            started: tokio::sync::Notify::new(),
+            release: TokioMutex::new(Some(rx)),
+        });
+        let m = SecretsModule::with_deps(kc, pb.clone(), Arc::new(ClipboardSuppression::new()));
+        assert!(matches!(
+            m.perform(unlock_request(), CancellationToken::new()).await,
+            ActionOutcome::Success { .. }
+        ));
+        let cancel = CancellationToken::new();
+        let cancel_c = cancel.clone();
+        let started = pb.started.notified();
+        tokio::pin!(started);
+        let perform = tokio::spawn(async move {
+            m.perform(
+                ActionRequest {
+                    result: SearchItem {
+                        id: luma_domain::ResultId::new("sec:api"),
+                        module_id: ModuleId::new("luma.secrets"),
+                        title: "api".into(),
+                        subtitle: None,
+                        kind: "secret".into(),
+                        score: 1.0,
+                        primary_action: ActionDescriptor {
+                            id: ActionId::new("copy"),
+                            label: "Copy".into(),
+                            risk: ActionRisk::Confirm,
+                            confirmation: true,
+                        },
+                        secondary_actions: vec![],
+                        ui_intent: None,
+                        action_payload: None,
+                    },
+                    action: ActionDescriptor {
+                        id: ActionId::new("copy"),
+                        label: "Copy".into(),
+                        risk: ActionRisk::Confirm,
+                        confirmation: true,
+                    },
+                    confirmation: true,
+                },
+                cancel,
+            )
+            .await
+        });
+        started.await;
+        cancel_c.cancel();
+        let outcome = perform.await.unwrap();
+        assert!(matches!(outcome, ActionOutcome::Cancelled));
+        assert!(pb.written.lock().await.is_none());
+        let _ = tx.send(());
     }
 }

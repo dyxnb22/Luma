@@ -8,8 +8,11 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 pub use luma_application::{
-    AccessibilityError, AccessibilityPort as Accessibility, FakeAccessibility,
+    frontmost_matches_paste_target, AccessibilityError, AccessibilityPort as Accessibility,
+    FakeAccessibility,
 };
+
+use crate::window::MacWindowCatalog;
 
 /// Live macOS adapter using ApplicationServices + CoreGraphics.
 pub struct MacAccessibility {
@@ -119,11 +122,12 @@ impl Accessibility for MacAccessibility {
         Self::probe_trusted()
     }
 
-    async fn paste_clipboard(&self) -> Result<(), AccessibilityError> {
+    async fn paste_clipboard(&self, expected_app: &str) -> Result<(), AccessibilityError> {
         if !self.is_trusted() {
             return Err(AccessibilityError::NotTrusted);
         }
         let generation = self.ax_op_generation.load(Ordering::SeqCst);
+        let expected_app = expected_app.to_string();
         tokio::time::sleep(std::time::Duration::from_millis(30)).await;
         if self.ax_op_generation.load(Ordering::SeqCst) != generation {
             return Err(AccessibilityError::PasteFailed(
@@ -140,6 +144,15 @@ impl Accessibility for MacAccessibility {
                 return Err(AccessibilityError::PasteFailed(
                     "paste abandoned after timeout".into(),
                 ));
+            }
+            let front = MacWindowCatalog::frontmost_app_blocking().map_err(|e| {
+                AccessibilityError::PasteFailed(format!("frontmost check failed: {e}"))
+            })?;
+            if !frontmost_matches_paste_target(front.as_deref(), &expected_app) {
+                return Err(AccessibilityError::PasteFailed(format!(
+                    "frontmost changed before paste (expected {expected_app}, got {})",
+                    front.as_deref().unwrap_or("<none>")
+                )));
             }
             Self::synthesize_cmd_v()
         })
@@ -161,13 +174,10 @@ mod tests {
 
     #[tokio::test]
     async fn fake_denied_never_succeeds() {
-        let ax = FakeAccessibility {
-            trusted: false,
-            paste_ok: true,
-        };
+        let ax = FakeAccessibility::new(false, true);
         assert!(!ax.is_trusted());
         assert!(matches!(
-            ax.paste_clipboard().await,
+            ax.paste_clipboard("Safari").await,
             Err(AccessibilityError::NotTrusted)
         ));
     }

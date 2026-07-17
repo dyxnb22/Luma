@@ -33,11 +33,21 @@ pub enum NotesScanError {
     Io(#[from] std::io::Error),
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 pub struct NotesScanOptions {
     pub max_file_bytes: usize,
     pub ignore_dirs: Vec<String>,
     pub exclude_patterns: Vec<String>,
+}
+
+impl Default for NotesScanOptions {
+    fn default() -> Self {
+        Self {
+            max_file_bytes: DEFAULT_MAX_FILE_BYTES,
+            ignore_dirs: Vec::new(),
+            exclude_patterns: Vec::new(),
+        }
+    }
 }
 
 impl NotesScanOptions {
@@ -446,7 +456,37 @@ impl NotesScanner {
             return Ok(issues);
         }
 
-        let content = match read_nofollow(abs) {
+        // Bound the read (metadata alone is TOCTOU); growth past the cap is treated as oversized.
+        let content = match read_nofollow_prefix(abs, options.max_file_bytes.saturating_add(1)) {
+            Ok(c) if c.len() > options.max_file_bytes => {
+                let prefix = &c[..c.len().min(TAG_PREFIX_BYTES)];
+                let tags = extract_tags(prefix);
+                let title = extract_title(prefix, &file_name);
+                let hash = content_hash(prefix);
+                self.upsert_indexed(
+                    &DocumentRow {
+                        relative_path: rel.to_string(),
+                        title: title.title.clone(),
+                        file_name: file_name.clone(),
+                        size_bytes: size,
+                        mtime_unix: mtime,
+                        content_hash: Some(hash),
+                        updated_at_unix: now,
+                    },
+                    &tags.tags,
+                    &[],
+                    "",
+                    batch_tx,
+                )?;
+                issues.push(ScanIssueRow {
+                    scan_id,
+                    relative_path: rel.to_string(),
+                    issue_type: ISSUE_OVERSIZED.into(),
+                    message: format!("file exceeds {} bytes", options.max_file_bytes),
+                    created_at_unix: now,
+                });
+                return Ok(issues);
+            }
             Ok(c) => c,
             Err(e) => {
                 issues.push(ScanIssueRow {
@@ -559,18 +599,10 @@ fn file_mtime_unix(meta: &std::fs::Metadata) -> i64 {
         .unwrap_or(0)
 }
 
-fn read_nofollow(path: &Path) -> Result<Vec<u8>, std::io::Error> {
-    let mut file = open_nofollow(path)?;
-    let mut buf = Vec::new();
-    file.read_to_end(&mut buf)?;
-    Ok(buf)
-}
-
 fn read_nofollow_prefix(path: &Path, max: usize) -> Result<Vec<u8>, std::io::Error> {
-    let mut file = open_nofollow(path)?;
-    let mut buf = vec![0u8; max];
-    let n = file.read(&mut buf)?;
-    buf.truncate(n);
+    let file = open_nofollow(path)?;
+    let mut buf = Vec::new();
+    file.take(max as u64).read_to_end(&mut buf)?;
     Ok(buf)
 }
 

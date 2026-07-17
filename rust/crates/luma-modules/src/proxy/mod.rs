@@ -1,5 +1,6 @@
 //! Mihomo controller-first proxy module for local macOS use.
 
+use crate::cancel::await_unless_cancelled;
 use async_trait::async_trait;
 use luma_application::{
     ActionOutcome, ActionRequest, LumaModule, ModuleManifest, ModuleState, PasteboardPort,
@@ -449,20 +450,17 @@ impl LumaModule for ProxyModule {
                         },
                     };
                 };
-                match self.pasteboard.write_text(address).await {
-                    Ok(()) => {
-                        return ActionOutcome::Success {
-                            message: Some("proxy address copied".into()),
-                        }
-                    }
-                    Err(error) => {
-                        return ActionOutcome::Failed {
-                            kind: FailureKind::Unavailable {
-                                reason: error.to_string(),
-                                retryable: true,
-                            },
-                        }
-                    }
+                match await_unless_cancelled(&cancel, self.pasteboard.write_text(address)).await {
+                    None => ActionOutcome::Cancelled,
+                    Some(Ok(())) => ActionOutcome::Success {
+                        message: Some("proxy address copied".into()),
+                    },
+                    Some(Err(error)) => ActionOutcome::Failed {
+                        kind: FailureKind::Unavailable {
+                            reason: error.to_string(),
+                            retryable: true,
+                        },
+                    },
                 }
             }
             other => ActionOutcome::Failed {

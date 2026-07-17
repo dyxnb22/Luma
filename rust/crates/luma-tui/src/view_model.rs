@@ -171,7 +171,7 @@ impl Default for StatusLine {
     fn default() -> Self {
         Self {
             text: "Ready".into(),
-            tone: StatusTone::Success,
+            tone: StatusTone::Neutral,
         }
     }
 }
@@ -591,7 +591,7 @@ impl AppState {
         if self.preview_pinned && self.term_width >= 60 {
             return true;
         }
-        self.term_width >= 60 && self.term_height >= 28
+        self.term_width >= 60 && self.term_height >= 24
     }
 
     pub fn preview_visible(&self) -> bool {
@@ -1451,6 +1451,9 @@ mod tests {
         assert!(state.preview_visible());
 
         state.term_height = 24;
+        assert!(state.preview_stacked());
+        assert!(state.preview_visible());
+        state.term_height = 23;
         assert!(!state.preview_stacked());
         assert!(!state.preview_visible());
     }

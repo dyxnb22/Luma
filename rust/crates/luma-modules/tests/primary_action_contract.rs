@@ -36,10 +36,7 @@ async fn clipboard_clear_row_matches_actions_contract() {
     let m = ClipboardModule::with_deps(
         Arc::new(MemoryClipboardHistory::new()),
         Arc::new(MemPb(Mutex::new(None))),
-        Arc::new(FakeAccessibility {
-            trusted: false,
-            paste_ok: false,
-        }),
+        Arc::new(FakeAccessibility::new(false, false)),
         Arc::new(FakeWindowCatalog::default()),
         Arc::new(ClipboardSuppression::new()),
     );
@@ -100,10 +97,7 @@ async fn snippets_overwrite_row_matches_actions_contract() {
     let m = SnippetsModule::with_store(
         store,
         Arc::new(MemPb(Mutex::new(None))),
-        Arc::new(FakeAccessibility {
-            trusted: false,
-            paste_ok: false,
-        }),
+        Arc::new(FakeAccessibility::new(false, false)),
         Arc::new(FakeWindowCatalog::default()),
     );
     m.warmup(WarmupContext {

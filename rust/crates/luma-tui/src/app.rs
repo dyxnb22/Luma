@@ -15,6 +15,7 @@ use luma_protocol::Command;
 use std::process::ExitStatus;
 use std::sync::Arc;
 use std::time::Duration;
+use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 use tracing::warn;
 
@@ -38,12 +39,21 @@ pub async fn run_tui_with_engine(
     state.dirty = false;
 
     let mut engine_rx = engine.subscribe();
+    let mut effect_tasks: JoinSet<()> = JoinSet::new();
     let engine_start = engine.clone();
-    tokio::spawn(async move {
+    effect_tasks.spawn(async move {
         let _ = engine_start.submit(Command::StartSession).await;
     });
 
     loop {
+        // Reap completed submissions continuously; a long-lived TUI should not retain one
+        // completed JoinHandle per search or key event until shutdown.
+        while let Some(joined) = effect_tasks.try_join_next() {
+            if let Err(err) = joined {
+                warn!(?err, "TUI effect task ended with error");
+            }
+        }
+
         if let Some(plan) = state.pending_recipe_run.take() {
             run_recipe_in_terminal(
                 &mut guard,
@@ -51,11 +61,12 @@ pub async fn run_tui_with_engine(
                 engine.clone(),
                 &mut state,
                 plan,
+                &mut effect_tasks,
             );
             if command_recipes_query_active(&state.prompt) && !state.prompt.trim().is_empty() {
                 let effects = update(&mut state, Msg::FlushSearch);
                 for effect in effects {
-                    dispatch_effect(engine.clone(), effect);
+                    dispatch_effect(engine.clone(), effect, &mut effect_tasks);
                 }
             }
         }
@@ -106,9 +117,7 @@ pub async fn run_tui_with_engine(
                 CEvent::Resize(width, height) => msgs.push(Msg::Resize { width, height }),
                 CEvent::FocusGained => msgs.push(Msg::FocusGained),
                 CEvent::Paste(s) => {
-                    for ch in s.chars() {
-                        msgs.push(Msg::KeyChar(ch));
-                    }
+                    msgs.extend(paste_msgs(&state.route, &s));
                 }
                 _ => {}
             }
@@ -117,8 +126,16 @@ pub async fn run_tui_with_engine(
         for msg in msgs {
             let effects = update(&mut state, msg);
             for effect in effects {
-                if !handle_effect_sync(engine.clone(), &mut guard, &mut state, effect.clone()) {
-                    dispatch_effect(engine.clone(), effect);
+                if !handle_effect_sync(
+                    SyncEffectRuntime {
+                        engine: engine.clone(),
+                        guard: &mut guard,
+                        state: &mut state,
+                        tasks: &mut effect_tasks,
+                    },
+                    effect.clone(),
+                ) {
+                    dispatch_effect(engine.clone(), effect, &mut effect_tasks);
                 }
             }
         }
@@ -128,6 +145,8 @@ pub async fn run_tui_with_engine(
         }
     }
 
+    effect_tasks.abort_all();
+    while effect_tasks.join_next().await.is_some() {}
     drop(guard);
     let _ = engine.submit(Command::ShutdownSession).await;
     Ok(())
@@ -139,6 +158,7 @@ fn run_recipe_in_terminal(
     engine: Arc<dyn EnginePort>,
     state: &mut AppState,
     plan: luma_domain::RecipeRunPlan,
+    tasks: &mut JoinSet<()>,
 ) {
     guard.suspend().ok();
     println!(
@@ -209,7 +229,7 @@ fn run_recipe_in_terminal(
     state.dirty = true;
     let recipe_id = plan.recipe_id.clone();
     let now = now_unix();
-    tokio::spawn(async move {
+    tasks.spawn(async move {
         let _ = engine
             .submit(Command::RecordRecipeRun {
                 recipe_id,
@@ -218,6 +238,21 @@ fn run_recipe_in_terminal(
             })
             .await;
     });
+}
+
+/// Terminal paste bypasses `map_key`; ignore it on overlays so Confirm/Settings stay open.
+fn paste_msgs(route: &Route, pasted: &str) -> Vec<Msg> {
+    if matches!(
+        route,
+        Route::ConfirmAction
+            | Route::ActionPicker
+            | Route::Settings
+            | Route::Commands
+            | Route::QuitConfirm
+    ) {
+        return Vec::new();
+    }
+    pasted.chars().map(Msg::KeyChar).collect()
 }
 
 fn map_key(code: KeyCode, modifiers: KeyModifiers, state: &AppState) -> Msg {
@@ -318,12 +353,14 @@ fn map_key(code: KeyCode, modifiers: KeyModifiers, state: &AppState) -> Msg {
     }
 }
 
-fn handle_effect_sync(
+struct SyncEffectRuntime<'a> {
     engine: Arc<dyn EnginePort>,
-    guard: &mut TerminalGuard,
-    state: &mut AppState,
-    effect: Effect,
-) -> bool {
+    guard: &'a mut TerminalGuard,
+    state: &'a mut AppState,
+    tasks: &'a mut JoinSet<()>,
+}
+
+fn handle_effect_sync(runtime: SyncEffectRuntime<'_>, effect: Effect) -> bool {
     match effect {
         Effect::RunInteractiveTerminal {
             program,
@@ -331,15 +368,7 @@ fn handle_effect_sync(
             record_alias,
             operation_id,
         } => {
-            run_interactive_terminal_effect(
-                engine,
-                guard,
-                state,
-                program,
-                args,
-                record_alias,
-                operation_id,
-            );
+            run_interactive_terminal_effect(runtime, program, args, record_alias, operation_id);
             true
         }
         _ => false,
@@ -347,14 +376,18 @@ fn handle_effect_sync(
 }
 
 fn run_interactive_terminal_effect(
-    engine: Arc<dyn EnginePort>,
-    guard: &mut TerminalGuard,
-    state: &mut AppState,
+    runtime: SyncEffectRuntime<'_>,
     program: String,
     args: Vec<String>,
     record_alias: Option<String>,
     operation_id: String,
 ) {
+    let SyncEffectRuntime {
+        engine,
+        guard,
+        state,
+        tasks,
+    } = runtime;
     let resume_err = guard.suspend().err();
     let spawn_result = if resume_err.is_none() {
         run_interactive_terminal(&program, &args)
@@ -394,7 +427,7 @@ fn run_interactive_terminal_effect(
                 state.search_debounce_deadline = Some(std::time::Instant::now());
             }
             let engine_record = engine.clone();
-            tokio::spawn(async move {
+            tasks.spawn(async move {
                 let _ = engine_record
                     .submit(Command::SshSessionEnded {
                         alias,
@@ -426,35 +459,35 @@ fn interactive_status(
     }
 }
 
-fn dispatch_effect(engine: Arc<dyn EnginePort>, effect: Effect) {
+fn dispatch_effect(engine: Arc<dyn EnginePort>, effect: Effect, tasks: &mut JoinSet<()>) {
     match effect {
         Effect::Search { request_id, query } => {
-            tokio::spawn(async move {
+            tasks.spawn(async move {
                 let _ = engine.submit(Command::Search { request_id, query }).await;
             });
         }
         Effect::CancelSearch { request_id } => {
-            tokio::spawn(async move {
+            tasks.spawn(async move {
                 let _ = engine.submit(Command::CancelSearch { request_id }).await;
             });
         }
         Effect::LoadHub => {
-            tokio::spawn(async move {
+            tasks.spawn(async move {
                 let _ = engine.submit(Command::LoadHub).await;
             });
         }
         Effect::LoadWordbookReview { queue } => {
-            tokio::spawn(async move {
+            tasks.spawn(async move {
                 let _ = engine.submit(Command::LoadWordbookReview { queue }).await;
             });
         }
         Effect::RefreshWordbookReviewStats => {
-            tokio::spawn(async move {
+            tasks.spawn(async move {
                 let _ = engine.submit(Command::RefreshWordbookReviewStats).await;
             });
         }
         Effect::GetSnapshot => {
-            tokio::spawn(async move {
+            tasks.spawn(async move {
                 let _ = engine.submit(Command::GetSnapshot).await;
             });
         }
@@ -462,7 +495,7 @@ fn dispatch_effect(engine: Arc<dyn EnginePort>, effect: Effect) {
             result_id,
             preview_id,
         } => {
-            tokio::spawn(async move {
+            tasks.spawn(async move {
                 let _ = engine
                     .submit(Command::LoadPreview {
                         result_id,
@@ -472,7 +505,7 @@ fn dispatch_effect(engine: Arc<dyn EnginePort>, effect: Effect) {
             });
         }
         Effect::ListActions { result_id } => {
-            tokio::spawn(async move {
+            tasks.spawn(async move {
                 let _ = engine.submit(Command::ListActions { result_id }).await;
             });
         }
@@ -482,7 +515,7 @@ fn dispatch_effect(engine: Arc<dyn EnginePort>, effect: Effect) {
             action_id,
             confirmation,
         } => {
-            tokio::spawn(async move {
+            tasks.spawn(async move {
                 let _ = engine
                     .submit(Command::ExecuteAction {
                         operation_id,
@@ -494,7 +527,7 @@ fn dispatch_effect(engine: Arc<dyn EnginePort>, effect: Effect) {
             });
         }
         Effect::CancelOperation { operation_id } => {
-            tokio::spawn(async move {
+            tasks.spawn(async move {
                 let _ = engine
                     .submit(Command::CancelOperation { operation_id })
                     .await;
@@ -505,7 +538,7 @@ fn dispatch_effect(engine: Arc<dyn EnginePort>, effect: Effect) {
             result,
             now_unix,
         } => {
-            tokio::spawn(async move {
+            tasks.spawn(async move {
                 let _ = engine
                     .submit(Command::RecordRecipeRun {
                         recipe_id,
@@ -516,7 +549,7 @@ fn dispatch_effect(engine: Arc<dyn EnginePort>, effect: Effect) {
             });
         }
         Effect::GetSettings => {
-            tokio::spawn(async move {
+            tasks.spawn(async move {
                 let _ = engine.submit(Command::GetSettings).await;
             });
         }
@@ -525,7 +558,7 @@ fn dispatch_effect(engine: Arc<dyn EnginePort>, effect: Effect) {
             enabled,
             expected_version,
         } => {
-            tokio::spawn(async move {
+            tasks.spawn(async move {
                 let _ = engine
                     .submit(Command::UpdateSettings {
                         patch: serde_json::json!({
@@ -548,6 +581,16 @@ fn dispatch_effect(engine: Arc<dyn EnginePort>, effect: Effect) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn paste_on_confirm_is_ignored() {
+        assert!(paste_msgs(&Route::ConfirmAction, "y").is_empty());
+        assert!(paste_msgs(&Route::Settings, "toggle").is_empty());
+        let search = paste_msgs(&Route::Search, "ab");
+        assert_eq!(search.len(), 2);
+        assert!(matches!(search[0], Msg::KeyChar('a')));
+        assert!(matches!(search[1], Msg::KeyChar('b')));
+    }
 
     #[test]
     fn ctrl_underscore_encoding_opens_commands() {

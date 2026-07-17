@@ -45,13 +45,20 @@ pub(super) fn render_overlay_confirm(
     symbols: &Symbols,
 ) {
     dim_backdrop(frame, area, theme);
-    let overlay = overlay_area(area, 9);
+    let overlay = overlay_area(area, 10);
     fill_overlay_panel(frame, overlay, theme);
     let panel = panel_style(theme);
 
     let pending = state.pending_action.as_ref();
     let action = pending.map(|p| p.action.label.as_str()).unwrap_or("action");
     let risk = pending.map(|p| &p.action.risk);
+    let consequence = match risk {
+        Some(ActionRisk::Destructive) => {
+            "This cannot be undone from here. Enter runs it; Esc cancels."
+        }
+        Some(ActionRisk::Confirm) => "Enter runs the action; Esc cancels without changes.",
+        _ => "Enter confirms; Esc cancels.",
+    };
     let target = pending
         .and_then(|p| {
             state
@@ -88,6 +95,10 @@ pub(super) fn render_overlay_confirm(
         Line::from(Span::styled(
             format!("  Target: {target}"),
             with_panel_bg(theme.accent(), theme),
+        )),
+        Line::from(Span::styled(
+            format!("  {consequence}"),
+            with_panel_bg(theme.muted(), theme),
         )),
         Line::from(Span::styled("", panel)),
         Line::from(Span::styled(
@@ -201,9 +212,10 @@ pub(super) fn render_overlay_help(
     // terminals still see modules after a short scroll.
     let mut lines: Vec<String> = vec![
         "Triggers need a trailing space (`n docker`) · Esc clears · empty Esc quits".to_string(),
-        "Enter action · Ctrl-k actions · Ctrl-/ commands · Tab focus · ? help".to_string(),
+        "Enter action · Ctrl-k actions · Ctrl-/ commands · Tab focus · S-Tab preview · ? help"
+            .to_string(),
         format!(
-            "{}{} / PgUp PgDn move · Ctrl-u home · Ctrl-w word",
+            "{}{} / PgUp PgDn move · Ctrl-p/n history · Ctrl-u home · Ctrl-w word",
             symbols.up, symbols.down
         ),
         "Hub / win list: 1-9 focus visible window · ↑↓ move · Enter open".to_string(),

@@ -13,12 +13,6 @@ pub async fn await_unless_cancelled<T>(
     tokio::select! {
         biased;
         _ = cancel.cancelled() => None,
-        value = fut => {
-            if cancel.is_cancelled() {
-                None
-            } else {
-                Some(value)
-            }
-        }
+        value = fut => Some(value),
     }
 }

@@ -19,14 +19,14 @@ impl Engine {
             let mut g = self.inner.lock().await;
             let mut handles = Vec::new();
             if let Some(mut old) = g.operations.remove(&operation_id) {
+                g.operation_order.retain(|id| id != &operation_id);
                 old.cancel.cancel();
                 if let Some(handle) = old.handle.take() {
                     handles.push(handle);
                 }
             }
             while g.operations.len() >= MAX_OPERATIONS {
-                let oldest = g.operations.keys().next().cloned();
-                let Some(id) = oldest else {
+                let Some(id) = g.operation_order.pop_front() else {
                     break;
                 };
                 if let Some(mut old) = g.operations.remove(&id) {
@@ -37,6 +37,8 @@ impl Engine {
                 }
             }
             let cancel = g.session_cancel.child_token();
+            g.next_operation_generation = g.next_operation_generation.wrapping_add(1);
+            let generation = g.next_operation_generation;
             let module_id = item
                 .as_ref()
                 .map(|i| i.module_id.as_str().to_string())
@@ -46,12 +48,14 @@ impl Engine {
                 OperationTask {
                     cancel: cancel.clone(),
                     module_id,
+                    generation,
                     handle: None,
                 },
             );
-            (cancel, handles)
+            g.operation_order.push_back(operation_id.clone());
+            (cancel, generation, handles)
         };
-        let (cancel, superseded_handles) = superseded;
+        let (cancel, generation, superseded_handles) = superseded;
         for handle in superseded_handles {
             let _ = Self::await_operation_handle(handle).await;
         }
@@ -144,18 +148,41 @@ impl Engine {
             };
             {
                 let mut g = engine.lock().await;
-                Self::emit_from_inner(
-                    &g,
-                    Event::ActionFinished {
-                        operation_id: op_id.clone(),
-                        outcome,
-                    },
-                );
-                g.operations.remove(&op_id);
+                let is_current = g
+                    .operations
+                    .get(&op_id)
+                    .is_some_and(|operation| operation.generation == generation);
+                if is_current {
+                    Self::emit_from_inner(
+                        &g,
+                        Event::ActionFinished {
+                            operation_id: op_id.clone(),
+                            outcome,
+                        },
+                    );
+                    g.operations.remove(&op_id);
+                    g.operation_order.retain(|id| id != &op_id);
+                }
             }
         });
-        if let Some(op) = self.inner.lock().await.operations.get_mut(&operation_id) {
-            op.handle = Some(handle);
+        let mut handle = Some(handle);
+        let should_abort = {
+            let mut g = self.inner.lock().await;
+            if let Some(op) = g.operations.get_mut(&operation_id) {
+                if op.generation == generation {
+                    op.handle = handle.take();
+                    false
+                } else {
+                    true
+                }
+            } else {
+                true
+            }
+        };
+        if should_abort {
+            if let Some(handle) = handle {
+                handle.abort();
+            }
         }
     }
 
@@ -212,12 +239,12 @@ impl Engine {
     }
 
     pub(super) async fn handle_cancel_operation(&self, operation_id: String) {
-        let handle = {
+        let (handle, generation) = {
             let mut g = self.inner.lock().await;
             match g.operations.get_mut(&operation_id) {
                 Some(op) => {
                     op.cancel.cancel();
-                    op.handle.take()
+                    (op.handle.take(), op.generation)
                 }
                 None => {
                     drop(g);
@@ -240,17 +267,88 @@ impl Engine {
             let finished_cleanly = Self::await_operation_handle(handle).await;
             if !finished_cleanly {
                 // Abort skipped the task's ActionFinished emit — synthesize Cancelled.
-                {
+                let should_emit = {
                     let mut g = self.inner.lock().await;
-                    g.operations.remove(&operation_id);
+                    let is_current = g
+                        .operations
+                        .get(&operation_id)
+                        .is_some_and(|operation| operation.generation == generation);
+                    if is_current {
+                        g.operations.remove(&operation_id);
+                        g.operation_order.retain(|id| id != &operation_id);
+                    }
+                    is_current
+                };
+                if should_emit {
+                    let _ = self
+                        .emit(Event::ActionFinished {
+                            operation_id,
+                            outcome: luma_protocol::ActionOutcomeDto::Cancelled,
+                        })
+                        .await;
                 }
-                let _ = self
-                    .emit(Event::ActionFinished {
-                        operation_id,
-                        outcome: luma_protocol::ActionOutcomeDto::Cancelled,
-                    })
-                    .await;
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::{EngineInner, ModuleRegistry, OperationTask, MAX_OPERATIONS};
+    use std::collections::{HashMap, VecDeque};
+    use tokio_util::sync::CancellationToken;
+
+    #[test]
+    fn operation_order_evicts_oldest_first() {
+        let (tx, _) = tokio::sync::broadcast::channel(8);
+        let mut inner = EngineInner {
+            registry: ModuleRegistry::new(),
+            event_broadcast_tx: tx,
+            session_cancel: CancellationToken::new(),
+            searches: HashMap::new(),
+            cancel_intents: HashMap::new(),
+            pending_searches: HashMap::new(),
+            operations: HashMap::new(),
+            operation_order: VecDeque::new(),
+            next_operation_generation: 0,
+            latest_preview_id: 0,
+            results_by_id: HashMap::new(),
+            result_order: VecDeque::new(),
+            module_states: HashMap::new(),
+        };
+        for i in 0..MAX_OPERATIONS {
+            let id = format!("op-{i}");
+            inner.operations.insert(
+                id.clone(),
+                OperationTask {
+                    cancel: CancellationToken::new(),
+                    module_id: "m".into(),
+                    generation: i as u64 + 1,
+                    handle: None,
+                },
+            );
+            inner.operation_order.push_back(id);
+        }
+        assert_eq!(inner.operations.len(), MAX_OPERATIONS);
+        while inner.operations.len() >= MAX_OPERATIONS {
+            let id = inner.operation_order.pop_front().expect("order");
+            inner.operations.remove(&id);
+        }
+        assert!(!inner.operations.contains_key("op-0"));
+        assert_eq!(inner.operations.len(), MAX_OPERATIONS - 1);
+        inner.operations.insert(
+            "op-new".into(),
+            OperationTask {
+                cancel: CancellationToken::new(),
+                module_id: "m".into(),
+                generation: MAX_OPERATIONS as u64 + 1,
+                handle: None,
+            },
+        );
+        inner.operation_order.push_back("op-new".into());
+        assert!(inner.operations.contains_key("op-new"));
+        assert!(inner
+            .operations
+            .contains_key(&format!("op-{}", MAX_OPERATIONS - 1)));
     }
 }

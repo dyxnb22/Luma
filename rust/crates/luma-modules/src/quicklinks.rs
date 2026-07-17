@@ -463,8 +463,11 @@ impl LumaModule for QuicklinksModule {
                 },
             },
             "open" => {
-                let index = self.index.read().await;
-                let Some(url) = url_for_item(&action.result, &index) else {
+                let url = {
+                    let index = self.index.read().await;
+                    url_for_item(&action.result, &index)
+                };
+                let Some(url) = url else {
                     return ActionOutcome::Failed {
                         kind: FailureKind::InvalidInput {
                             field: "url".into(),
@@ -493,8 +496,11 @@ impl LumaModule for QuicklinksModule {
                 }
             }
             "copy" => {
-                let index = self.index.read().await;
-                let Some(url) = url_for_item(&action.result, &index) else {
+                let url = {
+                    let index = self.index.read().await;
+                    url_for_item(&action.result, &index)
+                };
+                let Some(url) = url else {
                     return ActionOutcome::Failed {
                         kind: FailureKind::InvalidInput {
                             field: "url".into(),
@@ -502,11 +508,12 @@ impl LumaModule for QuicklinksModule {
                         },
                     };
                 };
-                match self.pasteboard.write_text(&url).await {
-                    Ok(()) => ActionOutcome::Success {
+                match await_unless_cancelled(&cancel, self.pasteboard.write_text(&url)).await {
+                    None => ActionOutcome::Cancelled,
+                    Some(Ok(())) => ActionOutcome::Success {
                         message: Some("copied url".into()),
                     },
-                    Err(err) => ActionOutcome::Failed {
+                    Some(Err(err)) => ActionOutcome::Failed {
                         kind: FailureKind::Unavailable {
                             reason: err.to_string(),
                             retryable: true,
@@ -544,6 +551,27 @@ mod tests {
         }
         async fn write_text(&self, text: &str) -> Result<(), PasteboardError> {
             *self.0.lock().await = Some(text.into());
+            Ok(())
+        }
+    }
+
+    struct HangPb {
+        written: TokioMutex<Option<String>>,
+        started: tokio::sync::Notify,
+        release: TokioMutex<Option<tokio::sync::oneshot::Receiver<()>>>,
+    }
+
+    #[async_trait]
+    impl PasteboardPort for HangPb {
+        async fn read_text(&self) -> Result<Option<String>, PasteboardError> {
+            Ok(self.written.lock().await.clone())
+        }
+        async fn write_text(&self, text: &str) -> Result<(), PasteboardError> {
+            self.started.notify_waiters();
+            if let Some(rx) = self.release.lock().await.take() {
+                let _ = rx.await;
+            }
+            *self.written.lock().await = Some(text.into());
             Ok(())
         }
     }
@@ -705,6 +733,65 @@ mod tests {
                 kind: FailureKind::InvalidInput { .. }
             }
         ));
+    }
+
+    #[tokio::test]
+    async fn quicklinks_copy_cancelled_does_not_write_pasteboard() {
+        let store = Arc::new(MemoryQuicklinksRepository::new());
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        let pb = Arc::new(HangPb {
+            written: TokioMutex::new(None),
+            started: tokio::sync::Notify::new(),
+            release: TokioMutex::new(Some(rx)),
+        });
+        let m = QuicklinksModule::with_deps(
+            store,
+            Arc::new(luma_application::FakeOpenPath::new()),
+            pb.clone(),
+        );
+        m.upsert("docs", "https://example.com").await.unwrap();
+        let cancel = CancellationToken::new();
+        let cancel_c = cancel.clone();
+        let started = pb.started.notified();
+        tokio::pin!(started);
+        let perform = tokio::spawn(async move {
+            m.perform(
+                ActionRequest {
+                    result: SearchItem {
+                        id: luma_domain::ResultId::new("ql:docs"),
+                        module_id: ModuleId::new("luma.quicklinks"),
+                        title: "docs".into(),
+                        subtitle: Some("https://example.com".into()),
+                        kind: "link".into(),
+                        score: 1.0,
+                        primary_action: ActionDescriptor {
+                            id: ActionId::new("open"),
+                            label: "Open".into(),
+                            risk: ActionRisk::Safe,
+                            confirmation: false,
+                        },
+                        secondary_actions: vec![],
+                        ui_intent: None,
+                        action_payload: None,
+                    },
+                    action: ActionDescriptor {
+                        id: ActionId::new("copy"),
+                        label: "Copy URL".into(),
+                        risk: ActionRisk::Safe,
+                        confirmation: false,
+                    },
+                    confirmation: false,
+                },
+                cancel,
+            )
+            .await
+        });
+        started.await;
+        cancel_c.cancel();
+        let outcome = perform.await.unwrap();
+        assert!(matches!(outcome, ActionOutcome::Cancelled));
+        assert!(pb.written.lock().await.is_none());
+        let _ = tx.send(());
     }
 }
 

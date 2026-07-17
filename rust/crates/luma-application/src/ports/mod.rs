@@ -32,7 +32,9 @@ mod timers_repo;
 mod window;
 mod wordbook_repo;
 
-pub use accessibility::{AccessibilityError, AccessibilityPort, FakeAccessibility};
+pub use accessibility::{
+    frontmost_matches_paste_target, AccessibilityError, AccessibilityPort, FakeAccessibility,
+};
 pub use apps::{AppEntry, AppLaunchError, AppsCatalogPort};
 pub use bounded_file_reader::{
     BoundedUtf8FileReadError, BoundedUtf8FileReaderPort, FakeBoundedUtf8FileReader,

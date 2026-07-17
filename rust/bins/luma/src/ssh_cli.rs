@@ -1,6 +1,6 @@
 use luma_application::{
     run_action, run_interactive_terminal, run_query, sftp_args, ssh_connect_args, EnginePort,
-    ModuleRegistry, SettingsRepository,
+    ModuleRegistry, SettingsRepository, SshConfigPort,
 };
 use luma_protocol::Command;
 use std::process::ExitStatus;
@@ -71,7 +71,16 @@ pub async fn ssh_connect_cli(
     program: &str,
     settings: Option<Arc<dyn SettingsRepository>>,
     engine: Option<Arc<dyn EnginePort>>,
+    ssh_config: Arc<dyn SshConfigPort>,
 ) -> Result<ExitStatus, String> {
+    // Same resolve gate as TUI (unknown / `-`-prefixed aliases refused before spawn).
+    let _ = ssh_config.resolve(alias).map_err(|e| e.to_string())?;
+    if program == "sftp" && !ssh_config.sftp_available() {
+        return Err("sftp command unavailable".into());
+    }
+    if program != "sftp" && !ssh_config.ssh_available() {
+        return Err("ssh command unavailable".into());
+    }
     let args = if program == "sftp" {
         sftp_args(alias)
     } else {
@@ -99,4 +108,35 @@ pub async fn ssh_connect_cli(
         }
     }
     Ok(status)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use luma_application::{FakeSshConfigPort, ModuleRegistry};
+
+    #[tokio::test]
+    async fn ssh_connect_cli_rejects_dash_alias() {
+        let config = Arc::new(FakeSshConfigPort::new());
+        let err = ssh_connect_cli(ModuleRegistry::new(), "-ofoo", "ssh", None, None, config)
+            .await
+            .unwrap_err();
+        assert!(err.contains("flag") || err.contains("refusing"), "{err}");
+    }
+
+    #[tokio::test]
+    async fn ssh_connect_cli_rejects_unknown_alias() {
+        let config = Arc::new(FakeSshConfigPort::new());
+        let err = ssh_connect_cli(
+            ModuleRegistry::new(),
+            "no-such-host",
+            "ssh",
+            None,
+            None,
+            config,
+        )
+        .await
+        .unwrap_err();
+        assert!(err.contains("unknown"), "{err}");
+    }
 }

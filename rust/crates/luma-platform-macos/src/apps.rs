@@ -102,7 +102,7 @@ fn scan_dir(dir: &Path, depth: usize, apps: &mut Vec<AppEntry>) -> Result<(), St
                 .and_then(|s| s.to_str())
                 .unwrap_or("Unknown")
                 .to_string();
-            debug!(%name, path = %path.display(), "indexed app");
+            debug!(%name, "indexed app");
             apps.push(AppEntry {
                 name,
                 path,

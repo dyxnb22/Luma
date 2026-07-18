@@ -132,6 +132,7 @@ impl MacWindowCatalog {
                 owner_pid,
             });
         }
+        fill_missing_titles_from_accessibility(&mut out);
         unsafe { CFRelease(info) };
         Ok(out)
     }
@@ -195,6 +196,83 @@ impl MacWindowCatalog {
         self.set_paste_target_locked(label.clone());
         Ok(label)
     }
+}
+
+/// CoreGraphics often omits window names for document-less or sandboxed apps. When
+/// Accessibility is already trusted, use AXTitle as a best-effort enrichment while keeping
+/// the CoreGraphics window id and ordering authoritative.
+fn fill_missing_titles_from_accessibility(entries: &mut [WindowEntry]) {
+    if !unsafe { AXIsProcessTrusted() } {
+        return;
+    }
+    let mut pids = Vec::new();
+    for entry in entries.iter() {
+        if entry.title == "Untitled" && !pids.contains(&entry.owner_pid) {
+            pids.push(entry.owner_pid);
+        }
+    }
+    for pid in pids {
+        let titles = ax_window_titles_for_pid(pid);
+        if titles.is_empty() {
+            continue;
+        }
+        for (title_index, entry) in entries
+            .iter_mut()
+            .filter(|entry| entry.owner_pid == pid && entry.title == "Untitled")
+            .enumerate()
+        {
+            let Some(title) = titles.get(title_index) else {
+                break;
+            };
+            if !title.trim().is_empty() {
+                entry.title = title.clone();
+            }
+        }
+    }
+}
+
+fn ax_window_titles_for_pid(pid: u32) -> Vec<String> {
+    let Ok(windows_attr) = ax_windows() else {
+        return Vec::new();
+    };
+    let Ok(title_attr) = ax_title() else {
+        return Vec::new();
+    };
+    let app = unsafe { AXUIElementCreateApplication(pid as i32) };
+    if app.is_null() {
+        return Vec::new();
+    }
+    let mut windows_ref: CFTypeRef = ptr::null_mut();
+    let copy = unsafe { AXUIElementCopyAttributeValue(app, windows_attr, &mut windows_ref) };
+    if copy != 0 || windows_ref.is_null() {
+        unsafe { CFRelease(app as *const c_void) };
+        return Vec::new();
+    }
+
+    let windows = windows_ref as CFArrayRef;
+    let count = unsafe { CFArrayGetCount(windows) };
+    let mut titles = Vec::with_capacity(count as usize);
+    for i in 0..count {
+        let window = unsafe { CFArrayGetValueAtIndex(windows, i) } as AXUIElementRef;
+        if window.is_null() {
+            continue;
+        }
+        let mut title_ref: CFTypeRef = ptr::null_mut();
+        let result = unsafe { AXUIElementCopyAttributeValue(window, title_attr, &mut title_ref) };
+        let title = if result == 0 && !title_ref.is_null() {
+            let title = cf_string_to_rust(title_ref as CFStringRef).unwrap_or_default();
+            unsafe { CFRelease(title_ref as *const c_void) };
+            title
+        } else {
+            String::new()
+        };
+        titles.push(title);
+    }
+    unsafe {
+        CFRelease(windows_ref as *const c_void);
+        CFRelease(app as *const c_void);
+    }
+    titles
 }
 
 fn parse_window_id(id: &str) -> Option<(u32, i64)> {

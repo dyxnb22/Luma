@@ -24,13 +24,33 @@ pub async fn run_tui_with_engine(
     engine: Arc<dyn EnginePort>,
     command_runner: Arc<dyn CommandRunnerPort>,
 ) -> std::io::Result<()> {
+    run_tui_with_options(engine, command_runner, RunTuiOptions::default()).await
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct RunTuiOptions {
+    /// Seed the editable prompt without submitting or executing it.
+    pub initial_query: Option<String>,
+}
+
+/// Interactive TUI entry with launch-time prompt options.
+pub async fn run_tui_with_options(
+    engine: Arc<dyn EnginePort>,
+    command_runner: Arc<dyn CommandRunnerPort>,
+    options: RunTuiOptions,
+) -> std::io::Result<()> {
     install_panic_hook();
     let mut guard = TerminalGuard::enter()?;
     let mut state = AppState::default();
+    if let Some(initial_query) = options.initial_query {
+        state.prompt = initial_query;
+        state.prompt_cursor = state.prompt.chars().count();
+    }
     if let Ok((width, height)) = crossterm::terminal::size() {
         state.term_width = width;
         state.term_height = height;
         state.sync_results_viewport();
+        state.ensure_prompt_visible(width.saturating_sub(2) as usize);
     }
     state.status.set("Starting…", StatusTone::Progress);
     state.dirty = true;

@@ -5,8 +5,8 @@ alwaysApply: true
 
 # Personal use only
 
-Luma is a **personal daily-driver** Rust CLI/TUI: a keyboard-first workbench for local modules and
-personal information. Do **not** optimize for public release, distribution, notarization,
+Luma is a **personal daily-driver** Rust CLI/TUI with an optional glance-only native menu-bar
+companion: a keyboard-first workbench for local modules and personal information. Do **not** optimize for public release, distribution, notarization,
 multi-user product, or marketing.
 
 Codex and Claude Code are references for TUI ergonomics only — prompt editing, keyboard
@@ -35,7 +35,8 @@ tool-orchestration workflows.
 ## Do not
 
 - Add CI release gates, cargo-deny-as-policy, long soak/PTY evidence packs, or notarization/TCC matrices “for release”.
-- Build Web / native GUI / Tauri / Electron / agent daemon / plugin ABI.
+- Build Web / general native GUI / Tauri / Electron / agent daemon / plugin ABI. The narrowly
+  scoped `luma-menubar` companion is defined by ADR-0006 and is not a module registry or second TUI.
 - Add AI/LLM chat, autonomous agents, task planners, tool-execution loops, or background and
   multi-session agent orchestration unless the user explicitly changes the product boundary.
 - Revive deferred stubs (Window layouts, Menu search, Browser tabs) or signed-host Translate —

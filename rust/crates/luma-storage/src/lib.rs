@@ -30,7 +30,8 @@ pub use command_recipes_config::{
 };
 pub use command_recipes_meta::{CommandRecipesMetaError, CommandRecipesMetaStore};
 pub use config::{
-    validate_import_project_path, ConfigError, ConfigStore, ImportedProject, LumaSettings,
+    validate_import_project_path, ConfigError, ConfigReadError, ConfigStore, ImportedProject,
+    LumaSettings,
 };
 pub use importer::{
     dry_run_legacy_dir, import_clipboard_fixture, import_clipboard_fixture_with_ledger,
@@ -72,5 +73,6 @@ pub use ssh_meta_store::{SshHostMetaRow, SshMetaStore, SshMetaStoreError};
 pub use timers_store::{TimerRow, TimersStore, TimersStoreError};
 pub use wordbook_store::{
     now_iso, schedule_review, ImportContentReport, WordContent, WordImportRow, WordRow,
-    WordbookStats, WordbookStore, WordbookStoreError, WordpetImportReport,
+    WordbookReadOnlyError, WordbookReadOnlyStore, WordbookStats, WordbookStore, WordbookStoreError,
+    WordpetImportReport,
 };

@@ -37,6 +37,14 @@ pub enum WordbookStoreError {
     Msg(String),
 }
 
+#[derive(Debug, Error)]
+pub enum WordbookReadOnlyError {
+    #[error("wordbook not configured")]
+    NotConfigured,
+    #[error("wordbook sqlite: {0}")]
+    Sqlite(#[from] rusqlite::Error),
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct WordRow {
     pub id: i64,
@@ -114,6 +122,30 @@ pub struct WordpetImportReport {
 
 pub struct WordbookStore {
     path: PathBuf,
+}
+
+/// Read-only view of an existing Wordbook database for lightweight companion processes.
+/// Construction never creates the file, parent directories, schema, indexes, or defaults.
+pub struct WordbookReadOnlyStore {
+    path: PathBuf,
+}
+
+impl WordbookReadOnlyStore {
+    pub fn with_path(path: PathBuf) -> Result<Self, WordbookReadOnlyError> {
+        if !path.is_file() {
+            return Err(WordbookReadOnlyError::NotConfigured);
+        }
+        Ok(Self { path })
+    }
+
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
+
+    pub fn stats(&self) -> Result<WordbookStats, WordbookReadOnlyError> {
+        let conn = crate::sqlite::open_readonly_connection(&self.path)?;
+        Ok(stats_on(&conn)?)
+    }
 }
 
 impl WordbookStore {
@@ -207,14 +239,7 @@ impl WordbookStore {
 
     pub fn setting(&self, key: &str, default: &str) -> Result<String, WordbookStoreError> {
         let conn = self.connect()?;
-        let value = conn
-            .query_row(
-                "SELECT value FROM settings WHERE key = ?1",
-                params![key],
-                |r| r.get::<_, String>(0),
-            )
-            .optional()?;
-        Ok(value.unwrap_or_else(|| default.to_string()))
+        Ok(setting_on(&conn, key, default)?)
     }
 
     pub fn set_setting(&self, key: &str, value: &str) -> Result<(), WordbookStoreError> {
@@ -360,48 +385,7 @@ impl WordbookStore {
 
     pub fn stats(&self) -> Result<WordbookStats, WordbookStoreError> {
         let conn = self.connect()?;
-        let now = now_iso();
-        let total: i64 = conn.query_row("SELECT COUNT(*) FROM words", [], |r| r.get(0))?;
-        let due: i64 = conn.query_row(
-            "SELECT COUNT(*) FROM words
-             WHERE mastered_at = '' AND review_count > 0
-               AND julianday(next_review_at) <= julianday(?1)",
-            params![now],
-            |r| r.get(0),
-        )?;
-        let new_count: i64 = conn.query_row(
-            "SELECT COUNT(*) FROM words WHERE mastered_at = '' AND review_count = 0",
-            [],
-            |r| r.get(0),
-        )?;
-        let wrong: i64 = conn.query_row(
-            "SELECT COUNT(*) FROM words
-             WHERE mastered_at = '' AND review_count > 0 AND wrong_count > 0",
-            [],
-            |r| r.get(0),
-        )?;
-        let mastered: i64 = conn.query_row(
-            "SELECT COUNT(*) FROM words WHERE mastered_at != '' OR familiarity = 'mastered'",
-            [],
-            |r| r.get(0),
-        )?;
-        let today_start = today_start_iso();
-        let reviewed_today: i64 = conn.query_row(
-            "SELECT COUNT(*) FROM words WHERE last_review_at >= ?1",
-            params![today_start],
-            |r| r.get(0),
-        )?;
-        let goal = self.daily_goal()?;
-        Ok(WordbookStats {
-            total,
-            due,
-            new_count,
-            wrong,
-            mastered,
-            goal,
-            reviewed_today,
-            remaining_goal: (goal - reviewed_today).max(0),
-        })
+        Ok(stats_on(&conn)?)
     }
 
     /// Upsert content fields only — never resets SRS progress.
@@ -612,6 +596,65 @@ impl WordbookStore {
     ) -> Result<WordpetImportReport, WordbookStoreError> {
         import_wordpet_inner(source, Some(self.path()), commit)
     }
+}
+
+fn setting_on(conn: &Connection, key: &str, default: &str) -> rusqlite::Result<String> {
+    let value = conn
+        .query_row(
+            "SELECT value FROM settings WHERE key = ?1",
+            params![key],
+            |r| r.get::<_, String>(0),
+        )
+        .optional()?;
+    Ok(value.unwrap_or_else(|| default.to_string()))
+}
+
+fn stats_on(conn: &Connection) -> rusqlite::Result<WordbookStats> {
+    let now = now_iso();
+    let total: i64 = conn.query_row("SELECT COUNT(*) FROM words", [], |r| r.get(0))?;
+    let due: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM words
+         WHERE mastered_at = '' AND review_count > 0
+           AND julianday(next_review_at) <= julianday(?1)",
+        params![now],
+        |r| r.get(0),
+    )?;
+    let new_count: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM words WHERE mastered_at = '' AND review_count = 0",
+        [],
+        |r| r.get(0),
+    )?;
+    let wrong: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM words
+         WHERE mastered_at = '' AND review_count > 0 AND wrong_count > 0",
+        [],
+        |r| r.get(0),
+    )?;
+    let mastered: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM words WHERE mastered_at != '' OR familiarity = 'mastered'",
+        [],
+        |r| r.get(0),
+    )?;
+    let today_start = today_start_iso();
+    let reviewed_today: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM words WHERE last_review_at >= ?1",
+        params![today_start],
+        |r| r.get(0),
+    )?;
+    let goal = setting_on(conn, "daily_goal", "30")?
+        .parse::<i64>()
+        .unwrap_or(30)
+        .max(1);
+    Ok(WordbookStats {
+        total,
+        due,
+        new_count,
+        wrong,
+        mastered,
+        goal,
+        reviewed_today,
+        remaining_goal: (goal - reviewed_today).max(0),
+    })
 }
 
 fn sqlite_path_literal(path: &Path) -> Result<String, WordbookStoreError> {
@@ -1045,6 +1088,32 @@ fn escape_fts_query(q: &str) -> String {
 mod tests {
     use super::*;
     use tempfile::tempdir;
+
+    #[test]
+    fn readonly_store_does_not_initialize_missing_database() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("nested").join("wordbook.sqlite");
+        assert!(matches!(
+            WordbookReadOnlyStore::with_path(path.clone()),
+            Err(WordbookReadOnlyError::NotConfigured)
+        ));
+        assert!(!path.exists());
+        assert!(!path.parent().unwrap().exists());
+    }
+
+    #[test]
+    fn readonly_store_reads_stats_without_mutating_database() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("wordbook.sqlite");
+        let writable = WordbookStore::with_path(path.clone()).unwrap();
+        let before = std::fs::metadata(&path).unwrap().len();
+        let expected = writable.stats().unwrap();
+        drop(writable);
+
+        let readonly = WordbookReadOnlyStore::with_path(path.clone()).unwrap();
+        assert_eq!(readonly.stats().unwrap(), expected);
+        assert_eq!(std::fs::metadata(&path).unwrap().len(), before);
+    }
 
     #[test]
     fn upsert_review_and_stats() {

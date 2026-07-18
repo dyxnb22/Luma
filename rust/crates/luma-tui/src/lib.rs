@@ -10,7 +10,7 @@ mod terminal;
 mod theme;
 mod view_model;
 
-pub use app::run_tui_with_engine;
+pub use app::{run_tui_with_engine, run_tui_with_options, RunTuiOptions};
 pub use effect::Effect;
 pub use msg::Msg;
 pub use reducer::update;

@@ -1,6 +1,7 @@
 # Luma
 
-Keyboard-first **personal** launcher (Rust CLI/TUI). Built for solo daily use — **not** for public release or distribution.
+Keyboard-first **personal** launcher (Rust CLI/TUI with an optional native menu-bar companion).
+Built for solo daily use — **not** for public release or distribution.
 
 ```bash
 cd rust
@@ -16,9 +17,9 @@ cargo test -p luma --test cli_blackbox
 
 | In | Out |
 | --- | --- |
-| Local TUI + CLI on your Mac | App Store / notarized shipping |
+| Local TUI + CLI plus glance-only native menu bar on your Mac | App Store / notarized shipping |
 | Apps, Windows, Proxy, Clipboard, Notes, Quicklinks, Snippets, Wordbook, Projects, Records, Command Recipes, SSH, Timers, Secrets | Window layouts, Menu search, Browser tabs, signed-host Translate |
-| Honest permission / unavailable states | Release soak, deny-as-policy, marketing docs |
+| Honest permission / unavailable states in each surface | Release soak, deny-as-policy, marketing docs |
 | Module-local status and remediation rows | Centralized `doctor` command or diagnostics overlay |
 
 ## Docs

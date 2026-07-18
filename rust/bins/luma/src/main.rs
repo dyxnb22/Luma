@@ -17,7 +17,7 @@ use luma_storage::{
     preview_import_from_dir, record_dry_run, rollback_migration, ClipboardStore, ConfigError,
     ConfigStore, MigrationKind, RecordsStore, WordbookStore,
 };
-use luma_tui::run_tui_with_engine;
+use luma_tui::{run_tui_with_options, RunTuiOptions};
 use std::io::Read;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -33,7 +33,11 @@ struct Cli {
 #[allow(clippy::large_enum_variant)]
 enum Commands {
     /// Run interactive TUI (default when no subcommand).
-    Tui,
+    Tui {
+        /// Pre-fill the editable prompt without submitting it.
+        #[arg(long)]
+        initial_query: Option<String>,
+    },
     /// Run a one-shot query through the application engine.
     Query {
         query: String,
@@ -385,21 +389,34 @@ async fn main() -> anyhow::Result<()> {
 
     let cli = Cli::parse();
     match cli.command {
-        None | Some(Commands::Tui) => {
-            let load =
-                load_registry_with_settings().map_err(|e| anyhow::anyhow!("registry: {e}"))?;
-            let engine: Arc<dyn luma_application::EnginePort> = Arc::new(Engine::with_options(
-                load.registry,
-                luma_application::EngineOptions {
-                    settings: Some(load.settings),
-                    wordbook: load.wordbook,
-                    command_recipes: load.command_recipes,
-                },
-            ));
-            let command_runner =
-                Arc::new(MacCommandRunner::new()) as Arc<dyn luma_application::CommandRunnerPort>;
-            run_tui_with_engine(engine, command_runner).await?;
-        }
+        None => run_tui(None).await?,
+        Some(Commands::Tui { initial_query }) => run_tui(initial_query).await?,
+        Some(command) => match command {
+            Commands::Tui { .. } => unreachable!("Tui handled above"),
+            other => return run_non_tui_command(other).await,
+        },
+    }
+    Ok(())
+}
+
+async fn run_tui(initial_query: Option<String>) -> anyhow::Result<()> {
+    let load = load_registry_with_settings().map_err(|e| anyhow::anyhow!("registry: {e}"))?;
+    let engine: Arc<dyn luma_application::EnginePort> = Arc::new(Engine::with_options(
+        load.registry,
+        luma_application::EngineOptions {
+            settings: Some(load.settings),
+            wordbook: load.wordbook,
+            command_recipes: load.command_recipes,
+        },
+    ));
+    let command_runner =
+        Arc::new(MacCommandRunner::new()) as Arc<dyn luma_application::CommandRunnerPort>;
+    run_tui_with_options(engine, command_runner, RunTuiOptions { initial_query }).await?;
+    Ok(())
+}
+
+async fn run_non_tui_command(command: Commands) -> anyhow::Result<()> {
+    match Some(command) {
         Some(Commands::Query {
             query,
             json,
@@ -929,6 +946,8 @@ async fn main() -> anyhow::Result<()> {
         Some(Commands::Record { action }) => handle_record_command(action)?,
         Some(Commands::Cmd { action }) => cmd_cli::handle_cmd_command(action).await?,
         Some(Commands::Ssh { action }) => handle_ssh_command(action).await?,
+        Some(Commands::Tui { .. }) => unreachable!("Tui handled by main"),
+        None => unreachable!("command was constructed as Some"),
     }
     Ok(())
 }

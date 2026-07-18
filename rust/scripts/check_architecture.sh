@@ -30,6 +30,14 @@ print(' '.join(dep['name'] for dep in p['dependencies'] if dep.get('kind') is No
 check_absent luma-tui luma-platform-macos luma-storage luma-modules
 check_absent luma-modules luma-platform-macos luma-storage
 check_absent luma-domain luma-platform-macos luma-storage luma-modules luma-tui
+check_absent luma luma-menubar objc2 objc2-app-kit objc2-service-management
+check_absent luma-menubar luma-tui luma-modules luma-protocol
+
+if rg -n 'objc2(-app-kit|-service-management)?|objc2_foundation' \
+  bins/luma/Cargo.toml crates/*/Cargo.toml 2>/dev/null | head -20 | grep .; then
+  echo "FAIL: AppKit/ServiceManagement dependencies must remain confined to bins/luma-menubar"
+  fail=1
+fi
 # application → storage is allowed (settings adapters); engine must not open stores directly.
 if rg -n 'ClipboardStore::luma_next_default|NotesIndexStore::luma_next_default|QuicklinksStore::luma_next_default|SnippetsStore::luma_next_default|TimersStore::luma_next_default' \
   crates/luma-application/src/engine.rs crates/luma-application/src/engine/*.rs 2>/dev/null | head -20 | grep .; then

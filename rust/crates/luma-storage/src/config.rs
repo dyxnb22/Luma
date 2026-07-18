@@ -27,6 +27,20 @@ pub enum ConfigError {
     Mutation(String),
 }
 
+/// Errors returned when a companion process reads settings without being allowed to repair
+/// or initialize them.
+#[derive(Debug, Error)]
+pub enum ConfigReadError {
+    #[error("settings not configured")]
+    NotConfigured,
+    #[error("settings io: {0}")]
+    Io(#[from] std::io::Error),
+    #[error("settings toml deserialize: {0}")]
+    TomlDe(#[from] toml::de::Error),
+    #[error("settings is marked corrupt: {0}")]
+    Corrupt(PathBuf),
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ImportedProject {
     pub path: String,
@@ -394,6 +408,24 @@ impl ConfigStore {
 
     pub fn with_path(path: PathBuf) -> Self {
         Self { path }
+    }
+
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
+
+    /// Read an already-existing settings file without creating directories, lock files,
+    /// defaults, quarantine markers, or replacement files.
+    pub fn load_existing(&self) -> Result<LumaSettings, ConfigReadError> {
+        let marker = self.corrupt_marker_path();
+        if marker.exists() {
+            return Err(ConfigReadError::Corrupt(marker));
+        }
+        if !self.path.exists() {
+            return Err(ConfigReadError::NotConfigured);
+        }
+        let raw = fs::read_to_string(&self.path)?;
+        Ok(toml::from_str::<LumaSettings>(&raw)?)
     }
 
     pub fn load_or_default(&self) -> Result<LumaSettings, ConfigError> {
@@ -901,5 +933,33 @@ mod tests {
             .unwrap();
         assert_eq!(settings.imported_projects.len(), 1);
         assert!(settings.imported_projects[0].path.ends_with("/two/same"));
+    }
+
+    #[test]
+    fn load_existing_does_not_initialize_missing_settings() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("nested").join("settings.toml");
+        let store = ConfigStore::with_path(path.clone());
+        assert!(matches!(
+            store.load_existing(),
+            Err(ConfigReadError::NotConfigured)
+        ));
+        assert!(!path.exists());
+        assert!(!path.parent().unwrap().exists());
+    }
+
+    #[test]
+    fn load_existing_reports_invalid_settings_without_quarantine() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("settings.toml");
+        fs::write(&path, "not = [valid").unwrap();
+        let marker = path.with_extension("corrupt");
+        let store = ConfigStore::with_path(path.clone());
+        assert!(matches!(
+            store.load_existing(),
+            Err(ConfigReadError::TomlDe(_))
+        ));
+        assert!(path.exists());
+        assert!(!marker.exists());
     }
 }

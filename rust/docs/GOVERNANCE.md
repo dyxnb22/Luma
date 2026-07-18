@@ -21,10 +21,12 @@ Related: [MODULES.md](./MODULES.md), [ADR-0001](./adr/0001-rust-tui-product-shap
 
 ### Product & data
 
-1. **Boundary** — CLI/TUI only; no Web/Tauri/Electron/agent daemon/LLM chat unless an ADR
-   explicitly changes ADR-0001 / ADR-0002.
+1. **Boundary** — CLI/TUI plus the narrowly scoped native menu-bar companion approved by
+   ADR-0006; no Web/Tauri/Electron/agent daemon/LLM chat unless an ADR explicitly changes
+   ADR-0001 / ADR-0002.
 2. **Composition** — `bins/luma` (+ `compose.rs`) is the sole registration root for modules
-   and adapters.
+   and adapters. `luma-menubar` is only a UI process root and must not register modules or build
+   the Engine.
 3. **Persistence** — live data under LumaNext only (`LUMA_NEXT_*` in tests). No silent writes
    outside that tree.
 4. **Honesty** — permission / unavailable / not-configured / empty are distinct. Never fake

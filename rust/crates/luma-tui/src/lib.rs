@@ -2,6 +2,7 @@
 
 mod app;
 mod effect;
+mod engine_projection;
 mod module_shortcuts;
 mod msg;
 mod reducer;

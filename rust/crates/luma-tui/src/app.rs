@@ -43,12 +43,12 @@ pub async fn run_tui_with_options(
     let mut guard = TerminalGuard::enter()?;
     let mut state = AppState::default();
     if let Some(initial_query) = options.initial_query {
-        state.prompt = initial_query;
-        state.prompt_cursor = state.prompt.chars().count();
+        state.search.prompt = initial_query;
+        state.search.prompt_cursor = state.search.prompt.chars().count();
     }
     if let Ok((width, height)) = crossterm::terminal::size() {
-        state.term_width = width;
-        state.term_height = height;
+        state.terminal.width = width;
+        state.terminal.height = height;
         state.sync_results_viewport();
         state.ensure_prompt_visible(width.saturating_sub(2) as usize);
     }
@@ -74,7 +74,7 @@ pub async fn run_tui_with_options(
             }
         }
 
-        if let Some(plan) = state.pending_recipe_run.take() {
+        if let Some(plan) = state.runtime.pending_recipe_run.take() {
             run_recipe_in_terminal(
                 &mut guard,
                 command_runner.as_ref(),
@@ -83,7 +83,9 @@ pub async fn run_tui_with_options(
                 plan,
                 &mut effect_tasks,
             );
-            if command_recipes_query_active(&state.prompt) && !state.prompt.trim().is_empty() {
+            if command_recipes_query_active(&state.search.prompt)
+                && !state.search.prompt.trim().is_empty()
+            {
                 let effects = update(&mut state, Msg::FlushSearch);
                 for effect in effects {
                     dispatch_effect(engine.clone(), effect, &mut effect_tasks);
@@ -120,13 +122,13 @@ pub async fn run_tui_with_options(
             msgs.push(Msg::BroadcastLagged);
         }
 
-        if let Some(deadline) = state.search_debounce_deadline {
+        if let Some(deadline) = state.search.debounce_deadline {
             if std::time::Instant::now() >= deadline {
                 msgs.push(Msg::FlushSearch);
             }
         }
 
-        if let Some(deadline) = state.hub_refresh_deadline {
+        if let Some(deadline) = state.hub.refresh_deadline {
             if std::time::Instant::now() >= deadline {
                 msgs.push(Msg::RefreshHub);
             }
@@ -461,16 +463,16 @@ fn run_interactive_terminal_effect(
         state.dirty = true;
     }
 
-    if state.active_operation.as_deref() == Some(operation_id.as_str()) {
-        state.active_operation = None;
+    if state.actions.active_operation.as_deref() == Some(operation_id.as_str()) {
+        state.actions.active_operation = None;
     }
 
     if let (Some(alias), Some(status)) = (record_alias, status) {
         if status.success() {
-            if explicit_command_prompt(&state.prompt)
+            if explicit_command_prompt(&state.search.prompt)
                 .is_some_and(|command| command.starts_with("ssh"))
             {
-                state.search_debounce_deadline = Some(std::time::Instant::now());
+                state.search.debounce_deadline = Some(std::time::Instant::now());
             }
             let engine_record = engine.clone();
             tasks.spawn(async move {
@@ -655,8 +657,8 @@ mod tests {
     #[test]
     fn map_key_digit_routes_to_prompt_when_not_intercepting() {
         let mut state = AppState::default();
-        state.prompt = "app ".into();
-        state.prompt_cursor = state.prompt_char_len();
+        state.search.prompt = "app ".into();
+        state.search.prompt_cursor = state.prompt_char_len();
         let msg = map_key(KeyCode::Char('3'), KeyModifiers::empty(), &state);
         assert!(matches!(msg, Msg::KeyChar('3')));
     }
@@ -688,7 +690,7 @@ mod tests {
             focus: FocusZone::List,
             ..Default::default()
         };
-        state.results.items.push(SearchItem {
+        state.search.results.items.push(SearchItem {
             id: ResultId::new("recipe:1"),
             module_id: ModuleId::new("luma.command_recipes"),
             title: "Build".into(),
@@ -705,7 +707,7 @@ mod tests {
             ui_intent: None,
             action_payload: None,
         });
-        state.results.select_at(0);
+        state.search.results.select_at(0);
         let msg = map_key(KeyCode::Char('r'), KeyModifiers::empty(), &state);
         assert!(matches!(
             msg,

@@ -1,11 +1,27 @@
 use crate::effect::Effect;
 use crate::msg::Msg;
-use crate::view_model::{
-    ActionsIntent, AppState, AwaitingActions, FocusZone, PendingAction, Route, StatusTone,
-};
-use luma_protocol::{ActionDescriptorDto, Event, UiIntent};
+use crate::view_model::{AppState, FocusZone, Route, StatusTone};
+use luma_protocol::UiIntent;
 
+mod actions;
+mod engine;
+mod navigation;
+mod overlays;
+mod preview;
+mod search;
 mod wordbook;
+
+use actions::{
+    clear_action_ui, confirm_pending, dismiss_help_for_prompt_edit, recipe_shortcut,
+    request_action_picker, request_primary_actions, submit_picker_selection,
+};
+use engine::apply_engine;
+use navigation::{
+    apply_hub_selection, cancel_msg, pick_window_digit, select_next_msg, select_prev_msg,
+};
+use overlays::{open_commands, open_settings, run_command_selection, toggle_setting, COMMANDS};
+use preview::{preview_effect, sync_prompt_viewport};
+use search::{begin_search, cancel_active, flush_pending_search_or_continue, schedule_search};
 
 const PAGE_SIZE: usize = 5;
 
@@ -30,10 +46,10 @@ fn apply_ui_intent(
     intent: UiIntent,
 ) -> Vec<Effect> {
     match intent {
-        UiIntent::Browse => drill_into_browse(state, item),
-        UiIntent::ListIssues => open_notes_issues(state),
-        UiIntent::SeedAdd => seed_module_add(state, item),
-        UiIntent::SeedConfig => seed_module_config(state, item),
+        UiIntent::Browse => navigation::drill_into_browse(state, item),
+        UiIntent::ListIssues => navigation::open_notes_issues(state),
+        UiIntent::SeedAdd => navigation::seed_module_add(state, item),
+        UiIntent::SeedConfig => navigation::seed_module_config(state, item),
         UiIntent::OpenPath => {
             state
                 .status
@@ -60,12 +76,12 @@ pub fn update(state: &mut AppState, msg: Msg) -> Vec<Effect> {
             ) {
                 clear_action_ui(state);
                 // Typing abandons overlay restore (Esc is the restore path).
-                state.overlay_restore_prompt = None;
+                state.overlay.restore_prompt = None;
                 state.route = Route::Search;
             }
             state.focus = FocusZone::Prompt;
-            state.history_browse = None;
-            state.browse_nav_stack.clear();
+            state.search.history_browse = None;
+            state.search.browse_nav_stack.clear();
             state.insert_prompt_char(c);
             sync_prompt_viewport(state);
             schedule_search(state)
@@ -77,8 +93,8 @@ pub fn update(state: &mut AppState, msg: Msg) -> Vec<Effect> {
                 return vec![Effect::None];
             }
             state.focus = FocusZone::Prompt;
-            state.history_browse = None;
-            state.browse_nav_stack.clear();
+            state.search.history_browse = None;
+            state.search.browse_nav_stack.clear();
             state.backspace_prompt();
             schedule_search(state)
         }
@@ -89,8 +105,8 @@ pub fn update(state: &mut AppState, msg: Msg) -> Vec<Effect> {
                 return vec![Effect::None];
             }
             state.focus = FocusZone::Prompt;
-            state.history_browse = None;
-            state.browse_nav_stack.clear();
+            state.search.history_browse = None;
+            state.search.browse_nav_stack.clear();
             state.delete_forward_prompt();
             schedule_search(state)
         }
@@ -101,7 +117,7 @@ pub fn update(state: &mut AppState, msg: Msg) -> Vec<Effect> {
             if matches!(state.route, Route::Search) {
                 state.focus = FocusZone::Prompt;
                 state.clamp_prompt_cursor();
-                state.prompt_cursor = state.prompt_cursor.saturating_sub(1);
+                state.search.prompt_cursor = state.search.prompt_cursor.saturating_sub(1);
             }
             vec![Effect::None]
         }
@@ -112,8 +128,8 @@ pub fn update(state: &mut AppState, msg: Msg) -> Vec<Effect> {
             if matches!(state.route, Route::Search) {
                 state.focus = FocusZone::Prompt;
                 state.clamp_prompt_cursor();
-                if state.prompt_cursor < state.prompt_char_len() {
-                    state.prompt_cursor += 1;
+                if state.search.prompt_cursor < state.prompt_char_len() {
+                    state.search.prompt_cursor += 1;
                 }
             }
             vec![Effect::None]
@@ -124,7 +140,7 @@ pub fn update(state: &mut AppState, msg: Msg) -> Vec<Effect> {
             }
             if matches!(state.route, Route::Search) {
                 state.focus = FocusZone::Prompt;
-                state.prompt_cursor = 0;
+                state.search.prompt_cursor = 0;
             }
             vec![Effect::None]
         }
@@ -134,7 +150,7 @@ pub fn update(state: &mut AppState, msg: Msg) -> Vec<Effect> {
             }
             if matches!(state.route, Route::Search) {
                 state.focus = FocusZone::Prompt;
-                state.prompt_cursor = state.prompt_char_len();
+                state.search.prompt_cursor = state.prompt_char_len();
             }
             vec![Effect::None]
         }
@@ -143,8 +159,8 @@ pub fn update(state: &mut AppState, msg: Msg) -> Vec<Effect> {
                 return vec![Effect::None];
             }
             state.focus = FocusZone::Prompt;
-            state.history_browse = None;
-            state.browse_nav_stack.clear();
+            state.search.history_browse = None;
+            state.search.browse_nav_stack.clear();
             state.clear_prompt_to_start();
             schedule_search(state)
         }
@@ -153,8 +169,8 @@ pub fn update(state: &mut AppState, msg: Msg) -> Vec<Effect> {
                 return vec![Effect::None];
             }
             state.focus = FocusZone::Prompt;
-            state.history_browse = None;
-            state.browse_nav_stack.clear();
+            state.search.history_browse = None;
+            state.search.browse_nav_stack.clear();
             state.delete_prompt_word_back();
             schedule_search(state)
         }
@@ -166,38 +182,39 @@ pub fn update(state: &mut AppState, msg: Msg) -> Vec<Effect> {
                 cancel_active(state)
             }
             Route::Search | Route::Help => {
-                if state.prompt.trim().is_empty()
+                if state.search.prompt.trim().is_empty()
                     && matches!(state.route, Route::Search)
-                    && state.results.items.is_empty()
+                    && state.search.results.items.is_empty()
                 {
                     return apply_hub_selection(state);
                 }
                 // Meta commands are local navigation. They must win over a pending
                 // search debounce so one Enter opens the requested surface.
-                if let Some(command) = explicit_command_prompt(&state.prompt) {
-                    if let Some(queue) = wordbook::wordbook_review_queue_from_prompt(&state.prompt)
+                if let Some(command) = explicit_command_prompt(&state.search.prompt) {
+                    if let Some(queue) =
+                        wordbook::wordbook_review_queue_from_prompt(&state.search.prompt)
                     {
                         return wordbook::begin_wordbook_review(state, queue);
                     }
                     if command == "settings" {
-                        state.overlay_restore_prompt = Some(state.prompt.clone());
+                        state.overlay.restore_prompt = Some(state.search.prompt.clone());
                         state.clear_prompt();
-                        state.search_debounce_deadline = None;
+                        state.search.debounce_deadline = None;
                         return open_settings(state);
                     }
                     if command == "help" {
-                        state.overlay_restore_prompt = Some(state.prompt.clone());
+                        state.overlay.restore_prompt = Some(state.search.prompt.clone());
                         state.clear_prompt();
-                        state.search_debounce_deadline = None;
+                        state.search.debounce_deadline = None;
                         state.route = Route::Help;
-                        state.help_scroll = 0;
+                        state.overlay.help_scroll = 0;
                         state.status.set("help", StatusTone::Neutral);
                         return vec![Effect::None];
                     }
                     if command == "commands" {
-                        state.overlay_restore_prompt = Some(state.prompt.clone());
+                        state.overlay.restore_prompt = Some(state.search.prompt.clone());
                         state.clear_prompt();
-                        state.search_debounce_deadline = None;
+                        state.search.debounce_deadline = None;
                         return open_commands(state);
                     }
                 }
@@ -205,7 +222,7 @@ pub fn update(state: &mut AppState, msg: Msg) -> Vec<Effect> {
                     return effects;
                 }
                 if state.command_recipes_selected() && state.focus != FocusZone::Prompt {
-                    state.preview_pinned = true;
+                    state.preview.pinned = true;
                     return preview_effect(state);
                 }
                 request_primary_actions(state)
@@ -251,36 +268,38 @@ pub fn update(state: &mut AppState, msg: Msg) -> Vec<Effect> {
         Msg::SelectPrev => select_prev_msg(state),
         Msg::SelectPageUp => {
             if state.route == Route::ActionPicker {
-                state.action_selected = state.action_selected.saturating_sub(PAGE_SIZE);
+                state.actions.action_selected =
+                    state.actions.action_selected.saturating_sub(PAGE_SIZE);
                 return vec![Effect::None];
             }
             if state.route == Route::Help {
-                state.help_scroll = state.help_scroll.saturating_sub(PAGE_SIZE);
+                state.overlay.help_scroll = state.overlay.help_scroll.saturating_sub(PAGE_SIZE);
                 return vec![Effect::None];
             }
             if state.route == Route::Settings {
-                state.settings_selected = state.settings_selected.saturating_sub(PAGE_SIZE);
+                state.settings.selected = state.settings.selected.saturating_sub(PAGE_SIZE);
                 return vec![Effect::None];
             }
             if state.route == Route::Commands {
-                state.commands_selected = state.commands_selected.saturating_sub(PAGE_SIZE);
+                state.overlay.commands_selected =
+                    state.overlay.commands_selected.saturating_sub(PAGE_SIZE);
                 return vec![Effect::None];
             }
             if matches!(state.route, Route::Search) {
                 if state.focus == FocusZone::Preview && state.preview_visible() {
-                    state.preview_scroll = state.preview_scroll.saturating_sub(PAGE_SIZE);
+                    state.preview.scroll = state.preview.scroll.saturating_sub(PAGE_SIZE);
                     return vec![Effect::None];
                 }
-                if state.prompt.is_empty() && state.results.items.is_empty() {
-                    state.hub_selected = state.hub_selected.saturating_sub(PAGE_SIZE);
+                if state.search.prompt.is_empty() && state.search.results.items.is_empty() {
+                    state.hub.selected = state.hub.selected.saturating_sub(PAGE_SIZE);
                     state.ensure_hub_selection_visible();
                 } else {
                     state.focus = FocusZone::List;
-                    state.results.select_offset(-(PAGE_SIZE as isize));
-                    state.preview_body = None;
-                    state.preview_result_id = None;
-                    state.pending_preview_id = None;
-                    state.preview_scroll = 0;
+                    state.search.results.select_offset(-(PAGE_SIZE as isize));
+                    state.preview.body = None;
+                    state.preview.result_id = None;
+                    state.preview.pending_id = None;
+                    state.preview.scroll = 0;
                     return preview_effect(state);
                 }
             }
@@ -288,44 +307,44 @@ pub fn update(state: &mut AppState, msg: Msg) -> Vec<Effect> {
         }
         Msg::SelectPageDown => {
             if state.route == Route::ActionPicker {
-                if !state.action_choices.is_empty() {
-                    state.action_selected =
-                        (state.action_selected + PAGE_SIZE).min(state.action_choices.len() - 1);
+                if !state.actions.action_choices.is_empty() {
+                    state.actions.action_selected = (state.actions.action_selected + PAGE_SIZE)
+                        .min(state.actions.action_choices.len() - 1);
                 }
                 return vec![Effect::None];
             }
             if state.route == Route::Help {
-                state.help_scroll = state.help_scroll.saturating_add(PAGE_SIZE);
+                state.overlay.help_scroll = state.overlay.help_scroll.saturating_add(PAGE_SIZE);
                 return vec![Effect::None];
             }
             if state.route == Route::Settings {
-                if !state.settings_modules.is_empty() {
-                    state.settings_selected =
-                        (state.settings_selected + PAGE_SIZE).min(state.settings_modules.len() - 1);
+                if !state.settings.modules.is_empty() {
+                    state.settings.selected =
+                        (state.settings.selected + PAGE_SIZE).min(state.settings.modules.len() - 1);
                 }
                 return vec![Effect::None];
             }
             if state.route == Route::Commands {
-                state.commands_selected =
-                    (state.commands_selected + PAGE_SIZE).min(COMMANDS.len() - 1);
+                state.overlay.commands_selected =
+                    (state.overlay.commands_selected + PAGE_SIZE).min(COMMANDS.len() - 1);
                 return vec![Effect::None];
             }
             if matches!(state.route, Route::Search) {
                 if state.focus == FocusZone::Preview && state.preview_visible() {
-                    state.preview_scroll = state.preview_scroll.saturating_add(PAGE_SIZE);
+                    state.preview.scroll = state.preview.scroll.saturating_add(PAGE_SIZE);
                     return vec![Effect::None];
                 }
-                if state.prompt.is_empty() && state.results.items.is_empty() {
+                if state.search.prompt.is_empty() && state.search.results.items.is_empty() {
                     let max = state.hub_rows().len().saturating_sub(1);
-                    state.hub_selected = (state.hub_selected + PAGE_SIZE).min(max);
+                    state.hub.selected = (state.hub.selected + PAGE_SIZE).min(max);
                     state.ensure_hub_selection_visible();
                 } else {
                     state.focus = FocusZone::List;
-                    state.results.select_offset(PAGE_SIZE as isize);
-                    state.preview_body = None;
-                    state.preview_result_id = None;
-                    state.pending_preview_id = None;
-                    state.preview_scroll = 0;
+                    state.search.results.select_offset(PAGE_SIZE as isize);
+                    state.preview.body = None;
+                    state.preview.result_id = None;
+                    state.preview.pending_id = None;
+                    state.preview.scroll = 0;
                     return preview_effect(state);
                 }
             }
@@ -336,10 +355,10 @@ pub fn update(state: &mut AppState, msg: Msg) -> Vec<Effect> {
                 return vec![Effect::None];
             }
             let idx = digit - 1;
-            if idx >= state.action_choices.len() {
+            if idx >= state.actions.action_choices.len() {
                 return vec![Effect::None];
             }
-            state.action_selected = idx;
+            state.actions.action_selected = idx;
             submit_picker_selection(state)
         }
         Msg::PickWindowDigit(digit) => pick_window_digit(state, digit),
@@ -347,9 +366,9 @@ pub fn update(state: &mut AppState, msg: Msg) -> Vec<Effect> {
         Msg::WordbookGrade { action_id } => wordbook::wordbook_grade(state, action_id),
         Msg::WordbookReviewExit => wordbook::exit_wordbook_review(state),
         Msg::OpenHelp => {
-            state.overlay_restore_prompt = Some(state.prompt.clone());
+            state.overlay.restore_prompt = Some(state.search.prompt.clone());
             state.route = Route::Help;
-            state.help_scroll = 0;
+            state.overlay.help_scroll = 0;
             state.status.set("help", StatusTone::Neutral);
             vec![Effect::None]
         }
@@ -366,12 +385,12 @@ pub fn update(state: &mut AppState, msg: Msg) -> Vec<Effect> {
         }
         Msg::Cancel => cancel_msg(state),
         Msg::FlushSearch => {
-            state.search_debounce_deadline = None;
+            state.search.debounce_deadline = None;
             begin_search(state)
         }
         Msg::Resize { width, height } => {
-            state.term_width = width;
-            state.term_height = height;
+            state.terminal.width = width;
+            state.terminal.height = height;
             state.sync_results_viewport();
             sync_prompt_viewport(state);
             if !state.preview_visible() && state.focus == FocusZone::Preview {
@@ -384,7 +403,7 @@ pub fn update(state: &mut AppState, msg: Msg) -> Vec<Effect> {
             // Soft refresh must not flash the whole UI every interval.
             state.dirty = false;
             if !state.showing_hub() {
-                state.hub_refresh_deadline = None;
+                state.hub.refresh_deadline = None;
                 return vec![Effect::None];
             }
             state.schedule_hub_refresh();
@@ -394,18 +413,18 @@ pub fn update(state: &mut AppState, msg: Msg) -> Vec<Effect> {
             state
                 .status
                 .set("Resyncing…", crate::view_model::StatusTone::Warning);
-            if state.search_debounce_deadline.is_some() {
-                state.search_debounce_deadline = None;
+            if state.search.debounce_deadline.is_some() {
+                state.search.debounce_deadline = None;
                 return begin_search(state);
             }
-            if state.active_request.is_some() || !state.prompt.trim().is_empty() {
+            if state.search.active_request.is_some() || !state.search.prompt.trim().is_empty() {
                 return begin_search(state);
             }
             vec![Effect::GetSnapshot]
         }
         Msg::TogglePreview => {
             if matches!(state.route, Route::Search) {
-                state.preview_pinned = !state.preview_pinned;
+                state.preview.pinned = !state.preview.pinned;
                 state.sync_results_viewport();
                 return preview_effect(state);
             }
@@ -421,958 +440,6 @@ pub fn update(state: &mut AppState, msg: Msg) -> Vec<Effect> {
         }
         Msg::Engine(event) => apply_engine(state, event),
     }
-}
-
-fn sync_prompt_viewport(state: &mut AppState) {
-    let inner_w = state.term_width.saturating_sub(2) as usize;
-    state.ensure_prompt_visible(inner_w.max(20));
-}
-
-fn preview_effect(state: &mut AppState) -> Vec<Effect> {
-    let Some(result_id) = state.results.selected_id.clone() else {
-        state.pending_preview_id = None;
-        return vec![Effect::None];
-    };
-    // Already have body for this selection.
-    if state.preview_result_id.as_deref() == Some(result_id.as_str())
-        && state.preview_body.is_some()
-    {
-        return vec![Effect::None];
-    }
-    // In-flight request for this selection — don't spam.
-    if state.pending_preview_id.is_some()
-        && state.preview_result_id.as_deref() == Some(result_id.as_str())
-    {
-        return vec![Effect::None];
-    }
-    state.preview_generation = state.preview_generation.saturating_add(1);
-    let preview_id = state.preview_generation;
-    state.pending_preview_id = Some(preview_id);
-    state.preview_result_id = Some(result_id.clone());
-    state.preview_body = None;
-    vec![Effect::LoadPreview {
-        result_id,
-        preview_id,
-    }]
-}
-
-fn select_next_msg(state: &mut AppState) -> Vec<Effect> {
-    if state.route == Route::ActionPicker {
-        if !state.action_choices.is_empty() {
-            state.action_selected = (state.action_selected + 1).min(state.action_choices.len() - 1);
-        }
-        return vec![Effect::None];
-    }
-    if state.route == Route::Settings {
-        if !state.settings_modules.is_empty() {
-            state.settings_selected =
-                (state.settings_selected + 1).min(state.settings_modules.len() - 1);
-        }
-        return vec![Effect::None];
-    }
-    if state.route == Route::Commands {
-        state.commands_selected = (state.commands_selected + 1).min(COMMANDS.len() - 1);
-        return vec![Effect::None];
-    }
-    if state.route == Route::Help {
-        state.help_scroll = state.help_scroll.saturating_add(1);
-        return vec![Effect::None];
-    }
-    if state.route == Route::Search && state.focus == FocusZone::Preview && state.preview_visible()
-    {
-        state.preview_scroll = state.preview_scroll.saturating_add(1);
-        return vec![Effect::None];
-    }
-    if state.route == Route::Search && state.prompt.is_empty() && state.results.items.is_empty() {
-        let max = state.hub_rows().len().saturating_sub(1);
-        state.focus = FocusZone::List;
-        state.hub_selected = (state.hub_selected + 1).min(max);
-        state.ensure_hub_selection_visible();
-        return vec![Effect::None];
-    }
-    if matches!(state.route, Route::Search) {
-        state.focus = FocusZone::List;
-        state.results.select_next();
-        state.preview_body = None;
-        state.preview_result_id = None;
-        state.preview_scroll = 0;
-        state.pending_preview_id = None;
-        return preview_effect(state);
-    }
-    vec![Effect::None]
-}
-
-fn select_prev_msg(state: &mut AppState) -> Vec<Effect> {
-    if state.route == Route::ActionPicker {
-        state.action_selected = state.action_selected.saturating_sub(1);
-        return vec![Effect::None];
-    }
-    if state.route == Route::Settings {
-        state.settings_selected = state.settings_selected.saturating_sub(1);
-        return vec![Effect::None];
-    }
-    if state.route == Route::Commands {
-        state.commands_selected = state.commands_selected.saturating_sub(1);
-        return vec![Effect::None];
-    }
-    if state.route == Route::Help {
-        state.help_scroll = state.help_scroll.saturating_sub(1);
-        return vec![Effect::None];
-    }
-    if state.route == Route::Search && state.focus == FocusZone::Preview && state.preview_visible()
-    {
-        state.preview_scroll = state.preview_scroll.saturating_sub(1);
-        return vec![Effect::None];
-    }
-    if state.route == Route::Search && state.prompt.is_empty() && state.results.items.is_empty() {
-        state.focus = FocusZone::List;
-        state.hub_selected = state.hub_selected.saturating_sub(1);
-        state.ensure_hub_selection_visible();
-        return vec![Effect::None];
-    }
-    if matches!(state.route, Route::Search) {
-        state.focus = FocusZone::List;
-        state.results.select_prev();
-        state.preview_body = None;
-        state.preview_result_id = None;
-        state.pending_preview_id = None;
-        state.preview_scroll = 0;
-        return preview_effect(state);
-    }
-    vec![Effect::None]
-}
-
-const COMMANDS: &[(&str, &str)] = &[
-    ("settings", "Open module settings"),
-    ("help", "Keyboard help"),
-    ("quit", "Quit Luma"),
-];
-
-fn open_settings(state: &mut AppState) -> Vec<Effect> {
-    clear_action_ui(state);
-    state.route = Route::Settings;
-    state.settings_selected = 0;
-    state
-        .status
-        .set("settings · Space toggle · Esc back", StatusTone::Neutral);
-    vec![Effect::GetSettings]
-}
-
-fn open_commands(state: &mut AppState) -> Vec<Effect> {
-    clear_action_ui(state);
-    state.route = Route::Commands;
-    state.commands_selected = 0;
-    state
-        .status
-        .set("commands · Enter run · Esc back", StatusTone::Neutral);
-    vec![Effect::None]
-}
-
-fn run_command_selection(state: &mut AppState) -> Vec<Effect> {
-    let idx = state.commands_selected.min(COMMANDS.len() - 1);
-    match COMMANDS[idx].0 {
-        "settings" => open_settings(state),
-        "help" => {
-            state.route = Route::Help;
-            state.help_scroll = 0;
-            state.status.set("help", StatusTone::Neutral);
-            vec![Effect::None]
-        }
-        "quit" => {
-            state.route = Route::QuitConfirm;
-            state.status.set("Quit Luma?", StatusTone::Warning);
-            vec![Effect::None]
-        }
-        _ => vec![Effect::None],
-    }
-}
-
-fn toggle_setting(state: &mut AppState) -> Vec<Effect> {
-    if state.route != Route::Settings || state.settings_modules.is_empty() {
-        return vec![Effect::None];
-    }
-    let idx = state
-        .settings_selected
-        .min(state.settings_modules.len() - 1);
-    let row = &state.settings_modules[idx];
-    let module_id = row.id.clone();
-    let enabled = !row.enabled;
-    state.status.set(
-        format!("{} → {}", module_id, if enabled { "on" } else { "off" }),
-        StatusTone::Progress,
-    );
-    vec![Effect::UpdateSettings {
-        module_id,
-        enabled,
-        expected_version: state.settings_version,
-    }]
-}
-
-fn apply_hub_selection(state: &mut AppState) -> Vec<Effect> {
-    let entries = state.hub_rows();
-    if entries.is_empty() {
-        state
-            .status
-            .set("waiting for modules…", StatusTone::Progress);
-        state.schedule_hub_refresh();
-        return vec![Effect::LoadHub];
-    }
-    let idx = state.hub_selected.min(entries.len() - 1);
-    let (kind, id, title, query) = &entries[idx];
-    if kind == "window" {
-        return execute_action(
-            state,
-            id.clone(),
-            ActionDescriptorDto {
-                id: "focus".into(),
-                label: format!("Focus {title}"),
-                risk: luma_domain::ActionRisk::Safe,
-                confirmation: false,
-            },
-            false,
-        );
-    }
-    if kind == "window_status" || kind == "window_more" {
-        state.prompt = query.clone();
-        state.prompt_cursor = state.prompt_char_len();
-        state.focus = FocusZone::Prompt;
-        state.history_browse = None;
-        state.browse_nav_stack.clear();
-        if kind == "window_status" {
-            if let Some(hub) = &state.hub_windows {
-                if let Some(sub) = &hub.status_subtitle {
-                    state.status.set(sub.clone(), StatusTone::Warning);
-                }
-            }
-        }
-        return schedule_search(state);
-    }
-    state.prompt = query.clone();
-    state.prompt_cursor = state.prompt_char_len();
-    state.focus = FocusZone::Prompt;
-    state.history_browse = None;
-    state.browse_nav_stack.clear();
-    schedule_search(state)
-}
-
-fn clear_action_ui(state: &mut AppState) {
-    state.awaiting_actions = None;
-    state.pending_action = None;
-    state.action_choices.clear();
-    state.action_result_id = None;
-    state.action_selected = 0;
-}
-
-fn dismiss_help_for_prompt_edit(state: &mut AppState) {
-    state.overlay_restore_prompt = None;
-    state.route = Route::Search;
-}
-
-fn recipe_shortcut(state: &mut AppState, action_id: &str) -> Vec<Effect> {
-    let Some(item) = state.selected_search_item().cloned() else {
-        state.status.set("no result selected", StatusTone::Warning);
-        return vec![Effect::None];
-    };
-    if item.module_id.as_str() != "luma.command_recipes" {
-        return vec![Effect::None];
-    }
-    let result_id = item.id.as_str().to_string();
-    state.awaiting_actions = Some(AwaitingActions {
-        intent: ActionsIntent::RecipeShortcut {
-            action_id: action_id.to_string(),
-        },
-        result_id: result_id.clone(),
-    });
-    state
-        .status
-        .set(format!("resolving {action_id}…"), StatusTone::Progress);
-    vec![Effect::ListActions { result_id }]
-}
-
-fn request_primary_actions(state: &mut AppState) -> Vec<Effect> {
-    let Some(item) = state
-        .results
-        .selected_id
-        .as_ref()
-        .and_then(|id| {
-            state
-                .results
-                .items
-                .iter()
-                .find(|i| i.id.as_str() == id.as_str())
-        })
-        .cloned()
-    else {
-        state.status.set("no result selected", StatusTone::Warning);
-        return vec![Effect::None];
-    };
-    if let Some(queue) = wordbook::wordbook_review_queue_from_item(&item) {
-        return wordbook::begin_wordbook_review(state, queue);
-    }
-    if let Some(intent) = resolve_ui_intent(&item) {
-        return apply_ui_intent(state, &item, intent);
-    }
-    let result_id = item.id.as_str().to_string();
-    state.awaiting_actions = Some(AwaitingActions {
-        intent: ActionsIntent::Primary,
-        result_id: result_id.clone(),
-    });
-    state.status.set("resolving actions…", StatusTone::Progress);
-    vec![Effect::ListActions { result_id }]
-}
-
-fn drill_into_browse(state: &mut AppState, item: &luma_domain::SearchItem) -> Vec<Effect> {
-    // Navigation is an explicit module contract. Result IDs remain opaque and are never
-    // reinterpreted as routing metadata by the reducer.
-    let records_category = payload_str(item, "category").map(str::to_string);
-    let trigger = payload_str(item, "browse_trigger").filter(|trigger| !trigger.is_empty());
-    let Some(trigger) = trigger else {
-        state
-            .status
-            .set("browse metadata missing", StatusTone::Error);
-        return vec![Effect::None];
-    };
-    let path = if trigger == "rec" {
-        records_category
-    } else {
-        payload_str(item, "path")
-            .map(str::to_string)
-            .or_else(|| item.subtitle.clone())
-    };
-    let query = match path {
-        Some(p) if !p.is_empty() => format!("/{trigger} browse {p}"),
-        _ => format!("/{trigger} browse"),
-    };
-    let previous = state.prompt.clone();
-    if !previous.is_empty() && previous != query {
-        state.browse_nav_stack.push(previous);
-        if state.browse_nav_stack.len() > 64 {
-            state.browse_nav_stack.remove(0);
-        }
-    }
-    state.prompt = query;
-    state.prompt_cursor = state.prompt_char_len();
-    state.focus = FocusZone::Prompt;
-    state.history_browse = None;
-    state.status.set("browsing…", StatusTone::Progress);
-    begin_search(state)
-}
-
-fn open_notes_issues(state: &mut AppState) -> Vec<Effect> {
-    state.browse_nav_stack.clear();
-    state.prompt = "/n issues".into();
-    state.prompt_cursor = state.prompt_char_len();
-    state.focus = FocusZone::Prompt;
-    state.history_browse = None;
-    state.results.items.clear();
-    state.results.selected_id = None;
-    state.status.set("notes issues…", StatusTone::Progress);
-    begin_search(state)
-}
-
-fn seed_module_add(state: &mut AppState, item: &luma_domain::SearchItem) -> Vec<Effect> {
-    let prompt = payload_str(item, "seed_prompt").unwrap_or_else(|| {
-        if item.id.as_str().starts_with("ql:") {
-            "ql add "
-        } else if item.id.as_str().starts_with("snip:") {
-            "snip add "
-        } else {
-            ""
-        }
-    });
-    if prompt.is_empty() {
-        return vec![Effect::None];
-    }
-    state.browse_nav_stack.clear();
-    state.prompt = format!("/{}", prompt.trim_start_matches('/'));
-    state.prompt_cursor = state.prompt_char_len();
-    state.focus = FocusZone::Prompt;
-    state.history_browse = None;
-    state.results.items.clear();
-    state.results.selected_id = None;
-    state.status.set(
-        "type trigger and payload · Enter when ready",
-        StatusTone::Neutral,
-    );
-    // Keep debounce quiet so the user can finish typing the add line.
-    state.search_debounce_deadline = None;
-    state.hub_refresh_deadline = None;
-    vec![Effect::None]
-}
-
-fn seed_record_edit(
-    state: &mut AppState,
-    item: &luma_domain::SearchItem,
-    action: &str,
-) -> Vec<Effect> {
-    let Some(id) = item.id.as_str().strip_prefix("rec:") else {
-        state.status.set("invalid record id", StatusTone::Error);
-        return vec![Effect::None];
-    };
-    state.browse_nav_stack.clear();
-    state.prompt = match action {
-        "rate" => format!("/rec rate {id} "),
-        "note" => format!("/rec note {id} "),
-        _ => return vec![Effect::None],
-    };
-    state.prompt_cursor = state.prompt_char_len();
-    state.focus = FocusZone::Prompt;
-    state.history_browse = None;
-    state.results.items.clear();
-    state.results.selected_id = None;
-    state.preview_body = None;
-    state.preview_result_id = None;
-    state.status.set(
-        "type value · Enter to save · Esc cancel",
-        StatusTone::Neutral,
-    );
-    state.search_debounce_deadline = None;
-    state.hub_refresh_deadline = None;
-    vec![Effect::None]
-}
-
-fn seed_module_config(state: &mut AppState, item: &luma_domain::SearchItem) -> Vec<Effect> {
-    if item.id.as_str() == "proj:not-configured" {
-        state.status.set(
-            "run in terminal: /proj add /path/to/project · or Enter on /proj browse",
-            StatusTone::Warning,
-        );
-        return vec![Effect::None];
-    }
-    if let Some(cmd) = payload_str(item, "config_hint") {
-        state
-            .status
-            .set(format!("run in terminal: {cmd}"), StatusTone::Warning);
-        return vec![Effect::None];
-    }
-    let cmd = if item.id.as_str().starts_with("n:") || item.id.as_str().starts_with("notes:") {
-        Some("luma config set --notes-root ~/Notes")
-    } else if item.id.as_str().starts_with("proj:") {
-        Some("luma config set --projects-root ~/dev")
-    } else if item.id.as_str().starts_with("sec:") || item.kind == "secrets" {
-        Some("luma secrets set <account>  (value from stdin)")
-    } else {
-        None
-    };
-    if let Some(cmd) = cmd {
-        state
-            .status
-            .set(format!("run in terminal: {cmd}"), StatusTone::Warning);
-        return vec![Effect::None];
-    }
-    if let Some(sub) = item.subtitle.as_deref() {
-        state.status.set(sub, StatusTone::Warning);
-        return vec![Effect::None];
-    }
-    state
-        .status
-        .set("configure via: luma config", StatusTone::Warning);
-    vec![Effect::None]
-}
-
-fn request_action_picker(state: &mut AppState) -> Vec<Effect> {
-    if state.route != Route::Search {
-        return vec![Effect::None];
-    }
-    let Some(result_id) = state.results.selected_id.clone() else {
-        state.status.set("no result selected", StatusTone::Warning);
-        return vec![Effect::None];
-    };
-    state.awaiting_actions = Some(AwaitingActions {
-        intent: ActionsIntent::Picker,
-        result_id: result_id.clone(),
-    });
-    state.status.set("loading actions…", StatusTone::Progress);
-    vec![Effect::ListActions { result_id }]
-}
-
-fn review_return_route(state: &AppState) -> Route {
-    if state.wordbook_review.is_some() {
-        Route::WordbookReview
-    } else {
-        Route::Search
-    }
-}
-
-fn confirm_pending(state: &mut AppState) -> Vec<Effect> {
-    let Some(pending) = state.pending_action.take() else {
-        state.route = review_return_route(state);
-        return vec![Effect::None];
-    };
-    state.route = review_return_route(state);
-    execute_action(state, pending.result_id, pending.action, true)
-}
-
-fn submit_picker_selection(state: &mut AppState) -> Vec<Effect> {
-    let Some(result_id) = state.action_result_id.take() else {
-        state.route = Route::Search;
-        clear_action_ui(state);
-        return vec![Effect::None];
-    };
-    let Some(action) = state.action_choices.get(state.action_selected).cloned() else {
-        state.route = Route::Search;
-        clear_action_ui(state);
-        return vec![Effect::None];
-    };
-    state.action_choices.clear();
-    state.action_selected = 0;
-    if matches!(action.id.as_str(), "rate" | "note") {
-        if let Some(item) = state
-            .results
-            .items
-            .iter()
-            .find(|i| i.id.as_str() == result_id.as_str() && i.kind == "record")
-            .cloned()
-        {
-            state.route = Route::Search;
-            return seed_record_edit(state, &item, action.id.as_str());
-        }
-    }
-    if action.id == "browse" {
-        state.route = Route::Search;
-        if let Some(item) = state
-            .results
-            .items
-            .iter()
-            .find(|i| i.id.as_str() == result_id.as_str())
-            .cloned()
-        {
-            return drill_into_browse(state, &item);
-        }
-        return vec![Effect::None];
-    }
-    if action.id == "list_issues" {
-        state.route = Route::Search;
-        return open_notes_issues(state);
-    }
-    if action.id == "seed_add" {
-        state.route = Route::Search;
-        if let Some(item) = state
-            .results
-            .items
-            .iter()
-            .find(|i| i.id.as_str() == result_id.as_str())
-            .cloned()
-        {
-            return seed_module_add(state, &item);
-        }
-        return vec![Effect::None];
-    }
-    if action.id == "seed_config" || action.id == "configure" {
-        state.route = Route::Search;
-        if let Some(item) = state
-            .results
-            .items
-            .iter()
-            .find(|i| i.id.as_str() == result_id.as_str())
-            .cloned()
-        {
-            return seed_module_config(state, &item);
-        }
-        return vec![Effect::None];
-    }
-    if action.needs_confirmation() {
-        state.pending_action = Some(PendingAction {
-            result_id,
-            action: action.clone(),
-        });
-        state.route = Route::ConfirmAction;
-        state.status.set(
-            format!("confirm {}? Enter=yes Esc=no", action.label),
-            StatusTone::Warning,
-        );
-        vec![Effect::None]
-    } else {
-        state.route = Route::Search;
-        execute_action(state, result_id, action, false)
-    }
-}
-
-pub(super) fn execute_action(
-    state: &mut AppState,
-    result_id: String,
-    action: ActionDescriptorDto,
-    confirmation: bool,
-) -> Vec<Effect> {
-    if state.active_operation.is_some() {
-        state.status.set(
-            "action already running — Esc to cancel",
-            StatusTone::Warning,
-        );
-        return vec![Effect::None];
-    }
-    let operation_id = next_operation_id(state);
-    state.active_operation = Some(operation_id.clone());
-    state
-        .status
-        .set(format!("running {}", action.label), StatusTone::Progress);
-    vec![Effect::ExecuteAction {
-        operation_id,
-        result_id,
-        action_id: action.id,
-        confirmation,
-    }]
-}
-
-fn begin_primary_or_confirm(
-    state: &mut AppState,
-    result_id: String,
-    actions: Vec<ActionDescriptorDto>,
-) -> Vec<Effect> {
-    let primary_id = state
-        .results
-        .items
-        .iter()
-        .find(|i| i.id.as_str() == result_id)
-        .map(|i| i.primary_action.id.as_str().to_string());
-    let Some(primary_id) = primary_id else {
-        state.status.set("no result selected", StatusTone::Warning);
-        return vec![Effect::None];
-    };
-    let Some(action) = actions.into_iter().find(|a| a.id == primary_id) else {
-        state.status.set(
-            format!("module contract violation: primary action `{primary_id}` missing"),
-            StatusTone::Error,
-        );
-        return vec![Effect::None];
-    };
-    if action.needs_confirmation() {
-        state.pending_action = Some(PendingAction {
-            result_id,
-            action: action.clone(),
-        });
-        state.route = Route::ConfirmAction;
-        state.status.set(
-            format!("confirm {}? Enter=yes Esc=no", action.label),
-            StatusTone::Warning,
-        );
-        vec![Effect::None]
-    } else {
-        execute_action(state, result_id, action, false)
-    }
-}
-
-fn pick_window_digit(state: &mut AppState, digit: usize) -> Vec<Effect> {
-    if digit == 0 || !state.should_intercept_window_digit() {
-        return vec![Effect::None];
-    }
-    let targets = state.window_digit_targets();
-    let idx = digit - 1;
-    let Some((id, title)) = targets.get(idx).cloned() else {
-        return vec![Effect::None];
-    };
-    execute_action(
-        state,
-        id,
-        luma_protocol::ActionDescriptorDto {
-            id: "focus".into(),
-            label: format!("Focus {title}"),
-            risk: luma_domain::ActionRisk::Safe,
-            confirmation: false,
-        },
-        false,
-    )
-}
-
-fn cancel_msg(state: &mut AppState) -> Vec<Effect> {
-    if let Some(operation_id) = state.active_operation.clone() {
-        state.status.set("cancelling action…", StatusTone::Progress);
-        return vec![Effect::CancelOperation { operation_id }];
-    }
-    if state.route == Route::WordbookReview {
-        return wordbook::exit_wordbook_review(state);
-    }
-    if matches!(state.route, Route::ConfirmAction | Route::ActionPicker) {
-        clear_action_ui(state);
-        if let Some(review) = state.wordbook_review.as_mut() {
-            review.pending_grade = None;
-        }
-        state.route = review_return_route(state);
-        state.status.set("Dismissed", StatusTone::Warning);
-        return vec![Effect::None];
-    }
-    if state.route != Route::Search {
-        state.route = Route::Search;
-        if let Some(prompt) = state.overlay_restore_prompt.take() {
-            state.prompt = prompt;
-            state.prompt_cursor = state.prompt_char_len();
-            state.focus = FocusZone::Prompt;
-            state.status.set("Ready", StatusTone::Neutral);
-            return vec![Effect::None];
-        }
-        if state.showing_hub() {
-            state.status.set("Ready", StatusTone::Neutral);
-            state.schedule_hub_refresh();
-            return vec![Effect::LoadHub];
-        }
-        return vec![Effect::None];
-    }
-    if state.active_request.is_some() {
-        let effects = cancel_active(state);
-        state.status.set("cancelled", StatusTone::Warning);
-        effects
-    } else if let Some(prev) = state.browse_nav_stack.pop() {
-        state.prompt = prev;
-        state.prompt_cursor = state.prompt_char_len();
-        state.focus = FocusZone::Prompt;
-        state.history_browse = None;
-        state.status.set("browsing…", StatusTone::Progress);
-        begin_search(state)
-    } else if let Some(parent) = browse_query_parent(&state.prompt) {
-        state.prompt = parent;
-        state.prompt_cursor = state.prompt_char_len();
-        state.focus = FocusZone::Prompt;
-        state.history_browse = None;
-        state.status.set("browsing…", StatusTone::Progress);
-        begin_search(state)
-    } else if !state.prompt.is_empty() {
-        clear_action_ui(state);
-        state.browse_nav_stack.clear();
-        state.clear_prompt();
-        state.search_debounce_deadline = None;
-        state.results.items.clear();
-        state.results.selected_id = None;
-        state.preview_body = None;
-        state.preview_result_id = None;
-        state.pending_preview_id = None;
-        state.active_request = None;
-        state.status.set("Ready", StatusTone::Neutral);
-        state.schedule_hub_refresh();
-        vec![Effect::LoadHub]
-    } else {
-        // Same path as Ctrl-C — confirm before leaving the workbench.
-        clear_action_ui(state);
-        state.route = Route::QuitConfirm;
-        state.status.set("Quit Luma?", StatusTone::Warning);
-        vec![Effect::None]
-    }
-}
-
-/// One directory up for slash-prefixed `/n|/note|/notes|/proj browse <path>`; `None` at browse
-/// root / non-browse.
-fn browse_query_parent(prompt: &str) -> Option<String> {
-    let trimmed = explicit_command_prompt(prompt)?;
-    let (trigger, after_trigger) = if let Some(rest) = trimmed.strip_prefix("notes ") {
-        ("notes", rest)
-    } else if let Some(rest) = trimmed.strip_prefix("note ") {
-        ("note", rest)
-    } else if let Some(rest) = trimmed.strip_prefix("proj ") {
-        ("proj", rest)
-    } else if let Some(rest) = trimmed.strip_prefix("n ") {
-        ("n", rest)
-    } else {
-        return None;
-    };
-    let after_browse = after_trigger
-        .strip_prefix("browse")
-        .or_else(|| after_trigger.strip_prefix("Browse"))
-        .or_else(|| after_trigger.strip_prefix("ls"))
-        .or_else(|| after_trigger.strip_prefix("LS"))?;
-    let path = after_browse.trim();
-    if path.is_empty() {
-        return None;
-    }
-    let path = std::path::Path::new(path);
-    match path.parent() {
-        Some(parent) if !parent.as_os_str().is_empty() => {
-            Some(format!("/{trigger} browse {}", parent.display()))
-        }
-        _ => Some(format!("/{trigger} browse")),
-    }
-}
-
-fn apply_engine(state: &mut AppState, event: Event) -> Vec<Effect> {
-    // This function owns navigation and follow-up effects. `AppState::apply_engine_event` below
-    // is the single projection boundary for render state; do not interpret the same event twice
-    // in new module-specific branches.
-    if let Event::ActionFinished {
-        outcome:
-            luma_protocol::ActionOutcomeDto::InteractiveTerminal {
-                program,
-                args,
-                record_alias,
-            },
-        operation_id,
-    } = &event
-    {
-        if state.active_operation.as_deref() == Some(operation_id.as_str()) {
-            state
-                .status
-                .set(format!("starting {program}…"), StatusTone::Progress);
-            return vec![Effect::RunInteractiveTerminal {
-                program: program.clone(),
-                args: args.clone(),
-                record_alias: record_alias.clone(),
-                operation_id: operation_id.clone(),
-            }];
-        }
-    }
-    if let Event::DiagnosticRaised { diagnostic } = &event {
-        let settings_conflict =
-            diagnostic.get("settings_update").and_then(|v| v.as_str()) == Some("failed");
-        if settings_conflict && state.route == Route::Settings {
-            let message = diagnostic
-                .get("message")
-                .and_then(|v| v.as_str())
-                .unwrap_or("settings conflict");
-            state
-                .status
-                .set(format!("settings conflict: {message}"), StatusTone::Warning);
-            let _ = state.apply_engine_event(event);
-            return vec![Effect::GetSettings];
-        }
-    }
-    if let Event::ActionsAvailable { result_id, actions } = event {
-        let Some(pending) = state.awaiting_actions.take() else {
-            state.status.set(
-                format!("{result_id}: {} actions", actions.len()),
-                StatusTone::Neutral,
-            );
-            return vec![Effect::None];
-        };
-        if pending.result_id != result_id {
-            // Stale / mismatched response for a different result — keep waiting.
-            state.awaiting_actions = Some(pending);
-            return vec![Effect::None];
-        }
-        match pending.intent {
-            ActionsIntent::Primary => {
-                return begin_primary_or_confirm(state, result_id, actions);
-            }
-            ActionsIntent::RecipeShortcut { action_id } => {
-                let resolved = if action_id == "favorite" {
-                    actions
-                        .iter()
-                        .find(|a| a.id == "favorite" || a.id == "unfavorite")
-                        .cloned()
-                } else {
-                    actions.iter().find(|a| a.id == action_id).cloned()
-                };
-                let Some(action) = resolved else {
-                    state.status.set(
-                        format!("action `{action_id}` unavailable"),
-                        StatusTone::Warning,
-                    );
-                    return vec![Effect::None];
-                };
-                if action.needs_confirmation() {
-                    state.pending_action = Some(PendingAction {
-                        result_id,
-                        action: action.clone(),
-                    });
-                    state.route = Route::ConfirmAction;
-                    state.status.set(
-                        format!("confirm {}? Enter=yes Esc=no", action.label),
-                        StatusTone::Warning,
-                    );
-                    return vec![Effect::None];
-                }
-                return execute_action(state, result_id, action, false);
-            }
-            ActionsIntent::Picker => {
-                if actions.is_empty() {
-                    state
-                        .status
-                        .set("no actions available", StatusTone::Warning);
-                    return vec![Effect::None];
-                }
-                state.action_result_id = Some(result_id);
-                state.action_choices = actions;
-                state.action_selected = 0;
-                state.route = Route::ActionPicker;
-                state
-                    .status
-                    .set("pick action · Enter run · Esc back", StatusTone::Neutral);
-                return vec![Effect::None];
-            }
-        }
-    }
-    let project_remove_success = matches!(&event, Event::ActionFinished { operation_id, outcome }
-        if state.active_operation.as_deref() == Some(operation_id.as_str())
-            && matches!(outcome, luma_protocol::ActionOutcomeDto::Success { .. })
-            && project_remove_name(&state.prompt).is_some());
-    let records_mutation_success = matches!(&event, Event::ActionFinished { operation_id, outcome }
-        if state.active_operation.as_deref() == Some(operation_id.as_str())
-            && matches!(outcome, luma_protocol::ActionOutcomeDto::Success { .. })
-            && records_query_active(&state.prompt));
-    let cmd_favorite_success = matches!(&event, Event::ActionFinished { operation_id, outcome }
-        if state.active_operation.as_deref() == Some(operation_id.as_str())
-            && matches!(
-                outcome,
-                luma_protocol::ActionOutcomeDto::Success {
-                    message: Some(message),
-                    ..
-                } if message == "favorited" || message == "unfavorited"
-            )
-            && command_recipes_query_active(&state.prompt));
-    let refresh_review_stats = matches!(&event, Event::ActionFinished { outcome, .. }
-        if matches!(outcome, luma_protocol::ActionOutcomeDto::Success { .. })
-            && matches!(state.route, Route::WordbookReview)
-            && state
-                .wordbook_review
-                .as_ref()
-                .is_some_and(|r| !r.finished));
-    let ready = matches!(event, Event::SessionReady { .. });
-    let settings_changed = matches!(event, Event::SettingsChanged { .. });
-    let _ = state.apply_engine_event(event);
-    if refresh_review_stats {
-        return vec![Effect::RefreshWordbookReviewStats];
-    }
-    if ready {
-        let mut effects = vec![Effect::GetSettings, Effect::LoadHub];
-        state.schedule_hub_refresh();
-        if state.results.selected_id.is_some() {
-            effects.extend(preview_effect(state));
-        }
-        return effects;
-    }
-    if settings_changed {
-        // Disabled modules may still have cached rows until we re-query.
-        state.results.items.clear();
-        state.results.selected_id = None;
-        state.preview_body = None;
-        state.preview_result_id = None;
-        state.pending_preview_id = None;
-        clear_action_ui(state);
-        let mut effects = vec![Effect::LoadHub];
-        state.schedule_hub_refresh();
-        if !(state.prompt.is_empty()
-            || (state.active_operation.is_some() && project_remove_name(&state.prompt).is_some()))
-        {
-            effects.extend(begin_search(state));
-        }
-        return effects;
-    }
-    if project_remove_success {
-        if let Some(name) = project_remove_name(&state.prompt) {
-            state.results.items.clear();
-            state.results.selected_id = None;
-            state.preview_body = None;
-            state.preview_result_id = None;
-            state.pending_preview_id = None;
-            state.status.set(
-                format!("removed {name} · config only; directory kept"),
-                StatusTone::Success,
-            );
-        }
-        return vec![Effect::None];
-    }
-    if records_mutation_success && !state.prompt.trim().is_empty() {
-        return begin_search(state);
-    }
-    if cmd_favorite_success && !state.prompt.trim().is_empty() {
-        return begin_search(state);
-    }
-    if let Some(sel) = state.results.selected_id.as_deref() {
-        let have_body =
-            state.preview_result_id.as_deref() == Some(sel) && state.preview_body.is_some();
-        let in_flight =
-            state.pending_preview_id.is_some() && state.preview_result_id.as_deref() == Some(sel);
-        if !have_body && !in_flight {
-            return preview_effect(state);
-        }
-    }
-    vec![Effect::None]
 }
 
 fn records_query_active(prompt: &str) -> bool {
@@ -1408,96 +475,18 @@ fn project_remove_name(prompt: &str) -> Option<&str> {
     tokens.next().filter(|name| !name.is_empty())
 }
 
-fn schedule_search(state: &mut AppState) -> Vec<Effect> {
-    // Cancel in-flight work immediately so typing stays responsive, but delay the
-    // new Search until the quiet period so bursts don't thrash modules.
-    let mut effects = cancel_active(state);
-    // Keep prior results visible during debounce (clear only in begin_search).
-    clear_action_ui(state);
-    if state.prompt.is_empty() {
-        state.search_debounce_deadline = None;
-        state.results.items.clear();
-        state.results.selected_id = None;
-        state.preview_body = None;
-        state.preview_result_id = None;
-        state.pending_preview_id = None;
-        state.status.set("Ready", StatusTone::Neutral);
-        state.schedule_hub_refresh();
-        effects.push(Effect::LoadHub);
-        return effects;
-    }
-    state.hub_refresh_deadline = None;
-    state.search_debounce_deadline =
-        Some(std::time::Instant::now() + std::time::Duration::from_millis(80));
-    state.status.set("Typing…", StatusTone::Progress);
-    effects
-}
-
-fn flush_pending_search_or_continue(state: &mut AppState) -> Option<Vec<Effect>> {
-    if state.search_debounce_deadline.is_some() {
-        state.search_debounce_deadline = None;
-        return Some(begin_search(state));
-    }
-    None
-}
-
-fn begin_search(state: &mut AppState) -> Vec<Effect> {
-    clear_action_ui(state);
-    state.search_debounce_deadline = None;
-    let mut effects = cancel_active(state);
-    if state.prompt.is_empty() {
-        state.results.items.clear();
-        state.results.selected_id = None;
-        state.results.scroll = 0;
-        state.preview_body = None;
-        state.preview_result_id = None;
-        state.pending_preview_id = None;
-        state.status.set("Ready", StatusTone::Neutral);
-        state.schedule_hub_refresh();
-        effects.push(Effect::LoadHub);
-        return effects;
-    }
-    state.hub_refresh_deadline = None;
-    state.push_query_history(&state.prompt.clone());
-    let request_id = next_request_id(state);
-    state.active_request = Some(request_id.clone());
-    state.request_seq_seen = 0;
-    state.results.items.clear();
-    state.results.selected_id = None;
-    // New search invalidates any in-flight preview for prior rows.
-    state.preview_body = None;
-    state.preview_result_id = None;
-    state.pending_preview_id = None;
-    effects.push(Effect::Search {
-        request_id,
-        query: state.prompt.clone(),
-    });
-    effects
-}
-
-fn cancel_active(state: &mut AppState) -> Vec<Effect> {
-    if let Some(request_id) = state.active_request.take() {
-        vec![Effect::CancelSearch { request_id }]
-    } else {
-        Vec::new()
-    }
-}
-
-fn next_request_id(state: &mut AppState) -> String {
-    state.search_generation = state.search_generation.saturating_add(1);
-    format!("req-{}", state.search_generation)
-}
-
 fn next_operation_id(state: &mut AppState) -> String {
-    state.operation_generation = state.operation_generation.saturating_add(1);
-    format!("op-{}", state.operation_generation)
+    state.actions.operation_generation = state.actions.operation_generation.saturating_add(1);
+    format!("op-{}", state.actions.operation_generation)
 }
 
 #[cfg(test)]
 #[allow(clippy::field_reassign_with_default)]
 mod tests {
+    use super::navigation::seed_record_edit;
+    use super::navigation::{browse_query_parent, drill_into_browse};
     use super::*;
-    use crate::view_model::StatusTone;
+    use crate::view_model::{ActionsIntent, AwaitingActions, PendingAction, StatusTone};
     use luma_domain::{ActionDescriptor, ActionId, ActionRisk, ModuleId, ResultId, SearchItem};
     use luma_protocol::{ActionDescriptorDto, Event, SearchItemDto};
 
@@ -1505,12 +494,12 @@ mod tests {
     fn typing_schedules_search_then_flush_cancels_old() {
         let mut state = AppState::default();
         let effects = update(&mut state, Msg::KeyChar('a'));
-        assert!(state.search_debounce_deadline.is_some());
+        assert!(state.search.debounce_deadline.is_some());
         assert!(!effects.iter().any(|e| matches!(e, Effect::Search { .. })));
 
         let effects = update(&mut state, Msg::FlushSearch);
         assert!(matches!(effects.last(), Some(Effect::Search { .. })));
-        let first = state.active_request.clone().unwrap();
+        let first = state.search.active_request.clone().unwrap();
 
         let effects = update(&mut state, Msg::KeyChar('p'));
         assert!(effects
@@ -1526,11 +515,11 @@ mod tests {
         let mut state = AppState::default();
         let _ = update(&mut state, Msg::KeyChar('a'));
         let _ = update(&mut state, Msg::FlushSearch);
-        let active = state.active_request.clone().unwrap();
+        let active = state.search.active_request.clone().unwrap();
 
         let _ = update(&mut state, Msg::KeyChar('b'));
         let _ = update(&mut state, Msg::FlushSearch);
-        let new_active = state.active_request.clone().unwrap();
+        let new_active = state.search.active_request.clone().unwrap();
         assert_ne!(active, new_active);
 
         let applied = state.apply_engine_event(Event::ResultsChunk {
@@ -1550,7 +539,7 @@ mod tests {
             removed_ids: vec![],
         });
         assert!(!applied);
-        assert!(state.results.items.is_empty());
+        assert!(state.search.results.items.is_empty());
     }
 
     #[test]
@@ -1558,7 +547,7 @@ mod tests {
         let mut state = AppState::default();
         let _ = update(&mut state, Msg::KeyChar('x'));
         let _ = update(&mut state, Msg::FlushSearch);
-        let active = state.active_request.clone().unwrap();
+        let active = state.search.active_request.clone().unwrap();
         let applied = state.apply_engine_event(Event::ResultsChunk {
             request_id: active,
             sequence: 1,
@@ -1576,17 +565,17 @@ mod tests {
             removed_ids: vec![],
         });
         assert!(applied);
-        assert_eq!(state.results.items.len(), 1);
-        assert_eq!(state.results.selected_id.as_deref(), Some("1"));
+        assert_eq!(state.search.results.items.len(), 1);
+        assert_eq!(state.search.results.selected_id.as_deref(), Some("1"));
     }
 
     #[test]
     fn typing_keeps_results_during_debounce_submit_flushes_search() {
         let mut state = AppState::default();
-        state.prompt = "old".into();
+        state.search.prompt = "old".into();
         let _ = update(&mut state, Msg::FlushSearch);
         let applied = state.apply_engine_event(Event::ResultsChunk {
-            request_id: state.active_request.clone().unwrap(),
+            request_id: state.search.active_request.clone().unwrap(),
             sequence: 1,
             upserts: vec![SearchItemDto {
                 id: "stale".into(),
@@ -1602,13 +591,13 @@ mod tests {
             removed_ids: vec![],
         });
         assert!(applied);
-        assert_eq!(state.results.items.len(), 1);
-        state.results.selected_id = Some("stale".into());
+        assert_eq!(state.search.results.items.len(), 1);
+        state.search.results.selected_id = Some("stale".into());
 
         // One more character — debounce pending; keep prior rows to avoid empty flash.
         let _ = update(&mut state, Msg::KeyChar('x'));
-        assert!(state.search_debounce_deadline.is_some());
-        assert_eq!(state.results.items.len(), 1);
+        assert!(state.search.debounce_deadline.is_some());
+        assert_eq!(state.search.results.items.len(), 1);
         assert_eq!(state.status.text, "Typing…");
 
         let effects = update(&mut state, Msg::Submit);
@@ -1616,8 +605,8 @@ mod tests {
             effects.iter().any(|e| matches!(e, Effect::Search { .. })),
             "Submit while debounce pending should flush a new search"
         );
-        assert!(state.results.items.is_empty());
-        assert!(state.search_debounce_deadline.is_none());
+        assert!(state.search.results.items.is_empty());
+        assert!(state.search.debounce_deadline.is_none());
         assert!(
             !effects
                 .iter()
@@ -1629,7 +618,7 @@ mod tests {
     #[test]
     fn hub_digit_focuses_third_window() {
         let mut state = AppState::default();
-        state.hub_windows = Some(crate::view_model::HubWindowsState {
+        state.hub.windows = Some(crate::view_model::HubWindowsState {
             app_name: "all".into(),
             windows: vec![
                 crate::view_model::HubWindowRow {
@@ -1661,9 +650,9 @@ mod tests {
     #[test]
     fn win_digit_only_when_list_focused() {
         let mut state = AppState::default();
-        state.prompt = "/win ".into();
-        state.prompt_cursor = state.prompt_char_len();
-        state.results.items.push(SearchItem {
+        state.search.prompt = "/win ".into();
+        state.search.prompt_cursor = state.prompt_char_len();
+        state.search.results.items.push(SearchItem {
             id: ResultId::new("win:a"),
             module_id: ModuleId::new("luma.windows"),
             title: "A".into(),
@@ -1695,7 +684,7 @@ mod tests {
     #[test]
     fn help_meta_does_not_run_primary_status() {
         let mut state = AppState::default();
-        state.prompt = "/help".into();
+        state.search.prompt = "/help".into();
         let effects = update(&mut state, Msg::Submit);
         assert_eq!(effects, vec![Effect::None]);
         assert_eq!(state.route, Route::Help);
@@ -1705,7 +694,7 @@ mod tests {
     #[test]
     fn slash_help_meta_opens_help_without_search() {
         let mut state = AppState::default();
-        state.prompt = "/help".into();
+        state.search.prompt = "/help".into();
         let effects = update(&mut state, Msg::Submit);
         assert_eq!(effects, vec![Effect::None]);
         assert_eq!(state.route, Route::Help);
@@ -1718,53 +707,53 @@ mod tests {
         for c in "/commands".chars() {
             let _ = update(&mut state, Msg::KeyChar(c));
         }
-        assert!(state.search_debounce_deadline.is_some());
+        assert!(state.search.debounce_deadline.is_some());
 
         let effects = update(&mut state, Msg::Submit);
 
         assert_eq!(effects, vec![Effect::None]);
         assert_eq!(state.route, Route::Commands);
-        assert!(state.prompt.is_empty());
-        assert_eq!(state.overlay_restore_prompt.as_deref(), Some("/commands"));
-        assert!(state.search_debounce_deadline.is_none());
+        assert!(state.search.prompt.is_empty());
+        assert_eq!(state.overlay.restore_prompt.as_deref(), Some("/commands"));
+        assert!(state.search.debounce_deadline.is_none());
     }
 
     #[test]
     fn esc_from_commands_restores_meta_prompt() {
         let mut state = AppState::default();
-        state.prompt = "/commands".into();
-        state.prompt_cursor = state.prompt_char_len();
+        state.search.prompt = "/commands".into();
+        state.search.prompt_cursor = state.prompt_char_len();
         let _ = update(&mut state, Msg::Submit);
         assert_eq!(state.route, Route::Commands);
-        assert!(state.prompt.is_empty());
+        assert!(state.search.prompt.is_empty());
 
         let _ = update(&mut state, Msg::Cancel);
         assert_eq!(state.route, Route::Search);
-        assert_eq!(state.prompt, "/commands");
-        assert!(state.overlay_restore_prompt.is_none());
+        assert_eq!(state.search.prompt, "/commands");
+        assert!(state.overlay.restore_prompt.is_none());
     }
 
     #[test]
     fn esc_clears_prompt_and_debounce() {
         let mut state = AppState::default();
-        state.prompt = "clip hello".into();
-        state.prompt_cursor = state.prompt_char_len();
+        state.search.prompt = "clip hello".into();
+        state.search.prompt_cursor = state.prompt_char_len();
         let _ = update(&mut state, Msg::KeyChar('x'));
-        assert!(state.search_debounce_deadline.is_some());
+        assert!(state.search.debounce_deadline.is_some());
 
         let _ = update(&mut state, Msg::Cancel);
 
-        assert!(state.prompt.is_empty());
-        assert!(state.search_debounce_deadline.is_none());
+        assert!(state.search.prompt.is_empty());
+        assert!(state.search.debounce_deadline.is_none());
     }
 
     #[test]
     fn esc_to_empty_prompt_reloads_hub() {
         let mut state = AppState::default();
-        state.prompt = "app safari".into();
-        state.prompt_cursor = state.prompt_char_len();
+        state.search.prompt = "app safari".into();
+        state.search.prompt_cursor = state.prompt_char_len();
         let effects = update(&mut state, Msg::Cancel);
-        assert!(state.prompt.is_empty());
+        assert!(state.search.prompt.is_empty());
         assert!(effects.iter().any(|e| matches!(e, Effect::LoadHub)));
     }
 
@@ -1822,7 +811,7 @@ mod tests {
             })),
         };
         let effects = drill_into_browse(&mut state, &item);
-        assert_eq!(state.prompt, "/rec browse 电影");
+        assert_eq!(state.search.prompt, "/rec browse 电影");
         assert!(effects
             .iter()
             .any(|e| matches!(e, Effect::Search { query, .. } if query == "/rec browse 电影")));
@@ -1849,7 +838,7 @@ mod tests {
             action_payload: Some(serde_json::json!({ "category": "纪录片" })),
         };
         let _ = drill_into_browse(&mut state, &item);
-        assert_eq!(state.prompt, "");
+        assert_eq!(state.search.prompt, "");
         assert_eq!(state.status.tone, StatusTone::Error);
     }
 
@@ -1874,17 +863,17 @@ mod tests {
             action_payload: None,
         };
         let _ = seed_record_edit(&mut state, &item, "rate");
-        assert_eq!(state.prompt, "/rec rate 42 ");
+        assert_eq!(state.search.prompt, "/rec rate 42 ");
         let _ = seed_record_edit(&mut state, &item, "note");
-        assert_eq!(state.prompt, "/rec note 42 ");
+        assert_eq!(state.search.prompt, "/rec note 42 ");
     }
 
     #[test]
     fn esc_pops_browse_nav_stack_then_clears_at_root() {
         let mut state = AppState::default();
-        state.prompt = "/n browse".into();
-        state.prompt_cursor = state.prompt_char_len();
-        state.results.items.push(SearchItem {
+        state.search.prompt = "/n browse".into();
+        state.search.prompt_cursor = state.prompt_char_len();
+        state.search.results.items.push(SearchItem {
             id: ResultId::new("browse:n:/tmp/notes/Inbox"),
             module_id: ModuleId::new("luma.notes"),
             title: "Inbox/".into(),
@@ -1904,39 +893,39 @@ mod tests {
                 "path": "/tmp/notes/Inbox",
             })),
         });
-        state.results.selected_id = Some("browse:n:/tmp/notes/Inbox".into());
+        state.search.results.selected_id = Some("browse:n:/tmp/notes/Inbox".into());
         let _ = update(&mut state, Msg::Submit);
-        assert_eq!(state.prompt, "/n browse /tmp/notes/Inbox");
-        assert_eq!(state.browse_nav_stack, vec!["/n browse".to_string()]);
+        assert_eq!(state.search.prompt, "/n browse /tmp/notes/Inbox");
+        assert_eq!(state.search.browse_nav_stack, vec!["/n browse".to_string()]);
 
-        state.active_request = None;
+        state.search.active_request = None;
         let effects = update(&mut state, Msg::Cancel);
         assert!(
             effects.iter().any(|e| matches!(e, Effect::Search { .. })),
             "expected search after browse-up: {effects:?}"
         );
-        assert_eq!(state.prompt, "/n browse");
-        assert!(state.browse_nav_stack.is_empty());
+        assert_eq!(state.search.prompt, "/n browse");
+        assert!(state.search.browse_nav_stack.is_empty());
 
-        state.active_request = None;
+        state.search.active_request = None;
         let effects = update(&mut state, Msg::Cancel);
         assert!(
             effects.iter().any(|e| matches!(e, Effect::LoadHub)),
             "expected LoadHub after clearing to hub: {effects:?}"
         );
-        assert!(state.prompt.is_empty());
+        assert!(state.search.prompt.is_empty());
         assert!(!state.should_quit);
     }
 
     #[test]
     fn ctrl_u_clears_browse_stack_for_home() {
         let mut state = AppState::default();
-        state.prompt = "/n browse /tmp/notes/Inbox".into();
-        state.prompt_cursor = state.prompt_char_len();
-        state.browse_nav_stack = vec!["/n browse".into()];
+        state.search.prompt = "/n browse /tmp/notes/Inbox".into();
+        state.search.prompt_cursor = state.prompt_char_len();
+        state.search.browse_nav_stack = vec!["/n browse".into()];
         let _ = update(&mut state, Msg::ClearToStart);
-        assert!(state.prompt.is_empty());
-        assert!(state.browse_nav_stack.is_empty());
+        assert!(state.search.prompt.is_empty());
+        assert!(state.search.browse_nav_stack.is_empty());
     }
 
     #[test]
@@ -1946,15 +935,15 @@ mod tests {
         let _ = update(&mut state, Msg::KeyChar('c'));
         let _ = update(&mut state, Msg::CursorLeft);
         let _ = update(&mut state, Msg::KeyChar('b'));
-        assert_eq!(state.prompt, "abc");
-        assert_eq!(state.prompt_cursor, 2);
+        assert_eq!(state.search.prompt, "abc");
+        assert_eq!(state.search.prompt_cursor, 2);
     }
 
     #[test]
     fn page_down_moves_selection() {
         let mut state = AppState::default();
         for i in 0..12 {
-            state.results.items.push(SearchItem {
+            state.search.results.items.push(SearchItem {
                 id: ResultId::new(format!("{i}")),
                 module_id: ModuleId::new("mock"),
                 title: format!("Item {i}"),
@@ -1972,17 +961,17 @@ mod tests {
                 action_payload: None,
             });
         }
-        state.results.selected_id = Some("0".into());
+        state.search.results.selected_id = Some("0".into());
         let _ = update(&mut state, Msg::SelectPageDown);
-        assert_eq!(state.results.selected_id.as_deref(), Some("5"));
+        assert_eq!(state.search.results.selected_id.as_deref(), Some("5"));
     }
 
     #[test]
     fn action_picker_digit_runs_action() {
         let mut state = AppState::default();
         state.route = Route::ActionPicker;
-        state.action_result_id = Some("r1".into());
-        state.action_choices = vec![
+        state.actions.action_result_id = Some("r1".into());
+        state.actions.action_choices = vec![
             ActionDescriptorDto {
                 id: "a".into(),
                 label: "A".into(),
@@ -2008,7 +997,7 @@ mod tests {
     #[test]
     fn submit_lists_actions_for_selected_result() {
         let mut state = AppState::default();
-        state.results.items.push(SearchItem {
+        state.search.results.items.push(SearchItem {
             id: ResultId::new("1"),
             module_id: ModuleId::new("mock"),
             title: "One".into(),
@@ -2025,7 +1014,7 @@ mod tests {
             ui_intent: None,
             action_payload: None,
         });
-        state.results.selected_id = Some("1".into());
+        state.search.results.selected_id = Some("1".into());
         let effects = update(&mut state, Msg::Submit);
         assert_eq!(
             effects,
@@ -2034,7 +1023,7 @@ mod tests {
             }]
         );
         assert_eq!(
-            state.awaiting_actions,
+            state.actions.awaiting_actions,
             Some(AwaitingActions {
                 intent: ActionsIntent::Primary,
                 result_id: "1".into(),
@@ -2045,7 +1034,7 @@ mod tests {
     #[test]
     fn actions_available_enters_confirm_for_destructive() {
         let mut state = AppState::default();
-        state.results.items.push(SearchItem {
+        state.search.results.items.push(SearchItem {
             id: ResultId::new("1"),
             module_id: ModuleId::new("mock"),
             title: "One".into(),
@@ -2062,8 +1051,8 @@ mod tests {
             ui_intent: None,
             action_payload: None,
         });
-        state.results.selected_id = Some("1".into());
-        state.awaiting_actions = Some(AwaitingActions {
+        state.search.results.selected_id = Some("1".into());
+        state.actions.awaiting_actions = Some(AwaitingActions {
             intent: ActionsIntent::Primary,
             result_id: "1".into(),
         });
@@ -2081,13 +1070,13 @@ mod tests {
         );
         assert_eq!(effects, vec![Effect::None]);
         assert_eq!(state.route, Route::ConfirmAction);
-        assert!(state.pending_action.is_some());
+        assert!(state.actions.pending_action.is_some());
     }
 
     #[test]
     fn missing_primary_action_reports_contract_violation() {
         let mut state = AppState::default();
-        state.results.items.push(SearchItem {
+        state.search.results.items.push(SearchItem {
             id: ResultId::new("1"),
             module_id: ModuleId::new("mock"),
             title: "One".into(),
@@ -2104,8 +1093,8 @@ mod tests {
             ui_intent: None,
             action_payload: None,
         });
-        state.results.selected_id = Some("1".into());
-        state.awaiting_actions = Some(AwaitingActions {
+        state.search.results.selected_id = Some("1".into());
+        state.actions.awaiting_actions = Some(AwaitingActions {
             intent: ActionsIntent::Primary,
             result_id: "1".into(),
         });
@@ -2123,7 +1112,7 @@ mod tests {
         );
         assert_eq!(effects, vec![Effect::None]);
         assert_eq!(state.route, Route::Search);
-        assert!(state.pending_action.is_none());
+        assert!(state.actions.pending_action.is_none());
         assert!(state.status.text.contains("module contract violation"));
         assert_eq!(state.status.tone, StatusTone::Error);
     }
@@ -2132,7 +1121,7 @@ mod tests {
     fn confirm_submit_executes_with_confirmation_true() {
         let mut state = AppState::default();
         state.route = Route::ConfirmAction;
-        state.pending_action = Some(PendingAction {
+        state.actions.pending_action = Some(PendingAction {
             result_id: "1".into(),
             action: ActionDescriptorDto {
                 id: "force".into(),
@@ -2156,8 +1145,8 @@ mod tests {
     #[test]
     fn second_execute_rejected_while_action_active() {
         let mut state = AppState::default();
-        state.active_operation = Some("op-1".into());
-        state.results.items = vec![SearchItem {
+        state.actions.active_operation = Some("op-1".into());
+        state.search.results.items = vec![SearchItem {
             id: ResultId::new("1"),
             module_id: ModuleId::new("luma.fake"),
             title: "hit".into(),
@@ -2174,8 +1163,8 @@ mod tests {
             ui_intent: None,
             action_payload: None,
         }];
-        state.results.selected_id = Some("1".into());
-        state.awaiting_actions = Some(AwaitingActions {
+        state.search.results.selected_id = Some("1".into());
+        state.actions.awaiting_actions = Some(AwaitingActions {
             intent: ActionsIntent::Primary,
             result_id: "1".into(),
         });
@@ -2192,14 +1181,14 @@ mod tests {
             }),
         );
         assert_eq!(effects, vec![Effect::None]);
-        assert_eq!(state.active_operation.as_deref(), Some("op-1"));
+        assert_eq!(state.actions.active_operation.as_deref(), Some("op-1"));
         assert!(state.status.text.contains("already running"));
     }
 
     #[test]
     fn tab_opens_action_picker() {
         let mut state = AppState::default();
-        state.results.selected_id = Some("1".into());
+        state.search.results.selected_id = Some("1".into());
         let effects = update(&mut state, Msg::OpenActions);
         assert_eq!(
             effects,
@@ -2208,7 +1197,7 @@ mod tests {
             }]
         );
         assert_eq!(
-            state.awaiting_actions,
+            state.actions.awaiting_actions,
             Some(AwaitingActions {
                 intent: ActionsIntent::Picker,
                 result_id: "1".into(),
@@ -2236,14 +1225,14 @@ mod tests {
         );
         assert_eq!(effects, vec![Effect::None]);
         assert_eq!(state.route, Route::ActionPicker);
-        assert_eq!(state.action_choices.len(), 2);
-        assert_eq!(state.action_result_id.as_deref(), Some("1"));
+        assert_eq!(state.actions.action_choices.len(), 2);
+        assert_eq!(state.actions.action_result_id.as_deref(), Some("1"));
     }
 
     #[test]
     fn mismatched_actions_available_is_ignored() {
         let mut state = AppState::default();
-        state.awaiting_actions = Some(AwaitingActions {
+        state.actions.awaiting_actions = Some(AwaitingActions {
             intent: ActionsIntent::Picker,
             result_id: "A".into(),
         });
@@ -2261,9 +1250,10 @@ mod tests {
         );
         assert_eq!(effects, vec![Effect::None]);
         assert_eq!(state.route, Route::Search);
-        assert!(state.action_choices.is_empty());
+        assert!(state.actions.action_choices.is_empty());
         assert_eq!(
             state
+                .actions
                 .awaiting_actions
                 .as_ref()
                 .map(|a| a.result_id.as_str()),
@@ -2275,20 +1265,24 @@ mod tests {
     fn picker_submit_uses_pinned_result_id_not_selection() {
         let mut state = AppState::default();
         state.route = Route::ActionPicker;
-        state.action_result_id = Some("A".into());
-        state.results.selected_id = Some("B".into());
-        state.action_choices = vec![ActionDescriptorDto {
+        state.actions.action_result_id = Some("A".into());
+        state.search.results.selected_id = Some("B".into());
+        state.actions.action_choices = vec![ActionDescriptorDto {
             id: "delete".into(),
             label: "Delete".into(),
             risk: ActionRisk::Destructive,
             confirmation: true,
         }];
-        state.action_selected = 0;
+        state.actions.action_selected = 0;
         let effects = update(&mut state, Msg::Submit);
         assert_eq!(effects, vec![Effect::None]);
         assert_eq!(state.route, Route::ConfirmAction);
         assert_eq!(
-            state.pending_action.as_ref().map(|p| p.result_id.as_str()),
+            state
+                .actions
+                .pending_action
+                .as_ref()
+                .map(|p| p.result_id.as_str()),
             Some("A")
         );
     }
@@ -2298,15 +1292,15 @@ mod tests {
         let mut state = AppState::default();
         let _ = update(&mut state, Msg::KeyChar('a'));
         let _ = update(&mut state, Msg::FlushSearch);
-        let request_id = state.active_request.clone().expect("active request");
+        let request_id = state.search.active_request.clone().expect("active request");
         let applied = state.apply_engine_event(Event::SearchFinished {
             request_id,
             total: 1,
             elapsed_ms: 3,
         });
         assert!(applied);
-        assert!(state.active_request.is_none());
-        state.results.items.push(SearchItem {
+        assert!(state.search.active_request.is_none());
+        state.search.results.items.push(SearchItem {
             id: ResultId::new("1"),
             module_id: ModuleId::new("mock"),
             title: "One".into(),
@@ -2323,14 +1317,14 @@ mod tests {
             ui_intent: None,
             action_payload: None,
         });
-        state.prompt = "a".into();
+        state.search.prompt = "a".into();
         let effects = update(&mut state, Msg::Cancel);
         assert!(
             effects.iter().any(|e| matches!(e, Effect::LoadHub)),
             "expected LoadHub after Esc to empty: {effects:?}"
         );
-        assert!(state.prompt.is_empty());
-        assert!(state.results.items.is_empty());
+        assert!(state.search.prompt.is_empty());
+        assert!(state.search.results.items.is_empty());
         assert!(!state.should_quit);
     }
 
@@ -2364,24 +1358,24 @@ mod tests {
     #[test]
     fn settings_ctrl_u_does_not_edit_prompt() {
         let mut state = AppState::default();
-        state.prompt = "keep me".into();
-        state.prompt_cursor = state.prompt_char_len();
+        state.search.prompt = "keep me".into();
+        state.search.prompt_cursor = state.prompt_char_len();
         state.route = Route::Settings;
-        state.settings_modules = vec![crate::view_model::SettingsModuleRow {
+        state.settings.modules = vec![crate::view_model::SettingsModuleRow {
             id: "luma.fake".into(),
             name: "Fake".into(),
             enabled: true,
         }];
         let effects = update(&mut state, Msg::ClearToStart);
         assert_eq!(effects, vec![Effect::None]);
-        assert_eq!(state.prompt, "keep me");
-        assert!(state.search_debounce_deadline.is_none());
+        assert_eq!(state.search.prompt, "keep me");
+        assert!(state.search.debounce_deadline.is_none());
     }
 
     #[test]
     fn stale_preview_loaded_is_ignored() {
         let mut state = AppState::default();
-        state.results.items.push(luma_domain::SearchItem {
+        state.search.results.items.push(luma_domain::SearchItem {
             id: luma_domain::ResultId::new("note:a"),
             module_id: luma_domain::ModuleId::new("luma.notes"),
             title: "a".into(),
@@ -2398,7 +1392,7 @@ mod tests {
             ui_intent: None,
             action_payload: None,
         });
-        state.results.selected_id = Some("note:a".into());
+        state.search.results.selected_id = Some("note:a".into());
         let effects = preview_effect(&mut state);
         let Effect::LoadPreview {
             preview_id: first_id,
@@ -2410,8 +1404,8 @@ mod tests {
         let first_id = *first_id;
 
         // New request for same selection after bump (simulate re-select).
-        state.pending_preview_id = None;
-        state.preview_body = None;
+        state.preview.pending_id = None;
+        state.preview.body = None;
         let effects2 = preview_effect(&mut state);
         let Effect::LoadPreview {
             preview_id: second_id,
@@ -2428,7 +1422,7 @@ mod tests {
             body: "STALE".into(),
         });
         assert!(!applied);
-        assert_ne!(state.preview_body.as_deref(), Some("STALE"));
+        assert_ne!(state.preview.body.as_deref(), Some("STALE"));
 
         let applied = state.apply_engine_event(Event::PreviewLoaded {
             result_id: "note:a".into(),
@@ -2436,15 +1430,15 @@ mod tests {
             body: "FRESH".into(),
         });
         assert!(applied);
-        assert_eq!(state.preview_body.as_deref(), Some("FRESH"));
+        assert_eq!(state.preview.body.as_deref(), Some("FRESH"));
     }
 
     #[test]
     fn toggle_setting_uses_update_settings_cas() {
         let mut state = AppState::default();
         state.route = Route::Settings;
-        state.settings_version = 3;
-        state.settings_modules = vec![crate::view_model::SettingsModuleRow {
+        state.settings.version = 3;
+        state.settings.modules = vec![crate::view_model::SettingsModuleRow {
             id: "luma.fake".into(),
             name: "Fake".into(),
             enabled: true,
@@ -2459,13 +1453,13 @@ mod tests {
             }]
         );
         // No optimistic flip — wait for SettingsChanged.
-        assert!(state.settings_modules[0].enabled);
+        assert!(state.settings.modules[0].enabled);
     }
 
     #[test]
     fn hub_window_enter_focuses_without_prompt() {
         let mut state = AppState::default();
-        state.hub_windows = Some(crate::view_model::HubWindowsState {
+        state.hub.windows = Some(crate::view_model::HubWindowsState {
             app_name: "Cursor".into(),
             windows: vec![crate::view_model::HubWindowRow {
                 id: "win:pid:1|num:1".into(),
@@ -2476,9 +1470,9 @@ mod tests {
             status_title: None,
             status_subtitle: None,
         });
-        state.hub_selected = 0;
+        state.hub.selected = 0;
         let effects = update(&mut state, Msg::Submit);
-        assert!(state.prompt.is_empty());
+        assert!(state.search.prompt.is_empty());
         assert!(effects.iter().any(|e| matches!(
             e,
             Effect::ExecuteAction {
@@ -2493,8 +1487,8 @@ mod tests {
     #[test]
     fn hub_window_enter_respects_active_operation() {
         let mut state = AppState::default();
-        state.active_operation = Some("op-1".into());
-        state.hub_windows = Some(crate::view_model::HubWindowsState {
+        state.actions.active_operation = Some("op-1".into());
+        state.hub.windows = Some(crate::view_model::HubWindowsState {
             app_name: "Cursor".into(),
             windows: vec![crate::view_model::HubWindowRow {
                 id: "win:pid:1|num:1".into(),
@@ -2505,26 +1499,26 @@ mod tests {
             status_title: None,
             status_subtitle: None,
         });
-        state.hub_selected = 0;
+        state.hub.selected = 0;
         let effects = update(&mut state, Msg::Submit);
         assert_eq!(effects, vec![Effect::None]);
-        assert_eq!(state.active_operation.as_deref(), Some("op-1"));
+        assert_eq!(state.actions.active_operation.as_deref(), Some("op-1"));
     }
 
     #[test]
     fn empty_prompt_schedules_load_hub() {
         let mut state = AppState::default();
-        state.prompt = "app x".into();
-        state.prompt_cursor = state.prompt_char_len();
+        state.search.prompt = "app x".into();
+        state.search.prompt_cursor = state.prompt_char_len();
         let effects = update(&mut state, Msg::ClearToStart);
-        assert!(state.prompt.is_empty());
+        assert!(state.search.prompt.is_empty());
         assert!(effects.iter().any(|e| matches!(e, Effect::LoadHub)));
     }
 
     #[test]
     fn hub_more_row_opens_win_trigger() {
         let mut state = AppState::default();
-        state.hub_windows = Some(crate::view_model::HubWindowsState {
+        state.hub.windows = Some(crate::view_model::HubWindowsState {
             app_name: "Cursor".into(),
             windows: vec![crate::view_model::HubWindowRow {
                 id: "win:pid:1|num:1".into(),
@@ -2535,15 +1529,15 @@ mod tests {
             status_title: None,
             status_subtitle: None,
         });
-        state.hub_selected = 1; // more row
+        state.hub.selected = 1; // more row
         let _effects = update(&mut state, Msg::Submit);
-        assert_eq!(state.prompt, "/win ");
+        assert_eq!(state.search.prompt, "/win ");
     }
 
     #[test]
     fn hub_status_row_opens_win() {
         let mut state = AppState::default();
-        state.hub_windows = Some(crate::view_model::HubWindowsState {
+        state.hub.windows = Some(crate::view_model::HubWindowsState {
             app_name: "Windows".into(),
             windows: vec![],
             more: None,
@@ -2551,9 +1545,9 @@ mod tests {
             status_title: Some("Permission required (accessibility)".into()),
             status_subtitle: Some("Grant Accessibility".into()),
         });
-        state.hub_selected = 0;
+        state.hub.selected = 0;
         let _ = update(&mut state, Msg::Submit);
-        assert_eq!(state.prompt, "/win ");
+        assert_eq!(state.search.prompt, "/win ");
     }
 
     #[test]
@@ -2577,8 +1571,8 @@ mod tests {
             ui_intent: Some("seed_config".into()),
             action_payload: None,
         };
-        state.results.items = vec![item.clone()];
-        state.results.selected_id = Some(item.id.as_str().to_string());
+        state.search.results.items = vec![item.clone()];
+        state.search.results.selected_id = Some(item.id.as_str().to_string());
         let effects = request_primary_actions(&mut state);
         assert!(
             effects
@@ -2610,8 +1604,8 @@ mod tests {
             ui_intent: Some("seed_config".into()),
             action_payload: None,
         };
-        state.results.items = vec![item.clone()];
-        state.results.selected_id = Some(item.id.as_str().into());
+        state.search.results.items = vec![item.clone()];
+        state.search.results.selected_id = Some(item.id.as_str().into());
         let _ = request_primary_actions(&mut state);
         assert!(state.status.text.contains("/proj add"));
         assert!(!state.status.text.contains("--projects-root"));
@@ -2620,7 +1614,7 @@ mod tests {
     #[test]
     fn hub_rows_order_window_then_module() {
         let mut state = AppState::default();
-        state.hub_windows = Some(crate::view_model::HubWindowsState {
+        state.hub.windows = Some(crate::view_model::HubWindowsState {
             app_name: "Cursor".into(),
             windows: vec![crate::view_model::HubWindowRow {
                 id: "win:a".into(),
@@ -2652,8 +1646,8 @@ mod tests {
     #[test]
     fn hub_loaded_clamps_selection() {
         let mut state = AppState::default();
-        state.hub_selected = 50;
-        state.hub_scroll = 40;
+        state.hub.selected = 50;
+        state.hub.scroll = 40;
         state.module_catalog = vec![crate::view_model::ModuleCatalogEntry {
             id: "luma.apps".into(),
             display_name: "Apps".into(),
@@ -2675,8 +1669,8 @@ mod tests {
                 status: None,
             }),
         });
-        assert!(state.hub_selected < state.hub_rows().len());
-        assert!(state.hub_scroll <= state.hub_selected);
+        assert!(state.hub.selected < state.hub_rows().len());
+        assert!(state.hub.scroll <= state.hub.selected);
     }
 
     #[test]
@@ -2685,7 +1679,7 @@ mod tests {
         assert!(state.showing_hub());
         let effects = update(&mut state, Msg::RefreshHub);
         assert!(effects.iter().any(|e| matches!(e, Effect::LoadHub)));
-        assert!(state.hub_refresh_deadline.is_some());
+        assert!(state.hub.refresh_deadline.is_some());
         assert!(!state.dirty);
     }
 
@@ -2699,11 +1693,11 @@ mod tests {
     #[test]
     fn refresh_hub_skips_when_not_on_hub() {
         let mut state = AppState::default();
-        state.prompt = "app ".into();
-        state.hub_refresh_deadline = Some(std::time::Instant::now());
+        state.search.prompt = "app ".into();
+        state.hub.refresh_deadline = Some(std::time::Instant::now());
         let effects = update(&mut state, Msg::RefreshHub);
         assert!(!effects.iter().any(|e| matches!(e, Effect::LoadHub)));
-        assert!(state.hub_refresh_deadline.is_none());
+        assert!(state.hub.refresh_deadline.is_none());
     }
 
     #[test]
@@ -2719,79 +1713,79 @@ mod tests {
     #[test]
     fn esc_clear_prompt_clears_awaiting_actions() {
         let mut state = AppState::default();
-        state.prompt = "clip ".into();
-        state.prompt_cursor = state.prompt_char_len();
-        state.awaiting_actions = Some(AwaitingActions {
+        state.search.prompt = "clip ".into();
+        state.search.prompt_cursor = state.prompt_char_len();
+        state.actions.awaiting_actions = Some(AwaitingActions {
             intent: ActionsIntent::Picker,
             result_id: "clip:1".into(),
         });
         let effects = update(&mut state, Msg::Cancel);
         assert!(effects.iter().any(|e| matches!(e, Effect::LoadHub)));
-        assert!(state.awaiting_actions.is_none());
-        assert!(state.prompt.is_empty());
+        assert!(state.actions.awaiting_actions.is_none());
+        assert!(state.search.prompt.is_empty());
     }
 
     #[test]
     fn begin_search_clears_pending_preview() {
         let mut state = AppState::default();
-        state.prompt = "clip foo".into();
-        state.prompt_cursor = state.prompt_char_len();
-        state.pending_preview_id = Some(7);
-        state.preview_result_id = Some("clip:1".into());
-        state.preview_body = Some("old".into());
+        state.search.prompt = "clip foo".into();
+        state.search.prompt_cursor = state.prompt_char_len();
+        state.preview.pending_id = Some(7);
+        state.preview.result_id = Some("clip:1".into());
+        state.preview.body = Some("old".into());
         let _ = begin_search(&mut state);
-        assert!(state.pending_preview_id.is_none());
-        assert!(state.preview_result_id.is_none());
-        assert!(state.preview_body.is_none());
+        assert!(state.preview.pending_id.is_none());
+        assert!(state.preview.result_id.is_none());
+        assert!(state.preview.body.is_none());
     }
 
     #[test]
     fn open_help_saves_restore_prompt() {
         let mut state = AppState::default();
-        state.prompt = "clip foo".into();
-        state.prompt_cursor = state.prompt_char_len();
+        state.search.prompt = "clip foo".into();
+        state.search.prompt_cursor = state.prompt_char_len();
         let _ = update(&mut state, Msg::OpenHelp);
         assert_eq!(state.route, Route::Help);
-        assert_eq!(state.overlay_restore_prompt.as_deref(), Some("clip foo"));
+        assert_eq!(state.overlay.restore_prompt.as_deref(), Some("clip foo"));
         let _ = update(&mut state, Msg::Cancel);
         assert_eq!(state.route, Route::Search);
-        assert_eq!(state.prompt, "clip foo");
-        assert!(state.overlay_restore_prompt.is_none());
+        assert_eq!(state.search.prompt, "clip foo");
+        assert!(state.overlay.restore_prompt.is_none());
     }
 
     #[test]
     fn typing_from_help_discards_restore_prompt() {
         let mut state = AppState::default();
-        state.prompt = "/help".into();
-        state.prompt_cursor = state.prompt_char_len();
+        state.search.prompt = "/help".into();
+        state.search.prompt_cursor = state.prompt_char_len();
         let _ = update(&mut state, Msg::Submit);
         assert_eq!(state.route, Route::Help);
-        assert_eq!(state.overlay_restore_prompt.as_deref(), Some("/help"));
+        assert_eq!(state.overlay.restore_prompt.as_deref(), Some("/help"));
         let _ = update(&mut state, Msg::KeyChar('x'));
         assert_eq!(state.route, Route::Search);
-        assert!(state.overlay_restore_prompt.is_none());
-        assert!(state.prompt.contains('x'));
+        assert!(state.overlay.restore_prompt.is_none());
+        assert!(state.search.prompt.contains('x'));
     }
 
     #[test]
     fn backspace_from_help_exits_to_search() {
         let mut state = AppState::default();
-        state.prompt = "ab".into();
-        state.prompt_cursor = state.prompt_char_len();
-        state.overlay_restore_prompt = Some("ab".into());
+        state.search.prompt = "ab".into();
+        state.search.prompt_cursor = state.prompt_char_len();
+        state.overlay.restore_prompt = Some("ab".into());
         state.route = Route::Help;
         let _ = update(&mut state, Msg::Backspace);
         assert_eq!(state.route, Route::Search);
-        assert!(state.overlay_restore_prompt.is_none());
-        assert_eq!(state.prompt, "a");
+        assert!(state.overlay.restore_prompt.is_none());
+        assert_eq!(state.search.prompt, "a");
     }
 
     #[test]
     fn project_remove_refresh_keeps_success_feedback_and_clears_row() {
         let mut state = AppState::default();
-        state.prompt = "/proj remove files".into();
-        state.prompt_cursor = state.prompt_char_len();
-        state.results.items.push(SearchItem {
+        state.search.prompt = "/proj remove files".into();
+        state.search.prompt_cursor = state.prompt_char_len();
+        state.search.results.items.push(SearchItem {
             id: ResultId::new("proj:remove:files"),
             module_id: ModuleId::new("luma.projects"),
             title: "Remove files".into(),
@@ -2808,8 +1802,8 @@ mod tests {
             ui_intent: None,
             action_payload: None,
         });
-        state.results.selected_id = Some("proj:remove:files".into());
-        state.active_operation = Some("op-remove".into());
+        state.search.results.selected_id = Some("proj:remove:files".into());
+        state.actions.active_operation = Some("op-remove".into());
 
         let settings = Event::SettingsChanged {
             version: 2,
@@ -2823,7 +1817,7 @@ mod tests {
         assert!(!effects
             .iter()
             .any(|effect| matches!(effect, Effect::Search { .. })));
-        assert!(state.results.items.is_empty());
+        assert!(state.search.results.items.is_empty());
 
         let _ = apply_engine(
             &mut state,
@@ -2841,10 +1835,10 @@ mod tests {
     #[test]
     fn win_digit_ignores_non_window_rows() {
         let mut state = AppState::default();
-        state.prompt = "/win ".into();
-        state.prompt_cursor = state.prompt_char_len();
+        state.search.prompt = "/win ".into();
+        state.search.prompt_cursor = state.prompt_char_len();
         state.focus = FocusZone::List;
-        state.results.items.push(SearchItem {
+        state.search.results.items.push(SearchItem {
             id: ResultId::new("win:status"),
             module_id: ModuleId::new("luma.windows"),
             title: "Permission".into(),
@@ -2861,7 +1855,7 @@ mod tests {
             ui_intent: None,
             action_payload: None,
         });
-        state.results.items.push(SearchItem {
+        state.search.results.items.push(SearchItem {
             id: ResultId::new("win:a"),
             module_id: ModuleId::new("luma.windows"),
             title: "A".into(),

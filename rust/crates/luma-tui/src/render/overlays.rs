@@ -49,7 +49,7 @@ pub(super) fn render_overlay_confirm(
     fill_overlay_panel(frame, overlay, theme);
     let panel = panel_style(theme);
 
-    let pending = state.pending_action.as_ref();
+    let pending = state.actions.pending_action.as_ref();
     let action = pending.map(|p| p.action.label.as_str()).unwrap_or("action");
     let risk = pending.map(|p| &p.action.risk);
     let consequence = match risk {
@@ -62,6 +62,7 @@ pub(super) fn render_overlay_confirm(
     let target = pending
         .and_then(|p| {
             state
+                .search
                 .results
                 .items
                 .iter()
@@ -70,7 +71,8 @@ pub(super) fn render_overlay_confirm(
         .map(|i| i.title.as_str())
         .or_else(|| {
             state
-                .wordbook_review
+                .wordbook
+                .review
                 .as_ref()
                 .filter(|_| pending.is_some())
                 .and_then(|review| review.words.get(review.index))
@@ -129,16 +131,20 @@ pub(super) fn render_overlay_action_picker(
     symbols: &Symbols,
 ) {
     dim_backdrop(frame, area, theme);
-    let rows = (state.action_choices.len() as u16).saturating_add(2).max(6);
+    let rows = (state.actions.action_choices.len() as u16)
+        .saturating_add(2)
+        .max(6);
     let overlay = overlay_area(area, rows.min(16));
     fill_overlay_panel(frame, overlay, theme);
     let panel = panel_style(theme);
 
     let target = state
+        .actions
         .action_result_id
         .as_ref()
         .and_then(|id| {
             state
+                .search
                 .results
                 .items
                 .iter()
@@ -148,11 +154,12 @@ pub(super) fn render_overlay_action_picker(
         .unwrap_or_else(|| "item".into());
 
     let items: Vec<ListItem> = state
+        .actions
         .action_choices
         .iter()
         .enumerate()
         .map(|(idx, action)| {
-            let selected = idx == state.action_selected;
+            let selected = idx == state.actions.action_selected;
             let prefix = if selected { symbols.selected } else { " " };
             let row_bg = if selected {
                 Style::default().bg(theme.selected_bg)
@@ -254,7 +261,7 @@ pub(super) fn render_overlay_help(
     let panel = panel_style(theme);
     let inner_h = overlay.height.saturating_sub(2) as usize;
     let max_scroll = lines.len().saturating_sub(inner_h.max(1));
-    let scroll = state.help_scroll.min(max_scroll);
+    let scroll = state.overlay.help_scroll.min(max_scroll);
     let visible = lines
         .iter()
         .skip(scroll)
@@ -299,16 +306,16 @@ pub(super) fn render_overlay_settings(
     let content_width = overlay.width.saturating_sub(2) as usize;
     let fit = |text: String| truncate(&text, content_width, symbols);
     let mut items = Vec::new();
-    let notes_line = match &state.settings_roots.notes_root {
+    let notes_line = match &state.settings.roots.notes_root {
         Some(root) if !root.is_empty() => fit(format!(" Notes root: {root}")),
         _ => fit(" Notes root: (not set) · luma config set --notes-root ~/Notes".into()),
     };
-    let projects_line = if state.settings_roots.projects_roots.is_empty() {
+    let projects_line = if state.settings.roots.projects_roots.is_empty() {
         fit(" Projects: (none) · luma config set --projects-root ~/dev".into())
     } else {
         fit(format!(
             " Projects: {}",
-            state.settings_roots.projects_roots.join(", ")
+            state.settings.roots.projects_roots.join(", ")
         ))
     };
     items.push(ListItem::new(Span::styled(
@@ -319,30 +326,30 @@ pub(super) fn render_overlay_settings(
         projects_line,
         with_panel_bg(theme.muted(), theme),
     )));
-    let imported_line = if state.settings_roots.imported_projects.is_empty() {
+    let imported_line = if state.settings.roots.imported_projects.is_empty() {
         fit(" Imported: (none) · /proj add PATH or /proj browse".into())
     } else {
         fit(format!(
             " Imported: {} project(s)",
-            state.settings_roots.imported_projects.len()
+            state.settings.roots.imported_projects.len()
         ))
     };
     items.push(ListItem::new(Span::styled(
         imported_line,
         with_panel_bg(theme.muted(), theme),
     )));
-    if !state.settings_roots.imported_projects.is_empty() {
-        for path in state.settings_roots.imported_projects.iter().take(8) {
+    if !state.settings.roots.imported_projects.is_empty() {
+        for path in state.settings.roots.imported_projects.iter().take(8) {
             items.push(ListItem::new(Span::styled(
                 fit(format!("   · {path}")),
                 with_panel_bg(theme.muted(), theme),
             )));
         }
-        if state.settings_roots.imported_projects.len() > 8 {
+        if state.settings.roots.imported_projects.len() > 8 {
             items.push(ListItem::new(Span::styled(
                 fit(format!(
                     "   · … {} more",
-                    state.settings_roots.imported_projects.len() - 8
+                    state.settings.roots.imported_projects.len() - 8
                 )),
                 with_panel_bg(theme.muted(), theme),
             )));
@@ -353,14 +360,14 @@ pub(super) fn render_overlay_settings(
         with_panel_bg(theme.muted(), theme),
     )));
     let module_start = items.len();
-    if state.settings_modules.is_empty() {
+    if state.settings.modules.is_empty() {
         items.push(ListItem::new(Span::styled(
             fit("  Loading modules…".into()),
             with_panel_bg(theme.muted(), theme),
         )));
     } else {
-        for (idx, row) in state.settings_modules.iter().enumerate() {
-            let selected = idx == state.settings_selected;
+        for (idx, row) in state.settings.modules.iter().enumerate() {
+            let selected = idx == state.settings.selected;
             let prefix = if selected { symbols.selected } else { " " };
             let mark = if row.enabled { "[on] " } else { "[off]" };
             let style = if selected {
@@ -375,13 +382,14 @@ pub(super) fn render_overlay_settings(
         }
     }
     let visible_height = overlay.height.saturating_sub(2) as usize;
-    let selected_row = if state.settings_modules.is_empty() {
+    let selected_row = if state.settings.modules.is_empty() {
         0
     } else {
         module_start
             + state
-                .settings_selected
-                .min(state.settings_modules.len() - 1)
+                .settings
+                .selected
+                .min(state.settings.modules.len() - 1)
     };
     let max_scroll = items.len().saturating_sub(visible_height.max(1));
     let scroll = selected_row
@@ -411,7 +419,7 @@ pub(super) fn render_overlay_settings(
             .border_style(with_panel_bg(theme.border(true), theme))
             .style(panel)
             .title(Span::styled(
-                format!(" settings v{}{} ", state.settings_version, scroll_hint),
+                format!(" settings v{}{} ", state.settings.version, scroll_hint),
                 with_panel_bg(theme.title(), theme),
             )),
     );
@@ -438,7 +446,7 @@ pub(super) fn render_overlay_commands(
         .iter()
         .enumerate()
         .map(|(idx, (name, desc))| {
-            let selected = idx == state.commands_selected;
+            let selected = idx == state.overlay.commands_selected;
             let prefix = if selected { symbols.selected } else { " " };
             let style = if selected {
                 theme.selected_row()

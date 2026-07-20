@@ -1,6 +1,6 @@
 use crate::theme::{Symbols, Theme, ThemeMode};
-use luma_domain::{FailureKind, SearchItem};
-use luma_protocol::{ActionDescriptorDto, ActionOutcomeDto, Event};
+use luma_domain::SearchItem;
+use luma_protocol::ActionDescriptorDto;
 use std::collections::HashMap;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -142,6 +142,62 @@ impl ResultsView {
     }
 }
 
+/// State that belongs to the prompt/search lifecycle: query text, request identity, result
+/// projection, debounce, history, and browse navigation. Keeping these fields together makes
+/// search resets explicit instead of scattering them across the whole application state.
+#[derive(Clone, Debug, Default)]
+pub struct SearchState {
+    pub prompt: String,
+    /// Cursor as a Unicode scalar index into `prompt` (0..=char_count).
+    pub prompt_cursor: usize,
+    /// Horizontal scroll offset (Unicode scalar index) for long prompts.
+    pub prompt_scroll: usize,
+    pub active_request: Option<String>,
+    pub request_seq_seen: u64,
+    pub search_generation: u64,
+    pub results: ResultsView,
+    /// When set, `FlushSearch` should fire after this Instant.
+    pub debounce_deadline: Option<std::time::Instant>,
+    /// Newest-first query strings submitted / flushed for search.
+    pub query_history: Vec<String>,
+    /// When browsing history with Ctrl-p/n; `None` means “live” prompt.
+    pub history_browse: Option<usize>,
+    /// Previous prompts when drilling into browse directories.
+    pub browse_nav_stack: Vec<String>,
+}
+
+/// State that belongs to action resolution and execution. Review data remains separate because
+/// it is a dedicated route/session with its own projection semantics.
+#[derive(Clone, Debug, Default)]
+pub struct ActionsState {
+    /// Monotonic counter for action operation ids (separate from search request ids).
+    pub operation_generation: u64,
+    pub awaiting_actions: Option<AwaitingActions>,
+    pub pending_action: Option<PendingAction>,
+    pub action_choices: Vec<ActionDescriptorDto>,
+    /// Result id that produced `action_choices` — never re-read selection on submit.
+    pub action_result_id: Option<String>,
+    pub action_selected: usize,
+    pub active_operation: Option<String>,
+}
+
+/// Preview state is intentionally separate from search results: preview requests can outlive a
+/// selection change and are guarded by their own generation.
+#[derive(Clone, Debug, Default)]
+pub struct PreviewState {
+    /// When set, allow stacked preview on narrow terminals (e.g. 80×24).
+    pub pinned: bool,
+    /// Async preview body for the selected result (`LoadPreview`).
+    pub result_id: Option<String>,
+    pub body: Option<String>,
+    /// Line offset when preview pane is focused.
+    pub scroll: usize,
+    /// Monotonic preview request counter (correlated with `PreviewLoaded.preview_id`).
+    pub generation: u64,
+    /// In-flight preview request id; `None` when idle.
+    pub pending_id: Option<u64>,
+}
+
 /// Structured status tone — render colors from this, not string parsing.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum StatusTone {
@@ -180,25 +236,12 @@ impl Default for StatusLine {
 #[derive(Clone, Debug)]
 pub struct AppState {
     pub route: Route,
-    pub prompt: String,
-    /// Cursor as a Unicode scalar index into `prompt` (0..=char_count).
-    pub prompt_cursor: usize,
-    pub active_request: Option<String>,
-    pub request_seq_seen: u64,
-    pub search_generation: u64,
-    /// Monotonic counter for action operation ids (separate from search request ids).
-    pub operation_generation: u64,
-    pub results: ResultsView,
+    pub search: SearchState,
+    pub actions: ActionsState,
+    pub preview: PreviewState,
     pub status: StatusLine,
     pub should_quit: bool,
     pub dirty: bool,
-    pub awaiting_actions: Option<AwaitingActions>,
-    pub pending_action: Option<PendingAction>,
-    pub action_choices: Vec<ActionDescriptorDto>,
-    /// Result id that produced `action_choices` — never re-read selection on submit.
-    pub action_result_id: Option<String>,
-    pub action_selected: usize,
-    pub active_operation: Option<String>,
     /// Resolved at init / by tests — render must not re-read the environment.
     pub theme: Theme,
     pub symbols: Symbols,
@@ -206,56 +249,19 @@ pub struct AppState {
     pub module_labels: HashMap<String, String>,
     /// Full module catalog from SessionReady (workbench metadata).
     pub module_catalog: Vec<ModuleCatalogEntry>,
-    /// Hub windows slice (all visible apps; titles as `title · app`).
-    pub hub_windows: Option<HubWindowsState>,
-    /// When set, `FlushSearch` should fire after this Instant.
-    pub search_debounce_deadline: Option<std::time::Instant>,
-    /// Soft Hub windows refresh while the empty Hub is visible.
-    pub hub_refresh_deadline: Option<std::time::Instant>,
+    /// Empty-state module hub and window switcher state.
+    pub hub: HubState,
     pub focus: FocusZone,
-    /// Newest-first query strings submitted / flushed for search.
-    pub query_history: Vec<String>,
-    /// When browsing history with Ctrl-p/n; `None` means “live” prompt.
-    pub history_browse: Option<usize>,
-    /// Previous prompts when drilling into `n browse` / `proj browse` directories.
-    /// Esc pops one level; cleared when the prompt is edited or fully cleared.
-    pub browse_nav_stack: Vec<String>,
-    /// Selected row in empty-state module Hub.
-    pub hub_selected: usize,
-    /// Settings route: selected row in module list.
-    pub settings_selected: usize,
-    pub settings_version: u64,
-    pub settings_modules: Vec<SettingsModuleRow>,
-    /// Notes / projects roots shown above module toggles.
-    pub settings_roots: SettingsRootsInfo,
+    /// Settings overlay and its versioned module/root projection.
+    pub settings: SettingsState,
     /// Active wordbook review session (`/wb review`).
-    pub wordbook_review: Option<WordbookReviewState>,
-    /// Horizontal scroll offset (Unicode scalar index) for long prompts.
-    pub prompt_scroll: usize,
-    /// When set, allow stacked preview on narrow terminals (e.g. 80×24).
-    pub preview_pinned: bool,
-    /// Help overlay scroll (line offset).
-    pub help_scroll: usize,
-    /// Recipe run deferred to the TUI loop (terminal suspend/resume).
-    pub pending_recipe_run: Option<luma_domain::RecipeRunPlan>,
-    /// Prompt to restore when leaving Commands / Settings / Help overlays.
-    pub overlay_restore_prompt: Option<String>,
-    /// Command palette selection.
-    pub commands_selected: usize,
-    /// Async preview body for the selected result (`LoadPreview`).
-    pub preview_result_id: Option<String>,
-    pub preview_body: Option<String>,
-    /// Line offset when preview pane is focused.
-    pub preview_scroll: usize,
-    /// Monotonic preview request counter (correlated with `PreviewLoaded.preview_id`).
-    pub preview_generation: u64,
-    /// In-flight preview request id; `None` when idle.
-    pub pending_preview_id: Option<u64>,
-    /// First visible Hub row index.
-    pub hub_scroll: usize,
+    pub wordbook: WordbookState,
+    /// Help, command palette, and overlay prompt restoration.
+    pub overlay: OverlayState,
+    /// Deferred hand-offs that leave the TUI temporarily.
+    pub runtime: RuntimeState,
     /// Last known terminal size — used to size the results viewport.
-    pub term_width: u16,
-    pub term_height: u16,
+    pub terminal: TerminalState,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -337,57 +343,81 @@ pub struct HubWindowsState {
     pub status_subtitle: Option<String>,
 }
 
+/// State owned by the empty-state Hub and the window switcher.
+#[derive(Clone, Debug, Default)]
+pub struct HubState {
+    pub windows: Option<HubWindowsState>,
+    pub refresh_deadline: Option<std::time::Instant>,
+    pub selected: usize,
+    pub scroll: usize,
+}
+
+/// State owned by the settings overlay and its optimistic versioned updates.
+#[derive(Clone, Debug, Default)]
+pub struct SettingsState {
+    pub selected: usize,
+    pub version: u64,
+    pub modules: Vec<SettingsModuleRow>,
+    pub roots: SettingsRootsInfo,
+}
+
+/// State owned by transient help/command overlays and prompt restoration.
+#[derive(Clone, Debug, Default)]
+pub struct OverlayState {
+    pub help_scroll: usize,
+    pub commands_selected: usize,
+    pub restore_prompt: Option<String>,
+}
+
+/// Last known terminal geometry. Rendering and viewport calculations read this snapshot only.
+#[derive(Clone, Copy, Debug)]
+pub struct TerminalState {
+    pub width: u16,
+    pub height: u16,
+}
+
+impl Default for TerminalState {
+    fn default() -> Self {
+        Self {
+            width: 80,
+            height: 24,
+        }
+    }
+}
+
+/// Runtime hand-off state for effects that temporarily leave the TUI.
+#[derive(Clone, Debug, Default)]
+pub struct RuntimeState {
+    pub pending_recipe_run: Option<luma_domain::RecipeRunPlan>,
+}
+
+/// Wordbook owns a review session independently of search results and action resolution.
+#[derive(Clone, Debug, Default)]
+pub struct WordbookState {
+    pub review: Option<WordbookReviewState>,
+}
+
 impl Default for AppState {
     fn default() -> Self {
         let mut state = Self {
             route: Route::Search,
-            prompt: String::new(),
-            prompt_cursor: 0,
-            active_request: None,
-            request_seq_seen: 0,
-            search_generation: 0,
-            operation_generation: 0,
-            results: ResultsView::default(),
+            search: SearchState::default(),
+            actions: ActionsState::default(),
+            preview: PreviewState::default(),
             status: StatusLine::default(),
             should_quit: false,
             dirty: true,
-            awaiting_actions: None,
-            pending_action: None,
-            action_choices: Vec::new(),
-            action_result_id: None,
-            action_selected: 0,
-            active_operation: None,
             theme: Theme::resolve(ThemeMode::Auto),
             symbols: Symbols::detect(),
             module_labels: HashMap::new(),
             module_catalog: Vec::new(),
-            hub_windows: None,
-            search_debounce_deadline: None,
-            hub_refresh_deadline: None,
+            hub: HubState::default(),
             focus: FocusZone::Prompt,
-            query_history: Vec::new(),
-            history_browse: None,
-            browse_nav_stack: Vec::new(),
-            hub_selected: 0,
-            settings_selected: 0,
-            settings_version: 0,
-            settings_modules: Vec::new(),
-            settings_roots: SettingsRootsInfo::default(),
-            wordbook_review: None,
-            prompt_scroll: 0,
-            preview_pinned: false,
-            help_scroll: 0,
-            pending_recipe_run: None,
-            overlay_restore_prompt: None,
-            commands_selected: 0,
-            preview_result_id: None,
-            preview_body: None,
-            preview_scroll: 0,
-            preview_generation: 0,
-            pending_preview_id: None,
-            hub_scroll: 0,
-            term_width: 80,
-            term_height: 24,
+            settings: SettingsState::default(),
+            wordbook: WordbookState::default(),
+            overlay: OverlayState::default(),
+            runtime: RuntimeState::default(),
+            terminal: TerminalState::default(),
         };
         state.sync_results_viewport();
         state
@@ -398,13 +428,14 @@ impl AppState {
     /// Empty Search route showing the module / windows Hub (not a result list).
     pub fn showing_hub(&self) -> bool {
         matches!(self.route, Route::Search)
-            && self.prompt.is_empty()
-            && self.results.items.is_empty()
+            && self.search.prompt.is_empty()
+            && self.search.results.items.is_empty()
     }
 
     pub fn selected_search_item(&self) -> Option<&luma_domain::SearchItem> {
-        self.results.selected_id.as_ref().and_then(|id| {
-            self.results
+        self.search.results.selected_id.as_ref().and_then(|id| {
+            self.search
+                .results
                 .items
                 .iter()
                 .find(|item| item.id.as_str() == id.as_str())
@@ -421,12 +452,13 @@ impl AppState {
                     .iter()
                     .any(|m| m.enabled && m.triggers.iter().any(|t| t.eq_ignore_ascii_case(token)))
         };
-        let query = luma_domain::Query::parse_with_prefixes_strict(&self.prompt, 50, is_prefix);
+        let query =
+            luma_domain::Query::parse_with_prefixes_strict(&self.search.prompt, 50, is_prefix);
         if !query.is_incomplete_trigger(is_prefix) {
             return None;
         }
         Some(
-            luma_domain::strip_command_prefix(&self.prompt)
+            luma_domain::strip_command_prefix(&self.search.prompt)
                 .trim()
                 .to_ascii_lowercase(),
         )
@@ -442,19 +474,19 @@ impl AppState {
 
     pub fn schedule_hub_refresh(&mut self) {
         if self.showing_hub() {
-            self.hub_refresh_deadline =
+            self.hub.refresh_deadline =
                 Some(std::time::Instant::now() + Self::HUB_REFRESH_INTERVAL);
         } else {
-            self.hub_refresh_deadline = None;
+            self.hub.refresh_deadline = None;
         }
     }
 
     /// Slash-prefixed `/win` / `/window` / `/windows` targeted search with results on screen.
     pub fn is_win_search(&self) -> bool {
-        if !matches!(self.route, Route::Search) || self.results.items.is_empty() {
+        if !matches!(self.route, Route::Search) || self.search.results.items.is_empty() {
             return false;
         }
-        let Some(token) = self.prompt.trim_start().strip_prefix('/') else {
+        let Some(token) = self.search.prompt.trim_start().strip_prefix('/') else {
             return false;
         };
         let token = token
@@ -467,7 +499,7 @@ impl AppState {
 
     /// Digit shortcuts for window focus: Hub (empty prompt) or win list when list is focused.
     pub fn should_intercept_window_digit(&self) -> bool {
-        if self.route != Route::Search || self.active_operation.is_some() {
+        if self.route != Route::Search || self.actions.active_operation.is_some() {
             return false;
         }
         if self.showing_hub() {
@@ -480,7 +512,7 @@ impl AppState {
     pub fn window_digit_targets(&self) -> Vec<(String, String)> {
         if self.showing_hub() {
             let rows = self.hub_rows();
-            let start = self.hub_scroll.min(rows.len());
+            let start = self.hub.scroll.min(rows.len());
             return rows
                 .iter()
                 .skip(start)
@@ -490,8 +522,13 @@ impl AppState {
                 .collect();
         }
         if self.is_win_search() {
-            let start = self.results.scroll.min(self.results.items.len());
+            let start = self
+                .search
+                .results
+                .scroll
+                .min(self.search.results.items.len());
             return self
+                .search
                 .results
                 .items
                 .iter()
@@ -507,7 +544,7 @@ impl AppState {
     /// 1-based digit label for a hub row index, if that row is a focusable window in 1..=9.
     pub fn hub_row_window_digit(&self, row_index: usize) -> Option<usize> {
         let rows = self.hub_rows();
-        let start = self.hub_scroll.min(rows.len());
+        let start = self.hub.scroll.min(rows.len());
         let mut window_idx = 0usize;
         for (i, (kind, _, _, _)) in rows.iter().enumerate().skip(start) {
             if kind != "window" {
@@ -522,74 +559,75 @@ impl AppState {
     }
 
     pub fn prompt_char_len(&self) -> usize {
-        self.prompt.chars().count()
+        self.search.prompt.chars().count()
     }
 
     pub fn clamp_prompt_cursor(&mut self) {
         let len = self.prompt_char_len();
-        if self.prompt_cursor > len {
-            self.prompt_cursor = len;
+        if self.search.prompt_cursor > len {
+            self.search.prompt_cursor = len;
         }
     }
 
     fn prompt_byte_index(&self, char_idx: usize) -> usize {
-        self.prompt
+        self.search
+            .prompt
             .char_indices()
             .nth(char_idx)
             .map(|(i, _)| i)
-            .unwrap_or(self.prompt.len())
+            .unwrap_or(self.search.prompt.len())
     }
 
     pub fn insert_prompt_char(&mut self, c: char) {
         self.clamp_prompt_cursor();
-        let byte = self.prompt_byte_index(self.prompt_cursor);
-        self.prompt.insert(byte, c);
-        self.prompt_cursor += 1;
+        let byte = self.prompt_byte_index(self.search.prompt_cursor);
+        self.search.prompt.insert(byte, c);
+        self.search.prompt_cursor += 1;
     }
 
     pub fn backspace_prompt(&mut self) {
         self.clamp_prompt_cursor();
-        if self.prompt_cursor == 0 {
+        if self.search.prompt_cursor == 0 {
             return;
         }
-        let del_at = self.prompt_cursor - 1;
+        let del_at = self.search.prompt_cursor - 1;
         let start = self.prompt_byte_index(del_at);
-        let end = self.prompt_byte_index(self.prompt_cursor);
-        self.prompt.replace_range(start..end, "");
-        self.prompt_cursor = del_at;
+        let end = self.prompt_byte_index(self.search.prompt_cursor);
+        self.search.prompt.replace_range(start..end, "");
+        self.search.prompt_cursor = del_at;
     }
 
     pub fn delete_forward_prompt(&mut self) {
         self.clamp_prompt_cursor();
-        if self.prompt_cursor >= self.prompt_char_len() {
+        if self.search.prompt_cursor >= self.prompt_char_len() {
             return;
         }
-        let start = self.prompt_byte_index(self.prompt_cursor);
-        let end = self.prompt_byte_index(self.prompt_cursor + 1);
-        self.prompt.replace_range(start..end, "");
+        let start = self.prompt_byte_index(self.search.prompt_cursor);
+        let end = self.prompt_byte_index(self.search.prompt_cursor + 1);
+        self.search.prompt.replace_range(start..end, "");
     }
 
     pub fn clear_prompt(&mut self) {
-        self.prompt.clear();
-        self.prompt_cursor = 0;
+        self.search.prompt.clear();
+        self.search.prompt_cursor = 0;
     }
 
     /// Readline-style Ctrl-u: delete from start through character before cursor.
     pub fn clear_prompt_to_start(&mut self) {
         self.clamp_prompt_cursor();
-        let end = self.prompt_byte_index(self.prompt_cursor);
-        self.prompt.replace_range(0..end, "");
-        self.prompt_cursor = 0;
+        let end = self.prompt_byte_index(self.search.prompt_cursor);
+        self.search.prompt.replace_range(0..end, "");
+        self.search.prompt_cursor = 0;
     }
 
     /// Readline-style Ctrl-w: delete the word before the cursor.
     pub fn delete_prompt_word_back(&mut self) {
         self.clamp_prompt_cursor();
-        if self.prompt_cursor == 0 {
+        if self.search.prompt_cursor == 0 {
             return;
         }
-        let chars: Vec<char> = self.prompt.chars().collect();
-        let mut i = self.prompt_cursor;
+        let chars: Vec<char> = self.search.prompt.chars().collect();
+        let mut i = self.search.prompt_cursor;
         while i > 0 && chars[i - 1].is_whitespace() {
             i -= 1;
         }
@@ -597,24 +635,24 @@ impl AppState {
             i -= 1;
         }
         let start = self.prompt_byte_index(i);
-        let end = self.prompt_byte_index(self.prompt_cursor);
-        self.prompt.replace_range(start..end, "");
-        self.prompt_cursor = i;
+        let end = self.prompt_byte_index(self.search.prompt_cursor);
+        self.search.prompt.replace_range(start..end, "");
+        self.search.prompt_cursor = i;
     }
 
     pub fn preview_side_by_side(&self) -> bool {
-        self.term_width >= 100 && !self.results.items.is_empty()
+        self.terminal.width >= 100 && !self.search.results.items.is_empty()
     }
 
     /// Stacked preview under results; pin allows 80×24 manual preview.
     pub fn preview_stacked(&self) -> bool {
-        if self.results.items.is_empty() || self.term_width >= 100 {
+        if self.search.results.items.is_empty() || self.terminal.width >= 100 {
             return false;
         }
-        if self.preview_pinned && self.term_width >= 60 {
+        if self.preview.pinned && self.terminal.width >= 60 {
             return true;
         }
-        self.term_width >= 60 && self.term_height >= 24
+        self.terminal.width >= 60 && self.terminal.height >= 24
     }
 
     pub fn preview_visible(&self) -> bool {
@@ -623,11 +661,11 @@ impl AppState {
 
     pub fn sync_results_viewport(&mut self) {
         // Vertical chrome: prompt(3) + status(3); list borders(2); each row = 2 lines.
-        let body = self.term_height.saturating_sub(6) as usize;
+        let body = self.terminal.height.saturating_sub(6) as usize;
         let preview_take = if self.preview_stacked() { 8 } else { 0 };
         let list_inner = body.saturating_sub(2 + preview_take);
         let rows = (list_inner / 2).max(1);
-        self.results.set_viewport_rows(rows);
+        self.search.results.set_viewport_rows(rows);
         self.ensure_hub_selection_visible();
     }
 
@@ -637,7 +675,7 @@ impl AppState {
         if rows.is_empty() {
             return 0;
         }
-        let start = self.hub_scroll.min(rows.len());
+        let start = self.hub.scroll.min(rows.len());
         let module_start = rows.iter().position(|(k, _, _, _)| k == "module");
         let mut slots = 0;
         if start == 0
@@ -654,7 +692,8 @@ impl AppState {
     }
 
     pub fn hub_data_capacity(&self) -> usize {
-        self.results
+        self.search
+            .results
             .viewport_rows
             .saturating_sub(self.hub_header_slots())
             .max(1)
@@ -663,22 +702,22 @@ impl AppState {
     pub fn ensure_hub_selection_visible(&mut self) {
         let len = self.hub_rows().len();
         if len == 0 {
-            self.hub_scroll = 0;
-            self.hub_selected = 0;
+            self.hub.scroll = 0;
+            self.hub.selected = 0;
             return;
         }
-        if self.hub_selected >= len {
-            self.hub_selected = len - 1;
+        if self.hub.selected >= len {
+            self.hub.selected = len - 1;
         }
         let rows = self.hub_data_capacity();
-        if self.hub_selected < self.hub_scroll {
-            self.hub_scroll = self.hub_selected;
-        } else if self.hub_selected >= self.hub_scroll + rows {
-            self.hub_scroll = self.hub_selected + 1 - rows;
+        if self.hub.selected < self.hub.scroll {
+            self.hub.scroll = self.hub.selected;
+        } else if self.hub.selected >= self.hub.scroll + rows {
+            self.hub.scroll = self.hub.selected + 1 - rows;
         }
         let max_scroll = len.saturating_sub(rows);
-        if self.hub_scroll > max_scroll {
-            self.hub_scroll = max_scroll;
+        if self.hub.scroll > max_scroll {
+            self.hub.scroll = max_scroll;
         }
     }
 
@@ -686,45 +725,53 @@ impl AppState {
     pub fn ensure_prompt_visible(&mut self, inner_width: usize) {
         use unicode_width::UnicodeWidthStr;
         let budget = inner_width.saturating_sub(4).max(8);
-        let chars: Vec<char> = self.prompt.chars().collect();
+        let chars: Vec<char> = self.search.prompt.chars().collect();
         if chars.is_empty() {
-            self.prompt_scroll = 0;
+            self.search.prompt_scroll = 0;
             return;
         }
-        if self.prompt_cursor < self.prompt_scroll {
-            self.prompt_scroll = self.prompt_cursor;
+        if self.search.prompt_cursor < self.search.prompt_scroll {
+            self.search.prompt_scroll = self.search.prompt_cursor;
         }
         loop {
             let before_cursor: String = chars
                 .iter()
-                .skip(self.prompt_scroll)
-                .take(self.prompt_cursor.saturating_sub(self.prompt_scroll))
+                .skip(self.search.prompt_scroll)
+                .take(
+                    self.search
+                        .prompt_cursor
+                        .saturating_sub(self.search.prompt_scroll),
+                )
                 .collect();
-            let at_cursor = chars.get(self.prompt_cursor).copied().unwrap_or(' ');
+            let at_cursor = chars.get(self.search.prompt_cursor).copied().unwrap_or(' ');
             let line = format!("{before_cursor}{at_cursor}");
             if UnicodeWidthStr::width(line.as_str()) <= budget {
                 break;
             }
-            if self.prompt_scroll >= self.prompt_cursor {
+            if self.search.prompt_scroll >= self.search.prompt_cursor {
                 break;
             }
-            self.prompt_scroll += 1;
+            self.search.prompt_scroll += 1;
         }
-        while self.prompt_scroll > 0 {
+        while self.search.prompt_scroll > 0 {
             let before_cursor: String = chars
                 .iter()
-                .skip(self.prompt_scroll)
-                .take(self.prompt_cursor.saturating_sub(self.prompt_scroll))
+                .skip(self.search.prompt_scroll)
+                .take(
+                    self.search
+                        .prompt_cursor
+                        .saturating_sub(self.search.prompt_scroll),
+                )
                 .collect();
-            let at_cursor = chars.get(self.prompt_cursor).copied().unwrap_or(' ');
+            let at_cursor = chars.get(self.search.prompt_cursor).copied().unwrap_or(' ');
             let line = format!("{before_cursor}{at_cursor}");
             if UnicodeWidthStr::width(line.as_str()) <= budget {
                 break;
             }
-            self.prompt_scroll += 1;
+            self.search.prompt_scroll += 1;
         }
-        if self.prompt_scroll > self.prompt_cursor {
-            self.prompt_scroll = self.prompt_cursor;
+        if self.search.prompt_scroll > self.search.prompt_cursor {
+            self.search.prompt_scroll = self.search.prompt_cursor;
         }
     }
 
@@ -742,41 +789,41 @@ impl AppState {
         if q.is_empty() {
             return;
         }
-        self.query_history.retain(|h| h != q);
-        self.query_history.insert(0, q.to_string());
-        self.query_history.truncate(50);
-        self.history_browse = None;
+        self.search.query_history.retain(|h| h != q);
+        self.search.query_history.insert(0, q.to_string());
+        self.search.query_history.truncate(50);
+        self.search.history_browse = None;
     }
 
     pub fn history_older(&mut self) {
-        if self.query_history.is_empty() {
+        if self.search.query_history.is_empty() {
             return;
         }
-        let next = match self.history_browse {
+        let next = match self.search.history_browse {
             None => 0,
-            Some(i) => (i + 1).min(self.query_history.len() - 1),
+            Some(i) => (i + 1).min(self.search.query_history.len() - 1),
         };
-        self.history_browse = Some(next);
-        self.browse_nav_stack.clear();
-        self.prompt = self.query_history[next].clone();
-        self.prompt_cursor = self.prompt_char_len();
+        self.search.history_browse = Some(next);
+        self.search.browse_nav_stack.clear();
+        self.search.prompt = self.search.query_history[next].clone();
+        self.search.prompt_cursor = self.prompt_char_len();
     }
 
     pub fn history_newer(&mut self) {
-        let Some(i) = self.history_browse else {
+        let Some(i) = self.search.history_browse else {
             return;
         };
         if i == 0 {
-            self.history_browse = None;
-            self.browse_nav_stack.clear();
+            self.search.history_browse = None;
+            self.search.browse_nav_stack.clear();
             self.clear_prompt();
             return;
         }
         let next = i - 1;
-        self.history_browse = Some(next);
-        self.browse_nav_stack.clear();
-        self.prompt = self.query_history[next].clone();
-        self.prompt_cursor = self.prompt_char_len();
+        self.search.history_browse = Some(next);
+        self.search.browse_nav_stack.clear();
+        self.search.prompt = self.search.query_history[next].clone();
+        self.search.prompt_cursor = self.prompt_char_len();
     }
 
     /// Sorted hub rows: windows then modules.
@@ -784,7 +831,7 @@ impl AppState {
     /// "window" | "window_more" | "window_status" | "module".
     pub fn hub_rows(&self) -> Vec<(String, String, String, String)> {
         let mut rows = Vec::new();
-        if let Some(hub) = &self.hub_windows {
+        if let Some(hub) = &self.hub.windows {
             if let Some(title) = &hub.status_title {
                 rows.push((
                     "window_status".into(),
@@ -878,444 +925,13 @@ impl AppState {
             .map(|(_, id, name, query)| (id, name, query))
             .collect()
     }
-
-    /// Project one engine event into render state. Navigation, follow-up effects, and action
-    /// orchestration belong to `reducer::apply_engine`; this method only updates the view model.
-    pub fn apply_engine_event(&mut self, event: Event) -> bool {
-        match event {
-            Event::SessionReady { modules } => {
-                self.module_catalog = modules
-                    .iter()
-                    .map(|m| ModuleCatalogEntry {
-                        id: m.id.clone(),
-                        display_name: m.display_name.clone(),
-                        enabled: m.enabled,
-                        glyph: m.glyph.clone(),
-                        suggested_query: m.suggested_query.clone(),
-                        empty_hint: m.empty_hint.clone(),
-                        supports_browse: m.supports_browse,
-                        triggers: m.triggers.clone(),
-                    })
-                    .collect();
-                self.module_labels = modules
-                    .into_iter()
-                    .map(|m| (m.id, m.display_name))
-                    .collect();
-                self.status.set("Session ready", StatusTone::Success);
-                true
-            }
-            Event::HubLoaded { windows } => {
-                self.hub_windows = windows.map(|w| HubWindowsState {
-                    app_name: w.app_name,
-                    windows: w
-                        .windows
-                        .into_iter()
-                        .map(|row| HubWindowRow {
-                            id: row.id,
-                            title: row.title,
-                        })
-                        .collect(),
-                    more: w.more,
-                    status_kind: w.status.as_ref().map(|s| s.kind.clone()),
-                    status_title: w.status.as_ref().map(|s| s.title.clone()),
-                    status_subtitle: w.status.and_then(|s| s.subtitle),
-                });
-                self.ensure_hub_selection_visible();
-                self.schedule_hub_refresh();
-                true
-            }
-            Event::SnapshotLoaded {
-                items,
-                module_states: _,
-            } => {
-                // A newer search (or debounce) owns the list — ignore lag resync.
-                if self.active_request.is_some() || self.search_debounce_deadline.is_some() {
-                    return false;
-                }
-                let mut items: Vec<_> = items.into_iter().map(|d| d.into_domain()).collect();
-                items.sort_by(|a, b| {
-                    b.score
-                        .partial_cmp(&a.score)
-                        .unwrap_or(std::cmp::Ordering::Equal)
-                        .then_with(|| a.id.as_str().cmp(b.id.as_str()))
-                });
-                self.results.items = items;
-                self.results.selected_id = self
-                    .results
-                    .items
-                    .first()
-                    .map(|i| i.id.as_str().to_string());
-                self.results.scroll = 0;
-                self.sync_results_viewport();
-                self.status
-                    .set("Resynced after lag", crate::view_model::StatusTone::Warning);
-                true
-            }
-            Event::SearchStarted { request_id } => {
-                if self.active_request.as_deref() == Some(request_id.as_str()) {
-                    self.status.set("Searching…", StatusTone::Progress);
-                    true
-                } else {
-                    false
-                }
-            }
-            Event::ResultsReset { request_id } => {
-                if self.active_request.as_deref() == Some(request_id.as_str()) {
-                    self.results.items.clear();
-                    self.results.selected_id = None;
-                    self.request_seq_seen = 0;
-                    true
-                } else {
-                    false
-                }
-            }
-            Event::ResultsChunk {
-                request_id,
-                sequence,
-                upserts,
-                removed_ids,
-            } => {
-                // Empty request_id: module-disable eviction (engine purge). Apply removals
-                // regardless of the active search so disabled-module rows leave the UI.
-                if request_id.is_empty() {
-                    if removed_ids.is_empty() {
-                        return false;
-                    }
-                    self.results.apply_chunk(Vec::new(), &removed_ids);
-                    return true;
-                }
-                if self.active_request.as_deref() != Some(request_id.as_str()) {
-                    return false;
-                }
-                if sequence <= self.request_seq_seen {
-                    return false;
-                }
-                self.request_seq_seen = sequence;
-                let items: Vec<_> = upserts.into_iter().map(|d| d.into_domain()).collect();
-                self.results.apply_chunk(items, &removed_ids);
-                true
-            }
-            Event::SearchFinished {
-                request_id,
-                total,
-                elapsed_ms,
-            } => {
-                if self.active_request.as_deref() == Some(request_id.as_str()) {
-                    // End the active request so Esc Clear works on the first press.
-                    self.active_request = None;
-                    let (text, tone) = if self.incomplete_slash_trigger().is_some() {
-                        ("Add space to search".into(), StatusTone::Neutral)
-                    } else if total == 0 {
-                        ("No results".into(), StatusTone::Neutral)
-                    } else {
-                        (format!("{elapsed_ms}ms"), StatusTone::Success)
-                    };
-                    self.status.set(text, tone);
-                    true
-                } else {
-                    false
-                }
-            }
-            Event::SearchCancelled { request_id } => {
-                if self.active_request.as_deref() == Some(request_id.as_str()) {
-                    self.active_request = None;
-                    self.status.set("Search cancelled", StatusTone::Warning);
-                    true
-                } else {
-                    false
-                }
-            }
-            Event::Fatal {
-                correlation_id: _,
-                message,
-            } => {
-                self.status
-                    .set(format!("Error: {message}"), StatusTone::Error);
-                true
-            }
-            Event::ActionStarted { operation_id } => {
-                if self.active_operation.as_deref() != Some(operation_id.as_str()) {
-                    return false;
-                }
-                self.status.set("Running…", StatusTone::Progress);
-                true
-            }
-            Event::WordbookReviewLoaded {
-                queue,
-                words,
-                stats,
-            } => {
-                if !matches!(self.route, Route::WordbookReview) {
-                    return false;
-                }
-                let word_items = words
-                    .into_iter()
-                    .map(|w| WordbookReviewWord {
-                        id: w.id,
-                        term: w.term,
-                        phonetic: w.phonetic,
-                        meaning: w.meaning,
-                        example: w.example,
-                    })
-                    .collect::<Vec<_>>();
-                let finished = word_items.is_empty();
-                self.wordbook_review = Some(WordbookReviewState {
-                    words: word_items,
-                    index: 0,
-                    revealed: false,
-                    stats: WordbookReviewStats {
-                        queue,
-                        due: stats.due,
-                        new_count: stats.new_count,
-                        wrong: stats.wrong,
-                        goal: stats.goal,
-                        reviewed_today: stats.reviewed_today,
-                        remaining_goal: stats.remaining_goal,
-                        ..WordbookReviewStats::default()
-                    },
-                    finished,
-                    pending_grade: None,
-                });
-                if finished {
-                    self.status.set(
-                        "review queue empty · try /wb review new",
-                        StatusTone::Warning,
-                    );
-                } else {
-                    self.status
-                        .set("review · Enter reveal · 1/2/3 grade", StatusTone::Neutral);
-                }
-                true
-            }
-            Event::ActionFinished {
-                operation_id,
-                outcome,
-            } => {
-                if self.active_operation.as_deref() != Some(operation_id.as_str()) {
-                    return false;
-                }
-                self.active_operation = None;
-                if let luma_protocol::ActionOutcomeDto::InteractiveRecipeRun { plan } = &outcome {
-                    self.pending_recipe_run = Some((**plan).clone());
-                    self.status
-                        .set("recipe ready — running in terminal…", StatusTone::Progress);
-                    return true;
-                }
-                if matches!(self.route, Route::WordbookReview) {
-                    if matches!(outcome, luma_protocol::ActionOutcomeDto::Success { .. }) {
-                        if let Some(review) = self.wordbook_review.as_mut() {
-                            if let Some(action) = review.pending_grade.take() {
-                                match action.as_str() {
-                                    "known" => review.stats.session_known += 1,
-                                    "fuzzy" => review.stats.session_fuzzy += 1,
-                                    "unknown" => review.stats.session_unknown += 1,
-                                    "mastered" => review.stats.session_mastered += 1,
-                                    _ => {}
-                                }
-                            }
-                            review.revealed = false;
-                            review.index += 1;
-                            if review.index >= review.words.len() {
-                                review.finished = true;
-                            }
-                        }
-                    } else if let Some(review) = self.wordbook_review.as_mut() {
-                        // A cancelled grade must not remain armed for the next keypress.
-                        review.pending_grade = None;
-                    }
-                    let tone = status_tone_for_outcome(&outcome);
-                    if self.wordbook_review.as_ref().is_some_and(|r| r.finished) {
-                        if let Some(review) = &self.wordbook_review {
-                            self.status.set(
-                                format!(
-                                    "review done · K{} F{} U{} · goal {} · reviewed {}",
-                                    review.stats.session_known,
-                                    review.stats.session_fuzzy,
-                                    review.stats.session_unknown,
-                                    review.stats.goal,
-                                    review.stats.reviewed_today
-                                ),
-                                StatusTone::Success,
-                            );
-                        }
-                    } else {
-                        self.status.set(outcome.user_message(), tone);
-                    }
-                    return true;
-                }
-                let tone = status_tone_for_outcome(&outcome);
-                self.status.set(outcome.user_message(), tone);
-                true
-            }
-            Event::WordbookReviewStatsUpdated { stats } => {
-                if let Some(review) = self.wordbook_review.as_mut() {
-                    review.stats.due = stats.due;
-                    review.stats.new_count = stats.new_count;
-                    review.stats.wrong = stats.wrong;
-                    review.stats.goal = stats.goal;
-                    review.stats.reviewed_today = stats.reviewed_today;
-                    review.stats.remaining_goal = stats.remaining_goal;
-                }
-                true
-            }
-            Event::DiagnosticRaised { diagnostic } => {
-                let settings_conflict =
-                    diagnostic.get("settings_update").and_then(|v| v.as_str()) == Some("failed");
-                if settings_conflict {
-                    let message = diagnostic
-                        .get("message")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("settings update failed");
-                    self.status
-                        .set(format!("settings conflict: {message}"), StatusTone::Warning);
-                    return true;
-                }
-                false
-            }
-            Event::SettingsChanged { version, settings } => {
-                self.settings_version = version;
-                self.settings_modules.clear();
-                self.settings_roots.notes_root = settings
-                    .get("notes_root")
-                    .and_then(|v| v.as_str())
-                    .map(str::to_string);
-                self.settings_roots.projects_roots = settings
-                    .get("projects_roots")
-                    .and_then(|v| v.as_array())
-                    .map(|arr| {
-                        arr.iter()
-                            .filter_map(|v| v.as_str().map(str::to_string))
-                            .collect()
-                    })
-                    .unwrap_or_default();
-                self.settings_roots.imported_projects = settings
-                    .get("imported_projects")
-                    .and_then(|v| v.as_array())
-                    .map(|arr| {
-                        arr.iter()
-                            .filter_map(|v| {
-                                v.get("path").and_then(|p| p.as_str()).map(str::to_string)
-                            })
-                            .collect()
-                    })
-                    .unwrap_or_default();
-                self.settings_roots.loaded = true;
-                if let Some(modules) = settings.get("modules").and_then(|v| v.as_array()) {
-                    for row in modules {
-                        let id = row
-                            .get("id")
-                            .and_then(|v| v.as_str())
-                            .unwrap_or("")
-                            .to_string();
-                        if id.is_empty() {
-                            continue;
-                        }
-                        let name = row
-                            .get("name")
-                            .and_then(|v| v.as_str())
-                            .unwrap_or(id.as_str())
-                            .to_string();
-                        let enabled = row.get("enabled").and_then(|v| v.as_bool()).unwrap_or(true);
-                        self.settings_modules
-                            .push(SettingsModuleRow { id, name, enabled });
-                    }
-                }
-                if self.settings_selected >= self.settings_modules.len()
-                    && !self.settings_modules.is_empty()
-                {
-                    self.settings_selected = self.settings_modules.len() - 1;
-                }
-                self.module_labels = self
-                    .settings_modules
-                    .iter()
-                    .map(|m| (m.id.clone(), m.name.clone()))
-                    .collect();
-                for row in &self.settings_modules {
-                    if let Some(entry) = self.module_catalog.iter_mut().find(|m| m.id == row.id) {
-                        entry.enabled = row.enabled;
-                    }
-                }
-                self.status
-                    .set(format!("settings v{version}"), StatusTone::Neutral);
-                true
-            }
-            Event::PreviewLoaded {
-                result_id,
-                preview_id,
-                body,
-            } => {
-                if self.pending_preview_id != Some(preview_id) {
-                    return false;
-                }
-                if self.results.selected_id.as_deref() != Some(result_id.as_str()) {
-                    // Matching generation but wrong selection — clear so preview can retry.
-                    self.pending_preview_id = None;
-                    return false;
-                }
-                self.pending_preview_id = None;
-                self.preview_result_id = Some(result_id);
-                self.preview_body = Some(body);
-                self.preview_scroll = 0;
-                true
-            }
-            Event::ActionsAvailable { result_id, actions } => {
-                if self.awaiting_actions.is_none() {
-                    self.status.set(
-                        format!("{result_id}: {} actions", actions.len()),
-                        StatusTone::Neutral,
-                    );
-                    return true;
-                }
-                self.status.set(
-                    format!("{result_id}: {} actions", actions.len()),
-                    StatusTone::Neutral,
-                );
-                true
-            }
-            Event::ModuleStateChanged { module_id, state } => {
-                let enabled = state != "disabled";
-                if let Some(entry) = self.module_catalog.iter_mut().find(|m| m.id == module_id) {
-                    entry.enabled = enabled;
-                }
-                if let Some(row) = self.settings_modules.iter_mut().find(|m| m.id == module_id) {
-                    row.enabled = enabled;
-                }
-                true
-            }
-        }
-    }
-}
-
-fn status_tone_for_outcome(outcome: &ActionOutcomeDto) -> StatusTone {
-    match outcome {
-        ActionOutcomeDto::Success { .. } => StatusTone::Success,
-        ActionOutcomeDto::Cancelled => StatusTone::Warning,
-        ActionOutcomeDto::Failed { kind, .. } => status_tone_for_failure(kind),
-        ActionOutcomeDto::InteractiveRecipeRun { .. } => StatusTone::Progress,
-        ActionOutcomeDto::InteractiveTerminal { .. } => StatusTone::Progress,
-    }
-}
-
-fn status_tone_for_failure(kind: &FailureKind) -> StatusTone {
-    match kind {
-        FailureKind::PermissionRequired { .. } => StatusTone::Permission,
-        FailureKind::Warming { .. } => StatusTone::Progress,
-        FailureKind::Cancelled => StatusTone::Warning,
-        FailureKind::NotConfigured { .. } | FailureKind::Unavailable { .. } => StatusTone::Warning,
-        FailureKind::Timeout { .. }
-        | FailureKind::InvalidInput { .. }
-        | FailureKind::NotFound { .. }
-        | FailureKind::Conflict { .. }
-        | FailureKind::SecurityDenied { .. }
-        | FailureKind::Io { .. }
-        | FailureKind::Internal { .. } => StatusTone::Error,
-    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use luma_protocol::SearchItemDto;
+    use luma_domain::FailureKind;
+    use luma_protocol::{ActionOutcomeDto, Event, SearchItemDto};
 
     #[test]
     fn action_started_ignored_without_active_operation() {
@@ -1324,13 +940,16 @@ mod tests {
             operation_id: "op-1".into(),
         });
         assert!(!applied);
-        assert!(state.active_operation.is_none());
+        assert!(state.actions.active_operation.is_none());
     }
 
     #[test]
     fn action_started_applies_when_operation_matches() {
         let mut state = AppState {
-            active_operation: Some("op-1".into()),
+            actions: ActionsState {
+                active_operation: Some("op-1".into()),
+                ..ActionsState::default()
+            },
             ..AppState::default()
         };
         let applied = state.apply_engine_event(Event::ActionStarted {
@@ -1355,7 +974,10 @@ mod tests {
     #[test]
     fn action_finished_cancelled_is_warning() {
         let mut state = AppState {
-            active_operation: Some("op-1".into()),
+            actions: ActionsState {
+                active_operation: Some("op-1".into()),
+                ..ActionsState::default()
+            },
             ..AppState::default()
         };
         let applied = state.apply_engine_event(Event::ActionFinished {
@@ -1364,13 +986,16 @@ mod tests {
         });
         assert!(applied);
         assert_eq!(state.status.tone, StatusTone::Warning);
-        assert!(state.active_operation.is_none());
+        assert!(state.actions.active_operation.is_none());
     }
 
     #[test]
     fn stale_action_finished_does_not_overwrite_status() {
         let mut state = AppState {
-            active_operation: Some("op-current".into()),
+            actions: ActionsState {
+                active_operation: Some("op-current".into()),
+                ..ActionsState::default()
+            },
             ..AppState::default()
         };
         state.status.set("running current", StatusTone::Progress);
@@ -1381,14 +1006,20 @@ mod tests {
             },
         });
         assert!(!applied);
-        assert_eq!(state.active_operation.as_deref(), Some("op-current"));
+        assert_eq!(
+            state.actions.active_operation.as_deref(),
+            Some("op-current")
+        );
         assert_eq!(state.status.text, "running current");
     }
 
     #[test]
     fn action_finished_not_configured_is_warning() {
         let mut state = AppState {
-            active_operation: Some("op-2".into()),
+            actions: ActionsState {
+                active_operation: Some("op-2".into()),
+                ..ActionsState::default()
+            },
             ..AppState::default()
         };
         let applied = state.apply_engine_event(Event::ActionFinished {
@@ -1405,7 +1036,10 @@ mod tests {
     #[test]
     fn action_finished_unavailable_is_warning() {
         let mut state = AppState {
-            active_operation: Some("op-3".into()),
+            actions: ActionsState {
+                active_operation: Some("op-3".into()),
+                ..ActionsState::default()
+            },
             ..AppState::default()
         };
         let applied = state.apply_engine_event(Event::ActionFinished {
@@ -1423,7 +1057,10 @@ mod tests {
     #[test]
     fn action_finished_permission_is_permission_tone() {
         let mut state = AppState {
-            active_operation: Some("op-4".into()),
+            actions: ActionsState {
+                active_operation: Some("op-4".into()),
+                ..ActionsState::default()
+            },
             ..AppState::default()
         };
         let applied = state.apply_engine_event(Event::ActionFinished {
@@ -1440,7 +1077,10 @@ mod tests {
     #[test]
     fn action_finished_success_is_success() {
         let mut state = AppState {
-            active_operation: Some("op-5".into()),
+            actions: ActionsState {
+                active_operation: Some("op-5".into()),
+                ..ActionsState::default()
+            },
             ..AppState::default()
         };
         let applied = state.apply_engine_event(Event::ActionFinished {
@@ -1458,11 +1098,13 @@ mod tests {
         use luma_domain::{ActionDescriptor, ActionId, ActionRisk, ModuleId, ResultId, SearchItem};
 
         let mut state = AppState {
-            term_width: 80,
-            term_height: 28,
+            terminal: TerminalState {
+                width: 80,
+                height: 28,
+            },
             ..AppState::default()
         };
-        state.results.items.push(SearchItem {
+        state.search.results.items.push(SearchItem {
             id: ResultId::new("1"),
             module_id: ModuleId::new("luma.notes"),
             title: "Note".into(),
@@ -1483,10 +1125,10 @@ mod tests {
         assert!(state.preview_stacked());
         assert!(state.preview_visible());
 
-        state.term_height = 24;
+        state.terminal.height = 24;
         assert!(state.preview_stacked());
         assert!(state.preview_visible());
-        state.term_height = 23;
+        state.terminal.height = 23;
         assert!(!state.preview_stacked());
         assert!(!state.preview_visible());
     }
@@ -1496,10 +1138,13 @@ mod tests {
         use luma_domain::{ActionDescriptor, ActionId, ActionRisk, ModuleId, ResultId, SearchItem};
 
         let mut state = AppState {
-            active_request: Some("req-1".into()),
+            search: SearchState {
+                active_request: Some("req-1".into()),
+                ..SearchState::default()
+            },
             ..AppState::default()
         };
-        state.results.items.push(SearchItem {
+        state.search.results.items.push(SearchItem {
             id: ResultId::new("clip:1"),
             module_id: ModuleId::new("luma.clipboard"),
             title: "x".into(),
@@ -1523,7 +1168,7 @@ mod tests {
             removed_ids: vec!["clip:1".into()],
         });
         assert!(applied);
-        assert!(state.results.items.is_empty());
+        assert!(state.search.results.items.is_empty());
     }
 
     #[test]
@@ -1550,23 +1195,26 @@ mod tests {
     #[test]
     fn hub_row_window_digit_skips_status_more_and_modules() {
         let state = AppState {
-            hub_windows: Some(HubWindowsState {
-                app_name: "all".into(),
-                windows: vec![
-                    HubWindowRow {
-                        id: "win:1".into(),
-                        title: "A".into(),
-                    },
-                    HubWindowRow {
-                        id: "win:2".into(),
-                        title: "B".into(),
-                    },
-                ],
-                more: Some(3),
-                status_kind: Some("permission_required".into()),
-                status_title: Some("grant AX".into()),
-                status_subtitle: None,
-            }),
+            hub: HubState {
+                windows: Some(HubWindowsState {
+                    app_name: "all".into(),
+                    windows: vec![
+                        HubWindowRow {
+                            id: "win:1".into(),
+                            title: "A".into(),
+                        },
+                        HubWindowRow {
+                            id: "win:2".into(),
+                            title: "B".into(),
+                        },
+                    ],
+                    more: Some(3),
+                    status_kind: Some("permission_required".into()),
+                    status_title: Some("grant AX".into()),
+                    status_subtitle: None,
+                }),
+                ..HubState::default()
+            },
             module_catalog: vec![ModuleCatalogEntry {
                 id: "luma.apps".into(),
                 display_name: "Apps".into(),
@@ -1597,11 +1245,14 @@ mod tests {
     #[test]
     fn window_digit_targets_follow_scroll_position() {
         let mut state = AppState {
-            prompt: "/win ".into(),
+            search: SearchState {
+                prompt: "/win ".into(),
+                ..SearchState::default()
+            },
             focus: FocusZone::List,
             ..Default::default()
         };
-        state.results.items = (0..20)
+        state.search.results.items = (0..20)
             .map(|i| SearchItem {
                 id: luma_domain::ResultId::new(format!("win:{i}")),
                 module_id: luma_domain::ModuleId::new("luma.windows"),
@@ -1620,7 +1271,7 @@ mod tests {
                 action_payload: None,
             })
             .collect();
-        state.results.scroll = 4;
+        state.search.results.scroll = 4;
         let targets = state.window_digit_targets();
         assert_eq!(targets.first().map(|(id, _)| id.as_str()), Some("win:4"));
         assert_eq!(targets.get(8).map(|(id, _)| id.as_str()), Some("win:12"));
@@ -1629,22 +1280,25 @@ mod tests {
     #[test]
     fn hub_window_digit_targets_follow_scroll_position() {
         let mut state = AppState {
-            hub_windows: Some(HubWindowsState {
-                app_name: "all".into(),
-                windows: (0..12)
-                    .map(|i| HubWindowRow {
-                        id: format!("win:{i}"),
-                        title: format!("Window {i}"),
-                    })
-                    .collect(),
-                more: None,
-                status_kind: None,
-                status_title: None,
-                status_subtitle: None,
-            }),
+            hub: HubState {
+                windows: Some(HubWindowsState {
+                    app_name: "all".into(),
+                    windows: (0..12)
+                        .map(|i| HubWindowRow {
+                            id: format!("win:{i}"),
+                            title: format!("Window {i}"),
+                        })
+                        .collect(),
+                    more: None,
+                    status_kind: None,
+                    status_title: None,
+                    status_subtitle: None,
+                }),
+                ..HubState::default()
+            },
             ..Default::default()
         };
-        state.hub_scroll = 4;
+        state.hub.scroll = 4;
         assert_eq!(
             state
                 .window_digit_targets()
@@ -1676,7 +1330,7 @@ mod tests {
             },
         });
         assert!(applied);
-        let review = state.wordbook_review.as_ref().unwrap();
+        let review = state.wordbook.review.as_ref().unwrap();
         assert!(review.finished);
         assert!(state.status.text.contains("empty"));
     }
@@ -1685,18 +1339,20 @@ mod tests {
     fn wordbook_review_stats_updated_refreshes_counters() {
         let mut state = AppState {
             route: Route::WordbookReview,
-            wordbook_review: Some(WordbookReviewState {
-                words: vec![],
-                index: 0,
-                revealed: false,
-                stats: WordbookReviewStats {
-                    reviewed_today: 3,
-                    remaining_goal: 10,
-                    ..Default::default()
-                },
-                finished: true,
-                pending_grade: None,
-            }),
+            wordbook: WordbookState {
+                review: Some(WordbookReviewState {
+                    words: vec![],
+                    index: 0,
+                    revealed: false,
+                    stats: WordbookReviewStats {
+                        reviewed_today: 3,
+                        remaining_goal: 10,
+                        ..Default::default()
+                    },
+                    finished: true,
+                    pending_grade: None,
+                }),
+            },
             ..Default::default()
         };
         let applied = state.apply_engine_event(Event::WordbookReviewStatsUpdated {
@@ -1710,7 +1366,7 @@ mod tests {
             },
         });
         assert!(applied);
-        let review = state.wordbook_review.as_ref().unwrap();
+        let review = state.wordbook.review.as_ref().unwrap();
         assert_eq!(review.stats.reviewed_today, 8);
         assert_eq!(review.stats.remaining_goal, 12);
         assert_eq!(review.stats.due, 5);
@@ -1732,7 +1388,10 @@ mod tests {
     #[test]
     fn bare_n_is_not_incomplete_slash_trigger() {
         let state = AppState {
-            prompt: "n".into(),
+            search: SearchState {
+                prompt: "n".into(),
+                ..SearchState::default()
+            },
             module_catalog: catalog_with_notes_trigger(),
             ..AppState::default()
         };
@@ -1742,7 +1401,10 @@ mod tests {
     #[test]
     fn slash_n_is_incomplete_slash_trigger() {
         let state = AppState {
-            prompt: "/n".into(),
+            search: SearchState {
+                prompt: "/n".into(),
+                ..SearchState::default()
+            },
             module_catalog: catalog_with_notes_trigger(),
             ..AppState::default()
         };
@@ -1772,17 +1434,20 @@ mod tests {
             module_states: Default::default(),
         });
         assert!(applied);
-        assert_eq!(state.results.items[0].id.as_str(), "high");
-        assert_eq!(state.results.selected_id.as_deref(), Some("high"));
+        assert_eq!(state.search.results.items[0].id.as_str(), "high");
+        assert_eq!(state.search.results.selected_id.as_deref(), Some("high"));
     }
 
     #[test]
     fn snapshot_loaded_ignored_during_active_search() {
         let mut state = AppState {
-            active_request: Some("req-live".into()),
+            search: SearchState {
+                active_request: Some("req-live".into()),
+                ..SearchState::default()
+            },
             ..AppState::default()
         };
-        state.results.items.push(luma_domain::SearchItem {
+        state.search.results.items.push(luma_domain::SearchItem {
             id: luma_domain::ResultId::new("keep"),
             module_id: luma_domain::ModuleId::new("luma.notes"),
             title: "keep".into(),
@@ -1810,17 +1475,23 @@ mod tests {
             module_states: Default::default(),
         });
         assert!(!applied);
-        assert_eq!(state.results.items[0].id.as_str(), "keep");
+        assert_eq!(state.search.results.items[0].id.as_str(), "keep");
     }
 
     #[test]
     fn preview_loaded_clears_pending_on_selection_mismatch() {
         let mut state = AppState {
-            pending_preview_id: Some(3),
-            preview_result_id: Some("note:a".into()),
-            results: ResultsView {
-                selected_id: Some("note:b".into()),
-                ..ResultsView::default()
+            preview: PreviewState {
+                pending_id: Some(3),
+                result_id: Some("note:a".into()),
+                ..PreviewState::default()
+            },
+            search: SearchState {
+                results: ResultsView {
+                    selected_id: Some("note:b".into()),
+                    ..ResultsView::default()
+                },
+                ..SearchState::default()
             },
             ..AppState::default()
         };
@@ -1830,15 +1501,18 @@ mod tests {
             body: "body".into(),
         });
         assert!(!applied);
-        assert!(state.pending_preview_id.is_none());
-        assert!(state.preview_body.is_none());
+        assert!(state.preview.pending_id.is_none());
+        assert!(state.preview.body.is_none());
     }
 
     #[test]
     fn search_finished_bare_n_is_not_add_space_hint() {
         let mut state = AppState {
-            prompt: "n".into(),
-            active_request: Some("req-1".into()),
+            search: SearchState {
+                prompt: "n".into(),
+                active_request: Some("req-1".into()),
+                ..SearchState::default()
+            },
             module_catalog: catalog_with_notes_trigger(),
             ..AppState::default()
         };
@@ -1854,8 +1528,11 @@ mod tests {
     #[test]
     fn search_finished_slash_n_shows_add_space_hint() {
         let mut state = AppState {
-            prompt: "/n".into(),
-            active_request: Some("req-1".into()),
+            search: SearchState {
+                prompt: "/n".into(),
+                active_request: Some("req-1".into()),
+                ..SearchState::default()
+            },
             module_catalog: catalog_with_notes_trigger(),
             ..AppState::default()
         };

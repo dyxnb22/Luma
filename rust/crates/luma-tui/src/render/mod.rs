@@ -36,7 +36,7 @@ fn render_with(frame: &mut Frame<'_>, state: &AppState, theme: &Theme, symbols: 
 
     let body = chunks[1];
     if state.route == Route::WordbookReview
-        || (state.wordbook_review.is_some() && matches!(state.route, Route::ConfirmAction))
+        || (state.wordbook.review.is_some() && matches!(state.route, Route::ConfirmAction))
     {
         render_wordbook_review(frame, body, state, theme, symbols);
     } else if state.preview_side_by_side() {
@@ -80,13 +80,18 @@ fn render_prompt(
     let inner_w = area.width.saturating_sub(2) as usize;
     let _ = inner_w;
     let cursor = if focused { symbols.cursor } else { " " };
-    let chars: Vec<char> = state.prompt.chars().collect();
+    let chars: Vec<char> = state.search.prompt.chars().collect();
     let before: String = chars
         .iter()
-        .skip(state.prompt_scroll)
-        .take(state.prompt_cursor.saturating_sub(state.prompt_scroll))
+        .skip(state.search.prompt_scroll)
+        .take(
+            state
+                .search
+                .prompt_cursor
+                .saturating_sub(state.search.prompt_scroll),
+        )
         .collect();
-    let after: String = chars.iter().skip(state.prompt_cursor).collect();
+    let after: String = chars.iter().skip(state.search.prompt_cursor).collect();
     let line = Line::from(vec![
         Span::styled("  ", theme.muted()),
         Span::styled(before, theme.text()),
@@ -116,16 +121,17 @@ fn render_results(
     let inner_height = area.height.saturating_sub(2) as usize;
     let inner_width = area.width.saturating_sub(2);
     let rows_capacity = (inner_height / 2).max(1);
-    let total = state.results.items.len();
+    let total = state.search.results.items.len();
     let scroll = if total == 0 {
         0
     } else {
         state
+            .search
             .results
             .scroll
             .min(total.saturating_sub(rows_capacity.min(total)))
     };
-    let selected_idx = state.results.selected_index().unwrap_or(0);
+    let selected_idx = state.search.results.selected_index().unwrap_or(0);
     let visible_count = if total == 0 {
         0
     } else {
@@ -135,16 +141,24 @@ fn render_results(
     let has_below = scroll + visible_count < total;
 
     let mut items: Vec<ListItem> = Vec::new();
-    if state.results.items.is_empty() {
-        if state.prompt.trim().is_empty() {
+    if state.search.results.items.is_empty() {
+        if state.search.prompt.trim().is_empty() {
             items.extend(hub_list_items(state, theme, symbols));
         } else {
             items.push(empty_state_item(state, theme, symbols));
         }
     } else {
-        let query = highlight_query(&state.prompt);
-        for item in state.results.items.iter().skip(scroll).take(visible_count) {
+        let query = highlight_query(&state.search.prompt);
+        for item in state
+            .search
+            .results
+            .items
+            .iter()
+            .skip(scroll)
+            .take(visible_count)
+        {
             let selected = state
+                .search
                 .results
                 .selected_id
                 .as_deref()
@@ -175,15 +189,15 @@ fn render_results(
         }
     }
 
-    let title = if state.results.items.is_empty() {
-        if state.prompt.trim().is_empty() {
+    let title = if state.search.results.items.is_empty() {
+        if state.search.prompt.trim().is_empty() {
             let hub_total = state.hub_rows().len();
-            let sel = state.hub_selected + 1;
+            let sel = state.hub.selected + 1;
             let mut scroll_marks = String::new();
-            if state.hub_scroll > 0 {
+            if state.hub.scroll > 0 {
                 scroll_marks.push_str(symbols.up);
             }
-            if state.hub_scroll + state.hub_data_capacity() < hub_total {
+            if state.hub.scroll + state.hub_data_capacity() < hub_total {
                 scroll_marks.push_str(symbols.down);
             }
             let scroll_part = if scroll_marks.is_empty() {
@@ -235,21 +249,22 @@ fn render_results(
 }
 
 fn hub_module_title(state: &AppState, module_id: &str, title: &str) -> String {
-    if !state.settings_roots.loaded {
+    if !state.settings.roots.loaded {
         return title.to_string();
     }
     let needs_notes = module_id == "luma.notes"
         && state
-            .settings_roots
+            .settings
+            .roots
             .notes_root
             .as_ref()
             .map(|s| s.is_empty())
             .unwrap_or(true);
     let needs_projects = module_id == "luma.projects"
-        && (state.settings_roots.projects_roots.is_empty()
-            || state.settings_roots.imported_projects.is_empty());
+        && (state.settings.roots.projects_roots.is_empty()
+            || state.settings.roots.imported_projects.is_empty());
     if needs_notes || needs_projects {
-        if module_id == "luma.projects" && !state.settings_roots.projects_roots.is_empty() {
+        if module_id == "luma.projects" && !state.settings.roots.projects_roots.is_empty() {
             format!("{title} · import")
         } else {
             format!("{title} · set root")
@@ -274,7 +289,7 @@ fn hub_list_items(state: &AppState, theme: &Theme, symbols: &Symbols) -> Vec<Lis
     let mut shown_windows = false;
     let mut shown_modules = false;
     let viewport = state.hub_data_capacity();
-    let start = state.hub_scroll.min(rows.len());
+    let start = state.hub.scroll.min(rows.len());
     let end = (start + viewport).min(rows.len());
     let module_global_start = rows.iter().position(|(k, _, _, _)| k == "module");
     let window = &rows[start..end];
@@ -284,7 +299,7 @@ fn hub_list_items(state: &AppState, theme: &Theme, symbols: &Symbols) -> Vec<Lis
             && start == 0
         {
             shown_windows = true;
-            let header = match state.hub_windows.as_ref().map(|h| h.app_name.as_str()) {
+            let header = match state.hub.windows.as_ref().map(|h| h.app_name.as_str()) {
                 Some("all") | Some("") | None => "  Windows".to_string(),
                 Some(app) => format!("  Windows · {app}"),
             };
@@ -304,7 +319,7 @@ fn hub_list_items(state: &AppState, theme: &Theme, symbols: &Symbols) -> Vec<Lis
                 )),
             ]));
         }
-        let selected = idx == state.hub_selected;
+        let selected = idx == state.hub.selected;
         let prefix = if selected { symbols.selected } else { " " };
         let style = if selected {
             theme.selected_row()
@@ -326,13 +341,14 @@ fn hub_list_items(state: &AppState, theme: &Theme, symbols: &Symbols) -> Vec<Lis
         };
         let right = truncate(
             &right,
-            (state.term_width.saturating_sub(6) as usize / 3).max(8),
+            (state.terminal.width.saturating_sub(6) as usize / 3).max(8),
             symbols,
         );
-        let content_width = state.term_width.saturating_sub(4) as usize;
+        let content_width = state.terminal.width.saturating_sub(4) as usize;
         let guidance = if kind == "window_status" {
             state
-                .hub_windows
+                .hub
+                .windows
                 .as_ref()
                 .and_then(|h| h.status_subtitle.as_ref())
                 .cloned()
@@ -381,12 +397,14 @@ fn render_preview(
     use crate::view_model::FocusZone;
 
     let focused = matches!(state.focus, FocusZone::Preview) && matches!(state.route, Route::Search);
-    let Some(item) = state
-        .results
-        .selected_id
-        .as_ref()
-        .and_then(|id| state.results.items.iter().find(|i| i.id.as_str() == id))
-    else {
+    let Some(item) = state.search.results.selected_id.as_ref().and_then(|id| {
+        state
+            .search
+            .results
+            .items
+            .iter()
+            .find(|i| i.id.as_str() == id)
+    }) else {
         let widget = Paragraph::new(Span::styled("  No selection", theme.muted())).block(
             Block::default()
                 .borders(Borders::ALL)
@@ -418,10 +436,11 @@ fn render_preview(
     ];
     if let Some(sub) = &item.subtitle {
         let body_dupes_sub = state
-            .preview_result_id
+            .preview
+            .result_id
             .as_deref()
             .filter(|id| *id == item.id.as_str())
-            .and(state.preview_body.as_deref())
+            .and(state.preview.body.as_deref())
             .is_some_and(|body| {
                 let body_trim = body.trim();
                 body_trim == sub.trim()
@@ -436,24 +455,25 @@ fn render_preview(
             lines.push(Line::from(Span::styled(format!("  {sub}"), theme.text())));
         }
     } else if state
-        .preview_result_id
+        .preview
+        .result_id
         .as_deref()
         .filter(|id| *id == item.id.as_str())
-        .and(state.preview_body.as_deref())
+        .and(state.preview.body.as_deref())
         .is_some_and(|body| body.trim() == item.title.trim())
     {
         // Title already shown; skip empty subtitle when body only echoes title.
     }
     lines.push(Line::from(""));
-    if state.preview_result_id.as_deref() == Some(item.id.as_str()) {
-        if let Some(body) = &state.preview_body {
+    if state.preview.result_id.as_deref() == Some(item.id.as_str()) {
+        if let Some(body) = &state.preview.body {
             let body_lines: Vec<&str> = body.lines().collect();
             let header_lines = lines.len();
             let visible = (area.height as usize)
                 .saturating_sub(header_lines + 2)
                 .max(1);
             let max_scroll = body_lines.len().saturating_sub(visible);
-            let scroll = state.preview_scroll.min(max_scroll);
+            let scroll = state.preview.scroll.min(max_scroll);
             let body_len = body_lines.len();
             for line in body_lines.into_iter().skip(scroll).take(visible) {
                 if scroll == 0 && line.trim() == item.title.trim() && body_len == 1 {
@@ -505,7 +525,7 @@ fn render_preview(
 }
 
 fn empty_state_item(state: &AppState, theme: &Theme, symbols: &Symbols) -> ListItem<'static> {
-    let (title, detail) = if state.search_debounce_deadline.is_some() {
+    let (title, detail) = if state.search.debounce_deadline.is_some() {
         (
             format!("Keep typing{}", symbols.ellipsis),
             "Search runs after a short pause".to_string(),
@@ -515,12 +535,12 @@ fn empty_state_item(state: &AppState, theme: &Theme, symbols: &Symbols) -> ListI
             format!("Add a space to enter `{trigger}`"),
             hint.unwrap_or_else(|| format!("Try `{trigger} ` or `{trigger} query`")),
         )
-    } else if state.active_request.is_some() && state.status.tone == StatusTone::Progress {
+    } else if state.search.active_request.is_some() && state.status.tone == StatusTone::Progress {
         (
             format!("Searching{}", symbols.ellipsis),
             "Results appear as modules respond".to_string(),
         )
-    } else if state.prompt.trim().is_empty() {
+    } else if state.search.prompt.trim().is_empty() {
         (
             "Type to search".to_string(),
             format!(
@@ -556,6 +576,7 @@ fn incomplete_trigger_hint(state: &AppState) -> Option<(String, Option<String>)>
 /// Prefer the targeted module's `empty_hint` when the prompt starts with its trigger.
 fn empty_hint_for_prompt(state: &AppState) -> Option<String> {
     let token = state
+        .search
         .prompt
         .trim_start()
         .strip_prefix('/')?
@@ -691,7 +712,7 @@ fn render_wordbook_review(
     let inner = block.inner(area);
     frame.render_widget(block, area);
 
-    let Some(review) = &state.wordbook_review else {
+    let Some(review) = &state.wordbook.review else {
         frame.render_widget(
             Paragraph::new("Loading review…").style(theme.muted()),
             inner,
@@ -802,7 +823,7 @@ fn render_status(
                     "1-9 focus {}{} move {} Enter open {} Ctrl-k actions {} Tab focus",
                     symbols.sep, symbols.up, symbols.sep, symbols.sep, symbols.sep
                 )
-            } else if !state.results.items.is_empty()
+            } else if !state.search.results.items.is_empty()
                 && state.focus == crate::view_model::FocusZone::List
             {
                 format!(
@@ -847,7 +868,7 @@ fn render_status(
             symbols.up, symbols.down, symbols.sep
         ),
         Route::WordbookReview => {
-            if state.wordbook_review.as_ref().is_some_and(|r| r.finished) {
+            if state.wordbook.review.as_ref().is_some_and(|r| r.finished) {
                 "Esc back".into()
             } else {
                 "Enter/Space reveal · 1/2/3 grade · m master · s skip · Esc exit".into()
@@ -867,7 +888,7 @@ fn render_status(
             Route::ConfirmAction | Route::QuitConfirm => "Enter yes · Esc no".to_string(),
             Route::Help => "↑↓ · Esc".to_string(),
             Route::WordbookReview => {
-                if state.wordbook_review.as_ref().is_some_and(|r| r.finished) {
+                if state.wordbook.review.as_ref().is_some_and(|r| r.finished) {
                     "Esc back".to_string()
                 } else {
                     "1/2/3 · s skip · Esc".to_string()
@@ -875,7 +896,7 @@ fn render_status(
             }
         };
         let compact_status = if state.route == Route::WordbookReview {
-            if state.wordbook_review.as_ref().is_some_and(|r| r.finished) {
+            if state.wordbook.review.as_ref().is_some_and(|r| r.finished) {
                 "done"
             } else {
                 "review"
@@ -922,7 +943,10 @@ fn status_style(tone: StatusTone, theme: &Theme) -> Style {
 mod tests {
     use super::*;
     use crate::theme::{Symbols, Theme, ThemeMode};
-    use crate::view_model::ResultsView;
+    use crate::view_model::{
+        ActionsState, HubState, ResultsView, SearchState, SettingsState, TerminalState,
+        WordbookState,
+    };
     use luma_domain::{ActionDescriptor, ActionId, ActionRisk, ModuleId, ResultId, SearchItem};
     use ratatui::backend::TestBackend;
     use ratatui::style::{Color, Modifier};
@@ -979,23 +1003,26 @@ mod tests {
         AppState {
             theme: Theme::dark(),
             symbols: Symbols::unicode(),
-            prompt: "app saf".into(),
+            search: SearchState {
+                prompt: "app saf".into(),
+                results: ResultsView {
+                    items: vec![
+                        sample_item("1", "Safari", "apps", "/Applications/Safari.app"),
+                        sample_item(
+                            "2",
+                            "Safari Technology Preview",
+                            "apps",
+                            "/Applications/Safari Technology Preview.app",
+                        ),
+                    ],
+                    selected_id: Some("1".into()),
+                    ..Default::default()
+                },
+                ..SearchState::default()
+            },
             status: crate::view_model::StatusLine {
                 text: "2 results".into(),
                 tone: StatusTone::Success,
-            },
-            results: ResultsView {
-                items: vec![
-                    sample_item("1", "Safari", "apps", "/Applications/Safari.app"),
-                    sample_item(
-                        "2",
-                        "Safari Technology Preview",
-                        "apps",
-                        "/Applications/Safari Technology Preview.app",
-                    ),
-                ],
-                selected_id: Some("1".into()),
-                ..Default::default()
             },
             ..AppState::default()
         }
@@ -1035,17 +1062,20 @@ mod tests {
                     triggers: vec![],
                 })
                 .collect(),
-            hub_windows: Some(crate::view_model::HubWindowsState {
-                app_name: "Cursor".into(),
-                windows: vec![crate::view_model::HubWindowRow {
-                    id: "win:a".into(),
-                    title: "Editor".into(),
-                }],
-                more: None,
-                status_kind: None,
-                status_title: None,
-                status_subtitle: None,
-            }),
+            hub: HubState {
+                windows: Some(crate::view_model::HubWindowsState {
+                    app_name: "Cursor".into(),
+                    windows: vec![crate::view_model::HubWindowRow {
+                        id: "win:a".into(),
+                        title: "Editor".into(),
+                    }],
+                    more: None,
+                    status_kind: None,
+                    status_title: None,
+                    status_subtitle: None,
+                }),
+                ..HubState::default()
+            },
             ..AppState::default()
         };
         let (flat, buffer) = draw(&state, 80, 24);
@@ -1130,17 +1160,20 @@ mod tests {
         let state = AppState {
             theme: Theme::dark(),
             symbols: Symbols::unicode(),
-            results: ResultsView {
-                items: vec![sample_kind(
-                    "p",
-                    "Accessibility permission required",
-                    "luma.clipboard",
-                    "permission",
-                    "Open System Settings",
-                    "Open Settings",
-                )],
-                selected_id: Some("p".into()),
-                ..Default::default()
+            search: SearchState {
+                results: ResultsView {
+                    items: vec![sample_kind(
+                        "p",
+                        "Accessibility permission required",
+                        "luma.clipboard",
+                        "permission",
+                        "Open System Settings",
+                        "Open Settings",
+                    )],
+                    selected_id: Some("p".into()),
+                    ..Default::default()
+                },
+                ..SearchState::default()
             },
             ..AppState::default()
         };
@@ -1156,17 +1189,20 @@ mod tests {
         let state = AppState {
             theme: Theme::dark(),
             symbols: Symbols::unicode(),
-            results: ResultsView {
-                items: vec![sample_kind(
-                    "w",
-                    "App index warming",
-                    "luma.apps",
-                    "warming",
-                    "cache refresh",
-                    "Wait",
-                )],
-                selected_id: Some("w".into()),
-                ..Default::default()
+            search: SearchState {
+                results: ResultsView {
+                    items: vec![sample_kind(
+                        "w",
+                        "App index warming",
+                        "luma.apps",
+                        "warming",
+                        "cache refresh",
+                        "Wait",
+                    )],
+                    selected_id: Some("w".into()),
+                    ..Default::default()
+                },
+                ..SearchState::default()
             },
             ..AppState::default()
         };
@@ -1179,17 +1215,20 @@ mod tests {
         let state = AppState {
             theme: Theme::dark(),
             symbols: Symbols::unicode(),
-            results: ResultsView {
-                items: vec![sample_kind(
-                    "u",
-                    "Feature is unavailable",
-                    "luma.example",
-                    "unavailable",
-                    "Not available locally",
-                    "Details",
-                )],
-                selected_id: Some("u".into()),
-                ..Default::default()
+            search: SearchState {
+                results: ResultsView {
+                    items: vec![sample_kind(
+                        "u",
+                        "Feature is unavailable",
+                        "luma.example",
+                        "unavailable",
+                        "Not available locally",
+                        "Details",
+                    )],
+                    selected_id: Some("u".into()),
+                    ..Default::default()
+                },
+                ..SearchState::default()
             },
             ..AppState::default()
         };
@@ -1205,17 +1244,20 @@ mod tests {
         let state = AppState {
             theme: Theme::dark(),
             symbols: Symbols::unicode(),
-            results: ResultsView {
-                items: vec![sample_kind(
-                    "c",
-                    "Choose a Notes root folder",
-                    "luma.notes",
-                    "not_configured",
-                    "NotConfigured",
-                    "Configure",
-                )],
-                selected_id: Some("c".into()),
-                ..Default::default()
+            search: SearchState {
+                results: ResultsView {
+                    items: vec![sample_kind(
+                        "c",
+                        "Choose a Notes root folder",
+                        "luma.notes",
+                        "not_configured",
+                        "NotConfigured",
+                        "Configure",
+                    )],
+                    selected_id: Some("c".into()),
+                    ..Default::default()
+                },
+                ..SearchState::default()
             },
             ..AppState::default()
         };
@@ -1237,18 +1279,23 @@ mod tests {
         let mut state = AppState {
             theme: Theme::dark(),
             symbols: Symbols::unicode(),
-            prompt: "app saf".into(),
-            term_width: 120,
-            term_height: 40,
-            results: ResultsView {
-                selected_id: Some("extra-20".into()),
-                items,
-                ..Default::default()
+            search: SearchState {
+                prompt: "app saf".into(),
+                results: ResultsView {
+                    selected_id: Some("extra-20".into()),
+                    items,
+                    ..Default::default()
+                },
+                ..SearchState::default()
+            },
+            terminal: TerminalState {
+                width: 120,
+                height: 40,
             },
             ..AppState::default()
         };
         state.sync_results_viewport();
-        state.results.ensure_selection_visible();
+        state.search.results.ensure_selection_visible();
         let (flat, _) = draw(&state, 120, 40);
         assert!(
             flat.contains('↑') || flat.contains('↓'),
@@ -1277,7 +1324,7 @@ mod tests {
 
         let mut state = state_with_results();
         state.route = Route::ConfirmAction;
-        state.pending_action = Some(PendingAction {
+        state.actions.pending_action = Some(PendingAction {
             result_id: "1".into(),
             action: ActionDescriptorDto {
                 id: "quit".into(),
@@ -1295,53 +1342,55 @@ mod tests {
     fn render_wordbook_progress_and_summary_are_consistent() {
         let mut state = AppState {
             route: Route::WordbookReview,
-            wordbook_review: Some(crate::view_model::WordbookReviewState {
-                words: vec![
-                    crate::view_model::WordbookReviewWord {
-                        id: 1,
-                        term: "alpha".into(),
-                        phonetic: String::new(),
-                        meaning: "first".into(),
-                        example: String::new(),
+            wordbook: WordbookState {
+                review: Some(crate::view_model::WordbookReviewState {
+                    words: vec![
+                        crate::view_model::WordbookReviewWord {
+                            id: 1,
+                            term: "alpha".into(),
+                            phonetic: String::new(),
+                            meaning: "first".into(),
+                            example: String::new(),
+                        },
+                        crate::view_model::WordbookReviewWord {
+                            id: 2,
+                            term: "beta".into(),
+                            phonetic: String::new(),
+                            meaning: "second".into(),
+                            example: String::new(),
+                        },
+                    ],
+                    index: 2,
+                    revealed: false,
+                    stats: crate::view_model::WordbookReviewStats {
+                        queue: "due".into(),
+                        due: 0,
+                        goal: 20,
+                        reviewed_today: 12,
+                        remaining_goal: 8,
+                        session_known: 1,
+                        session_fuzzy: 0,
+                        session_unknown: 0,
+                        session_skipped: 0,
+                        session_mastered: 1,
+                        ..Default::default()
                     },
-                    crate::view_model::WordbookReviewWord {
-                        id: 2,
-                        term: "beta".into(),
-                        phonetic: String::new(),
-                        meaning: "second".into(),
-                        example: String::new(),
-                    },
-                ],
-                index: 2,
-                revealed: false,
-                stats: crate::view_model::WordbookReviewStats {
-                    queue: "due".into(),
-                    due: 0,
-                    goal: 20,
-                    reviewed_today: 12,
-                    remaining_goal: 8,
-                    session_known: 1,
-                    session_fuzzy: 0,
-                    session_unknown: 0,
-                    session_skipped: 0,
-                    session_mastered: 1,
-                    ..Default::default()
-                },
-                finished: true,
-                pending_grade: None,
-            }),
+                    finished: true,
+                    pending_grade: None,
+                }),
+            },
             ..AppState::default()
         };
-        state.term_width = 80;
-        state.term_height = 24;
+        state.terminal.width = 80;
+        state.terminal.height = 24;
         let (flat, _) = draw(&state, 80, 24);
         assert!(flat.contains("2/2"), "completed progress missing: {flat}");
         assert!(!flat.contains("3/2"), "progress overflowed: {flat}");
         assert!(flat.contains("Mastered 1"), "mastered stat missing: {flat}");
         assert!(flat.contains("today 12"), "today stat missing: {flat}");
 
-        state.wordbook_review.as_mut().unwrap().finished = false;
-        state.wordbook_review.as_mut().unwrap().index = 0;
+        state.wordbook.review.as_mut().unwrap().finished = false;
+        state.wordbook.review.as_mut().unwrap().index = 0;
         let (flat, _) = draw(&state, 80, 24);
         assert!(flat.contains("1/2"), "current progress missing: {flat}");
     }
@@ -1350,29 +1399,34 @@ mod tests {
     fn render_wordbook_confirm_shows_current_word() {
         let state = AppState {
             route: Route::ConfirmAction,
-            wordbook_review: Some(crate::view_model::WordbookReviewState {
-                words: vec![crate::view_model::WordbookReviewWord {
-                    id: 42,
-                    term: "ephemeral".into(),
-                    phonetic: String::new(),
-                    meaning: "short-lived".into(),
-                    example: String::new(),
-                }],
-                index: 0,
-                revealed: true,
-                stats: Default::default(),
-                finished: false,
-                pending_grade: Some("mastered".into()),
-            }),
-            pending_action: Some(crate::view_model::PendingAction {
-                result_id: "wb:42".into(),
-                action: luma_protocol::ActionDescriptorDto {
-                    id: "mastered".into(),
-                    label: "mastered".into(),
-                    risk: ActionRisk::Confirm,
-                    confirmation: true,
-                },
-            }),
+            wordbook: WordbookState {
+                review: Some(crate::view_model::WordbookReviewState {
+                    words: vec![crate::view_model::WordbookReviewWord {
+                        id: 42,
+                        term: "ephemeral".into(),
+                        phonetic: String::new(),
+                        meaning: "short-lived".into(),
+                        example: String::new(),
+                    }],
+                    index: 0,
+                    revealed: true,
+                    stats: Default::default(),
+                    finished: false,
+                    pending_grade: Some("mastered".into()),
+                }),
+            },
+            actions: ActionsState {
+                pending_action: Some(crate::view_model::PendingAction {
+                    result_id: "wb:42".into(),
+                    action: luma_protocol::ActionDescriptorDto {
+                        id: "mastered".into(),
+                        label: "mastered".into(),
+                        risk: ActionRisk::Confirm,
+                        confirmation: true,
+                    },
+                }),
+                ..ActionsState::default()
+            },
             ..AppState::default()
         };
         let (flat, _) = draw(&state, 80, 24);
@@ -1386,28 +1440,33 @@ mod tests {
     fn wide_review_hides_search_preview() {
         let mut state = AppState {
             route: Route::WordbookReview,
-            wordbook_review: Some(crate::view_model::WordbookReviewState {
-                words: vec![crate::view_model::WordbookReviewWord {
-                    id: 1,
-                    term: "alpha".into(),
-                    phonetic: String::new(),
-                    meaning: "first".into(),
-                    example: String::new(),
-                }],
-                index: 0,
-                revealed: false,
-                stats: Default::default(),
-                finished: false,
-                pending_grade: None,
-            }),
-            results: ResultsView {
-                items: vec![sample_item("1", "Preview result", "apps", "body")],
-                selected_id: Some("1".into()),
-                ..Default::default()
+            wordbook: WordbookState {
+                review: Some(crate::view_model::WordbookReviewState {
+                    words: vec![crate::view_model::WordbookReviewWord {
+                        id: 1,
+                        term: "alpha".into(),
+                        phonetic: String::new(),
+                        meaning: "first".into(),
+                        example: String::new(),
+                    }],
+                    index: 0,
+                    revealed: false,
+                    stats: Default::default(),
+                    finished: false,
+                    pending_grade: None,
+                }),
+            },
+            search: SearchState {
+                results: ResultsView {
+                    items: vec![sample_item("1", "Preview result", "apps", "body")],
+                    selected_id: Some("1".into()),
+                    ..Default::default()
+                },
+                ..SearchState::default()
             },
             ..AppState::default()
         };
-        state.term_width = 120;
+        state.terminal.width = 120;
         let (flat, _) = draw(&state, 120, 40);
         assert!(
             flat.contains("wordbook review"),
@@ -1418,12 +1477,12 @@ mod tests {
             "search preview leaked into review: {flat}"
         );
 
-        state.term_width = 43;
+        state.terminal.width = 43;
         let (flat, _) = draw(&state, 43, 20);
         assert!(flat.contains("1/2/3"), "narrow grade hint missing: {flat}");
         assert!(flat.contains("Esc"), "narrow exit hint missing: {flat}");
 
-        state.wordbook_review.as_mut().unwrap().finished = true;
+        state.wordbook.review.as_mut().unwrap().finished = true;
         let (flat, _) = draw(&state, 43, 20);
         assert!(flat.contains("done"), "narrow done status missing: {flat}");
         assert!(
@@ -1436,14 +1495,17 @@ mod tests {
     fn settings_overlay_keeps_selected_module_visible() {
         let state = AppState {
             route: Route::Settings,
-            settings_selected: 24,
-            settings_modules: (0..30)
-                .map(|i| crate::view_model::SettingsModuleRow {
-                    id: format!("luma.module{i}"),
-                    name: format!("Module {i}"),
-                    enabled: true,
-                })
-                .collect(),
+            settings: SettingsState {
+                selected: 24,
+                modules: (0..30)
+                    .map(|i| crate::view_model::SettingsModuleRow {
+                        id: format!("luma.module{i}"),
+                        name: format!("Module {i}"),
+                        enabled: true,
+                    })
+                    .collect(),
+                ..SettingsState::default()
+            },
             ..AppState::default()
         };
         let (flat, _) = draw(&state, 80, 24);
@@ -1473,23 +1535,26 @@ mod tests {
     #[test]
     fn hub_window_rows_show_digit_hints() {
         let state = AppState {
-            hub_windows: Some(crate::view_model::HubWindowsState {
-                app_name: "all".into(),
-                windows: vec![
-                    crate::view_model::HubWindowRow {
-                        id: "win:1".into(),
-                        title: "Alpha".into(),
-                    },
-                    crate::view_model::HubWindowRow {
-                        id: "win:2".into(),
-                        title: "Beta".into(),
-                    },
-                ],
-                more: None,
-                status_kind: Some("permission_required".into()),
-                status_title: Some("grant AX".into()),
-                status_subtitle: None,
-            }),
+            hub: HubState {
+                windows: Some(crate::view_model::HubWindowsState {
+                    app_name: "all".into(),
+                    windows: vec![
+                        crate::view_model::HubWindowRow {
+                            id: "win:1".into(),
+                            title: "Alpha".into(),
+                        },
+                        crate::view_model::HubWindowRow {
+                            id: "win:2".into(),
+                            title: "Beta".into(),
+                        },
+                    ],
+                    more: None,
+                    status_kind: Some("permission_required".into()),
+                    status_title: Some("grant AX".into()),
+                    status_subtitle: None,
+                }),
+                ..HubState::default()
+            },
             ..AppState::default()
         };
         let (flat, _) = draw(&state, 80, 24);
@@ -1507,48 +1572,51 @@ mod tests {
     #[test]
     fn win_search_window_rows_show_digit_hints() {
         let state = AppState {
-            prompt: "/win ".into(),
-            focus: crate::view_model::FocusZone::List,
-            results: crate::view_model::ResultsView {
-                items: vec![
-                    luma_domain::SearchItem {
-                        id: luma_domain::ResultId::new("win:status"),
-                        module_id: luma_domain::ModuleId::new("luma.windows"),
-                        title: "Permission".into(),
-                        subtitle: None,
-                        kind: "permission_required".into(),
-                        score: 1.0,
-                        primary_action: luma_domain::ActionDescriptor {
-                            id: luma_domain::ActionId::new("noop"),
-                            label: "OK".into(),
-                            risk: luma_domain::ActionRisk::Safe,
-                            confirmation: false,
+            search: SearchState {
+                prompt: "/win ".into(),
+                results: crate::view_model::ResultsView {
+                    items: vec![
+                        luma_domain::SearchItem {
+                            id: luma_domain::ResultId::new("win:status"),
+                            module_id: luma_domain::ModuleId::new("luma.windows"),
+                            title: "Permission".into(),
+                            subtitle: None,
+                            kind: "permission_required".into(),
+                            score: 1.0,
+                            primary_action: luma_domain::ActionDescriptor {
+                                id: luma_domain::ActionId::new("noop"),
+                                label: "OK".into(),
+                                risk: luma_domain::ActionRisk::Safe,
+                                confirmation: false,
+                            },
+                            secondary_actions: vec![],
+                            ui_intent: None,
+                            action_payload: None,
                         },
-                        secondary_actions: vec![],
-                        ui_intent: None,
-                        action_payload: None,
-                    },
-                    luma_domain::SearchItem {
-                        id: luma_domain::ResultId::new("win:a"),
-                        module_id: luma_domain::ModuleId::new("luma.windows"),
-                        title: "Alpha".into(),
-                        subtitle: None,
-                        kind: "window".into(),
-                        score: 1.0,
-                        primary_action: luma_domain::ActionDescriptor {
-                            id: luma_domain::ActionId::new("focus"),
-                            label: "Focus".into(),
-                            risk: luma_domain::ActionRisk::Safe,
-                            confirmation: false,
+                        luma_domain::SearchItem {
+                            id: luma_domain::ResultId::new("win:a"),
+                            module_id: luma_domain::ModuleId::new("luma.windows"),
+                            title: "Alpha".into(),
+                            subtitle: None,
+                            kind: "window".into(),
+                            score: 1.0,
+                            primary_action: luma_domain::ActionDescriptor {
+                                id: luma_domain::ActionId::new("focus"),
+                                label: "Focus".into(),
+                                risk: luma_domain::ActionRisk::Safe,
+                                confirmation: false,
+                            },
+                            secondary_actions: vec![],
+                            ui_intent: None,
+                            action_payload: None,
                         },
-                        secondary_actions: vec![],
-                        ui_intent: None,
-                        action_payload: None,
-                    },
-                ],
-                selected_id: Some("win:a".into()),
-                ..Default::default()
+                    ],
+                    selected_id: Some("win:a".into()),
+                    ..Default::default()
+                },
+                ..SearchState::default()
             },
+            focus: crate::view_model::FocusZone::List,
             ..AppState::default()
         };
         let (flat, _) = draw(&state, 80, 24);

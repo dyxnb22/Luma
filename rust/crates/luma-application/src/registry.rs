@@ -280,4 +280,19 @@ mod tests {
         assert_eq!(denied.len(), 1);
         assert!(!reg.is_enabled("luma.ax"));
     }
+
+    #[test]
+    fn capability_free_module_remains_enabled_when_accessibility_is_denied() {
+        use crate::ports::FakeCapabilities;
+        let mut reg = ModuleRegistry::new();
+        reg.register(stub("luma.window-list", &["win"])).unwrap();
+
+        let denied = reg.apply_capability_preflight(&FakeCapabilities {
+            accessibility: false,
+            keychain: true,
+        });
+
+        assert!(denied.is_empty());
+        assert!(reg.is_enabled("luma.window-list"));
+    }
 }

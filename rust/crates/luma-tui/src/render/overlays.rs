@@ -219,7 +219,7 @@ pub(super) fn render_overlay_help(
             symbols.up, symbols.down
         ),
         "Hub / win list: 1-9 focus visible window · ↑↓ move · Enter open".to_string(),
-        "Projects: proj add PATH · proj browse · proj remove NAME".to_string(),
+        "Projects: /proj add PATH · /proj browse · /proj remove NAME".to_string(),
         String::new(),
         "Enabled modules:".to_string(),
     ];
@@ -233,19 +233,20 @@ pub(super) fn render_overlay_help(
         lines.push("  (waiting for session catalog)".to_string());
     } else {
         for m in modules {
-            let triggers = if m.triggers.is_empty() {
-                "—".to_string()
-            } else {
-                m.triggers.join("/")
-            };
-            lines.push(format!("  {} · {}", m.display_name, triggers));
+            let command = m
+                .suggested_query
+                .as_deref()
+                .map(str::trim_end)
+                .filter(|command| !command.is_empty())
+                .unwrap_or("(no interactive command)");
+            lines.push(format!("  {} · {}", m.display_name, command));
         }
     }
     lines.push(String::new());
     lines.push("Config: luma config set --notes-root ~/Notes".to_string());
     lines.push("        luma config set --projects-root ~/dev".to_string());
-    lines.push("        proj add /path/to/project (manual import)".to_string());
-    lines.push("Wordbook: wb review · wb review new/wrong · 1/2/3/m in session".to_string());
+    lines.push("        /proj add /path/to/project (manual import)".to_string());
+    lines.push("Wordbook: /wb review · /wb review new/wrong · 1/2/3/m in session".to_string());
     lines.push("Confirm / Destructive actions always ask first.".to_string());
 
     let overlay = overlay_area(area, (area.height.saturating_sub(2)).clamp(12, 22));
@@ -319,7 +320,7 @@ pub(super) fn render_overlay_settings(
         with_panel_bg(theme.muted(), theme),
     )));
     let imported_line = if state.settings_roots.imported_projects.is_empty() {
-        fit(" Imported: (none) · proj add PATH or proj browse".into())
+        fit(" Imported: (none) · /proj add PATH or /proj browse".into())
     } else {
         fit(format!(
             " Imported: {} project(s)",
@@ -450,7 +451,7 @@ pub(super) fn render_overlay_commands(
                 with_panel_bg(theme.muted(), theme)
             };
             ListItem::new(Line::from(vec![
-                Span::styled(format!(" {prefix} :{name}  "), style),
+                Span::styled(format!(" {prefix} /{name}  "), style),
                 Span::styled((*desc).to_string(), muted),
             ]))
         })

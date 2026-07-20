@@ -57,6 +57,10 @@ See [`docs/COMMAND_RECIPES.md`](docs/COMMAND_RECIPES.md) for command templates, 
 See [`docs/SSH.md`](docs/SSH.md) for SSH Connections (`~/.ssh/config` launcher, metadata, CLI).
 See [`docs/PROXY.md`](docs/PROXY.md) for Mihomo/Clash Verge Profile behavior, safety boundaries,
 supported subscription formats, and rollback semantics.
+See [`docs/MACOS_SMOKE.md`](docs/MACOS_SMOKE.md) for real macOS permission, menu-bar, terminal,
+window, Keychain, clipboard, and proxy smoke checks.
+See [`docs/USAGE_LOG_TEMPLATE.md`](docs/USAGE_LOG_TEMPLATE.md) for an optional privacy-preserving
+14-day local usage experiment.
 
 ## Data roots
 

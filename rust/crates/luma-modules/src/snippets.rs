@@ -8,7 +8,7 @@ use luma_application::{
 use luma_domain::{
     ActionDescriptor, ActionId, ActionRisk, FailureKind, ModuleId, Query, SearchItem,
 };
-use luma_protocol::{Event, SearchItemDto};
+use luma_protocol::{Event, SearchItemDto, UiIntent};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tokio_util::sync::CancellationToken;
@@ -39,7 +39,9 @@ impl SnippetsModule {
                 triggers: vec!["s".into(), "snip".into()],
                 default_enabled: true,
                 search_mode: SearchMode::TargetedOnly,
-                required_capabilities: vec!["accessibility".into()],
+                // Snippet search and copy work without Accessibility. Paste is an action-level
+                // capability and reports its own permission state.
+                required_capabilities: vec![],
                 workbench: luma_application::WorkbenchMeta {
                     glyph: Some("S".into()),
                     suggested_query: Some("/s ".into()),
@@ -214,6 +216,7 @@ impl LumaModule for SnippetsModule {
                 score: 90.0,
                 primary_action_id: "seed_add".into(),
                 primary_action_label: "Add".into(),
+                ui_intent: Some(UiIntent::SeedAdd),
                 ..Default::default()
             });
         } else if upserts.is_empty() {
@@ -226,6 +229,7 @@ impl LumaModule for SnippetsModule {
                 score: 5.0,
                 primary_action_id: "seed_add".into(),
                 primary_action_label: "Add".into(),
+                ui_intent: Some(UiIntent::SeedAdd),
                 ..Default::default()
             });
         }

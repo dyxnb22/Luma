@@ -31,6 +31,8 @@ cargo test -p luma --test cli_blackbox
 | Codebase governance | [`rust/docs/GOVERNANCE.md`](rust/docs/GOVERNANCE.md) |
 | SSH Connections | [`rust/docs/SSH.md`](rust/docs/SSH.md) |
 | Proxy (Mihomo) | [`rust/docs/PROXY.md`](rust/docs/PROXY.md) |
+| macOS smoke checks | [`rust/docs/MACOS_SMOKE.md`](rust/docs/MACOS_SMOKE.md) |
+| Personal usage log | [`rust/docs/USAGE_LOG_TEMPLATE.md`](rust/docs/USAGE_LOG_TEMPLATE.md) |
 | Empty Hub and keyboard behavior | [`rust/docs/hub.md`](rust/docs/hub.md) |
 | Decisions | [`rust/docs/adr/`](rust/docs/adr/) |
 

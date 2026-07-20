@@ -44,7 +44,9 @@ impl WindowsModule {
                 triggers: vec!["win".into(), "window".into(), "windows".into()],
                 default_enabled: true,
                 search_mode: SearchMode::TargetedOnly,
-                required_capabilities: vec!["accessibility".into()],
+                // Listing windows uses the CoreGraphics catalog and remains useful without
+                // Accessibility. Focus reports the permission requirement at action time.
+                required_capabilities: vec![],
                 workbench: luma_application::WorkbenchMeta {
                     glyph: Some("W".into()),
                     suggested_query: Some("/win ".into()),

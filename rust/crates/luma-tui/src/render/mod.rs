@@ -555,7 +555,10 @@ fn incomplete_trigger_hint(state: &AppState) -> Option<(String, Option<String>)>
 
 /// Prefer the targeted module's `empty_hint` when the prompt starts with its trigger.
 fn empty_hint_for_prompt(state: &AppState) -> Option<String> {
-    let token = crate::reducer::command_prompt(&state.prompt)
+    let token = state
+        .prompt
+        .trim_start()
+        .strip_prefix('/')?
         .split_whitespace()
         .next()?
         .to_ascii_lowercase();
@@ -1504,7 +1507,7 @@ mod tests {
     #[test]
     fn win_search_window_rows_show_digit_hints() {
         let state = AppState {
-            prompt: "win ".into(),
+            prompt: "/win ".into(),
             focus: crate::view_model::FocusZone::List,
             results: crate::view_model::ResultsView {
                 items: vec![

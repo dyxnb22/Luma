@@ -133,15 +133,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "block2"
-version = "0.6.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cdeb9d870516001442e364c5220d3574d2da8dc765554b4a617230d33fa58ef5"
-dependencies = [
- "objc2",
-]
-
-[[package]]
 name = "bumpalo"
 version = "3.20.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -846,7 +837,6 @@ dependencies = [
 name = "luma-menubar"
 version = "0.1.0"
 dependencies = [
- "block2",
  "luma-application",
  "luma-platform-macos",
  "luma-storage",
@@ -1072,7 +1062,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e3e0adef53c21f888deb4fa59fc59f7eb17404926ee8a6f59f5df0fd7f9f3272"
 dependencies = [
  "bitflags 2.13.0",
- "block2",
  "objc2",
  "objc2-core-foundation",
 ]

@@ -25,12 +25,12 @@ Interactive module commands require a leading `/` (for example `/ssh`, `/rec bro
 | Module | Triggers | Status | Default |
 | --- | --- | --- | --- |
 | Apps | `/app` / `/apps` | Available — fuzzy + session MRU; launch / reveal / copy path | on |
-| Windows | `/win` / `/window` / `/windows` | Available — list+focus; Hub 1–9 quick focus; `/win` digits only when List is focused; prompt digits are preserved; hard cap 15 | on |
+| Windows | `/win` / `/window` / `/windows` | Available — list/search works without Accessibility; focus and Hub focus report AX permission locally; Hub 1–9 quick focus; prompt digits are preserved; hard cap 15 | on |
 | Proxy | `/proxy` / `/px` | Available — controller-first Mihomo status, groups/nodes, mode, local macOS HTTP/SOCKS proxy controls, and safe Luma Profile import/list/use/delete/refresh; Clash Verge Profiles are read-only unless Luma-owned. See [Proxy](./PROXY.md). | on |
 | Clipboard | `/clip` / `/cb` | Available — history, pin/unpin, `/clip clear`, paste needs AX; soft cap **500** unpinned rows; entries over **256 KiB** rejected | on |
 | Notes | `/n` / `/note` / `/notes` | Available — FTS/CJK index; `/n new` / `/n daily` / `/n browse` / `/n recent` / `/n status` / `/n issues` / `/n check` / `/n reindex`; excludes via `--notes-exclude`; workspace I/O is adapter-backed with bounded, non-symlink previews/creation | on |
 | Quicklinks | `/ql` / `/quicklinks` | Available — add/overwrite, open, copy URL, delete | on |
-| Snippets | `/s` / `/snip` | Available — search; add/overwrite; copy/paste; delete | on |
+| Snippets | `/s` / `/snip` | Available — search/add/overwrite/copy/delete without Accessibility; paste reports AX permission locally | on |
 | Wordbook | `/wb` / `/wordbook` / `/words` | Available — due/new/wrong lists; `/wb review due\|new\|wrong` one-word session; Enter/Space reveal, 1/2/3 grade, m mastered with confirmation, s skip, Esc exit; queue uses remaining daily goal; `/wb import PATH` accepts a regular non-symlink UTF-8 CSV up to 512 KiB; daily goal. Search/perform (import, speak, pasteboard) honor cancel tokens | on |
 | Records | `/rec` / `/record` | Available — SQLite-backed media log; `/rec <query>` / `/rec browse`; `/rec add`, `/rec rate`, `/rec note`, ActionPicker edit/remove; CLI also has `record import`, `import-status`, `backup`; Markdown import is dry-run by default and `--apply` is ledger-backed with a LumaNext backup, source Markdown stays read-only | on |
 | Projects | `/p` / `/proj` / `/project` | Available — only manually imported projects appear in plain search; `/proj add/import PATH`, `/proj remove NAME\|PATH`, `/proj browse`; canonical existing non-symlink paths, duplicate rejection, config-only removal | on |

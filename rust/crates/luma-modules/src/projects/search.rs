@@ -178,7 +178,12 @@ impl ProjectsModule {
                                 "Import project".into()
                             },
                             ui_intent: Some(UiIntent::Browse).filter(|_| imported),
-                            action_payload: None,
+                            action_payload: imported.then(|| {
+                                serde_json::json!({
+                                    "browse_trigger": "proj",
+                                    "path": path.display().to_string(),
+                                })
+                            }),
                             ..Default::default()
                         });
                     } else {
@@ -210,7 +215,10 @@ impl ProjectsModule {
                         primary_action_id: "browse".into(),
                         primary_action_label: "Browse".into(),
                         ui_intent: Some(UiIntent::Browse),
-                        action_payload: None,
+                        action_payload: Some(serde_json::json!({
+                            "browse_trigger": "proj",
+                            "path": root.display().to_string(),
+                        })),
                         ..Default::default()
                     });
                 }

@@ -3,42 +3,18 @@ use crate::msg::Msg;
 use crate::view_model::{
     ActionsIntent, AppState, AwaitingActions, FocusZone, PendingAction, Route, StatusTone,
 };
-use luma_domain::strip_command_prefix;
 use luma_protocol::{ActionDescriptorDto, Event, UiIntent};
 
 mod wordbook;
 
 const PAGE_SIZE: usize = 5;
 
-/// Trim an input prompt and remove its optional leading slash command marker.
-/// The displayed prompt remains unchanged; this helper is only for local TUI
-/// command decisions that should treat `/ssh` like the legacy `ssh` form.
-pub(crate) fn command_prompt(prompt: &str) -> &str {
-    strip_command_prefix(prompt).trim()
-}
-
 pub(crate) fn explicit_command_prompt(prompt: &str) -> Option<&str> {
-    prompt
-        .trim_start()
-        .starts_with('/')
-        .then(|| command_prompt(prompt))
-}
-
-fn command_marker(prompt: &str) -> &'static str {
-    if prompt.trim_start().starts_with('/') {
-        "/"
-    } else {
-        ""
-    }
+    prompt.trim_start().strip_prefix('/').map(str::trim)
 }
 
 fn resolve_ui_intent(item: &luma_domain::SearchItem) -> Option<UiIntent> {
-    if let Some(tag) = item.ui_intent.as_deref() {
-        if let Some(intent) = UiIntent::parse(tag) {
-            return Some(intent);
-        }
-    }
-    legacy_ui_intent_from_action(item)
+    item.ui_intent.as_deref().and_then(UiIntent::parse)
 }
 
 fn payload_str<'a>(item: &'a luma_domain::SearchItem, key: &str) -> Option<&'a str> {
@@ -46,21 +22,6 @@ fn payload_str<'a>(item: &'a luma_domain::SearchItem, key: &str) -> Option<&'a s
         .as_ref()
         .and_then(|p| p.get(key))
         .and_then(|v| v.as_str())
-}
-
-fn legacy_ui_intent_from_action(item: &luma_domain::SearchItem) -> Option<UiIntent> {
-    // The explicit intent/action is authoritative. A generic `directory` kind is not enough to
-    // decide navigation: a future module may expose a directory item whose primary action opens,
-    // imports, or previews it instead.
-    if item.primary_action.id.as_str() == "browse" {
-        return Some(UiIntent::Browse);
-    }
-    match item.primary_action.id.as_str() {
-        "list_issues" => Some(UiIntent::ListIssues),
-        "seed_add" => Some(UiIntent::SeedAdd),
-        "seed_config" | "configure" => Some(UiIntent::SeedConfig),
-        _ => None,
-    }
 }
 
 fn apply_ui_intent(
@@ -214,7 +175,8 @@ pub fn update(state: &mut AppState, msg: Msg) -> Vec<Effect> {
                 // Meta commands are local navigation. They must win over a pending
                 // search debounce so one Enter opens the requested surface.
                 if let Some(command) = explicit_command_prompt(&state.prompt) {
-                    if let Some(queue) = wordbook::wordbook_review_queue_from_prompt(command) {
+                    if let Some(queue) = wordbook::wordbook_review_queue_from_prompt(&state.prompt)
+                    {
                         return wordbook::begin_wordbook_review(state, queue);
                     }
                     if command == "settings" {
@@ -760,30 +722,10 @@ fn request_primary_actions(state: &mut AppState) -> Vec<Effect> {
 }
 
 fn drill_into_browse(state: &mut AppState, item: &luma_domain::SearchItem) -> Vec<Effect> {
-    // Prefer action_payload / id prefixes over module_id substring checks.
-    let records_category = payload_str(item, "category")
-        .map(str::to_string)
-        .or_else(|| {
-            item.id
-                .as_str()
-                .strip_prefix("rec:cat:")
-                .map(str::to_string)
-        });
-    let trigger = payload_str(item, "browse_trigger")
-        .filter(|trigger| !trigger.is_empty())
-        .or_else(|| {
-            if records_category.is_some() || item.id.as_str().starts_with("rec:cat:") {
-                Some("rec")
-            } else if item.id.as_str().starts_with("browse:n:") {
-                Some("n")
-            } else if item.id.as_str().starts_with("browse:proj:")
-                || item.id.as_str().starts_with("proj:")
-            {
-                Some("proj")
-            } else {
-                None
-            }
-        });
+    // Navigation is an explicit module contract. Result IDs remain opaque and are never
+    // reinterpreted as routing metadata by the reducer.
+    let records_category = payload_str(item, "category").map(str::to_string);
+    let trigger = payload_str(item, "browse_trigger").filter(|trigger| !trigger.is_empty());
     let Some(trigger) = trigger else {
         state
             .status
@@ -796,19 +738,10 @@ fn drill_into_browse(state: &mut AppState, item: &luma_domain::SearchItem) -> Ve
         payload_str(item, "path")
             .map(str::to_string)
             .or_else(|| item.subtitle.clone())
-            .or_else(|| {
-                item.id
-                    .as_str()
-                    .strip_prefix("browse:proj:")
-                    .or_else(|| item.id.as_str().strip_prefix("browse:n:"))
-                    .map(str::to_string)
-            })
-            .or_else(|| item.id.as_str().strip_prefix("proj:").map(str::to_string))
     };
-    let marker = command_marker(&state.prompt);
     let query = match path {
-        Some(p) if !p.is_empty() => format!("{marker}{trigger} browse {p}"),
-        _ => format!("{marker}{trigger} browse"),
+        Some(p) if !p.is_empty() => format!("/{trigger} browse {p}"),
+        _ => format!("/{trigger} browse"),
     };
     let previous = state.prompt.clone();
     if !previous.is_empty() && previous != query {
@@ -827,8 +760,7 @@ fn drill_into_browse(state: &mut AppState, item: &luma_domain::SearchItem) -> Ve
 
 fn open_notes_issues(state: &mut AppState) -> Vec<Effect> {
     state.browse_nav_stack.clear();
-    let marker = command_marker(&state.prompt);
-    state.prompt = format!("{marker}n issues");
+    state.prompt = "/n issues".into();
     state.prompt_cursor = state.prompt_char_len();
     state.focus = FocusZone::Prompt;
     state.history_browse = None;
@@ -852,12 +784,7 @@ fn seed_module_add(state: &mut AppState, item: &luma_domain::SearchItem) -> Vec<
         return vec![Effect::None];
     }
     state.browse_nav_stack.clear();
-    let marker = command_marker(&state.prompt);
-    state.prompt = if marker.is_empty() {
-        prompt.into()
-    } else {
-        format!("{marker}{prompt}")
-    };
+    state.prompt = format!("/{}", prompt.trim_start_matches('/'));
     state.prompt_cursor = state.prompt_char_len();
     state.focus = FocusZone::Prompt;
     state.history_browse = None;
@@ -883,10 +810,9 @@ fn seed_record_edit(
         return vec![Effect::None];
     };
     state.browse_nav_stack.clear();
-    let marker = command_marker(&state.prompt);
     state.prompt = match action {
-        "rate" => format!("{marker}rec rate {id} "),
-        "note" => format!("{marker}rec note {id} "),
+        "rate" => format!("/rec rate {id} "),
+        "note" => format!("/rec note {id} "),
         _ => return vec![Effect::None],
     };
     state.prompt_cursor = state.prompt_char_len();
@@ -908,7 +834,7 @@ fn seed_record_edit(
 fn seed_module_config(state: &mut AppState, item: &luma_domain::SearchItem) -> Vec<Effect> {
     if item.id.as_str() == "proj:not-configured" {
         state.status.set(
-            "run in terminal: proj add /path/to/project · or Enter on proj browse",
+            "run in terminal: /proj add /path/to/project · or Enter on /proj browse",
             StatusTone::Warning,
         );
         return vec![Effect::None];
@@ -1222,10 +1148,10 @@ fn cancel_msg(state: &mut AppState) -> Vec<Effect> {
     }
 }
 
-/// One directory up for `n|note|notes|proj browse <path>`; `None` at browse root / non-browse.
+/// One directory up for slash-prefixed `/n|/note|/notes|/proj browse <path>`; `None` at browse
+/// root / non-browse.
 fn browse_query_parent(prompt: &str) -> Option<String> {
-    let trimmed = command_prompt(prompt);
-    let marker = command_marker(prompt);
+    let trimmed = explicit_command_prompt(prompt)?;
     let (trigger, after_trigger) = if let Some(rest) = trimmed.strip_prefix("notes ") {
         ("notes", rest)
     } else if let Some(rest) = trimmed.strip_prefix("note ") {
@@ -1249,13 +1175,16 @@ fn browse_query_parent(prompt: &str) -> Option<String> {
     let path = std::path::Path::new(path);
     match path.parent() {
         Some(parent) if !parent.as_os_str().is_empty() => {
-            Some(format!("{marker}{trigger} browse {}", parent.display()))
+            Some(format!("/{trigger} browse {}", parent.display()))
         }
-        _ => Some(format!("{marker}{trigger} browse")),
+        _ => Some(format!("/{trigger} browse")),
     }
 }
 
 fn apply_engine(state: &mut AppState, event: Event) -> Vec<Effect> {
+    // This function owns navigation and follow-up effects. `AppState::apply_engine_event` below
+    // is the single projection boundary for render state; do not interpret the same event twice
+    // in new module-specific branches.
     if let Event::ActionFinished {
         outcome:
             luma_protocol::ActionOutcomeDto::InteractiveTerminal {
@@ -1447,7 +1376,10 @@ fn apply_engine(state: &mut AppState, event: Event) -> Vec<Effect> {
 }
 
 fn records_query_active(prompt: &str) -> bool {
-    let lower = command_prompt(prompt).to_ascii_lowercase();
+    let Some(command) = explicit_command_prompt(prompt) else {
+        return false;
+    };
+    let lower = command.to_ascii_lowercase();
     matches!(
         lower.split_whitespace().next(),
         Some("rec") | Some("record")
@@ -1455,14 +1387,17 @@ fn records_query_active(prompt: &str) -> bool {
 }
 
 pub fn command_recipes_query_active(prompt: &str) -> bool {
+    let Some(command) = explicit_command_prompt(prompt) else {
+        return false;
+    };
     matches!(
-        command_prompt(prompt).split_whitespace().next(),
+        command.split_whitespace().next(),
         Some("cmd") | Some("recipe") | Some("recipes")
     )
 }
 
 fn project_remove_name(prompt: &str) -> Option<&str> {
-    let mut tokens = command_prompt(prompt).split_whitespace();
+    let mut tokens = explicit_command_prompt(prompt)?.split_whitespace();
     let trigger = tokens.next()?.to_ascii_lowercase();
     if !matches!(trigger.as_str(), "p" | "proj" | "project") {
         return None;
@@ -1726,7 +1661,7 @@ mod tests {
     #[test]
     fn win_digit_only_when_list_focused() {
         let mut state = AppState::default();
-        state.prompt = "win ".into();
+        state.prompt = "/win ".into();
         state.prompt_cursor = state.prompt_char_len();
         state.results.items.push(SearchItem {
             id: ResultId::new("win:a"),
@@ -1844,18 +1779,18 @@ mod tests {
     #[test]
     fn browse_query_parent_pops_one_path_component() {
         assert_eq!(
-            browse_query_parent("n browse /Notes/Inbox/nested"),
-            Some("n browse /Notes/Inbox".into())
+            browse_query_parent("/n browse /Notes/Inbox/nested"),
+            Some("/n browse /Notes/Inbox".into())
         );
         assert_eq!(
-            browse_query_parent("proj browse /dev/app"),
-            Some("proj browse /dev".into())
+            browse_query_parent("/proj browse /dev/app"),
+            Some("/proj browse /dev".into())
         );
-        assert_eq!(browse_query_parent("n browse"), None);
-        assert_eq!(browse_query_parent("n hello"), None);
+        assert_eq!(browse_query_parent("/n browse"), None);
+        assert_eq!(browse_query_parent("/n hello"), None);
         assert_eq!(
-            browse_query_parent("n browse /Notes"),
-            Some("n browse /".into())
+            browse_query_parent("/n browse /Notes"),
+            Some("/n browse /".into())
         );
         assert_eq!(
             browse_query_parent("/n browse /Notes/Inbox"),
@@ -1880,18 +1815,21 @@ mod tests {
                 confirmation: false,
             },
             secondary_actions: vec![],
-            ui_intent: None,
-            action_payload: Some(serde_json::json!({ "category": "电影" })),
+            ui_intent: Some("browse".into()),
+            action_payload: Some(serde_json::json!({
+                "browse_trigger": "rec",
+                "category": "电影",
+            })),
         };
         let effects = drill_into_browse(&mut state, &item);
-        assert_eq!(state.prompt, "rec browse 电影");
+        assert_eq!(state.prompt, "/rec browse 电影");
         assert!(effects
             .iter()
-            .any(|e| matches!(e, Effect::Search { query, .. } if query == "rec browse 电影")));
+            .any(|e| matches!(e, Effect::Search { query, .. } if query == "/rec browse 电影")));
     }
 
     #[test]
-    fn browse_works_from_id_prefix_without_module_id_substring() {
+    fn browse_requires_explicit_routing_payload() {
         let mut state = AppState::default();
         let item = SearchItem {
             id: ResultId::new("rec:cat:纪录片"),
@@ -1911,7 +1849,8 @@ mod tests {
             action_payload: Some(serde_json::json!({ "category": "纪录片" })),
         };
         let _ = drill_into_browse(&mut state, &item);
-        assert_eq!(state.prompt, "rec browse 纪录片");
+        assert_eq!(state.prompt, "");
+        assert_eq!(state.status.tone, StatusTone::Error);
     }
 
     #[test]
@@ -1935,15 +1874,15 @@ mod tests {
             action_payload: None,
         };
         let _ = seed_record_edit(&mut state, &item, "rate");
-        assert_eq!(state.prompt, "rec rate 42 ");
+        assert_eq!(state.prompt, "/rec rate 42 ");
         let _ = seed_record_edit(&mut state, &item, "note");
-        assert_eq!(state.prompt, "rec note 42 ");
+        assert_eq!(state.prompt, "/rec note 42 ");
     }
 
     #[test]
     fn esc_pops_browse_nav_stack_then_clears_at_root() {
         let mut state = AppState::default();
-        state.prompt = "n browse".into();
+        state.prompt = "/n browse".into();
         state.prompt_cursor = state.prompt_char_len();
         state.results.items.push(SearchItem {
             id: ResultId::new("browse:n:/tmp/notes/Inbox"),
@@ -1959,13 +1898,16 @@ mod tests {
                 confirmation: false,
             },
             secondary_actions: vec![],
-            ui_intent: None,
-            action_payload: None,
+            ui_intent: Some("browse".into()),
+            action_payload: Some(serde_json::json!({
+                "browse_trigger": "n",
+                "path": "/tmp/notes/Inbox",
+            })),
         });
         state.results.selected_id = Some("browse:n:/tmp/notes/Inbox".into());
         let _ = update(&mut state, Msg::Submit);
-        assert_eq!(state.prompt, "n browse /tmp/notes/Inbox");
-        assert_eq!(state.browse_nav_stack, vec!["n browse".to_string()]);
+        assert_eq!(state.prompt, "/n browse /tmp/notes/Inbox");
+        assert_eq!(state.browse_nav_stack, vec!["/n browse".to_string()]);
 
         state.active_request = None;
         let effects = update(&mut state, Msg::Cancel);
@@ -1973,7 +1915,7 @@ mod tests {
             effects.iter().any(|e| matches!(e, Effect::Search { .. })),
             "expected search after browse-up: {effects:?}"
         );
-        assert_eq!(state.prompt, "n browse");
+        assert_eq!(state.prompt, "/n browse");
         assert!(state.browse_nav_stack.is_empty());
 
         state.active_request = None;
@@ -1989,9 +1931,9 @@ mod tests {
     #[test]
     fn ctrl_u_clears_browse_stack_for_home() {
         let mut state = AppState::default();
-        state.prompt = "n browse /tmp/notes/Inbox".into();
+        state.prompt = "/n browse /tmp/notes/Inbox".into();
         state.prompt_cursor = state.prompt_char_len();
-        state.browse_nav_stack = vec!["n browse".into()];
+        state.browse_nav_stack = vec!["/n browse".into()];
         let _ = update(&mut state, Msg::ClearToStart);
         assert!(state.prompt.is_empty());
         assert!(state.browse_nav_stack.is_empty());
@@ -2595,7 +2537,7 @@ mod tests {
         });
         state.hub_selected = 1; // more row
         let _effects = update(&mut state, Msg::Submit);
-        assert_eq!(state.prompt, "win ");
+        assert_eq!(state.prompt, "/win ");
     }
 
     #[test]
@@ -2611,7 +2553,7 @@ mod tests {
         });
         state.hub_selected = 0;
         let _ = update(&mut state, Msg::Submit);
-        assert_eq!(state.prompt, "win ");
+        assert_eq!(state.prompt, "/win ");
     }
 
     #[test]
@@ -2655,7 +2597,7 @@ mod tests {
             id: ResultId::new("proj:not-configured"),
             module_id: ModuleId::new("luma.projects"),
             title: "No imported projects".into(),
-            subtitle: Some("proj add /path".into()),
+            subtitle: Some("/proj add /path".into()),
             kind: "not_configured".into(),
             score: 0.0,
             primary_action: ActionDescriptor {
@@ -2671,7 +2613,7 @@ mod tests {
         state.results.items = vec![item.clone()];
         state.results.selected_id = Some(item.id.as_str().into());
         let _ = request_primary_actions(&mut state);
-        assert!(state.status.text.contains("proj add"));
+        assert!(state.status.text.contains("/proj add"));
         assert!(!state.status.text.contains("--projects-root"));
     }
 
@@ -2847,7 +2789,7 @@ mod tests {
     #[test]
     fn project_remove_refresh_keeps_success_feedback_and_clears_row() {
         let mut state = AppState::default();
-        state.prompt = "proj remove files".into();
+        state.prompt = "/proj remove files".into();
         state.prompt_cursor = state.prompt_char_len();
         state.results.items.push(SearchItem {
             id: ResultId::new("proj:remove:files"),
@@ -2899,7 +2841,7 @@ mod tests {
     #[test]
     fn win_digit_ignores_non_window_rows() {
         let mut state = AppState::default();
-        state.prompt = "win ".into();
+        state.prompt = "/win ".into();
         state.prompt_cursor = state.prompt_char_len();
         state.focus = FocusZone::List;
         state.results.items.push(SearchItem {

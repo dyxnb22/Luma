@@ -11,7 +11,6 @@ name = "luma-menubar"
 path = "src/main.rs"
 
 [dependencies]
-block2 = { version = "0.6.2", default-features = false, features = ["std"] }
 luma-application = { workspace = true }
 luma-platform-macos = { workspace = true }
 luma-storage = { workspace = true }
@@ -36,7 +35,7 @@ objc2-app-kit = {
 objc2-foundation = {
     version = "0.3.2",
     default-features = false,
-    features = ["std", "NSObject", "NSString", "NSOperation", "block2"],
+    features = ["std", "NSObject", "NSString"],
 }
 objc2-service-management = {
     version = "0.3.2",

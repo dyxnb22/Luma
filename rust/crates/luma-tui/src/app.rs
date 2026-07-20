@@ -1,6 +1,6 @@
 use crate::effect::Effect;
 use crate::msg::Msg;
-use crate::reducer::{command_prompt, command_recipes_query_active, update};
+use crate::reducer::{command_recipes_query_active, explicit_command_prompt, update};
 use crate::render::render;
 use crate::terminal::{install_panic_hook, TerminalGuard};
 use crate::view_model::{AppState, Route, StatusTone};
@@ -88,6 +88,9 @@ pub async fn run_tui_with_options(
                 for effect in effects {
                     dispatch_effect(engine.clone(), effect, &mut effect_tasks);
                 }
+            }
+            if state.should_quit {
+                break;
             }
         }
 
@@ -180,7 +183,16 @@ fn run_recipe_in_terminal(
     plan: luma_domain::RecipeRunPlan,
     tasks: &mut JoinSet<()>,
 ) {
-    guard.suspend().ok();
+    if let Err(err) = guard.suspend() {
+        state
+            .status
+            .set(format!("failed to suspend TUI: {err}"), StatusTone::Error);
+        state.dirty = true;
+        // Do not keep drawing into a terminal whose raw/alternate-screen transition is
+        // uncertain. Dropping the guard immediately gives its cleanup path another chance.
+        state.should_quit = true;
+        return;
+    }
     println!(
         "\n=== Recipe: {} ({}) ===",
         plan.recipe_title, plan.recipe_id
@@ -236,6 +248,7 @@ fn run_recipe_in_terminal(
         state
             .status
             .set(format!("terminal resume failed: {err}"), StatusTone::Error);
+        state.should_quit = true;
     } else {
         let tone = match outcome {
             RecipeRunOutcome::Success => StatusTone::Success,
@@ -408,30 +421,41 @@ fn run_interactive_terminal_effect(
         state,
         tasks,
     } = runtime;
-    let resume_err = guard.suspend().err();
-    let spawn_result = if resume_err.is_none() {
-        run_interactive_terminal(&program, &args)
-    } else {
-        Err(luma_application::InteractiveTerminalError::spawn(
-            &program,
-            std::io::Error::other("failed to suspend TUI"),
-        ))
+    let suspend_result = guard.suspend();
+    let spawn_result = match suspend_result {
+        Ok(()) => Some(run_interactive_terminal(&program, &args)),
+        Err(err) => {
+            state
+                .status
+                .set(format!("failed to suspend TUI: {err}"), StatusTone::Error);
+            state.dirty = true;
+            state.should_quit = true;
+            None
+        }
     };
 
+    let terminal_started = spawn_result.is_some();
     let (status, message, tone) = match spawn_result {
-        Ok(status) => interactive_status(&program, status),
-        Err(err) => (
+        Some(Ok(status)) => interactive_status(&program, status),
+        Some(Err(err)) => (
             None,
             format!("failed to start {program}: {err}"),
             StatusTone::Error,
         ),
+        None => (None, state.status.text.clone(), StatusTone::Error),
     };
 
-    if let Err(err) = guard.resume() {
-        state
-            .status
-            .set(format!("failed to restore TUI: {err}"), StatusTone::Error);
-        state.dirty = true;
+    if terminal_started {
+        if let Err(err) = guard.resume() {
+            state
+                .status
+                .set(format!("failed to restore TUI: {err}"), StatusTone::Error);
+            state.should_quit = true;
+            state.dirty = true;
+        } else {
+            state.status.set(message, tone);
+            state.dirty = true;
+        }
     } else {
         state.status.set(message, tone);
         state.dirty = true;
@@ -443,7 +467,9 @@ fn run_interactive_terminal_effect(
 
     if let (Some(alias), Some(status)) = (record_alias, status) {
         if status.success() {
-            if command_prompt(&state.prompt).starts_with("ssh") {
+            if explicit_command_prompt(&state.prompt)
+                .is_some_and(|command| command.starts_with("ssh"))
+            {
                 state.search_debounce_deadline = Some(std::time::Instant::now());
             }
             let engine_record = engine.clone();

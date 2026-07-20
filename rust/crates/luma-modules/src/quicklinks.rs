@@ -7,7 +7,7 @@ use luma_application::{
 use luma_domain::{
     ActionDescriptor, ActionId, ActionRisk, FailureKind, ModuleId, Query, SearchItem,
 };
-use luma_protocol::{Event, SearchItemDto};
+use luma_protocol::{Event, SearchItemDto, UiIntent};
 use std::path::Path;
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -282,6 +282,7 @@ impl LumaModule for QuicklinksModule {
                 score: if empty { 90.0 } else { 5.0 },
                 primary_action_id: "seed_add".into(),
                 primary_action_label: "Add".into(),
+                ui_intent: Some(UiIntent::SeedAdd),
                 ..Default::default()
             });
         }

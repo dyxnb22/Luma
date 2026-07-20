@@ -23,14 +23,23 @@ impl TerminalGuard {
     pub fn enter() -> io::Result<Self> {
         enable_raw_mode()?;
         let mut stdout = io::stdout();
-        execute!(
+        if let Err(err) = execute!(
             stdout,
             EnterAlternateScreen,
             EnableMouseCapture,
             EnableFocusChange
-        )?;
+        ) {
+            cleanup_terminal_after_partial_enter();
+            return Err(err);
+        }
         let backend = CrosstermBackend::new(stdout);
-        let terminal = Terminal::new(backend)?;
+        let terminal = match Terminal::new(backend) {
+            Ok(terminal) => terminal,
+            Err(err) => {
+                cleanup_terminal_after_partial_enter();
+                return Err(err);
+            }
+        };
         TERMINAL_ACTIVE.store(true, Ordering::SeqCst);
         Ok(Self {
             terminal,
@@ -47,7 +56,7 @@ impl TerminalGuard {
         if self.suspended {
             return Ok(());
         }
-        restore_terminal();
+        restore_terminal()?;
         self.suspended = true;
         Ok(())
     }
@@ -59,14 +68,20 @@ impl TerminalGuard {
         }
         enable_raw_mode()?;
         let mut stdout = io::stdout();
-        execute!(
+        if let Err(err) = execute!(
             stdout,
             EnterAlternateScreen,
             EnableMouseCapture,
             EnableFocusChange
-        )?;
+        ) {
+            cleanup_terminal_after_partial_enter();
+            return Err(err);
+        }
         TERMINAL_ACTIVE.store(true, Ordering::SeqCst);
-        self.terminal.clear()?;
+        if let Err(err) = self.terminal.clear() {
+            let _ = restore_terminal();
+            return Err(err);
+        }
         self.suspended = false;
         Ok(())
     }
@@ -79,31 +94,54 @@ impl TerminalGuard {
 impl Drop for TerminalGuard {
     fn drop(&mut self) {
         if !self.suspended {
-            restore_terminal();
+            let _ = restore_terminal();
         } else {
-            // Child session already restored normal terminal; avoid double-restore.
-            TERMINAL_ACTIVE.store(false, Ordering::SeqCst);
+            // A child normally restored the terminal, but resume can fail after partially
+            // re-entering it. Retry cleanup when the active flag says there is still work.
+            if TERMINAL_ACTIVE.load(Ordering::SeqCst) {
+                let _ = restore_terminal();
+            } else {
+                TERMINAL_ACTIVE.store(false, Ordering::SeqCst);
+            }
         }
     }
 }
 
-pub fn restore_terminal() {
-    if TERMINAL_ACTIVE.swap(false, Ordering::SeqCst) {
-        let _ = disable_raw_mode();
-        let mut stdout = io::stdout();
-        let _ = execute!(
-            stdout,
-            LeaveAlternateScreen,
-            DisableMouseCapture,
-            DisableFocusChange
-        );
+pub fn restore_terminal() -> io::Result<()> {
+    if !TERMINAL_ACTIVE.load(Ordering::SeqCst) {
+        return Ok(());
     }
+    let raw_result = disable_raw_mode();
+    let mut stdout = io::stdout();
+    let screen_result = execute!(
+        stdout,
+        LeaveAlternateScreen,
+        DisableMouseCapture,
+        DisableFocusChange
+    );
+    if raw_result.is_ok() && screen_result.is_ok() {
+        TERMINAL_ACTIVE.store(false, Ordering::SeqCst);
+    }
+    raw_result.and(screen_result)
+}
+
+/// Best-effort cleanup for a partially completed terminal enter. The active flag is not set
+/// until the whole enter sequence succeeds, so this path cannot rely on `restore_terminal`.
+fn cleanup_terminal_after_partial_enter() {
+    let _ = disable_raw_mode();
+    let mut stdout = io::stdout();
+    let _ = execute!(
+        stdout,
+        LeaveAlternateScreen,
+        DisableMouseCapture,
+        DisableFocusChange
+    );
 }
 
 pub fn install_panic_hook() {
     let previous = panic::take_hook();
     panic::set_hook(Box::new(move |info| {
-        restore_terminal();
+        let _ = restore_terminal();
         previous(info);
     }));
 }
@@ -115,7 +153,7 @@ mod tests {
     #[test]
     fn restore_is_idempotent_when_inactive() {
         TERMINAL_ACTIVE.store(false, Ordering::SeqCst);
-        restore_terminal();
-        restore_terminal();
+        restore_terminal().unwrap();
+        restore_terminal().unwrap();
     }
 }

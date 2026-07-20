@@ -1,7 +1,10 @@
-use crate::model::{MenuAction, MenuSnapshot, WindowsStatus, WordbookStatus};
+use crate::model::{
+    ActionStatus, LoginItemState, MenuAction, MenuSnapshot, SharedMenuSnapshot, WindowsStatus,
+    WordbookStatus,
+};
 use objc2::rc::Retained;
 use objc2::runtime::{NSObject, ProtocolObject};
-use objc2::{define_class, msg_send, sel, MainThreadMarker, MainThreadOnly};
+use objc2::{define_class, msg_send, sel, DefinedClass, MainThreadMarker, MainThreadOnly};
 use objc2_app_kit::{
     NSBezierPath, NSColor, NSImage, NSLineCapStyle, NSMenu, NSMenuDelegate, NSMenuItem,
     NSStatusBar, NSStatusItem,
@@ -16,9 +19,13 @@ const TAG_OPEN_SETTINGS: isize = 12;
 const TAG_REFRESH: isize = 13;
 const TAG_LOGIN: isize = 14;
 const TAG_QUIT: isize = 15;
-const TAG_FOCUS_BASE: isize = 1000;
 
 static ACTIONS: OnceLock<Mutex<Option<Sender<MenuAction>>>> = OnceLock::new();
+
+pub struct MenuTargetIvars {
+    menu: Retained<NSMenu>,
+    snapshots: SharedMenuSnapshot,
+}
 
 pub fn request_refresh() {
     send_action(MenuAction::Refresh);
@@ -34,10 +41,11 @@ fn send_action(action: MenuAction) {
 }
 
 define_class!(
-    // SAFETY: MenuTarget has NSObject as its superclass and has no ivars or Drop implementation.
+    // SAFETY: MenuTarget has NSObject as its superclass and its main-thread-only ivars are
+    // retained for the lifetime of the AppKit menu.
     #[unsafe(super = NSObject)]
     #[thread_kind = MainThreadOnly]
-    #[ivars = ()]
+    #[ivars = MenuTargetIvars]
     pub struct MenuTarget;
 
     // SAFETY: NSObjectProtocol has no additional requirements.
@@ -47,6 +55,15 @@ define_class!(
         #[unsafe(method(performMenuAction:))]
         fn perform_menu_action(&self, sender: Option<&NSMenuItem>) {
             let Some(sender) = sender else { return };
+            if let Some(window_id) = sender.representedObject().and_then(|object| {
+                object
+                    .downcast::<NSString>()
+                    .ok()
+                    .map(|value| value.to_string())
+            }) {
+                send_action(MenuAction::FocusWindow(window_id));
+                return;
+            }
             let action = match sender.tag() {
                 TAG_REVIEW_DUE => MenuAction::ReviewDue,
                 TAG_OPEN_LUMA => MenuAction::OpenLuma,
@@ -54,10 +71,13 @@ define_class!(
                 TAG_REFRESH => MenuAction::Refresh,
                 TAG_LOGIN => MenuAction::ToggleLaunchAtLogin,
                 TAG_QUIT => MenuAction::Quit,
-                tag if tag >= TAG_FOCUS_BASE => MenuAction::FocusWindow((tag - TAG_FOCUS_BASE) as usize),
                 _ => return,
             };
+            let quit = matches!(&action, MenuAction::Quit);
             send_action(action);
+            if quit {
+                objc2_app_kit::NSApplication::sharedApplication(self.mtm()).terminate(None);
+            }
         }
     }
 
@@ -66,16 +86,29 @@ define_class!(
         #[unsafe(method(menuWillOpen:))]
         #[allow(non_snake_case)]
         fn menuWillOpen(&self, _menu: &NSMenu) {
+            self.apply_latest_snapshot();
             send_action(MenuAction::Refresh);
         }
     }
 );
 
 impl MenuTarget {
-    fn new(mtm: MainThreadMarker) -> Retained<Self> {
-        let this = Self::alloc(mtm).set_ivars(());
+    fn new(
+        mtm: MainThreadMarker,
+        menu: Retained<NSMenu>,
+        snapshots: SharedMenuSnapshot,
+    ) -> Retained<Self> {
+        let this = Self::alloc(mtm).set_ivars(MenuTargetIvars { menu, snapshots });
         // SAFETY: NSObject's init is the designated initializer for this empty subclass.
         unsafe { msg_send![super(this), init] }
+    }
+
+    fn apply_latest_snapshot(&self) {
+        let snapshot = match self.ivars().snapshots.lock() {
+            Ok(snapshot) => snapshot.clone(),
+            Err(_) => return,
+        };
+        render_menu(&self.ivars().menu, self.mtm(), self, &snapshot);
     }
 }
 
@@ -89,10 +122,15 @@ pub struct MenuController {
 
 impl MenuController {
     #[allow(deprecated)]
-    pub fn new(mtm: MainThreadMarker, actions: Sender<MenuAction>) -> Self {
-        let target = MenuTarget::new(mtm);
+    pub fn new(
+        mtm: MainThreadMarker,
+        actions: Sender<MenuAction>,
+        snapshots: SharedMenuSnapshot,
+        initial_snapshot: MenuSnapshot,
+    ) -> Self {
         let _ = ACTIONS.set(Mutex::new(Some(actions)));
         let menu = NSMenu::initWithTitle(mtm.alloc(), ns_string!("Luma"));
+        let target = MenuTarget::new(mtm, menu.clone(), snapshots);
         menu.setDelegate(Some(ProtocolObject::from_ref(&*target)));
 
         let status_bar = NSStatusBar::systemStatusBar();
@@ -111,130 +149,152 @@ impl MenuController {
             menu,
             _target: target,
         };
-        controller.apply_snapshot(MenuSnapshot::default());
+        controller.apply_snapshot(initial_snapshot);
         controller
     }
 
     #[allow(deprecated)]
     pub fn apply_snapshot(&mut self, snapshot: MenuSnapshot) {
-        self.menu.removeAllItems();
-        self.menu.addItem(&section("Wordbook", self.mtm));
-        let review_enabled = matches!(
-            &snapshot.wordbook,
-            WordbookStatus::Ready { due, .. } if *due > 0
-        );
-        match &snapshot.wordbook {
-            WordbookStatus::NotConfigured => {
-                self.menu.addItem(&item(
-                    "Wordbook not configured",
-                    0,
-                    false,
-                    self.mtm,
-                    &self._target,
-                ));
-            }
-            WordbookStatus::Unavailable(message) => {
-                self.menu.addItem(&item(
-                    &format!("Wordbook unavailable: {message}"),
-                    0,
-                    false,
-                    self.mtm,
-                    &self._target,
-                ));
-            }
-            WordbookStatus::Ready {
-                due,
-                reviewed_today,
-                goal,
-            } => {
-                let summary = if *due == 0 {
-                    format!("All caught up · {reviewed_today}/{goal} today")
-                } else {
-                    format!("{due} due · {reviewed_today}/{goal} today")
-                };
-                self.menu
-                    .addItem(&item(&summary, 0, false, self.mtm, &self._target));
-            }
-        }
-        self.menu.addItem(&item(
-            "Review due in Luma…",
-            TAG_REVIEW_DUE,
-            review_enabled,
-            self.mtm,
-            &self._target,
-        ));
-        self.menu.addItem(&separator(self.mtm));
-        self.menu.addItem(&section("Windows", self.mtm));
-        match &snapshot.windows {
-            WindowsStatus::Unavailable(message) => {
-                self.menu
-                    .addItem(&item(message, 0, false, self.mtm, &self._target));
-            }
-            WindowsStatus::Ready(windows) if windows.is_empty() => {
-                self.menu.addItem(&item(
-                    "No visible windows",
-                    0,
-                    false,
-                    self.mtm,
-                    &self._target,
-                ));
-            }
-            WindowsStatus::Ready(windows) => {
-                for (index, window) in windows.iter().enumerate() {
-                    let title = window_menu_title(&window.app_name, &window.title);
-                    self.menu.addItem(&item(
-                        &title,
-                        TAG_FOCUS_BASE + index as isize,
-                        true,
-                        self.mtm,
-                        &self._target,
-                    ));
-                }
-            }
-        }
-        self.menu.addItem(&separator(self.mtm));
-        self.menu.addItem(&item(
-            if snapshot.cli_available {
-                "Open Luma"
-            } else {
-                "Luma CLI unavailable — Set path…"
-            },
-            TAG_OPEN_LUMA,
-            snapshot.cli_available,
-            self.mtm,
-            &self._target,
-        ));
-        self.menu.addItem(&item(
-            "Open /settings in Luma",
-            TAG_OPEN_SETTINGS,
-            snapshot.cli_available,
-            self.mtm,
-            &self._target,
-        ));
-        self.menu
-            .addItem(&item("Refresh", TAG_REFRESH, true, self.mtm, &self._target));
-        self.menu.addItem(&item(
-            if snapshot.launch_at_login {
-                "Launch at Login ✓"
-            } else {
-                "Launch at Login"
-            },
-            TAG_LOGIN,
-            true,
-            self.mtm,
-            &self._target,
-        ));
-        self.menu.addItem(&item(
-            "Quit Luma Menu Bar",
-            TAG_QUIT,
-            true,
-            self.mtm,
-            &self._target,
-        ));
-
-        // Keep the brand mark stable; the menu carries the detailed Wordbook and warning state.
-        self.menu.update();
+        render_menu(&self.menu, self.mtm, &self._target, &snapshot);
     }
+}
+
+impl Drop for MenuController {
+    fn drop(&mut self) {
+        if let Some(slot) = ACTIONS.get() {
+            if let Ok(mut sender) = slot.lock() {
+                *sender = None;
+            }
+        }
+    }
+}
+
+fn render_menu(menu: &NSMenu, mtm: MainThreadMarker, target: &MenuTarget, snapshot: &MenuSnapshot) {
+    menu.removeAllItems();
+    menu.addItem(&section("Wordbook", mtm));
+    let review_enabled = matches!(
+        &snapshot.wordbook,
+        WordbookStatus::Ready { due, .. } if *due > 0
+    );
+    match &snapshot.wordbook {
+        WordbookStatus::NotConfigured => {
+            menu.addItem(&item("Wordbook not configured", 0, false, mtm, target))
+        }
+        WordbookStatus::Unavailable(message) => menu.addItem(&item(
+            &format!("Wordbook unavailable: {message}"),
+            0,
+            false,
+            mtm,
+            target,
+        )),
+        WordbookStatus::Ready {
+            due,
+            reviewed_today,
+            goal,
+        } => {
+            let summary = if *due == 0 {
+                format!("All caught up · {reviewed_today}/{goal} today")
+            } else {
+                format!("{due} due · {reviewed_today}/{goal} today")
+            };
+            menu.addItem(&item(&summary, 0, false, mtm, target));
+        }
+        WordbookStatus::Stale {
+            due,
+            reviewed_today,
+            goal,
+            reason,
+        } => {
+            menu.addItem(&item(
+                &format!("Wordbook stale: {reason}"),
+                0,
+                false,
+                mtm,
+                target,
+            ));
+            menu.addItem(&item(
+                &format!("Last known: {due} due · {reviewed_today}/{goal} today"),
+                0,
+                false,
+                mtm,
+                target,
+            ));
+        }
+    }
+    menu.addItem(&item(
+        "Review due in Luma…",
+        TAG_REVIEW_DUE,
+        review_enabled,
+        mtm,
+        target,
+    ));
+    menu.addItem(&separator(mtm));
+    menu.addItem(&section("Windows", mtm));
+    match &snapshot.windows {
+        WindowsStatus::PermissionRequired(message) | WindowsStatus::Unavailable(message) => {
+            menu.addItem(&item(message, 0, false, mtm, target));
+        }
+        WindowsStatus::Ready(windows) if windows.is_empty() => {
+            menu.addItem(&item("No visible windows", 0, false, mtm, target));
+        }
+        WindowsStatus::Ready(windows) => {
+            for window in windows {
+                menu.addItem(&window_item(window, mtm, target));
+            }
+        }
+        WindowsStatus::Stale { windows, reason } => {
+            menu.addItem(&item(
+                &format!("Windows stale: {reason}"),
+                0,
+                false,
+                mtm,
+                target,
+            ));
+            for window in windows {
+                menu.addItem(&window_item(window, mtm, target));
+            }
+        }
+    }
+    if let Some(warning) = &snapshot.global_warning {
+        menu.addItem(&separator(mtm));
+        menu.addItem(&item(&format!("Warning: {warning}"), 0, false, mtm, target));
+    }
+    if let Some(action) = &snapshot.last_action {
+        let message = match action {
+            ActionStatus::Succeeded(message) => format!("Last action: {message}"),
+            ActionStatus::Failed(message) => format!("Action failed: {message}"),
+        };
+        menu.addItem(&item(&message, 0, false, mtm, target));
+    }
+    menu.addItem(&separator(mtm));
+    let cli_title = match &snapshot.cli {
+        crate::model::CliStatus::Available => "Open Luma".to_string(),
+        crate::model::CliStatus::Unavailable(reason) => format!("Luma unavailable: {reason}"),
+    };
+    menu.addItem(&item(
+        &cli_title,
+        TAG_OPEN_LUMA,
+        snapshot.cli.is_available(),
+        mtm,
+        target,
+    ));
+    menu.addItem(&item(
+        "Open /settings in Luma",
+        TAG_OPEN_SETTINGS,
+        snapshot.cli.is_available(),
+        mtm,
+        target,
+    ));
+    menu.addItem(&item("Refresh", TAG_REFRESH, true, mtm, target));
+    menu.addItem(&item(
+        &login_item_title(&snapshot.login_item),
+        TAG_LOGIN,
+        !matches!(snapshot.login_item, LoginItemState::NotFound),
+        mtm,
+        target,
+    ));
+    menu.addItem(&item("Quit Luma Menu Bar", TAG_QUIT, true, mtm, target));
+    menu.update();
 }
 
 fn window_menu_title(app_name: &str, title: &str) -> String {
@@ -242,6 +302,30 @@ fn window_menu_title(app_name: &str, title: &str) -> String {
         app_name.to_string()
     } else {
         format!("{app_name} — {title}")
+    }
+}
+
+fn window_item(
+    window: &luma_application::WindowEntry,
+    mtm: MainThreadMarker,
+    target: &MenuTarget,
+) -> Retained<NSMenuItem> {
+    let title = window_menu_title(&window.app_name, &window.title);
+    let item = item(&title, 0, true, mtm, target);
+    let represented = NSString::from_str(&window.id);
+    // SAFETY: representedObject accepts an Objective-C object and the retained NSString lives
+    // through the menu item, which retains its represented object.
+    unsafe { item.setRepresentedObject(Some(&represented)) };
+    item
+}
+
+fn login_item_title(state: &LoginItemState) -> String {
+    match state {
+        LoginItemState::NotRegistered => "Launch at Login".into(),
+        LoginItemState::Enabled => "Launch at Login ✓".into(),
+        LoginItemState::RequiresApproval => "Launch at Login · Approval required".into(),
+        LoginItemState::NotFound => "Launch at Login · Bundle unavailable".into(),
+        LoginItemState::Unavailable(reason) => format!("Launch at Login · {reason}"),
     }
 }
 

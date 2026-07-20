@@ -228,7 +228,7 @@ pub struct AppState {
     pub settings_modules: Vec<SettingsModuleRow>,
     /// Notes / projects roots shown above module toggles.
     pub settings_roots: SettingsRootsInfo,
-    /// Active wordbook review session (`wb review`).
+    /// Active wordbook review session (`/wb review`).
     pub wordbook_review: Option<WordbookReviewState>,
     /// Horizontal scroll offset (Unicode scalar index) for long prompts.
     pub prompt_scroll: usize,
@@ -449,12 +449,15 @@ impl AppState {
         }
     }
 
-    /// `win` / `window` / `windows` targeted search with results on screen.
+    /// Slash-prefixed `/win` / `/window` / `/windows` targeted search with results on screen.
     pub fn is_win_search(&self) -> bool {
         if !matches!(self.route, Route::Search) || self.results.items.is_empty() {
             return false;
         }
-        let token = luma_domain::strip_command_prefix(&self.prompt)
+        let Some(token) = self.prompt.trim_start().strip_prefix('/') else {
+            return false;
+        };
+        let token = token
             .split_whitespace()
             .next()
             .unwrap_or("")
@@ -787,7 +790,7 @@ impl AppState {
                     "window_status".into(),
                     "win:status".into(),
                     title.clone(),
-                    "win ".into(),
+                    "/win ".into(),
                 ));
             }
             for w in &hub.windows {
@@ -804,7 +807,7 @@ impl AppState {
                         "window_more".into(),
                         "win:more".into(),
                         format!("{n} more → win"),
-                        "win ".into(),
+                        "/win ".into(),
                     ));
                 }
             }
@@ -876,6 +879,8 @@ impl AppState {
             .collect()
     }
 
+    /// Project one engine event into render state. Navigation, follow-up effects, and action
+    /// orchestration belong to `reducer::apply_engine`; this method only updates the view model.
     pub fn apply_engine_event(&mut self, event: Event) -> bool {
         match event {
             Event::SessionReady { modules } => {
@@ -1073,7 +1078,7 @@ impl AppState {
                 });
                 if finished {
                     self.status.set(
-                        "review queue empty · try wb review new",
+                        "review queue empty · try /wb review new",
                         StatusTone::Warning,
                     );
                 } else {
@@ -1592,7 +1597,7 @@ mod tests {
     #[test]
     fn window_digit_targets_follow_scroll_position() {
         let mut state = AppState {
-            prompt: "win ".into(),
+            prompt: "/win ".into(),
             focus: FocusZone::List,
             ..Default::default()
         };

@@ -51,7 +51,9 @@ impl ClipboardModule {
                 triggers: vec!["clip".into(), "cb".into()],
                 default_enabled: true,
                 search_mode: SearchMode::GlobalContributing,
-                required_capabilities: vec!["accessibility".into()],
+                // History/search/copy work without Accessibility. Paste reports its AX
+                // requirement locally when the action is attempted.
+                required_capabilities: vec![],
                 workbench: luma_application::WorkbenchMeta {
                     glyph: Some("C".into()),
                     suggested_query: Some("/clip ".into()),

@@ -4,7 +4,7 @@ use luma_application::{
     NotesDirectoryEntryKind, NotesScanStatusView, NotesWorkspaceError, SearchSink,
 };
 use luma_domain::Query;
-use luma_protocol::SearchItemDto;
+use luma_protocol::{SearchItemDto, UiIntent};
 use std::path::PathBuf;
 use tokio_util::sync::CancellationToken;
 
@@ -72,6 +72,7 @@ impl NotesModule {
                     score: 0.0,
                     primary_action_id: "seed_config".into(),
                     primary_action_label: "Show command".into(),
+                    ui_intent: Some(UiIntent::SeedConfig),
                     ..Default::default()
                 }],
                 vec![],
@@ -478,6 +479,11 @@ impl NotesModule {
                         score: 85.0,
                         primary_action_id: "browse".into(),
                         primary_action_label: "Browse".into(),
+                        ui_intent: Some(UiIntent::Browse),
+                        action_payload: Some(serde_json::json!({
+                            "browse_trigger": "n",
+                            "path": path.display().to_string(),
+                        })),
                         ..Default::default()
                     }),
                     NotesDirectoryEntryKind::MarkdownFile => {

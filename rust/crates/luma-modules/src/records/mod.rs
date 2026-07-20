@@ -6,7 +6,7 @@ use luma_application::{
 use luma_domain::{
     ActionDescriptor, ActionId, ActionRisk, FailureKind, ModuleId, Query, SearchItem,
 };
-use luma_protocol::{Event, SearchItemDto};
+use luma_protocol::{Event, SearchItemDto, UiIntent};
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -495,7 +495,11 @@ impl LumaModule for RecordsModule {
                         score: 85.0 - i as f64 * 0.1,
                         primary_action_id: "browse".into(),
                         primary_action_label: "Browse".into(),
-                        action_payload: Some(serde_json::json!({ "category": cat.name })),
+                        ui_intent: Some(UiIntent::Browse),
+                        action_payload: Some(serde_json::json!({
+                            "browse_trigger": "rec",
+                            "category": cat.name,
+                        })),
                         ..Default::default()
                     });
                 }
@@ -511,6 +515,7 @@ impl LumaModule for RecordsModule {
                         score: 0.0,
                         primary_action_id: "seed_config".into(),
                         primary_action_label: "Show command".into(),
+                        ui_intent: Some(UiIntent::SeedConfig),
                         ..Default::default()
                     });
                 }
@@ -541,6 +546,7 @@ impl LumaModule for RecordsModule {
                     score: 0.0,
                     primary_action_id: "seed_config".into(),
                     primary_action_label: "Show command".into(),
+                    ui_intent: Some(UiIntent::SeedConfig),
                     ..Default::default()
                 });
             } else {
@@ -554,7 +560,11 @@ impl LumaModule for RecordsModule {
                         score: 80.0 - i as f64,
                         primary_action_id: "browse".into(),
                         primary_action_label: "Browse".into(),
-                        action_payload: Some(serde_json::json!({ "category": cat.name })),
+                        ui_intent: Some(UiIntent::Browse),
+                        action_payload: Some(serde_json::json!({
+                            "browse_trigger": "rec",
+                            "category": cat.name,
+                        })),
                         ..Default::default()
                     });
                 }

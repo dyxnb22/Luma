@@ -11,6 +11,7 @@ name = "luma-menubar"
 path = "src/main.rs"
 
 [dependencies]
+dispatch2 = { version = "0.3.1", default-features = false, features = ["std"] }
 luma-application = { workspace = true }
 luma-platform-macos = { workspace = true }
 luma-storage = { workspace = true }
@@ -44,3 +45,6 @@ objc2-service-management = {
 }
 tokio = { workspace = true }
 thiserror = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }

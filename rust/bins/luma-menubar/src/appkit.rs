@@ -2,6 +2,8 @@ use crate::model::{
     ActionStatus, LoginItemState, MenuAction, MenuSnapshot, SharedMenuSnapshot, WindowsStatus,
     WordbookStatus,
 };
+use dispatch2::DispatchQueue;
+use luma_platform_macos::MacAccessibility;
 use objc2::rc::Retained;
 use objc2::runtime::{NSObject, ProtocolObject};
 use objc2::{define_class, msg_send, sel, DefinedClass, MainThreadMarker, MainThreadOnly};
@@ -10,8 +12,11 @@ use objc2_app_kit::{
     NSStatusBar, NSStatusItem,
 };
 use objc2_foundation::{ns_string, NSObjectProtocol, NSPoint, NSSize, NSString};
+use std::ptr;
+use std::sync::atomic::{AtomicBool, AtomicPtr, Ordering};
 use std::sync::mpsc::Sender;
-use std::sync::{Mutex, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 const TAG_REVIEW_DUE: isize = 10;
 const TAG_OPEN_LUMA: isize = 11;
@@ -19,8 +24,59 @@ const TAG_OPEN_SETTINGS: isize = 12;
 const TAG_REFRESH: isize = 13;
 const TAG_LOGIN: isize = 14;
 const TAG_QUIT: isize = 15;
+const MAX_MENU_TITLE_CHARS: usize = 96;
+const SCREEN_RECORDING_HINT: &str =
+    "Some window titles unavailable — grant Screen Recording to Luma Menu Bar.app";
+const ACCESSIBILITY_FOCUS_HINT: &str = "Focus requires Accessibility for Luma Menu Bar.app";
 
 static ACTIONS: OnceLock<Mutex<Option<Sender<MenuAction>>>> = OnceLock::new();
+
+struct SnapshotNotifierState {
+    target: AtomicPtr<MenuTarget>,
+    queued: AtomicBool,
+}
+
+/// Bridges worker publications back to AppKit without polling from the UI thread.
+#[derive(Clone)]
+pub struct SnapshotNotifier {
+    state: Arc<SnapshotNotifierState>,
+}
+
+impl SnapshotNotifier {
+    fn new(target: &MenuTarget) -> Self {
+        Self {
+            state: Arc::new(SnapshotNotifierState {
+                target: AtomicPtr::new(target as *const MenuTarget as *mut MenuTarget),
+                queued: AtomicBool::new(false),
+            }),
+        }
+    }
+
+    /// Queue at most one main-thread redraw for the latest published snapshot.
+    pub fn schedule(&self) {
+        if self.state.target.load(Ordering::Acquire).is_null()
+            || self.state.queued.swap(true, Ordering::AcqRel)
+        {
+            return;
+        }
+        let state = Arc::clone(&self.state);
+        DispatchQueue::main().exec_async(move || {
+            state.queued.store(false, Ordering::Release);
+            let target = state.target.load(Ordering::Acquire);
+            if target.is_null() {
+                return;
+            }
+            // SAFETY: the target is created and destroyed on AppKit's main thread. Drop clears
+            // this pointer before releasing the target, and this block also runs on the main
+            // queue, so it cannot dereference a target after that clear.
+            unsafe { (&*target).apply_latest_snapshot() };
+        });
+    }
+
+    fn clear(&self) {
+        self.state.target.store(ptr::null_mut(), Ordering::Release);
+    }
+}
 
 pub struct MenuTargetIvars {
     menu: Retained<NSMenu>,
@@ -64,14 +120,8 @@ define_class!(
                 send_action(MenuAction::FocusWindow(window_id));
                 return;
             }
-            let action = match sender.tag() {
-                TAG_REVIEW_DUE => MenuAction::ReviewDue,
-                TAG_OPEN_LUMA => MenuAction::OpenLuma,
-                TAG_OPEN_SETTINGS => MenuAction::OpenSettings,
-                TAG_REFRESH => MenuAction::Refresh,
-                TAG_LOGIN => MenuAction::ToggleLaunchAtLogin,
-                TAG_QUIT => MenuAction::Quit,
-                _ => return,
+            let Some(action) = menu_action_for_tag(sender.tag()) else {
+                return;
             };
             let quit = matches!(&action, MenuAction::Quit);
             send_action(action);
@@ -118,6 +168,7 @@ pub struct MenuController {
     _status_image: Retained<NSImage>,
     menu: Retained<NSMenu>,
     _target: Retained<MenuTarget>,
+    snapshot_notifier: SnapshotNotifier,
 }
 
 impl MenuController {
@@ -131,6 +182,7 @@ impl MenuController {
         let _ = ACTIONS.set(Mutex::new(Some(actions)));
         let menu = NSMenu::initWithTitle(mtm.alloc(), ns_string!("Luma"));
         let target = MenuTarget::new(mtm, menu.clone(), snapshots);
+        let snapshot_notifier = SnapshotNotifier::new(&target);
         menu.setDelegate(Some(ProtocolObject::from_ref(&*target)));
 
         let status_bar = NSStatusBar::systemStatusBar();
@@ -148,6 +200,7 @@ impl MenuController {
             _status_image: status_image,
             menu,
             _target: target,
+            snapshot_notifier,
         };
         controller.apply_snapshot(initial_snapshot);
         controller
@@ -157,10 +210,15 @@ impl MenuController {
     pub fn apply_snapshot(&mut self, snapshot: MenuSnapshot) {
         render_menu(&self.menu, self.mtm, &self._target, &snapshot);
     }
+
+    pub fn snapshot_notifier(&self) -> SnapshotNotifier {
+        self.snapshot_notifier.clone()
+    }
 }
 
 impl Drop for MenuController {
     fn drop(&mut self) {
+        self.snapshot_notifier.clear();
         if let Some(slot) = ACTIONS.get() {
             if let Ok(mut sender) = slot.lock() {
                 *sender = None;
@@ -228,6 +286,13 @@ fn render_menu(menu: &NSMenu, mtm: MainThreadMarker, target: &MenuTarget, snapsh
         mtm,
         target,
     ));
+    menu.addItem(&item(
+        &snapshot_freshness_title(snapshot.captured_at_unix, unix_now()),
+        0,
+        false,
+        mtm,
+        target,
+    ));
     menu.addItem(&separator(mtm));
     menu.addItem(&section("Windows", mtm));
     match &snapshot.windows {
@@ -238,9 +303,7 @@ fn render_menu(menu: &NSMenu, mtm: MainThreadMarker, target: &MenuTarget, snapsh
             menu.addItem(&item("No visible windows", 0, false, mtm, target));
         }
         WindowsStatus::Ready(windows) => {
-            for window in windows {
-                menu.addItem(&window_item(window, mtm, target));
-            }
+            add_window_rows(menu, windows, mtm, target);
         }
         WindowsStatus::Stale { windows, reason } => {
             menu.addItem(&item(
@@ -250,9 +313,7 @@ fn render_menu(menu: &NSMenu, mtm: MainThreadMarker, target: &MenuTarget, snapsh
                 mtm,
                 target,
             ));
-            for window in windows {
-                menu.addItem(&window_item(window, mtm, target));
-            }
+            add_window_rows(menu, windows, mtm, target);
         }
     }
     if let Some(warning) = &snapshot.global_warning {
@@ -302,6 +363,41 @@ fn window_menu_title(app_name: &str, title: &str) -> String {
         app_name.to_string()
     } else {
         format!("{app_name} — {title}")
+    }
+}
+
+fn menu_action_for_tag(tag: isize) -> Option<MenuAction> {
+    match tag {
+        TAG_REVIEW_DUE => Some(MenuAction::ReviewDue),
+        TAG_OPEN_LUMA => Some(MenuAction::OpenLuma),
+        TAG_OPEN_SETTINGS => Some(MenuAction::OpenSettings),
+        TAG_REFRESH => Some(MenuAction::Refresh),
+        TAG_LOGIN => Some(MenuAction::ToggleLaunchAtLogin),
+        TAG_QUIT => Some(MenuAction::Quit),
+        _ => None,
+    }
+}
+
+fn windows_need_screen_recording_hint(windows: &[luma_application::WindowEntry]) -> bool {
+    windows.iter().any(|window| window.title == "Untitled")
+}
+
+fn add_window_rows(
+    menu: &NSMenu,
+    windows: &[luma_application::WindowEntry],
+    mtm: MainThreadMarker,
+    target: &MenuTarget,
+) {
+    // This is a pure TCC query, not window or storage I/O; keeping the list visible without
+    // Accessibility is intentional, but users should see the focus remediation before clicking.
+    if !MacAccessibility::probe_trusted() {
+        menu.addItem(&item(ACCESSIBILITY_FOCUS_HINT, 0, false, mtm, target));
+    }
+    if windows_need_screen_recording_hint(windows) {
+        menu.addItem(&item(SCREEN_RECORDING_HINT, 0, false, mtm, target));
+    }
+    for window in windows {
+        menu.addItem(&window_item(window, mtm, target));
     }
 }
 
@@ -384,7 +480,7 @@ fn item(
     target: &MenuTarget,
 ) -> Retained<NSMenuItem> {
     let item = NSMenuItem::new(mtm);
-    let title = NSString::from_str(title);
+    let title = NSString::from_str(&truncate_menu_text(title));
     item.setTitle(&title);
     item.setTag(tag);
     item.setEnabled(enabled);
@@ -396,9 +492,50 @@ fn item(
     item
 }
 
+fn truncate_menu_text(text: &str) -> String {
+    let mut chars = text.chars();
+    let truncated: String = chars.by_ref().take(MAX_MENU_TITLE_CHARS).collect();
+    if chars.next().is_some() {
+        let prefix: String = text
+            .chars()
+            .take(MAX_MENU_TITLE_CHARS.saturating_sub(1))
+            .collect();
+        format!("{prefix}…")
+    } else {
+        truncated
+    }
+}
+
+fn snapshot_freshness_title(captured_at_unix: u64, now_unix: u64) -> String {
+    if captured_at_unix == 0 {
+        return "Snapshot not refreshed yet".into();
+    }
+    let age = now_unix.saturating_sub(captured_at_unix);
+    let label = match age {
+        0..=59 => "just now".to_string(),
+        60..=3_599 => format!("{}m ago", age / 60),
+        3_600..=86_399 => format!("{}h ago", age / 3_600),
+        _ => format!("{}d ago", age / 86_400),
+    };
+    format!("Snapshot updated {label}")
+}
+
+fn unix_now() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_secs())
+        .unwrap_or_default()
+}
+
 #[cfg(test)]
 mod tests {
-    use super::window_menu_title;
+    use super::{
+        login_item_title, menu_action_for_tag, snapshot_freshness_title, truncate_menu_text,
+        window_menu_title, windows_need_screen_recording_hint, TAG_LOGIN, TAG_OPEN_LUMA,
+        TAG_OPEN_SETTINGS, TAG_QUIT, TAG_REFRESH, TAG_REVIEW_DUE,
+    };
+    use crate::model::{LoginItemState, MenuAction};
+    use luma_application::WindowEntry;
 
     #[test]
     fn empty_window_titles_fall_back_to_the_app_name() {
@@ -411,5 +548,81 @@ mod tests {
             window_menu_title("Safari", "Luma docs"),
             "Safari — Luma docs"
         );
+    }
+
+    #[test]
+    fn menu_text_is_bounded_and_keeps_an_ellipsis() {
+        let text = truncate_menu_text(&"a".repeat(200));
+        assert_eq!(text.chars().count(), 96);
+        assert!(text.ends_with('…'));
+    }
+
+    #[test]
+    fn freshness_shows_age_in_human_scale() {
+        assert_eq!(
+            snapshot_freshness_title(0, 100),
+            "Snapshot not refreshed yet"
+        );
+        assert_eq!(
+            snapshot_freshness_title(100, 101),
+            "Snapshot updated just now"
+        );
+        assert_eq!(
+            snapshot_freshness_title(100, 700),
+            "Snapshot updated 10m ago"
+        );
+        assert_eq!(
+            snapshot_freshness_title(100, 3_700),
+            "Snapshot updated 1h ago"
+        );
+    }
+
+    #[test]
+    fn menu_tags_map_to_their_declared_actions() {
+        assert_eq!(
+            menu_action_for_tag(TAG_REVIEW_DUE),
+            Some(MenuAction::ReviewDue)
+        );
+        assert_eq!(
+            menu_action_for_tag(TAG_OPEN_LUMA),
+            Some(MenuAction::OpenLuma)
+        );
+        assert_eq!(
+            menu_action_for_tag(TAG_OPEN_SETTINGS),
+            Some(MenuAction::OpenSettings)
+        );
+        assert_eq!(menu_action_for_tag(TAG_REFRESH), Some(MenuAction::Refresh));
+        assert_eq!(
+            menu_action_for_tag(TAG_LOGIN),
+            Some(MenuAction::ToggleLaunchAtLogin)
+        );
+        assert_eq!(menu_action_for_tag(TAG_QUIT), Some(MenuAction::Quit));
+        assert_eq!(menu_action_for_tag(999), None);
+    }
+
+    #[test]
+    fn login_item_states_remain_distinguishable() {
+        assert_eq!(
+            login_item_title(&LoginItemState::NotRegistered),
+            "Launch at Login"
+        );
+        assert!(login_item_title(&LoginItemState::Enabled).contains('✓'));
+        assert!(login_item_title(&LoginItemState::RequiresApproval).contains("Approval"));
+        assert!(login_item_title(&LoginItemState::NotFound).contains("unavailable"));
+        assert!(login_item_title(&LoginItemState::Unavailable("error".into())).contains("error"));
+    }
+
+    #[test]
+    fn missing_titles_request_screen_recording_guidance() {
+        let entry = WindowEntry {
+            id: "window".into(),
+            app_name: "Safari".into(),
+            app_bundle_id: None,
+            title: "Untitled".into(),
+            is_on_screen: true,
+            layer: 0,
+            owner_pid: 1,
+        };
+        assert!(windows_need_screen_recording_hint(&[entry]));
     }
 }

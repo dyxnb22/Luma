@@ -10,7 +10,11 @@ visible-window switching, and safe entry points into the existing terminal TUI.
 
 This is a second executable and UI entry point, not a second module registry or application
 engine. `bins/luma` remains the only module-registration composition root. `luma-menubar` must
-not depend on `luma-tui`, `luma-modules`, `luma-protocol`, or the full registry/Engine startup.
+not directly depend on `luma-tui`, `luma-modules`, or `luma-protocol`, and must not start the
+full registry/Engine. It may use the narrow application ports and read-only storage adapters
+needed for its projections. luma-application currently owns the Engine DTO boundary, so
+`luma-protocol` remains an accepted transitive dependency of the companion; the enforced
+boundary is the absence of a direct dependency and of Engine startup.
 
 The companion uses `NSStatusItem`/`NSMenu`, shares only existing LumaNext data, and keeps all
 long-running business work in the terminal application. It does not add menu search, a global
@@ -40,6 +44,8 @@ queries are editable prompt text and are never submitted automatically.
 
 ## Verification
 
-Architecture checks must assert the dependency boundary, and tests must cover missing,
+Architecture checks must assert the direct dependency boundary, and tests must cover missing,
 corrupt, and unavailable local data without destructive writes. Manual macOS checks cover the
-menu bar lifecycle, Accessibility behavior, Terminal launch, and login-item toggle.
+menu bar lifecycle, Accessibility and Screen Recording guidance, Terminal launch, and
+login-item toggle. The local build script ad-hoc signs the complete bundle and verifies its
+stable identifier before it is used for TCC or Login Item testing.

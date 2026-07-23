@@ -43,3 +43,22 @@ impl InstanceLock {
         Ok(Self { _file: file })
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{InstanceLock, InstanceLockError};
+    use tempfile::tempdir;
+
+    #[test]
+    fn second_instance_is_rejected_until_first_releases_lock() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("menubar.lock");
+        let first = InstanceLock::acquire(&path).unwrap();
+        assert!(matches!(
+            InstanceLock::acquire(&path),
+            Err(InstanceLockError::AlreadyRunning)
+        ));
+        drop(first);
+        assert!(InstanceLock::acquire(&path).is_ok());
+    }
+}

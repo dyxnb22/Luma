@@ -19,6 +19,8 @@ cargo test --workspace --all-features
 - Preserve the current system proxy configuration before touching `/proxy`.
 - Do not use real secrets, private SSH hosts, or sensitive clipboard content.
 - Test the TUI and the menu-bar companion separately: macOS TCC permissions are per app/process.
+- Build the companion with `scripts/build_menubar_app.sh` into a stable app path and verify
+  `codesign --verify --deep --strict "Luma Menu Bar.app"` before granting permissions.
 
 ## Permission and window checks
 
@@ -42,6 +44,8 @@ cargo test --workspace --all-features
   local failure instead of doing nothing.
 - Exercise Launch at Login in an unbundled build and a bundled app. Verify Enabled,
   Requires Approval, Not Registered, and Not Found are not collapsed into one boolean.
+- After updating the installed app in place, re-run the signature check and confirm the bundle
+  identifier remains `com.luma.next.menubar` before re-testing TCC/Login Item behavior.
 - Quit from the menu, wait for termination, then relaunch. The instance lock must be released.
 
 ## Terminal suspend/resume checks
@@ -74,4 +78,3 @@ must not be followed by an unconditional resume attempt.
 - After touching TerminalGuard, menu-bar worker/model, or platform adapters: run the relevant
   section above.
 - Before relying on a new macOS build: run the complete checklist manually.
-

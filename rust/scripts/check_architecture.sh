@@ -31,7 +31,15 @@ check_absent luma-tui luma-platform-macos luma-storage luma-modules
 check_absent luma-modules luma-platform-macos luma-storage
 check_absent luma-domain luma-platform-macos luma-storage luma-modules luma-tui
 check_absent luma luma-menubar objc2 objc2-app-kit objc2-service-management
+# luma-application owns Engine DTOs and therefore brings luma-protocol transitively. The ADR
+# intentionally bans direct protocol coupling and Engine startup, while allowing the narrow
+# application ports used by the companion.
 check_absent luma-menubar luma-tui luma-modules luma-protocol
+
+if rg -n '\b(Engine|ModuleRegistry|compose::|register_modules)\b' bins/luma-menubar/src 2>/dev/null | head -20 | grep .; then
+  echo "FAIL: luma-menubar must not start the Engine or module registry"
+  fail=1
+fi
 
 if rg -n 'objc2(-app-kit|-service-management)?|objc2_foundation' \
   bins/luma/Cargo.toml crates/*/Cargo.toml 2>/dev/null | head -20 | grep .; then

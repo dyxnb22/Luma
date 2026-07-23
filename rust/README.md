@@ -47,6 +47,27 @@ cargo run -p luma -- record remove 1 --yes
 cargo run -p luma   # interactive TUI
 ```
 
+## Native menu-bar companion
+
+Build the companion into a stable app path before granting macOS permissions or enabling
+Launch at Login. The script performs a local ad-hoc signature with the stable bundle
+identifier `com.luma.next.menubar` and verifies the completed bundle:
+
+```bash
+cd rust
+bash scripts/build_menubar_app.sh "$HOME/Applications/Luma Menu Bar.app"
+open "$HOME/Applications/Luma Menu Bar.app"
+```
+
+Run the same command to update the app in place. Keep the app at that path so its bundle and
+TCC identity remain stable; do not launch the temporary copy under `target/` after authorizing
+the installed copy. Set `CODESIGN_IDENTITY` if a local signing certificate is preferred.
+
+The menu-bar process has its own macOS permissions. Grant Accessibility to `Luma Menu Bar.app`
+for window focus, and Screen Recording if full window titles are needed. The TUI/Terminal
+permission entry is separate. Launch at Login requires the bundled app to be installed at a
+stable path and may require approval in System Settings.
+
 Optional local hygiene: `bash scripts/check_architecture.sh`.
 
 **Fixtures:** `fixtures/notes-workspaces/` for Notes scan/index tests; `fixtures/legacy/` for migrate blackbox.

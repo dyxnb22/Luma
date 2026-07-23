@@ -1,3 +1,4 @@
+use crate::appkit::SnapshotNotifier;
 use crate::launcher::TerminalLauncher;
 use crate::model::{
     ActionStatus, CliStatus, LoginItemState, MenuAction, MenuSnapshot, SharedMenuSnapshot,
@@ -12,12 +13,13 @@ use std::sync::mpsc::{Receiver, TryRecvError};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-/// The worker owns all platform I/O. It publishes plain snapshots through a thread-safe store;
-/// AppKit reads the latest snapshot on its main thread before displaying the menu.
+/// The worker owns all platform I/O. It publishes plain snapshots through a thread-safe store
+/// and schedules a main-thread redraw; AppKit never performs worker I/O while rendering.
 pub fn spawn_worker(
     actions: Receiver<MenuAction>,
     snapshots: SharedMenuSnapshot,
     initial_snapshot: MenuSnapshot,
+    notifier: SnapshotNotifier,
 ) -> std::thread::JoinHandle<()> {
     std::thread::Builder::new()
         .name("luma-menubar-worker".into())
@@ -54,30 +56,33 @@ pub fn spawn_worker(
                             &snapshot,
                             cli.clone(),
                         );
-                        publish(&snapshots, &mut snapshot);
+                        publish(&snapshots, &mut snapshot, &notifier);
                         coalesce_refreshes(&actions, &mut pending_action);
                     }
                     MenuAction::OpenLuma => {
                         snapshot.last_action = Some(launch_action(launcher.as_ref(), None));
-                        publish(&snapshots, &mut snapshot);
+                        publish(&snapshots, &mut snapshot, &notifier);
                     }
                     MenuAction::OpenSettings => {
                         snapshot.last_action =
                             Some(launch_action(launcher.as_ref(), Some("/settings")));
-                        publish(&snapshots, &mut snapshot);
+                        publish(&snapshots, &mut snapshot, &notifier);
                     }
                     MenuAction::ReviewDue => {
                         snapshot.last_action =
                             Some(launch_action(launcher.as_ref(), Some("/wb review due")));
-                        publish(&snapshots, &mut snapshot);
+                        publish(&snapshots, &mut snapshot, &notifier);
                     }
                     MenuAction::FocusWindow(window_id) => {
                         let result = runtime.block_on(window_catalog.focus(&window_id));
                         snapshot.last_action = Some(match result {
                             Ok(()) => ActionStatus::Succeeded("focused selected window".into()),
+                            Err(luma_application::WindowError::PermissionRequired { .. }) => {
+                                ActionStatus::Failed(menubar_accessibility_guidance())
+                            }
                             Err(err) => ActionStatus::Failed(err.to_string()),
                         });
-                        publish(&snapshots, &mut snapshot);
+                        publish(&snapshots, &mut snapshot, &notifier);
                     }
                     MenuAction::ToggleLaunchAtLogin => {
                         let enable = !matches!(snapshot.login_item, LoginItemState::Enabled);
@@ -90,7 +95,7 @@ pub fn spawn_worker(
                             Err(error) => ActionStatus::Failed(error),
                         });
                         snapshot.login_item = current_login_item_state();
-                        publish(&snapshots, &mut snapshot);
+                        publish(&snapshots, &mut snapshot, &notifier);
                     }
                     MenuAction::Quit => break,
                 }
@@ -115,11 +120,16 @@ fn coalesce_refreshes(actions: &Receiver<MenuAction>, pending_action: &mut Optio
     }
 }
 
-fn publish(snapshots: &SharedMenuSnapshot, snapshot: &mut MenuSnapshot) {
+fn publish(
+    snapshots: &SharedMenuSnapshot,
+    snapshot: &mut MenuSnapshot,
+    notifier: &SnapshotNotifier,
+) {
     snapshot.generation = snapshot.generation.saturating_add(1);
     snapshot.captured_at_unix = unix_now();
     if let Ok(mut current) = snapshots.lock() {
         *current = snapshot.clone();
+        notifier.schedule();
     }
 }
 
@@ -170,9 +180,21 @@ fn load_snapshot(
 fn load_wordbook(previous: &MenuSnapshot) -> WordbookStatus {
     let result = luma_next_support_dir()
         .map(|dir| dir.join("wordbook.sqlite"))
-        .map_err(|e| e.to_string())
-        .and_then(|path| WordbookReadOnlyStore::with_path(path).map_err(|e| e.to_string()))
-        .and_then(|store| store.stats().map_err(|e| e.to_string()));
+        .map(|path| load_wordbook_path(&path))
+        .unwrap_or_else(|error| Err(error.to_string()));
+    map_wordbook_result(result, previous)
+}
+
+fn load_wordbook_path(path: &std::path::Path) -> Result<luma_storage::WordbookStats, String> {
+    WordbookReadOnlyStore::with_path(path.to_path_buf())
+        .map_err(|error| error.to_string())
+        .and_then(|store| store.stats().map_err(|error| error.to_string()))
+}
+
+fn map_wordbook_result(
+    result: Result<luma_storage::WordbookStats, String>,
+    previous: &MenuSnapshot,
+) -> WordbookStatus {
     match result {
         Ok(stats) => WordbookStatus::Ready {
             due: stats.due,
@@ -208,14 +230,9 @@ fn load_windows(
     previous: &MenuSnapshot,
 ) -> WindowsStatus {
     match runtime.block_on(catalog.list_windows()) {
-        Ok(mut windows) => {
-            windows.retain(|window| window.is_on_screen && window.layer == 0);
-            windows.sort_by(|a, b| a.app_name.cmp(&b.app_name).then(a.title.cmp(&b.title)));
-            windows.truncate(5);
-            WindowsStatus::Ready(windows)
-        }
-        Err(luma_application::WindowError::PermissionRequired { guidance, .. }) => {
-            WindowsStatus::PermissionRequired(format!("Accessibility required — {guidance}"))
+        Ok(windows) => WindowsStatus::Ready(project_windows(windows)),
+        Err(luma_application::WindowError::PermissionRequired { .. }) => {
+            WindowsStatus::PermissionRequired(menubar_accessibility_guidance())
         }
         Err(error) => match &previous.windows {
             WindowsStatus::Ready(windows) | WindowsStatus::Stale { windows, .. }
@@ -229,6 +246,18 @@ fn load_windows(
             _ => WindowsStatus::Unavailable(error.to_string()),
         },
     }
+}
+
+fn project_windows(
+    mut windows: Vec<luma_application::WindowEntry>,
+) -> Vec<luma_application::WindowEntry> {
+    windows.retain(|window| window.is_on_screen && window.layer == 0);
+    windows.truncate(5);
+    windows
+}
+
+fn menubar_accessibility_guidance() -> String {
+    "Accessibility required — grant Accessibility to Luma Menu Bar.app in System Settings → Privacy & Security → Accessibility, then retry.".into()
 }
 
 fn unix_now() -> u64 {
@@ -285,9 +314,13 @@ pub fn initial_snapshot() -> MenuSnapshot {
 
 #[cfg(test)]
 mod tests {
-    use super::{coalesce_refreshes, unix_now};
-    use crate::model::MenuAction;
+    use super::{
+        coalesce_refreshes, load_wordbook_path, map_wordbook_result, project_windows, unix_now,
+    };
+    use crate::model::{MenuAction, MenuSnapshot, WordbookStatus};
+    use luma_application::WindowEntry;
     use std::sync::mpsc;
+    use tempfile::tempdir;
 
     #[test]
     fn unix_clock_is_nonzero_on_supported_hosts() {
@@ -307,5 +340,57 @@ mod tests {
 
         assert_eq!(pending, Some(MenuAction::OpenSettings));
         assert_eq!(receiver.recv().unwrap(), MenuAction::Refresh);
+    }
+
+    #[test]
+    fn window_projection_preserves_front_to_back_order_and_cap() {
+        let windows = (0..7)
+            .map(|index| WindowEntry {
+                id: format!("window-{index}"),
+                app_name: format!("App {index}"),
+                app_bundle_id: None,
+                title: format!("Title {index}"),
+                is_on_screen: true,
+                layer: 0,
+                owner_pid: index,
+            })
+            .collect();
+        let projected = project_windows(windows);
+        assert_eq!(projected.len(), 5);
+        assert_eq!(projected[0].id, "window-0");
+        assert_eq!(projected[4].id, "window-4");
+    }
+
+    #[test]
+    fn wordbook_missing_and_corrupt_states_are_honest() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("wordbook.sqlite");
+        let missing = load_wordbook_path(&path).unwrap_err();
+        assert_eq!(missing, "wordbook not configured");
+        assert_eq!(
+            map_wordbook_result(Err(missing), &MenuSnapshot::default()),
+            WordbookStatus::NotConfigured
+        );
+
+        std::fs::write(&path, b"not sqlite").unwrap();
+        let corrupt = load_wordbook_path(&path).unwrap_err();
+        assert!(corrupt.contains("wordbook sqlite"));
+        assert!(matches!(
+            map_wordbook_result(Err(corrupt.clone()), &MenuSnapshot::default()),
+            WordbookStatus::Unavailable(reason) if reason == corrupt
+        ));
+
+        let previous = MenuSnapshot {
+            wordbook: WordbookStatus::Ready {
+                due: 3,
+                reviewed_today: 1,
+                goal: 5,
+            },
+            ..MenuSnapshot::default()
+        };
+        assert!(matches!(
+            map_wordbook_result(Err(corrupt), &previous),
+            WordbookStatus::Stale { due: 3, .. }
+        ));
     }
 }

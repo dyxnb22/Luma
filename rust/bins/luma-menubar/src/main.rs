@@ -27,7 +27,12 @@ fn main() {
     let snapshots = Arc::new(Mutex::new(initial_snapshot.clone()));
     let controller =
         MenuController::new(mtm, action_tx, snapshots.clone(), initial_snapshot.clone());
-    let worker = worker::spawn_worker(action_rx, snapshots, initial_snapshot);
+    let worker = worker::spawn_worker(
+        action_rx,
+        snapshots,
+        initial_snapshot,
+        controller.snapshot_notifier(),
+    );
     appkit::request_refresh();
     application.run();
     drop(controller);

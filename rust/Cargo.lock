@@ -837,6 +837,7 @@ dependencies = [
 name = "luma-menubar"
 version = "0.1.0"
 dependencies = [
+ "dispatch2",
  "luma-application",
  "luma-platform-macos",
  "luma-storage",
@@ -844,6 +845,7 @@ dependencies = [
  "objc2-app-kit",
  "objc2-foundation",
  "objc2-service-management",
+ "tempfile",
  "thiserror",
  "tokio",
 ]

@@ -8,12 +8,15 @@ mod clipboard_repo;
 mod clock;
 mod command_recipes_repo;
 mod command_runner;
+mod databases;
+mod downloads;
 mod fake_recipe_environment;
 mod git;
 mod keychain;
 mod memory_repos;
 mod network_probe;
 mod open_path;
+mod packages;
 mod pasteboard;
 mod profile;
 mod project_workspace;
@@ -22,8 +25,12 @@ mod quicklinks_repo;
 mod recall_repo;
 mod recipe_environment;
 mod records_repo;
+mod renewals_repo;
 mod runtime;
+mod screen_ocr;
 mod settings;
+mod shell_history;
+mod shortcuts;
 mod snippets_repo;
 mod speech;
 mod ssh_config;
@@ -47,6 +54,17 @@ pub use clipboard_repo::{
 pub use clock::{ClockError, ClockPort, ControllableClock, FixedClock};
 pub use command_recipes_repo::{CommandRecipesRepoError, CommandRecipesRepository};
 pub use command_runner::{filter_env_output, is_filtered_env_step, FakeCommandRunner};
+pub use databases::{
+    postgres_client_args, validate_postgres_metadata, DatabaseClientPlan, DatabasePlatformError,
+    DatabasePlatformPort, DatabasePortal, DatabasePortalTarget, DatabasePortalsRepoError,
+    DatabasePortalsRepository, DatabaseSchemaObject, FakeDatabasePlatform,
+    MemoryDatabasePortalsRepository, NewDatabasePortal, MAX_DATABASE_PORTALS,
+    MAX_DATABASE_SCHEMA_BYTES, MAX_DATABASE_SCHEMA_OBJECTS,
+};
+pub use downloads::{
+    DownloadCategory, DownloadEntry, DownloadsError, DownloadsFilter, DownloadsPort, FakeDownloads,
+    MAX_DOWNLOAD_ENTRIES,
+};
 pub use fake_recipe_environment::FakeRecipeEnvironment;
 pub use git::{
     FakeGitRepository, GitBranch, GitCommit, GitDiff, GitError, GitFile, GitProjectRoot,
@@ -63,6 +81,11 @@ pub use network_probe::{
     UnavailableNetworkProbe,
 };
 pub use open_path::{FakeOpenPath, OpenPathError, OpenPathPort};
+pub use packages::{
+    mutation_args, validate_mutation_state, FakePackageManager, PackageError, PackageKind,
+    PackageManagerPort, PackageMutation, PackageMutationPlan, PackageQuery, PackageRecord,
+    MAX_PACKAGE_OUTPUT_BYTES, MAX_PACKAGE_RESULTS,
+};
 pub use pasteboard::{FakePasteboard, PasteboardError, PasteboardPort, PasteboardSnapshot};
 pub use profile::{
     ProfileImportResult, ProfileSource, ProfileStoreError, ProfileStorePort, ProfileSummary,
@@ -85,8 +108,21 @@ pub use records_repo::{
     RecordCategory, RecordEntry, RecordImportPreviewView, RecordImportReportView, RecordsRepoError,
     RecordsRepository, RecordsStatsView,
 };
+pub use renewals_repo::{
+    MemoryRenewalsRepository, NewRenewal, RenewalEntry, RenewalPaidUpdate, RenewalsRepoError,
+    RenewalsRepository, MAX_RENEWALS,
+};
 pub use runtime::{FakeRuntimePort, RuntimeError, RuntimeListener, RuntimePort};
+pub use screen_ocr::{FakeScreenOcr, ScreenOcrError, ScreenOcrPort, MAX_OCR_TEXT_BYTES};
 pub use settings::{AppSettings, SettingsError, SettingsRepository};
+pub use shell_history::{
+    FakeShellHistory, ShellHistoryEntry, ShellHistoryError, ShellHistoryPort, ShellHistorySnapshot,
+    MAX_SHELL_HISTORY_BYTES, MAX_SHELL_HISTORY_COMMAND_BYTES, MAX_SHELL_HISTORY_ENTRIES,
+};
+pub use shortcuts::{
+    FakeShortcuts, ShortcutEntry, ShortcutRunPlan, ShortcutsError, ShortcutsPort,
+    MAX_SHORTCUT_OUTPUT_BYTES, MAX_SHORTCUT_RESULTS,
+};
 pub use snippets_repo::{SnippetEntry, SnippetsRepoError, SnippetsRepository};
 pub use speech::{FakeSpeech, SpeechAccent, SpeechError, SpeechPort};
 pub use ssh_config::{

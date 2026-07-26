@@ -724,6 +724,7 @@ name = "luma-application"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "chrono",
  "luma-domain",
  "luma-protocol",
  "luma-storage",
@@ -751,6 +752,7 @@ name = "luma-modules"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "chrono",
  "luma-application",
  "luma-domain",
  "luma-protocol",
@@ -761,6 +763,7 @@ dependencies = [
  "tokio",
  "tokio-util",
  "tracing",
+ "uuid",
 ]
 
 [[package]]
@@ -768,11 +771,14 @@ name = "luma-platform-macos"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "cc",
  "chrono",
  "dirs",
+ "hex",
  "luma-application",
  "luma-domain",
  "luma-storage",
+ "rusqlite",
  "serde",
  "serde_json",
  "serde_yaml_ng",

@@ -5,6 +5,7 @@ mod command_recipes_builtin;
 mod command_recipes_config;
 mod command_recipes_meta;
 mod config;
+mod database_portals_store;
 mod importer;
 mod migration_ledger;
 mod paths;
@@ -12,6 +13,7 @@ mod quicklinks_store;
 mod recall_store;
 mod records_parse;
 mod records_store;
+mod renewals_store;
 mod snippets_store;
 mod sqlite;
 mod ssh_config_parse;
@@ -27,6 +29,9 @@ pub use command_recipes_config::{
 pub use command_recipes_meta::{CommandRecipesMetaError, CommandRecipesMetaStore};
 pub use config::{
     validate_import_project_path, ConfigError, ConfigStore, ImportedProject, LumaSettings,
+};
+pub use database_portals_store::{
+    DatabasePortalRow, DatabasePortalsStore, DatabasePortalsStoreError, MAX_DATABASE_PORTAL_ROWS,
 };
 pub use importer::{
     dry_run_legacy_dir, import_clipboard_fixture, import_clipboard_fixture_with_ledger,
@@ -44,6 +49,7 @@ pub use records_store::{
     RecordCategoryRow, RecordImportApplyReport, RecordImportPreview, RecordRow,
     RecordsImportLedgerReport, RecordsStats, RecordsStore, RecordsStoreError,
 };
+pub use renewals_store::{RenewalRow, RenewalsStore, RenewalsStoreError, MAX_RENEWALS_ROWS};
 pub use snippets_store::{SnippetRow, SnippetsStore, SnippetsStoreError};
 pub use ssh_config_parse::{
     collect_aliases_from_file, expand_include_paths, host_alias_is_unsafe,

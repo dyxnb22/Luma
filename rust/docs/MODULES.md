@@ -25,6 +25,14 @@ Interactive module commands require a leading `/` (for example `/ssh`, `/rec bro
 | Module | Triggers | Status | Default |
 | --- | --- | --- | --- |
 | Apps | `/app` / `/apps` | Available — fuzzy + session MRU; launch / reveal / copy path | on |
+| Calculator | `/calc` / `/calculate` | Available — deterministic arithmetic, units, integer bases, Unix timestamps, and date offsets; strict complete-expression global detection; copy result/equation | on |
+| Downloads Inbox | `/dl` / `/downloads` | Available — bounded direct-child recent/large/old/type/text views; open/reveal/copy path; explicit confirmed extension-changing rename and recoverable confirmed Finder Trash | on |
+| Packages | `/pkg` / `/packages` / `/brew` | Available — Homebrew-only installed/outdated/formulae/casks/search/info; bounded cancellable direct queries; confirmed exact install/upgrade/uninstall in the interactive terminal | on |
+| Apple Shortcuts Bridge | `/sc` / `/shortcut` / `/shortcuts` | Available — on-demand list/search/custom-folder views; exact-name View and interactive Run through `/usr/bin/shortcuts`; no warmup enumeration, URL fallback, captured output, or implicit input | on |
+| Shell Recall | `/hist` / `/history` | Available — read-only bounded zsh history tail with plain/extended parsing and credential suppression; primary action copies only; command text never enters Recall | on |
+| Renewals | `/renew` / `/renewals` | Available — SQLite-backed upcoming/due/30d ledger; integer minor-unit amounts with explicit currency precision; add/edit/paid/cancel/delete/backup; paid advances atomically from the scheduled date with retained month-end/leap anchors; cancel/delete confirm and revalidate identity; hard cap **1000** (updates remain allowed) | on |
+| Database Portals | `/db` / `/database` / `/databases` | Available — explicitly provisioned connection launcher; canonical SQLite add/open/reveal plus read-only bounded tables/indexes/DDL and metadata backup; PostgreSQL opens exact `psql` arguments using existing libpq authentication only; production open and metadata-only removal confirm and revalidate; no passwords/DSNs, premature last-open bookkeeping, SQL editor, discovery, or connection tests | **off** (enable in Settings before adding) |
+| Screen OCR | `/ocr` | Available — user-selected region capture followed by on-device Apple Vision recognition for Simplified Chinese, Traditional Chinese, and English; recognized plain text is capped at **256 KiB** and pasted without entering Recall or logs; cancellation and Screen Recording permission stay local to `/ocr`; private temporary captures are deleted on every return path | on |
 | Windows | `/win` / `/window` / `/windows` | Available — list/search works without Accessibility; focus and Hub focus report AX permission locally; Hub 1–9 quick focus; prompt digits are preserved; default Hub cap **7**, configurable 5–50 | on |
 | Git | `/git` | Available — imported projects only; bounded repository discovery; dashboard prioritizes conflict/dirty/ahead; state-aware stage/unstage controls, confirmed tracked-file discard, local log/branches/commit. Clean repositories do not offer irrelevant staging actions. No remote, fetch, push, pull, clone, rebase, reset, or `git clean`. | on |
 | Runtime | `/run` / `/ports` | Available — on-demand local TCP listener list with project association; copy fields and guarded same-user, identity-rechecked SIGTERM only. No background monitor or SIGKILL. | on |
@@ -72,8 +80,9 @@ Read-only launcher over OpenSSH — not a full SSH client:
 
 ### Continue and global recall
 
-- Global search contributors are Apps, Windows, Projects, Command Recipes, SSH, Clipboard,
-  Snippets, Quicklinks, and Git. Informational/unavailable/no-match rows are excluded. Results are
+- Global search contributors are Apps, Calculator (strict complete expressions only), Windows,
+  Projects, Command Recipes, SSH, Clipboard, Snippets, Quicklinks, and Git.
+  Informational/unavailable/no-match rows are excluded. Results are
   capped at 12 per module and 60 total and remain relevance-first; after two rows from one module,
   a near-equivalent alternative (within three score points) may diversify the page. Recall boosts
   are deliberately smaller than a semantic match band. Records and Wordbook remain
@@ -81,7 +90,8 @@ Read-only launcher over OpenSSH — not a full SSH client:
 - A successful action records only bounded recall metadata in `recall.sqlite`: object/module/kind,
   natural primary action, a safe display title, optional project association, count, and last use.
   Failed/cancelled actions are not recorded. Clipboard bodies, snippet bodies, SSH configuration,
-  proxy endpoints, and search text are never copied into Recall.
+  proxy endpoints, Calculator expressions, Screen OCR text, and search text are never copied into
+  Recall.
 - The empty Hub renders at most three live-or-compatible Continue rows after Windows. Running or
   paused Timers are projected first; remaining slots come from Recall. Direct Git and
   Runtime objects are not Hub-continued because their live repository/listener payload must be
@@ -158,7 +168,7 @@ Aligned with `luma-storage` clipboard store constants:
 
 ### Backups and logs
 
-- `/wb backup`, `/rec backup`, `/s backup`, and `/ql backup` use SQLite `VACUUM INTO` plus an
+- `/wb backup`, `/rec backup`, `/renew backup`, `/db backup`, `/s backup`, and `/ql backup` use SQLite `VACUUM INTO` plus an
   atomic rename under `~/Library/Application Support/LumaNext/backups/`.
 - `~/Library/Logs/LumaNext/luma.log` rotates at 5 MiB and retains `luma.log.1` through
   `luma.log.3`.

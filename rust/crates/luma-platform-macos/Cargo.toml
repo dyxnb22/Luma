@@ -12,6 +12,8 @@ luma-storage = { workspace = true }
 luma-application = { workspace = true }
 luma-domain = { workspace = true }
 chrono = { workspace = true }
+rusqlite = { workspace = true }
+tempfile = { workspace = true }
 dirs = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
@@ -21,7 +23,10 @@ tokio = { workspace = true }
 tokio-util = { workspace = true }
 tracing = { workspace = true }
 sha2 = { workspace = true }
+hex = { workspace = true }
+
+[build-dependencies]
+cc = "1.2"
 
 [dev-dependencies]
-tempfile = { workspace = true }
 tokio = { workspace = true, features = ["test-util"] }

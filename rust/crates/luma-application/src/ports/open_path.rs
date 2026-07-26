@@ -15,6 +15,10 @@ pub enum OpenPathError {
 #[async_trait]
 pub trait OpenPathPort: Send + Sync {
     async fn open(&self, path: &Path) -> Result<(), OpenPathError>;
+
+    async fn reveal(&self, path: &Path) -> Result<(), OpenPathError> {
+        self.open(path).await
+    }
 }
 
 /// Controllable fake for tests — never touches the GUI.
@@ -23,6 +27,7 @@ pub struct FakeOpenPath {
     pub calls: Arc<Mutex<Vec<std::path::PathBuf>>>,
     pub fail_next: Arc<Mutex<bool>>,
     pub open_count: AtomicUsize,
+    pub reveal_calls: Arc<Mutex<Vec<std::path::PathBuf>>>,
 }
 
 impl FakeOpenPath {
@@ -46,6 +51,19 @@ impl OpenPathPort for FakeOpenPath {
         if *fail {
             *fail = false;
             return Err(OpenPathError::Failed("fake open denied".into()));
+        }
+        Ok(())
+    }
+
+    async fn reveal(&self, path: &Path) -> Result<(), OpenPathError> {
+        self.reveal_calls
+            .lock()
+            .expect("lock")
+            .push(path.to_path_buf());
+        let mut fail = self.fail_next.lock().expect("lock");
+        if *fail {
+            *fail = false;
+            return Err(OpenPathError::Failed("fake reveal denied".into()));
         }
         Ok(())
     }

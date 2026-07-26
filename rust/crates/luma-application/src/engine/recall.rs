@@ -47,6 +47,9 @@ fn privacy_safe_title(item: &SearchItem) -> String {
     // actionable identity, not a second copy of the source text/configuration.
     let generic = match item.module_id.as_str() {
         "luma.clipboard" => Some("Clipboard item"),
+        "luma.calculator" => Some("Calculation"),
+        "luma.databases" => Some("Database portal"),
+        "luma.shell_history" => Some("Shell history command"),
         "luma.snippets" => Some("Snippet"),
         "luma.ssh" => Some("SSH connection"),
         _ => None,
@@ -322,6 +325,36 @@ mod tests {
         assert_eq!(
             recall_object_from_item(&clipboard, 1).unwrap().title,
             "Clipboard item"
+        );
+    }
+
+    #[test]
+    fn calculator_recall_uses_generic_label() {
+        let mut calculation = item("luma.calculator", "calc:secret", 1.0);
+        calculation.title = "sensitive expression = 42".into();
+        assert_eq!(
+            recall_object_from_item(&calculation, 1).unwrap().title,
+            "Calculation"
+        );
+    }
+
+    #[test]
+    fn shell_history_recall_never_stores_command_text() {
+        let mut command = item("luma.shell_history", "hist:1", 1.0);
+        command.title = "curl https://private.example/path".into();
+        assert_eq!(
+            recall_object_from_item(&command, 1).unwrap().title,
+            "Shell history command"
+        );
+    }
+
+    #[test]
+    fn database_recall_never_stores_label_or_connection_text() {
+        let mut portal = item("luma.databases", "db:1", 1.0);
+        portal.title = "postgres://reader:password@private.example/app".into();
+        assert_eq!(
+            recall_object_from_item(&portal, 1).unwrap().title,
+            "Database portal"
         );
     }
 }

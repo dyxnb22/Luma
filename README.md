@@ -19,7 +19,7 @@ cargo test -p luma --test cli_blackbox
 | In | Out |
 | --- | --- |
 | Local TUI + CLI and a thin native PTY host window on your Mac | App Store / notarized shipping |
-| Apps, Windows, Git, Runtime, Proxy, Clipboard, Quicklinks, Snippets, Wordbook, Projects, Records, Command Recipes, SSH, Timers, Secrets | Window layouts, Menu search, Browser tabs, signed-host Translate |
+| Apps, Calculator, Downloads Inbox, Packages, Apple Shortcuts Bridge, Shell Recall, Renewals, Database Portals, Screen OCR, Windows, Git, Runtime, Proxy, Clipboard, Quicklinks, Snippets, Wordbook, Projects, Records, Command Recipes, SSH, Timers, Secrets | Window layouts, Menu search, Browser tabs, signed-host Translate |
 | Honest permission / unavailable states in each surface | Release soak, deny-as-policy, marketing docs |
 | Global Option+Space activation of the one TUI session | A native product UI: search box, results, sidebar, settings, or overlays in Swift |
 | Module-local status and remediation rows | Centralized `doctor` command or diagnostics overlay |
@@ -31,6 +31,8 @@ cargo test -p luma --test cli_blackbox
 | Operator guide | [`rust/README.md`](rust/README.md) |
 | Module status | [`rust/docs/MODULES.md`](rust/docs/MODULES.md) |
 | Codebase governance | [`rust/docs/GOVERNANCE.md`](rust/docs/GOVERNANCE.md) |
+| Implemented module contract | [`rust/docs/SELECTED_MODULES_PLAN.md`](rust/docs/SELECTED_MODULES_PLAN.md) |
+| Archived eight-module handoff prompt | [`rust/docs/CODEX_TERRA_SELECTED_MODULES_PROMPT.md`](rust/docs/CODEX_TERRA_SELECTED_MODULES_PROMPT.md) |
 | SSH Connections | [`rust/docs/SSH.md`](rust/docs/SSH.md) |
 | Proxy (Mihomo) | [`rust/docs/PROXY.md`](rust/docs/PROXY.md) |
 | macOS smoke checks | [`rust/docs/MACOS_SMOKE.md`](rust/docs/MACOS_SMOKE.md) |
@@ -42,7 +44,7 @@ cargo test -p luma --test cli_blackbox
 
 | Path | Role |
 | --- | --- |
-| `~/Library/Application Support/LumaNext/` | Active app support (settings, `ssh_meta.sqlite`, `recall.sqlite`, stores) |
+| `~/Library/Application Support/LumaNext/` | Active app support (settings, `ssh_meta.sqlite`, `recall.sqlite`, `renewals.sqlite`, `database_portals.sqlite`, other stores) |
 | `~/Library/Logs/LumaNext/` | Runtime logs (5 MiB rotation, three archives) |
 | `~/.ssh/config` | OpenSSH Host aliases (read-only for `luma.ssh`) |
 

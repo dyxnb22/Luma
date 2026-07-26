@@ -11,6 +11,8 @@ cd rust
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo test --workspace --all-features
+cargo test -p luma --test cli_blackbox
+./scripts/check_architecture.sh
 ```
 
 ## Before testing
@@ -32,6 +34,54 @@ cargo test --workspace --all-features
 6. Repeat from Terminal and `Luma.app` with intentionally different permissions. Each process must
    show its own permission state and must not infer the other process's TCC state.
 
+## Screen OCR checks
+
+Run these checks once from Terminal and once from the installed `Luma.app`; Screen Recording
+permission is process/bundle specific.
+
+1. Revoke Screen Recording permission from the current launcher, run `/ocr`, and confirm the
+   module reports `Permission required` with System Settings guidance without opening a selector.
+2. Grant Screen Recording permission, restart that launcher if macOS requests it, run `/ocr`, and
+   confirm the system region selector appears.
+3. Press Esc in the region selector. Luma must report `Cancelled`, leave the clipboard unchanged,
+   and remain usable.
+4. Select a fixture containing English, Simplified Chinese, and Traditional Chinese. Confirm the
+   recognized plain text is pasted into the active field and each script is recognizable.
+5. Select a blank region and confirm `/ocr` reports an empty-result state instead of pasting.
+6. Repeat a successful capture, a cancellation, and a forced recognition failure, then check the
+   system temporary directory contains no leftover `.luma-ocr-*` capture.
+7. Confirm neither the selected image path nor recognized text appears in Luma logs or Recall.
+8. Use a dense fixture that would exceed 256 KiB and confirm pasted output is truncated on a UTF-8
+   boundary. Cancel during selection and immediately after capture where practical; no later
+   paste may occur.
+
+## Local utility module checks
+
+Use disposable package/database/renewal targets and non-sensitive command history.
+
+1. In `/dl`, confirm only direct Downloads children appear. Replace a listed fixture before acting
+   and verify stale identity is rejected. Rename a fixture, exercise the extension-change
+   confirmation, move another fixture to Finder Trash, and restore it from Trash.
+2. In `/pkg`, compare installed/outdated results with `brew`, then use a disposable formula or cask
+   to verify confirmed install/upgrade/uninstall opens the exact Homebrew command in the
+   interactive terminal. Do not test cleanup, taps, services, or the real daily toolchain.
+3. In `/sc`, list folders, filter a folder containing Unicode names, View an exact shortcut, and
+   run a harmless disposable shortcut. Duplicate exact names must be refused; no implicit input or
+   captured output should be introduced.
+4. In `/hist`, confirm safe plain and extended zsh-history rows can only be copied. Verify commands
+   containing tokens, authorization headers, URL credentials, `curl -u user:pass`, and
+   password-bearing database flags are hidden and never enter Recall or logs.
+5. In `/renew`, use disposable rows to verify January 31 monthly advancement, leap-day yearly
+   advancement, one-time completion, confirmed cancellation/deletion, stale-row rejection, and a
+   reopenable metadata backup.
+6. Enable `/db` explicitly. Add a disposable SQLite file, inspect tables/schema, open `sqlite3`,
+   reveal it, and back up portal metadata. Confirm removing the portal leaves the database file.
+7. Add a disposable PostgreSQL portal that relies on existing libpq authentication or an
+   interactive `psql` prompt. Verify production open confirmation and confirm no password or DSN
+   appears in rows, payloads, logs, Recall, or `database_portals.sqlite`.
+8. Exercise Calculator i64 boundaries, unit/base/date examples, and a non-expression bare query;
+   only a strict complete expression may contribute to global search.
+
 ## Workbench host checks (ADR-0007)
 
 Build and install the host first, then work through the list. These are the checks that cannot be
@@ -39,7 +89,7 @@ automated: they need real activation, a real input method, and a real GPU-compos
 
 ```bash
 cd rust
- bash scripts/build_workbench_app.sh "$HOME/Applications/Luma.app"
+bash scripts/build_workbench_app.sh "$HOME/Applications/Luma.app"
 /usr/bin/codesign --verify --deep --strict "$HOME/Applications/Luma.app"
 open "$HOME/Applications/Luma.app"
 ```

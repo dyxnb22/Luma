@@ -19,6 +19,14 @@ cargo run -p luma -- query "/git" --json
 cargo run -p luma -- query "/run" --json
 cargo run -p luma -- query "/proxy status" --json
 cargo run -p luma -- query "/proxy check" --json
+cargo run -p luma -- query "/calc 128 MiB in GiB" --json
+cargo run -p luma -- query "/dl recent" --json
+cargo run -p luma -- query "/pkg outdated" --json
+cargo run -p luma -- query "/sc folders" --json
+cargo run -p luma -- query "/hist rg" --json
+cargo run -p luma -- query "/renew 30d" --json
+cargo run -p luma -- query "/db" --json       # default-off until enabled in Settings
+cargo run -p luma -- query "/ocr" --json
 cargo run -p luma -- cmd list --json
 cargo run -p luma -- cmd show git-status --json
 cargo run -p luma -- query "/ssh production" --json
@@ -94,8 +102,8 @@ See [`docs/COMMAND_RECIPES.md`](docs/COMMAND_RECIPES.md) for command templates, 
 See [`docs/SSH.md`](docs/SSH.md) for SSH Connections (`~/.ssh/config` launcher, metadata, CLI).
 See [`docs/PROXY.md`](docs/PROXY.md) for Mihomo/Clash Verge Profile behavior, safety boundaries,
 supported subscription formats, and rollback semantics.
-See [`docs/MACOS_SMOKE.md`](docs/MACOS_SMOKE.md) for real macOS permission, workbench host,
-terminal, window, Keychain, clipboard, and proxy smoke checks.
+See [`docs/MACOS_SMOKE.md`](docs/MACOS_SMOKE.md) for real macOS permission, local utility modules,
+workbench host, terminal, window, Keychain, clipboard, and proxy smoke checks.
 See [`docs/USAGE_LOG_TEMPLATE.md`](docs/USAGE_LOG_TEMPLATE.md) for an optional privacy-preserving
 14-day local usage experiment.
 
@@ -103,7 +111,7 @@ See [`docs/USAGE_LOG_TEMPLATE.md`](docs/USAGE_LOG_TEMPLATE.md) for an optional p
 
 | Path | Role |
 | --- | --- |
-| `~/Library/Application Support/LumaNext/` | Active settings / stores (`ssh_meta.sqlite`, `recall.sqlite`, clipboard, records, …) |
+| `~/Library/Application Support/LumaNext/` | Active settings / stores (`ssh_meta.sqlite`, `recall.sqlite`, `renewals.sqlite`, `database_portals.sqlite`, clipboard, records, …) |
 | `~/Library/Application Support/LumaNext/command-recipes.toml` | User command recipe definitions |
 | `~/Library/Application Support/LumaNext/command-recipes-meta.sqlite` | Recipe favorites / usage metadata |
 | `~/Library/Logs/LumaNext/` | Logs (`luma.log`, rotated at 5 MiB with three archives) |
@@ -140,6 +148,17 @@ backup, and migration ledger, never the Markdown source files.
   `/rec backup`.
 - `/clip pause [30s|10m|2h|1d]`, `/clip resume`, and `/clip status` control session capture.
   Concealed/transient password-manager pasteboard types are never stored in history.
+- `/calc` evaluates deterministic arithmetic, units, integer bases, Unix timestamps, and date
+  offsets. Only strict complete expressions may appear in global search.
+- `/dl` scans direct children of Downloads only. Rename is explicit and Finder Trash remains
+  recoverable; there is no recursive or automatic cleanup.
+- `/pkg` is Homebrew-only; `/sc` delegates to Apple Shortcuts; `/hist` reads a bounded zsh-history
+  tail. Package mutations confirm, Shortcuts run interactively without implicit input/output
+  capture, and Shell Recall can copy but never execute a command.
+- `/renew` owns the local recurring-payment ledger. `/db` is default-off and stores only
+  non-secret portal metadata; PostgreSQL authentication stays with libpq/`psql`.
+- `/ocr` captures one user-selected region and recognizes it locally with Apple Vision. It stores
+  no screenshot or OCR history and keeps permission/cancellation states inside the module.
 - `/s add-from-clipboard TRIGGER` preserves multiline snippet bodies. `/s backup` and
   `/ql backup` create SQLite snapshots under `LumaNext/backups/`.
 - `/proj`: lists only manually imported projects, recall-ranked by recent/frequent associated

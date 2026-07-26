@@ -60,7 +60,7 @@ when continuity matters.
    window and press Option+Space; the same window must deminiaturize on the first press.
 5. **Chinese IME** — switch to Pinyin, type a multi-syllable word, confirm the composition marks
    correctly and only the committed text reaches the prompt.
-6. **CJK alignment** — display Records or Notes rows with mixed CJK/ASCII and confirm columns line
+6. **CJK alignment** — display Records rows with mixed CJK/ASCII and confirm columns line
    up (full-width cells occupy two columns).
 7. **Mouse** — plain terminal click/drag must select text normally; the keyboard-first TUI does
    not claim mouse reporting and must not block native selection.

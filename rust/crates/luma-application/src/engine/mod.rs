@@ -202,9 +202,7 @@ async fn apply_settings_mutation(
     }
     let roots_changed = next.imported_projects != current.imported_projects
         || next.projects_roots != current.projects_roots
-        || next.notes_root != current.notes_root
-        || next.records_root != current.records_root
-        || next.notes_exclude_patterns != current.notes_exclude_patterns;
+        || next.records_root != current.records_root;
     let saved = settings_repo
         .update_cas(expected_version, next)
         .map_err(|err| luma_domain::FailureKind::Conflict {
@@ -231,10 +229,8 @@ async fn apply_settings_mutation(
             "modules": rows.iter().map(|(id, enabled, name)| {
                 serde_json::json!({"id": id, "enabled": enabled, "name": name})
             }).collect::<Vec<_>>(),
-            "notes_root": saved.notes_root,
             "projects_roots": saved.projects_roots,
             "imported_projects": saved.imported_projects,
-            "notes_exclude_patterns": saved.notes_exclude_patterns,
         }),
     });
     Ok("settings updated".into())

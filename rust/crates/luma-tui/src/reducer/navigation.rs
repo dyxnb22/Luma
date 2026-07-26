@@ -149,18 +149,6 @@ pub(super) fn open_surface_query(state: &mut AppState, query: &str) -> Vec<Effec
     begin_search(state)
 }
 
-pub(super) fn open_notes_issues(state: &mut AppState) -> Vec<Effect> {
-    state.search.browse_nav_stack.clear();
-    state.search.prompt = "/n issues".into();
-    state.search.prompt_cursor = state.prompt_char_len();
-    state.focus = FocusZone::Prompt;
-    state.search.history_browse = None;
-    state.search.results.items.clear();
-    state.search.results.selected_id = None;
-    state.status.set("notes issues…", StatusTone::Progress);
-    begin_search(state)
-}
-
 pub(super) fn seed_module_add(state: &mut AppState, item: &luma_domain::SearchItem) -> Vec<Effect> {
     let prompt = super::payload_str(item, "seed_prompt").unwrap_or_else(|| {
         if item.id.as_str().starts_with("ql:") {
@@ -239,9 +227,7 @@ pub(super) fn seed_module_config(
             .set(format!("run in terminal: {cmd}"), StatusTone::Warning);
         return vec![Effect::None];
     }
-    let cmd = if item.id.as_str().starts_with("n:") || item.id.as_str().starts_with("notes:") {
-        Some("luma config set --notes-root ~/Notes")
-    } else if item.id.as_str().starts_with("proj:") {
+    let cmd = if item.id.as_str().starts_with("proj:") {
         Some("luma config set --projects-root ~/dev")
     } else if item.id.as_str().starts_with("sec:") || item.kind == "secrets" {
         Some("luma secrets set <account>  (value from stdin)")
@@ -250,7 +236,6 @@ pub(super) fn seed_module_config(
     };
     if let Some(cmd) = cmd {
         let local = match cmd {
-            "luma config set --notes-root ~/Notes" => Some("/settings notes-root "),
             "luma config set --projects-root ~/dev" => Some("/settings projects-root "),
             _ => None,
         };
@@ -381,17 +366,11 @@ pub(super) fn cancel_msg(state: &mut AppState) -> Vec<Effect> {
     }
 }
 
-/// One directory up for slash-prefixed `/n|/note|/notes|/proj browse <path>`.
+/// One directory up for slash-prefixed `/proj browse <path>`.
 pub(super) fn browse_query_parent(prompt: &str) -> Option<String> {
     let trimmed = explicit_command_prompt(prompt)?;
-    let (trigger, after_trigger) = if let Some(rest) = trimmed.strip_prefix("notes ") {
-        ("notes", rest)
-    } else if let Some(rest) = trimmed.strip_prefix("note ") {
-        ("note", rest)
-    } else if let Some(rest) = trimmed.strip_prefix("proj ") {
+    let (trigger, after_trigger) = if let Some(rest) = trimmed.strip_prefix("proj ") {
         ("proj", rest)
-    } else if let Some(rest) = trimmed.strip_prefix("n ") {
-        ("n", rest)
     } else {
         return None;
     };

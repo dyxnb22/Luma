@@ -304,8 +304,8 @@ fn render_kind_badge_not_configured_visible() {
             results: ResultsView {
                 items: vec![sample_kind(
                     "c",
-                    "Choose a Notes root folder",
-                    "luma.notes",
+                    "Choose a project folder",
+                    "luma.projects",
                     "not_configured",
                     "NotConfigured",
                     "Configure",

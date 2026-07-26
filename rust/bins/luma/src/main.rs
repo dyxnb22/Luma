@@ -13,9 +13,9 @@ use luma_application::{
 use luma_platform_macos::MacCommandRunner;
 use luma_storage::{
     dry_run_legacy_dir, get_migration, import_clipboard_fixture_with_ledger,
-    import_notes_config_fixture_with_ledger, import_records_with_ledger, list_migrations,
-    preview_import_from_dir, record_dry_run, rollback_migration, ClipboardStore, ConfigError,
-    ConfigStore, MigrationKind, RecordsStore, WordbookStore,
+    import_records_with_ledger, list_migrations, preview_import_from_dir, record_dry_run,
+    rollback_migration, ClipboardStore, ConfigError, ConfigStore, MigrationKind, RecordsStore,
+    WordbookStore,
 };
 use luma_tui::{run_tui_with_options, RunTuiOptions};
 use std::io::Read;
@@ -124,17 +124,9 @@ enum ActionCmd {
 #[derive(Debug, clap::Args)]
 struct ConfigSetArgs {
     #[arg(long)]
-    notes_root: Option<String>,
-    #[arg(long)]
     records_root: Option<String>,
     #[arg(long)]
     projects_root: Vec<String>,
-    /// Glob patterns relative to notes_root (repeatable). Replaces the full list when set.
-    #[arg(long)]
-    notes_exclude: Vec<String>,
-    /// Clear all notes_exclude_patterns.
-    #[arg(long)]
-    clear_notes_excludes: bool,
     #[arg(long)]
     enable_module: Vec<String>,
     #[arg(long)]
@@ -322,17 +314,6 @@ enum MigrateCmd {
     },
     /// Import clipboard-history.json from an explicit path (source read-only; writes LumaNext only).
     Clipboard {
-        #[arg(long)]
-        legacy: PathBuf,
-        #[arg(long, default_value_t = true)]
-        dry_run: bool,
-        #[arg(long)]
-        commit: bool,
-        #[arg(long)]
-        json: bool,
-    },
-    /// Import notes root from notes.json fixture/legacy file into LumaNext settings.
-    NotesConfig {
         #[arg(long)]
         legacy: PathBuf,
         #[arg(long, default_value_t = true)]
@@ -560,8 +541,8 @@ async fn run_non_tui_command(command: Commands) -> anyhow::Result<()> {
                 println!("{}", serde_json::to_string_pretty(&settings)?);
             } else {
                 println!(
-                    "settings_version={} notes_root={:?} projects_roots={:?}",
-                    settings.settings_version, settings.notes_root, settings.projects_roots
+                    "settings_version={} projects_roots={:?}",
+                    settings.settings_version, settings.projects_roots
                 );
                 if settings.imported_projects.is_empty() {
                     println!("imported_projects=(none)");
@@ -571,10 +552,6 @@ async fn run_non_tui_command(command: Commands) -> anyhow::Result<()> {
                         println!("imported_project={name}\t{}", p.path);
                     }
                 }
-                println!(
-                    "notes_exclude_patterns={:?}",
-                    settings.notes_exclude_patterns
-                );
                 println!("enabled_modules={:?}", settings.enabled_modules);
                 println!(
                     "clipboard_retention_days={}",
@@ -601,11 +578,8 @@ async fn run_non_tui_command(command: Commands) -> anyhow::Result<()> {
             action: ConfigCmd::Set(args),
         }) => {
             let ConfigSetArgs {
-                notes_root,
                 records_root,
                 projects_root,
-                notes_exclude,
-                clear_notes_excludes,
                 enable_module,
                 disable_module,
                 clipboard_retention_days,
@@ -629,9 +603,6 @@ async fn run_non_tui_command(command: Commands) -> anyhow::Result<()> {
                 enabled.insert(id, serde_json::Value::Bool(false));
             }
             let mut patch = serde_json::Map::new();
-            if let Some(root) = notes_root {
-                patch.insert("notes_root".into(), serde_json::Value::String(root));
-            }
             if let Some(root) = records_root {
                 patch.insert("records_root".into(), serde_json::Value::String(root));
             }
@@ -641,23 +612,6 @@ async fn run_non_tui_command(command: Commands) -> anyhow::Result<()> {
                     serde_json::Value::Array(
                         projects_root
                             .into_iter()
-                            .map(serde_json::Value::String)
-                            .collect(),
-                    ),
-                );
-            }
-            if clear_notes_excludes || !notes_exclude.is_empty() {
-                let patterns = if clear_notes_excludes && notes_exclude.is_empty() {
-                    Vec::new()
-                } else {
-                    notes_exclude
-                };
-                patch.insert(
-                    "notes_exclude_patterns".into(),
-                    serde_json::Value::Array(
-                        patterns
-                            .into_iter()
-                            .filter(|p| !p.is_empty())
                             .map(serde_json::Value::String)
                             .collect(),
                     ),
@@ -747,10 +701,7 @@ async fn run_non_tui_command(command: Commands) -> anyhow::Result<()> {
             if json {
                 println!("{}", serde_json::to_string_pretty(&saved)?);
             } else {
-                println!(
-                    "updated settings_version={} notes_root={:?} notes_exclude={:?}",
-                    saved.settings_version, saved.notes_root, saved.notes_exclude_patterns
-                );
+                println!("updated settings_version={}", saved.settings_version);
             }
         }
         Some(Commands::Migrate {
@@ -805,26 +756,6 @@ async fn run_non_tui_command(command: Commands) -> anyhow::Result<()> {
             let store = ClipboardStore::luma_next_default()?;
             let do_dry = if commit { false } else { dry_run };
             let report = import_clipboard_fixture_with_ledger(&path, &store, do_dry, true)?;
-            print_import_report(report, json)?;
-        }
-        Some(Commands::Migrate {
-            action:
-                MigrateCmd::NotesConfig {
-                    legacy,
-                    dry_run,
-                    commit,
-                    json,
-                },
-        }) => {
-            let path = if legacy.is_dir() {
-                legacy.join("notes.json")
-            } else {
-                legacy
-            };
-            let _ = ConfigStore::luma_next_default()?;
-            let settings_path = luma_storage::luma_next_support_dir()?.join("settings.toml");
-            let do_dry = if commit { false } else { dry_run };
-            let report = import_notes_config_fixture_with_ledger(&path, &settings_path, do_dry)?;
             print_import_report(report, json)?;
         }
         Some(Commands::Migrate {

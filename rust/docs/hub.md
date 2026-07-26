@@ -3,9 +3,8 @@
 ## Command prefix
 
 Interactive module commands use a leading `/` (`/ssh `, `/rec browse`, `/cmd test`). Local
-surfaces also accept `/settings` and `/help`. For first-time setup, use `/settings notes-root PATH`,
-`/settings projects-root PATH`, or `/settings import-project PATH`. Input without `/` is treated as
-a global search.
+surfaces also accept `/settings` and `/help`. For first-time setup, use `/settings projects-root PATH`
+or `/settings import-project PATH`. Input without `/` is treated as a global search.
 
 Empty prompt shows:
 
@@ -17,20 +16,18 @@ Empty prompt shows:
 
 | Module | Opens |
 |--------|--------|
-| Notes | `/n ` — directory tree at notes root (`/n recent` = recent flat list) |
 | Projects | `/proj browse` — browse project roots (import from browse) |
 | Git | `/git` — imported-project dashboard; Enter on a repository opens its workbench |
 | Runtime | `/run` — current local TCP listeners |
 | Wordbook | `/wb due` — due words; use `/wb review due` for the review session |
 | Records | `/rec ` — categories or imported media records |
+| Command Recipes | `/cmd ` — local command recipes and project variants |
 | SSH | `/ssh ` — Host aliases from `~/.ssh/config` |
 | Timers | `/tm ` — stopwatch / Pomodoro list |
 | Secrets | `/sec ` — vault labels (unlock/copy) |
 | Apps / Clipboard / Snippets / Quicklinks / Windows / Proxy | `/app ` / `/clip ` / `/s ` / `/ql ` / `/win ` / `/proxy ` — list dump |
 
-Commands without the `/` prefix are global searches; use `/n ` or `/clip ` to enter a module.
-
-Notes index issues: status row with `errors N` → Enter opens `/n issues`; issue rows Open / copy path.
+Commands without the `/` prefix are global searches; use `/proj ` or `/clip ` to enter a module.
 
 Clipboard favorites: pin/unpin inside `/clip` (not on Hub).
 

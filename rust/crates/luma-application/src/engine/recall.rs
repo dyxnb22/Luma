@@ -168,7 +168,6 @@ pub(crate) fn kind_label(kind: &str) -> &str {
         "window" => "Window",
         "app" => "App",
         "project" => "Project",
-        "note" => "Note",
         "recipe" => "Command",
         "ssh_host" => "SSH",
         "clipboard" => "Clipboard",
@@ -229,12 +228,12 @@ mod tests {
     #[test]
     fn fair_selection_does_not_allow_one_module_to_flood_top_rows() {
         let mut items = (0..20)
-            .map(|i| item("luma.notes", &format!("n{i}"), 100.0 - i as f64))
+            .map(|i| item("luma.clipboard", &format!("c{i}"), 100.0 - i as f64))
             .collect::<Vec<_>>();
         items.push(item("luma.projects", "p", 1.0));
         items.push(item("luma.ssh", "s", 1.0));
         let ranked = fair_global_results(items);
-        assert_eq!(ranked[0].module_id.as_str(), "luma.notes");
+        assert_eq!(ranked[0].module_id.as_str(), "luma.clipboard");
         assert_eq!(ranked[1].module_id.as_str(), "luma.projects");
         assert_eq!(ranked[2].module_id.as_str(), "luma.ssh");
     }

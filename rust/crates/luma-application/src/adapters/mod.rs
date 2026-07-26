@@ -2,7 +2,6 @@
 
 mod clipboard_repo;
 mod command_recipes_repo;
-mod notes_repo;
 mod quicklinks_repo;
 mod recall_repo;
 mod records_repo;
@@ -14,7 +13,6 @@ mod wordbook_repo;
 
 pub use clipboard_repo::SqliteClipboardHistory;
 pub use command_recipes_repo::{MemoryCommandRecipesRepository, SqliteCommandRecipesRepository};
-pub use notes_repo::SqliteNotesIndex;
 pub use quicklinks_repo::SqliteQuicklinksRepository;
 #[allow(unused_imports)]
 pub use recall_repo::SqliteRecallRepository;

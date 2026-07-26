@@ -16,9 +16,9 @@ tool-orchestration workflows.
 
 ## Do
 
-- Keep the currently registered modules solid for local use: Apps, Windows, Proxy, Clipboard,
-  Notes, Quicklinks, Snippets, Wordbook, Records, Projects, Command Recipes, SSH, Timers, and
-  Secrets. The Fake module is test/demo-only and default-off.
+- Keep the currently registered modules solid for local use: Apps, Windows, Git, Runtime, Proxy,
+  Clipboard, Quicklinks, Snippets, Wordbook, Records, Projects, Command Recipes, SSH, Timers,
+  and Secrets. The Fake module is test/demo-only and default-off.
 - Prefer small fixes for real friction over roadmap/checklist completion.
 - Follow `rust/docs/GOVERNANCE.md` for inventory sync, layering, honest states, and soft file-size
   triggers.

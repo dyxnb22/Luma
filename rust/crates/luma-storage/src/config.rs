@@ -39,15 +39,11 @@ pub struct LumaSettings {
     pub schema_version: u32,
     pub settings_version: u64,
     pub enabled_modules: BTreeMap<String, bool>,
-    pub notes_root: Option<String>,
     #[serde(default)]
     pub projects_roots: Vec<String>,
     /// User-imported project directories (canonical paths).
     #[serde(default)]
     pub imported_projects: Vec<ImportedProject>,
-    /// Glob patterns relative to notes_root (e.g. `private/*`).
-    #[serde(default)]
-    pub notes_exclude_patterns: Vec<String>,
     /// Markdown records import root (e.g. ~/Documents/Notes/Records).
     #[serde(default)]
     pub records_root: Option<String>,
@@ -226,17 +222,6 @@ impl LumaSettings {
                 }
             }
         }
-        if let Some(root) = patch.get("notes_root") {
-            if root.is_null() {
-                self.notes_root = None;
-            } else if let Some(s) = root.as_str() {
-                self.notes_root = if s.is_empty() {
-                    None
-                } else {
-                    Some(s.to_string())
-                };
-            }
-        }
         if let Some(root) = patch.get("records_root") {
             if root.is_null() {
                 self.records_root = None;
@@ -252,16 +237,6 @@ impl LumaSettings {
             self.projects_roots = roots
                 .iter()
                 .filter_map(|v| v.as_str().map(str::to_string))
-                .collect();
-        }
-        if let Some(patterns) = patch
-            .get("notes_exclude_patterns")
-            .and_then(|v| v.as_array())
-        {
-            self.notes_exclude_patterns = patterns
-                .iter()
-                .filter_map(|v| v.as_str().map(str::to_string))
-                .filter(|p| !p.is_empty())
                 .collect();
         }
         if let Some(days) = patch
@@ -356,7 +331,6 @@ impl Default for LumaSettings {
         enabled_modules.insert("luma.windows".into(), true);
         enabled_modules.insert("luma.proxy".into(), true);
         enabled_modules.insert("luma.clipboard".into(), true);
-        enabled_modules.insert("luma.notes".into(), true);
         enabled_modules.insert("luma.records".into(), true);
         enabled_modules.insert("luma.secrets".into(), false);
         enabled_modules.insert("luma.fake".into(), false);
@@ -364,10 +338,8 @@ impl Default for LumaSettings {
             schema_version: 1,
             settings_version: 1,
             enabled_modules,
-            notes_root: None,
             projects_roots: Vec::new(),
             imported_projects: Vec::new(),
-            notes_exclude_patterns: Vec::new(),
             records_root: None,
             clipboard_retention_days: 30,
             secrets_idle_lock_secs: default_secrets_idle_lock_secs(),
@@ -623,9 +595,7 @@ mod tests {
         let store = ConfigStore::with_path(dir.path().join("settings.toml"));
         let s = store.load_or_default().unwrap();
         assert_eq!(s.settings_version, 1);
-        let mut next = s.clone();
-        next.notes_root = Some("/tmp/notes".into());
-        let saved = store.update_cas(1, next).unwrap();
+        let saved = store.update_cas(1, s.clone()).unwrap();
         assert_eq!(saved.settings_version, 2);
         assert!(store.update_cas(1, saved.clone()).is_err());
     }
@@ -749,7 +719,7 @@ mod tests {
                 let store = Arc::clone(&store);
                 let barrier = Arc::clone(&barrier);
                 let mut next = base.clone();
-                next.notes_root = Some(format!("/tmp/{i}"));
+                next.hub_windows_max = 5 + i as u32;
                 thread::spawn(move || {
                     barrier.wait();
                     store.update_cas(1, next)
@@ -776,23 +746,18 @@ mod tests {
     }
 
     #[test]
-    fn apply_settings_patch_updates_modules_and_roots() {
+    fn apply_settings_patch_updates_modules_and_ignores_retired_notes_keys() {
         let mut settings = LumaSettings::default();
         settings
             .apply_settings_patch(&serde_json::json!({
                 "enabled_modules": { "luma.fake": true },
-                "notes_root": "/tmp/notes",
                 "hub_windows_max": 99,
+                "notes_root": "/tmp/notes",
                 "notes_exclude_patterns": ["private/*", ""],
             }))
             .unwrap();
         assert_eq!(settings.enabled_modules.get("luma.fake"), Some(&true));
-        assert_eq!(settings.notes_root.as_deref(), Some("/tmp/notes"));
         assert_eq!(settings.hub_windows_max, 50);
-        assert_eq!(
-            settings.notes_exclude_patterns,
-            vec!["private/*".to_string()]
-        );
         // Sticky: unrelated module keys remain.
         assert_eq!(settings.enabled_modules.get("luma.apps"), Some(&true));
     }

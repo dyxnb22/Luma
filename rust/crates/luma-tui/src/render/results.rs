@@ -156,18 +156,10 @@ fn hub_module_title(state: &AppState, module_id: &str, title: &str) -> String {
     if !state.settings.roots.loaded {
         return title.to_string();
     }
-    let needs_notes = module_id == "luma.notes"
-        && state
-            .settings
-            .roots
-            .notes_root
-            .as_ref()
-            .map(|s| s.is_empty())
-            .unwrap_or(true);
     let needs_projects = module_id == "luma.projects"
         && (state.settings.roots.projects_roots.is_empty()
             || state.settings.roots.imported_projects.is_empty());
-    if needs_notes || needs_projects {
+    if needs_projects {
         if module_id == "luma.projects" && !state.settings.roots.projects_roots.is_empty() {
             format!("{title} · import")
         } else {
@@ -324,7 +316,7 @@ fn empty_state_item(state: &AppState, theme: &Theme, symbols: &Symbols) -> ListI
         (
             "Type to search".to_string(),
             format!(
-                "Try: /app safari {} /n browse {} /clip",
+                "Try: /app safari {} /proj browse {} /clip",
                 symbols.sep, symbols.sep
             ),
         )
@@ -342,7 +334,7 @@ fn empty_state_item(state: &AppState, theme: &Theme, symbols: &Symbols) -> ListI
     ])
 }
 
-/// Slash-prefixed bare module trigger without trailing space (`/n`, not `n` or `/n `).
+/// Slash-prefixed bare module trigger without trailing space (`/clip`, not `clip` or `/clip `).
 fn incomplete_trigger_hint(state: &AppState) -> Option<(String, Option<String>)> {
     let token = state.incomplete_slash_trigger()?;
     let module = state

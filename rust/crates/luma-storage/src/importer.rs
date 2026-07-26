@@ -49,13 +49,6 @@ pub fn dry_run_legacy_dir(legacy_support: PathBuf) -> ImportReport {
             fs::metadata(&clip).map(|m| m.len()).unwrap_or(0)
         ));
     }
-    let notes_json = legacy_support.join("notes.json");
-    if notes_json.exists() {
-        notes.push(format!(
-            "found notes.json ({} bytes) — use `luma migrate notes-config --legacy <path> --commit`",
-            fs::metadata(&notes_json).map(|m| m.len()).unwrap_or(0)
-        ));
-    }
     ImportReport {
         ledger: MigrationLedgerEntry {
             source_fingerprint: format!("path:{}", legacy_support.display()),
@@ -211,137 +204,6 @@ pub fn import_clipboard_fixture_with_ledger(
     })
 }
 
-#[derive(Clone, Debug, Deserialize)]
-struct LegacyNotesConfig {
-    #[serde(default)]
-    root: Option<String>,
-    #[serde(default, alias = "notesRoot", alias = "notes_root")]
-    notes_root: Option<String>,
-}
-
-/// Import notes root from a legacy/fixture notes.json into LumaNext settings (read-only source).
-pub fn import_notes_config_fixture(
-    fixture: &Path,
-    settings_path: &Path,
-    dry_run: bool,
-) -> Result<ImportReport, ImportError> {
-    use crate::config::ConfigStore;
-
-    let raw = fs::read_to_string(fixture)?;
-    let parsed: LegacyNotesConfig = serde_json::from_str(&raw)?;
-    let root = parsed
-        .notes_root
-        .or(parsed.root)
-        .filter(|s| !s.trim().is_empty());
-
-    let mut notes = vec![format!("source={}", fixture.display())];
-    let mut imported = 0u64;
-    let mut skipped = 0u64;
-
-    let Some(root) = root else {
-        notes.push("no notes root field in fixture".into());
-        return Ok(ImportReport {
-            ledger: MigrationLedgerEntry {
-                source_fingerprint: format!("file:{}", fixture.display()),
-                schema_version: 1,
-                imported: 0,
-                skipped: 1,
-                errors: 0,
-                dry_run,
-                migration_id: None,
-            },
-            notes,
-        });
-    };
-
-    if dry_run {
-        imported = 1;
-        notes.push(format!("would set notes_root={root}"));
-        notes.push("dry_run=true; settings not written".into());
-    } else {
-        let store = ConfigStore::with_path(settings_path.to_path_buf());
-        let mut settings = store
-            .load_or_default()
-            .map_err(|e| ImportError::Io(std::io::Error::other(e.to_string())))?;
-        if settings.notes_root.as_deref() == Some(root.as_str()) {
-            skipped = 1;
-            notes.push("notes_root already matches".into());
-        } else {
-            settings.notes_root = Some(root.clone());
-            store
-                .save(&settings)
-                .map_err(|e| ImportError::Io(std::io::Error::other(e.to_string())))?;
-            imported = 1;
-            notes.push(format!("set notes_root={root}"));
-        }
-    }
-
-    Ok(ImportReport {
-        ledger: MigrationLedgerEntry {
-            source_fingerprint: format!("file:{}", fixture.display()),
-            schema_version: 1,
-            imported,
-            skipped,
-            errors: 0,
-            dry_run,
-            migration_id: None,
-        },
-        notes,
-    })
-}
-
-/// Commit/dry-run notes-config import with persisted ledger (CLI).
-pub fn import_notes_config_fixture_with_ledger(
-    fixture: &Path,
-    settings_path: &Path,
-    dry_run: bool,
-) -> Result<ImportReport, ImportError> {
-    use crate::migration_ledger::{record_dry_run, MigrationCommitGuard, MigrationKind};
-
-    let guard = if !dry_run {
-        Some(
-            MigrationCommitGuard::begin(
-                MigrationKind::NotesConfig,
-                fixture,
-                &[(settings_path, "settings.toml")],
-            )
-            .map_err(|e| ImportError::Io(std::io::Error::other(e.to_string())))?,
-        )
-    } else {
-        None
-    };
-
-    let mut report = import_notes_config_fixture(fixture, settings_path, dry_run)?;
-    let migration_id = if dry_run {
-        let rec = record_dry_run(
-            MigrationKind::NotesConfig,
-            fixture,
-            report.ledger.imported,
-            report.ledger.skipped,
-            report.ledger.errors,
-            report.notes.clone(),
-        )
-        .map_err(|e| ImportError::Io(std::io::Error::other(e.to_string())))?;
-        Some(rec.migration_id)
-    } else if let Some(g) = guard {
-        let rec = g
-            .finalize(
-                MigrationKind::NotesConfig,
-                fixture,
-                report.ledger.imported,
-                report.ledger.skipped,
-                report.ledger.errors,
-                report.notes.clone(),
-            )
-            .map_err(|e| ImportError::Io(std::io::Error::other(e.to_string())))?;
-        Some(rec.migration_id)
-    } else {
-        None
-    };
-    report.ledger.migration_id = migration_id;
-    Ok(report)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -384,19 +246,6 @@ mod tests {
         assert!(r.ledger.dry_run);
         assert_eq!(r.ledger.imported, 1);
         assert_eq!(store.count().unwrap(), 0);
-    }
-
-    #[test]
-    fn notes_config_import_sets_root() {
-        let dir = tempdir().unwrap();
-        let fixture = dir.path().join("notes.json");
-        fs::write(&fixture, r#"{"notes_root":"/tmp/luma-notes"}"#).unwrap();
-        let settings = dir.path().join("settings.toml");
-        let r = import_notes_config_fixture(&fixture, &settings, false).unwrap();
-        assert_eq!(r.ledger.imported, 1);
-        let store = crate::config::ConfigStore::with_path(settings);
-        let s = store.load_or_default().unwrap();
-        assert_eq!(s.notes_root.as_deref(), Some("/tmp/luma-notes"));
     }
 
     #[test]

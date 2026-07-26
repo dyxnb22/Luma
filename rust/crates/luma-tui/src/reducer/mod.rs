@@ -61,7 +61,6 @@ fn settings_patch_from_prompt(
         return Err(format!("/settings {field} needs a path"));
     }
     let patch = match field {
-        "notes-root" => serde_json::json!({ "notes_root": value }),
         "projects-root" => {
             let mut roots = current_project_roots.to_vec();
             if !roots.iter().any(|root| root == &value) {
@@ -72,8 +71,8 @@ fn settings_patch_from_prompt(
         "import-project" => serde_json::json!({ "import_project": value }),
         _ => {
             return Err(format!(
-            "unknown /settings field: {field} (try notes-root, projects-root, or import-project)"
-        ))
+                "unknown /settings field: {field} (try projects-root or import-project)"
+            ))
         }
     };
     Ok(Some(patch))
@@ -97,7 +96,6 @@ fn apply_ui_intent(
 ) -> Vec<Effect> {
     match intent {
         UiIntent::Browse => navigation::drill_into_browse(state, item),
-        UiIntent::ListIssues => navigation::open_notes_issues(state),
         UiIntent::SeedAdd => navigation::seed_module_add(state, item),
         UiIntent::SeedConfig => navigation::seed_module_config(state, item),
         UiIntent::OpenPath => {

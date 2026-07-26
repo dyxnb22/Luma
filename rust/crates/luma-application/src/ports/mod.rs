@@ -11,11 +11,8 @@ mod command_runner;
 mod fake_recipe_environment;
 mod git;
 mod keychain;
-mod markdown_watch;
 mod memory_repos;
 mod network_probe;
-mod notes_repo;
-mod notes_workspace;
 mod open_path;
 mod pasteboard;
 mod profile;
@@ -56,23 +53,14 @@ pub use git::{
     GitRepositoryPort, GitRepositoryState,
 };
 pub use keychain::{FakeKeychain, KeychainError, KeychainPort, SecretLabel};
-pub use markdown_watch::{FakeMarkdownWatcher, MarkdownWatchPort};
 pub use memory_repos::{
-    FakeSshConfigPort, MemoryClipboardHistory, MemoryNotesIndex, MemoryQuicklinksRepository,
-    MemoryRecordsRepository, MemorySnippetsRepository, MemorySshMetaRepository,
-    MemoryTimersRepository, MemoryWordbookRepository,
+    FakeSshConfigPort, MemoryClipboardHistory, MemoryQuicklinksRepository, MemoryRecordsRepository,
+    MemorySnippetsRepository, MemorySshMetaRepository, MemoryTimersRepository,
+    MemoryWordbookRepository,
 };
 pub use network_probe::{
     FakeNetworkProbe, NetworkProbePort, NetworkProbeState, NetworkProbeStep,
     UnavailableNetworkProbe,
-};
-pub use notes_repo::{
-    NotesDocument, NotesIndexError, NotesIndexRepository, NotesIssue, NotesLink, NotesScanReport,
-    NotesScanStatusView, NotesSearchHit,
-};
-pub use notes_workspace::{
-    FakeNotesWorkspace, NotesDirectoryEntry, NotesDirectoryEntryKind, NotesDirectoryListing,
-    NotesWorkspaceError, NotesWorkspacePath, NotesWorkspacePort, NotesWorkspacePreview,
 };
 pub use open_path::{FakeOpenPath, OpenPathError, OpenPathPort};
 pub use pasteboard::{FakePasteboard, PasteboardError, PasteboardPort};

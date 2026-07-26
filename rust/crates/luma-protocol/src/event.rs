@@ -59,7 +59,6 @@ pub enum SearchStatus {
 pub enum UiIntent {
     Browse,
     SeedConfig,
-    ListIssues,
     SeedAdd,
     OpenPath,
     OpenSurface,
@@ -70,7 +69,6 @@ impl UiIntent {
         match self {
             Self::Browse => "browse",
             Self::SeedConfig => "seed_config",
-            Self::ListIssues => "list_issues",
             Self::SeedAdd => "seed_add",
             Self::OpenPath => "open_path",
             Self::OpenSurface => "open_surface",
@@ -81,7 +79,6 @@ impl UiIntent {
         match tag {
             "browse" => Some(Self::Browse),
             "seed_config" | "configure" => Some(Self::SeedConfig),
-            "list_issues" => Some(Self::ListIssues),
             "seed_add" => Some(Self::SeedAdd),
             "open_path" => Some(Self::OpenPath),
             "open_surface" => Some(Self::OpenSurface),

@@ -82,6 +82,14 @@ fn modules_list_json() {
             .any(|m| m["id"] == "luma.timers"),
         "expected luma.timers in modules list: {stdout}"
     );
+    assert!(
+        !v["modules"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|m| m["id"] == "luma.notes"),
+        "retired Notes module must not be registered: {stdout}"
+    );
 }
 
 #[test]
@@ -212,10 +220,8 @@ fn config_get_and_set_round_trip() {
         &[
             "config",
             "set",
-            "--notes-root",
-            "/tmp/luma-notes-fixture",
-            "--notes-exclude",
-            "private/*",
+            "--projects-root",
+            "/tmp/luma-project-fixture",
             "--json",
         ],
     );
@@ -223,51 +229,75 @@ fn config_get_and_set_round_trip() {
     let (code, stdout, stderr) = run_luma(&support, &logs, &["config", "get", "--json"]);
     assert_eq!(code, 0, "stderr={stderr}");
     let v: serde_json::Value = serde_json::from_str(&stdout).unwrap();
-    assert_eq!(v["notes_root"], "/tmp/luma-notes-fixture");
-    assert_eq!(v["notes_exclude_patterns"][0], "private/*");
+    assert_eq!(v["projects_roots"][0], "/tmp/luma-project-fixture");
 }
 
 #[test]
-fn notes_query_against_fixture_workspace() {
+fn retired_notes_command_is_invalid_and_never_creates_an_index() {
     let dir = tempdir().unwrap();
     let support = dir.path().join("support");
     let logs = dir.path().join("logs");
     fs::create_dir_all(&support).unwrap();
     fs::create_dir_all(&logs).unwrap();
-    let notes_root =
-        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/notes-workspaces/basic");
-    assert!(
-        notes_root.exists(),
-        "missing fixture {}",
-        notes_root.display()
-    );
-    let (code, _, stderr) = run_luma(
-        &support,
-        &logs,
-        &[
-            "config",
-            "set",
-            "--notes-root",
-            notes_root.to_str().unwrap(),
-            "--json",
-        ],
-    );
-    assert_eq!(code, 0, "stderr={stderr}");
-    let (code, stdout, stderr) = run_luma(&support, &logs, &["query", "/n alpha", "--json"]);
+    for query in ["/n alpha", "/note alpha", "/notes alpha"] {
+        let (code, stdout, stderr) = run_luma(&support, &logs, &["query", query, "--json"]);
+        assert_eq!(code, 0, "query={query} stderr={stderr} stdout={stdout}");
+        let v: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+        let results = v["results"].as_array().expect("results array");
+        assert_eq!(
+            results.len(),
+            1,
+            "invalid command must not search globally: {stdout}"
+        );
+        assert_eq!(results[0]["module_id"], "luma.system");
+        assert_eq!(results[0]["kind"], "command_error");
+        assert!(results[0]["title"]
+            .as_str()
+            .unwrap_or("")
+            .contains("Unknown command:"));
+        assert!(!support.join("notes-index.sqlite").exists());
+    }
+
+    let (code, stdout, stderr) = run_luma(&support, &logs, &["query", "alpha", "--json"]);
     assert_eq!(code, 0, "stderr={stderr} stdout={stdout}");
     let v: serde_json::Value = serde_json::from_str(&stdout).unwrap();
-    let results = v["results"].as_array().expect("results array");
     assert!(
-        results.iter().any(|r| {
-            r["title"]
-                .as_str()
-                .unwrap_or("")
-                .to_lowercase()
-                .contains("alpha")
-                || r["id"].as_str().unwrap_or("").contains("alpha")
-        }),
-        "expected alpha note hit: {stdout}"
+        !v["results"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|result| result["module_id"] == "luma.notes"),
+        "global search must not emit retired Notes results: {stdout}"
     );
+    assert!(!support.join("notes-index.sqlite").exists());
+}
+
+#[test]
+fn legacy_notes_settings_are_ignored_without_breaking_startup() {
+    let dir = tempdir().unwrap();
+    let support = dir.path().join("support");
+    let logs = dir.path().join("logs");
+    fs::create_dir_all(&support).unwrap();
+    fs::create_dir_all(&logs).unwrap();
+    let (code, _, stderr) = run_luma(&support, &logs, &["config", "get", "--json"]);
+    assert_eq!(code, 0, "stderr={stderr}");
+    let settings_path = support.join("settings.toml");
+    let settings = fs::read_to_string(&settings_path).unwrap();
+    let settings = settings.replacen(
+        "[enabled_modules]\n",
+        "notes_root = \"/Users/example/Obsidian\"\nnotes_exclude_patterns = [\"private/*\"]\n\n[enabled_modules]\n\"luma.notes\" = true\n",
+        1,
+    );
+    fs::write(&settings_path, settings).unwrap();
+
+    let (code, stdout, stderr) = run_luma(&support, &logs, &["modules", "list", "--json"]);
+    assert_eq!(code, 0, "stderr={stderr}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert!(!v["modules"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|module| module["id"] == "luma.notes"));
 }
 
 #[test]
@@ -460,7 +490,7 @@ fn concurrent_config_set_one_wins() {
     let (code, _, stderr) = run_luma(&support, &logs, &["config", "get", "--json"]);
     assert_eq!(code, 0, "stderr={stderr}");
     let barrier = Arc::new(Barrier::new(2));
-    let run_set = |notes: &'static str, barrier: Arc<Barrier>| {
+    let run_set = |project: &'static str, barrier: Arc<Barrier>| {
         let support = support.clone();
         let logs = logs.clone();
         thread::spawn(move || {
@@ -469,8 +499,8 @@ fn concurrent_config_set_one_wins() {
                 .args([
                     "config",
                     "set",
-                    "--notes-root",
-                    notes,
+                    "--projects-root",
+                    project,
                     "--expected-version",
                     "1",
                     "--json",

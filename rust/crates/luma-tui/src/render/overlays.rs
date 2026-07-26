@@ -218,7 +218,7 @@ pub(super) fn render_overlay_help(
     // Shortcuts first (compact), then enabled modules — config tips last so narrow
     // terminals still see modules after a short scroll.
     let mut lines: Vec<String> = vec![
-        "Triggers need a trailing space (`/n docker`) · Esc clears · empty Esc quits".to_string(),
+        "Triggers need a trailing space (`/clip text`) · Esc clears · empty Esc quits".to_string(),
         "Enter action · Ctrl-k actions · Ctrl-/ commands · Tab focus · S-Tab preview · ? help"
             .to_string(),
         format!(
@@ -226,7 +226,7 @@ pub(super) fn render_overlay_help(
             symbols.up, symbols.down
         ),
         "Hub / win list: 1-9 focus visible window · ↑↓ move · Enter open".to_string(),
-        "Setup: /settings notes-root PATH · /settings import-project PATH".to_string(),
+        "Setup: /settings projects-root PATH · /settings import-project PATH".to_string(),
         "Projects: /proj add PATH · /proj browse · /proj remove NAME".to_string(),
         String::new(),
         "Enabled modules:".to_string(),
@@ -251,8 +251,7 @@ pub(super) fn render_overlay_help(
         }
     }
     lines.push(String::new());
-    lines.push("Config: luma config set --notes-root ~/Notes".to_string());
-    lines.push("        luma config set --projects-root ~/dev".to_string());
+    lines.push("Config: luma config set --projects-root ~/dev".to_string());
     lines.push("        /proj add /path/to/project (manual import)".to_string());
     lines.push("Wordbook: /wb review · /wb review new/wrong · 1/2/3/m in session".to_string());
     lines.push("Confirm / Destructive actions always ask first.".to_string());
@@ -307,10 +306,6 @@ pub(super) fn render_overlay_settings(
     let content_width = overlay.width.saturating_sub(2) as usize;
     let fit = |text: String| truncate(&text, content_width, symbols);
     let mut items = Vec::new();
-    let notes_line = match &state.settings.roots.notes_root {
-        Some(root) if !root.is_empty() => fit(format!(" Notes root: {root}")),
-        _ => fit(" Notes root: (not set) · /settings notes-root PATH".into()),
-    };
     let projects_line = if state.settings.roots.projects_roots.is_empty() {
         fit(" Projects: (none) · /settings projects-root PATH".into())
     } else {
@@ -319,10 +314,6 @@ pub(super) fn render_overlay_settings(
             state.settings.roots.projects_roots.join(", ")
         ))
     };
-    items.push(ListItem::new(Span::styled(
-        notes_line,
-        with_panel_bg(theme.muted(), theme),
-    )));
     items.push(ListItem::new(Span::styled(
         projects_line,
         with_panel_bg(theme.muted(), theme),

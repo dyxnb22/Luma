@@ -222,21 +222,6 @@ async fn windows_row_matches_actions_contract() {
 }
 
 #[tokio::test]
-async fn notes_daily_row_matches_actions_contract() {
-    use luma_modules::NotesModule;
-    use tempfile::tempdir;
-
-    let dir = tempdir().unwrap();
-    let m = NotesModule::with_root_for_tests(Some(dir.path().to_path_buf()));
-    m.warmup(WarmupContext {
-        cancel: CancellationToken::new(),
-    })
-    .await;
-    assert_primary_actions_resolvable(&m, Query::parse("n daily", 20)).await;
-    m.teardown().await;
-}
-
-#[tokio::test]
 async fn wordbook_due_and_add_rows_match_actions_contract() {
     let store = Arc::new(MemoryWordbookRepository::new());
     store

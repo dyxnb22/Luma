@@ -7,8 +7,7 @@ use luma_protocol::ActionDescriptorDto;
 
 use super::apply_ui_intent;
 use super::navigation::{
-    drill_into_browse, open_notes_issues, open_surface_query, seed_module_add, seed_module_config,
-    seed_record_edit,
+    drill_into_browse, open_surface_query, seed_module_add, seed_module_config, seed_record_edit,
 };
 use super::next_operation_id;
 use super::resolve_ui_intent;
@@ -216,10 +215,6 @@ pub(super) fn submit_picker_selection(state: &mut AppState) -> Vec<Effect> {
             return drill_into_browse(state, &item);
         }
         return vec![Effect::None];
-    }
-    if action.id == "list_issues" {
-        state.route = Route::Search;
-        return open_notes_issues(state);
     }
     if action.id == "seed_add" {
         state.route = Route::Search;

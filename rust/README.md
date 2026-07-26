@@ -13,7 +13,6 @@ cargo test -p luma --test cli_blackbox
 
 cargo run -p luma -- query "/app safari" --json
 cargo run -p luma -- query "/clip " --json
-cargo run -p luma -- query "/n " --json
 cargo run -p luma -- query "/win " --json
 cargo run -p luma -- query "/cmd test" --json
 cargo run -p luma -- query "/git" --json
@@ -32,13 +31,10 @@ cargo run -p luma -- ssh rename production "Prod server"
 printf '%s' 'secret' | cargo run -p luma -- secrets set my-label
 cargo run -p luma -- modules list --json
 cargo run -p luma -- config get --json
-cargo run -p luma -- config set --notes-root /path/to/notes
 cargo run -p luma -- config set --records-root ~/Documents/Notes/Records
 cargo run -p luma -- config set --projects-root ~/dev
 cargo run -p luma -- config set --import-project ~/dev/myapp
 cargo run -p luma -- config set --remove-project myapp
-cargo run -p luma -- config set --notes-exclude 'private/*'
-cargo run -p luma -- config set --clear-notes-excludes
 cargo run -p luma -- record import --root ~/Documents/Notes/Records       # dry-run
 cargo run -p luma -- record import --root ~/Documents/Notes/Records --apply
 cargo run -p luma -- record browse
@@ -90,7 +86,7 @@ Behavior worth knowing:
 
 Optional local hygiene: `bash scripts/check_architecture.sh`.
 
-**Fixtures:** `fixtures/notes-workspaces/` for Notes scan/index tests; `fixtures/legacy/` for migrate blackbox.
+**Fixtures:** `fixtures/legacy/` for migrate blackbox.
 
 See [`docs/MODULES.md`](docs/MODULES.md) for module status.
 See [`docs/GOVERNANCE.md`](docs/GOVERNANCE.md) for personal codebase governance (inventory sync, soft file limits, anti-patterns).
@@ -123,8 +119,8 @@ backup, and migration ledger, never the Markdown source files.
 - Commands use a leading `/`, for example `/ssh prod`, `/rec browse`, `/cmd test`, `/settings`,
   and `/help`. Input without `/` is always treated as a global search.
 
-- Set up a notes or projects workspace without leaving the TUI: `/settings notes-root PATH`,
-  `/settings projects-root PATH`, or `/settings import-project PATH`.
+- Set up project workspaces without leaving the TUI: `/settings projects-root PATH` or
+  `/settings import-project PATH`.
 
 - Empty Hub: `1`–`9` focuses visible window rows; status, “more”, and module rows are not numbered.
 - Empty Hub Continue: up to five privacy-safe recent objects appear after Windows. They use their
@@ -152,3 +148,6 @@ backup, and migration ledger, never the Markdown source files.
 - There is no `luma doctor`, `:doctor`, or diagnostics overlay. Modules report `permission`, `unavailable`, or `not_configured` locally when applicable.
 
 Optional importers: `luma migrate …` with an explicit legacy path (dry-run by default).
+
+Notes are handled by external tools such as Obsidian. Luma does not index, watch, create, or
+modify Markdown vaults.

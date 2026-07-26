@@ -19,7 +19,7 @@ cargo test -p luma --test cli_blackbox
 | In | Out |
 | --- | --- |
 | Local TUI + CLI and a thin native PTY host window on your Mac | App Store / notarized shipping |
-| Apps, Windows, Git, Runtime, Proxy, Clipboard, Notes, Quicklinks, Snippets, Wordbook, Projects, Records, Command Recipes, SSH, Timers, Secrets | Window layouts, Menu search, Browser tabs, signed-host Translate |
+| Apps, Windows, Git, Runtime, Proxy, Clipboard, Quicklinks, Snippets, Wordbook, Projects, Records, Command Recipes, SSH, Timers, Secrets | Window layouts, Menu search, Browser tabs, signed-host Translate |
 | Honest permission / unavailable states in each surface | Release soak, deny-as-policy, marketing docs |
 | Global Option+Space activation of the one TUI session | A native product UI: search box, results, sidebar, settings, or overlays in Swift |
 | Module-local status and remediation rows | Centralized `doctor` command or diagnostics overlay |
@@ -50,3 +50,4 @@ The empty Hub lists visible windows, a privacy-safe Continue section, and module
 to focus a numbered window; Continue and module rows are never digit targets. Digits remain
 ordinary prompt input in search fields. Interactive commands require a leading
 `/`: `/win`, `/wb review due|new|wrong`, `/rec`, and `/ssh `; unprefixed input is global search.
+Notes are handled by external tools such as Obsidian; Luma does not index or modify note vaults.

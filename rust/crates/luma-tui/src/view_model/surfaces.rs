@@ -9,7 +9,6 @@ pub struct SettingsModuleRow {
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct SettingsRootsInfo {
-    pub notes_root: Option<String>,
     pub projects_roots: Vec<String>,
     pub imported_projects: Vec<String>,
     /// True after at least one SettingsChanged event (avoids Hub false "set root").

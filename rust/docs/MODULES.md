@@ -17,7 +17,7 @@ Interactive module commands require a leading `/` (for example `/ssh`, `/rec bro
 | Area | Status | Notes |
 | --- | --- | --- |
 | Doctor / diagnostics | Removed | Centralized doctor removed; modules still surface permission/unavailable/not_configured |
-| Config | Available | Versioned settings; `luma config get/set`; TUI Settings via `/settings`; `/settings notes-root PATH`, `/settings projects-root PATH`, and `/settings import-project PATH` make first-time module setup actionable in the workbench; Ctrl-/ opens command palette; Space toggle persists via `UpdateSettings` CAS. `enabled_modules` keys are **sticky** by module id string — renaming a module id does not migrate or delete the old key; stale entries remain until cleaned by hand |
+| Config | Available | Versioned settings; `luma config get/set`; TUI Settings via `/settings`; `/settings projects-root PATH` and `/settings import-project PATH` make first-time module setup actionable in the workbench; Ctrl-/ opens command palette; Space toggle persists via `UpdateSettings` CAS. `enabled_modules` keys are **sticky** by module id string — renaming a module id does not migrate or delete the old key; stale entries remain until cleaned by hand |
 | Module registry | Available | Manifest + enable/disable; warmup for enabled modules |
 
 ## Modules
@@ -30,7 +30,6 @@ Interactive module commands require a leading `/` (for example `/ssh`, `/rec bro
 | Runtime | `/run` / `/ports` | Available — on-demand local TCP listener list with project association; copy fields and guarded same-user, identity-rechecked SIGTERM only. No background monitor or SIGKILL. | on |
 | Proxy | `/proxy` / `/px` | Available — controller-first Mihomo status, groups/nodes, mode, `/proxy status` and on-demand `/proxy check`, local macOS HTTP/SOCKS proxy controls, and safe Luma Profile import/list/use/delete/refresh; HTTPS is reported read-only. Clash Verge Profiles are read-only unless Luma-owned. See [Proxy](./PROXY.md). | on |
 | Clipboard | `/clip` / `/cb` | Available — history, pin/unpin, `/clip clear`, paste needs AX; caps: **500** unpinned, **100** pinned; entries over **256 KiB** rejected | on |
-| Notes | `/n` / `/note` / `/notes` | Available — FTS/CJK index; configure first use with `/settings notes-root PATH`; `/n new` / `/n daily` / `/n browse` / `/n recent` / `/n status` / `/n issues` / `/n check` / `/n reindex`; excludes via `--notes-exclude`; workspace I/O is adapter-backed with bounded, non-symlink previews/creation | on |
 | Quicklinks | `/ql` / `/quicklinks` | Available — add/overwrite, open, copy URL, delete; hard cap **1000** entries (updates remain allowed at capacity) | on |
 | Snippets | `/s` / `/snip` | Available — search/add/overwrite/copy/delete without Accessibility; paste reports AX permission locally; hard cap **1000** entries | on |
 | Wordbook | `/wb` / `/wordbook` / `/words` | Available — due/new/wrong lists; `/wb review due\|new\|wrong` one-word session; Enter/Space reveal, 1/2/3 grade, m mastered with confirmation, s skip, Esc exit; queue uses remaining daily goal; `/wb import PATH` accepts a regular non-symlink UTF-8 CSV up to 512 KiB; daily goal. Search/perform (import, speak, pasteboard) honor cancel tokens | on |
@@ -72,7 +71,7 @@ Read-only launcher over OpenSSH — not a full SSH client:
 
 ### Continue and global recall
 
-- Global search contributors are Apps, Windows, Projects, Notes, Command Recipes, SSH, Clipboard,
+- Global search contributors are Apps, Windows, Projects, Command Recipes, SSH, Clipboard,
   Snippets, Quicklinks, and Git. Results are capped at 12 per module and 60 total, then selected
   round-robin so one large catalogue cannot fill the first page. Records and Wordbook remain
   targeted-only because their dense historical rows lack a clear bounded global-search benefit.

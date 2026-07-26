@@ -166,9 +166,6 @@ fn is_known_prefix(token: &str) -> bool {
             | "apps"
             | "clip"
             | "cb"
-            | "n"
-            | "note"
-            | "notes"
             | "help"
             | "fake"
             | "echo"
@@ -233,8 +230,8 @@ mod tests {
 
     #[test]
     fn trailing_space_commits_bare_trigger() {
-        let q = Query::parse("n ", 20);
-        assert!(matches!(q.scope, QueryScope::Targeted { ref module } if module == "n"));
+        let q = Query::parse("clip ", 20);
+        assert!(matches!(q.scope, QueryScope::Targeted { ref module } if module == "clip"));
         assert_eq!(q.rest_raw(), "");
     }
 
@@ -259,11 +256,11 @@ mod tests {
 
     #[test]
     fn bare_trigger_is_incomplete() {
-        let q = Query::parse("n", 20);
+        let q = Query::parse("clip", 20);
         assert!(q.is_incomplete_trigger(is_known_prefix));
-        let q2 = Query::parse("n ", 20);
+        let q2 = Query::parse("clip ", 20);
         assert!(!q2.is_incomplete_trigger(is_known_prefix));
-        let q3 = Query::parse("n docker", 20);
+        let q3 = Query::parse("clip docker", 20);
         assert!(!q3.is_incomplete_trigger(is_known_prefix));
     }
 

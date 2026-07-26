@@ -89,7 +89,7 @@ impl AppState {
         })
     }
 
-    /// Slash-prefixed bare module trigger (`/n`, not `n` or `/n `).
+    /// Slash-prefixed bare module trigger (`/clip`, not `clip` or `/clip `).
     /// Unprefixed input is always a global search under the strict command format.
     pub fn incomplete_slash_trigger(&self) -> Option<String> {
         let is_prefix = |token: &str| {
@@ -581,7 +581,6 @@ impl AppState {
                     "apps" => "app",
                     "windows" => "win",
                     "clipboard" => "clip",
-                    "notes" => "n",
                     "quicklinks" => "ql",
                     "snippets" => "s",
                     "projects" => "proj",
@@ -614,7 +613,6 @@ fn hub_kind_label(kind: &str) -> &str {
         "window" => "Window",
         "app" => "App",
         "project" => "Project",
-        "note" => "Note",
         "recipe" => "Command",
         "ssh_host" => "SSH",
         "clipboard" => "Clipboard",

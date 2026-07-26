@@ -43,10 +43,10 @@ template. Luma does not adopt their conversational, autonomous-planning, LLM, or
   Personal Wordbook (`luma.wordbook`: vocab + SRS, no desktop pet) is allowed.
 - Persistent Luma-owned state lives under LumaNext (and tempfile overrides in tests). Explicit
   user actions may operate on an imported or configured workspace path when that module defines
-  the boundary (for example Notes and Projects), or use a narrowly scoped platform adapter for
-  an opt-in system integration such as Keychain or system-proxy ownership. Those adapters must
-  preserve their local safety, ownership, and rollback rules; modules do not acquire broader
-  filesystem or system-write access.
+  the boundary (for example Projects; Notes was retired), or use a narrowly scoped platform
+  adapter for an opt-in system integration such as Keychain or system-proxy ownership. Those
+  adapters must preserve their local safety, ownership, and rollback rules; modules do not
+  acquire broader filesystem or system-write access.
 
 Personal **Windows** (`luma.windows`: list + focus, Hub projection of previous-frontmost)
 is allowed; see [0004-windows-hub-projection.md](./0004-windows-hub-projection.md).

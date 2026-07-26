@@ -33,4 +33,5 @@ and Keychain. Interactive TCC prompts were not forced.
 ## Consequences
 
 - Clipboard / Snippets paste works when Accessibility is granted **and** a target app was captured before Luma took focus.
-- Notes watch uses `notify` (FSEvents on macOS) with polling fallback.
+- Retired: the former Notes watcher used `notify` (FSEvents on macOS) with polling fallback;
+  the Notes module was removed and Luma no longer watches note workspaces.

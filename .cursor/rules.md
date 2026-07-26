@@ -24,8 +24,9 @@ an AI-agent product. Implement under `rust/`. Follow `AGENTS.md` and
   `:doctor`, Doctor overlay, diagnostics export, or probe-port infrastructure.
 - Keep Window layouts, Menu search, Browser tabs, and signed-host Translate deferred and out of
   the tree.
-- Prioritize real friction in the registered modules: Apps, Windows, Proxy, Clipboard, Notes,
-  Quicklinks, Snippets, Wordbook, Records, Projects, Command Recipes, SSH, Timers, and Secrets.
+- Prioritize real friction in the registered modules: Apps, Windows, Git, Runtime, Proxy,
+  Clipboard, Quicklinks, Snippets, Wordbook, Records, Projects, Command Recipes, SSH, Timers,
+  and Secrets.
 - Interactive commands use an explicit leading `/` (`/ssh`, `/rec browse`, `/cmd test`,
   `/settings`, `/help`). Treat unprefixed prompt text as global search and do not restore legacy
   bare-trigger or colon command syntax.

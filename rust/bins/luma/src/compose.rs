@@ -6,27 +6,26 @@
 use luma_application::{
     CapabilityPort, CommandRecipesRepository, ModuleManifest, ModuleRegistry, RecallRepository,
     RegistryError as ModuleRegistryError, SearchMode, SettingsRepository, SqliteClipboardHistory,
-    SqliteCommandRecipesRepository, SqliteNotesIndex, SqliteQuicklinksRepository,
-    SqliteRecallRepository, SqliteRecordsRepository, SqliteSnippetsRepository,
-    SqliteSshMetaRepository, SqliteTimersRepository, SqliteWordbookRepository,
-    TomlSettingsRepository, UnavailableModule, WordbookRepository, WorkbenchMeta,
+    SqliteCommandRecipesRepository, SqliteQuicklinksRepository, SqliteRecallRepository,
+    SqliteRecordsRepository, SqliteSnippetsRepository, SqliteSshMetaRepository,
+    SqliteTimersRepository, SqliteWordbookRepository, TomlSettingsRepository, UnavailableModule,
+    WordbookRepository, WorkbenchMeta,
 };
 use luma_modules::{
     AppsModule, ClipboardModule, ClipboardSuppression, CommandRecipesModule, FakeEchoModule,
-    GitModule, NotesModule, NotesServices, ProjectsModule, ProxyModule, QuicklinksModule,
-    RecordsModule, RuntimeModule, SecretsModule, SnippetsModule, SshModule, TimersModule,
-    WindowsModule, WordbookModule,
+    GitModule, ProjectsModule, ProxyModule, QuicklinksModule, RecordsModule, RuntimeModule,
+    SecretsModule, SnippetsModule, SshModule, TimersModule, WindowsModule, WordbookModule,
 };
 use luma_platform_macos::{
     FilesystemAppsCatalog, MacAccessibility, MacBoundedUtf8FileReader, MacClock, MacGitRepository,
-    MacKeychain, MacMarkdownWatcher, MacMihomoProxyCore, MacNetworkProbe, MacNotesWorkspace,
-    MacOpenPath, MacPasteboard, MacProfileStore, MacProjectWorkspace, MacRecipeEnvironment,
-    MacRuntimeInspector, MacSpeech, MacSshConfig, MacSystemProxy, MacWindowCatalog,
+    MacKeychain, MacMihomoProxyCore, MacNetworkProbe, MacOpenPath, MacPasteboard, MacProfileStore,
+    MacProjectWorkspace, MacRecipeEnvironment, MacRuntimeInspector, MacSpeech, MacSshConfig,
+    MacSystemProxy, MacWindowCatalog,
 };
 use luma_storage::{
     luma_next_support_dir, ClipboardStore, CommandRecipesMetaStore, ConfigError, ConfigStore,
-    LumaSettings, NotesIndexStore, NotesScanner, QuicklinksStore, RecallStore, RecordsStore,
-    SnippetsStore, SshMetaStore, TimersStore, WordbookStore,
+    LumaSettings, QuicklinksStore, RecallStore, RecordsStore, SnippetsStore, SshMetaStore,
+    TimersStore, WordbookStore,
 };
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -83,12 +82,10 @@ pub fn registry_from_settings(
     snippets: Option<Arc<SnippetsStore>>,
     wordbook: Option<Arc<WordbookStore>>,
     records: Option<Arc<RecordsStore>>,
-    notes_index: Option<Arc<NotesScanner>>,
     command_recipes_meta: Option<Arc<CommandRecipesMetaStore>>,
     timers: Option<Arc<TimersStore>>,
     support_dir: PathBuf,
 ) -> Result<(ModuleRegistry, Vec<SkippedModule>), ModuleRegistryError> {
-    let notes_root = settings.notes_root.as_ref().map(PathBuf::from);
     let records_root = settings
         .records_root
         .as_ref()
@@ -159,36 +156,6 @@ pub fn registry_from_settings(
             "/clip · history · pin/unpin · paste needs AX",
             false,
             "Clipboard store could not be opened. Existing data was left untouched; close Luma, repair or restore the local store, then reopen.",
-        )?;
-    }
-    if let Some(scanner) = notes_index {
-        reg.register(Arc::new(NotesModule::with_root(
-            notes_root,
-            opener.clone(),
-            Arc::new(MacMarkdownWatcher),
-            Arc::new(SqliteNotesIndex::with_exclude_patterns(
-                scanner,
-                settings.notes_exclude_patterns.clone(),
-            )),
-            pasteboard.clone(),
-            NotesServices {
-                clock: Arc::new(MacClock),
-                workspace: Arc::new(MacNotesWorkspace),
-            },
-            settings.notes_exclude_patterns.clone(),
-        )))?;
-    } else {
-        register_unavailable_store_module(
-            &mut reg,
-            &mut skipped,
-            "luma.notes",
-            "Notes",
-            &["n", "note", "notes"],
-            "N",
-            "/n ",
-            "/n browse tree · /n <query> search · /n recent · /n issues",
-            true,
-            "Notes index could not be opened. Existing data was left untouched; close Luma, repair or restore the local store, then reopen.",
         )?;
     }
     if let Some(quicklinks) = quicklinks {
@@ -475,13 +442,6 @@ pub fn load_registry_with_settings() -> Result<RegistryLoad, RegistryError> {
             None
         }
     };
-    let notes_index = match NotesIndexStore::luma_next_default() {
-        Ok(store) => Some(Arc::new(NotesScanner::new(store))),
-        Err(err) => {
-            warn!(%err, "failed to open notes index");
-            None
-        }
-    };
     let support_dir = luma_next_support_dir().unwrap_or_else(|_| PathBuf::from("."));
     let command_recipes_meta = match CommandRecipesMetaStore::luma_next_default() {
         Ok(s) => Some(Arc::new(s)),
@@ -511,7 +471,6 @@ pub fn load_registry_with_settings() -> Result<RegistryLoad, RegistryError> {
         snippets.clone(),
         wordbook.clone(),
         records.clone(),
-        notes_index.clone(),
         command_recipes_meta.clone(),
         timers.clone(),
         support_dir.clone(),

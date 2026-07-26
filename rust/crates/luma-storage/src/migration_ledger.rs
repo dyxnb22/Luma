@@ -29,6 +29,7 @@ pub enum LedgerError {
 #[serde(rename_all = "snake_case")]
 pub enum MigrationKind {
     Clipboard,
+    /// Retained only to deserialize and roll back historical ledger records.
     NotesConfig,
     LegacyDryRun,
     Records,
@@ -335,5 +336,53 @@ mod tests {
         assert!(matches!(err, LedgerError::InvalidMigrationId(_)));
         let err = migration_dir("mig-not-a-uuid").unwrap_err();
         assert!(matches!(err, LedgerError::InvalidMigrationId(_)));
+    }
+
+    #[test]
+    fn historical_notes_config_ledger_deserializes_for_list_and_rollback() {
+        let dir = tempdir().unwrap();
+        let support = dir.path().join("support");
+        let logs = dir.path().join("logs");
+        let _env = crate::paths::LumaNextTestEnvGuard::override_paths(&support, &logs);
+        let migration_id = "mig-00000000-0000-0000-0000-000000000001";
+        let migration = support.join("migrations").join(migration_id);
+        fs::create_dir_all(migration.join("snapshot")).unwrap();
+        fs::write(
+            migration.join("snapshot/settings.toml"),
+            "settings_version = 1\n",
+        )
+        .unwrap();
+        fs::write(support.join("settings.toml"), "settings_version = 2\n").unwrap();
+        fs::write(
+            migration.join("ledger.json"),
+            r#"{
+                "migration_id":"mig-00000000-0000-0000-0000-000000000001",
+                "kind":"notes_config",
+                "status":"committed",
+                "source_fingerprint":"file:/legacy/notes.json",
+                "schema_version":1,
+                "imported":1,
+                "skipped":0,
+                "errors":0,
+                "dry_run":false,
+                "created_at_unix":0,
+                "notes":[],
+                "snapshot_files":["settings.toml"]
+            }"#,
+        )
+        .unwrap();
+
+        let listed = list_migrations().unwrap();
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].kind, MigrationKind::NotesConfig);
+
+        let settings = support.join("settings.toml");
+        let rolled_back =
+            rollback_migration(migration_id, &[("settings.toml", settings.as_path())]).unwrap();
+        assert_eq!(rolled_back.status, MigrationStatus::RolledBack);
+        assert_eq!(
+            fs::read_to_string(settings).unwrap(),
+            "settings_version = 1\n"
+        );
     }
 }

@@ -314,10 +314,6 @@ impl AppState {
             Event::SettingsChanged { version, settings } => {
                 self.settings.version = version;
                 self.settings.modules.clear();
-                self.settings.roots.notes_root = settings
-                    .get("notes_root")
-                    .and_then(|v| v.as_str())
-                    .map(str::to_string);
                 self.settings.roots.projects_roots = settings
                     .get("projects_roots")
                     .and_then(|v| v.as_array())

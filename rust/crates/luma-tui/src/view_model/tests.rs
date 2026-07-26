@@ -94,12 +94,12 @@ fn action_finished_not_configured_is_warning() {
     let applied = state.apply_engine_event(Event::ActionFinished {
         operation_id: "op-2".into(),
         outcome: ActionOutcomeDto::failed(FailureKind::NotConfigured {
-            remediation: "set notes_root".into(),
+            remediation: "set project root".into(),
         }),
     });
     assert!(applied);
     assert_eq!(state.status.tone, StatusTone::Warning);
-    assert!(state.status.text.contains("set notes_root"));
+    assert!(state.status.text.contains("set project root"));
 }
 
 #[test]
@@ -175,10 +175,10 @@ fn preview_stacked_on_tall_narrow_terminal() {
     };
     state.search.results.items.push(SearchItem {
         id: ResultId::new("1"),
-        module_id: ModuleId::new("luma.notes"),
-        title: "Note".into(),
+        module_id: ModuleId::new("luma.projects"),
+        title: "Project".into(),
         subtitle: None,
-        kind: "note".into(),
+        kind: "project".into(),
         score: 1.0,
         primary_action: ActionDescriptor {
             id: ActionId::new("open"),
@@ -441,43 +441,43 @@ fn wordbook_review_stats_updated_refreshes_counters() {
     assert_eq!(review.stats.due, 5);
 }
 
-fn catalog_with_notes_trigger() -> Vec<ModuleCatalogEntry> {
+fn catalog_with_clipboard_trigger() -> Vec<ModuleCatalogEntry> {
     vec![ModuleCatalogEntry {
-        id: "luma.notes".into(),
-        display_name: "Notes".into(),
+        id: "luma.clipboard".into(),
+        display_name: "Clipboard".into(),
         enabled: true,
         glyph: None,
-        suggested_query: Some("/n ".into()),
+        suggested_query: Some("/clip ".into()),
         empty_hint: None,
-        supports_browse: true,
-        triggers: vec!["n".into(), "note".into(), "notes".into()],
+        supports_browse: false,
+        triggers: vec!["clip".into()],
     }]
 }
 
 #[test]
-fn bare_n_is_not_incomplete_slash_trigger() {
+fn bare_clip_is_not_incomplete_slash_trigger() {
     let state = AppState {
         search: SearchState {
-            prompt: "n".into(),
+            prompt: "clip".into(),
             ..SearchState::default()
         },
-        module_catalog: catalog_with_notes_trigger(),
+        module_catalog: catalog_with_clipboard_trigger(),
         ..AppState::default()
     };
     assert!(state.incomplete_slash_trigger().is_none());
 }
 
 #[test]
-fn slash_n_is_incomplete_slash_trigger() {
+fn slash_clip_is_incomplete_slash_trigger() {
     let state = AppState {
         search: SearchState {
-            prompt: "/n".into(),
+            prompt: "/clip".into(),
             ..SearchState::default()
         },
-        module_catalog: catalog_with_notes_trigger(),
+        module_catalog: catalog_with_clipboard_trigger(),
         ..AppState::default()
     };
-    assert_eq!(state.incomplete_slash_trigger().as_deref(), Some("n"));
+    assert_eq!(state.incomplete_slash_trigger().as_deref(), Some("clip"));
 }
 
 #[test]
@@ -487,14 +487,14 @@ fn snapshot_loaded_sorts_by_score() {
         items: vec![
             SearchItemDto {
                 id: "low".into(),
-                module_id: "luma.notes".into(),
+                module_id: "luma.projects".into(),
                 title: "low".into(),
                 score: 1.0,
                 ..SearchItemDto::default()
             },
             SearchItemDto {
                 id: "high".into(),
-                module_id: "luma.notes".into(),
+                module_id: "luma.projects".into(),
                 title: "high".into(),
                 score: 9.0,
                 ..SearchItemDto::default()
@@ -518,10 +518,10 @@ fn snapshot_loaded_ignored_during_active_search() {
     };
     state.search.results.items.push(luma_domain::SearchItem {
         id: luma_domain::ResultId::new("keep"),
-        module_id: luma_domain::ModuleId::new("luma.notes"),
+        module_id: luma_domain::ModuleId::new("luma.projects"),
         title: "keep".into(),
         subtitle: None,
-        kind: "note".into(),
+        kind: "project".into(),
         score: 1.0,
         primary_action: luma_domain::ActionDescriptor {
             id: luma_domain::ActionId::new("open"),
@@ -536,7 +536,7 @@ fn snapshot_loaded_ignored_during_active_search() {
     let applied = state.apply_engine_event(Event::SnapshotLoaded {
         items: vec![SearchItemDto {
             id: "stale".into(),
-            module_id: "luma.notes".into(),
+            module_id: "luma.projects".into(),
             title: "stale".into(),
             score: 9.0,
             ..SearchItemDto::default()
@@ -552,12 +552,12 @@ fn preview_loaded_clears_pending_on_selection_mismatch() {
     let mut state = AppState {
         preview: PreviewState {
             pending_id: Some(3),
-            result_id: Some("note:a".into()),
+            result_id: Some("preview:a".into()),
             ..PreviewState::default()
         },
         search: SearchState {
             results: ResultsView {
-                selected_id: Some("note:b".into()),
+                selected_id: Some("preview:b".into()),
                 ..ResultsView::default()
             },
             ..SearchState::default()
@@ -565,7 +565,7 @@ fn preview_loaded_clears_pending_on_selection_mismatch() {
         ..AppState::default()
     };
     let applied = state.apply_engine_event(Event::PreviewLoaded {
-        result_id: "note:a".into(),
+        result_id: "preview:a".into(),
         preview_id: 3,
         body: "body".into(),
     });
@@ -575,14 +575,14 @@ fn preview_loaded_clears_pending_on_selection_mismatch() {
 }
 
 #[test]
-fn search_finished_bare_n_is_not_add_space_hint() {
+fn search_finished_bare_clip_is_not_add_space_hint() {
     let mut state = AppState {
         search: SearchState {
-            prompt: "n".into(),
+            prompt: "clip".into(),
             active_request: Some("req-1".into()),
             ..SearchState::default()
         },
-        module_catalog: catalog_with_notes_trigger(),
+        module_catalog: catalog_with_clipboard_trigger(),
         ..AppState::default()
     };
     let applied = state.apply_engine_event(Event::SearchFinished {
@@ -595,14 +595,14 @@ fn search_finished_bare_n_is_not_add_space_hint() {
 }
 
 #[test]
-fn search_finished_slash_n_shows_add_space_hint() {
+fn search_finished_slash_clip_shows_add_space_hint() {
     let mut state = AppState {
         search: SearchState {
-            prompt: "/n".into(),
+            prompt: "/clip".into(),
             active_request: Some("req-1".into()),
             ..SearchState::default()
         },
-        module_catalog: catalog_with_notes_trigger(),
+        module_catalog: catalog_with_clipboard_trigger(),
         ..AppState::default()
     };
     let applied = state.apply_engine_event(Event::SearchFinished {

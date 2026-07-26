@@ -283,22 +283,18 @@ fn cancel_opens_quit_confirm_from_empty_search() {
 #[test]
 fn browse_query_parent_pops_one_path_component() {
     assert_eq!(
-        browse_query_parent("/n browse /Notes/Inbox/nested"),
-        Some("/n browse /Notes/Inbox".into())
-    );
-    assert_eq!(
         browse_query_parent("/proj browse /dev/app"),
         Some("/proj browse /dev".into())
     );
-    assert_eq!(browse_query_parent("/n browse"), None);
-    assert_eq!(browse_query_parent("/n hello"), None);
+    assert_eq!(browse_query_parent("/proj browse"), None);
+    assert_eq!(browse_query_parent("/proj hello"), None);
     assert_eq!(
-        browse_query_parent("/n browse /Notes"),
-        Some("/n browse /".into())
+        browse_query_parent("/proj browse /projects"),
+        Some("/proj browse /".into())
     );
     assert_eq!(
-        browse_query_parent("/n browse /Notes/Inbox"),
-        Some("/n browse /Notes".into())
+        browse_query_parent("/proj browse /projects/client"),
+        Some("/proj browse /projects".into())
     );
 }
 
@@ -386,13 +382,13 @@ fn records_actions_seed_prompt_for_rate_and_note() {
 #[test]
 fn esc_pops_browse_nav_stack_then_clears_at_root() {
     let mut state = AppState::default();
-    state.search.prompt = "/n browse".into();
+    state.search.prompt = "/proj browse".into();
     state.search.prompt_cursor = state.prompt_char_len();
     state.search.results.items.push(SearchItem {
-        id: ResultId::new("browse:n:/tmp/notes/Inbox"),
-        module_id: ModuleId::new("luma.notes"),
+        id: ResultId::new("browse:proj:/tmp/projects/Inbox"),
+        module_id: ModuleId::new("luma.projects"),
         title: "Inbox/".into(),
-        subtitle: Some("/tmp/notes/Inbox".into()),
+        subtitle: Some("/tmp/projects/Inbox".into()),
         kind: "directory".into(),
         score: 1.0,
         primary_action: ActionDescriptor {
@@ -404,14 +400,17 @@ fn esc_pops_browse_nav_stack_then_clears_at_root() {
         secondary_actions: vec![],
         ui_intent: Some("browse".into()),
         action_payload: Some(serde_json::json!({
-            "browse_trigger": "n",
-            "path": "/tmp/notes/Inbox",
+            "browse_trigger": "proj",
+            "path": "/tmp/projects/Inbox",
         })),
     });
-    state.search.results.selected_id = Some("browse:n:/tmp/notes/Inbox".into());
+    state.search.results.selected_id = Some("browse:proj:/tmp/projects/Inbox".into());
     let _ = update(&mut state, Msg::Submit);
-    assert_eq!(state.search.prompt, "/n browse /tmp/notes/Inbox");
-    assert_eq!(state.search.browse_nav_stack, vec!["/n browse".to_string()]);
+    assert_eq!(state.search.prompt, "/proj browse /tmp/projects/Inbox");
+    assert_eq!(
+        state.search.browse_nav_stack,
+        vec!["/proj browse".to_string()]
+    );
 
     state.search.active_request = None;
     let effects = update(&mut state, Msg::Cancel);
@@ -419,7 +418,7 @@ fn esc_pops_browse_nav_stack_then_clears_at_root() {
         effects.iter().any(|e| matches!(e, Effect::Search { .. })),
         "expected search after browse-up: {effects:?}"
     );
-    assert_eq!(state.search.prompt, "/n browse");
+    assert_eq!(state.search.prompt, "/proj browse");
     assert!(state.search.browse_nav_stack.is_empty());
 
     state.search.active_request = None;
@@ -435,9 +434,9 @@ fn esc_pops_browse_nav_stack_then_clears_at_root() {
 #[test]
 fn ctrl_u_clears_browse_stack_for_home() {
     let mut state = AppState::default();
-    state.search.prompt = "/n browse /tmp/notes/Inbox".into();
+    state.search.prompt = "/proj browse /tmp/projects/Inbox".into();
     state.search.prompt_cursor = state.prompt_char_len();
-    state.search.browse_nav_stack = vec!["/n browse".into()];
+    state.search.browse_nav_stack = vec!["/proj browse".into()];
     let _ = update(&mut state, Msg::ClearToStart);
     assert!(state.search.prompt.is_empty());
     assert!(state.search.browse_nav_stack.is_empty());
@@ -953,11 +952,11 @@ fn settings_ctrl_u_does_not_edit_prompt() {
 fn stale_preview_loaded_is_ignored() {
     let mut state = AppState::default();
     state.search.results.items.push(luma_domain::SearchItem {
-        id: luma_domain::ResultId::new("note:a"),
-        module_id: luma_domain::ModuleId::new("luma.notes"),
+        id: luma_domain::ResultId::new("proj:a"),
+        module_id: luma_domain::ModuleId::new("luma.projects"),
         title: "a".into(),
         subtitle: None,
-        kind: "note".into(),
+        kind: "project".into(),
         score: 1.0,
         primary_action: luma_domain::ActionDescriptor {
             id: luma_domain::ActionId::new("open"),
@@ -969,7 +968,7 @@ fn stale_preview_loaded_is_ignored() {
         ui_intent: None,
         action_payload: None,
     });
-    state.search.results.selected_id = Some("note:a".into());
+    state.search.results.selected_id = Some("proj:a".into());
     let effects = preview_effect(&mut state);
     let Effect::LoadPreview {
         preview_id: first_id,
@@ -994,7 +993,7 @@ fn stale_preview_loaded_is_ignored() {
     assert_ne!(first_id, *second_id);
 
     let applied = state.apply_engine_event(Event::PreviewLoaded {
-        result_id: "note:a".into(),
+        result_id: "proj:a".into(),
         preview_id: first_id,
         body: "STALE".into(),
     });
@@ -1002,7 +1001,7 @@ fn stale_preview_loaded_is_ignored() {
     assert_ne!(state.preview.body.as_deref(), Some("STALE"));
 
     let applied = state.apply_engine_event(Event::PreviewLoaded {
-        result_id: "note:a".into(),
+        result_id: "proj:a".into(),
         preview_id: *second_id,
         body: "FRESH".into(),
     });
@@ -1132,8 +1131,8 @@ fn seed_config_primary_skips_action_picker() {
     use luma_domain::{ActionDescriptor, ActionId, ActionRisk, ModuleId, ResultId, SearchItem};
     let mut state = AppState::default();
     let item = SearchItem {
-        id: ResultId::new("notes:configure"),
-        module_id: ModuleId::new("luma.notes"),
+        id: ResultId::new("proj:not-configured"),
+        module_id: ModuleId::new("luma.projects"),
         title: "Configure".into(),
         subtitle: Some("hint".into()),
         kind: "not_configured".into(),
@@ -1157,15 +1156,15 @@ fn seed_config_primary_skips_action_picker() {
             .all(|e| !matches!(e, Effect::ListActions { .. })),
         "seed_config primary should not open action picker: {effects:?}"
     );
-    assert_eq!(state.search.prompt, "/settings notes-root ");
-    assert!(state.status.text.contains("type a path"));
+    assert_eq!(state.search.prompt, "/settings import-project ");
+    assert!(state.status.text.contains("project path"));
 }
 
 #[test]
-fn local_settings_command_persists_notes_root_through_the_engine() {
+fn local_settings_command_persists_projects_root_through_the_engine() {
     let mut state = AppState::default();
     state.settings.version = 7;
-    state.search.prompt = "/settings notes-root /tmp/My Notes".into();
+    state.search.prompt = "/settings projects-root /tmp/My Project".into();
     state.search.prompt_cursor = state.prompt_char_len();
 
     let effects = update(&mut state, Msg::Submit);
@@ -1173,7 +1172,7 @@ fn local_settings_command_persists_notes_root_through_the_engine() {
     assert!(matches!(
         effects.as_slice(),
         [Effect::PatchSettings { patch, expected_version: 7 }]
-            if patch == &serde_json::json!({"notes_root": "/tmp/My Notes"})
+            if patch == &serde_json::json!({"projects_roots": ["/tmp/My Project"]})
     ));
     assert_eq!(state.status.text, "saving settings…");
 }
@@ -1181,7 +1180,7 @@ fn local_settings_command_persists_notes_root_through_the_engine() {
 #[test]
 fn local_settings_command_preserves_repeated_spaces_in_paths() {
     let mut state = AppState::default();
-    state.search.prompt = "/settings notes-root /tmp/My  Notes".into();
+    state.search.prompt = "/settings projects-root /tmp/My  Project".into();
     state.search.prompt_cursor = state.prompt_char_len();
 
     let effects = update(&mut state, Msg::Submit);
@@ -1189,7 +1188,7 @@ fn local_settings_command_preserves_repeated_spaces_in_paths() {
     assert!(matches!(
         effects.as_slice(),
         [Effect::PatchSettings { patch, .. }]
-            if patch == &serde_json::json!({"notes_root": "/tmp/My  Notes"})
+            if patch == &serde_json::json!({"projects_roots": ["/tmp/My  Project"]})
     ));
 }
 

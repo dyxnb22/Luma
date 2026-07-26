@@ -1,2 +1,0 @@
-# Visible
-Should be discovered.

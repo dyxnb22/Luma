@@ -66,7 +66,7 @@ These are **when-you-touch** rules, not a mandate to split everything now.
 
 | Soft limit | Action when exceeded and you are already editing the area |
 | --- | --- |
-| Module production file ≳ 1200 lines | Prefer a subdirectory (`notes/`-style): domain helpers, actions, tests co-located or `*_tests` module |
+| Module production file ≳ 1200 lines | Prefer a subdirectory (`proxy/`-style): domain helpers, actions, tests co-located or `*_tests` module |
 | Platform/adapter file ≳ 1500 lines | Split parse/import vs store I/O (e.g. proxy profile YAML/URI vs persistence) |
 | TUI `reducer.rs` / `view_model.rs` growth | Extract by message family or surface; keep tests next to the extracted unit |
 | Single-file “directory” modules | Only keep `foo/mod.rs` alone if a second file is imminent; otherwise flat `foo.rs` is fine |

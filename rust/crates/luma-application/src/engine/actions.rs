@@ -105,6 +105,9 @@ impl Engine {
                                 crate::module::ActionOutcome::Cancelled => {
                                     luma_protocol::ActionOutcomeDto::Cancelled
                                 }
+                                crate::module::ActionOutcome::OpenSurface { query } => {
+                                    luma_protocol::ActionOutcomeDto::OpenSurface { query }
+                                }
                                 crate::module::ActionOutcome::InteractiveTerminal {
                                     program,
                                     args,
@@ -148,7 +151,11 @@ impl Engine {
                     entity: format!("result:{result_id}"),
                 }),
             };
-            if matches!(outcome, luma_protocol::ActionOutcomeDto::Success { .. }) {
+            if matches!(
+                outcome,
+                luma_protocol::ActionOutcomeDto::Success { .. }
+                    | luma_protocol::ActionOutcomeDto::OpenSurface { .. }
+            ) {
                 if let (Some(item), Some(repo)) = (recall_item.as_ref(), recall_repo.as_ref()) {
                     let now_unix = std::time::SystemTime::now()
                         .duration_since(std::time::UNIX_EPOCH)

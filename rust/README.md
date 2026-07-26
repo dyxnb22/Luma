@@ -130,7 +130,13 @@ backup, and migration ledger, never the Markdown source files.
 - `/win`: `1`–`9` works only while the result list is focused. Digits typed in the prompt are never hijacked.
 - `/wb due`, `/wb new`, `/wb wrong`: normal lists. `/wb review due|new|wrong`: Enter/Space reveals, `1/2/3` grades, `m` masters after confirmation, `s` skips, Esc exits. `/wb import PATH` accepts a regular non-symlink UTF-8 CSV up to 512 KiB.
 - `/rec`: searches Records. Use `/rec browse`, `/rec add CATEGORY NAME | rating | note`, `/rec rate ID SCORE`, and `/rec note ID TEXT`.
-- `/proj`: plain search shows only manually imported projects. Use `/proj add/import PATH`, `/proj remove NAME|PATH`, and `/proj browse`.
+- `/proj`: lists only manually imported projects, recall-ranked by recent/frequent associated
+  actions. Enter opens `/proj show PATH`, a single-project workbench with Continue, local Git
+  summary, associated Runtime listeners, matching Command Recipes, bounded file browsing, Finder,
+  the first available editor CLI (`code`, `cursor`, `zed`, `nvim`, `vim`), and an interactive zsh
+  rooted at the project. Use `/proj add/import PATH`,
+  `/proj remove NAME|PATH`, and `/proj browse`; the workbench reads source modules on demand and
+  owns none of their data.
 - `/git`: scans only manually imported project roots (bounded depth/count) and prioritizes
   conflict/dirty/ahead repositories. Enter opens `/git repo PATH`; files support stage/unstage,
   a bounded diff preview, and confirmed discard of unstaged tracked-file edits while preserving
@@ -139,7 +145,7 @@ backup, and migration ledger, never the Markdown source files.
   `l` local log, `r` refresh, `d` confirmed discard. `a` stages or unstages all according to the
   current file/control state; branch switches refuse dirty repositories.
 - `/run` (or `/ports`): lists local TCP listeners with port, address, PID, process, owner, cwd, and
-  imported-project association. Enter opens an associated project. SIGTERM is confirmation-gated,
+  imported-project association. Enter opens that project's `/proj show PATH` workbench. SIGTERM is confirmation-gated,
   same-user only, identity-rechecked, and never escalates to SIGKILL.
 - `/proxy status` is a read-only snapshot of HTTP/HTTPS/SOCKS settings, controller, and Luma-owned
   profile state. `/proxy check` performs on-demand local route/DNS/loopback/controller checks; it

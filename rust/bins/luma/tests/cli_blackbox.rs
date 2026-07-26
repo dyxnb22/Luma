@@ -587,6 +587,63 @@ fn config_import_project_round_trip() {
 }
 
 #[test]
+fn imported_project_query_exposes_project_workbench() {
+    let dir = tempdir().unwrap();
+    let support = dir.path().join("support");
+    let logs = dir.path().join("logs");
+    fs::create_dir_all(&support).unwrap();
+    fs::create_dir_all(&logs).unwrap();
+    let project = dir.path().join("myapp");
+    fs::create_dir(&project).unwrap();
+    fs::write(
+        project.join("Cargo.toml"),
+        "[package]\nname = \"myapp\"\nversion = \"0.1.0\"\n",
+    )
+    .unwrap();
+    let import_path = project.display().to_string();
+    let (code, _, stderr) = run_luma(
+        &support,
+        &logs,
+        &["config", "set", "--import-project", &import_path, "--json"],
+    );
+    assert_eq!(code, 0, "stderr={stderr}");
+    let path = fs::canonicalize(&project).unwrap().display().to_string();
+
+    let (code, stdout, stderr) = run_luma(&support, &logs, &["query", "/proj", "--json"]);
+    assert_eq!(code, 0, "stderr={stderr}");
+    let projects: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    let row = projects["results"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|row| row["id"] == format!("proj:{path}"))
+        .expect("imported project row");
+    assert_eq!(row["primary_action_id"], "open_workbench");
+    assert_eq!(row["action_payload"]["project_path"], path);
+
+    let query = format!("/proj show {path}");
+    let (code, stdout, stderr) = run_luma(&support, &logs, &["query", &query, "--json"]);
+    assert_eq!(code, 0, "stderr={stderr}");
+    let workbench: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    let actions = workbench["results"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|row| row["primary_action_id"].as_str())
+        .collect::<Vec<_>>();
+    for expected in [
+        "open",
+        "open_git",
+        "open_runtime",
+        "open_recipes",
+        "open_files",
+        "open_terminal",
+    ] {
+        assert!(actions.contains(&expected), "missing {expected}: {stdout}");
+    }
+}
+
+#[test]
 fn wordbook_import_wordpet_dry_run_then_commit() {
     use luma_storage::{WordContent, WordbookStore};
 

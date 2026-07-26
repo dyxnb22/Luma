@@ -1,19 +1,27 @@
 use crate::cancel::await_unless_cancelled;
 use async_trait::async_trait;
 use luma_application::{
-    recipe_in_scope, recipe_runnable, resolve_steps, ActionOutcome, ActionRequest,
-    CommandRecipesRepository, LumaModule, ModuleManifest, ModuleState, OpenPathPort,
-    PasteboardPort, RecipeEnvironmentPort, SearchMode, SearchSink, WarmupContext,
+    recipe_in_scope, recipe_runnable, resolve_steps, ActionOutcome, ActionRequest, AppSettings,
+    CommandRecipesRepository, ImportedProject, LumaModule, ModuleManifest, ModuleState,
+    OpenPathPort, PasteboardPort, RecipeEnvironmentPort, SearchMode, SearchSink, WarmupContext,
 };
 use luma_domain::{
     ActionDescriptor, ActionId, ActionRisk, FailureKind, ModuleId, Query, Recipe, RecipeMetadata,
     RecipeRisk, RecipeRunPlan, SearchItem, VariantMatch,
 };
 use luma_protocol::{Event, SearchItemDto};
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use tokio::sync::RwLock;
 use tokio_util::sync::CancellationToken;
 
 const MODULE_ID: &str = "luma.command_recipes";
+
+struct RecipeQueryContextError {
+    title: &'static str,
+    kind: &'static str,
+    reason: String,
+}
 
 pub struct CommandRecipesModule {
     manifest: ModuleManifest,
@@ -21,6 +29,7 @@ pub struct CommandRecipesModule {
     env: Arc<dyn RecipeEnvironmentPort>,
     pasteboard: Arc<dyn PasteboardPort>,
     opener: Arc<dyn OpenPathPort>,
+    projects: Arc<RwLock<Vec<ImportedProject>>>,
 }
 
 impl CommandRecipesModule {
@@ -49,7 +58,13 @@ impl CommandRecipesModule {
             env,
             pasteboard,
             opener,
+            projects: Arc::new(RwLock::new(Vec::new())),
         }
+    }
+
+    pub fn with_projects(mut self, projects: Vec<ImportedProject>) -> Self {
+        self.projects = Arc::new(RwLock::new(projects));
+        self
     }
 
     fn refresh_catalog(&self) -> luma_domain::RecipeCatalog {
@@ -131,21 +146,14 @@ impl CommandRecipesModule {
     }
 
     #[allow(clippy::result_large_err)]
-    fn build_plan(&self, recipe: &Recipe) -> Result<RecipeRunPlan, FailureKind> {
-        let base = self
-            .env
-            .working_directory()
-            .map_err(|e| FailureKind::Unavailable {
-                reason: e.0,
-                retryable: false,
-            })?;
-        recipe_runnable(self.env.as_ref(), &base, recipe).map_err(|message| {
+    fn build_plan_at(&self, recipe: &Recipe, base: &Path) -> Result<RecipeRunPlan, FailureKind> {
+        recipe_runnable(self.env.as_ref(), base, recipe).map_err(|message| {
             FailureKind::InvalidInput {
                 field: "recipe".into(),
                 message,
             }
         })?;
-        let variant = match self.env.match_variant(&base, &recipe.variants) {
+        let variant = match self.env.match_variant(base, &recipe.variants) {
             VariantMatch::Matched(v) => v,
             VariantMatch::NoMatch => {
                 return Err(FailureKind::InvalidInput {
@@ -154,7 +162,7 @@ impl CommandRecipesModule {
                 });
             }
         };
-        let steps = resolve_steps(self.env.as_ref(), &base, &variant).map_err(|e| {
+        let steps = resolve_steps(self.env.as_ref(), base, &variant).map_err(|e| {
             FailureKind::InvalidInput {
                 field: "cwd".into(),
                 message: e.0,
@@ -164,11 +172,92 @@ impl CommandRecipesModule {
             recipe_id: recipe.id.clone(),
             recipe_title: recipe.title.clone(),
             risk: recipe.risk.clone(),
-            working_dir: base,
+            working_dir: base.to_path_buf(),
             variant_id: variant.id.clone(),
             variant_description: variant.description.clone(),
             steps,
         })
+    }
+
+    #[cfg(test)]
+    #[allow(clippy::result_large_err)]
+    fn build_plan(&self, recipe: &Recipe) -> Result<RecipeRunPlan, FailureKind> {
+        let base = self
+            .env
+            .working_directory()
+            .map_err(|e| FailureKind::Unavailable {
+                reason: e.0,
+                retryable: false,
+            })?;
+        self.build_plan_at(recipe, &base)
+    }
+
+    fn result_base(&self, result: &SearchItem) -> Result<PathBuf, FailureKind> {
+        if let Some(path) = result
+            .action_payload
+            .as_ref()
+            .and_then(|payload| payload.get("project_path"))
+            .and_then(|value| value.as_str())
+        {
+            return Ok(PathBuf::from(path));
+        }
+        self.env
+            .working_directory()
+            .map_err(|error| FailureKind::Unavailable {
+                reason: error.0,
+                retryable: false,
+            })
+    }
+
+    async fn query_context(
+        &self,
+        query: &Query,
+    ) -> Result<(PathBuf, String, Option<String>), RecipeQueryContextError> {
+        let rest_raw = query.rest_raw().trim();
+        let rest_lower = rest_raw.to_lowercase();
+        if rest_lower == "project" || rest_lower.starts_with("project ") {
+            let path = rest_raw.get("project".len()..).unwrap_or("").trim();
+            if path.is_empty() {
+                return Err(RecipeQueryContextError {
+                    title: "Project recipes unavailable",
+                    kind: "not_configured",
+                    reason: "Usage: /cmd project /path/to/imported/project".into(),
+                });
+            }
+            let allowed = self
+                .projects
+                .read()
+                .await
+                .iter()
+                .any(|project| project.path == path);
+            if !allowed {
+                return Err(RecipeQueryContextError {
+                    title: "Project recipes unavailable",
+                    kind: "not_configured",
+                    reason: "project is not in the imported Projects list".into(),
+                });
+            }
+            return Ok((PathBuf::from(path), String::new(), Some(path.into())));
+        }
+        let base = self
+            .env
+            .working_directory()
+            .map_err(|error| RecipeQueryContextError {
+                title: "Command Recipes unavailable",
+                kind: "unavailable",
+                reason: error.0,
+            })?;
+        let filter = if query.is_command() {
+            query
+                .normalized
+                .split_whitespace()
+                .skip(1)
+                .collect::<Vec<_>>()
+                .join(" ")
+        } else {
+            query.normalized.clone()
+        };
+        Ok((base, filter, None))
     }
 
     fn copy_text(plan: &RecipeRunPlan) -> String {
@@ -298,9 +387,9 @@ impl LumaModule for CommandRecipesModule {
             return;
         }
 
-        let base = match self.env.working_directory() {
-            Ok(p) => p,
-            Err(e) => {
+        let (base, filter, project_path) = match self.query_context(&query).await {
+            Ok(context) => context,
+            Err(error) => {
                 let _ = sink
                     .send(Event::ResultsChunk {
                         request_id: String::new(),
@@ -308,9 +397,9 @@ impl LumaModule for CommandRecipesModule {
                         upserts: vec![SearchItemDto {
                             id: "cmd:unavailable".into(),
                             module_id: MODULE_ID.into(),
-                            title: "Command Recipes unavailable".into(),
-                            subtitle: Some(e.0),
-                            kind: "unavailable".into(),
+                            title: error.title.into(),
+                            subtitle: Some(error.reason),
+                            kind: error.kind.into(),
                             score: 100.0,
                             primary_action_id: "noop".into(),
                             primary_action_label: "Unavailable".into(),
@@ -321,17 +410,6 @@ impl LumaModule for CommandRecipesModule {
                     .await;
                 return;
             }
-        };
-
-        let filter = if query.is_command() {
-            query
-                .normalized
-                .split_whitespace()
-                .skip(1)
-                .collect::<Vec<_>>()
-                .join(" ")
-        } else {
-            query.normalized.clone()
         };
 
         let mut upserts = Vec::new();
@@ -376,6 +454,7 @@ impl LumaModule for CommandRecipesModule {
                     "recipe_id": recipe.id,
                     "matched": matched,
                     "variant_id": variant_id,
+                    "project_path": project_path,
                 })),
                 ..Default::default()
             });
@@ -407,6 +486,27 @@ impl LumaModule for CommandRecipesModule {
             });
         }
 
+        if upserts.is_empty() {
+            upserts.push(SearchItemDto {
+                id: "cmd:no-match".into(),
+                module_id: MODULE_ID.into(),
+                title: "No matching command recipes".into(),
+                subtitle: Some(
+                    project_path
+                        .as_ref()
+                        .map(|path| format!("No runnable recipes for {path}"))
+                        .unwrap_or_else(|| {
+                            "Try another query or configure a project variant".into()
+                        }),
+                ),
+                kind: "status".into(),
+                score: 0.0,
+                primary_action_id: "noop".into(),
+                primary_action_label: "OK".into(),
+                ..Default::default()
+            });
+        }
+
         let _ = sink
             .send(Event::ResultsChunk {
                 request_id: String::new(),
@@ -433,13 +533,12 @@ impl LumaModule for CommandRecipesModule {
         let Some(recipe) = catalog.recipe_by_id(&recipe_id) else {
             return vec![];
         };
-        let matched = match self.env.working_directory() {
-            Ok(base) => matches!(
+        let matched = self.result_base(result).is_ok_and(|base| {
+            matches!(
                 self.env.match_variant(&base, &recipe.variants),
                 VariantMatch::Matched(_)
-            ),
-            Err(_) => false,
-        };
+            )
+        });
         let meta = self.repo.get_metadata(&recipe_id).unwrap_or_default();
         let run_risk = Self::risk_to_action(&recipe.risk);
         let mut actions = vec![
@@ -500,7 +599,10 @@ impl LumaModule for CommandRecipesModule {
         let recipe_id = Self::recipe_id_from_result(result.id.as_str())?;
         let catalog = self.repo.load_catalog();
         let recipe = catalog.recipe_by_id(&recipe_id)?;
-        let plan = self.build_plan(recipe).ok();
+        let plan = self
+            .result_base(result)
+            .and_then(|base| self.build_plan_at(recipe, &base))
+            .ok();
         Some(Self::preview_body(recipe, plan.as_ref()))
     }
 
@@ -527,14 +629,40 @@ impl LumaModule for CommandRecipesModule {
             };
         };
 
+        let base = match self.result_base(&request.result) {
+            Ok(base) => base,
+            Err(kind) => return ActionOutcome::Failed { kind },
+        };
+        if let Some(project_path) = request
+            .result
+            .action_payload
+            .as_ref()
+            .and_then(|payload| payload.get("project_path"))
+            .and_then(|value| value.as_str())
+        {
+            if !self
+                .projects
+                .read()
+                .await
+                .iter()
+                .any(|project| project.path == project_path)
+            {
+                return ActionOutcome::Failed {
+                    kind: FailureKind::SecurityDenied {
+                        reason: "project is no longer imported".into(),
+                    },
+                };
+            }
+        }
+
         match request.action.id.as_str() {
             "preview" | "show_variant" => ActionOutcome::Success {
                 message: Some(Self::preview_body(
                     &recipe,
-                    self.build_plan(&recipe).ok().as_ref(),
+                    self.build_plan_at(&recipe, &base).ok().as_ref(),
                 )),
             },
-            "copy" => match self.build_plan(&recipe) {
+            "copy" => match self.build_plan_at(&recipe, &base) {
                 Ok(plan) => {
                     match await_unless_cancelled(
                         &cancel,
@@ -601,7 +729,7 @@ impl LumaModule for CommandRecipesModule {
                     }
                 }
             }
-            "run" => match self.build_plan(&recipe) {
+            "run" => match self.build_plan_at(&recipe, &base) {
                 Ok(plan) => ActionOutcome::InteractiveRecipeRun {
                     plan: Box::new(plan),
                 },
@@ -616,6 +744,10 @@ impl LumaModule for CommandRecipesModule {
     }
 
     async fn teardown(&self) {}
+
+    async fn apply_settings(&self, settings: &AppSettings) {
+        *self.projects.write().await = settings.imported_projects.clone();
+    }
 }
 
 #[cfg(test)]
@@ -696,6 +828,62 @@ mod tests {
                 kind: FailureKind::InvalidInput { .. }
             }
         ));
+    }
+
+    #[tokio::test]
+    async fn imported_project_surface_resolves_recipes_against_that_project() {
+        let env = FakeRecipeEnvironment::new("/current");
+        env.add_file(PathBuf::from("/workspace/app/Cargo.toml"));
+        env.add_command("cargo");
+        let module = test_module(env).with_projects(vec![ImportedProject {
+            path: "/workspace/app".into(),
+            name: Some("app".into()),
+        }]);
+        let (tx, mut rx) = tokio::sync::mpsc::channel(8);
+        module
+            .search(
+                Query::parse("cmd project /workspace/app", 50),
+                tx,
+                CancellationToken::new(),
+            )
+            .await;
+        let Event::ResultsChunk { upserts, .. } = rx.recv().await.unwrap() else {
+            panic!("expected results");
+        };
+        let test = upserts
+            .iter()
+            .find(|item| item.id == "cmd:test")
+            .expect("Rust test recipe");
+        assert_eq!(test.kind, "recipe");
+        assert_eq!(
+            test.action_payload
+                .as_ref()
+                .and_then(|payload| payload.get("project_path"))
+                .and_then(|value| value.as_str()),
+            Some("/workspace/app")
+        );
+        let outcome = module
+            .perform(
+                ActionRequest {
+                    result: test.clone().into_domain(),
+                    action: ActionDescriptor {
+                        id: ActionId::new("run"),
+                        label: "Run".into(),
+                        risk: ActionRisk::Safe,
+                        confirmation: false,
+                    },
+                    confirmation: false,
+                },
+                CancellationToken::new(),
+            )
+            .await;
+        match outcome {
+            ActionOutcome::InteractiveRecipeRun { plan } => {
+                assert_eq!(plan.working_dir, PathBuf::from("/workspace/app"));
+                assert_eq!(plan.steps[0].cwd, PathBuf::from("/workspace/app"));
+            }
+            other => panic!("expected project recipe plan, got {other:?}"),
+        }
     }
 
     #[test]

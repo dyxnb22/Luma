@@ -167,7 +167,8 @@ pub(crate) fn kind_label(kind: &str) -> &str {
     match kind {
         "window" => "Window",
         "app" => "App",
-        "project" => "Project",
+        "project" | "project_header" | "project_surface" | "project_continue"
+        | "project_terminal" | "project_editor" => "Project",
         "recipe" => "Command",
         "ssh_host" => "SSH",
         "clipboard" => "Clipboard",

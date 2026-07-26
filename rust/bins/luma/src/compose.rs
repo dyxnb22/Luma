@@ -84,6 +84,7 @@ pub fn registry_from_settings(
     records: Option<Arc<RecordsStore>>,
     command_recipes_meta: Option<Arc<CommandRecipesMetaStore>>,
     timers: Option<Arc<TimersStore>>,
+    recall: Option<Arc<RecallStore>>,
     support_dir: PathBuf,
 ) -> Result<(ModuleRegistry, Vec<SkippedModule>), ModuleRegistryError> {
     let records_root = settings
@@ -239,34 +240,48 @@ pub fn registry_from_settings(
             "Records store could not be opened. Existing data was left untouched; close Luma, repair or restore the local store, then reopen.",
         )?;
     }
-    reg.register(Arc::new(ProjectsModule::with_deps(
-        project_roots,
-        settings.imported_projects.clone(),
-        opener.clone(),
-        Arc::new(MacProjectWorkspace),
-    )))?;
+    let git = Arc::new(MacGitRepository);
+    let runtime = Arc::new(MacRuntimeInspector);
+    let recipe_env = Arc::new(MacRecipeEnvironment::new());
+    let command_recipes_repo = command_recipes_meta.as_ref().map(|meta| {
+        Arc::new(SqliteCommandRecipesRepository::new(
+            meta.clone(),
+            support_dir.clone(),
+        )) as Arc<dyn CommandRecipesRepository>
+    });
+    let recall_repo = recall.as_ref().map(|store| {
+        Arc::new(SqliteRecallRepository::new(store.clone())) as Arc<dyn RecallRepository>
+    });
+    reg.register(Arc::new(
+        ProjectsModule::with_deps(
+            project_roots,
+            settings.imported_projects.clone(),
+            opener.clone(),
+            Arc::new(MacProjectWorkspace),
+        )
+        .with_workbench_deps(
+            git.clone(),
+            runtime.clone(),
+            recall_repo,
+            command_recipes_repo.clone(),
+            recipe_env.clone(),
+        ),
+    ))?;
     reg.register(Arc::new(GitModule::with_deps(
         settings.imported_projects.clone(),
-        Arc::new(MacGitRepository),
+        git,
         pasteboard.clone(),
     )))?;
     reg.register(Arc::new(RuntimeModule::with_deps(
         settings.imported_projects.clone(),
-        Arc::new(MacRuntimeInspector),
+        runtime,
         pasteboard.clone(),
     )))?;
-    let recipe_env = Arc::new(MacRecipeEnvironment::new());
-    if let Some(meta) = command_recipes_meta {
-        let repo = Arc::new(SqliteCommandRecipesRepository::new(
-            meta,
-            support_dir.clone(),
-        ));
-        reg.register(Arc::new(CommandRecipesModule::with_deps(
-            repo,
-            recipe_env,
-            pasteboard.clone(),
-            opener.clone(),
-        )))?;
+    if let Some(repo) = command_recipes_repo {
+        reg.register(Arc::new(
+            CommandRecipesModule::with_deps(repo, recipe_env, pasteboard.clone(), opener.clone())
+                .with_projects(settings.imported_projects.clone()),
+        ))?;
     } else {
         register_unavailable_store_module(
             &mut reg,
@@ -473,6 +488,7 @@ pub fn load_registry_with_settings() -> Result<RegistryLoad, RegistryError> {
         records.clone(),
         command_recipes_meta.clone(),
         timers.clone(),
+        recall.clone(),
         support_dir.clone(),
     )?;
     let settings_repo: Arc<dyn SettingsRepository> = Arc::new(TomlSettingsRepository::new(store));

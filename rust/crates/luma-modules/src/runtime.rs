@@ -93,7 +93,7 @@ impl RuntimeModule {
         let payload = serde_json::json!({
             "pid": listener.pid, "port": listener.port, "address": listener.address,
             "process": listener.process_name, "project_path": associated.as_ref().map(|project| project.path.clone()),
-            "surface_query": associated.as_ref().map(|project| format!("/proj {}", project.name.clone().unwrap_or_else(|| project.path.clone()))),
+            "surface_query": associated.as_ref().map(|project| format!("/proj show {}", project.path)),
         });
         SearchItemDto {
             id: Self::item_id(listener),
@@ -193,15 +193,24 @@ impl LumaModule for RuntimeModule {
             }
         }
         rows.truncate(query.limit.min(MAX_RUNTIME_RESULTS));
-        if rows.is_empty() && !filter.is_empty() {
-            return;
-        }
         if rows.is_empty() {
             rows.push(SearchItemDto {
-                id: "run:empty".into(),
+                id: if filter.is_empty() {
+                    "run:empty".into()
+                } else {
+                    "run:no-match".into()
+                },
                 module_id: MODULE_ID.into(),
-                title: "No local TCP listeners".into(),
-                subtitle: Some("Refresh after starting a local service".into()),
+                title: if filter.is_empty() {
+                    "No local TCP listeners".into()
+                } else {
+                    "No matching TCP listeners".into()
+                },
+                subtitle: Some(if filter.is_empty() {
+                    "Refresh after starting a local service".into()
+                } else {
+                    format!("No listener is associated with `{filter}`")
+                }),
                 kind: "status".into(),
                 primary_action_id: "noop".into(),
                 primary_action_label: "OK".into(),

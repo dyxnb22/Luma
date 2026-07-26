@@ -3,6 +3,7 @@ use crate::view_model::{ActionsIntent, AppState, PendingAction, Route, StatusTon
 use luma_protocol::Event;
 
 use super::actions::{begin_primary_or_confirm, clear_action_ui, execute_action};
+use super::navigation::open_surface_query;
 use super::preview::preview_effect;
 use super::search::begin_search;
 use super::{project_remove_name, records_query_active};
@@ -10,6 +11,16 @@ use super::{project_remove_name, records_query_active};
 /// Orchestrate engine events into local state transitions and follow-up effects.
 /// Projection itself remains in `view_model::engine_projection`.
 pub(super) fn apply_engine(state: &mut AppState, event: Event) -> Vec<Effect> {
+    if let Event::ActionFinished {
+        outcome: luma_protocol::ActionOutcomeDto::OpenSurface { query },
+        operation_id,
+    } = &event
+    {
+        if state.actions.active_operation.as_deref() == Some(operation_id.as_str()) {
+            state.actions.active_operation = None;
+            return open_surface_query(state, query);
+        }
+    }
     if let Event::ActionFinished {
         outcome:
             luma_protocol::ActionOutcomeDto::InteractiveTerminal {

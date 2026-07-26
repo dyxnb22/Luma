@@ -29,6 +29,34 @@ impl ProjectsModule {
         let rest_raw = query.rest_raw().trim().to_string();
         let rest_check = rest_raw.to_lowercase();
 
+        if query.is_command() && (rest_check == "show" || rest_check.starts_with("show ")) {
+            let key = rest_raw.get("show".len()..).unwrap_or("").trim();
+            if key.is_empty() {
+                let _ = sink
+                    .send(Event::ResultsChunk {
+                        request_id: String::new(),
+                        sequence: 1,
+                        upserts: vec![SearchItemDto {
+                            id: "proj:show-usage".into(),
+                            module_id: "luma.projects".into(),
+                            title: "Open a project workbench".into(),
+                            subtitle: Some("Usage: /proj show NAME|PATH".into()),
+                            kind: "status".into(),
+                            score: 50.0,
+                            primary_action_id: "noop".into(),
+                            primary_action_label: "OK".into(),
+                            ..Default::default()
+                        }],
+                        removed_ids: vec![],
+                    })
+                    .await;
+                return;
+            }
+            self.search_project_workbench(key, query.limit, &sink, &cancel)
+                .await;
+            return;
+        }
+
         // Drill-down: verb case-insensitive; path payload from rest_raw (preserve case).
         if query.is_command()
             && (rest_check == "browse"
@@ -463,6 +491,7 @@ impl ProjectsModule {
             }
         };
         let index = imported_index(&imported, &statuses);
+        let activity_scores = self.project_activity_scores(&imported);
         let mut upserts = Vec::new();
         for p in index {
             if cancel.is_cancelled() {
@@ -472,10 +501,11 @@ impl ProjectsModule {
                 let (kind, primary, label) = if p.missing {
                     ("unavailable", "remove_project", "Remove missing project")
                 } else {
-                    ("project", "open", "Open")
+                    ("project", "open_workbench", "Open workbench")
                 };
+                let project_path = p.path.display().to_string();
                 upserts.push(SearchItemDto {
-                    id: format!("proj:{}", p.path.display()),
+                    id: format!("proj:{project_path}"),
                     module_id: "luma.projects".into(),
                     title: p.name.clone(),
                     subtitle: Some(if p.missing {
@@ -484,7 +514,11 @@ impl ProjectsModule {
                         p.path.display().to_string()
                     }),
                     kind: kind.into(),
-                    score: if p.missing { 40.0 } else { 65.0 },
+                    score: if p.missing {
+                        40.0
+                    } else {
+                        65.0 + activity_scores.get(&project_path).copied().unwrap_or(0.0)
+                    },
                     primary_action_id: primary.into(),
                     primary_action_label: label.into(),
                     primary_action_confirmation: p.missing,
@@ -496,7 +530,12 @@ impl ProjectsModule {
                     action_payload: if p.missing {
                         Some(serde_json::json!({ "name": p.name }))
                     } else {
-                        None
+                        Some(serde_json::json!({
+                            "project_path": project_path,
+                            "path": project_path,
+                            "name": p.name,
+                            "browse_trigger": "proj",
+                        }))
                     },
                     ..Default::default()
                 });

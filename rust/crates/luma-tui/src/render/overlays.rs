@@ -227,7 +227,7 @@ pub(super) fn render_overlay_help(
         ),
         "Hub / win list: 1-9 focus visible window · ↑↓ move · Enter open".to_string(),
         "Setup: /settings projects-root PATH · /settings import-project PATH".to_string(),
-        "Projects: /proj add PATH · /proj browse · /proj remove NAME".to_string(),
+        "Projects: /proj · Enter workbench · /proj add PATH · /proj browse".to_string(),
         String::new(),
         "Enabled modules:".to_string(),
     ];
@@ -253,6 +253,7 @@ pub(super) fn render_overlay_help(
     lines.push(String::new());
     lines.push("Config: luma config set --projects-root ~/dev".to_string());
     lines.push("        /proj add /path/to/project (manual import)".to_string());
+    lines.push("        /proj show NAME|PATH (project workbench)".to_string());
     lines.push("Wordbook: /wb review · /wb review new/wrong · 1/2/3/m in session".to_string());
     lines.push("Confirm / Destructive actions always ask first.".to_string());
 

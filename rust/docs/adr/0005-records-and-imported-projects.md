@@ -33,6 +33,11 @@ not public-product integrations and do not introduce an agent, watcher, or backg
 - `/proj add/import`, `/proj remove`, and `config set --import-project/--remove-project` mutate
   settings through the application settings CAS. Removing a project removes only its config
   entry; it never deletes the directory.
+- `/proj show NAME|PATH` is the project context surface. It reads Git, Runtime, Recall, and Command
+  Recipes through their existing ports/repositories and links back to those source surfaces; it
+  neither copies their data into Projects nor acts as a centralized diagnostics command.
+- Opening a project workbench and its cross-module rows is an executed generic surface action, so
+  bounded Recall metadata can rank imported projects without adding a second project history.
 
 ## Consequences
 

@@ -10,6 +10,7 @@ an autonomous agent.
 | --- | --- |
 | `/cmd ` | List recipes |
 | `/cmd test` | Search recipes matching `test` |
+| `/cmd project /exact/imported/path` | List variants evaluated against that imported project |
 | `/recipe test` | Alias for `/cmd test` |
 | `/recipes ` | Alias trigger |
 
@@ -23,6 +24,8 @@ TUI shortcuts while a recipe row is selected:
 | `f` | Favorite / unfavorite |
 
 Run executes in the **current terminal** (TUI suspends, command output appears, then Luma resumes).
+Rows opened from `/proj show PATH` carry that exact imported path through preview, copy, and run;
+removing the import before execution blocks the action.
 CLI and TUI share one recipe runner in `luma-application` (step loop, risk gate, metadata record).
 
 ## CLI
@@ -101,7 +104,8 @@ Merge rules:
 
 ## Variant matching
 
-From the current working directory:
+From the current working directory, or from the exact imported path supplied by the Projects
+workbench:
 
 - All `requires_files` must exist (regular files; symlinks rejected).
 - All `requires_directories` must exist.

@@ -1,7 +1,8 @@
 use async_trait::async_trait;
 use luma_application::{
-    ActionOutcome, ActionRequest, ImportedProject, LumaModule, ModuleManifest, ModuleState,
-    OpenPathPort, ProjectWorkspacePort, SearchMode, SearchSink, WarmupContext,
+    ActionOutcome, ActionRequest, CommandRecipesRepository, GitRepositoryPort, ImportedProject,
+    LumaModule, ModuleManifest, ModuleState, OpenPathPort, ProjectWorkspacePort, RecallRepository,
+    RecipeEnvironmentPort, RuntimePort, SearchMode, SearchSink, WarmupContext,
 };
 use luma_domain::{ActionDescriptor, ModuleId, Query, SearchItem};
 use std::path::PathBuf;
@@ -12,6 +13,7 @@ use tokio_util::sync::CancellationToken;
 mod actions;
 mod preview;
 mod search;
+mod workbench;
 
 #[derive(Clone)]
 pub(super) struct Project {
@@ -26,6 +28,11 @@ pub struct ProjectsModule {
     imported: Arc<RwLock<Vec<ImportedProject>>>,
     opener: Arc<dyn OpenPathPort>,
     workspace: Arc<dyn ProjectWorkspacePort>,
+    git: Option<Arc<dyn GitRepositoryPort>>,
+    runtime: Option<Arc<dyn RuntimePort>>,
+    recall: Option<Arc<dyn RecallRepository>>,
+    recipes: Option<Arc<dyn CommandRecipesRepository>>,
+    recipe_env: Option<Arc<dyn RecipeEnvironmentPort>>,
 }
 
 impl ProjectsModule {
@@ -53,9 +60,9 @@ impl ProjectsModule {
                 required_capabilities: vec![],
                 workbench: luma_application::WorkbenchMeta {
                     glyph: Some("P".into()),
-                    suggested_query: Some("/proj browse".into()),
+                    suggested_query: Some("/proj ".into()),
                     empty_hint: Some(
-                        "/proj browse · /proj add PATH · /proj <name> · Hub Enter opens browse"
+                        "/proj · Enter opens project workbench · /proj browse · /proj add PATH"
                             .into(),
                     ),
                     supports_browse: true,
@@ -65,7 +72,31 @@ impl ProjectsModule {
             imported: Arc::new(RwLock::new(imported)),
             opener,
             workspace,
+            git: None,
+            runtime: None,
+            recall: None,
+            recipes: None,
+            recipe_env: None,
         }
+    }
+
+    /// Add the read-only context sources used by the single-project workbench. The Projects
+    /// module still owns no Git/runtime/recipe/Recall persistence; composition shares the same
+    /// ports and repositories used by their source modules.
+    pub fn with_workbench_deps(
+        mut self,
+        git: Arc<dyn GitRepositoryPort>,
+        runtime: Arc<dyn RuntimePort>,
+        recall: Option<Arc<dyn RecallRepository>>,
+        recipes: Option<Arc<dyn CommandRecipesRepository>>,
+        recipe_env: Arc<dyn RecipeEnvironmentPort>,
+    ) -> Self {
+        self.git = Some(git);
+        self.runtime = Some(runtime);
+        self.recall = recall;
+        self.recipes = recipes;
+        self.recipe_env = Some(recipe_env);
+        self
     }
 }
 
@@ -106,8 +137,10 @@ impl LumaModule for ProjectsModule {
 mod tests {
     use super::*;
     use luma_application::{
-        FakeOpenPath, FakeProjectWorkspace, ProjectDirectoryEntry, ProjectDirectoryListing,
-        ProjectWorkspaceError,
+        FakeGitRepository, FakeOpenPath, FakeProjectWorkspace, FakeRecipeEnvironment,
+        FakeRuntimePort, GitRepositoryState, MemoryCommandRecipesRepository, ProjectDirectoryEntry,
+        ProjectDirectoryListing, ProjectWorkspaceError, RecallObject, RecallRepository,
+        RuntimeListener, SqliteRecallRepository,
     };
     use luma_domain::{ActionId, ActionRisk, FailureKind, Query};
     use luma_protocol::{Event, UiIntent};
@@ -453,5 +486,162 @@ mod tests {
             opener.open_count.load(std::sync::atomic::Ordering::SeqCst),
             0
         );
+    }
+
+    #[tokio::test]
+    async fn project_row_opens_the_single_project_workbench() {
+        let path = PathBuf::from("/workspace/app");
+        let module = ProjectsModule::with_deps(
+            vec![PathBuf::from("/workspace")],
+            vec![ImportedProject {
+                path: path.display().to_string(),
+                name: Some("app".into()),
+            }],
+            Arc::new(FakeOpenPath::new()),
+            Arc::new(FakeProjectWorkspace::new()),
+        );
+        let (tx, mut rx) = mpsc::channel(8);
+        module
+            .search(Query::parse("proj", 20), tx, CancellationToken::new())
+            .await;
+        let Event::ResultsChunk { upserts, .. } = rx.recv().await.unwrap() else {
+            panic!("expected chunk");
+        };
+        assert_eq!(upserts[0].primary_action_id, "open_workbench");
+        assert_eq!(
+            upserts[0]
+                .action_payload
+                .as_ref()
+                .and_then(|payload| payload.get("project_path"))
+                .and_then(|value| value.as_str()),
+            Some("/workspace/app")
+        );
+
+        let outcome = module
+            .perform(
+                ActionRequest {
+                    result: upserts[0].clone().into_domain(),
+                    action: ActionDescriptor {
+                        id: ActionId::new("open_workbench"),
+                        label: "Open workbench".into(),
+                        risk: ActionRisk::Safe,
+                        confirmation: false,
+                    },
+                    confirmation: false,
+                },
+                CancellationToken::new(),
+            )
+            .await;
+        assert_eq!(
+            outcome,
+            ActionOutcome::OpenSurface {
+                query: "/proj show /workspace/app".into()
+            }
+        );
+    }
+
+    #[tokio::test]
+    async fn project_workbench_aggregates_git_runtime_recipes_and_continue() {
+        let path = PathBuf::from("/workspace/app");
+        let imported = ImportedProject {
+            path: path.display().to_string(),
+            name: Some("app".into()),
+        };
+        let git = FakeGitRepository::new(vec![GitRepositoryState {
+            project_name: "app".into(),
+            path: path.clone(),
+            branch: Some("main".into()),
+            upstream: Some("origin/main".into()),
+            ahead: 1,
+            behind: 0,
+            files: vec![],
+            last_commit: None,
+            unavailable: None,
+        }]);
+        let runtime = FakeRuntimePort::new(vec![RuntimeListener {
+            port: 3000,
+            address: "127.0.0.1".into(),
+            pid: 42,
+            process_name: "app-server".into(),
+            user: Some("me".into()),
+            cwd: Some(path.clone()),
+            identity: "42:app".into(),
+        }]);
+        let recall_dir = tempfile::tempdir().unwrap();
+        let recall_store = Arc::new(
+            luma_storage::RecallStore::with_path(recall_dir.path().join("recall.sqlite")).unwrap(),
+        );
+        let recall = Arc::new(SqliteRecallRepository::new(recall_store));
+        recall
+            .record_success(RecallObject {
+                object_id: "git:repo:/workspace/app".into(),
+                module_id: "luma.git".into(),
+                kind: "git_repo".into(),
+                primary_action: "open_workbench".into(),
+                title: "app".into(),
+                project_path: Some(path.display().to_string()),
+                use_count: 3,
+                last_used_at: 10,
+            })
+            .unwrap();
+        let env = Arc::new(FakeRecipeEnvironment::new(path.clone()));
+        env.add_file(path.join("Cargo.toml"));
+        env.add_command("cargo");
+        env.add_command("code");
+        let recipes = Arc::new(MemoryCommandRecipesRepository::with_catalog(
+            luma_domain::RecipeCatalog {
+                recipes: luma_storage::builtin_recipes(),
+                issues: vec![],
+                config_path: None,
+            },
+        ));
+        let module = ProjectsModule::with_deps(
+            vec![PathBuf::from("/workspace")],
+            vec![imported],
+            Arc::new(FakeOpenPath::new()),
+            Arc::new(FakeProjectWorkspace::new()),
+        )
+        .with_workbench_deps(git, runtime, Some(recall), Some(recipes), env);
+        let (tx, mut rx) = mpsc::channel(8);
+        module
+            .search(
+                Query::parse("proj show /workspace/app", 20),
+                tx,
+                CancellationToken::new(),
+            )
+            .await;
+        let Event::ResultsChunk { upserts, .. } = rx.recv().await.unwrap() else {
+            panic!("expected chunk");
+        };
+        assert!(upserts
+            .iter()
+            .any(|item| { item.kind == "project_continue" && item.title.contains("Continue") }));
+        assert!(upserts.iter().any(|item| {
+            item.primary_action_id == "open_git"
+                && item
+                    .subtitle
+                    .as_deref()
+                    .is_some_and(|text| text.contains("main"))
+        }));
+        assert!(upserts.iter().any(|item| {
+            item.primary_action_id == "open_runtime"
+                && item
+                    .subtitle
+                    .as_deref()
+                    .is_some_and(|text| text.contains(":3000"))
+        }));
+        assert!(upserts.iter().any(|item| {
+            item.primary_action_id == "open_recipes"
+                && item
+                    .subtitle
+                    .as_deref()
+                    .is_some_and(|text| text.contains("matching recipe"))
+        }));
+        assert!(upserts
+            .iter()
+            .any(|item| item.primary_action_id == "open_terminal"));
+        assert!(upserts
+            .iter()
+            .any(|item| item.primary_action_id == "open_editor"));
     }
 }

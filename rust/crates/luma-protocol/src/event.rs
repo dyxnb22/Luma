@@ -192,6 +192,9 @@ pub enum ActionOutcomeDto {
         message: Option<String>,
     },
     Cancelled,
+    OpenSurface {
+        query: String,
+    },
     InteractiveRecipeRun {
         plan: Box<luma_domain::RecipeRunPlan>,
     },
@@ -217,6 +220,7 @@ impl ActionOutcomeDto {
                 message.clone().unwrap_or_else(|| kind.display_message())
             }
             Self::Cancelled => "cancelled".into(),
+            Self::OpenSurface { .. } => "open surface".into(),
             Self::InteractiveRecipeRun { .. } => "interactive recipe run".into(),
             Self::InteractiveTerminal { .. } => "interactive terminal".into(),
         }
@@ -239,6 +243,7 @@ impl ActionOutcomeDto {
                 .cloned()
                 .unwrap_or_else(|| kind.user_message()),
             Self::Cancelled => "Cancelled".into(),
+            Self::OpenSurface { .. } => "Opening…".into(),
             Self::InteractiveRecipeRun { .. } => "Running recipe…".into(),
             Self::InteractiveTerminal { .. } => "connecting…".into(),
         }

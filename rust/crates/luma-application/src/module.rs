@@ -70,6 +70,14 @@ pub enum ActionOutcome {
         kind: FailureKind,
     },
     Cancelled,
+    /// Request the client to open another slash-prefixed local surface.
+    ///
+    /// This remains a generic navigation result: modules describe the destination while the
+    /// client owns prompt/history state. Unlike a result-only UI intent, it is an executed
+    /// success and can therefore participate in Recall.
+    OpenSurface {
+        query: String,
+    },
     /// Request TUI to run an interactive subprocess in the current terminal.
     InteractiveTerminal {
         program: String,

@@ -50,4 +50,8 @@ The empty Hub lists visible windows, a privacy-safe Continue section, and module
 to focus a numbered window; Continue and module rows are never digit targets. Digits remain
 ordinary prompt input in search fields. Interactive commands require a leading
 `/`: `/win`, `/wb review due|new|wrong`, `/rec`, and `/ssh `; unprefixed input is global search.
+`/proj` lists manually imported projects; Enter opens a single-project workbench that brings
+together recent activity, local Git state, associated listeners, Command Recipes, file browsing,
+an available editor CLI, and a project terminal without moving those source concerns into the
+Projects module.
 Notes are handled by external tools such as Obsidian; Luma does not index or modify note vaults.

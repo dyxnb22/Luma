@@ -49,6 +49,98 @@ impl ProjectsModule {
             }
             return actions;
         }
+        if result.kind == "project" {
+            let mut actions = vec![
+                ActionDescriptor {
+                    id: ActionId::new("open_workbench"),
+                    label: "Open workbench".into(),
+                    risk: ActionRisk::Safe,
+                    confirmation: false,
+                },
+                ActionDescriptor {
+                    id: ActionId::new("open"),
+                    label: "Open in Finder".into(),
+                    risk: ActionRisk::Safe,
+                    confirmation: false,
+                },
+                ActionDescriptor {
+                    id: ActionId::new("open_terminal"),
+                    label: "Open terminal here".into(),
+                    risk: ActionRisk::Safe,
+                    confirmation: false,
+                },
+                ActionDescriptor {
+                    id: ActionId::new("browse"),
+                    label: "Browse files".into(),
+                    risk: ActionRisk::Safe,
+                    confirmation: false,
+                },
+                ActionDescriptor {
+                    id: ActionId::new("remove_project"),
+                    label: "Remove import".into(),
+                    risk: ActionRisk::Confirm,
+                    confirmation: true,
+                },
+            ];
+            if self.project_editor().is_some() {
+                actions.insert(
+                    2,
+                    ActionDescriptor {
+                        id: ActionId::new("open_editor"),
+                        label: "Open in editor".into(),
+                        risk: ActionRisk::Safe,
+                        confirmation: false,
+                    },
+                );
+            }
+            return actions;
+        }
+        if result.kind == "project_header" {
+            let mut actions = vec![
+                ActionDescriptor {
+                    id: ActionId::new("open"),
+                    label: "Open in Finder".into(),
+                    risk: ActionRisk::Safe,
+                    confirmation: false,
+                },
+                ActionDescriptor {
+                    id: ActionId::new("open_terminal"),
+                    label: "Open terminal here".into(),
+                    risk: ActionRisk::Safe,
+                    confirmation: false,
+                },
+                ActionDescriptor {
+                    id: ActionId::new("browse"),
+                    label: "Browse files".into(),
+                    risk: ActionRisk::Safe,
+                    confirmation: false,
+                },
+                ActionDescriptor {
+                    id: ActionId::new("remove_project"),
+                    label: "Remove import".into(),
+                    risk: ActionRisk::Confirm,
+                    confirmation: true,
+                },
+            ];
+            if self.project_editor().is_some() {
+                actions.insert(
+                    1,
+                    ActionDescriptor {
+                        id: ActionId::new("open_editor"),
+                        label: "Open in editor".into(),
+                        risk: ActionRisk::Safe,
+                        confirmation: false,
+                    },
+                );
+            }
+            return actions;
+        }
+        if matches!(
+            result.kind.as_str(),
+            "project_surface" | "project_continue" | "project_terminal" | "project_editor"
+        ) {
+            return vec![result.primary_action.clone()];
+        }
         if result.primary_action.id.as_str() == "import_project" {
             return vec![ActionDescriptor {
                 id: ActionId::new("import_project"),
@@ -77,20 +169,12 @@ impl ProjectsModule {
                 confirmation: false,
             }];
         }
-        let mut actions = vec![ActionDescriptor {
+        let actions = vec![ActionDescriptor {
             id: ActionId::new("open"),
             label: "Open".into(),
             risk: ActionRisk::Safe,
             confirmation: false,
         }];
-        if result.kind == "project" {
-            actions.push(ActionDescriptor {
-                id: ActionId::new("browse"),
-                label: "Browse".into(),
-                risk: ActionRisk::Safe,
-                confirmation: false,
-            });
-        }
         actions
     }
 
@@ -145,6 +229,129 @@ impl ProjectsModule {
                     message: "browse is search-driven; use `/proj browse <path>`".into(),
                 },
             },
+            "open_workbench" | "open_git" | "open_runtime" | "open_recipes" | "open_files" => {
+                let Some(path) = Self::result_project_path(&action.result) else {
+                    return ActionOutcome::Failed {
+                        kind: FailureKind::InvalidInput {
+                            field: "project_path".into(),
+                            message: "missing project context".into(),
+                        },
+                    };
+                };
+                if !self
+                    .imported
+                    .read()
+                    .await
+                    .iter()
+                    .any(|project| project.path == path)
+                {
+                    return ActionOutcome::Failed {
+                        kind: FailureKind::SecurityDenied {
+                            reason: "project is no longer imported".into(),
+                        },
+                    };
+                }
+                let query = match action.action.id.as_str() {
+                    "open_workbench" => format!("/proj show {path}"),
+                    "open_git" => format!("/git repo {path}"),
+                    "open_runtime" => format!("/run {path}"),
+                    "open_recipes" => format!("/cmd project {path}"),
+                    "open_files" => format!("/proj browse {path}"),
+                    _ => unreachable!(),
+                };
+                ActionOutcome::OpenSurface { query }
+            }
+            "continue_project" => {
+                let Some(path) = Self::result_project_path(&action.result) else {
+                    return ActionOutcome::Failed {
+                        kind: FailureKind::InvalidInput {
+                            field: "project_path".into(),
+                            message: "missing project context".into(),
+                        },
+                    };
+                };
+                match self.continue_surface(path) {
+                    Some(query) => ActionOutcome::OpenSurface { query },
+                    None => ActionOutcome::Failed {
+                        kind: FailureKind::NotFound {
+                            entity: "recent project activity".into(),
+                        },
+                    },
+                }
+            }
+            "open_terminal" | "open_editor" => {
+                let Some(path) = Self::result_project_path(&action.result) else {
+                    return ActionOutcome::Failed {
+                        kind: FailureKind::InvalidInput {
+                            field: "project_path".into(),
+                            message: "missing project context".into(),
+                        },
+                    };
+                };
+                let roots = self.roots.read().await.clone();
+                let open_path = match await_unless_cancelled(
+                    &cancel,
+                    self.workspace.resolve_open_path(
+                        PathBuf::from(path),
+                        ProjectOpenScope::ImportedProject,
+                        roots,
+                        cancel.clone(),
+                    ),
+                )
+                .await
+                {
+                    None | Some(Err(ProjectWorkspaceError::Cancelled)) => {
+                        return ActionOutcome::Cancelled;
+                    }
+                    Some(Ok(path)) => path,
+                    Some(Err(ProjectWorkspaceError::Denied(reason))) => {
+                        return ActionOutcome::Failed {
+                            kind: FailureKind::SecurityDenied { reason },
+                        };
+                    }
+                    Some(Err(ProjectWorkspaceError::NotFound(_))) => {
+                        return ActionOutcome::Failed {
+                            kind: FailureKind::NotFound {
+                                entity: path.into(),
+                            },
+                        };
+                    }
+                    Some(Err(ProjectWorkspaceError::Unavailable(reason))) => {
+                        return ActionOutcome::Failed {
+                            kind: FailureKind::Unavailable {
+                                reason,
+                                retryable: true,
+                            },
+                        };
+                    }
+                };
+                if action.action.id.as_str() == "open_editor" {
+                    let Some(editor) = self.project_editor() else {
+                        return ActionOutcome::Failed {
+                            kind: FailureKind::NotConfigured {
+                                remediation:
+                                    "Install an editor CLI: code, cursor, zed, nvim, or vim".into(),
+                            },
+                        };
+                    };
+                    ActionOutcome::InteractiveTerminal {
+                        program: editor,
+                        args: vec![open_path.display().to_string()],
+                        record_alias: None,
+                    }
+                } else {
+                    ActionOutcome::InteractiveTerminal {
+                        program: "/bin/zsh".into(),
+                        args: vec![
+                            "-lc".into(),
+                            "cd -- \"$1\" && exec /bin/zsh -l".into(),
+                            "luma-project".into(),
+                            open_path.display().to_string(),
+                        ],
+                        record_alias: None,
+                    }
+                }
+            }
             "import_project" => {
                 let path_str = action
                     .result
@@ -211,9 +418,11 @@ impl ProjectsModule {
             "open" => {
                 let path_str = action
                     .result
-                    .id
-                    .as_str()
-                    .strip_prefix("browse:proj:")
+                    .action_payload
+                    .as_ref()
+                    .and_then(|payload| payload.get("path"))
+                    .and_then(|value| value.as_str())
+                    .or_else(|| action.result.id.as_str().strip_prefix("browse:proj:"))
                     .or_else(|| action.result.id.as_str().strip_prefix("proj:"))
                     .or(action
                         .result
@@ -294,5 +503,14 @@ impl ProjectsModule {
         let roots: Vec<PathBuf> = settings.projects_roots.iter().map(PathBuf::from).collect();
         *self.roots.write().await = roots;
         *self.imported.write().await = settings.imported_projects.clone();
+    }
+
+    fn result_project_path(result: &SearchItem) -> Option<&str> {
+        result
+            .action_payload
+            .as_ref()
+            .and_then(|payload| payload.get("project_path"))
+            .and_then(|value| value.as_str())
+            .or_else(|| result.id.as_str().strip_prefix("proj:"))
     }
 }

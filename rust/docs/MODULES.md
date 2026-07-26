@@ -34,8 +34,8 @@ Interactive module commands require a leading `/` (for example `/ssh`, `/rec bro
 | Snippets | `/s` / `/snip` | Available — search/add/overwrite/copy/delete without Accessibility; paste reports AX permission locally; hard cap **1000** entries | on |
 | Wordbook | `/wb` / `/wordbook` / `/words` | Available — due/new/wrong lists; `/wb review due\|new\|wrong` one-word session; Enter/Space reveal, 1/2/3 grade, m mastered with confirmation, s skip, Esc exit; queue uses remaining daily goal; `/wb import PATH` accepts a regular non-symlink UTF-8 CSV up to 512 KiB; daily goal. Search/perform (import, speak, pasteboard) honor cancel tokens | on |
 | Records | `/rec` / `/record` | Available — SQLite-backed media log; `/rec <query>` / `/rec browse`; `/rec add`, `/rec rate`, `/rec note`, ActionPicker edit/remove; CLI also has `record import`, `import-status`, `backup`; Markdown import is dry-run by default and `--apply` is ledger-backed with a LumaNext backup, source Markdown stays read-only | on |
-| Projects | `/p` / `/proj` / `/project` | Available — only manually imported projects appear in plain search; `/settings import-project PATH` or `/proj add/import PATH`, `/proj remove NAME\|PATH`, `/proj browse`; canonical existing non-symlink paths, duplicate rejection, config-only removal | on |
-| Command Recipes | `/cmd` / `/recipe` / `/recipes` | Available — semantic templates with project variants; ordered `program + args`; TUI runs in current terminal; user TOML + built-ins. See [Command Recipes](./COMMAND_RECIPES.md). | on |
+| Projects | `/p` / `/proj` / `/project` | Available — recall-ranked manually imported projects; Enter opens `/proj show PATH`, which aggregates Continue, on-demand Git status, associated Runtime listeners, matching Command Recipes, bounded files, Finder, an available editor CLI, and a project-rooted terminal. `/proj add/import PATH`, `/proj remove NAME\|PATH`, `/proj browse`; canonical existing non-symlink paths, duplicate rejection, config-only removal | on |
+| Command Recipes | `/cmd` / `/recipe` / `/recipes` | Available — semantic templates with project variants; `/cmd project PATH` evaluates against an exact imported project for Projects-workbench handoff; ordered `program + args`; TUI runs in current terminal; user TOML + built-ins. See [Command Recipes](./COMMAND_RECIPES.md). | on |
 | SSH | `/ssh` | Available — reads `~/.ssh/config` Host aliases; `/ssh fav` / `/ssh recent` / `/ssh rename`; favorite/recent metadata in `ssh_meta.sqlite` with a **1000-row** cap; Enter connects in current terminal; SFTP + copy alias actions. See [SSH](./SSH.md). | on |
 | Timers | `/tm` / `/timer` / `/timers` | Available — stopwatch + countdown/Pomodoro; `/tm pomo [min] [name]`, `/tm sw [name]`, `/tm 25`; start/pause/resume/reset/delete; state in `timers.sqlite`, hard cap **256**; speech alert on completion while Luma is running (no daemon — graceful quitting pauses running timers). In-process 1s poller cancels on teardown; search/perform honor cancel | on |
 | Secrets | `/sec` / `/secret` / `/secrets` | Copy-only for pre-provisioned labels; `luma secrets set` bootstrap; unlock is in-process UX only (no Touch ID); copy confirm | **off** (enable in Settings after bootstrap) |
@@ -79,9 +79,25 @@ Read-only launcher over OpenSSH — not a full SSH client:
   natural primary action, a safe display title, optional project association, count, and last use.
   Failed/cancelled actions are not recorded. Clipboard bodies, snippet bodies, SSH configuration,
   proxy endpoints, and search text are never copied into Recall.
-- The empty Hub may render at most five compatible Continue rows after Windows. Git and Runtime
-  actions remain recall-ranked in global search but are not Hub-continued because their live
-  repository/listener payload must be revalidated.
+- The empty Hub may render at most five compatible Continue rows after Windows. Direct Git and
+  Runtime objects are not Hub-continued because their live repository/listener payload must be
+  revalidated. `/proj show PATH` may offer one project-scoped Continue row by converting stored
+  metadata back into a slash surface and letting the destination module re-read live state.
+
+### Project Workbench
+
+- `/proj` lists only explicit imports and adds a bounded Recall score by `project_path`; no project
+  visit log or source-module data is duplicated in Projects.
+- `/proj show NAME|PATH` resolves an exact imported project. Ambiguous names require the full path.
+  Rows link through generic `OpenSurface` outcomes to `/git repo PATH`, `/run PATH`,
+  `/cmd project PATH`, and `/proj browse PATH`; central TUI routing has no Projects special-case.
+- Git, Runtime, Recipes, and Recall are read on demand through their existing ports/repositories.
+  Failures remain visible on the corresponding row and Projects never becomes a central doctor.
+- Open terminal validates the imported path again, suspends the TUI, and starts `/bin/zsh` with the
+  project path as a positional argument (not interpolated shell text). Removing an import still
+  changes settings only and never deletes the directory.
+- Open editor is offered only when `code`, `cursor`, `zed`, `nvim`, or `vim` is available on the
+  process PATH; the chosen CLI receives the validated project path as one direct argument.
 
 ### Git Workbench
 

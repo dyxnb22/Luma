@@ -806,6 +806,30 @@ fn tab_opens_action_picker() {
 }
 
 #[test]
+fn open_surface_action_outcome_replaces_prompt_and_starts_search() {
+    let mut state = AppState::default();
+    state.search.prompt = "/proj".into();
+    state.search.prompt_cursor = state.prompt_char_len();
+    state.actions.active_operation = Some("op-project".into());
+
+    let effects = apply_engine(
+        &mut state,
+        Event::ActionFinished {
+            operation_id: "op-project".into(),
+            outcome: luma_protocol::ActionOutcomeDto::OpenSurface {
+                query: "/proj show /workspace/app".into(),
+            },
+        },
+    );
+
+    assert_eq!(state.search.prompt, "/proj show /workspace/app");
+    assert!(state.actions.active_operation.is_none());
+    assert!(effects
+        .iter()
+        .any(|effect| matches!(effect, Effect::Search { .. })));
+}
+
+#[test]
 fn mismatched_actions_available_is_ignored() {
     let mut state = AppState::default();
     state.actions.awaiting_actions = Some(AwaitingActions {

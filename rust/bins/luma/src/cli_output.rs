@@ -6,6 +6,7 @@ use luma_protocol::ActionOutcomeDto;
 pub fn action_exit_code(outcome: &ActionOutcomeDto) -> i32 {
     match outcome {
         ActionOutcomeDto::Success { .. } => 0,
+        ActionOutcomeDto::OpenSurface { .. } => 0,
         ActionOutcomeDto::Failed { .. } => 1,
         ActionOutcomeDto::Cancelled => 2,
         // Should not leak after `run_action` executes the plan; fail closed if it does.

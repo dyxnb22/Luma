@@ -427,6 +427,7 @@ fn status_tone_for_outcome(outcome: &ActionOutcomeDto) -> StatusTone {
     match outcome {
         ActionOutcomeDto::Success { .. } => StatusTone::Success,
         ActionOutcomeDto::Cancelled => StatusTone::Warning,
+        ActionOutcomeDto::OpenSurface { .. } => StatusTone::Progress,
         ActionOutcomeDto::Failed { kind, .. } => status_tone_for_failure(kind),
         ActionOutcomeDto::InteractiveRecipeRun { .. } => StatusTone::Progress,
         ActionOutcomeDto::InteractiveTerminal { .. } => StatusTone::Progress,

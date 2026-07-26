@@ -16,7 +16,7 @@ Empty prompt shows:
 
 | Module | Opens |
 |--------|--------|
-| Projects | `/proj browse` — browse project roots (import from browse) |
+| Projects | `/proj ` — recall-ranked imported projects; Enter opens `/proj show PATH` |
 | Git | `/git` — imported-project dashboard; Enter on a repository opens its workbench |
 | Runtime | `/run` — current local TCP listeners |
 | Wordbook | `/wb due` — due words; use `/wb review due` for the review session |

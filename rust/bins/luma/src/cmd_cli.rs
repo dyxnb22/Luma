@@ -285,6 +285,7 @@ async fn cmd_copy(recipe_id: &str, json: bool) -> anyhow::Result<()> {
             }
             ActionOutcomeDto::Failed { kind, .. } => json!({ "error": kind.display_message() }),
             ActionOutcomeDto::Cancelled => json!({ "cancelled": true }),
+            ActionOutcomeDto::OpenSurface { query } => json!({ "surface_query": query }),
             ActionOutcomeDto::InteractiveRecipeRun { .. } => {
                 json!({ "error": "unexpected interactive run" })
             }

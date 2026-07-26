@@ -9,8 +9,9 @@ a global search.
 
 Empty prompt shows:
 
-1. **Windows** — all visible windows (`title · app`); Enter or **1–9** focuses (status/more/modules rows are not numbered). Soft-refreshes about every 2s while Hub is visible.
-2. **Modules** — Enter opens each module’s `suggested_query` (its default surface).
+1. **Windows** — all visible windows (`title · app`); Enter or **1–9** focuses (status/more/Continue/modules rows are not numbered). Soft-refreshes about every 2s while Hub is visible.
+2. **Continue** — up to five privacy-safe recent objects; Enter runs the stored natural primary action. It contains no raw clipboard/snippet body, SSH configuration, or search text.
+3. **Modules** — Enter opens each module’s `suggested_query` (its default surface).
 
 ## Module defaults (Hub Enter)
 
@@ -18,6 +19,8 @@ Empty prompt shows:
 |--------|--------|
 | Notes | `/n ` — directory tree at notes root (`/n recent` = recent flat list) |
 | Projects | `/proj browse` — browse project roots (import from browse) |
+| Git | `/git` — imported-project dashboard; Enter on a repository opens its workbench |
+| Runtime | `/run` — current local TCP listeners |
 | Wordbook | `/wb due` — due words; use `/wb review due` for the review session |
 | Records | `/rec ` — categories or imported media records |
 | SSH | `/ssh ` — Host aliases from `~/.ssh/config` |
@@ -33,7 +36,7 @@ Clipboard favorites: pin/unpin inside `/clip` (not on Hub).
 
 ## Keyboard constraints
 
-- Hub digits `1`–`9` target only visible window rows. Status, overflow, and module rows have no
+- Hub digits `1`–`9` target only visible window rows. Status, overflow, Continue, and module rows have no
   digit and cannot be focused by a digit.
 - In `/win`, digits target windows only while `FocusZone::List` is active. When the prompt is
   focused, digits remain search input.

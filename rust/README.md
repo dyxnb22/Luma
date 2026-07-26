@@ -16,6 +16,10 @@ cargo run -p luma -- query "/clip " --json
 cargo run -p luma -- query "/n " --json
 cargo run -p luma -- query "/win " --json
 cargo run -p luma -- query "/cmd test" --json
+cargo run -p luma -- query "/git" --json
+cargo run -p luma -- query "/run" --json
+cargo run -p luma -- query "/proxy status" --json
+cargo run -p luma -- query "/proxy check" --json
 cargo run -p luma -- cmd list --json
 cargo run -p luma -- cmd show git-status --json
 cargo run -p luma -- query "/ssh production" --json
@@ -103,7 +107,7 @@ See [`docs/USAGE_LOG_TEMPLATE.md`](docs/USAGE_LOG_TEMPLATE.md) for an optional p
 
 | Path | Role |
 | --- | --- |
-| `~/Library/Application Support/LumaNext/` | Active settings / stores (`ssh_meta.sqlite`, clipboard, records, …) |
+| `~/Library/Application Support/LumaNext/` | Active settings / stores (`ssh_meta.sqlite`, `recall.sqlite`, clipboard, records, …) |
 | `~/Library/Application Support/LumaNext/command-recipes.toml` | User command recipe definitions |
 | `~/Library/Application Support/LumaNext/command-recipes-meta.sqlite` | Recipe favorites / usage metadata |
 | `~/Library/Logs/LumaNext/` | Logs |
@@ -123,10 +127,27 @@ backup, and migration ledger, never the Markdown source files.
   `/settings projects-root PATH`, or `/settings import-project PATH`.
 
 - Empty Hub: `1`–`9` focuses visible window rows; status, “more”, and module rows are not numbered.
+- Empty Hub Continue: up to five privacy-safe recent objects appear after Windows. They use their
+  natural primary action; they are not window rows and never receive a digit shortcut. Recall is
+  bounded to 1,000 metadata rows and never stores clipboard bodies, snippet bodies, SSH config,
+  or submitted search text.
 - `/win`: `1`–`9` works only while the result list is focused. Digits typed in the prompt are never hijacked.
 - `/wb due`, `/wb new`, `/wb wrong`: normal lists. `/wb review due|new|wrong`: Enter/Space reveals, `1/2/3` grades, `m` masters after confirmation, `s` skips, Esc exits. `/wb import PATH` accepts a regular non-symlink UTF-8 CSV up to 512 KiB.
 - `/rec`: searches Records. Use `/rec browse`, `/rec add CATEGORY NAME | rating | note`, `/rec rate ID SCORE`, and `/rec note ID TEXT`.
 - `/proj`: plain search shows only manually imported projects. Use `/proj add/import PATH`, `/proj remove NAME|PATH`, and `/proj browse`.
+- `/git`: scans only manually imported project roots (bounded depth/count) and prioritizes
+  conflict/dirty/ahead repositories. Enter opens `/git repo PATH`; files support stage/unstage,
+  a bounded diff preview, and confirmed discard of unstaged tracked-file edits while preserving
+  the index (untracked files are never cleaned).
+  With the list focused: `s` stage/unstage, `a` stage all, `c` seed a commit message, `b` branches,
+  `l` local log, `r` refresh, `d` confirmed discard. `a` stages or unstages all according to the
+  current file/control state; branch switches refuse dirty repositories.
+- `/run` (or `/ports`): lists local TCP listeners with port, address, PID, process, owner, cwd, and
+  imported-project association. Enter opens an associated project. SIGTERM is confirmation-gated,
+  same-user only, identity-rechecked, and never escalates to SIGKILL.
+- `/proxy status` is a read-only snapshot of HTTP/HTTPS/SOCKS settings, controller, and Luma-owned
+  profile state. `/proxy check` performs on-demand local route/DNS/loopback/controller checks; it
+  has no daemon or probe-port subsystem.
 - `/ssh`: lists Host aliases from `~/.ssh/config`; Enter runs `ssh <alias>` in the current terminal (TUI suspends first); `/ssh fav` / `/ssh recent` / `/ssh rename ALIAS NAME` / `/ssh reload`; action picker: Open SFTP, Copy alias, Favorite/Unfavorite, Delete local metadata. See [`docs/SSH.md`](docs/SSH.md).
 - There is no `luma doctor`, `:doctor`, or diagnostics overlay. Modules report `permission`, `unavailable`, or `not_configured` locally when applicable.
 

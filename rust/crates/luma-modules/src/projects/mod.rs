@@ -49,7 +49,7 @@ impl ProjectsModule {
                 display_name: "Projects".into(),
                 triggers: vec!["p".into(), "proj".into(), "project".into()],
                 default_enabled: true,
-                search_mode: SearchMode::TargetedOnly,
+                search_mode: SearchMode::GlobalContributing,
                 required_capabilities: vec![],
                 workbench: luma_application::WorkbenchMeta {
                     glyph: Some("P".into()),

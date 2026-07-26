@@ -3,7 +3,8 @@ use super::redact::{opaque_component, redact_label};
 use super::{ImportIntent, ProxyModule, MODULE_ID};
 use crate::cancel::await_unless_cancelled;
 use luma_application::{
-    ProfileSource, ProxyCoreError, ProxyGroup, ProxyMode, ProxyNode, ProxyStatus, SearchSink,
+    NetworkProbeState, ProfileSource, ProxyCoreError, ProxyGroup, ProxyMode, ProxyNode,
+    ProxyStatus, SearchSink,
 };
 use luma_domain::{ActionRisk, Query};
 use luma_protocol::{Event, SearchItemDto};
@@ -11,6 +12,207 @@ use std::path::PathBuf;
 use tokio_util::sync::CancellationToken;
 
 impl ProxyModule {
+    fn check_row(step: luma_application::NetworkProbeStep) -> SearchItemDto {
+        let state = match step.state {
+            NetworkProbeState::Pass => "pass",
+            NetworkProbeState::Fail => "fail",
+            NetworkProbeState::Skipped => "skipped",
+        };
+        SearchItemDto {
+            id: format!("proxy:check:{}", opaque_component(&step.name)),
+            module_id: MODULE_ID.into(),
+            title: format!("{state} · {}", step.name),
+            subtitle: Some(format!("{} · {}", step.detail, step.remediation)),
+            kind: "status".into(),
+            score: if matches!(step.state, NetworkProbeState::Fail) {
+                95.0
+            } else {
+                70.0
+            },
+            primary_action_id: "refresh".into(),
+            primary_action_label: "Refresh".into(),
+            ..Default::default()
+        }
+    }
+
+    async fn status_rows(
+        &self,
+        status: &ProxyStatus,
+        system: Option<&luma_application::SystemProxyStatus>,
+    ) -> Vec<SearchItemDto> {
+        let mut rows = vec![Self::status_item(status, system)];
+        if let Some(system) = system {
+            let setting = |name: &str, value: &luma_application::SystemProxySetting| {
+                let endpoint = match (value.server.as_deref(), value.port) {
+                    (Some(server), Some(port)) => format!("{server}:{port}"),
+                    (Some(server), None) => server.to_string(),
+                    (None, Some(port)) => format!("port {port}"),
+                    (None, None) => "not set".into(),
+                };
+                SearchItemDto {
+                    id: format!("proxy:system:{name}"),
+                    module_id: MODULE_ID.into(),
+                    title: format!(
+                        "System {name} proxy · {}",
+                        if value.enabled { "on" } else { "off" }
+                    ),
+                    subtitle: Some(format!("{} · {}", system.service, endpoint)),
+                    kind: "status".into(),
+                    score: 85.0,
+                    primary_action_id: "refresh".into(),
+                    primary_action_label: "Refresh".into(),
+                    ..Default::default()
+                }
+            };
+            rows.push(setting("HTTP", &system.http));
+            rows.push(setting("HTTPS", &system.https));
+            rows.push(setting("SOCKS", &system.socks));
+        } else {
+            rows.push(SearchItemDto {
+                id: "proxy:system:unavailable".into(),
+                module_id: MODULE_ID.into(),
+                title: "System proxy status unavailable".into(),
+                subtitle: Some("Check macOS network service permissions".into()),
+                kind: "unavailable".into(),
+                primary_action_id: "refresh".into(),
+                primary_action_label: "Refresh".into(),
+                ..Default::default()
+            });
+        }
+        match self.core.get_external_controller_status().await {
+            Ok(controller) => rows.push(SearchItemDto {
+                id: "proxy:controller".into(),
+                module_id: MODULE_ID.into(),
+                title: format!(
+                    "Mihomo controller · {}",
+                    if controller.connected {
+                        "available"
+                    } else {
+                        "unavailable"
+                    }
+                ),
+                subtitle: Some("local controller only".into()),
+                kind: "status".into(),
+                score: 84.0,
+                primary_action_id: "refresh".into(),
+                primary_action_label: "Refresh".into(),
+                ..Default::default()
+            }),
+            Err(error) => rows.push(Self::unavailable_item(&error)),
+        }
+        if let Some(profiles) = &self.profiles {
+            match profiles.list_profiles().await {
+                Ok(items) => {
+                    let owned = items.iter().filter(|profile| profile.owned_by_luma).count();
+                    let current = items
+                        .iter()
+                        .filter(|profile| profile.current && profile.owned_by_luma)
+                        .count();
+                    rows.push(SearchItemDto {
+                        id: "proxy:profiles:owned".into(),
+                        module_id: MODULE_ID.into(),
+                        title: format!("Luma-owned profiles · {owned}"),
+                        subtitle: Some(format!(
+                            "active {current} · non-Luma Clash Verge profiles stay read-only"
+                        )),
+                        kind: "status".into(),
+                        score: 83.0,
+                        primary_action_id: "refresh".into(),
+                        primary_action_label: "Refresh".into(),
+                        ..Default::default()
+                    });
+                }
+                Err(_) => rows.push(SearchItemDto {
+                    id: "proxy:profiles:unavailable".into(),
+                    module_id: MODULE_ID.into(),
+                    title: "Luma profile status unavailable".into(),
+                    subtitle: Some("Existing profiles were left untouched".into()),
+                    kind: "unavailable".into(),
+                    primary_action_id: "refresh".into(),
+                    primary_action_label: "Refresh".into(),
+                    ..Default::default()
+                }),
+            }
+        }
+        rows
+    }
+
+    async fn check_rows(
+        &self,
+        status: &ProxyStatus,
+        system: Option<&luma_application::SystemProxyStatus>,
+    ) -> Vec<SearchItemDto> {
+        let mut rows = self
+            .network_probe
+            .base_checks()
+            .await
+            .into_iter()
+            .map(Self::check_row)
+            .collect::<Vec<_>>();
+        let mut ports = vec![status.ports.http, status.ports.mixed, status.ports.socks];
+        if let Some(system) = system {
+            for (name, setting) in [
+                ("HTTP", &system.http),
+                ("HTTPS", &system.https),
+                ("SOCKS", &system.socks),
+            ] {
+                if !setting.enabled {
+                    continue;
+                }
+                let loopback = setting
+                    .server
+                    .as_deref()
+                    .is_some_and(|server| matches!(server, "127.0.0.1" | "localhost" | "::1"));
+                if loopback {
+                    if let Some(port) = setting.port {
+                        ports.push(Some(port));
+                    } else {
+                        rows.push(Self::check_row(luma_application::NetworkProbeStep {
+                            name: format!("System {name} proxy"),
+                            state: NetworkProbeState::Fail,
+                            detail: "enabled without a port".into(),
+                            remediation: "Set a valid local proxy port or turn this proxy off"
+                                .into(),
+                        }));
+                    }
+                } else {
+                    rows.push(Self::check_row(luma_application::NetworkProbeStep {
+                        name: format!("System {name} proxy"),
+                        state: NetworkProbeState::Skipped,
+                        detail: "points to a non-local address".into(),
+                        remediation: "Use a local listener or verify that proxy outside Luma"
+                            .into(),
+                    }));
+                }
+            }
+        }
+        ports.sort_unstable();
+        ports.dedup();
+        for port in ports.into_iter().flatten() {
+            rows.push(Self::check_row(
+                self.network_probe.loopback_listener(port).await,
+            ));
+        }
+        match self.core.get_external_controller_status().await {
+            Ok(status) => rows.push(SearchItemDto {
+                id: "proxy:check:controller".into(),
+                module_id: MODULE_ID.into(),
+                title: format!(
+                    "{} · Mihomo controller",
+                    if status.connected { "pass" } else { "fail" }
+                ),
+                subtitle: Some("controller reachability".into()),
+                kind: "status".into(),
+                score: if status.connected { 70.0 } else { 95.0 },
+                primary_action_id: "refresh".into(),
+                primary_action_label: "Refresh".into(),
+                ..Default::default()
+            }),
+            Err(error) => rows.push(Self::unavailable_item(&error)),
+        }
+        rows
+    }
+
     pub(super) fn status_item(
         status: &ProxyStatus,
         system: Option<&luma_application::SystemProxyStatus>,
@@ -18,7 +220,7 @@ impl ProxyModule {
         let mode = mode_label(status.mode);
         let system_label = system
             .map(|s| {
-                if s.http.enabled || s.socks.enabled {
+                if s.http.enabled || s.https.enabled || s.socks.enabled {
                     "ON"
                 } else {
                     "OFF"
@@ -182,6 +384,28 @@ impl ProxyModule {
         self.selection_keys.write().await.clear();
         *self.last_status.write().await = Some(status.clone());
         let system = self.system_proxy.get_status().await.ok();
+        if normalized_rest == "status" {
+            let _ = sink
+                .send(Event::ResultsChunk {
+                    request_id: String::new(),
+                    sequence: 1,
+                    upserts: self.status_rows(&status, system.as_ref()).await,
+                    removed_ids: vec![],
+                })
+                .await;
+            return;
+        }
+        if normalized_rest == "check" {
+            let _ = sink
+                .send(Event::ResultsChunk {
+                    request_id: String::new(),
+                    sequence: 1,
+                    upserts: self.check_rows(&status, system.as_ref()).await,
+                    removed_ids: vec![],
+                })
+                .await;
+            return;
+        }
         let groups = match await_unless_cancelled(cancel, self.core.list_proxy_groups()).await {
             None => return,
             Some(Ok(groups)) => groups,
@@ -415,7 +639,7 @@ fn status_actions(
     can_copy: bool,
 ) -> Vec<luma_protocol::ActionDescriptorDto> {
     let system_on = system
-        .map(|s| s.http.enabled || s.socks.enabled)
+        .map(|s| s.http.enabled || s.https.enabled || s.socks.enabled)
         .unwrap_or(false);
     let mut actions = vec![
         action_dto("set_global", "Set Global", ActionRisk::Confirm, true),

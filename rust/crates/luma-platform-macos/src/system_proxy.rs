@@ -238,6 +238,7 @@ impl MacSystemProxy {
             status: SystemProxyStatus {
                 service,
                 http: parse_setting(&http_output),
+                https: parse_setting(&secure_web_output),
                 socks: parse_setting(&socks_output),
             },
             unsupported: UnsupportedProxyFeatures {
@@ -304,7 +305,9 @@ impl MacSystemProxy {
 impl SystemProxyPort for MacSystemProxy {
     async fn get_status(&self) -> Result<SystemProxyStatus, SystemProxyError> {
         let _guard = self.lock_ops().await?;
-        self.read_status().await
+        // Status is informational: report independent HTTPS/PAC/auth settings even when Luma
+        // must refuse to take ownership of HTTP/SOCKS. Mutations still go through read_status.
+        self.read_snapshot().await.map(|snapshot| snapshot.status)
     }
 
     async fn enable(
@@ -349,6 +352,7 @@ impl SystemProxyPort for MacSystemProxy {
         let desired = SystemProxyStatus {
             service: before.service.clone(),
             http: wanted_http.clone(),
+            https: before.https.clone(),
             socks: wanted_socks.clone(),
         };
         *self.applied.lock().await = Some(desired.clone());
@@ -630,7 +634,7 @@ fn authenticated_proxy_enabled(output: &str) -> bool {
 }
 
 fn same_settings(a: &SystemProxyStatus, b: &SystemProxyStatus) -> bool {
-    a.service == b.service && a.http == b.http && a.socks == b.socks
+    a.service == b.service && a.http == b.http && a.https == b.https && a.socks == b.socks
 }
 
 fn should_force_restore(
@@ -639,6 +643,9 @@ fn should_force_restore(
     saved: &SystemProxyStatus,
 ) -> bool {
     if live.service != applied.service || live.service != saved.service {
+        return false;
+    }
+    if live.https != applied.https || live.https != saved.https {
         return false;
     }
     // A journal can safely identify the ordinary pre-apply and first-setting half-apply states.
@@ -730,6 +737,7 @@ mod tests {
                 server: None,
                 port: None,
             },
+            https: SystemProxySetting::default(),
             socks: SystemProxySetting {
                 enabled: false,
                 server: None,
@@ -743,6 +751,7 @@ mod tests {
                 server: Some("127.0.0.1".into()),
                 port: Some(7890),
             },
+            https: SystemProxySetting::default(),
             socks: SystemProxySetting {
                 enabled: true,
                 server: Some("127.0.0.1".into()),
@@ -752,6 +761,7 @@ mod tests {
         let half = SystemProxyStatus {
             service: "Wi-Fi".into(),
             http: applied.http.clone(),
+            https: saved.https.clone(),
             socks: saved.socks.clone(),
         };
         assert!(should_force_restore(&half, &applied, &saved));
@@ -760,6 +770,7 @@ mod tests {
         let external = SystemProxyStatus {
             service: "Wi-Fi".into(),
             http: applied.http.clone(),
+            https: saved.https.clone(),
             socks: SystemProxySetting {
                 enabled: true,
                 server: Some("192.0.2.1".into()),
@@ -779,6 +790,7 @@ mod tests {
                     server: None,
                     port: None,
                 },
+                https: SystemProxySetting::default(),
                 socks: SystemProxySetting {
                     enabled: false,
                     server: None,
@@ -792,6 +804,7 @@ mod tests {
                     server: Some("127.0.0.1".into()),
                     port: Some(1),
                 },
+                https: SystemProxySetting::default(),
                 socks: SystemProxySetting {
                     enabled: false,
                     server: None,
@@ -807,6 +820,7 @@ mod tests {
                 server: Some("0.0.0.0".into()),
                 port: Some(9),
             },
+            https: SystemProxySetting::default(),
             socks: SystemProxySetting {
                 enabled: false,
                 server: None,

@@ -62,6 +62,7 @@ pub enum UiIntent {
     ListIssues,
     SeedAdd,
     OpenPath,
+    OpenSurface,
 }
 
 impl UiIntent {
@@ -72,6 +73,7 @@ impl UiIntent {
             Self::ListIssues => "list_issues",
             Self::SeedAdd => "seed_add",
             Self::OpenPath => "open_path",
+            Self::OpenSurface => "open_surface",
         }
     }
 
@@ -82,6 +84,7 @@ impl UiIntent {
             "list_issues" => Some(Self::ListIssues),
             "seed_add" => Some(Self::SeedAdd),
             "open_path" => Some(Self::OpenPath),
+            "open_surface" => Some(Self::OpenSurface),
             _ => None,
         }
     }
@@ -305,6 +308,16 @@ pub struct HubWindowsDto {
     pub status: Option<HubWindowsStatusDto>,
 }
 
+/// A bounded, privacy-safe recent object supplied by Recall for the empty Hub.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HubContinueDto {
+    pub id: String,
+    pub module_id: String,
+    pub kind: String,
+    pub title: String,
+    pub primary_action_id: String,
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Event {
@@ -314,6 +327,8 @@ pub enum Event {
     HubLoaded {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         windows: Option<HubWindowsDto>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        continue_items: Vec<HubContinueDto>,
     },
     SnapshotLoaded {
         items: Vec<SearchItemDto>,

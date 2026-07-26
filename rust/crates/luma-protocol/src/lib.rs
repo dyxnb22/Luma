@@ -7,7 +7,7 @@ mod event;
 pub use command::Command;
 pub use envelope::{Envelope, PROTOCOL_VERSION};
 pub use event::{
-    ActionDescriptorDto, ActionOutcomeDto, Event, HubWindowDto, HubWindowsDto, HubWindowsStatusDto,
-    ModuleInfoDto, SearchFailure, SearchItemDto, SearchStatus, UiIntent, WordReviewWordDto,
-    WordbookStatsDto,
+    ActionDescriptorDto, ActionOutcomeDto, Event, HubContinueDto, HubWindowDto, HubWindowsDto,
+    HubWindowsStatusDto, ModuleInfoDto, SearchFailure, SearchItemDto, SearchStatus, UiIntent,
+    WordReviewWordDto, WordbookStatsDto,
 };

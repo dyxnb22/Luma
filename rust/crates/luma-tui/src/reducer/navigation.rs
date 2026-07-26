@@ -1,5 +1,5 @@
 use crate::effect::Effect;
-use crate::view_model::{AppState, FocusZone, Route, StatusTone};
+use crate::view_model::{ActionsIntent, AppState, AwaitingActions, FocusZone, Route, StatusTone};
 use luma_protocol::ActionDescriptorDto;
 
 use super::actions::{clear_action_ui, execute_action, review_return_route};
@@ -47,6 +47,22 @@ pub(super) fn apply_hub_selection(state: &mut AppState) -> Vec<Effect> {
         }
         return schedule_search(state);
     }
+    if kind == "continue" {
+        // Resolve the live module action first. A recalled primary action may require
+        // confirmation, and its availability can change since it was recorded.
+        state.actions.awaiting_actions = Some(AwaitingActions {
+            intent: ActionsIntent::RecipeShortcut {
+                action_id: query.clone(),
+            },
+            result_id: id.clone(),
+        });
+        state
+            .status
+            .set(format!("resolving Continue {title}…"), StatusTone::Progress);
+        return vec![Effect::ListActions {
+            result_id: id.clone(),
+        }];
+    }
     state.search.prompt = query.clone();
     state.search.prompt_cursor = state.prompt_char_len();
     state.focus = FocusZone::Prompt;
@@ -92,6 +108,44 @@ pub(super) fn drill_into_browse(
     state.focus = FocusZone::Prompt;
     state.search.history_browse = None;
     state.status.set("browsing…", StatusTone::Progress);
+    begin_search(state)
+}
+
+/// Generic module hand-off encoded in a result payload. No module id is inspected here, so new
+/// surfaces can link together without expanding the central reducer command matrix.
+pub(super) fn open_surface(state: &mut AppState, item: &luma_domain::SearchItem) -> Vec<Effect> {
+    let Some(query) = item
+        .action_payload
+        .as_ref()
+        .and_then(|payload| payload.get("surface_query"))
+        .and_then(|value| value.as_str())
+        .filter(|query| query.starts_with('/'))
+    else {
+        state
+            .status
+            .set("surface link unavailable", StatusTone::Warning);
+        return vec![Effect::None];
+    };
+    open_surface_query(state, query)
+}
+
+/// Open a slash-prefixed local surface from an explicit keyboard shortcut. This is shared with
+/// metadata-driven links so the reducer never turns an opaque result ID into a command.
+pub(super) fn open_surface_query(state: &mut AppState, query: &str) -> Vec<Effect> {
+    if !query.starts_with('/') {
+        state
+            .status
+            .set("surface link unavailable", StatusTone::Warning);
+        return vec![Effect::None];
+    }
+    state.search.browse_nav_stack.clear();
+    state.search.prompt = query.to_string();
+    state.search.prompt_cursor = state.prompt_char_len();
+    state.focus = FocusZone::Prompt;
+    state.search.history_browse = None;
+    state.search.results.items.clear();
+    state.search.results.selected_id = None;
+    state.status.set("opening…", StatusTone::Progress);
     begin_search(state)
 }
 

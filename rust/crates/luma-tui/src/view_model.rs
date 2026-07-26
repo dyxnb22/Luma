@@ -338,6 +338,7 @@ impl AppState {
         }
         let start = self.hub.scroll.min(rows.len());
         let module_start = rows.iter().position(|(k, _, _, _)| k == "module");
+        let continue_start = rows.iter().position(|(k, _, _, _)| k == "continue");
         let mut slots = 0;
         if start == 0
             && rows
@@ -347,6 +348,9 @@ impl AppState {
             slots += 1;
         }
         if module_start == Some(start) {
+            slots += 1;
+        }
+        if continue_start == Some(start) {
             slots += 1;
         }
         slots
@@ -496,9 +500,9 @@ impl AppState {
         self.search.prompt_cursor = self.prompt_char_len();
     }
 
-    /// Sorted hub rows: windows then modules.
+    /// Sorted hub rows: windows, a small Continue section, then modules.
     /// Returns (kind, id, title, query_or_empty) where kind is
-    /// "window" | "window_more" | "window_status" | "module".
+    /// "window" | "window_more" | "window_status" | "continue" | "module".
     pub fn hub_rows(&self) -> Vec<(String, String, String, String)> {
         let mut rows = Vec::new();
         if let Some(hub) = &self.hub.windows {
@@ -528,6 +532,14 @@ impl AppState {
                     ));
                 }
             }
+        }
+        for item in &self.hub.continue_items {
+            rows.push((
+                "continue".into(),
+                item.id.clone(),
+                format!("{} · {}", hub_kind_label(&item.kind), item.title),
+                item.primary_action_id.clone(),
+            ));
         }
         let mut modules: Vec<_> = self
             .module_catalog
@@ -594,6 +606,22 @@ impl AppState {
             .filter(|(kind, _, _, _)| kind == "module")
             .map(|(_, id, name, query)| (id, name, query))
             .collect()
+    }
+}
+
+fn hub_kind_label(kind: &str) -> &str {
+    match kind {
+        "window" => "Window",
+        "app" => "App",
+        "project" => "Project",
+        "note" => "Note",
+        "recipe" => "Command",
+        "ssh_host" => "SSH",
+        "clipboard" => "Clipboard",
+        "snippet" => "Snippet",
+        "git_repo" => "Git",
+        "runtime_listener" => "Runtime",
+        other => other,
     }
 }
 

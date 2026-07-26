@@ -38,7 +38,7 @@ impl SnippetsModule {
                 display_name: "Snippets".into(),
                 triggers: vec!["s".into(), "snip".into()],
                 default_enabled: true,
-                search_mode: SearchMode::TargetedOnly,
+                search_mode: SearchMode::GlobalContributing,
                 // Snippet search and copy work without Accessibility. Paste is an action-level
                 // capability and reports its own permission state.
                 required_capabilities: vec![],
@@ -109,58 +109,63 @@ impl LumaModule for SnippetsModule {
     async fn search(&self, query: Query, sink: SearchSink, cancel: CancellationToken) {
         // /s add <trigger> <body…>
         let rest_for_add = query.rest_raw();
-        if let Some(payload) = rest_for_add
-            .strip_prefix("add ")
-            .map(str::trim)
-            .filter(|s| !s.is_empty())
-        {
-            if let Some((trigger, body)) = payload.split_once(char::is_whitespace) {
-                let trigger = trigger.trim();
-                let body = body.trim();
-                if !trigger.is_empty() && !body.is_empty() {
-                    let exists = self.index.read().await.iter().any(|s| s.trigger == trigger);
-                    let _ = sink
-                        .send(Event::ResultsChunk {
-                            request_id: String::new(),
-                            sequence: 1,
-                            upserts: vec![SearchItemDto {
-                                id: format!("snip:add:{trigger}"),
-                                module_id: "luma.snippets".into(),
-                                title: if exists {
-                                    format!("Overwrite snippet {trigger}")
-                                } else {
-                                    format!("Add snippet {trigger}")
-                                },
-                                subtitle: Some(body.to_string()),
-                                kind: if exists {
-                                    "update".into()
-                                } else {
-                                    "create".into()
-                                },
-                                score: 100.0,
-                                primary_action_id: "add".into(),
-                                primary_action_label: if exists {
-                                    "Overwrite".into()
-                                } else {
-                                    "Add".into()
-                                },
-                                primary_action_risk: if exists {
-                                    ActionRisk::Confirm
-                                } else {
-                                    ActionRisk::Safe
-                                },
-                                primary_action_confirmation: exists,
-                                ..Default::default()
-                            }],
-                            removed_ids: vec![],
-                        })
-                        .await;
-                    return;
+        if query.is_command() {
+            if let Some(payload) = rest_for_add
+                .strip_prefix("add ")
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+            {
+                if let Some((trigger, body)) = payload.split_once(char::is_whitespace) {
+                    let trigger = trigger.trim();
+                    let body = body.trim();
+                    if !trigger.is_empty() && !body.is_empty() {
+                        let exists = self.index.read().await.iter().any(|s| s.trigger == trigger);
+                        let _ = sink
+                            .send(Event::ResultsChunk {
+                                request_id: String::new(),
+                                sequence: 1,
+                                upserts: vec![SearchItemDto {
+                                    id: format!("snip:add:{trigger}"),
+                                    module_id: "luma.snippets".into(),
+                                    title: if exists {
+                                        format!("Overwrite snippet {trigger}")
+                                    } else {
+                                        format!("Add snippet {trigger}")
+                                    },
+                                    subtitle: Some(body.to_string()),
+                                    kind: if exists {
+                                        "update".into()
+                                    } else {
+                                        "create".into()
+                                    },
+                                    score: 100.0,
+                                    primary_action_id: "add".into(),
+                                    primary_action_label: if exists {
+                                        "Overwrite".into()
+                                    } else {
+                                        "Add".into()
+                                    },
+                                    primary_action_risk: if exists {
+                                        ActionRisk::Confirm
+                                    } else {
+                                        ActionRisk::Safe
+                                    },
+                                    primary_action_confirmation: exists,
+                                    ..Default::default()
+                                }],
+                                removed_ids: vec![],
+                            })
+                            .await;
+                        return;
+                    }
                 }
             }
         }
 
         if let Some(err) = self.store_error.read().await.clone() {
+            if matches!(query.scope, luma_domain::QueryScope::Global) {
+                return;
+            }
             let _ = sink
                 .send(Event::ResultsChunk {
                     request_id: String::new(),
@@ -205,6 +210,9 @@ impl LumaModule for SnippetsModule {
                     ..Default::default()
                 });
             }
+        }
+        if matches!(query.scope, luma_domain::QueryScope::Global) && upserts.is_empty() {
+            return;
         }
         if upserts.is_empty() && needle.is_empty() {
             upserts.push(SearchItemDto {

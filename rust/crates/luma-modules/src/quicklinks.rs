@@ -150,7 +150,7 @@ impl LumaModule for QuicklinksModule {
         let rest = query.rest_normalized();
         let rest_raw = query.rest_raw();
 
-        if rest.starts_with("add ") {
+        if query.is_command() && rest.starts_with("add ") {
             let body_raw = rest_raw
                 .strip_prefix("add ")
                 .or_else(|| rest_raw.strip_prefix("Add "))
@@ -215,6 +215,9 @@ impl LumaModule for QuicklinksModule {
         }
 
         if let Some(err) = self.store_error.read().await.clone() {
+            if matches!(query.scope, luma_domain::QueryScope::Global) {
+                return;
+            }
             let _ = sink
                 .send(Event::ResultsChunk {
                     request_id: String::new(),

@@ -7,10 +7,12 @@ use luma_protocol::ActionDescriptorDto;
 
 use super::apply_ui_intent;
 use super::navigation::{
-    drill_into_browse, open_notes_issues, seed_module_add, seed_module_config, seed_record_edit,
+    drill_into_browse, open_notes_issues, open_surface_query, seed_module_add, seed_module_config,
+    seed_record_edit,
 };
 use super::next_operation_id;
 use super::resolve_ui_intent;
+use super::search::begin_search;
 use super::wordbook;
 
 pub(super) fn clear_action_ui(state: &mut AppState) {
@@ -31,7 +33,47 @@ pub(super) fn recipe_shortcut(state: &mut AppState, action_id: &str) -> Vec<Effe
         state.status.set("no result selected", StatusTone::Warning);
         return vec![Effect::None];
     };
-    if item.module_id.as_str() != "luma.command_recipes" {
+    if item.module_id.as_str() == "luma.git" {
+        let repo = item
+            .action_payload
+            .as_ref()
+            .and_then(|payload| payload.get("repo_path"))
+            .and_then(|value| value.as_str());
+        match action_id {
+            "git_refresh" => {
+                state.status.set("refreshing Git…", StatusTone::Progress);
+                return begin_search(state);
+            }
+            "git_commit" | "git_branches" | "git_log" => {
+                let Some(repo) = repo else {
+                    state
+                        .status
+                        .set("repository context unavailable", StatusTone::Warning);
+                    return vec![Effect::None];
+                };
+                if action_id == "git_commit" {
+                    state.search.browse_nav_stack.clear();
+                    state.search.prompt = "/git commit ".into();
+                    state.search.prompt_cursor = state.prompt_char_len();
+                    state.focus = crate::view_model::FocusZone::Prompt;
+                    state.search.debounce_deadline = None;
+                    state.status.set(
+                        "type commit message · Enter to confirm",
+                        StatusTone::Neutral,
+                    );
+                    return vec![Effect::None];
+                }
+                let surface = if action_id == "git_branches" {
+                    format!("/git branches {repo}")
+                } else {
+                    format!("/git log {repo}")
+                };
+                return open_surface_query(state, &surface);
+            }
+            _ => {}
+        }
+    }
+    if !matches!(item.module_id.as_str(), "luma.command_recipes" | "luma.git") {
         return vec![Effect::None];
     }
     let result_id = item.id.as_str().to_string();

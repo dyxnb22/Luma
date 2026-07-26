@@ -34,6 +34,7 @@ mod cli;
 mod command_dispatch;
 mod extensions;
 mod preview;
+mod recall;
 mod results;
 mod search;
 mod session;
@@ -84,6 +85,7 @@ pub struct EngineOptions {
     pub settings: Option<Arc<dyn crate::ports::SettingsRepository>>,
     pub wordbook: Option<Arc<dyn crate::ports::WordbookRepository>>,
     pub command_recipes: Option<Arc<dyn crate::ports::CommandRecipesRepository>>,
+    pub recall: Option<Arc<dyn crate::ports::RecallRepository>>,
 }
 
 /// In-process engine: owns modules, searches, and operations.
@@ -93,6 +95,7 @@ pub struct Engine {
     settings: Option<Arc<dyn crate::ports::SettingsRepository>>,
     wordbook: Option<Arc<dyn crate::ports::WordbookRepository>>,
     command_recipes: Option<Arc<dyn crate::ports::CommandRecipesRepository>>,
+    recall: Option<Arc<dyn crate::ports::RecallRepository>>,
     /// Serializes search setup so cancel→clear→register cannot interleave.
     search_lifecycle: Mutex<()>,
 }
@@ -112,6 +115,7 @@ impl Engine {
                 settings,
                 wordbook: None,
                 command_recipes: None,
+                recall: None,
             },
         )
     }
@@ -138,6 +142,7 @@ impl Engine {
             settings: options.settings,
             wordbook: options.wordbook,
             command_recipes: options.command_recipes,
+            recall: options.recall,
             search_lifecycle: Mutex::new(()),
         }
     }

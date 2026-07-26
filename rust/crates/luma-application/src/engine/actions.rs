@@ -61,6 +61,7 @@ impl Engine {
         }
 
         let settings_repo = self.settings.clone();
+        let recall_repo = self.recall.clone();
         let inner = self.inner.clone();
         let engine = self.clone_inner();
         let op_id = operation_id.clone();
@@ -75,6 +76,7 @@ impl Engine {
                 );
             }
 
+            let recall_item = item.clone();
             let outcome = match (item, module) {
                 (Some(result), Some(module)) => {
                     let actions = module.actions(&result).await;
@@ -146,6 +148,17 @@ impl Engine {
                     entity: format!("result:{result_id}"),
                 }),
             };
+            if matches!(outcome, luma_protocol::ActionOutcomeDto::Success { .. }) {
+                if let (Some(item), Some(repo)) = (recall_item.as_ref(), recall_repo.as_ref()) {
+                    let now_unix = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .map(|duration| duration.as_secs() as i64)
+                        .unwrap_or(0);
+                    if let Some(object) = super::recall::recall_object_from_item(item, now_unix) {
+                        let _ = repo.record_success(object);
+                    }
+                }
+            }
             {
                 let mut g = engine.lock().await;
                 let is_current = g

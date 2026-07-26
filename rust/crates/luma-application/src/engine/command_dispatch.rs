@@ -60,7 +60,7 @@ impl Engine {
                 };
                 let mut windows_dto: Option<luma_protocol::HubWindowsDto> = None;
                 let mut seeded: Vec<luma_domain::SearchItem> = Vec::new();
-                for module in modules {
+                for module in &modules {
                     if windows_dto.is_none() && module.supports_hub_windows() {
                         if let Some(slice) = module.hub_windows().await {
                             for row in &slice.windows {
@@ -102,6 +102,36 @@ impl Engine {
                         }
                     }
                 }
+                let continue_items = self
+                    .recall
+                    .as_ref()
+                    .and_then(|repo| repo.list_recent(super::recall::HUB_CONTINUE_LIMIT).ok())
+                    .unwrap_or_default();
+                let enabled_ids = modules
+                    .iter()
+                    .map(|module| module.manifest().id.as_str().to_string())
+                    .collect::<std::collections::HashSet<_>>();
+                let continue_items = continue_items
+                    .into_iter()
+                    .filter(|record| {
+                        enabled_ids.contains(&record.module_id)
+                            // Git and Runtime rows require a live repository/listener payload.
+                            // They remain recall-ranked in global search, but Hub Continue never
+                            // guesses that volatile payload from a persistent record.
+                            && !matches!(record.module_id.as_str(), "luma.git" | "luma.runtime")
+                    })
+                    .collect::<Vec<_>>();
+                let continue_dto = continue_items
+                    .iter()
+                    .map(|record| luma_protocol::HubContinueDto {
+                        id: record.object_id.clone(),
+                        module_id: record.module_id.clone(),
+                        kind: record.kind.clone(),
+                        title: record.title.clone(),
+                        primary_action_id: record.primary_action.clone(),
+                    })
+                    .collect::<Vec<_>>();
+                seeded.extend(continue_items.iter().map(super::recall::hub_item));
                 let evicted = {
                     let mut g = self.inner.lock().await;
                     g.insert_results_batch(
@@ -123,6 +153,7 @@ impl Engine {
                 let _ = self
                     .emit(Event::HubLoaded {
                         windows: windows_dto,
+                        continue_items: continue_dto,
                     })
                     .await;
             }

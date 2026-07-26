@@ -25,18 +25,15 @@ impl ProjectsModule {
     ) {
         let roots = self.roots.read().await.clone();
         let imported = self.imported.read().await.clone();
-        let rest_norm = query
-            .normalized
-            .split_once(|c: char| c.is_whitespace())
-            .map(|(_, r)| r.trim().to_string())
-            .unwrap_or_default();
+        let rest_norm = query.rest_normalized();
         let rest_raw = query.rest_raw().trim().to_string();
         let rest_check = rest_raw.to_lowercase();
 
         // Drill-down: verb case-insensitive; path payload from rest_raw (preserve case).
-        if rest_check == "browse"
-            || rest_check.starts_with("browse ")
-            || rest_check.starts_with("ls ")
+        if query.is_command()
+            && (rest_check == "browse"
+                || rest_check.starts_with("browse ")
+                || rest_check.starts_with("ls "))
         {
             if roots.is_empty() {
                 let _ = sink
@@ -256,10 +253,11 @@ impl ProjectsModule {
             return;
         }
 
-        if rest_check == "add"
-            || rest_check == "import"
-            || rest_check.starts_with("add ")
-            || rest_check.starts_with("import ")
+        if query.is_command()
+            && (rest_check == "add"
+                || rest_check == "import"
+                || rest_check.starts_with("add ")
+                || rest_check.starts_with("import "))
         {
             let path_str = rest_raw
                 .split_once(char::is_whitespace)
@@ -351,7 +349,7 @@ impl ProjectsModule {
             return;
         }
 
-        if rest_check == "remove" || rest_check.starts_with("remove ") {
+        if query.is_command() && (rest_check == "remove" || rest_check.starts_with("remove ")) {
             let key = rest_raw
                 .split_once(char::is_whitespace)
                 .map(|(_, tail)| tail.trim())
@@ -505,6 +503,9 @@ impl ProjectsModule {
             }
         }
         if upserts.is_empty() {
+            if matches!(query.scope, luma_domain::QueryScope::Global) {
+                return;
+            }
             let (title, subtitle) = if needle.is_empty() {
                 (
                     "No imported projects".into(),

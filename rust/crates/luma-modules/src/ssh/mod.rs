@@ -42,7 +42,7 @@ impl SshModule {
                 display_name: "SSH".into(),
                 triggers: vec!["ssh".into()],
                 default_enabled: true,
-                search_mode: SearchMode::TargetedOnly,
+                search_mode: SearchMode::GlobalContributing,
                 required_capabilities: vec![],
                 workbench: luma_application::WorkbenchMeta {
                     glyph: Some("S".into()),
@@ -342,7 +342,7 @@ mod tests {
     #[tokio::test]
     async fn search_lists_hosts() {
         let module = test_module();
-        let items = collect_search(&module, "ssh").await;
+        let items = collect_search(&module, "/ssh ").await;
         assert!(items.iter().any(|i| i.id == "ssh:production"));
     }
 
@@ -356,7 +356,7 @@ mod tests {
             Arc::new(FakePasteboard::new()),
             Arc::new(FixedClock::new("2026-01-01", "2026-01-01T00:00:00Z")),
         );
-        let items = collect_search(&module, "ssh").await;
+        let items = collect_search(&module, "/ssh ").await;
         assert!(items.iter().any(|i| i.kind == "not_configured"));
     }
 

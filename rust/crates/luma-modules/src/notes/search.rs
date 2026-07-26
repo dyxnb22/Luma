@@ -58,9 +58,77 @@ fn browse_argument<'a>(rest_raw: &'a str, rest_check: &str) -> Option<&'a str> {
 }
 
 impl NotesModule {
+    async fn search_global_notes(
+        &self,
+        root: PathBuf,
+        query: Query,
+        sink: SearchSink,
+        cancel: CancellationToken,
+    ) {
+        let needle = query.normalized.trim().to_string();
+        if needle.is_empty() {
+            return;
+        }
+        let index = self.index.clone();
+        let limit = query.limit;
+        let needle_for_search = needle.clone();
+        let handle = tokio::task::spawn_blocking(move || index.search(&needle_for_search, limit));
+        let abort = handle.abort_handle();
+        let hits = tokio::select! {
+            _ = cancel.cancelled() => {
+                abort.abort();
+                return;
+            }
+            result = handle => match result {
+                Ok(Ok(hits)) => hits,
+                // A global contribution must never turn a local index problem into an unrelated
+                // search row. `/n` remains the recoverable, explicit status surface.
+                Ok(Err(_)) | Err(_) => return,
+            },
+        };
+        let mut upserts = Vec::new();
+        for hit in hits {
+            if cancel.is_cancelled() {
+                return;
+            }
+            let path = match self
+                .workspace
+                .resolve_path(
+                    root.clone(),
+                    PathBuf::from(&hit.relative_path),
+                    false,
+                    cancel.clone(),
+                )
+                .await
+            {
+                Ok(path) => path.path,
+                Err(NotesWorkspaceError::Cancelled) => return,
+                Err(_) => continue,
+            };
+            upserts.push(SearchItemDto {
+                id: format!("note:{}", path.display()),
+                module_id: "luma.notes".into(),
+                title: hit.title,
+                subtitle: Some(path.display().to_string()),
+                kind: "note".into(),
+                score: 70.0 - hit.rank,
+                primary_action_id: "open".into(),
+                primary_action_label: "Open".into(),
+                ..Default::default()
+            });
+        }
+        if !upserts.is_empty() {
+            self.emit_results(&sink, upserts, vec![]).await;
+        }
+    }
+
     pub(super) async fn search(&self, query: Query, sink: SearchSink, cancel: CancellationToken) {
+        let is_global = matches!(query.scope, luma_domain::QueryScope::Global);
         let root = self.root.read().await.clone();
         let Some(root) = root else {
+            if is_global {
+                return;
+            }
             self.emit_results(
                 &sink,
                 vec![SearchItemDto {
@@ -80,6 +148,11 @@ impl NotesModule {
             .await;
             return;
         };
+
+        if is_global {
+            self.search_global_notes(root, query, sink, cancel).await;
+            return;
+        }
 
         let rest = query.rest_normalized();
         if rest == "new" {

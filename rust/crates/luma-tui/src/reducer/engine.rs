@@ -67,6 +67,34 @@ pub(super) fn apply_engine(state: &mut AppState, event: Event) -> Vec<Effect> {
                         .iter()
                         .find(|a| a.id == "favorite" || a.id == "unfavorite")
                         .cloned()
+                } else if action_id == "toggle_all" {
+                    let primary = state
+                        .search
+                        .results
+                        .items
+                        .iter()
+                        .find(|item| item.id.as_str() == result_id)
+                        .map(|item| item.primary_action.id.as_str());
+                    let wanted = if primary == Some("unstage") || primary == Some("unstage_all") {
+                        "unstage_all"
+                    } else {
+                        "stage_all"
+                    };
+                    actions.iter().find(|a| a.id == wanted).cloned()
+                } else if action_id == "toggle_stage" {
+                    let primary = state
+                        .search
+                        .results
+                        .items
+                        .iter()
+                        .find(|item| item.id.as_str() == result_id)
+                        .map(|item| item.primary_action.id.as_str());
+                    let wanted = if primary == Some("unstage") {
+                        "unstage"
+                    } else {
+                        "stage"
+                    };
+                    actions.iter().find(|a| a.id == wanted).cloned()
                 } else {
                     actions.iter().find(|a| a.id == action_id).cloned()
                 };
@@ -127,6 +155,14 @@ pub(super) fn apply_engine(state: &mut AppState, event: Event) -> Vec<Effect> {
                 } if message == "favorited" || message == "unfavorited"
             )
             && super::command_recipes_query_active(&state.search.prompt));
+    let git_mutation_success = matches!(&event, Event::ActionFinished { operation_id, outcome }
+        if state.actions.active_operation.as_deref() == Some(operation_id.as_str())
+            && matches!(outcome, luma_protocol::ActionOutcomeDto::Success { .. })
+            && state.search.prompt.trim_start().starts_with("/git"));
+    let runtime_action_success = matches!(&event, Event::ActionFinished { operation_id, outcome }
+        if state.actions.active_operation.as_deref() == Some(operation_id.as_str())
+            && matches!(outcome, luma_protocol::ActionOutcomeDto::Success { .. })
+            && matches!(state.search.prompt.trim_start(), prompt if prompt.starts_with("/run") || prompt.starts_with("/ports")));
     let refresh_review_stats = matches!(&event, Event::ActionFinished { outcome, .. }
         if matches!(outcome, luma_protocol::ActionOutcomeDto::Success { .. })
             && matches!(state.route, Route::WordbookReview)
@@ -184,6 +220,12 @@ pub(super) fn apply_engine(state: &mut AppState, event: Event) -> Vec<Effect> {
         return begin_search(state);
     }
     if cmd_favorite_success && !state.search.prompt.trim().is_empty() {
+        return begin_search(state);
+    }
+    if git_mutation_success && !state.search.prompt.trim().is_empty() {
+        return begin_search(state);
+    }
+    if runtime_action_success && !state.search.prompt.trim().is_empty() {
         return begin_search(state);
     }
     if let Some(sel) = state.search.results.selected_id.as_deref() {

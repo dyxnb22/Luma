@@ -106,6 +106,7 @@ fn apply_ui_intent(
                 .set("open via action picker", StatusTone::Warning);
             vec![Effect::None]
         }
+        UiIntent::OpenSurface => navigation::open_surface(state, item),
     }
 }
 

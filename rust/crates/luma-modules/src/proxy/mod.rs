@@ -3,9 +3,9 @@
 use crate::cancel::await_unless_cancelled;
 use async_trait::async_trait;
 use luma_application::{
-    ActionOutcome, ActionRequest, LumaModule, ModuleManifest, ModuleState, PasteboardPort,
-    ProfileSource, ProfileStorePort, ProfileSummary, ProxyCorePort, ProxyMode, ProxyStatus,
-    SearchMode, SearchSink, SystemProxyPort, WarmupContext,
+    ActionOutcome, ActionRequest, LumaModule, ModuleManifest, ModuleState, NetworkProbePort,
+    PasteboardPort, ProfileSource, ProfileStorePort, ProfileSummary, ProxyCorePort, ProxyMode,
+    ProxyStatus, SearchMode, SearchSink, SystemProxyPort, UnavailableNetworkProbe, WarmupContext,
 };
 use luma_domain::{
     ActionDescriptor, ActionId, ActionRisk, FailureKind, ModuleId, Query, SearchItem,
@@ -30,6 +30,7 @@ pub struct ProxyModule {
     system_proxy: Arc<dyn SystemProxyPort>,
     pasteboard: Arc<dyn PasteboardPort>,
     profiles: Option<Arc<dyn ProfileStorePort>>,
+    network_probe: Arc<dyn NetworkProbePort>,
     last_status: RwLock<Option<ProxyStatus>>,
     selection_keys: RwLock<HashMap<String, (String, String)>>,
     import_keys: RwLock<HashMap<String, ImportIntent>>,
@@ -66,6 +67,7 @@ impl ProxyModule {
             system_proxy,
             pasteboard,
             profiles: None,
+            network_probe: Arc::new(UnavailableNetworkProbe),
             last_status: RwLock::new(None),
             selection_keys: RwLock::new(HashMap::new()),
             import_keys: RwLock::new(HashMap::new()),
@@ -74,6 +76,11 @@ impl ProxyModule {
 
     pub fn with_profile_store(mut self, profiles: Arc<dyn ProfileStorePort>) -> Self {
         self.profiles = Some(profiles);
+        self
+    }
+
+    pub fn with_network_probe(mut self, network_probe: Arc<dyn NetworkProbePort>) -> Self {
+        self.network_probe = network_probe;
         self
     }
 }
@@ -485,9 +492,9 @@ mod tests {
     use super::redact::redact_label;
     use super::*;
     use luma_application::{
-        FakePasteboard, FakeProxyCore, FakeSystemProxy, ProfileImportResult, ProfileSource,
-        ProfileStoreError, ProfileStorePort, ProxyCoreError, ProxyGroup, ProxyNode, ProxyPorts,
-        SystemProxySetting, SystemProxyStatus,
+        FakeNetworkProbe, FakePasteboard, FakeProxyCore, FakeSystemProxy, NetworkProbeState,
+        NetworkProbeStep, ProfileImportResult, ProfileSource, ProfileStoreError, ProfileStorePort,
+        ProxyCoreError, ProxyGroup, ProxyNode, ProxyPorts, SystemProxySetting, SystemProxyStatus,
     };
     use luma_protocol::SearchItemDto;
     use luma_test_support::collect_search_items;
@@ -522,6 +529,7 @@ mod tests {
         let system = FakeSystemProxy::new(SystemProxyStatus {
             service: "Wi-Fi".into(),
             http: SystemProxySetting::default(),
+            https: SystemProxySetting::default(),
             socks: SystemProxySetting::default(),
         });
         let module = ProxyModule::with_deps(
@@ -542,6 +550,44 @@ mod tests {
         assert!(items.iter().any(|item| item.title == "V2Box-VPS"
             && item.subtitle.as_deref().unwrap().contains("selected")));
         assert!(!redact_label("node-123e4567-e89b-12d3-a456-426614174000").contains("123e4567"));
+    }
+
+    #[tokio::test]
+    async fn status_and_check_show_https_and_structured_probe_results() {
+        let (base, _, _) = module();
+        let probe = FakeNetworkProbe::new(vec![NetworkProbeStep {
+            name: "Default route".into(),
+            state: NetworkProbeState::Pass,
+            detail: "available".into(),
+            remediation: "connect to a network".into(),
+        }]);
+        probe.listeners.lock().await.insert(
+            7899,
+            NetworkProbeStep {
+                name: "Local listener 127.0.0.1:7899".into(),
+                state: NetworkProbeState::Pass,
+                detail: "accepting connections".into(),
+                remediation: "start Mihomo".into(),
+            },
+        );
+        let module = base.with_network_probe(probe);
+        let status = collect_search_items(&module, Query::parse("proxy status", 20)).await;
+        assert!(status
+            .iter()
+            .any(|item| item.title.starts_with("System HTTP proxy")));
+        assert!(status
+            .iter()
+            .any(|item| item.title.starts_with("System HTTPS proxy")));
+        assert!(status
+            .iter()
+            .any(|item| item.title.starts_with("System SOCKS proxy")));
+        let checks = collect_search_items(&module, Query::parse("proxy check", 20)).await;
+        assert!(checks
+            .iter()
+            .any(|item| item.title == "pass · Default route"));
+        assert!(checks
+            .iter()
+            .any(|item| item.title == "pass · Local listener 127.0.0.1:7899"));
     }
 
     #[tokio::test]

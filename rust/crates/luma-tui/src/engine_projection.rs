@@ -29,7 +29,10 @@ impl AppState {
                 self.status.set("Session ready", StatusTone::Success);
                 true
             }
-            Event::HubLoaded { windows } => {
+            Event::HubLoaded {
+                windows,
+                continue_items,
+            } => {
                 self.hub.windows = windows.map(|w| HubWindowsState {
                     app_name: w.app_name,
                     windows: w
@@ -45,6 +48,16 @@ impl AppState {
                     status_title: w.status.as_ref().map(|s| s.title.clone()),
                     status_subtitle: w.status.and_then(|s| s.subtitle),
                 });
+                self.hub.continue_items = continue_items
+                    .into_iter()
+                    .map(|item| crate::view_model::HubContinueState {
+                        id: item.id,
+                        module_id: item.module_id,
+                        kind: item.kind,
+                        title: item.title,
+                        primary_action_id: item.primary_action_id,
+                    })
+                    .collect();
                 self.ensure_hub_selection_visible();
                 self.schedule_hub_refresh();
                 true

@@ -43,7 +43,7 @@ impl WindowsModule {
                 display_name: "Windows".into(),
                 triggers: vec!["win".into(), "window".into(), "windows".into()],
                 default_enabled: true,
-                search_mode: SearchMode::TargetedOnly,
+                search_mode: SearchMode::GlobalContributing,
                 // Listing windows uses the CoreGraphics catalog and remains useful without
                 // Accessibility. Focus reports the permission requirement at action time.
                 required_capabilities: vec![],
@@ -255,6 +255,9 @@ impl LumaModule for WindowsModule {
         }
 
         if upserts.is_empty() {
+            if matches!(query.scope, luma_domain::QueryScope::Global) {
+                return;
+            }
             let title = if needle.is_empty() {
                 "No windows to list".into()
             } else {

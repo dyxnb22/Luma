@@ -79,10 +79,20 @@ pub struct HubWindowsState {
     pub status_subtitle: Option<String>,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct HubContinueState {
+    pub id: String,
+    pub module_id: String,
+    pub kind: String,
+    pub title: String,
+    pub primary_action_id: String,
+}
+
 /// State owned by the empty-state Hub and the window switcher.
 #[derive(Clone, Debug, Default)]
 pub struct HubState {
     pub windows: Option<HubWindowsState>,
+    pub continue_items: Vec<HubContinueState>,
     pub refresh_deadline: Option<std::time::Instant>,
     pub selected: usize,
     pub scroll: usize,

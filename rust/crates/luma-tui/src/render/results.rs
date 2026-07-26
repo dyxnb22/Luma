@@ -191,11 +191,13 @@ fn hub_list_items(state: &AppState, theme: &Theme, symbols: &Symbols) -> Vec<Lis
     }
     let mut out = Vec::new();
     let mut shown_windows = false;
+    let mut shown_continue = false;
     let mut shown_modules = false;
     let viewport = state.hub_data_capacity();
     let start = state.hub.scroll.min(rows.len());
     let end = (start + viewport).min(rows.len());
     let module_global_start = rows.iter().position(|(k, _, _, _)| k == "module");
+    let continue_global_start = rows.iter().position(|(k, _, _, _)| k == "continue");
     let window = &rows[start..end];
     for (idx, (kind, _id, title, query)) in window.iter().enumerate().map(|(i, r)| (start + i, r)) {
         if (kind == "window" || kind == "window_more" || kind == "window_status")
@@ -211,6 +213,16 @@ fn hub_list_items(state: &AppState, theme: &Theme, symbols: &Symbols) -> Vec<Lis
             out.push(ListItem::new(vec![
                 Line::from(Span::styled(header, theme.title())),
                 Line::from(Span::styled(hint, theme.key_hint())),
+            ]));
+        }
+        if kind == "continue" && !shown_continue && continue_global_start == Some(idx) {
+            shown_continue = true;
+            out.push(ListItem::new(vec![
+                Line::from(Span::styled("  Continue", theme.title())),
+                Line::from(Span::styled(
+                    "  Enter resumes the recent object · ↑↓ move",
+                    theme.key_hint(),
+                )),
             ]));
         }
         if kind == "module" && !shown_modules && module_global_start == Some(idx) {
@@ -241,6 +253,7 @@ fn hub_list_items(state: &AppState, theme: &Theme, symbols: &Symbols) -> Vec<Lis
                 .map(|d| format!("[{d}]"))
                 .unwrap_or_default(),
             "window_more" | "window_status" => "win".to_string(),
+            "continue" => "continue".to_string(),
             _ => query.clone(),
         };
         let right = truncate(

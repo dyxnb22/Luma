@@ -4,28 +4,29 @@
 //! listed in Settings but do not warm up or appear on the Hub.
 
 use luma_application::{
-    CapabilityPort, CommandRecipesRepository, ModuleManifest, ModuleRegistry,
+    CapabilityPort, CommandRecipesRepository, ModuleManifest, ModuleRegistry, RecallRepository,
     RegistryError as ModuleRegistryError, SearchMode, SettingsRepository, SqliteClipboardHistory,
     SqliteCommandRecipesRepository, SqliteNotesIndex, SqliteQuicklinksRepository,
-    SqliteRecordsRepository, SqliteSnippetsRepository, SqliteSshMetaRepository,
-    SqliteTimersRepository, SqliteWordbookRepository, TomlSettingsRepository, UnavailableModule,
-    WordbookRepository, WorkbenchMeta,
+    SqliteRecallRepository, SqliteRecordsRepository, SqliteSnippetsRepository,
+    SqliteSshMetaRepository, SqliteTimersRepository, SqliteWordbookRepository,
+    TomlSettingsRepository, UnavailableModule, WordbookRepository, WorkbenchMeta,
 };
 use luma_modules::{
     AppsModule, ClipboardModule, ClipboardSuppression, CommandRecipesModule, FakeEchoModule,
-    NotesModule, NotesServices, ProjectsModule, ProxyModule, QuicklinksModule, RecordsModule,
-    SecretsModule, SnippetsModule, SshModule, TimersModule, WindowsModule, WordbookModule,
+    GitModule, NotesModule, NotesServices, ProjectsModule, ProxyModule, QuicklinksModule,
+    RecordsModule, RuntimeModule, SecretsModule, SnippetsModule, SshModule, TimersModule,
+    WindowsModule, WordbookModule,
 };
 use luma_platform_macos::{
-    FilesystemAppsCatalog, MacAccessibility, MacBoundedUtf8FileReader, MacClock, MacKeychain,
-    MacMarkdownWatcher, MacMihomoProxyCore, MacNotesWorkspace, MacOpenPath, MacPasteboard,
-    MacProfileStore, MacProjectWorkspace, MacRecipeEnvironment, MacSpeech, MacSshConfig,
-    MacSystemProxy, MacWindowCatalog,
+    FilesystemAppsCatalog, MacAccessibility, MacBoundedUtf8FileReader, MacClock, MacGitRepository,
+    MacKeychain, MacMarkdownWatcher, MacMihomoProxyCore, MacNetworkProbe, MacNotesWorkspace,
+    MacOpenPath, MacPasteboard, MacProfileStore, MacProjectWorkspace, MacRecipeEnvironment,
+    MacRuntimeInspector, MacSpeech, MacSshConfig, MacSystemProxy, MacWindowCatalog,
 };
 use luma_storage::{
     luma_next_support_dir, ClipboardStore, CommandRecipesMetaStore, ConfigError, ConfigStore,
-    LumaSettings, NotesIndexStore, NotesScanner, QuicklinksStore, RecordsStore, SnippetsStore,
-    SshMetaStore, TimersStore, WordbookStore,
+    LumaSettings, NotesIndexStore, NotesScanner, QuicklinksStore, RecallStore, RecordsStore,
+    SnippetsStore, SshMetaStore, TimersStore, WordbookStore,
 };
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -53,6 +54,7 @@ pub struct RegistryLoad {
     pub settings: Arc<dyn SettingsRepository>,
     pub wordbook: Option<Arc<dyn WordbookRepository>>,
     pub command_recipes: Option<Arc<dyn CommandRecipesRepository>>,
+    pub recall: Option<Arc<dyn RecallRepository>>,
     #[allow(dead_code)]
     pub skipped: Vec<SkippedModule>,
 }
@@ -124,7 +126,8 @@ pub fn registry_from_settings(
             settings.proxy_network_service.clone(),
         )),
         pasteboard.clone(),
-    );
+    )
+    .with_network_probe(Arc::new(MacNetworkProbe));
     if let Some(proxy_store) = proxy_store {
         proxy_module = proxy_module.with_profile_store(proxy_store);
     }
@@ -274,6 +277,16 @@ pub fn registry_from_settings(
         settings.imported_projects.clone(),
         opener.clone(),
         Arc::new(MacProjectWorkspace),
+    )))?;
+    reg.register(Arc::new(GitModule::with_deps(
+        settings.imported_projects.clone(),
+        Arc::new(MacGitRepository),
+        pasteboard.clone(),
+    )))?;
+    reg.register(Arc::new(RuntimeModule::with_deps(
+        settings.imported_projects.clone(),
+        Arc::new(MacRuntimeInspector),
+        pasteboard.clone(),
     )))?;
     let recipe_env = Arc::new(MacRecipeEnvironment::new());
     if let Some(meta) = command_recipes_meta {
@@ -484,6 +497,13 @@ pub fn load_registry_with_settings() -> Result<RegistryLoad, RegistryError> {
             None
         }
     };
+    let recall = match RecallStore::luma_next_default() {
+        Ok(store) => Some(Arc::new(store)),
+        Err(err) => {
+            warn!(%err, "failed to open recall metadata store");
+            None
+        }
+    };
     let (registry, skipped) = registry_from_settings(
         &settings,
         clipboard.clone(),
@@ -504,11 +524,14 @@ pub fn load_registry_with_settings() -> Result<RegistryLoad, RegistryError> {
             Arc::new(SqliteCommandRecipesRepository::new(meta, support_dir))
                 as Arc<dyn CommandRecipesRepository>
         });
+    let recall_repo: Option<Arc<dyn RecallRepository>> = recall
+        .map(|store| Arc::new(SqliteRecallRepository::new(store)) as Arc<dyn RecallRepository>);
     Ok(RegistryLoad {
         registry,
         settings: settings_repo,
         wordbook: wordbook_repo,
         command_recipes: command_recipes_repo,
+        recall: recall_repo,
         skipped,
     })
 }

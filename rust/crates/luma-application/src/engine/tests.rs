@@ -4,7 +4,31 @@ use crate::module::{
 };
 use async_trait::async_trait;
 use luma_domain::{ActionDescriptor, ActionId, ActionRisk, FailureKind, ModuleId, SearchItem};
+use std::sync::Mutex as StdMutex;
 use tokio_util::sync::CancellationToken;
+
+#[derive(Default)]
+struct TestRecall {
+    objects: StdMutex<Vec<crate::ports::RecallObject>>,
+}
+
+#[async_trait]
+impl crate::ports::RecallRepository for TestRecall {
+    fn record_success(
+        &self,
+        object: crate::ports::RecallObject,
+    ) -> Result<(), crate::ports::RecallRepoError> {
+        self.objects.lock().unwrap().push(object);
+        Ok(())
+    }
+
+    fn list_recent(
+        &self,
+        _limit: usize,
+    ) -> Result<Vec<crate::ports::RecallObject>, crate::ports::RecallRepoError> {
+        Ok(self.objects.lock().unwrap().clone())
+    }
+}
 
 struct FakeModule {
     manifest: ModuleManifest,
@@ -331,6 +355,98 @@ async fn run_action_executes_fake_result() {
         outcome,
         luma_protocol::ActionOutcomeDto::Success { .. }
     ));
+}
+
+#[tokio::test]
+async fn recall_records_successful_action_but_never_cancelled_action() {
+    let recall = Arc::new(TestRecall::default());
+    let engine = Arc::new(Engine::with_options(
+        fake_registry(),
+        EngineOptions {
+            recall: Some(recall.clone()),
+            ..Default::default()
+        },
+    ));
+    let mut events = engine.subscribe();
+    engine.start_session().await;
+    engine
+        .handle_command(Command::Search {
+            request_id: "recall-success".into(),
+            query: "hello".into(),
+        })
+        .await;
+    while !matches!(events.recv().await, Ok(Event::SearchFinished { .. })) {}
+    engine
+        .handle_command(Command::ExecuteAction {
+            operation_id: "recall-success-op".into(),
+            result_id: "fake-1".into(),
+            action_id: "open".into(),
+            confirmation: false,
+        })
+        .await;
+    while !matches!(events.recv().await, Ok(Event::ActionFinished { .. })) {}
+    assert_eq!(recall.objects.lock().unwrap().len(), 1);
+
+    let mut cancelling_registry = fake_registry();
+    cancelling_registry
+        .register(Arc::new(FakeModule {
+            manifest: ModuleManifest {
+                id: ModuleId::new("luma.wait"),
+                display_name: "Wait".into(),
+                triggers: vec!["wait".into()],
+                default_enabled: true,
+                search_mode: SearchMode::GlobalContributing,
+                required_capabilities: vec![],
+                workbench: Default::default(),
+            },
+            wait_for_cancel: true,
+        }))
+        .unwrap();
+    let cancelled_recall = Arc::new(TestRecall::default());
+    let cancel_engine = Arc::new(Engine::with_options(
+        cancelling_registry,
+        EngineOptions {
+            recall: Some(cancelled_recall.clone()),
+            ..Default::default()
+        },
+    ));
+    let mut cancel_events = cancel_engine.subscribe();
+    cancel_engine.start_session().await;
+    cancel_engine
+        .handle_command(Command::Search {
+            request_id: "recall-cancel".into(),
+            query: "wait".into(),
+        })
+        .await;
+    while !matches!(cancel_events.recv().await, Ok(Event::SearchFinished { .. })) {}
+    let running = {
+        let engine = cancel_engine.clone();
+        tokio::spawn(async move {
+            engine
+                .handle_command(Command::ExecuteAction {
+                    operation_id: "recall-cancel-op".into(),
+                    result_id: "wait-1".into(),
+                    action_id: "open".into(),
+                    confirmation: false,
+                })
+                .await;
+        })
+    };
+    while !matches!(cancel_events.recv().await, Ok(Event::ActionStarted { .. })) {}
+    cancel_engine
+        .handle_command(Command::CancelOperation {
+            operation_id: "recall-cancel-op".into(),
+        })
+        .await;
+    while !matches!(
+        cancel_events.recv().await,
+        Ok(Event::ActionFinished {
+            outcome: luma_protocol::ActionOutcomeDto::Cancelled,
+            ..
+        })
+    ) {}
+    running.await.unwrap();
+    assert!(cancelled_recall.objects.lock().unwrap().is_empty());
 }
 
 #[tokio::test]
@@ -742,6 +858,7 @@ async fn refresh_wordbook_review_stats_emits_event() {
             settings: None,
             wordbook: Some(store),
             command_recipes: None,
+            recall: None,
         },
     );
     let mut events = engine.subscribe();
@@ -795,6 +912,7 @@ async fn load_wordbook_review_registers_gradeable_result() {
             settings: None,
             wordbook: Some(store),
             command_recipes: None,
+            recall: None,
         },
     );
     let mut events = engine.subscribe();

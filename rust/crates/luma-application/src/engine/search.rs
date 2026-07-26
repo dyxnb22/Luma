@@ -223,6 +223,22 @@ impl Engine {
                 .await;
             return;
         }
+        let is_global_search = matches!(query.scope, QueryScope::Global);
+        let recall_records = if is_global_search {
+            self.recall
+                .as_ref()
+                .and_then(|repo| repo.list_recent(1_000).ok())
+                .unwrap_or_default()
+        } else {
+            Vec::new()
+        };
+        let recent_project = recall_records
+            .iter()
+            .find_map(|record| record.project_path.clone());
+        let recall_records = recall_records
+            .into_iter()
+            .map(|record| (record.object_id.clone(), record))
+            .collect::<HashMap<_, _>>();
         let modules: Vec<Arc<dyn LumaModule>> = {
             let g = self.inner.lock().await;
             match &query.scope {
@@ -266,7 +282,10 @@ impl Engine {
         let mut module_cancels = HashMap::new();
         let mut set = JoinSet::new();
         for module in modules {
-            let q = query.clone();
+            let mut q = query.clone();
+            if is_global_search {
+                q.limit = q.limit.min(super::recall::GLOBAL_RESULTS_PER_MODULE);
+            }
             let sink = chunk_tx.clone();
             let module_id = module.manifest().id.as_str().to_string();
             let token = cancel_for_task.child_token();
@@ -282,8 +301,14 @@ impl Engine {
             let engine = engine.clone();
             let cancel_for_collect = cancel_for_task.clone();
             let started = search_started;
+            let recall_records = recall_records.clone();
+            let recent_project = recent_project.clone();
             async move {
                 let mut sequence = 0u64;
+                let now_unix = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|duration| duration.as_secs() as i64)
+                    .unwrap_or(0);
                 while let Some(ev) = chunk_rx.recv().await {
                     if cancel_for_collect.is_cancelled() {
                         break;
@@ -296,7 +321,7 @@ impl Engine {
                     {
                         sequence += 1;
                         let mut g = engine.lock().await;
-                        let upserts: Vec<_> = upserts
+                        let mut upserts: Vec<_> = upserts
                             .into_iter()
                             .filter(|u| g.registry.is_enabled(&u.module_id))
                             .collect();
@@ -305,8 +330,20 @@ impl Engine {
                             g.remove_result(id);
                         }
                         let batch: Vec<_> = upserts
-                            .iter()
-                            .map(|u| (u.id.clone(), u.clone().into_domain()))
+                            .iter_mut()
+                            .map(|u| {
+                                let mut item = u.clone().into_domain();
+                                if is_global_search {
+                                    super::recall::apply_recall_score(
+                                        &mut item,
+                                        &recall_records,
+                                        now_unix,
+                                        recent_project.as_deref(),
+                                    );
+                                    u.score = item.score;
+                                }
+                                (u.id.clone(), item)
+                            })
                             .collect();
                         let evicted = g.insert_results_batch(batch);
                         all_removed.extend(evicted);
@@ -325,7 +362,39 @@ impl Engine {
                     }
                 }
                 if !cancel_for_collect.is_cancelled() {
-                    let g = engine.lock().await;
+                    let mut g = engine.lock().await;
+                    if is_global_search {
+                        let ranked = super::recall::fair_global_results(
+                            g.results_by_id.values().cloned().collect(),
+                        );
+                        let keep = ranked
+                            .iter()
+                            .map(|item| item.id.as_str().to_string())
+                            .collect::<std::collections::HashSet<_>>();
+                        let removed_ids = g
+                            .results_by_id
+                            .keys()
+                            .filter(|id| !keep.contains(*id))
+                            .cloned()
+                            .collect::<Vec<_>>();
+                        g.clear_results();
+                        g.insert_results_batch(
+                            ranked
+                                .iter()
+                                .cloned()
+                                .map(|item| (item.id.as_str().to_string(), item)),
+                        );
+                        sequence += 1;
+                        Self::emit_from_inner(
+                            &g,
+                            Event::ResultsChunk {
+                                request_id: request_id.clone(),
+                                sequence,
+                                upserts: ranked.iter().map(SearchItemDto::from).collect(),
+                                removed_ids,
+                            },
+                        );
+                    }
                     let total = g.results_by_id.len();
                     Self::emit_from_inner(
                         &g,

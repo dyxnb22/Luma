@@ -1340,6 +1340,7 @@ fn hub_loaded_clamps_selection() {
             more: None,
             status: None,
         }),
+        continue_items: vec![],
     });
     assert!(state.hub.selected < state.hub_rows().len());
     assert!(state.hub.scroll <= state.hub.selected);
@@ -1353,6 +1354,40 @@ fn refresh_hub_loads_when_showing_hub() {
     assert!(effects.iter().any(|e| matches!(e, Effect::LoadHub)));
     assert!(state.hub.refresh_deadline.is_some());
     assert!(!state.dirty);
+}
+
+#[test]
+fn hub_continue_resolves_live_action_and_requires_confirmation() {
+    let mut state = AppState::default();
+    state.hub.continue_items = vec![crate::view_model::HubContinueState {
+        id: "recipe:deploy".into(),
+        module_id: "luma.command_recipes".into(),
+        kind: "recipe".into(),
+        title: "Deploy".into(),
+        primary_action_id: "run".into(),
+    }];
+
+    let effects = update(&mut state, Msg::Submit);
+    assert!(effects.iter().any(|effect| matches!(
+        effect,
+        Effect::ListActions { result_id } if result_id == "recipe:deploy"
+    )));
+
+    let effects = update(
+        &mut state,
+        Msg::Engine(Event::ActionsAvailable {
+            result_id: "recipe:deploy".into(),
+            actions: vec![luma_protocol::ActionDescriptorDto {
+                id: "run".into(),
+                label: "Run deploy".into(),
+                risk: ActionRisk::Confirm,
+                confirmation: true,
+            }],
+        }),
+    );
+    assert_eq!(effects, vec![Effect::None]);
+    assert_eq!(state.route, Route::ConfirmAction);
+    assert!(state.actions.pending_action.is_some());
 }
 
 #[test]

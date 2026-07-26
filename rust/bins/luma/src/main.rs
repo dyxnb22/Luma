@@ -407,6 +407,7 @@ async fn run_tui(initial_query: Option<String>) -> anyhow::Result<()> {
             settings: Some(load.settings),
             wordbook: load.wordbook,
             command_recipes: load.command_recipes,
+            recall: load.recall,
         },
     ));
     let command_runner =

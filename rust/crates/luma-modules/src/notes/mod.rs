@@ -101,7 +101,7 @@ impl NotesModule {
                 display_name: "Notes".into(),
                 triggers: vec!["n".into(), "note".into(), "notes".into()],
                 default_enabled: true,
-                search_mode: SearchMode::TargetedOnly,
+                search_mode: SearchMode::GlobalContributing,
                 required_capabilities: vec![],
                 workbench: luma_application::WorkbenchMeta {
                     glyph: Some("N".into()),

@@ -36,7 +36,7 @@ impl CommandRecipesModule {
                 display_name: "Command Recipes".into(),
                 triggers: vec!["cmd".into(), "recipe".into(), "recipes".into()],
                 default_enabled: true,
-                search_mode: SearchMode::TargetedOnly,
+                search_mode: SearchMode::GlobalContributing,
                 required_capabilities: vec![],
                 workbench: luma_application::WorkbenchMeta {
                     glyph: Some("C".into()),

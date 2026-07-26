@@ -17,6 +17,10 @@ pub struct SystemProxySetting {
 pub struct SystemProxyStatus {
     pub service: String,
     pub http: SystemProxySetting,
+    /// HTTPS (macOS "secure web") proxy. Luma reports this setting but deliberately
+    /// does not mutate it: ownership remains limited to HTTP and SOCKS.
+    #[serde(default)]
+    pub https: SystemProxySetting,
     pub socks: SystemProxySetting,
 }
 
@@ -134,6 +138,7 @@ mod tests {
                 server: Some("127.0.0.1".into()),
                 port: Some(7899),
             },
+            https: SystemProxySetting::default(),
             socks: SystemProxySetting::default(),
         });
         assert_eq!(fake.disable().await, Err(SystemProxyError::Conflict));

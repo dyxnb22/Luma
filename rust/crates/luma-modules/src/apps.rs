@@ -424,7 +424,7 @@ impl LumaModule for AppsModule {
                     removed_ids: vec!["apps:warming".into()],
                 })
                 .await;
-        } else if !needle.is_empty() {
+        } else if !needle.is_empty() && !matches!(query.scope, luma_domain::QueryScope::Global) {
             let _ = sink
                 .send(Event::ResultsChunk {
                     request_id: String::new(),

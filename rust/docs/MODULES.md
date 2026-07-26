@@ -26,7 +26,9 @@ Interactive module commands require a leading `/` (for example `/ssh`, `/rec bro
 | --- | --- | --- | --- |
 | Apps | `/app` / `/apps` | Available — fuzzy + session MRU; launch / reveal / copy path | on |
 | Windows | `/win` / `/window` / `/windows` | Available — list/search works without Accessibility; focus and Hub focus report AX permission locally; Hub 1–9 quick focus; prompt digits are preserved; hard cap 15 | on |
-| Proxy | `/proxy` / `/px` | Available — controller-first Mihomo status, groups/nodes, mode, local macOS HTTP/SOCKS proxy controls, and safe Luma Profile import/list/use/delete/refresh; Clash Verge Profiles are read-only unless Luma-owned. See [Proxy](./PROXY.md). | on |
+| Git | `/git` | Available — imported projects only; bounded repository discovery; dashboard prioritizes conflict/dirty/ahead; safe stage/unstage, confirmed tracked-file discard, local log/branches/commit. No remote, fetch, push, pull, clone, rebase, reset, or `git clean`. | on |
+| Runtime | `/run` / `/ports` | Available — on-demand local TCP listener list with project association; copy fields and guarded same-user, identity-rechecked SIGTERM only. No background monitor or SIGKILL. | on |
+| Proxy | `/proxy` / `/px` | Available — controller-first Mihomo status, groups/nodes, mode, `/proxy status` and on-demand `/proxy check`, local macOS HTTP/SOCKS proxy controls, and safe Luma Profile import/list/use/delete/refresh; HTTPS is reported read-only. Clash Verge Profiles are read-only unless Luma-owned. See [Proxy](./PROXY.md). | on |
 | Clipboard | `/clip` / `/cb` | Available — history, pin/unpin, `/clip clear`, paste needs AX; caps: **500** unpinned, **100** pinned; entries over **256 KiB** rejected | on |
 | Notes | `/n` / `/note` / `/notes` | Available — FTS/CJK index; configure first use with `/settings notes-root PATH`; `/n new` / `/n daily` / `/n browse` / `/n recent` / `/n status` / `/n issues` / `/n check` / `/n reindex`; excludes via `--notes-exclude`; workspace I/O is adapter-backed with bounded, non-symlink previews/creation | on |
 | Quicklinks | `/ql` / `/quicklinks` | Available — add/overwrite, open, copy URL, delete; hard cap **1000** entries (updates remain allowed at capacity) | on |
@@ -67,6 +69,39 @@ Read-only launcher over OpenSSH — not a full SSH client:
 - **CLI:** `luma ssh list|connect|sftp|favorite|unfavorite|rename`.
 - **Search honesty:** missing config → `not_configured`; parse or `ssh` binary errors → `unavailable`. Preview never shows private key contents.
 - **Details:** [SSH.md](./SSH.md).
+
+### Continue and global recall
+
+- Global search contributors are Apps, Windows, Projects, Notes, Command Recipes, SSH, Clipboard,
+  Snippets, Quicklinks, and Git. Results are capped at 12 per module and 60 total, then selected
+  round-robin so one large catalogue cannot fill the first page. Records and Wordbook remain
+  targeted-only because their dense historical rows lack a clear bounded global-search benefit.
+- A successful action records only bounded recall metadata in `recall.sqlite`: object/module/kind,
+  natural primary action, a safe display title, optional project association, count, and last use.
+  Failed/cancelled actions are not recorded. Clipboard bodies, snippet bodies, SSH configuration,
+  proxy endpoints, and search text are never copied into Recall.
+- The empty Hub may render at most five compatible Continue rows after Windows. Git and Runtime
+  actions remain recall-ranked in global search but are not Hub-continued because their live
+  repository/listener payload must be revalidated.
+
+### Git Workbench
+
+- `/git`, `/git dirty|conflict|ahead|behind|clean`, `/git repo PATH`, `/git branches PATH`,
+  `/git log PATH` and `/git commit MESSAGE` are local-only
+  surfaces. Process calls use explicit `git` arguments, noninteractive environment, timeout, and
+  bounded discovery/log/diff presentation.
+- Discard uses `git restore --worktree -- PATH` only for tracked, non-conflicted unstaged changes
+  and only after confirmation, preserving any version already in the index. It never runs
+  `git clean`. Path traversal, NUL, absolute paths, dirty branch switching, and empty commit
+  messages are rejected.
+
+### Runtime Console
+
+- `/run` / `/ports` runs `lsof` on demand only. Each listener shows port/address/PID/process/user/
+  cwd plus imported project association. No listener information is persisted.
+- Termination is a confirmed SIGTERM against a freshly re-listed matching PID identity, only for
+  the current user and never for protected system process names. Permission and unavailable rows
+  remain local to the module.
 
 ### Timers
 

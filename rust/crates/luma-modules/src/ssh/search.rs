@@ -217,9 +217,13 @@ impl SshModule {
         sink: SearchSink,
         _cancel: CancellationToken,
     ) {
+        let is_global = matches!(query.scope, luma_domain::QueryScope::Global);
         self.refresh().await;
         match self.config.config_state() {
             SshConfigState::NotConfigured => {
+                if is_global {
+                    return;
+                }
                 self.emit_results(
                     &sink,
                     vec![Self::status_row(
@@ -234,6 +238,9 @@ impl SshModule {
                 return;
             }
             SshConfigState::Unavailable(reason) => {
+                if is_global {
+                    return;
+                }
                 self.emit_results(
                     &sink,
                     vec![Self::status_row(
@@ -251,6 +258,9 @@ impl SshModule {
         }
 
         if !self.config.ssh_available() {
+            if is_global {
+                return;
+            }
             self.emit_results(
                 &sink,
                 vec![Self::status_row(
@@ -271,7 +281,7 @@ impl SshModule {
         let rest = query.rest_raw().trim();
         let rest_check = query.rest_normalized();
 
-        if rest_check == "reload" || rest_check == "refresh" {
+        if query.is_command() && (rest_check == "reload" || rest_check == "refresh") {
             self.emit_results(
                 &sink,
                 vec![SearchItem {
@@ -297,33 +307,35 @@ impl SshModule {
             return;
         }
 
-        if let Some(payload) = parse_rename_query(rest) {
-            self.emit_results(
-                &sink,
-                vec![SearchItem {
-                    id: luma_domain::ResultId::new(format!("ssh:rename:{}", payload.alias)),
-                    module_id: ModuleId::new("luma.ssh"),
-                    title: format!("Rename {}", payload.alias),
-                    subtitle: Some(payload.display_name.clone()),
-                    kind: "update".into(),
-                    score: 95.0,
-                    primary_action: ActionDescriptor {
-                        id: ActionId::new("rename"),
-                        label: "Save display name".into(),
-                        risk: ActionRisk::Safe,
-                        confirmation: false,
-                    },
-                    secondary_actions: vec![],
-                    ui_intent: None,
-                    action_payload: Some(serde_json::json!({
-                        "alias": payload.alias,
-                        "display_name": payload.display_name,
-                    })),
-                }],
-                vec![],
-            )
-            .await;
-            return;
+        if query.is_command() {
+            if let Some(payload) = parse_rename_query(rest) {
+                self.emit_results(
+                    &sink,
+                    vec![SearchItem {
+                        id: luma_domain::ResultId::new(format!("ssh:rename:{}", payload.alias)),
+                        module_id: ModuleId::new("luma.ssh"),
+                        title: format!("Rename {}", payload.alias),
+                        subtitle: Some(payload.display_name.clone()),
+                        kind: "update".into(),
+                        score: 95.0,
+                        primary_action: ActionDescriptor {
+                            id: ActionId::new("rename"),
+                            label: "Save display name".into(),
+                            risk: ActionRisk::Safe,
+                            confirmation: false,
+                        },
+                        secondary_actions: vec![],
+                        ui_intent: None,
+                        action_payload: Some(serde_json::json!({
+                            "alias": payload.alias,
+                            "display_name": payload.display_name,
+                        })),
+                    }],
+                    vec![],
+                )
+                .await;
+                return;
+            }
         }
 
         let favorites_only = matches!(
@@ -383,6 +395,9 @@ impl SshModule {
                 .then_with(|| a.1.cmp(&b.1))
         });
         if rows.is_empty() {
+            if is_global {
+                return;
+            }
             let row = if favorites_only {
                 Self::status_row(
                     "ssh:no-favorites",

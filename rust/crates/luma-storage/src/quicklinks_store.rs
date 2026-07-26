@@ -5,10 +5,10 @@ use std::path::PathBuf;
 use thiserror::Error;
 
 /// Max UTF-8 bytes for a quicklink URL on upsert (personal-use guardrail).
-pub const MAX_URL_BYTES: usize = 64 * 1024;
+pub use luma_domain::MAX_QUICKLINK_URL_BYTES as MAX_URL_BYTES;
 
 /// Max UTF-8 bytes for a quicklink trigger on upsert.
-pub const MAX_TRIGGER_BYTES: usize = 1024;
+pub use luma_domain::MAX_QUICKLINK_TRIGGER_BYTES as MAX_TRIGGER_BYTES;
 
 #[derive(Debug, Error)]
 pub enum QuicklinksStoreError {
@@ -70,11 +70,9 @@ impl QuicklinksStore {
                 })
             })?
             .collect::<Result<_, _>>()?;
-        if rows.len() > MAX_QUICKLINKS {
-            return Err(QuicklinksStoreError::Msg(format!(
-                "quicklinks capacity exceeded ({MAX_QUICKLINKS}); delete an entry before continuing"
-            )));
-        }
+        // Legacy/manual edits can exceed the write cap. Keep the extra row
+        // visible so the module can delete it and recover; only `upsert`
+        // enforces the capacity for new entries.
         Ok(rows)
     }
 
@@ -169,6 +167,23 @@ mod tests {
             .unwrap_err()
             .to_string();
         assert!(err.contains("capacity reached"), "{err}");
+        assert_eq!(store.list().unwrap().len(), MAX_QUICKLINKS);
+    }
+
+    #[test]
+    fn over_capacity_rows_remain_listable_for_recovery() {
+        let dir = tempdir().unwrap();
+        let store = QuicklinksStore::with_path(dir.path().join("ql.sqlite")).unwrap();
+        let conn = store.connect().unwrap();
+        for i in 0..=MAX_QUICKLINKS {
+            conn.execute(
+                "INSERT INTO quicklinks (trigger, url) VALUES (?1, 'https://example.com')",
+                params![format!("q{i:04}")],
+            )
+            .unwrap();
+        }
+        assert_eq!(store.list().unwrap().len(), MAX_QUICKLINKS + 1);
+        store.delete("q0000").unwrap();
         assert_eq!(store.list().unwrap().len(), MAX_QUICKLINKS);
     }
 }

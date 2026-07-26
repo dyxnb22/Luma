@@ -592,7 +592,12 @@ impl LumaModule for TimersModule {
     async fn teardown(&self) {
         self.refresh_generation.fetch_add(1, Ordering::SeqCst);
         self.stop_poller().await;
-        self.pause_all_running().await;
+        if let Err(err) = self.pause_all_running().await {
+            // Teardown has no result channel, but persistence failure must be
+            // observable: silently claiming timers were paused risks elapsed
+            // wall-clock time after the next launch.
+            tracing::error!(error = %err, "timers were not fully paused during teardown");
+        }
         *self.index.write().await = Vec::new();
         *self.store_error.write().await = None;
     }

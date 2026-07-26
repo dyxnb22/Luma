@@ -322,6 +322,11 @@ impl LumaModule for SecretsModule {
                 };
                 match secret {
                     Ok(secret) => {
+                        // Register before the external side effect. `pbcopy` can make the value
+                        // visible before its child process reports completion, and the clipboard
+                        // poller must never observe that gap.
+                        self.suppression
+                            .suppress(&secret, Duration::from_secs(86_400));
                         match await_unless_cancelled(
                             &cancel,
                             self.pasteboard.write_text(&secret),
@@ -330,8 +335,6 @@ impl LumaModule for SecretsModule {
                         {
                             None => ActionOutcome::Cancelled,
                             Some(Ok(())) => {
-                                self.suppression
-                                    .suppress(&secret, Duration::from_secs(86_400));
                                 self.touch_activity().await;
                                 ActionOutcome::Success {
                                     message: Some(
@@ -565,7 +568,8 @@ mod tests {
             entries: TokioMutex::new([("api".into(), "tok".into())].into_iter().collect()),
         });
         let pb = Arc::new(MemPb(TokioMutex::new(None)));
-        let m = SecretsModule::with_deps(kc, pb.clone(), Arc::new(ClipboardSuppression::new()));
+        let suppression = Arc::new(ClipboardSuppression::new());
+        let m = SecretsModule::with_deps(kc, pb.clone(), suppression.clone());
         let outcome = m
             .perform(
                 ActionRequest {
@@ -643,7 +647,8 @@ mod tests {
             started: tokio::sync::Notify::new(),
             release: TokioMutex::new(Some(rx)),
         });
-        let m = SecretsModule::with_deps(kc, pb.clone(), Arc::new(ClipboardSuppression::new()));
+        let suppression = Arc::new(ClipboardSuppression::new());
+        let m = SecretsModule::with_deps(kc, pb.clone(), suppression.clone());
         assert!(matches!(
             m.perform(unlock_request(), CancellationToken::new()).await,
             ActionOutcome::Success { .. }
@@ -685,6 +690,9 @@ mod tests {
             .await
         });
         started.await;
+        // The lease is committed before PasteboardPort starts its external write, so a
+        // concurrent clipboard poll cannot capture the value during cancellation.
+        assert!(suppression.is_suppressed("secret-value"));
         cancel_c.cancel();
         let outcome = perform.await.unwrap();
         assert!(matches!(outcome, ActionOutcome::Cancelled));

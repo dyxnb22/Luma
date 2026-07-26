@@ -8,6 +8,20 @@ protocol TerminalSessionControllerDelegate: AnyObject {
     func terminalSessionDidTerminate(_ controller: TerminalSessionController)
 }
 
+/// SwiftTerm hands LocalProcess output directly to its terminal parser. Luma's
+/// policy layer sits immediately before that hand-off so remote terminal output
+/// cannot use OSC/APC side channels to access the macOS pasteboard or retain an
+/// unbounded string in the dependency parser.
+private final class LumaTerminalView: LocalProcessTerminalView {
+    private var controlFilter = TerminalControlFilter()
+
+    override func dataReceived(slice: ArraySlice<UInt8>) {
+        let safe = controlFilter.filter(slice)
+        guard !safe.isEmpty else { return }
+        super.dataReceived(slice: safe[...])
+    }
+}
+
 /// Owns the single `luma tui` child process and the SwiftTerm view it draws into.
 ///
 /// One session, one view, for the lifetime of the app: hiding the window never touches the child,
@@ -30,7 +44,7 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
     init(executableURL: URL, workingDirectory: String) {
         self.executableURL = executableURL
         self.workingDirectory = workingDirectory
-        self.terminalView = LocalProcessTerminalView(
+        self.terminalView = LumaTerminalView(
             frame: NSRect(origin: .zero, size: TerminalGeometry.preferredContentSize)
         )
         super.init()

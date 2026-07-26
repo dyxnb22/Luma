@@ -97,7 +97,7 @@ pub fn extract_tags(content: &[u8]) -> TagsResult {
         };
     }
 
-    let yaml_value: Result<serde_yaml::Value, _> = serde_yaml::from_str(&fm.yaml);
+    let yaml_value: Result<serde_yaml_ng::Value, _> = serde_yaml_ng::from_str(&fm.yaml);
     let Ok(value) = yaml_value else {
         return TagsResult {
             tags: Vec::new(),
@@ -114,15 +114,15 @@ pub fn extract_tags(content: &[u8]) -> TagsResult {
 
     let mut tags = Vec::new();
     match tags_val {
-        serde_yaml::Value::String(s) => {
+        serde_yaml_ng::Value::String(s) => {
             let t = s.trim();
             if !t.is_empty() {
                 tags.push(t.to_string());
             }
         }
-        serde_yaml::Value::Sequence(seq) => {
+        serde_yaml_ng::Value::Sequence(seq) => {
             for item in seq {
-                if let serde_yaml::Value::String(s) = item {
+                if let serde_yaml_ng::Value::String(s) = item {
                     let t = s.trim();
                     if !t.is_empty() {
                         tags.push(t.to_string());

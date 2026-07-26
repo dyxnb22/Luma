@@ -98,7 +98,7 @@ impl MacProfileStore {
                 "only HTTPS or loopback HTTP subscriptions are allowed".into(),
             ));
         }
-        let mut command = Command::new("curl");
+        let mut command = Command::new("/usr/bin/curl");
         command
             .args(subscription_curl_args(https))
             .stdin(Stdio::piped())

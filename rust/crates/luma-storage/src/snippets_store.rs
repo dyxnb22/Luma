@@ -5,10 +5,10 @@ use std::path::PathBuf;
 use thiserror::Error;
 
 /// Max UTF-8 bytes for a snippet body on upsert (personal-use guardrail).
-pub const MAX_BODY_BYTES: usize = 64 * 1024;
+pub use luma_domain::MAX_SNIPPET_BODY_BYTES as MAX_BODY_BYTES;
 
 /// Max UTF-8 bytes for a snippet trigger on upsert.
-pub const MAX_TRIGGER_BYTES: usize = 1024;
+pub use luma_domain::MAX_SNIPPET_TRIGGER_BYTES as MAX_TRIGGER_BYTES;
 
 #[derive(Debug, Error)]
 pub enum SnippetsStoreError {
@@ -70,11 +70,8 @@ impl SnippetsStore {
                 })
             })?
             .collect::<Result<_, _>>()?;
-        if rows.len() > MAX_SNIPPETS {
-            return Err(SnippetsStoreError::Msg(format!(
-                "snippets capacity exceeded ({MAX_SNIPPETS}); delete an entry before continuing"
-            )));
-        }
+        // Keep legacy/manual overflow visible so it can be deleted. The write
+        // path still prevents new rows from exceeding the personal-use cap.
         Ok(rows)
     }
 
@@ -179,6 +176,23 @@ mod tests {
         store.upsert("s0000", "updated").unwrap();
         let err = store.upsert("overflow", "body").unwrap_err().to_string();
         assert!(err.contains("capacity reached"), "{err}");
+        assert_eq!(store.list().unwrap().len(), MAX_SNIPPETS);
+    }
+
+    #[test]
+    fn over_capacity_rows_remain_listable_for_recovery() {
+        let dir = tempdir().unwrap();
+        let store = SnippetsStore::with_path(dir.path().join("sn.sqlite")).unwrap();
+        let conn = store.connect().unwrap();
+        for i in 0..=MAX_SNIPPETS {
+            conn.execute(
+                "INSERT INTO snippets (trigger, body) VALUES (?1, 'body')",
+                params![format!("s{i:04}")],
+            )
+            .unwrap();
+        }
+        assert_eq!(store.list().unwrap().len(), MAX_SNIPPETS + 1);
+        store.delete("s0000").unwrap();
         assert_eq!(store.list().unwrap().len(), MAX_SNIPPETS);
     }
 }

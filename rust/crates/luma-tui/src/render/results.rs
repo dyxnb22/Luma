@@ -2,7 +2,7 @@ use super::util::{
     display_width, highlight_query, highlighted_spans, pad_line_to_width, pad_right, truncate,
 };
 use crate::theme::{module_glyph, module_label, ResultKindVisual, Symbols, Theme};
-use crate::view_model::{AppState, Route, StatusTone};
+use crate::view_model::{is_informational_kind, AppState, Route, StatusTone};
 use luma_domain::SearchItem;
 use ratatui::layout::Rect;
 use ratatui::style::{Modifier, Style};
@@ -87,6 +87,7 @@ pub(super) fn render_results(
                 theme,
                 symbols,
                 &state.module_labels,
+                &state.module_catalog,
                 win_digit,
             ));
         }
@@ -365,13 +366,19 @@ fn result_row(
     theme: &Theme,
     symbols: &Symbols,
     module_labels: &std::collections::HashMap<String, String>,
+    module_catalog: &[crate::view_model::ModuleCatalogEntry],
     win_digit: Option<usize>,
 ) -> ListItem<'static> {
     let kind = ResultKindVisual::from_kind(&item.kind);
-    let glyph = module_glyph(item.module_id.as_str());
+    let glyph = module_catalog
+        .iter()
+        .find(|entry| entry.id == item.module_id.as_str())
+        .and_then(|entry| entry.glyph.clone())
+        .unwrap_or_else(|| module_glyph(item.module_id.as_str()));
     let module = module_label(item.module_id.as_str(), module_labels);
     let action = match kind {
-        ResultKindVisual::Warming => format!("{} Wait", symbols.ellipsis),
+        ResultKindVisual::Warming => format!("{} Checking", symbols.ellipsis),
+        _ if is_informational_kind(&item.kind) => "status".into(),
         _ => format!("{} {}", symbols.enter, item.primary_action.label),
     };
     let prefix = if selected { symbols.selected } else { " " };
@@ -394,7 +401,9 @@ fn result_row(
                 Modifier::empty()
             })
         }
-        ResultKindVisual::Unavailable | ResultKindVisual::NotConfigured => {
+        ResultKindVisual::Unavailable
+        | ResultKindVisual::CommandError
+        | ResultKindVisual::NotConfigured => {
             theme.warning().patch(row_bg).add_modifier(if selected {
                 Modifier::BOLD
             } else {

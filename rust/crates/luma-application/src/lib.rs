@@ -9,6 +9,7 @@ mod port;
 mod ports;
 mod recipe_runner;
 mod registry;
+mod unavailable_module;
 
 pub use adapters::{
     MemoryCommandRecipesRepository, SqliteClipboardHistory, SqliteCommandRecipesRepository,
@@ -68,3 +69,4 @@ pub use recipe_runner::{
     RecipeExecuteReport,
 };
 pub use registry::{ModuleRegistry, RegistryError};
+pub use unavailable_module::UnavailableModule;

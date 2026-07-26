@@ -198,7 +198,7 @@ impl MacSystemProxy {
         if let Some(service) = &self.configured_service {
             return Ok(service.clone());
         }
-        let interface = run_command("route", &["-n", "get", "default"])
+        let interface = run_command("/sbin/route", &["-n", "get", "default"])
             .await
             .ok()
             .and_then(|output| {
@@ -423,7 +423,7 @@ impl SystemProxyPort for MacSystemProxy {
 }
 
 async fn run_networksetup(args: &[&str]) -> Result<String, SystemProxyError> {
-    let output = Command::new("networksetup")
+    let output = Command::new("/usr/sbin/networksetup")
         .args(args)
         .output()
         .await

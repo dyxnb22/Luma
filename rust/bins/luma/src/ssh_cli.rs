@@ -81,12 +81,14 @@ pub async fn ssh_connect_cli(
     if program != "sftp" && !ssh_config.ssh_available() {
         return Err("ssh command unavailable".into());
     }
-    let args = if program == "sftp" {
-        sftp_args(alias)
+    let (executable, args) = if program == "sftp" {
+        ("/usr/bin/sftp", sftp_args(alias))
+    } else if program == "ssh" {
+        ("/usr/bin/ssh", ssh_connect_args(alias))
     } else {
-        ssh_connect_args(alias)
+        return Err(format!("unsupported SSH executable: {program}"));
     };
-    let status = run_interactive_terminal(program, &args).map_err(|e| e.to_string())?;
+    let status = run_interactive_terminal(executable, &args).map_err(|e| e.to_string())?;
     if status.success() {
         if let Some(engine) = engine {
             let _ = engine

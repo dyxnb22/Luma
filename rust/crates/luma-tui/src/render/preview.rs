@@ -1,5 +1,5 @@
 use crate::theme::{module_label, ResultKindVisual, Symbols, Theme};
-use crate::view_model::{AppState, Route};
+use crate::view_model::{is_informational_kind, AppState, Route};
 use luma_domain::ActionRisk;
 use ratatui::layout::Rect;
 use ratatui::text::{Line, Span};
@@ -114,25 +114,29 @@ pub(super) fn render_preview(
         )));
     }
     lines.push(Line::from(""));
-    lines.push(Line::from(Span::styled("  Actions", theme.muted())));
-    lines.push(Line::from(Span::styled(
-        format!(
-            "  {} {} ({})",
-            symbols.enter, item.primary_action.label, risk
-        ),
-        theme.action_hint(),
-    )));
-    for sec in &item.secondary_actions {
+    if is_informational_kind(&item.kind) {
+        lines.push(Line::from(Span::styled("  Status only", theme.muted())));
+    } else {
+        lines.push(Line::from(Span::styled("  Actions", theme.muted())));
         lines.push(Line::from(Span::styled(
-            format!("  · {}", sec.label),
+            format!(
+                "  {} {} ({})",
+                symbols.enter, item.primary_action.label, risk
+            ),
+            theme.action_hint(),
+        )));
+        for sec in &item.secondary_actions {
+            lines.push(Line::from(Span::styled(
+                format!("  · {}", sec.label),
+                theme.key_hint(),
+            )));
+        }
+        lines.push(Line::from(""));
+        lines.push(Line::from(Span::styled(
+            "  Ctrl-k more actions",
             theme.key_hint(),
         )));
     }
-    lines.push(Line::from(""));
-    lines.push(Line::from(Span::styled(
-        "  Ctrl-k more actions",
-        theme.key_hint(),
-    )));
 
     let widget = Paragraph::new(lines).wrap(Wrap { trim: false }).block(
         Block::default()

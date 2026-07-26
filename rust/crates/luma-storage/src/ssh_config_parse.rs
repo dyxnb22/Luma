@@ -74,13 +74,47 @@ pub fn parse_include_paths(content: &str) -> Vec<String> {
 }
 
 /// Resolve an include path relative to the containing config file directory.
+/// `~/…` is expanded to the current user's home, as OpenSSH does for a normal
+/// user config. `~other/…` is deliberately left alone because Luma must not
+/// guess another account's home directory.
 pub fn resolve_include_path(base_dir: &Path, include: &str) -> PathBuf {
-    let path = PathBuf::from(include);
+    resolve_include_path_with_home(base_dir, include, dirs::home_dir().as_deref())
+}
+
+fn resolve_include_path_with_home(base_dir: &Path, include: &str, home: Option<&Path>) -> PathBuf {
+    let expanded = if include == "~" {
+        home.map(Path::to_path_buf)
+            .unwrap_or_else(|| PathBuf::from(include))
+    } else if let Some(rest) = include.strip_prefix("~/") {
+        home.map(|path| path.join(rest))
+            .unwrap_or_else(|| PathBuf::from(include))
+    } else {
+        PathBuf::from(include)
+    };
+    let path = expanded;
     if path.is_absolute() {
         path
     } else {
         base_dir.join(path)
     }
+}
+
+/// Expand a resolved Include path. OpenSSH accepts glob patterns; unreadable or
+/// unmatched paths simply contribute no aliases, just like an optional Include.
+pub fn expand_include_paths(base_dir: &Path, include: &str) -> Vec<PathBuf> {
+    let path = resolve_include_path(base_dir, include);
+    let pattern = path.to_string_lossy();
+    if !pattern.contains(['*', '?', '[', ']']) {
+        return vec![path];
+    }
+    let mut paths: Vec<_> = glob::glob(&pattern)
+        .ok()
+        .into_iter()
+        .flatten()
+        .filter_map(Result::ok)
+        .collect();
+    paths.sort();
+    paths
 }
 
 /// Read a config file and merge aliases from Include directives (bounded depth).
@@ -96,15 +130,16 @@ pub fn collect_aliases_from_file(
     let mut seen: HashSet<String> = parse_host_aliases(&content).into_iter().collect();
     let base_dir = path.parent().unwrap_or_else(|| Path::new("."));
     for include in parse_include_paths(&content) {
-        let include_path = resolve_include_path(base_dir, &include);
-        let nested = collect_aliases_from_file(&include_path, read_file, depth + 1);
-        match nested {
-            Ok(nested) => {
-                for alias in nested {
-                    seen.insert(alias);
+        for include_path in expand_include_paths(base_dir, &include) {
+            let nested = collect_aliases_from_file(&include_path, read_file, depth + 1);
+            match nested {
+                Ok(nested) => {
+                    for alias in nested {
+                        seen.insert(alias);
+                    }
                 }
+                Err(_) => continue,
             }
-            Err(_) => continue,
         }
     }
     let mut out: Vec<_> = seen.into_iter().collect();
@@ -162,6 +197,34 @@ Host dev* prod?
         assert!(aliases.contains(&"main".to_string()));
         assert!(aliases.contains(&"local".to_string()));
         assert!(aliases.contains(&"included".to_string()));
+    }
+
+    #[test]
+    fn include_glob_merges_all_matching_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let main = dir.path().join("config");
+        let includes = dir.path().join("conf.d");
+        std::fs::create_dir(&includes).unwrap();
+        std::fs::write(&main, "Host main\nInclude conf.d/*.conf\n").unwrap();
+        std::fs::write(includes.join("work.conf"), "Host work\n").unwrap();
+        std::fs::write(includes.join("prod.conf"), "Host prod\n").unwrap();
+
+        let aliases = collect_aliases_from_file(
+            &main,
+            &|path| std::fs::read_to_string(path).map_err(|err| err.to_string()),
+            0,
+        )
+        .unwrap();
+        assert_eq!(aliases, vec!["main", "prod", "work"]);
+    }
+
+    #[test]
+    fn tilde_include_resolves_against_the_user_home() {
+        let home = Path::new("/Users/tester");
+        assert_eq!(
+            resolve_include_path_with_home(Path::new("/cfg"), "~/.ssh/conf.d/a", Some(home)),
+            PathBuf::from("/Users/tester/.ssh/conf.d/a")
+        );
     }
 
     #[test]

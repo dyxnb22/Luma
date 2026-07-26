@@ -85,11 +85,9 @@ impl SshMetaStore {
                 })
             })?
             .collect::<Result<_, _>>()?;
-        if rows.len() > MAX_SSH_METADATA_ROWS {
-            return Err(SshMetaStoreError::Msg(format!(
-                "SSH metadata capacity exceeded ({MAX_SSH_METADATA_ROWS}); delete stale local metadata before continuing"
-            )));
-        }
+        // Metadata may have been created by an older build. Return one
+        // over-capacity page so current aliases can still be managed and
+        // stale rows can be removed by the normal write paths.
         Ok(rows)
     }
 
@@ -259,5 +257,22 @@ mod tests {
             .unwrap_err()
             .to_string();
         assert!(err.contains("capacity reached"), "{err}");
+    }
+
+    #[test]
+    fn over_capacity_metadata_remains_listable_for_recovery() {
+        let dir = tempdir().unwrap();
+        let store = SshMetaStore::with_path(dir.path().join("ssh.sqlite")).unwrap();
+        let conn = store.connect().unwrap();
+        for i in 0..=MAX_SSH_METADATA_ROWS {
+            conn.execute(
+                "INSERT INTO ssh_host_meta (alias) VALUES (?1)",
+                params![format!("host-{i:04}")],
+            )
+            .unwrap();
+        }
+        assert_eq!(store.list().unwrap().len(), MAX_SSH_METADATA_ROWS + 1);
+        store.delete("host-0000").unwrap();
+        assert_eq!(store.list().unwrap().len(), MAX_SSH_METADATA_ROWS);
     }
 }

@@ -242,7 +242,7 @@ impl LumaModule for SshModule {
                     };
                 }
                 ActionOutcome::InteractiveTerminal {
-                    program: "ssh".into(),
+                    program: "/usr/bin/ssh".into(),
                     args: ssh_connect_args(&alias),
                     record_alias: Some(alias),
                 }
@@ -257,7 +257,7 @@ impl LumaModule for SshModule {
                     };
                 }
                 ActionOutcome::InteractiveTerminal {
-                    program: "sftp".into(),
+                    program: "/usr/bin/sftp".into(),
                     args: sftp_args(&alias),
                     record_alias: Some(alias),
                 }
@@ -397,7 +397,7 @@ mod tests {
             .await;
         match outcome {
             ActionOutcome::InteractiveTerminal { program, args, .. } => {
-                assert_eq!(program, "ssh");
+                assert_eq!(program, "/usr/bin/ssh");
                 assert_eq!(args, vec!["--".to_string(), "production".to_string()]);
             }
             other => panic!("expected interactive, got {other:?}"),

@@ -4,7 +4,14 @@ use serde::{Deserialize, Serialize};
 #[serde(rename_all = "snake_case")]
 pub enum QueryScope {
     Global,
-    Targeted { module: String },
+    Targeted {
+        module: String,
+    },
+    /// A slash explicitly requested command mode, but its first token is not
+    /// registered. It must never fall back to a global search.
+    InvalidCommand {
+        command: String,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -68,6 +75,10 @@ impl Query {
                 QueryScope::Targeted {
                     module: prefix.to_string(),
                 }
+            } else if slash_command {
+                QueryScope::InvalidCommand {
+                    command: prefix.to_string(),
+                }
             } else {
                 QueryScope::Global
             }
@@ -78,6 +89,10 @@ impl Query {
                 }
             } else {
                 QueryScope::Global
+            }
+        } else if slash_command {
+            QueryScope::InvalidCommand {
+                command: normalized.clone(),
             }
         } else {
             QueryScope::Global
@@ -275,6 +290,12 @@ mod tests {
         assert_eq!(q.scope, QueryScope::Global);
         assert_eq!(q.rest_raw(), "ssh production");
         assert!(!q.is_command());
+    }
+
+    #[test]
+    fn strict_parser_keeps_unknown_slash_command_out_of_global_search() {
+        let q = Query::parse_with_prefixes_strict("/typo safari", 20, |t| t == "app");
+        assert!(matches!(q.scope, QueryScope::InvalidCommand { ref command } if command == "typo"));
     }
 
     #[test]

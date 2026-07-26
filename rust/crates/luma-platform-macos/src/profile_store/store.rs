@@ -5,7 +5,7 @@ use luma_application::{
 };
 use luma_storage::luma_next_support_dir;
 use serde::{Deserialize, Serialize};
-use serde_yaml::Value;
+use serde_yaml_ng::Value;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -250,7 +250,7 @@ impl MacProfileStore {
             message: "profile is not UTF-8 YAML".into(),
         })?;
         let value: Value =
-            serde_yaml::from_str(&raw).map_err(|_| ProfileStoreError::InvalidInput {
+            serde_yaml_ng::from_str(&raw).map_err(|_| ProfileStoreError::InvalidInput {
                 field: "yaml".into(),
                 message: "profile is not valid YAML".into(),
             })?;
@@ -1006,7 +1006,7 @@ items:
     #[cfg(unix)]
     fn set_uchg(path: &Path, enabled: bool) {
         let flag = if enabled { "uchg" } else { "nouchg" };
-        let status = std::process::Command::new("chflags")
+        let status = std::process::Command::new("/usr/bin/chflags")
             .args([flag, &path.to_string_lossy()])
             .status()
             .expect("chflags");

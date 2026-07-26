@@ -17,10 +17,11 @@ tracing = { workspace = true }
 rusqlite = { workspace = true }
 uuid = { workspace = true }
 pulldown-cmark = { workspace = true }
-serde_yaml = { workspace = true }
+serde_yaml_ng = { workspace = true }
 sha2 = { workspace = true }
 hex = { workspace = true }
 walkdir = { workspace = true }
+glob = { workspace = true }
 chrono = { workspace = true }
 
 [dev-dependencies]

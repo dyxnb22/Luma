@@ -81,11 +81,12 @@ fn render_prompt(
     symbols: &Symbols,
     focused: bool,
 ) {
+    use unicode_segmentation::UnicodeSegmentation;
     let inner_w = area.width.saturating_sub(2) as usize;
     let _ = inner_w;
     let cursor = if focused { symbols.cursor } else { " " };
-    let chars: Vec<char> = state.search.prompt.chars().collect();
-    let before: String = chars
+    let graphemes: Vec<&str> = state.search.prompt.graphemes(true).collect();
+    let before: String = graphemes
         .iter()
         .skip(state.search.prompt_scroll)
         .take(
@@ -94,8 +95,13 @@ fn render_prompt(
                 .prompt_cursor
                 .saturating_sub(state.search.prompt_scroll),
         )
+        .copied()
         .collect();
-    let after: String = chars.iter().skip(state.search.prompt_cursor).collect();
+    let after: String = graphemes
+        .iter()
+        .skip(state.search.prompt_cursor)
+        .copied()
+        .collect();
     let line = Line::from(vec![
         Span::styled("  ", theme.muted()),
         Span::styled(before, theme.text()),

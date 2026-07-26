@@ -226,6 +226,7 @@ pub(super) fn render_overlay_help(
             symbols.up, symbols.down
         ),
         "Hub / win list: 1-9 focus visible window · ↑↓ move · Enter open".to_string(),
+        "Setup: /settings notes-root PATH · /settings import-project PATH".to_string(),
         "Projects: /proj add PATH · /proj browse · /proj remove NAME".to_string(),
         String::new(),
         "Enabled modules:".to_string(),
@@ -308,10 +309,10 @@ pub(super) fn render_overlay_settings(
     let mut items = Vec::new();
     let notes_line = match &state.settings.roots.notes_root {
         Some(root) if !root.is_empty() => fit(format!(" Notes root: {root}")),
-        _ => fit(" Notes root: (not set) · luma config set --notes-root ~/Notes".into()),
+        _ => fit(" Notes root: (not set) · /settings notes-root PATH".into()),
     };
     let projects_line = if state.settings.roots.projects_roots.is_empty() {
-        fit(" Projects: (none) · luma config set --projects-root ~/dev".into())
+        fit(" Projects: (none) · /settings projects-root PATH".into())
     } else {
         fit(format!(
             " Projects: {}",

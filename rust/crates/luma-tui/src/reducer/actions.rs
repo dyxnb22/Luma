@@ -1,6 +1,7 @@
 use crate::effect::Effect;
 use crate::view_model::{
-    ActionsIntent, AppState, AwaitingActions, PendingAction, Route, StatusTone,
+    is_informational_kind, ActionsIntent, AppState, AwaitingActions, PendingAction, Route,
+    StatusTone,
 };
 use luma_protocol::ActionDescriptorDto;
 
@@ -65,6 +66,13 @@ pub(super) fn request_primary_actions(state: &mut AppState) -> Vec<Effect> {
         state.status.set("no result selected", StatusTone::Warning);
         return vec![Effect::None];
     };
+    if is_informational_kind(&item.kind) {
+        state.status.set(
+            item.subtitle.clone().unwrap_or_else(|| item.title.clone()),
+            StatusTone::Warning,
+        );
+        return vec![Effect::None];
+    }
     if let Some(queue) = wordbook::wordbook_review_queue_from_item(&item) {
         return wordbook::begin_wordbook_review(state, queue);
     }
@@ -88,6 +96,15 @@ pub(super) fn request_action_picker(state: &mut AppState) -> Vec<Effect> {
         state.status.set("no result selected", StatusTone::Warning);
         return vec![Effect::None];
     };
+    if let Some(item) = state.selected_search_item() {
+        if is_informational_kind(&item.kind) {
+            state.status.set(
+                item.subtitle.clone().unwrap_or_else(|| item.title.clone()),
+                StatusTone::Warning,
+            );
+            return vec![Effect::None];
+        }
+    }
     state.actions.awaiting_actions = Some(AwaitingActions {
         intent: ActionsIntent::Picker,
         result_id: result_id.clone(),

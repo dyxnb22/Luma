@@ -1,7 +1,7 @@
 //! Clipboard history under LumaNext (SQLite).
 
 use crate::paths::{ensure_luma_next_dirs, luma_next_support_dir, PathsError};
-use luma_domain::MAX_PINNED_CLIPBOARD_ROWS;
+use luma_domain::{MAX_PINNED_CLIPBOARD_ROWS, MAX_UNPINNED_CLIPBOARD_ROWS};
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -9,11 +9,11 @@ use thiserror::Error;
 
 /// Soft cap on unpinned history rows. Pinned rows are never evicted and do not
 /// count toward this limit. Chosen for personal daily use (keeps DB small).
-pub const MAX_UNPINNED_ROWS: usize = 500;
+pub const MAX_UNPINNED_ROWS: usize = MAX_UNPINNED_CLIPBOARD_ROWS;
 
 /// Max UTF-8 bytes accepted per clipboard entry on insert.
 /// Oversized pasteboard values are rejected (not truncated).
-pub const MAX_ENTRY_BYTES: usize = 256 * 1024;
+pub use luma_domain::MAX_CLIPBOARD_ENTRY_BYTES as MAX_ENTRY_BYTES;
 
 #[derive(Debug, Error)]
 pub enum ClipboardStoreError {

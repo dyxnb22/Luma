@@ -1,5 +1,5 @@
 use luma_application::ProfileStoreError;
-use serde_yaml::{Mapping, Value};
+use serde_yaml_ng::{Mapping, Value};
 use std::fs;
 use std::path::{Path, PathBuf};
 

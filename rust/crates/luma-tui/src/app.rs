@@ -45,7 +45,7 @@ pub async fn run_tui_with_options(
     let mut state = AppState::default();
     if let Some(initial_query) = options.initial_query {
         state.search.prompt = initial_query;
-        state.search.prompt_cursor = state.search.prompt.chars().count();
+        state.search.prompt_cursor = state.prompt_char_len();
     }
     if let Ok((width, height)) = crossterm::terminal::size() {
         state.terminal.width = width;
@@ -150,9 +150,7 @@ pub async fn run_tui_with_options(
                 }
                 CEvent::Resize(width, height) => msgs.push(Msg::Resize { width, height }),
                 CEvent::FocusGained => msgs.push(Msg::FocusGained),
-                CEvent::Paste(s) => {
-                    msgs.extend(paste_msgs(&state.route, &s));
-                }
+                CEvent::Paste(s) => msgs.push(Msg::Paste(s)),
                 _ => {}
             }
         }
@@ -301,21 +299,6 @@ fn run_recipe_in_terminal(
             })
             .await;
     });
-}
-
-/// Terminal paste bypasses `map_key`; ignore it on overlays so Confirm/Settings stay open.
-fn paste_msgs(route: &Route, pasted: &str) -> Vec<Msg> {
-    if matches!(
-        route,
-        Route::ConfirmAction
-            | Route::ActionPicker
-            | Route::Settings
-            | Route::Commands
-            | Route::QuitConfirm
-    ) {
-        return Vec::new();
-    }
-    pasted.chars().map(Msg::KeyChar).collect()
 }
 
 fn map_key(code: KeyCode, modifiers: KeyModifiers, state: &AppState) -> Msg {
@@ -645,6 +628,19 @@ fn dispatch_effect(engine: Arc<dyn EnginePort>, effect: Effect, tasks: &mut Join
                     .await;
             });
         }
+        Effect::PatchSettings {
+            patch,
+            expected_version,
+        } => {
+            tasks.spawn(async move {
+                let _ = engine
+                    .submit(Command::UpdateSettings {
+                        patch,
+                        expected_version,
+                    })
+                    .await;
+            });
+        }
         Effect::None => {}
         Effect::RunInteractiveTerminal { .. } => {
             warn!(
@@ -659,13 +655,11 @@ mod tests {
     use super::*;
 
     #[test]
-    fn paste_on_confirm_is_ignored() {
-        assert!(paste_msgs(&Route::ConfirmAction, "y").is_empty());
-        assert!(paste_msgs(&Route::Settings, "toggle").is_empty());
-        let search = paste_msgs(&Route::Search, "ab");
-        assert_eq!(search.len(), 2);
-        assert!(matches!(search[0], Msg::KeyChar('a')));
-        assert!(matches!(search[1], Msg::KeyChar('b')));
+    fn bracketed_paste_is_forwarded_as_one_message() {
+        // The reducer decides whether the current surface accepts the text;
+        // keeping it atomic prevents CR/LF from being mapped to Submit.
+        let msg = Msg::Paste("a\r\nb".into());
+        assert!(matches!(msg, Msg::Paste(text) if text == "a\r\nb"));
     }
 
     #[test]

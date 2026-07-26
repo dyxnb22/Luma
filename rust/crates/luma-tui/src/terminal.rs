@@ -1,5 +1,5 @@
 use crossterm::event::{
-    DisableFocusChange, DisableMouseCapture, EnableFocusChange, EnableMouseCapture,
+    DisableBracketedPaste, DisableFocusChange, EnableBracketedPaste, EnableFocusChange,
 };
 use crossterm::execute;
 use crossterm::terminal::{
@@ -26,8 +26,8 @@ impl TerminalGuard {
         if let Err(err) = execute!(
             stdout,
             EnterAlternateScreen,
-            EnableMouseCapture,
-            EnableFocusChange
+            EnableFocusChange,
+            EnableBracketedPaste
         ) {
             cleanup_terminal_after_partial_enter();
             return Err(err);
@@ -71,8 +71,8 @@ impl TerminalGuard {
         if let Err(err) = execute!(
             stdout,
             EnterAlternateScreen,
-            EnableMouseCapture,
-            EnableFocusChange
+            EnableFocusChange,
+            EnableBracketedPaste
         ) {
             cleanup_terminal_after_partial_enter();
             return Err(err);
@@ -116,8 +116,8 @@ pub fn restore_terminal() -> io::Result<()> {
     let screen_result = execute!(
         stdout,
         LeaveAlternateScreen,
-        DisableMouseCapture,
-        DisableFocusChange
+        DisableFocusChange,
+        DisableBracketedPaste
     );
     if raw_result.is_ok() && screen_result.is_ok() {
         TERMINAL_ACTIVE.store(false, Ordering::SeqCst);
@@ -133,8 +133,8 @@ fn cleanup_terminal_after_partial_enter() {
     let _ = execute!(
         stdout,
         LeaveAlternateScreen,
-        DisableMouseCapture,
-        DisableFocusChange
+        DisableFocusChange,
+        DisableBracketedPaste
     );
 }
 

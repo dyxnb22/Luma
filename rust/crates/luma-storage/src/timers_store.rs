@@ -105,11 +105,8 @@ impl TimersStore {
                 })
             })?
             .collect::<Result<_, _>>()?;
-        if rows.len() > MAX_TIMERS {
-            return Err(TimersStoreError::Msg(format!(
-                "timers capacity exceeded ({MAX_TIMERS}); delete a timer before continuing"
-            )));
-        }
+        // The write path is capped, but an old/manual overflow must stay
+        // visible so its timers can be deleted rather than bricking the module.
         Ok(rows)
     }
 
@@ -322,6 +319,43 @@ mod tests {
             .unwrap_err()
             .to_string();
         assert!(err.contains("capacity reached"), "{err}");
+        assert_eq!(store.list().unwrap().len(), MAX_TIMERS);
+    }
+
+    #[test]
+    fn over_capacity_timers_remain_listable_for_recovery() {
+        let dir = tempdir().unwrap();
+        let store = TimersStore::with_path(dir.path().join("timers.sqlite")).unwrap();
+        for i in 0..MAX_TIMERS {
+            let mut row = sample(1_700_000_000_000 + i as i64);
+            row.id = format!("tm-{i}");
+            store.insert(&row).unwrap();
+        }
+        let extra = sample(1_800_000_000_000);
+        store
+            .connect()
+            .unwrap()
+            .execute(
+                "INSERT INTO timers (
+                    id, name, kind, state, duration_ms, accumulated_ms, started_at_ms,
+                    alerted, created_at_ms, updated_at_ms
+                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+                params![
+                    extra.id,
+                    extra.name,
+                    extra.kind,
+                    extra.state,
+                    extra.duration_ms,
+                    extra.accumulated_ms,
+                    extra.started_at_ms,
+                    if extra.alerted { 1 } else { 0 },
+                    extra.created_at_ms,
+                    extra.updated_at_ms,
+                ],
+            )
+            .unwrap();
+        assert_eq!(store.list().unwrap().len(), MAX_TIMERS + 1);
+        store.delete("tm-0").unwrap();
         assert_eq!(store.list().unwrap().len(), MAX_TIMERS);
     }
 }

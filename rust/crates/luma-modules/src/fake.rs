@@ -55,6 +55,7 @@ impl LumaModule for FakeEchoModule {
                 .filter(|s| !s.is_empty())
                 .unwrap_or_else(|| query.normalized.clone()),
             luma_domain::QueryScope::Global => query.normalized.clone(),
+            luma_domain::QueryScope::InvalidCommand { .. } => return,
         };
         let item = SearchItemDto {
             id: format!("fake:{}", payload),

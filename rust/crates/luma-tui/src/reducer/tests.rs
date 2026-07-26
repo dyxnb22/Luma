@@ -455,6 +455,68 @@ fn prompt_cursor_inserts_in_middle() {
 }
 
 #[test]
+fn prompt_editing_never_splits_a_combining_grapheme() {
+    let mut state = AppState::default();
+    state.search.prompt = "e\u{301}x".into();
+    state.search.prompt_cursor = state.prompt_char_len();
+
+    let _ = update(&mut state, Msg::CursorLeft);
+    let _ = update(&mut state, Msg::Backspace);
+
+    assert_eq!(state.search.prompt, "x");
+    assert_eq!(state.search.prompt_cursor, 0);
+}
+
+#[test]
+fn prompt_editing_treats_emoji_zwj_sequence_as_one_grapheme() {
+    let mut state = AppState::default();
+    state.search.prompt = "👩‍💻x".into();
+    state.search.prompt_cursor = state.prompt_char_len();
+
+    let _ = update(&mut state, Msg::CursorLeft);
+    let _ = update(&mut state, Msg::Backspace);
+
+    assert_eq!(state.search.prompt, "x");
+    assert_eq!(state.search.prompt_cursor, 0);
+}
+
+#[test]
+fn preview_toggle_hides_an_automatic_preview_and_restores_it() {
+    let mut state = AppState::default();
+    state.terminal.width = 120;
+    state.search.results.items.push(SearchItem {
+        id: ResultId::new("preview"),
+        module_id: ModuleId::new("mock"),
+        title: "Previewable".into(),
+        subtitle: None,
+        kind: "mock".into(),
+        score: 1.0,
+        primary_action: ActionDescriptor {
+            id: ActionId::new("open"),
+            label: "Open".into(),
+            risk: ActionRisk::Safe,
+            confirmation: false,
+        },
+        secondary_actions: vec![],
+        ui_intent: None,
+        action_payload: None,
+    });
+    state.search.results.selected_id = Some("preview".into());
+    state.focus = FocusZone::Preview;
+    assert!(state.preview_visible());
+
+    let _ = update(&mut state, Msg::TogglePreview);
+    assert!(state.preview.hidden);
+    assert!(!state.preview_visible());
+    assert_eq!(state.focus, FocusZone::List);
+
+    let effects = update(&mut state, Msg::TogglePreview);
+    assert!(!state.preview.hidden);
+    assert!(state.preview_visible());
+    assert!(matches!(effects.as_slice(), [Effect::LoadPreview { .. }]));
+}
+
+#[test]
 fn page_down_moves_selection() {
     let mut state = AppState::default();
     for i in 0..12 {
@@ -1095,7 +1157,102 @@ fn seed_config_primary_skips_action_picker() {
             .all(|e| !matches!(e, Effect::ListActions { .. })),
         "seed_config primary should not open action picker: {effects:?}"
     );
-    assert!(state.status.text.contains("luma config set"));
+    assert_eq!(state.search.prompt, "/settings notes-root ");
+    assert!(state.status.text.contains("type a path"));
+}
+
+#[test]
+fn local_settings_command_persists_notes_root_through_the_engine() {
+    let mut state = AppState::default();
+    state.settings.version = 7;
+    state.search.prompt = "/settings notes-root /tmp/My Notes".into();
+    state.search.prompt_cursor = state.prompt_char_len();
+
+    let effects = update(&mut state, Msg::Submit);
+
+    assert!(matches!(
+        effects.as_slice(),
+        [Effect::PatchSettings { patch, expected_version: 7 }]
+            if patch == &serde_json::json!({"notes_root": "/tmp/My Notes"})
+    ));
+    assert_eq!(state.status.text, "saving settings…");
+}
+
+#[test]
+fn local_settings_command_preserves_repeated_spaces_in_paths() {
+    let mut state = AppState::default();
+    state.search.prompt = "/settings notes-root /tmp/My  Notes".into();
+    state.search.prompt_cursor = state.prompt_char_len();
+
+    let effects = update(&mut state, Msg::Submit);
+
+    assert!(matches!(
+        effects.as_slice(),
+        [Effect::PatchSettings { patch, .. }]
+            if patch == &serde_json::json!({"notes_root": "/tmp/My  Notes"})
+    ));
+}
+
+#[test]
+fn local_settings_project_root_appends_without_discarding_existing_roots() {
+    let mut state = AppState::default();
+    state.settings.roots.projects_roots = vec!["/work/one".into(), "/work/two".into()];
+    state.search.prompt = "/settings projects-root /work/three".into();
+    state.search.prompt_cursor = state.prompt_char_len();
+
+    let effects = update(&mut state, Msg::Submit);
+
+    assert!(matches!(
+        effects.as_slice(),
+        [Effect::PatchSettings { patch, .. }]
+            if patch == &serde_json::json!({
+                "projects_roots": ["/work/one", "/work/two", "/work/three"]
+            })
+    ));
+}
+
+#[test]
+fn local_settings_command_requires_a_path() {
+    let mut state = AppState::default();
+    state.search.prompt = "/settings import-project".into();
+    state.search.prompt_cursor = state.prompt_char_len();
+
+    let effects = update(&mut state, Msg::Submit);
+
+    assert_eq!(effects, vec![Effect::None]);
+    assert!(state.status.text.contains("needs a path"));
+}
+
+#[test]
+fn permission_status_does_not_open_an_action_picker() {
+    use luma_domain::{ActionDescriptor, ActionId, ActionRisk, ModuleId, ResultId, SearchItem};
+    let mut state = AppState::default();
+    let item = SearchItem {
+        id: ResultId::new("win:permission"),
+        module_id: ModuleId::new("luma.windows"),
+        title: "Accessibility permission required".into(),
+        subtitle: Some("Grant Accessibility in System Settings".into()),
+        kind: "permission_required".into(),
+        score: 0.0,
+        primary_action: ActionDescriptor {
+            id: ActionId::new("noop"),
+            label: "OK".into(),
+            risk: ActionRisk::Safe,
+            confirmation: false,
+        },
+        secondary_actions: vec![],
+        ui_intent: None,
+        action_payload: None,
+    };
+    state.search.results.items = vec![item.clone()];
+    state.search.results.selected_id = Some(item.id.as_str().into());
+
+    let primary = request_primary_actions(&mut state);
+    assert_eq!(primary, vec![Effect::None]);
+    assert_eq!(state.status.text, "Grant Accessibility in System Settings");
+    let picker = request_action_picker(&mut state);
+    assert_eq!(picker, vec![Effect::None]);
+    assert!(state.actions.awaiting_actions.is_none());
 }
 
 #[test]
@@ -1122,8 +1279,8 @@ fn projects_without_imports_show_import_guidance() {
     state.search.results.items = vec![item.clone()];
     state.search.results.selected_id = Some(item.id.as_str().into());
     let _ = request_primary_actions(&mut state);
-    assert!(state.status.text.contains("/proj add"));
-    assert!(!state.status.text.contains("--projects-root"));
+    assert_eq!(state.search.prompt, "/settings import-project ");
+    assert!(state.status.text.contains("type a project path"));
 }
 
 #[test]

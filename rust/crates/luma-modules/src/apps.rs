@@ -312,6 +312,7 @@ impl LumaModule for AppsModule {
                 .filter(|s| !s.is_empty())
                 .unwrap_or_default(),
             luma_domain::QueryScope::Global => query.normalized.clone(),
+            luma_domain::QueryScope::InvalidCommand { .. } => return,
         };
 
         if needle.is_empty() {

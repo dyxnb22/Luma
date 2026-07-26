@@ -3,6 +3,9 @@ use luma_storage::collect_aliases_from_file;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+const SSH_EXECUTABLE: &str = "/usr/bin/ssh";
+const SFTP_EXECUTABLE: &str = "/usr/bin/sftp";
+
 pub struct MacSshConfig {
     config_path: PathBuf,
 }
@@ -117,7 +120,7 @@ impl SshConfigPort for MacSshConfig {
                 "refusing ssh host alias that looks like a flag: {alias}"
             )));
         }
-        let output = Command::new("ssh")
+        let output = Command::new(SSH_EXECUTABLE)
             .args(["-G", "--", alias])
             .output()
             .map_err(|e| SshConfigError::msg(format!("ssh -G failed: {e}")))?;
@@ -132,11 +135,11 @@ impl SshConfigPort for MacSshConfig {
     }
 
     fn ssh_available(&self) -> bool {
-        Self::command_available("ssh")
+        Self::command_available(SSH_EXECUTABLE)
     }
 
     fn sftp_available(&self) -> bool {
-        Self::command_available("sftp")
+        Self::command_available(SFTP_EXECUTABLE)
     }
 }
 

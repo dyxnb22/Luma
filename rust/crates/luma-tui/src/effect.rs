@@ -12,6 +12,12 @@ pub enum Effect {
         enabled: bool,
         expected_version: u64,
     },
+    /// Persist an explicit local `/settings …` command through the engine's
+    /// versioned settings path.
+    PatchSettings {
+        patch: serde_json::Value,
+        expected_version: u64,
+    },
     /// Load detail body for the preview pane.
     LoadPreview { result_id: String, preview_id: u64 },
     /// Refresh Hub windows slice + modules.

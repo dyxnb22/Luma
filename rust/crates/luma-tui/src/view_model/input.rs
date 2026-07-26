@@ -146,9 +146,9 @@ impl ResultsView {
 #[derive(Clone, Debug, Default)]
 pub struct SearchState {
     pub prompt: String,
-    /// Cursor as a Unicode scalar index into `prompt` (0..=char_count).
+    /// Cursor as an extended grapheme cluster index into `prompt`.
     pub prompt_cursor: usize,
-    /// Horizontal scroll offset (Unicode scalar index) for long prompts.
+    /// Horizontal scroll offset (extended grapheme cluster index) for long prompts.
     pub prompt_scroll: usize,
     pub active_request: Option<String>,
     pub request_seq_seen: u64,
@@ -183,6 +183,9 @@ pub struct ActionsState {
 /// selection change and are guarded by their own generation.
 #[derive(Clone, Debug, Default)]
 pub struct PreviewState {
+    /// Explicit user preference from Ctrl-Shift-Tab. Automatic previews remain
+    /// available by default, but this lets the shortcut genuinely hide them.
+    pub hidden: bool,
     /// When set, allow stacked preview on narrow terminals (e.g. 80×24).
     pub pinned: bool,
     /// Async preview body for the selected result (`LoadPreview`).

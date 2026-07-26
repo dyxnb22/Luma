@@ -5,7 +5,7 @@ pub(crate) fn friendly_store_error(err: &str) -> String {
     let e = err.trim();
     let lower = e.to_ascii_lowercase();
     if lower.contains("readonly") || lower.contains("read-only") {
-        return "Database locked — quit other Luma and retry".into();
+        return "Local database is read-only — check its folder permissions".into();
     }
     if lower.contains("database is locked") || lower.contains("locked") {
         return "Database busy — quit other Luma and retry".into();

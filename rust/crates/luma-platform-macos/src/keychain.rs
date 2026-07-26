@@ -220,7 +220,7 @@ impl Keychain for MacKeychain {
     }
 
     async fn copy_password(&self, account: &str) -> Result<String, KeychainError> {
-        let out = Command::new("security")
+        let out = Command::new("/usr/bin/security")
             .args([
                 "find-generic-password",
                 "-s",
@@ -261,7 +261,7 @@ impl Keychain for MacKeychain {
     }
 
     async fn delete(&self, account: &str) -> Result<(), KeychainError> {
-        let status = Command::new("security")
+        let status = Command::new("/usr/bin/security")
             .args([
                 "delete-generic-password",
                 "-s",

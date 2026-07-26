@@ -42,7 +42,10 @@ public struct ActivationPolicy: Equatable {
         ownProcessIdentifier: pid_t,
         sessionIsRunning: Bool
     ) -> ActivationAction {
-        if isVisible && applicationIsActive {
+        // An ended TUI leaves an honest notice in an otherwise visible terminal. Treat the next
+        // hotkey as recovery, not as a hide: otherwise the user has to press it twice before a
+        // fresh session starts.
+        if isVisible && applicationIsActive && sessionIsRunning {
             return hide()
         }
         return show(

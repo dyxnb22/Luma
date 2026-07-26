@@ -201,13 +201,10 @@ impl TimersModule {
     }
 
     /// Freeze running timers so wall-clock does not advance after process exit.
-    pub(super) async fn pause_all_running(&self) {
-        let Ok(now) = self.clock.now_unix_ms() else {
-            return;
-        };
-        let Ok(rows) = self.store.list() else {
-            return;
-        };
+    pub(super) async fn pause_all_running(&self) -> Result<(), String> {
+        let now = self.clock.now_unix_ms().map_err(|err| err.to_string())?;
+        let rows = self.store.list().map_err(|err| err.to_string())?;
+        let mut failures = Vec::new();
         for mut entry in rows {
             if entry.state != "running" {
                 continue;
@@ -217,9 +214,21 @@ impl TimersModule {
             entry.started_at_ms = None;
             entry.state = "paused".into();
             entry.updated_at_ms = TimerEntry::next_updated_at_ms(now, expected);
-            let _ = self.store.update(&entry, expected);
+            if let Err(err) = self.store.update(&entry, expected) {
+                failures.push(format!("{}: {err}", entry.id));
+            }
         }
-        let _ = self.refresh_index().await;
+        if let Err(err) = self.refresh_index().await {
+            failures.push(format!("refresh: {err}"));
+        }
+        if failures.is_empty() {
+            Ok(())
+        } else {
+            Err(format!(
+                "could not persist paused timers ({})",
+                failures.join(", ")
+            ))
+        }
     }
 
     pub(super) fn now_ms(&self) -> Result<i64, String> {

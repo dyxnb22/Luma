@@ -172,9 +172,10 @@ pub(super) fn seed_module_config(
     item: &luma_domain::SearchItem,
 ) -> Vec<Effect> {
     if item.id.as_str() == "proj:not-configured" {
-        state.status.set(
-            "run in terminal: /proj add /path/to/project · or Enter on /proj browse",
-            StatusTone::Warning,
+        seed_local_settings_prompt(
+            state,
+            "/settings import-project ",
+            "type a project path · Enter saves it · Esc cancels",
         );
         return vec![Effect::None];
     }
@@ -194,9 +195,18 @@ pub(super) fn seed_module_config(
         None
     };
     if let Some(cmd) = cmd {
-        state
-            .status
-            .set(format!("run in terminal: {cmd}"), StatusTone::Warning);
+        let local = match cmd {
+            "luma config set --notes-root ~/Notes" => Some("/settings notes-root "),
+            "luma config set --projects-root ~/dev" => Some("/settings projects-root "),
+            _ => None,
+        };
+        if let Some(prompt) = local {
+            seed_local_settings_prompt(state, prompt, "type a path · Enter saves it · Esc cancels");
+        } else {
+            state
+                .status
+                .set(format!("run in terminal: {cmd}"), StatusTone::Warning);
+        }
         return vec![Effect::None];
     }
     if let Some(sub) = item.subtitle.as_deref() {
@@ -207,6 +217,19 @@ pub(super) fn seed_module_config(
         .status
         .set("configure via: luma config", StatusTone::Warning);
     vec![Effect::None]
+}
+
+fn seed_local_settings_prompt(state: &mut AppState, prompt: &str, status: &str) {
+    state.search.browse_nav_stack.clear();
+    state.search.prompt = prompt.into();
+    state.search.prompt_cursor = state.prompt_char_len();
+    state.focus = FocusZone::Prompt;
+    state.search.history_browse = None;
+    state.search.results.items.clear();
+    state.search.results.selected_id = None;
+    state.search.debounce_deadline = None;
+    state.hub.refresh_deadline = None;
+    state.status.set(status, StatusTone::Neutral);
 }
 
 pub(super) fn pick_window_digit(state: &mut AppState, digit: usize) -> Vec<Effect> {

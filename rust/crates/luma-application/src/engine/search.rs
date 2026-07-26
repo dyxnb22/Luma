@@ -186,6 +186,43 @@ impl Engine {
                 is_meta_prefix(token) || triggers.iter().any(|t| t == token)
             })
         };
+        if let QueryScope::InvalidCommand { command } = &query.scope {
+            let title = if command.is_empty() {
+                "Enter a slash command".to_string()
+            } else {
+                format!("Unknown command: /{command}")
+            };
+            let _ = self
+                .emit(Event::ResultsChunk {
+                    request_id: request_id.clone(),
+                    sequence: 1,
+                    upserts: vec![SearchItemDto {
+                        id: format!("system:invalid-command:{command}"),
+                        module_id: "luma.system".into(),
+                        title,
+                        subtitle: Some("Use /help to view available commands.".into()),
+                        kind: "command_error".into(),
+                        score: 0.0,
+                        primary_action_id: "status".into(),
+                        primary_action_label: "Status".into(),
+                        ..Default::default()
+                    }],
+                    removed_ids: vec![],
+                })
+                .await;
+            {
+                let mut g = self.inner.lock().await;
+                g.pending_searches.remove(&request_id);
+            }
+            let _ = self
+                .emit(Event::SearchFinished {
+                    request_id,
+                    total: 1,
+                    elapsed_ms: search_started.elapsed().as_millis() as u64,
+                })
+                .await;
+            return;
+        }
         let modules: Vec<Arc<dyn LumaModule>> = {
             let g = self.inner.lock().await;
             match &query.scope {
@@ -193,6 +230,7 @@ impl Engine {
                     g.registry.resolve_trigger(module).into_iter().collect()
                 }
                 QueryScope::Global => g.registry.contributing(),
+                QueryScope::InvalidCommand { .. } => Vec::new(),
             }
         };
 

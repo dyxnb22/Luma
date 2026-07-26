@@ -42,6 +42,20 @@ final class ActivationPolicyTests: XCTestCase {
         XCTAssertNil(policy.previousApplication, "the remembered app is consumed by hiding")
     }
 
+    func testHotKeyWhileVisibleAfterSessionEndsRestartsImmediately() {
+        var policy = ActivationPolicy(isVisible: true)
+
+        let action = policy.toggle(
+            applicationIsActive: true,
+            frontmostApplication: nil,
+            ownProcessIdentifier: ownPID,
+            sessionIsRunning: false
+        )
+
+        XCTAssertEqual(action, .show(startSession: true))
+        XCTAssertTrue(policy.isVisible)
+    }
+
     /// Visible but buried behind another app: the hotkey must bring Luma forward, not hide it.
     func testHotKeyWhileVisibleButInactiveShows() {
         var policy = ActivationPolicy(isVisible: true)

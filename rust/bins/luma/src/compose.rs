@@ -4,11 +4,12 @@
 //! listed in Settings but do not warm up or appear on the Hub.
 
 use luma_application::{
-    CapabilityPort, CommandRecipesRepository, ModuleRegistry, RegistryError as ModuleRegistryError,
-    SettingsRepository, SqliteClipboardHistory, SqliteCommandRecipesRepository, SqliteNotesIndex,
-    SqliteQuicklinksRepository, SqliteRecordsRepository, SqliteSnippetsRepository,
-    SqliteSshMetaRepository, SqliteTimersRepository, SqliteWordbookRepository,
-    TomlSettingsRepository, WordbookRepository,
+    CapabilityPort, CommandRecipesRepository, ModuleManifest, ModuleRegistry,
+    RegistryError as ModuleRegistryError, SearchMode, SettingsRepository, SqliteClipboardHistory,
+    SqliteCommandRecipesRepository, SqliteNotesIndex, SqliteQuicklinksRepository,
+    SqliteRecordsRepository, SqliteSnippetsRepository, SqliteSshMetaRepository,
+    SqliteTimersRepository, SqliteWordbookRepository, TomlSettingsRepository, UnavailableModule,
+    WordbookRepository, WorkbenchMeta,
 };
 use luma_modules::{
     AppsModule, ClipboardModule, ClipboardSuppression, CommandRecipesModule, FakeEchoModule,
@@ -70,7 +71,8 @@ impl CapabilityPort for ComposeCapabilities {
 }
 
 /// Build registry from settings + optionally opened stores.
-/// Missing stores skip the corresponding module instead of failing the launcher.
+/// A store failure becomes an in-place unavailable module rather than removing
+/// its trigger and silently changing `/module` into a global search.
 #[allow(clippy::too_many_arguments)]
 pub fn registry_from_settings(
     settings: &LumaSettings,
@@ -143,12 +145,18 @@ pub fn registry_from_settings(
             clipboard_suppression.clone(),
         )))?;
     } else {
-        let reason = "clipboard store unavailable".into();
-        warn!("{reason} — Clipboard module not registered");
-        skipped.push(SkippedModule {
-            id: "luma.clipboard".into(),
-            reason,
-        });
+        register_unavailable_store_module(
+            &mut reg,
+            &mut skipped,
+            "luma.clipboard",
+            "Clipboard",
+            &["clip", "cb"],
+            "C",
+            "/clip ",
+            "/clip · history · pin/unpin · paste needs AX",
+            false,
+            "Clipboard store could not be opened. Existing data was left untouched; close Luma, repair or restore the local store, then reopen.",
+        )?;
     }
     if let Some(scanner) = notes_index {
         reg.register(Arc::new(NotesModule::with_root(
@@ -167,12 +175,18 @@ pub fn registry_from_settings(
             settings.notes_exclude_patterns.clone(),
         )))?;
     } else {
-        let reason = "notes index store unavailable".into();
-        warn!("{reason} — Notes module not registered");
-        skipped.push(SkippedModule {
-            id: "luma.notes".into(),
-            reason,
-        });
+        register_unavailable_store_module(
+            &mut reg,
+            &mut skipped,
+            "luma.notes",
+            "Notes",
+            &["n", "note", "notes"],
+            "N",
+            "/n ",
+            "/n browse tree · /n <query> search · /n recent · /n issues",
+            true,
+            "Notes index could not be opened. Existing data was left untouched; close Luma, repair or restore the local store, then reopen.",
+        )?;
     }
     if let Some(quicklinks) = quicklinks {
         reg.register(Arc::new(QuicklinksModule::with_deps(
@@ -181,12 +195,18 @@ pub fn registry_from_settings(
             pasteboard.clone(),
         )))?;
     } else {
-        let reason = "quicklinks store unavailable".into();
-        warn!("{reason} — Quicklinks module not registered");
-        skipped.push(SkippedModule {
-            id: "luma.quicklinks".into(),
-            reason,
-        });
+        register_unavailable_store_module(
+            &mut reg,
+            &mut skipped,
+            "luma.quicklinks",
+            "Quicklinks",
+            &["ql", "quicklinks"],
+            "Q",
+            "/ql ",
+            "/ql · /ql add <trigger> <url>",
+            false,
+            "Quicklinks store could not be opened. Existing data was left untouched; close Luma, repair or restore the local store, then reopen.",
+        )?;
     }
     if let Some(snippets) = snippets {
         reg.register(Arc::new(SnippetsModule::with_store(
@@ -196,12 +216,18 @@ pub fn registry_from_settings(
             window_catalog,
         )))?;
     } else {
-        let reason = "snippets store unavailable".into();
-        warn!("{reason} — Snippets module not registered");
-        skipped.push(SkippedModule {
-            id: "luma.snippets".into(),
-            reason,
-        });
+        register_unavailable_store_module(
+            &mut reg,
+            &mut skipped,
+            "luma.snippets",
+            "Snippets",
+            &["s", "snip"],
+            "S",
+            "/s ",
+            "/s · /snip add <trigger> <body>",
+            false,
+            "Snippets store could not be opened. Existing data was left untouched; close Luma, repair or restore the local store, then reopen.",
+        )?;
     }
     if let Some(wordbook) = wordbook {
         reg.register(Arc::new(WordbookModule::with_deps(
@@ -211,12 +237,18 @@ pub fn registry_from_settings(
             Arc::new(MacBoundedUtf8FileReader),
         )))?;
     } else {
-        let reason = "wordbook store unavailable".into();
-        warn!("{reason} — Wordbook module not registered");
-        skipped.push(SkippedModule {
-            id: "luma.wordbook".into(),
-            reason,
-        });
+        register_unavailable_store_module(
+            &mut reg,
+            &mut skipped,
+            "luma.wordbook",
+            "Wordbook",
+            &["wb", "wordbook", "words"],
+            "W",
+            "/wb due",
+            "/wb due · /wb new · /wb wrong · /wb status · /wb add TERM | meaning",
+            false,
+            "Wordbook store could not be opened. Existing data was left untouched; close Luma, repair or restore the local store, then reopen.",
+        )?;
     }
     if let Some(records) = records {
         reg.register(Arc::new(RecordsModule::with_deps(
@@ -224,12 +256,18 @@ pub fn registry_from_settings(
             records_root,
         )))?;
     } else {
-        let reason = "records store unavailable".into();
-        warn!("{reason} — Records module not registered");
-        skipped.push(SkippedModule {
-            id: "luma.records".into(),
-            reason,
-        });
+        register_unavailable_store_module(
+            &mut reg,
+            &mut skipped,
+            "luma.records",
+            "Records",
+            &["rec", "record"],
+            "R",
+            "/rec ",
+            "/rec <query> · /rec 电影 browse · /rec add 电影 NAME | rating | note",
+            true,
+            "Records store could not be opened. Existing data was left untouched; close Luma, repair or restore the local store, then reopen.",
+        )?;
     }
     reg.register(Arc::new(ProjectsModule::with_deps(
         project_roots,
@@ -250,12 +288,18 @@ pub fn registry_from_settings(
             opener.clone(),
         )))?;
     } else {
-        let reason = "command recipes meta store unavailable".into();
-        warn!("{reason} — Command Recipes module not registered");
-        skipped.push(SkippedModule {
-            id: "luma.command_recipes".into(),
-            reason,
-        });
+        register_unavailable_store_module(
+            &mut reg,
+            &mut skipped,
+            "luma.command_recipes",
+            "Command Recipes",
+            &["cmd", "recipe", "recipes"],
+            "C",
+            "/cmd ",
+            "/cmd · /cmd test · r run · c copy · f favorite",
+            false,
+            "Command Recipes metadata store could not be opened. Existing data was left untouched; close Luma, repair or restore the local store, then reopen.",
+        )?;
     }
     let ssh_meta = match SshMetaStore::luma_next_default() {
         Ok(s) => Some(Arc::new(s)),
@@ -280,12 +324,18 @@ pub fn registry_from_settings(
             Arc::new(MacSpeech),
         )))?;
     } else {
-        let reason = "timers store unavailable".into();
-        warn!("{reason} — Timers module not registered");
-        skipped.push(SkippedModule {
-            id: "luma.timers".into(),
-            reason,
-        });
+        register_unavailable_store_module(
+            &mut reg,
+            &mut skipped,
+            "luma.timers",
+            "Timers",
+            &["tm", "timer", "timers"],
+            "T",
+            "/tm ",
+            "/tm · /tm pomo [min] [name] · /tm sw [name] · start/pause/resume",
+            false,
+            "Timers store could not be opened. Existing data was left untouched; close Luma, repair or restore the local store, then reopen.",
+        )?;
     }
     reg.register(Arc::new(SecretsModule::with_deps(
         keychain,
@@ -321,6 +371,46 @@ pub fn registry_from_settings(
         skipped.push(SkippedModule { id, reason });
     }
     Ok((reg, skipped))
+}
+
+#[allow(clippy::too_many_arguments)]
+fn register_unavailable_store_module(
+    reg: &mut ModuleRegistry,
+    skipped: &mut Vec<SkippedModule>,
+    id: &str,
+    display_name: &str,
+    triggers: &[&str],
+    glyph: &str,
+    suggested_query: &str,
+    empty_hint: &str,
+    supports_browse: bool,
+    reason: &str,
+) -> Result<(), ModuleRegistryError> {
+    warn!(module = id, "{reason}");
+    reg.register(Arc::new(UnavailableModule::new(
+        ModuleManifest {
+            id: luma_domain::ModuleId::new(id),
+            display_name: display_name.into(),
+            triggers: triggers.iter().map(|trigger| (*trigger).into()).collect(),
+            default_enabled: true,
+            // Do not emit an unavailable row for every global search; a direct
+            // slash command is the recovery surface for an unavailable store.
+            search_mode: SearchMode::TargetedOnly,
+            required_capabilities: vec![],
+            workbench: WorkbenchMeta {
+                glyph: Some(glyph.into()),
+                suggested_query: Some(suggested_query.into()),
+                empty_hint: Some(empty_hint.into()),
+                supports_browse,
+            },
+        },
+        reason,
+    )))?;
+    skipped.push(SkippedModule {
+        id: id.into(),
+        reason: reason.into(),
+    });
+    Ok(())
 }
 
 fn default_records_root() -> Option<PathBuf> {

@@ -196,6 +196,7 @@ impl Theme {
             ResultKindVisual::Warming => self.muted,
             ResultKindVisual::Permission => self.permission,
             ResultKindVisual::Unavailable => self.warning,
+            ResultKindVisual::CommandError => self.warning,
             ResultKindVisual::NotConfigured => self.warning,
         };
         if selected {
@@ -272,6 +273,7 @@ pub enum ResultKindVisual {
     Warming,
     Permission,
     Unavailable,
+    CommandError,
     NotConfigured,
 }
 
@@ -281,6 +283,7 @@ impl ResultKindVisual {
             "warming" => Self::Warming,
             "permission" | "permission_required" => Self::Permission,
             "unavailable" => Self::Unavailable,
+            "command_error" => Self::CommandError,
             // Empty-store onboarding is actionable — do not badge as "not configured".
             "not_configured" | "not-configured" => Self::NotConfigured,
             _ => Self::Normal,
@@ -293,6 +296,7 @@ impl ResultKindVisual {
             Self::Warming => Some("loading"),
             Self::Permission => Some("permission"),
             Self::Unavailable => Some("unavailable"),
+            Self::CommandError => Some("command"),
             Self::NotConfigured => Some("setup"),
         }
     }

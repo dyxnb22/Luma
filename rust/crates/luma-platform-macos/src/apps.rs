@@ -37,7 +37,7 @@ impl AppsCatalog for FilesystemAppsCatalog {
     }
 
     async fn launch(&self, path: &Path) -> Result<(), AppLaunchError> {
-        let status = Command::new("open")
+        let status = Command::new("/usr/bin/open")
             .arg(path)
             .status()
             .await
@@ -52,7 +52,7 @@ impl AppsCatalog for FilesystemAppsCatalog {
     }
 
     async fn reveal(&self, path: &Path) -> Result<(), AppLaunchError> {
-        let status = Command::new("open")
+        let status = Command::new("/usr/bin/open")
             .args(["-R"])
             .arg(path)
             .status()
@@ -94,6 +94,27 @@ fn scan_dir(dir: &Path, depth: usize, apps: &mut Vec<AppEntry>) -> Result<(), St
             continue;
         };
         if meta.file_type().is_symlink() {
+            // macOS exposes a few system applications through aliases (notably
+            // Safari on some releases). Follow a link only when its resolved
+            // target is itself an app bundle; never recurse through symlinked
+            // directories, which would permit cycles and arbitrary traversal.
+            let Ok(target) = std::fs::canonicalize(&path) else {
+                continue;
+            };
+            if target.is_dir() && target.extension().and_then(|e| e.to_str()) == Some("app") {
+                let name = path
+                    .file_stem()
+                    .and_then(|s| s.to_str())
+                    .or_else(|| target.file_stem().and_then(|s| s.to_str()))
+                    .unwrap_or("Unknown")
+                    .to_string();
+                debug!(%name, target = %target.display(), "indexed symlinked app");
+                apps.push(AppEntry {
+                    name,
+                    path: target,
+                    bundle_id: None,
+                });
+            }
             continue;
         }
         if path.extension().and_then(|e| e.to_str()) == Some("app") {
@@ -142,5 +163,23 @@ mod tests {
         let apps = catalog.list_installed().await.unwrap();
         assert_eq!(apps.len(), 2);
         assert!(apps.iter().any(|a| a.name == "Safari"));
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn indexes_a_symlinked_app_bundle_without_recursing_into_links() {
+        let dir = tempfile::tempdir().unwrap();
+        let target_root = tempfile::tempdir().unwrap();
+        let target = target_root.path().join("Safari.app");
+        fs::create_dir(&target).unwrap();
+        std::os::unix::fs::symlink(&target, dir.path().join("Safari.app")).unwrap();
+        std::os::unix::fs::symlink(target_root.path(), dir.path().join("Other")).unwrap();
+
+        let catalog = FilesystemAppsCatalog::with_roots(vec![dir.path().to_path_buf()]);
+        let apps = catalog.list_installed().await.unwrap();
+
+        assert_eq!(apps.len(), 1);
+        assert_eq!(apps[0].name, "Safari");
+        assert_eq!(apps[0].path, target.canonicalize().unwrap());
     }
 }

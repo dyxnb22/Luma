@@ -64,9 +64,10 @@ if [[ ! -x "/usr/bin/codesign" ]]; then
     exit 1
 fi
 
-# Sign nested executables first, then bind the stable bundle identity to the app itself.
-# The default ad-hoc identity is enough for local TCC/Login Item testing; set CODESIGN_IDENTITY
-# to use a local certificate when one is available.
+# Sign nested executables first, then bind the bundle identifier to the app itself.
+# The default ad-hoc identity is enough to make a local bundle runnable, but rebuilding it can
+# invalidate TCC grants. Set CODESIGN_IDENTITY to a stable local certificate when continuity
+# matters, and re-check module-local permissions after an ad-hoc rebuild.
 /usr/bin/codesign --force --sign "$SIGNING_IDENTITY" --identifier "$BUNDLE_IDENTIFIER.cli" \
     --timestamp=none "$MACOS/luma"
 /usr/bin/codesign --force --sign "$SIGNING_IDENTITY" --identifier "$BUNDLE_IDENTIFIER" \

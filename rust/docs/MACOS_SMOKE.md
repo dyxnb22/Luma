@@ -39,10 +39,15 @@ automated: they need real activation, a real input method, and a real GPU-compos
 
 ```bash
 cd rust
-bash scripts/build_workbench_app.sh "$HOME/Applications/Luma.app"
+ bash scripts/build_workbench_app.sh "$HOME/Applications/Luma.app"
 /usr/bin/codesign --verify --deep --strict "$HOME/Applications/Luma.app"
 open "$HOME/Applications/Luma.app"
 ```
+
+The default ad-hoc signature is suitable for this local smoke build, not a promise that TCC
+permissions will persist across rebuilds. Re-check Accessibility (and any other module-local
+permission) after replacing the bundle; use `CODESIGN_IDENTITY` with a stable local certificate
+when continuity matters.
 
 1. **Cold launch** — the window appears centered, the TUI Hub renders, and no Dock icon is added.
 2. **Warm activation** — click another app, press Option+Space; Luma comes forward on the current
@@ -57,9 +62,10 @@ open "$HOME/Applications/Luma.app"
    correctly and only the committed text reaches the prompt.
 6. **CJK alignment** — display Records or Notes rows with mixed CJK/ASCII and confirm columns line
    up (full-width cells occupy two columns).
-7. **Mouse** — the TUI enables mouse reporting, so plain clicks and drags go to the TUI; hold
-   Shift and drag to select text in the terminal instead. Verify both.
-8. **Copy/paste** — Cmd+C with an active selection, then Cmd+V into the prompt.
+7. **Mouse** — plain terminal click/drag must select text normally; the keyboard-first TUI does
+   not claim mouse reporting and must not block native selection.
+8. **Copy/paste** — Cmd+C with an active selection, then Cmd+V into the prompt. Paste a
+   multi-line value while an action confirmation is visible: it must not confirm or run anything.
 9. **Resize** — resize the window and confirm the TUI reflows without artifacts; enter and leave a
    full-screen child surface to exercise the alternate screen.
 10. **Timer while hidden** — start a Timer, hide the window, wait past the deadline, and re-show;

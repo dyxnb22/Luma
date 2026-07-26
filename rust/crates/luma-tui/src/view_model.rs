@@ -93,7 +93,7 @@ impl AppState {
     /// Unprefixed input is always a global search under the strict command format.
     pub fn incomplete_slash_trigger(&self) -> Option<String> {
         let is_prefix = |token: &str| {
-            token == "help"
+            matches!(token, "help" | "settings" | "commands")
                 || self
                     .module_catalog
                     .iter()
@@ -206,7 +206,8 @@ impl AppState {
     }
 
     pub fn prompt_char_len(&self) -> usize {
-        self.search.prompt.chars().count()
+        use unicode_segmentation::UnicodeSegmentation;
+        self.search.prompt.graphemes(true).count()
     }
 
     pub fn clamp_prompt_cursor(&mut self) {
@@ -216,20 +217,31 @@ impl AppState {
         }
     }
 
-    fn prompt_byte_index(&self, char_idx: usize) -> usize {
+    fn prompt_byte_index(&self, grapheme_idx: usize) -> usize {
+        use unicode_segmentation::UnicodeSegmentation;
         self.search
             .prompt
-            .char_indices()
-            .nth(char_idx)
+            .grapheme_indices(true)
+            .nth(grapheme_idx)
             .map(|(i, _)| i)
             .unwrap_or(self.search.prompt.len())
     }
 
     pub fn insert_prompt_char(&mut self, c: char) {
+        let mut text = [0; 4];
+        self.insert_prompt_text(c.encode_utf8(&mut text));
+    }
+
+    pub fn insert_prompt_text(&mut self, text: &str) {
         self.clamp_prompt_cursor();
         let byte = self.prompt_byte_index(self.search.prompt_cursor);
-        self.search.prompt.insert(byte, c);
-        self.search.prompt_cursor += 1;
+        self.search.prompt.insert_str(byte, text);
+        // A pasted/typed combining scalar can join the previous grapheme; use
+        // the resulting prefix rather than assuming one scalar is one cell.
+        use unicode_segmentation::UnicodeSegmentation;
+        self.search.prompt_cursor = self.search.prompt[..byte + text.len()]
+            .graphemes(true)
+            .count();
     }
 
     pub fn backspace_prompt(&mut self) {
@@ -259,7 +271,7 @@ impl AppState {
         self.search.prompt_cursor = 0;
     }
 
-    /// Readline-style Ctrl-u: delete from start through character before cursor.
+    /// Readline-style Ctrl-u: delete from start through grapheme before cursor.
     pub fn clear_prompt_to_start(&mut self) {
         self.clamp_prompt_cursor();
         let end = self.prompt_byte_index(self.search.prompt_cursor);
@@ -273,12 +285,13 @@ impl AppState {
         if self.search.prompt_cursor == 0 {
             return;
         }
-        let chars: Vec<char> = self.search.prompt.chars().collect();
+        use unicode_segmentation::UnicodeSegmentation;
+        let graphemes: Vec<&str> = self.search.prompt.graphemes(true).collect();
         let mut i = self.search.prompt_cursor;
-        while i > 0 && chars[i - 1].is_whitespace() {
+        while i > 0 && graphemes[i - 1].chars().all(char::is_whitespace) {
             i -= 1;
         }
-        while i > 0 && !chars[i - 1].is_whitespace() {
+        while i > 0 && !graphemes[i - 1].chars().all(char::is_whitespace) {
             i -= 1;
         }
         let start = self.prompt_byte_index(i);
@@ -288,12 +301,13 @@ impl AppState {
     }
 
     pub fn preview_side_by_side(&self) -> bool {
-        self.terminal.width >= 100 && !self.search.results.items.is_empty()
+        !self.preview.hidden && self.terminal.width >= 100 && !self.search.results.items.is_empty()
     }
 
     /// Stacked preview under results; pin allows 80×24 manual preview.
     pub fn preview_stacked(&self) -> bool {
-        if self.search.results.items.is_empty() || self.terminal.width >= 100 {
+        if self.preview.hidden || self.search.results.items.is_empty() || self.terminal.width >= 100
+        {
             return false;
         }
         if self.preview.pinned && self.terminal.width >= 60 {
@@ -370,10 +384,11 @@ impl AppState {
 
     /// Keep `prompt_cursor` within the visible horizontal window (`inner_width` = prompt inner cols).
     pub fn ensure_prompt_visible(&mut self, inner_width: usize) {
+        use unicode_segmentation::UnicodeSegmentation;
         use unicode_width::UnicodeWidthStr;
         let budget = inner_width.saturating_sub(4).max(8);
-        let chars: Vec<char> = self.search.prompt.chars().collect();
-        if chars.is_empty() {
+        let graphemes: Vec<&str> = self.search.prompt.graphemes(true).collect();
+        if graphemes.is_empty() {
             self.search.prompt_scroll = 0;
             return;
         }
@@ -381,7 +396,7 @@ impl AppState {
             self.search.prompt_scroll = self.search.prompt_cursor;
         }
         loop {
-            let before_cursor: String = chars
+            let before_cursor: String = graphemes
                 .iter()
                 .skip(self.search.prompt_scroll)
                 .take(
@@ -389,8 +404,12 @@ impl AppState {
                         .prompt_cursor
                         .saturating_sub(self.search.prompt_scroll),
                 )
+                .copied()
                 .collect();
-            let at_cursor = chars.get(self.search.prompt_cursor).copied().unwrap_or(' ');
+            let at_cursor = graphemes
+                .get(self.search.prompt_cursor)
+                .copied()
+                .unwrap_or(" ");
             let line = format!("{before_cursor}{at_cursor}");
             if UnicodeWidthStr::width(line.as_str()) <= budget {
                 break;
@@ -401,7 +420,7 @@ impl AppState {
             self.search.prompt_scroll += 1;
         }
         while self.search.prompt_scroll > 0 {
-            let before_cursor: String = chars
+            let before_cursor: String = graphemes
                 .iter()
                 .skip(self.search.prompt_scroll)
                 .take(
@@ -409,8 +428,12 @@ impl AppState {
                         .prompt_cursor
                         .saturating_sub(self.search.prompt_scroll),
                 )
+                .copied()
                 .collect();
-            let at_cursor = chars.get(self.search.prompt_cursor).copied().unwrap_or(' ');
+            let at_cursor = graphemes
+                .get(self.search.prompt_cursor)
+                .copied()
+                .unwrap_or(" ");
             let line = format!("{before_cursor}{at_cursor}");
             if UnicodeWidthStr::width(line.as_str()) <= budget {
                 break;
@@ -572,6 +595,16 @@ impl AppState {
             .map(|(_, id, name, query)| (id, name, query))
             .collect()
     }
+}
+
+/// These rows communicate a local state rather than an operation. Keeping the
+/// classification in the TUI prevents an "OK" or "Open" affordance that can
+/// only return an unchanged informational message.
+pub fn is_informational_kind(kind: &str) -> bool {
+    matches!(
+        kind,
+        "permission_required" | "unavailable" | "warming" | "command_error"
+    )
 }
 
 #[cfg(test)]

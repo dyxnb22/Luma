@@ -32,6 +32,53 @@ pub(crate) fn explicit_command_prompt(prompt: &str) -> Option<&str> {
     prompt.trim_start().strip_prefix('/').map(str::trim)
 }
 
+/// Parse the small set of path-setting commands that Luma can complete inside
+/// the workbench. The input stays slash-prefixed, and persistence still goes
+/// through the Engine's versioned settings CAS.
+fn settings_patch_from_prompt(
+    prompt: &str,
+    current_project_roots: &[String],
+) -> Result<Option<serde_json::Value>, String> {
+    let Some(command) = explicit_command_prompt(prompt) else {
+        return Ok(None);
+    };
+    let Some(rest) = command.strip_prefix("settings") else {
+        return Ok(None);
+    };
+    if !rest.is_empty() && !rest.chars().next().is_some_and(char::is_whitespace) {
+        return Ok(None);
+    }
+    let rest = rest.trim_start();
+    if rest.is_empty() {
+        return Ok(None);
+    }
+    let field_end = rest.find(char::is_whitespace).unwrap_or(rest.len());
+    let field = &rest[..field_end];
+    // Preserve the path exactly apart from the command separator. Paths can
+    // legitimately contain repeated spaces, which `split_whitespace` loses.
+    let value = rest[field_end..].trim().to_string();
+    if value.is_empty() {
+        return Err(format!("/settings {field} needs a path"));
+    }
+    let patch = match field {
+        "notes-root" => serde_json::json!({ "notes_root": value }),
+        "projects-root" => {
+            let mut roots = current_project_roots.to_vec();
+            if !roots.iter().any(|root| root == &value) {
+                roots.push(value);
+            }
+            serde_json::json!({ "projects_roots": roots })
+        }
+        "import-project" => serde_json::json!({ "import_project": value }),
+        _ => {
+            return Err(format!(
+            "unknown /settings field: {field} (try notes-root, projects-root, or import-project)"
+        ))
+        }
+    };
+    Ok(Some(patch))
+}
+
 fn resolve_ui_intent(item: &luma_domain::SearchItem) -> Option<UiIntent> {
     item.ui_intent.as_deref().and_then(UiIntent::parse)
 }

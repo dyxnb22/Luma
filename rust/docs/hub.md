@@ -3,7 +3,9 @@
 ## Command prefix
 
 Interactive module commands use a leading `/` (`/ssh `, `/rec browse`, `/cmd test`). Local
-surfaces also accept `/settings` and `/help`. Input without `/` is treated as a global search.
+surfaces also accept `/settings` and `/help`. For first-time setup, use `/settings notes-root PATH`,
+`/settings projects-root PATH`, or `/settings import-project PATH`. Input without `/` is treated as
+a global search.
 
 Empty prompt shows:
 

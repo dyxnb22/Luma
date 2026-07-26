@@ -173,16 +173,19 @@ impl CommandRecipesModule {
 
     fn copy_text(plan: &RecipeRunPlan) -> String {
         let mut lines = vec![
-            format!("# {}", plan.recipe_title),
-            format!("cd {}", plan.working_dir.display()),
+            format!("# {}", shell_comment(&plan.recipe_title)),
+            format!("cd {}", shell_quote(&plan.working_dir.to_string_lossy())),
         ];
         for step in &plan.steps {
-            let args = step.args.join(" ");
-            if args.is_empty() {
-                lines.push(format!("{} # {}", step.program, step.label));
-            } else {
-                lines.push(format!("{} {} # {}", step.program, args, step.label));
-            }
+            let command = std::iter::once(step.program.as_str())
+                .chain(step.args.iter().map(String::as_str))
+                .map(shell_quote)
+                .collect::<Vec<_>>()
+                .join(" ");
+            // Comments remain one inert terminal line even if a malformed
+            // local recipe contains newlines or terminal control characters.
+            let label = shell_comment(&step.label);
+            lines.push(format!("{command} # {label}"));
         }
         lines.join("\n")
     }
@@ -215,6 +218,33 @@ impl CommandRecipesModule {
         }
         out.join("\n")
     }
+}
+
+/// Render one argument for a POSIX shell without ever changing argument
+/// boundaries. Recipes are executed directly (never through a shell); this is
+/// only for the intentionally copyable, paste-into-terminal representation.
+fn shell_quote(value: &str) -> String {
+    if !value.is_empty()
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || b"_@%+=:,./-".contains(&byte))
+    {
+        return value.into();
+    }
+    format!("'{}'", value.replace('\'', "'\"'\"'"))
+}
+
+fn shell_comment(value: &str) -> String {
+    value
+        .chars()
+        .map(|character| {
+            if character.is_control() {
+                ' '
+            } else {
+                character
+            }
+        })
+        .collect()
 }
 
 #[async_trait]
@@ -690,5 +720,40 @@ mod tests {
         let text = CommandRecipesModule::copy_text(&plan);
         assert!(text.contains("cargo test"));
         assert!(!text.contains("sh -c"));
+    }
+
+    #[test]
+    fn copy_text_quotes_paths_and_shell_metacharacters() {
+        let plan = RecipeRunPlan {
+            recipe_id: "x".into(),
+            recipe_title: "X\nprintf injected".into(),
+            risk: RecipeRisk::Safe,
+            working_dir: PathBuf::from("/tmp/a folder"),
+            variant_id: "v".into(),
+            variant_description: "v".into(),
+            steps: vec![luma_domain::ResolvedCommandStep {
+                id: "s".into(),
+                label: "echo\nlabel\u{1b}[31m".into(),
+                program: "echo".into(),
+                args: vec![
+                    "hello world".into(),
+                    "$(not-a-command)".into(),
+                    "it's".into(),
+                ],
+                cwd: PathBuf::from("/tmp/a folder"),
+                root: PathBuf::from("/tmp/a folder"),
+                continue_on_error: false,
+            }],
+        };
+
+        let text = CommandRecipesModule::copy_text(&plan);
+
+        assert!(text.contains("cd '/tmp/a folder'"));
+        assert!(text.starts_with("# X printf injected\n"));
+        assert!(
+            text.contains("echo 'hello world' '$(not-a-command)' 'it'\"'\"'s' # echo label [31m")
+        );
+        assert!(!text.contains('\u{1b}'));
+        assert_eq!(text.lines().count(), plan.steps.len() + 2);
     }
 }

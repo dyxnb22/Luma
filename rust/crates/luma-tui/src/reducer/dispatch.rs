@@ -27,6 +27,33 @@ pub fn update(state: &mut AppState, msg: Msg) -> Vec<Effect> {
             sync_prompt_viewport(state);
             schedule_search(state)
         }
+        Msg::Paste(pasted) => {
+            // Paste is accepted only by the searchable prompt. In particular,
+            // CR/LF inside a paste must never become a confirmation or picker
+            // shortcut. Search is one line, so ordinary pasted line/tab breaks
+            // become one separating space; other control bytes are excluded.
+            if state.route != Route::Search {
+                return vec![Effect::None];
+            }
+            let mut text = String::with_capacity(pasted.len());
+            for character in pasted.chars() {
+                match character {
+                    '\r' | '\n' | '\t' if !text.ends_with(' ') => text.push(' '),
+                    '\r' | '\n' | '\t' => {}
+                    _ if character.is_control() => {}
+                    _ => text.push(character),
+                }
+            }
+            if text.is_empty() {
+                return vec![Effect::None];
+            }
+            state.focus = FocusZone::Prompt;
+            state.search.history_browse = None;
+            state.search.browse_nav_stack.clear();
+            state.insert_prompt_text(&text);
+            sync_prompt_viewport(state);
+            schedule_search(state)
+        }
         Msg::Backspace => {
             if state.route == Route::Help {
                 dismiss_help_for_prompt_edit(state);
@@ -143,6 +170,24 @@ pub fn update(state: &mut AppState, msg: Msg) -> Vec<Effect> {
                         state.search.debounce_deadline = None;
                         return open_settings(state);
                     }
+                    match settings_patch_from_prompt(
+                        &state.search.prompt,
+                        &state.settings.roots.projects_roots,
+                    ) {
+                        Ok(Some(patch)) => {
+                            state.search.debounce_deadline = None;
+                            state.status.set("saving settings…", StatusTone::Progress);
+                            return vec![Effect::PatchSettings {
+                                patch,
+                                expected_version: state.settings.version,
+                            }];
+                        }
+                        Err(message) => {
+                            state.status.set(message, StatusTone::Warning);
+                            return vec![Effect::None];
+                        }
+                        Ok(None) => {}
+                    }
                     if command == "help" {
                         state.overlay.restore_prompt = Some(state.search.prompt.clone());
                         state.clear_prompt();
@@ -163,6 +208,7 @@ pub fn update(state: &mut AppState, msg: Msg) -> Vec<Effect> {
                     return effects;
                 }
                 if state.command_recipes_selected() && state.focus != FocusZone::Prompt {
+                    state.preview.hidden = false;
                     state.preview.pinned = true;
                     return preview_effect(state);
                 }
@@ -365,8 +411,14 @@ pub fn update(state: &mut AppState, msg: Msg) -> Vec<Effect> {
         }
         Msg::TogglePreview => {
             if matches!(state.route, Route::Search) {
-                state.preview.pinned = !state.preview.pinned;
+                state.preview.hidden = !state.preview.hidden;
                 state.sync_results_viewport();
+                if state.preview.hidden {
+                    if state.focus == FocusZone::Preview {
+                        state.focus = FocusZone::List;
+                    }
+                    return vec![Effect::None];
+                }
                 return preview_effect(state);
             }
             vec![Effect::None]
@@ -380,5 +432,38 @@ pub fn update(state: &mut AppState, msg: Msg) -> Vec<Effect> {
             }
         }
         Msg::Engine(event) => apply_engine(state, event),
+    }
+}
+
+#[cfg(test)]
+mod paste_tests {
+    use super::*;
+
+    #[test]
+    fn paste_into_search_is_atomic_and_drops_control_characters() {
+        let mut state = AppState::default();
+        let effects = update(&mut state, Msg::Paste("alpha\r\nbeta\u{1b}[A".into()));
+
+        assert_eq!(state.search.prompt, "alpha beta[A");
+        assert_eq!(state.route, Route::Search);
+        assert!(effects
+            .iter()
+            .all(|effect| !matches!(effect, Effect::ExecuteAction { .. })));
+        assert!(state.search.debounce_deadline.is_some());
+    }
+
+    #[test]
+    fn paste_on_confirm_cannot_confirm_or_change_the_prompt() {
+        let mut state = AppState {
+            route: Route::ConfirmAction,
+            ..Default::default()
+        };
+        state.search.prompt = "before".into();
+
+        let effects = update(&mut state, Msg::Paste("y\r".into()));
+
+        assert_eq!(state.route, Route::ConfirmAction);
+        assert_eq!(state.search.prompt, "before");
+        assert!(matches!(effects.as_slice(), [Effect::None]));
     }
 }

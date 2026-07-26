@@ -188,64 +188,68 @@ impl MacMihomoProxyCore {
                 let metadata = std::fs::metadata(path).ok()?;
                 (metadata.len() <= MAX_CONFIG_BYTES).then_some(())?;
                 let raw = std::fs::read_to_string(path).ok()?;
-                serde_yaml::from_str(&raw).ok()
+                serde_yaml_ng::from_str(&raw).ok()
             })
-            .unwrap_or(serde_yaml::Value::Null);
+            .unwrap_or(serde_yaml_ng::Value::Null);
         let direct = value
             .get("profile")
             .and_then(|profile| {
                 profile.as_str().map(str::to_string).or_else(|| {
                     profile
                         .get("name")
-                        .and_then(serde_yaml::Value::as_str)
+                        .and_then(serde_yaml_ng::Value::as_str)
                         .map(str::to_string)
                 })
             })
             .or_else(|| {
                 value
                     .get("profile-name")
-                    .and_then(serde_yaml::Value::as_str)
+                    .and_then(serde_yaml_ng::Value::as_str)
                     .map(str::to_string)
             })
             .or_else(|| {
                 value
                     .get("name")
-                    .and_then(serde_yaml::Value::as_str)
+                    .and_then(serde_yaml_ng::Value::as_str)
                     .map(str::to_string)
             })
             .or_else(|| self.profile_from_manifest(&value));
         direct
     }
 
-    fn profile_from_manifest(&self, effective: &serde_yaml::Value) -> Option<String> {
+    fn profile_from_manifest(&self, effective: &serde_yaml_ng::Value) -> Option<String> {
         let path = self.profiles_manifest.as_ref()?;
         let metadata = std::fs::metadata(path).ok()?;
         if metadata.len() > MAX_CONFIG_BYTES {
             return None;
         }
         let raw = std::fs::read_to_string(path).ok()?;
-        let manifest: serde_yaml::Value = serde_yaml::from_str(&raw).ok()?;
+        let manifest: serde_yaml_ng::Value = serde_yaml_ng::from_str(&raw).ok()?;
         let current = manifest
             .get("current")
-            .and_then(serde_yaml::Value::as_str)
-            .or_else(|| effective.get("current").and_then(serde_yaml::Value::as_str))
+            .and_then(serde_yaml_ng::Value::as_str)
+            .or_else(|| {
+                effective
+                    .get("current")
+                    .and_then(serde_yaml_ng::Value::as_str)
+            })
             .or_else(|| {
                 effective
                     .get("profile")
                     .and_then(|profile| profile.get("current"))
-                    .and_then(serde_yaml::Value::as_str)
+                    .and_then(serde_yaml_ng::Value::as_str)
             })?;
         let items = manifest
             .get("items")
             .or_else(|| manifest.get("profiles"))
-            .and_then(serde_yaml::Value::as_sequence)?;
+            .and_then(serde_yaml_ng::Value::as_sequence)?;
         items.iter().find_map(|item| {
             let uid = item
                 .get("uid")
                 .or_else(|| item.get("id"))
-                .and_then(serde_yaml::Value::as_str)?;
+                .and_then(serde_yaml_ng::Value::as_str)?;
             (uid == current)
-                .then(|| item.get("name").and_then(serde_yaml::Value::as_str))
+                .then(|| item.get("name").and_then(serde_yaml_ng::Value::as_str))
                 .flatten()
                 .map(str::to_string)
         })
@@ -425,8 +429,8 @@ impl MacMihomoProxyCore {
         }
         let imported = std::fs::read_to_string(path)
             .map_err(|_| ProxyCoreError::Unavailable("profile source could not be read".into()))?;
-        let imported: serde_yaml::Value =
-            serde_yaml::from_str(&imported).map_err(|_| ProxyCoreError::InvalidInput {
+        let imported: serde_yaml_ng::Value =
+            serde_yaml_ng::from_str(&imported).map_err(|_| ProxyCoreError::InvalidInput {
                 field: "profile".into(),
                 message: "profile source is not valid YAML".into(),
             })?;
@@ -437,7 +441,7 @@ impl MacMihomoProxyCore {
             });
         };
         let current = self.json("GET", "/configs", None).await?;
-        let mut trusted = serde_yaml::to_value(current).map_err(|_| {
+        let mut trusted = serde_yaml_ng::to_value(current).map_err(|_| {
             ProxyCoreError::Unavailable("current Mihomo configuration could not be read".into())
         })?;
         let Some(trusted_map) = trusted.as_mapping_mut() else {
@@ -455,7 +459,7 @@ impl MacMihomoProxyCore {
         ];
         let mut copied = false;
         for key in allowed {
-            let key = serde_yaml::Value::String(key.into());
+            let key = serde_yaml_ng::Value::String(key.into());
             if let Some(value) = imported_map.get(&key) {
                 trusted_map.insert(key, value.clone());
                 copied = true;
@@ -467,7 +471,7 @@ impl MacMihomoProxyCore {
                 message: "profile has no supported proxy or rule content".into(),
             });
         }
-        let payload = serde_yaml::to_string(&trusted).map_err(|_| {
+        let payload = serde_yaml_ng::to_string(&trusted).map_err(|_| {
             ProxyCoreError::Unavailable("trusted Mihomo configuration could not be encoded".into())
         })?;
         self.put(

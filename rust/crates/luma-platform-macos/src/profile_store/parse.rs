@@ -1,5 +1,5 @@
 use luma_application::ProfileStoreError;
-use serde_yaml::{Mapping, Value};
+use serde_yaml_ng::{Mapping, Value};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use super::MAX_PROFILE_BYTES;
@@ -35,7 +35,7 @@ fn normalize_subscription_bytes_inner(
         ));
     }
     if let Ok(text) = String::from_utf8(bytes.clone()) {
-        if let Ok(value) = serde_yaml::from_str::<Value>(&text) {
+        if let Ok(value) = serde_yaml_ng::from_str::<Value>(&text) {
             if value.is_mapping() {
                 return Ok(text.into_bytes());
             }
@@ -86,7 +86,7 @@ fn convert_node_uris(text: &str) -> Result<Vec<u8>, ProfileStoreError> {
     }
     let mut root = Mapping::new();
     root.insert(Value::String("proxies".into()), Value::Sequence(proxies));
-    serde_yaml::to_string(&Value::Mapping(root))
+    serde_yaml_ng::to_string(&Value::Mapping(root))
         .map(|value| value.into_bytes())
         .map_err(|_| ProfileStoreError::Unavailable("subscription could not be converted".into()))
 }
@@ -414,7 +414,7 @@ pub(super) fn new_id(raw: &str, name: &str) -> String {
 mod tests {
     use super::*;
     use luma_application::ProfileStoreError;
-    use serde_yaml::Value;
+    use serde_yaml_ng::Value;
 
     #[test]
     fn rejects_controller_and_listener_fields_before_persistence() {
@@ -427,7 +427,7 @@ mod tests {
             "bind-address",
         ] {
             let yaml = format!("{key}: forbidden\nproxies: []\n");
-            let value: Value = serde_yaml::from_str(&yaml).unwrap();
+            let value: Value = serde_yaml_ng::from_str(&yaml).unwrap();
             assert!(matches!(
                 validate_profile(&value),
                 Err(ProfileStoreError::SecurityDenied(_))

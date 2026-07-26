@@ -10,7 +10,7 @@ pub struct MacPasteboard;
 #[async_trait]
 impl Pasteboard for MacPasteboard {
     async fn read_text(&self) -> Result<Option<String>, PasteboardError> {
-        let out = Command::new("pbpaste")
+        let out = Command::new("/usr/bin/pbpaste")
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .output()
@@ -30,7 +30,8 @@ impl Pasteboard for MacPasteboard {
     }
 
     async fn write_text(&self, text: &str) -> Result<(), PasteboardError> {
-        let mut child = Command::new("pbcopy")
+        let mut child = Command::new("/usr/bin/pbcopy")
+            .kill_on_drop(true)
             .stdin(Stdio::piped())
             .stdout(Stdio::null())
             .stderr(Stdio::piped())

@@ -3,6 +3,9 @@ use luma_protocol::Event;
 #[derive(Clone, Debug)]
 pub enum Msg {
     KeyChar(char),
+    /// A bracketed-paste payload. Handle this as one input operation so pasted
+    /// control characters can never be interpreted as UI shortcuts.
+    Paste(String),
     Backspace,
     DeleteForward,
     CursorLeft,

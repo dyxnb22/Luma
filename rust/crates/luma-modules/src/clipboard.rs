@@ -275,6 +275,7 @@ impl LumaModule for ClipboardModule {
                 }
                 query.normalized.clone()
             }
+            luma_domain::QueryScope::InvalidCommand { .. } => return,
         };
 
         let limit = if matches!(query.scope, luma_domain::QueryScope::Global) {

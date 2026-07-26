@@ -1,6 +1,6 @@
 use luma_application::ProfileStoreError;
 use serde::Serialize;
-use serde_yaml::Value;
+use serde_yaml_ng::Value;
 use std::fs::{self, File, OpenOptions};
 use std::io::Write;
 use std::path::{Component, Path, PathBuf};
@@ -130,7 +130,7 @@ pub(super) fn read_yaml_file(path: &Path) -> Result<Value, ProfileStoreError> {
         ));
     }
     let raw = fs::read_to_string(path).map_err(io_error)?;
-    serde_yaml::from_str(&raw).map_err(|_| unsupported_schema())
+    serde_yaml_ng::from_str(&raw).map_err(|_| unsupported_schema())
 }
 pub(super) fn atomic_write(
     path: &Path,
@@ -221,7 +221,7 @@ pub(super) fn atomic_yaml(
     value: &Value,
     backup: bool,
 ) -> Result<(), ProfileStoreError> {
-    let bytes = serde_yaml::to_string(value).map_err(|_| unsupported_schema())?;
+    let bytes = serde_yaml_ng::to_string(value).map_err(|_| unsupported_schema())?;
     atomic_write(path, bytes.as_bytes(), backup)
 }
 

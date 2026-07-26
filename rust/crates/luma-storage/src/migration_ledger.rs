@@ -17,6 +17,8 @@ pub enum LedgerError {
     Json(#[from] serde_json::Error),
     #[error("migration not found: {0}")]
     NotFound(String),
+    #[error("invalid migration id: {0}")]
+    InvalidMigrationId(String),
     #[error("migration already rolled back: {0}")]
     AlreadyRolledBack(String),
     #[error("dry-run migrations have no rollback snapshot")]
@@ -62,7 +64,17 @@ fn migrations_root() -> Result<PathBuf, LedgerError> {
 }
 
 fn migration_dir(id: &str) -> Result<PathBuf, LedgerError> {
+    validate_migration_id(id)?;
     Ok(migrations_root()?.join(id))
+}
+
+fn validate_migration_id(id: &str) -> Result<(), LedgerError> {
+    let Some(raw_uuid) = id.strip_prefix("mig-") else {
+        return Err(LedgerError::InvalidMigrationId(id.into()));
+    };
+    Uuid::parse_str(raw_uuid)
+        .map(|_| ())
+        .map_err(|_| LedgerError::InvalidMigrationId(id.into()))
 }
 
 fn now_unix() -> u64 {
@@ -206,9 +218,19 @@ pub fn list_migrations() -> Result<Vec<PersistedMigration>, LedgerError> {
     let mut out = Vec::new();
     for entry in fs::read_dir(root)? {
         let entry = entry?;
+        let file_name = entry.file_name();
+        let Some(id) = file_name.to_str() else {
+            continue;
+        };
+        if validate_migration_id(id).is_err() {
+            continue;
+        }
         let ledger = entry.path().join("ledger.json");
         if ledger.exists() {
-            out.push(read_record(&entry.path())?);
+            let record = read_record(&entry.path())?;
+            if record.migration_id == id {
+                out.push(record);
+            }
         }
     }
     out.sort_by_key(|entry| entry.created_at_unix);
@@ -305,5 +327,13 @@ mod tests {
         fs::copy(mig_dir.join("snapshot/clipboard.sqlite"), &clip).unwrap();
         assert_eq!(fs::read_to_string(&settings).unwrap(), "before = true\n");
         assert_eq!(fs::read(&clip).unwrap(), b"sqlite-before");
+    }
+
+    #[test]
+    fn rejects_migration_id_path_traversal() {
+        let err = migration_dir("../../outside").unwrap_err();
+        assert!(matches!(err, LedgerError::InvalidMigrationId(_)));
+        let err = migration_dir("mig-not-a-uuid").unwrap_err();
+        assert!(matches!(err, LedgerError::InvalidMigrationId(_)));
     }
 }

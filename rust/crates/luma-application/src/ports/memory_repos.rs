@@ -10,7 +10,9 @@ use crate::ports::{
 };
 use async_trait::async_trait;
 use luma_domain::{
-    MAX_PINNED_CLIPBOARD_ROWS, MAX_QUICKLINKS, MAX_SNIPPETS, MAX_SSH_METADATA_ROWS, MAX_TIMERS,
+    MAX_CLIPBOARD_ENTRY_BYTES, MAX_PINNED_CLIPBOARD_ROWS, MAX_QUICKLINKS,
+    MAX_QUICKLINK_TRIGGER_BYTES, MAX_QUICKLINK_URL_BYTES, MAX_SNIPPETS, MAX_SNIPPET_BODY_BYTES,
+    MAX_SNIPPET_TRIGGER_BYTES, MAX_SSH_METADATA_ROWS, MAX_TIMERS, MAX_UNPINNED_CLIPBOARD_ROWS,
 };
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -42,6 +44,7 @@ impl ClipboardHistoryRepository for MemoryClipboardHistory {
             b.pinned
                 .cmp(&a.pinned)
                 .then(b.created_at.cmp(&a.created_at))
+                .then(b.id.cmp(&a.id))
         });
         Ok(rows.into_iter().skip(offset).take(limit).collect())
     }
@@ -64,6 +67,7 @@ impl ClipboardHistoryRepository for MemoryClipboardHistory {
             b.pinned
                 .cmp(&a.pinned)
                 .then(b.created_at.cmp(&a.created_at))
+                .then(b.id.cmp(&a.id))
         });
         rows.truncate(limit);
         Ok(rows)
@@ -75,7 +79,7 @@ impl ClipboardHistoryRepository for MemoryClipboardHistory {
             .lock()
             .expect("lock")
             .iter()
-            .max_by_key(|r| r.created_at)
+            .max_by_key(|r| (r.created_at, r.id))
             .cloned())
     }
 
@@ -88,6 +92,11 @@ impl ClipboardHistoryRepository for MemoryClipboardHistory {
     }
 
     fn insert(&self, text: &str, pinned: bool) -> Result<i64, ClipboardRepoError> {
+        if text.len() > MAX_CLIPBOARD_ENTRY_BYTES {
+            return Err(ClipboardRepoError::msg(format!(
+                "clipboard entry exceeds max size ({MAX_CLIPBOARD_ENTRY_BYTES} bytes)"
+            )));
+        }
         let mut rows = self.rows.lock().expect("lock");
         if pinned && rows.iter().filter(|row| row.pinned).count() >= MAX_PINNED_CLIPBOARD_ROWS {
             return Err(ClipboardRepoError::msg(format!(
@@ -103,6 +112,22 @@ impl ClipboardHistoryRepository for MemoryClipboardHistory {
             pinned,
             created_at: chrono_now(),
         });
+        let unpinned = rows.iter().filter(|row| !row.pinned).count();
+        if unpinned > MAX_UNPINNED_CLIPBOARD_ROWS {
+            let excess = unpinned - MAX_UNPINNED_CLIPBOARD_ROWS;
+            let mut unpinned_ids: Vec<_> = rows
+                .iter()
+                .filter(|row| !row.pinned)
+                .map(|row| (row.created_at, row.id))
+                .collect();
+            unpinned_ids.sort_unstable();
+            let evicted: std::collections::BTreeSet<_> = unpinned_ids
+                .into_iter()
+                .take(excess)
+                .map(|(_, id)| id)
+                .collect();
+            rows.retain(|row| !evicted.contains(&row.id));
+        }
         Ok(id)
     }
 
@@ -169,10 +194,21 @@ impl QuicklinksRepository for MemoryQuicklinksRepository {
                 trigger: trigger.clone(),
                 url: url.clone(),
             })
+            .take(MAX_QUICKLINKS + 1)
             .collect())
     }
 
     fn upsert(&self, trigger: &str, url: &str) -> Result<(), QuicklinksRepoError> {
+        if trigger.len() > MAX_QUICKLINK_TRIGGER_BYTES {
+            return Err(QuicklinksRepoError::msg(format!(
+                "quicklink trigger exceeds max size ({MAX_QUICKLINK_TRIGGER_BYTES} bytes)"
+            )));
+        }
+        if url.len() > MAX_QUICKLINK_URL_BYTES {
+            return Err(QuicklinksRepoError::msg(format!(
+                "quicklink url exceeds max size ({MAX_QUICKLINK_URL_BYTES} bytes)"
+            )));
+        }
         let mut rows = self.rows.lock().expect("lock");
         if !rows.contains_key(trigger) && rows.len() >= MAX_QUICKLINKS {
             return Err(QuicklinksRepoError::msg(format!(
@@ -213,6 +249,7 @@ impl SnippetsRepository for MemorySnippetsRepository {
                 trigger: trigger.clone(),
                 body: body.clone(),
             })
+            .take(MAX_SNIPPETS + 1)
             .collect())
     }
 
@@ -229,6 +266,16 @@ impl SnippetsRepository for MemorySnippetsRepository {
     }
 
     fn upsert(&self, trigger: &str, body: &str) -> Result<(), SnippetsRepoError> {
+        if trigger.len() > MAX_SNIPPET_TRIGGER_BYTES {
+            return Err(SnippetsRepoError::msg(format!(
+                "snippet trigger exceeds max size ({MAX_SNIPPET_TRIGGER_BYTES} bytes)"
+            )));
+        }
+        if body.len() > MAX_SNIPPET_BODY_BYTES {
+            return Err(SnippetsRepoError::msg(format!(
+                "snippet body exceeds max size ({MAX_SNIPPET_BODY_BYTES} bytes)"
+            )));
+        }
         let mut rows = self.rows.lock().expect("lock");
         if !rows.contains_key(trigger) && rows.len() >= MAX_SNIPPETS {
             return Err(SnippetsRepoError::msg(format!(
@@ -1109,7 +1156,14 @@ impl SshMetaRepository for MemorySshMetaRepository {
         if let Some(err) = self.list_error.lock().expect("lock").clone() {
             return Err(SshMetaRepoError::msg(err));
         }
-        Ok(self.rows.lock().expect("lock").values().cloned().collect())
+        Ok(self
+            .rows
+            .lock()
+            .expect("lock")
+            .values()
+            .take(MAX_SSH_METADATA_ROWS + 1)
+            .cloned()
+            .collect())
     }
 
     fn get(&self, alias: &str) -> Result<Option<SshHostMeta>, SshMetaRepoError> {
@@ -1211,6 +1265,7 @@ impl TimersRepository for MemoryTimersRepository {
                 .cmp(&a.updated_at_ms)
                 .then_with(|| a.name.cmp(&b.name))
         });
+        rows.truncate(MAX_TIMERS + 1);
         Ok(rows)
     }
 
@@ -1253,5 +1308,46 @@ impl TimersRepository for MemoryTimersRepository {
     fn new_id(&self) -> String {
         let n = self.next.fetch_add(1, Ordering::SeqCst) + 1;
         format!("tm-mem-{n}")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn memory_clipboard_matches_persistent_size_and_eviction_policy() {
+        let store = MemoryClipboardHistory::new();
+        for index in 0..=MAX_UNPINNED_CLIPBOARD_ROWS {
+            store.insert(&format!("entry-{index}"), false).unwrap();
+        }
+
+        let rows = store.list_page(0, MAX_UNPINNED_CLIPBOARD_ROWS + 1).unwrap();
+        assert_eq!(rows.len(), MAX_UNPINNED_CLIPBOARD_ROWS);
+        assert!(rows.iter().all(|row| row.text != "entry-0"));
+        let too_large = "x".repeat(MAX_CLIPBOARD_ENTRY_BYTES + 1);
+        assert!(store.insert(&too_large, false).is_err());
+    }
+
+    #[test]
+    fn memory_quicklinks_and_snippets_reject_production_size_limits() {
+        let quicklinks = MemoryQuicklinksRepository::new();
+        assert!(quicklinks
+            .upsert(
+                &"q".repeat(MAX_QUICKLINK_TRIGGER_BYTES + 1),
+                "https://example.test"
+            )
+            .is_err());
+        assert!(quicklinks
+            .upsert("q", &"x".repeat(MAX_QUICKLINK_URL_BYTES + 1))
+            .is_err());
+
+        let snippets = MemorySnippetsRepository::new();
+        assert!(snippets
+            .upsert(&"s".repeat(MAX_SNIPPET_TRIGGER_BYTES + 1), "body")
+            .is_err());
+        assert!(snippets
+            .upsert("s", &"x".repeat(MAX_SNIPPET_BODY_BYTES + 1))
+            .is_err());
     }
 }

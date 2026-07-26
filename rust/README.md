@@ -61,9 +61,11 @@ bash scripts/build_workbench_app.sh "$HOME/Applications/Luma.app"
 open "$HOME/Applications/Luma.app"
 ```
 
-Re-run the build script to update in place; keep the app at that path so its bundle identity
-(`com.luma.next.workbench`) and macOS permissions stay stable. Set `CODESIGN_IDENTITY` to use a
-local certificate instead of the default ad-hoc signature.
+Re-run the build script to update in place and keep the app at that path so Finder, Login Items,
+and the bundle identifier (`com.luma.next.workbench`) remain consistent. The default ad-hoc
+signature is deliberately convenient for local builds, but it does **not** guarantee that macOS
+TCC grants survive a rebuild: re-check module permissions after updating. Set
+`CODESIGN_IDENTITY` to a stable local certificate when you need TCC identity continuity.
 
 Behavior worth knowing:
 
@@ -116,6 +118,9 @@ backup, and migration ledger, never the Markdown source files.
 
 - Commands use a leading `/`, for example `/ssh prod`, `/rec browse`, `/cmd test`, `/settings`,
   and `/help`. Input without `/` is always treated as a global search.
+
+- Set up a notes or projects workspace without leaving the TUI: `/settings notes-root PATH`,
+  `/settings projects-root PATH`, or `/settings import-project PATH`.
 
 - Empty Hub: `1`–`9` focuses visible window rows; status, “more”, and module rows are not numbered.
 - `/win`: `1`–`9` works only while the result list is focused. Digits typed in the prompt are never hijacked.

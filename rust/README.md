@@ -77,6 +77,10 @@ Behavior worth knowing:
 - The hotkey uses Carbon `RegisterEventHotKey` and needs no Accessibility permission. Modules that
   need Accessibility (for example `/win` focus) prompt under the `Luma.app` identity, separately
   from a copy run directly in Terminal.
+- The host samples combined host/TUI RSS every 30 seconds and records the session peak in the local
+  unified log. On macOS memory pressure it reduces terminal scrollback; no metrics leave the Mac.
+- Cmd+Q sends SIGTERM to the PTY process group. The TUI handles it as a graceful shutdown so module
+  teardown runs; the host uses SIGKILL only if the group has not exited after three seconds.
 
 Optional local hygiene: `bash scripts/check_architecture.sh`.
 

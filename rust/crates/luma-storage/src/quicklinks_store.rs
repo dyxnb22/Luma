@@ -1,4 +1,5 @@
 use crate::paths::{ensure_luma_next_dirs, luma_next_support_dir, PathsError};
+use luma_domain::MAX_QUICKLINKS;
 use rusqlite::{params, Connection};
 use std::path::PathBuf;
 use thiserror::Error;
@@ -59,15 +60,21 @@ impl QuicklinksStore {
 
     pub fn list(&self) -> Result<Vec<QuicklinkRow>, QuicklinksStoreError> {
         let conn = self.connect()?;
-        let mut statement = conn.prepare("SELECT trigger, url FROM quicklinks ORDER BY trigger")?;
-        let rows = statement
-            .query_map([], |row| {
+        let mut statement =
+            conn.prepare("SELECT trigger, url FROM quicklinks ORDER BY trigger LIMIT ?1")?;
+        let rows: Vec<QuicklinkRow> = statement
+            .query_map(params![(MAX_QUICKLINKS + 1) as i64], |row| {
                 Ok(QuicklinkRow {
                     trigger: row.get(0)?,
                     url: row.get(1)?,
                 })
             })?
             .collect::<Result<_, _>>()?;
+        if rows.len() > MAX_QUICKLINKS {
+            return Err(QuicklinksStoreError::Msg(format!(
+                "quicklinks capacity exceeded ({MAX_QUICKLINKS}); delete an entry before continuing"
+            )));
+        }
         Ok(rows)
     }
 
@@ -82,11 +89,28 @@ impl QuicklinksStore {
                 "quicklink url exceeds max size ({MAX_URL_BYTES} bytes)"
             )));
         }
-        self.connect()?.execute(
+        let conn = self.connect()?;
+        let tx = conn.unchecked_transaction()?;
+        let exists: bool = tx.query_row(
+            "SELECT EXISTS(SELECT 1 FROM quicklinks WHERE trigger = ?1)",
+            params![trigger],
+            |row| row.get(0),
+        )?;
+        if !exists {
+            let count: i64 =
+                tx.query_row("SELECT COUNT(*) FROM quicklinks", [], |row| row.get(0))?;
+            if count >= MAX_QUICKLINKS as i64 {
+                return Err(QuicklinksStoreError::Msg(format!(
+                    "quicklinks capacity reached ({MAX_QUICKLINKS}); delete an entry before adding another"
+                )));
+            }
+        }
+        tx.execute(
             "INSERT INTO quicklinks (trigger, url) VALUES (?1, ?2)
              ON CONFLICT(trigger) DO UPDATE SET url = excluded.url",
             params![trigger, url],
         )?;
+        tx.commit()?;
         Ok(())
     }
 
@@ -122,5 +146,29 @@ mod tests {
         let err = store.upsert("big", &huge).unwrap_err().to_string();
         assert!(err.contains("max size"), "{err}");
         assert!(store.list().unwrap().is_empty());
+    }
+
+    #[test]
+    fn capacity_rejects_new_rows_but_allows_updates() {
+        let dir = tempdir().unwrap();
+        let store = QuicklinksStore::with_path(dir.path().join("ql.sqlite")).unwrap();
+        let conn = store.connect().unwrap();
+        let tx = conn.unchecked_transaction().unwrap();
+        for i in 0..MAX_QUICKLINKS {
+            tx.execute(
+                "INSERT INTO quicklinks (trigger, url) VALUES (?1, 'https://example.com')",
+                params![format!("q{i:04}")],
+            )
+            .unwrap();
+        }
+        tx.commit().unwrap();
+
+        store.upsert("q0000", "https://updated.example").unwrap();
+        let err = store
+            .upsert("overflow", "https://example.com")
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("capacity reached"), "{err}");
+        assert_eq!(store.list().unwrap().len(), MAX_QUICKLINKS);
     }
 }

@@ -1,5 +1,6 @@
 use crate::paths::{ensure_luma_next_dirs, luma_next_support_dir, PathsError};
-use rusqlite::{params, Connection};
+use luma_domain::MAX_SSH_METADATA_ROWS;
+use rusqlite::{params, Connection, Transaction};
 use std::path::PathBuf;
 use thiserror::Error;
 
@@ -13,6 +14,8 @@ pub enum SshMetaStoreError {
     Io(#[from] std::io::Error),
     #[error("json: {0}")]
     Json(#[from] serde_json::Error),
+    #[error("{0}")]
+    Msg(String),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -66,10 +69,10 @@ impl SshMetaStore {
         let conn = self.connect()?;
         let mut statement = conn.prepare(
             "SELECT alias, display_name, favorite, tags, last_connected_at, connection_count
-             FROM ssh_host_meta ORDER BY alias",
+             FROM ssh_host_meta ORDER BY alias LIMIT ?1",
         )?;
-        let rows = statement
-            .query_map([], |row| {
+        let rows: Vec<SshHostMetaRow> = statement
+            .query_map(params![(MAX_SSH_METADATA_ROWS + 1) as i64], |row| {
                 let tags_json: String = row.get(3)?;
                 let tags: Vec<String> = serde_json::from_str(&tags_json).unwrap_or_default();
                 Ok(SshHostMetaRow {
@@ -82,6 +85,11 @@ impl SshMetaStore {
                 })
             })?
             .collect::<Result<_, _>>()?;
+        if rows.len() > MAX_SSH_METADATA_ROWS {
+            return Err(SshMetaStoreError::Msg(format!(
+                "SSH metadata capacity exceeded ({MAX_SSH_METADATA_ROWS}); delete stale local metadata before continuing"
+            )));
+        }
         Ok(rows)
     }
 
@@ -115,7 +123,10 @@ impl SshMetaStore {
         tags: &[String],
     ) -> Result<(), SshMetaStoreError> {
         let tags_json = serde_json::to_string(tags)?;
-        self.connect()?.execute(
+        let conn = self.connect()?;
+        let tx = conn.unchecked_transaction()?;
+        ensure_capacity(&tx, alias)?;
+        tx.execute(
             "INSERT INTO ssh_host_meta (alias, display_name, favorite, tags)
              VALUES (?1, ?2, ?3, ?4)
              ON CONFLICT(alias) DO UPDATE SET
@@ -124,15 +135,20 @@ impl SshMetaStore {
                tags = excluded.tags",
             params![alias, display_name, favorite as i64, tags_json],
         )?;
+        tx.commit()?;
         Ok(())
     }
 
     pub fn set_favorite(&self, alias: &str, favorite: bool) -> Result<(), SshMetaStoreError> {
-        self.connect()?.execute(
+        let conn = self.connect()?;
+        let tx = conn.unchecked_transaction()?;
+        ensure_capacity(&tx, alias)?;
+        tx.execute(
             "INSERT INTO ssh_host_meta (alias, favorite) VALUES (?1, ?2)
              ON CONFLICT(alias) DO UPDATE SET favorite = excluded.favorite",
             params![alias, favorite as i64],
         )?;
+        tx.commit()?;
         Ok(())
     }
 
@@ -141,11 +157,15 @@ impl SshMetaStore {
         alias: &str,
         display_name: Option<&str>,
     ) -> Result<(), SshMetaStoreError> {
-        self.connect()?.execute(
+        let conn = self.connect()?;
+        let tx = conn.unchecked_transaction()?;
+        ensure_capacity(&tx, alias)?;
+        tx.execute(
             "INSERT INTO ssh_host_meta (alias, display_name) VALUES (?1, ?2)
              ON CONFLICT(alias) DO UPDATE SET display_name = excluded.display_name",
             params![alias, display_name],
         )?;
+        tx.commit()?;
         Ok(())
     }
 
@@ -154,7 +174,10 @@ impl SshMetaStore {
         alias: &str,
         connected_at: &str,
     ) -> Result<(), SshMetaStoreError> {
-        self.connect()?.execute(
+        let conn = self.connect()?;
+        let tx = conn.unchecked_transaction()?;
+        ensure_capacity(&tx, alias)?;
+        tx.execute(
             "INSERT INTO ssh_host_meta (alias, last_connected_at, connection_count)
              VALUES (?1, ?2, 1)
              ON CONFLICT(alias) DO UPDATE SET
@@ -162,6 +185,7 @@ impl SshMetaStore {
                connection_count = ssh_host_meta.connection_count + 1",
             params![alias, connected_at],
         )?;
+        tx.commit()?;
         Ok(())
     }
 
@@ -170,6 +194,24 @@ impl SshMetaStore {
             .execute("DELETE FROM ssh_host_meta WHERE alias = ?1", params![alias])?;
         Ok(())
     }
+}
+
+fn ensure_capacity(tx: &Transaction<'_>, alias: &str) -> Result<(), SshMetaStoreError> {
+    let exists: bool = tx.query_row(
+        "SELECT EXISTS(SELECT 1 FROM ssh_host_meta WHERE alias = ?1)",
+        params![alias],
+        |row| row.get(0),
+    )?;
+    if exists {
+        return Ok(());
+    }
+    let count: i64 = tx.query_row("SELECT COUNT(*) FROM ssh_host_meta", [], |row| row.get(0))?;
+    if count >= MAX_SSH_METADATA_ROWS as i64 {
+        return Err(SshMetaStoreError::Msg(format!(
+            "SSH metadata capacity reached ({MAX_SSH_METADATA_ROWS}); delete stale local metadata before adding another host"
+        )));
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -194,5 +236,28 @@ mod tests {
         assert_eq!(row.connection_count, 1);
         store.delete("prod").unwrap();
         assert!(store.get("prod").unwrap().is_none());
+    }
+
+    #[test]
+    fn capacity_rejects_new_alias_but_allows_existing_updates() {
+        let dir = tempdir().unwrap();
+        let store = SshMetaStore::with_path(dir.path().join("ssh.sqlite")).unwrap();
+        let conn = store.connect().unwrap();
+        let tx = conn.unchecked_transaction().unwrap();
+        for i in 0..MAX_SSH_METADATA_ROWS {
+            tx.execute(
+                "INSERT INTO ssh_host_meta (alias) VALUES (?1)",
+                params![format!("host-{i:04}")],
+            )
+            .unwrap();
+        }
+        tx.commit().unwrap();
+
+        store.set_favorite("host-0000", true).unwrap();
+        let err = store
+            .set_favorite("overflow", true)
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("capacity reached"), "{err}");
     }
 }

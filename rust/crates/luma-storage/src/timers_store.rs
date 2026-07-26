@@ -1,4 +1,5 @@
 use crate::paths::{ensure_luma_next_dirs, luma_next_support_dir, PathsError};
+use luma_domain::MAX_TIMERS;
 use rusqlite::{params, Connection, OptionalExtension};
 use std::path::PathBuf;
 use thiserror::Error;
@@ -15,6 +16,8 @@ pub enum TimersStoreError {
     /// Optimistic-lock miss: row missing or `updated_at_ms` no longer matches.
     #[error("timer update conflict (stale)")]
     Conflict,
+    #[error("{0}")]
+    Msg(String),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -83,10 +86,11 @@ impl TimersStore {
             "SELECT id, name, kind, state, duration_ms, accumulated_ms, started_at_ms,
                     alerted, created_at_ms, updated_at_ms
              FROM timers
-             ORDER BY updated_at_ms DESC, name ASC",
+             ORDER BY updated_at_ms DESC, name ASC
+             LIMIT ?1",
         )?;
-        let rows = statement
-            .query_map([], |row| {
+        let rows: Vec<TimerRow> = statement
+            .query_map(params![(MAX_TIMERS + 1) as i64], |row| {
                 Ok(TimerRow {
                     id: row.get(0)?,
                     name: row.get(1)?,
@@ -101,6 +105,11 @@ impl TimersStore {
                 })
             })?
             .collect::<Result<_, _>>()?;
+        if rows.len() > MAX_TIMERS {
+            return Err(TimersStoreError::Msg(format!(
+                "timers capacity exceeded ({MAX_TIMERS}); delete a timer before continuing"
+            )));
+        }
         Ok(rows)
     }
 
@@ -131,7 +140,23 @@ impl TimersStore {
     }
 
     pub fn insert(&self, row: &TimerRow) -> Result<(), TimersStoreError> {
-        self.connect()?.execute(
+        let conn = self.connect()?;
+        let tx = conn.unchecked_transaction()?;
+        let exists: bool = tx.query_row(
+            "SELECT EXISTS(SELECT 1 FROM timers WHERE id = ?1)",
+            params![row.id],
+            |result| result.get(0),
+        )?;
+        if !exists {
+            let count: i64 =
+                tx.query_row("SELECT COUNT(*) FROM timers", [], |result| result.get(0))?;
+            if count >= MAX_TIMERS as i64 {
+                return Err(TimersStoreError::Msg(format!(
+                    "timers capacity reached ({MAX_TIMERS}); delete a timer before adding another"
+                )));
+            }
+        }
+        tx.execute(
             "INSERT INTO timers (
                 id, name, kind, state, duration_ms, accumulated_ms, started_at_ms,
                 alerted, created_at_ms, updated_at_ms
@@ -149,6 +174,7 @@ impl TimersStore {
                 row.updated_at_ms,
             ],
         )?;
+        tx.commit()?;
         Ok(())
     }
 
@@ -280,5 +306,22 @@ mod tests {
         let row = sample(1_700_000_000_000);
         let err = store.update(&row, row.updated_at_ms).unwrap_err();
         assert!(matches!(err, TimersStoreError::Conflict));
+    }
+
+    #[test]
+    fn capacity_rejects_an_additional_timer() {
+        let dir = tempdir().unwrap();
+        let store = TimersStore::with_path(dir.path().join("timers.sqlite")).unwrap();
+        for i in 0..MAX_TIMERS {
+            let mut row = sample(1_700_000_000_000 + i as i64);
+            row.id = format!("tm-{i}");
+            store.insert(&row).unwrap();
+        }
+        let err = store
+            .insert(&sample(1_800_000_000_000))
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("capacity reached"), "{err}");
+        assert_eq!(store.list().unwrap().len(), MAX_TIMERS);
     }
 }

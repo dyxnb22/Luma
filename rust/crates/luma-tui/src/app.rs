@@ -13,6 +13,7 @@ use luma_application::{
 use luma_domain::RecipeRunOutcome;
 use luma_protocol::Command;
 use std::process::ExitStatus;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::task::JoinSet;
@@ -60,6 +61,8 @@ pub async fn run_tui_with_options(
 
     let mut engine_rx = engine.subscribe();
     let mut effect_tasks: JoinSet<()> = JoinSet::new();
+    let termination_requested = Arc::new(AtomicBool::new(false));
+    install_termination_listener(&mut effect_tasks, termination_requested.clone());
     let engine_start = engine.clone();
     effect_tasks.spawn(async move {
         let _ = engine_start.submit(Command::StartSession).await;
@@ -72,6 +75,12 @@ pub async fn run_tui_with_options(
             if let Err(err) = joined {
                 warn!(?err, "TUI effect task ended with error");
             }
+        }
+
+        // The native host requests graceful teardown with SIGTERM. Handling it inside the normal
+        // event loop preserves ShutdownSession/module teardown (notably timer pause) before exit.
+        if termination_requested.load(Ordering::SeqCst) {
+            state.should_quit = true;
         }
 
         if let Some(plan) = state.runtime.pending_recipe_run.take() {
@@ -176,6 +185,25 @@ pub async fn run_tui_with_options(
     let _ = engine.submit(Command::ShutdownSession).await;
     Ok(())
 }
+
+#[cfg(unix)]
+fn install_termination_listener(tasks: &mut JoinSet<()>, requested: Arc<AtomicBool>) {
+    use tokio::signal::unix::{signal, SignalKind};
+
+    match signal(SignalKind::terminate()) {
+        Ok(mut stream) => {
+            tasks.spawn(async move {
+                if stream.recv().await.is_some() {
+                    requested.store(true, Ordering::SeqCst);
+                }
+            });
+        }
+        Err(error) => warn!(?error, "could not install SIGTERM listener"),
+    }
+}
+
+#[cfg(not(unix))]
+fn install_termination_listener(_tasks: &mut JoinSet<()>, _requested: Arc<AtomicBool>) {}
 
 fn run_recipe_in_terminal(
     guard: &mut TerminalGuard,

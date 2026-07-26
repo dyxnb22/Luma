@@ -41,6 +41,9 @@ would collapse into a single file inside the bundle. The user-visible name comes
 - the global Option+Space hotkey (Carbon `RegisterEventHotKey`, no Accessibility permission);
 - previous-frontmost-application capture and reactivation on hide;
 - PTY child lifecycle, including restart on the next activation after the child exits;
+- bounded graceful termination (SIGTERM handled by the TUI, three-second SIGKILL fallback);
+- local combined host/child RSS sampling, peak tracking, and terminal-scrollback reduction when
+  macOS reports memory pressure;
 - app-bundle executable resolution and the child environment (`TERM`, `COLORTERM`, `PATH`);
 - terminal font/background configuration and window-frame persistence.
 
@@ -77,6 +80,9 @@ There is exactly one native content view: the SwiftTerm terminal filling the win
   graph.
 - Timers keep their current meaning, but hiding the window no longer pauses them: the child process
   stays alive while hidden. Quitting the host still terminates the TUI and its timers.
+- Memory observations remain local unified-log entries, not telemetry or a diagnostics subsystem.
+  SwiftTerm keeps its default 500-line scrollback normally and reduces it to 250/50 lines under
+  warning/critical pressure.
 - macOS permissions are per bundle. `com.luma.next.workbench` needs no Accessibility permission for
   the hotkey; any module that needs Accessibility (for example Windows focus) prompts under the
   host's own identity.

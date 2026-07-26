@@ -1,4 +1,5 @@
 use crate::paths::{ensure_luma_next_dirs, luma_next_support_dir, PathsError};
+use luma_domain::MAX_SNIPPETS;
 use rusqlite::{params, Connection};
 use std::path::PathBuf;
 use thiserror::Error;
@@ -59,15 +60,21 @@ impl SnippetsStore {
 
     pub fn list(&self) -> Result<Vec<SnippetRow>, SnippetsStoreError> {
         let conn = self.connect()?;
-        let mut statement = conn.prepare("SELECT trigger, body FROM snippets ORDER BY trigger")?;
-        let rows = statement
-            .query_map([], |row| {
+        let mut statement =
+            conn.prepare("SELECT trigger, body FROM snippets ORDER BY trigger LIMIT ?1")?;
+        let rows: Vec<SnippetRow> = statement
+            .query_map(params![(MAX_SNIPPETS + 1) as i64], |row| {
                 Ok(SnippetRow {
                     trigger: row.get(0)?,
                     body: row.get(1)?,
                 })
             })?
             .collect::<Result<_, _>>()?;
+        if rows.len() > MAX_SNIPPETS {
+            return Err(SnippetsStoreError::Msg(format!(
+                "snippets capacity exceeded ({MAX_SNIPPETS}); delete an entry before continuing"
+            )));
+        }
         Ok(rows)
     }
 
@@ -98,11 +105,27 @@ impl SnippetsStore {
                 "snippet body exceeds max size ({MAX_BODY_BYTES} bytes)"
             )));
         }
-        self.connect()?.execute(
+        let conn = self.connect()?;
+        let tx = conn.unchecked_transaction()?;
+        let exists: bool = tx.query_row(
+            "SELECT EXISTS(SELECT 1 FROM snippets WHERE trigger = ?1)",
+            params![trigger],
+            |row| row.get(0),
+        )?;
+        if !exists {
+            let count: i64 = tx.query_row("SELECT COUNT(*) FROM snippets", [], |row| row.get(0))?;
+            if count >= MAX_SNIPPETS as i64 {
+                return Err(SnippetsStoreError::Msg(format!(
+                    "snippets capacity reached ({MAX_SNIPPETS}); delete an entry before adding another"
+                )));
+            }
+        }
+        tx.execute(
             "INSERT INTO snippets (trigger, body) VALUES (?1, ?2)
              ON CONFLICT(trigger) DO UPDATE SET body = excluded.body",
             params![trigger, body],
         )?;
+        tx.commit()?;
         Ok(())
     }
 
@@ -136,5 +159,26 @@ mod tests {
         let err = store.upsert(";big", &huge).unwrap_err().to_string();
         assert!(err.contains("max size"), "{err}");
         assert!(store.list().unwrap().is_empty());
+    }
+
+    #[test]
+    fn capacity_rejects_new_rows_but_allows_updates() {
+        let dir = tempdir().unwrap();
+        let store = SnippetsStore::with_path(dir.path().join("sn.sqlite")).unwrap();
+        let conn = store.connect().unwrap();
+        let tx = conn.unchecked_transaction().unwrap();
+        for i in 0..MAX_SNIPPETS {
+            tx.execute(
+                "INSERT INTO snippets (trigger, body) VALUES (?1, 'body')",
+                params![format!("s{i:04}")],
+            )
+            .unwrap();
+        }
+        tx.commit().unwrap();
+
+        store.upsert("s0000", "updated").unwrap();
+        let err = store.upsert("overflow", "body").unwrap_err().to_string();
+        assert!(err.contains("capacity reached"), "{err}");
+        assert_eq!(store.list().unwrap().len(), MAX_SNIPPETS);
     }
 }

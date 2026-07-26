@@ -9,6 +9,9 @@ use crate::ports::{
     WordContentInput, WordEntry, WordbookRepoError, WordbookRepository, WordbookStatsView,
 };
 use async_trait::async_trait;
+use luma_domain::{
+    MAX_PINNED_CLIPBOARD_ROWS, MAX_QUICKLINKS, MAX_SNIPPETS, MAX_SSH_METADATA_ROWS, MAX_TIMERS,
+};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -85,10 +88,16 @@ impl ClipboardHistoryRepository for MemoryClipboardHistory {
     }
 
     fn insert(&self, text: &str, pinned: bool) -> Result<i64, ClipboardRepoError> {
+        let mut rows = self.rows.lock().expect("lock");
+        if pinned && rows.iter().filter(|row| row.pinned).count() >= MAX_PINNED_CLIPBOARD_ROWS {
+            return Err(ClipboardRepoError::msg(format!(
+                "pinned clipboard capacity reached ({MAX_PINNED_CLIPBOARD_ROWS})"
+            )));
+        }
         let mut next = self.next_id.lock().expect("lock");
         *next += 1;
         let id = *next;
-        self.rows.lock().expect("lock").push(ClipboardEntry {
+        rows.push(ClipboardEntry {
             id,
             text: text.into(),
             pinned,
@@ -113,13 +122,16 @@ impl ClipboardHistoryRepository for MemoryClipboardHistory {
     }
 
     fn set_pinned(&self, id: i64, pinned: bool) -> Result<(), ClipboardRepoError> {
-        if let Some(row) = self
-            .rows
-            .lock()
-            .expect("lock")
-            .iter_mut()
-            .find(|r| r.id == id)
+        let mut rows = self.rows.lock().expect("lock");
+        let would_add_pin = pinned && rows.iter().any(|row| row.id == id && !row.pinned);
+        if would_add_pin
+            && rows.iter().filter(|row| row.pinned).count() >= MAX_PINNED_CLIPBOARD_ROWS
         {
+            return Err(ClipboardRepoError::msg(format!(
+                "pinned clipboard capacity reached ({MAX_PINNED_CLIPBOARD_ROWS})"
+            )));
+        }
+        if let Some(row) = rows.iter_mut().find(|r| r.id == id) {
             row.pinned = pinned;
         }
         Ok(())
@@ -161,10 +173,13 @@ impl QuicklinksRepository for MemoryQuicklinksRepository {
     }
 
     fn upsert(&self, trigger: &str, url: &str) -> Result<(), QuicklinksRepoError> {
-        self.rows
-            .lock()
-            .expect("lock")
-            .insert(trigger.into(), url.into());
+        let mut rows = self.rows.lock().expect("lock");
+        if !rows.contains_key(trigger) && rows.len() >= MAX_QUICKLINKS {
+            return Err(QuicklinksRepoError::msg(format!(
+                "quicklinks capacity reached ({MAX_QUICKLINKS})"
+            )));
+        }
+        rows.insert(trigger.into(), url.into());
         Ok(())
     }
 
@@ -214,10 +229,13 @@ impl SnippetsRepository for MemorySnippetsRepository {
     }
 
     fn upsert(&self, trigger: &str, body: &str) -> Result<(), SnippetsRepoError> {
-        self.rows
-            .lock()
-            .expect("lock")
-            .insert(trigger.into(), body.into());
+        let mut rows = self.rows.lock().expect("lock");
+        if !rows.contains_key(trigger) && rows.len() >= MAX_SNIPPETS {
+            return Err(SnippetsRepoError::msg(format!(
+                "snippets capacity reached ({MAX_SNIPPETS})"
+            )));
+        }
+        rows.insert(trigger.into(), body.into());
         Ok(())
     }
 
@@ -1100,6 +1118,11 @@ impl SshMetaRepository for MemorySshMetaRepository {
 
     fn set_favorite(&self, alias: &str, favorite: bool) -> Result<(), SshMetaRepoError> {
         let mut rows = self.rows.lock().expect("lock");
+        if !rows.contains_key(alias) && rows.len() >= MAX_SSH_METADATA_ROWS {
+            return Err(SshMetaRepoError::msg(format!(
+                "SSH metadata capacity reached ({MAX_SSH_METADATA_ROWS})"
+            )));
+        }
         let entry = rows
             .entry(alias.to_string())
             .or_insert_with(|| SshHostMeta {
@@ -1120,6 +1143,11 @@ impl SshMetaRepository for MemorySshMetaRepository {
         display_name: Option<&str>,
     ) -> Result<(), SshMetaRepoError> {
         let mut rows = self.rows.lock().expect("lock");
+        if !rows.contains_key(alias) && rows.len() >= MAX_SSH_METADATA_ROWS {
+            return Err(SshMetaRepoError::msg(format!(
+                "SSH metadata capacity reached ({MAX_SSH_METADATA_ROWS})"
+            )));
+        }
         let entry = rows
             .entry(alias.to_string())
             .or_insert_with(|| SshHostMeta {
@@ -1136,6 +1164,11 @@ impl SshMetaRepository for MemorySshMetaRepository {
 
     fn record_connection(&self, alias: &str, connected_at: &str) -> Result<(), SshMetaRepoError> {
         let mut rows = self.rows.lock().expect("lock");
+        if !rows.contains_key(alias) && rows.len() >= MAX_SSH_METADATA_ROWS {
+            return Err(SshMetaRepoError::msg(format!(
+                "SSH metadata capacity reached ({MAX_SSH_METADATA_ROWS})"
+            )));
+        }
         let entry = rows
             .entry(alias.to_string())
             .or_insert_with(|| SshHostMeta {
@@ -1186,10 +1219,13 @@ impl TimersRepository for MemoryTimersRepository {
     }
 
     fn insert(&self, entry: &TimerEntry) -> Result<(), TimersRepoError> {
-        self.rows
-            .lock()
-            .expect("lock")
-            .insert(entry.id.clone(), entry.clone());
+        let mut rows = self.rows.lock().expect("lock");
+        if !rows.contains_key(&entry.id) && rows.len() >= MAX_TIMERS {
+            return Err(TimersRepoError::msg(format!(
+                "timers capacity reached ({MAX_TIMERS})"
+            )));
+        }
+        rows.insert(entry.id.clone(), entry.clone());
         Ok(())
     }
 

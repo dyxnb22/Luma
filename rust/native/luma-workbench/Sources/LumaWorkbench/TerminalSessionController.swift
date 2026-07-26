@@ -4,6 +4,7 @@ import LumaWorkbenchCore
 import SwiftTerm
 
 protocol TerminalSessionControllerDelegate: AnyObject {
+    func terminalSessionDidStart(_ controller: TerminalSessionController)
     func terminalSessionDidTerminate(_ controller: TerminalSessionController)
 }
 
@@ -21,6 +22,10 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
     weak var delegate: TerminalSessionControllerDelegate?
 
     var isRunning: Bool { lifecycle.isRunning }
+    var processIdentifier: pid_t? {
+        let pid = terminalView.process.shellPid
+        return lifecycle.isRunning && pid > 1 ? pid : nil
+    }
 
     init(executableURL: URL, workingDirectory: String) {
         self.executableURL = executableURL
@@ -87,24 +92,29 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
             return false
         }
         lifecycle.markStarted()
+        delegate?.terminalSessionDidStart(self)
         return true
     }
 
-    /// SIGTERM the child and reap it, so quitting never leaves an orphan holding the PTY.
+    func applyMemoryPressure(_ level: MemoryPressureLevel) {
+        terminalView.changeScrollback(MemoryPressurePolicy.scrollbackLines(for: level))
+    }
+
+    /// Ask the process group to terminate, then reap it. The Rust TUI handles SIGTERM through its
+    /// normal event loop so ShutdownSession/module teardown runs; SIGKILL remains a bounded fallback.
     func terminateAndReap() {
         let pid = terminalView.process.shellPid
         guard lifecycle.isRunning, pid > 0 else { return }
-        // SwiftTerm terminates only the direct child. Signal the forkpty process group as well so
-        // an interactive SSH/SFTP/recipe child cannot outlive the workbench host.
+        // Signal the forkpty process group so an interactive SSH/SFTP/recipe child exits and the
+        // TUI can regain control long enough to finish graceful teardown.
         if let group = ChildProcessGroup.signalTarget(forLeader: pid) {
             _ = kill(group, SIGTERM)
         }
-        terminalView.terminate()
-        lifecycle.markTerminated(swiftTermWaitStatus: nil)
         reap(pid: pid)
+        lifecycle.markTerminated(swiftTermWaitStatus: nil)
     }
 
-    private func reap(pid: pid_t, timeout: TimeInterval = 1.5) {
+    private func reap(pid: pid_t, timeout: TimeInterval = 3) {
         let deadline = Date().addingTimeInterval(timeout)
         var status: Int32 = 0
         while Date() < deadline {

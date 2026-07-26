@@ -8,6 +8,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var session: TerminalSessionController?
     private var windowController: LumaWindowController?
     private var hotKeyController: GlobalHotKeyController?
+    private var memoryPressureController: MemoryPressureController?
     private var activation = ActivationPolicy()
 
     private var ownProcessIdentifier: pid_t { ProcessInfo.processInfo.processIdentifier }
@@ -26,6 +27,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         )
         session.delegate = self
         self.session = session
+        let memoryPressureController = MemoryPressureController(session: session)
+        memoryPressureController.start()
+        self.memoryPressureController = memoryPressureController
 
         let windowController = LumaWindowController(
             terminalView: session.terminalView,
@@ -52,6 +56,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         hotKeyController?.unregister()
+        memoryPressureController?.stopAndLogPeak()
         session?.terminateAndReap()
     }
 
@@ -204,6 +209,10 @@ extension AppDelegate: LumaWindowControllerDelegate {
 }
 
 extension AppDelegate: TerminalSessionControllerDelegate {
+    func terminalSessionDidStart(_ controller: TerminalSessionController) {
+        memoryPressureController?.sampleNow()
+    }
+
     /// Deliberately does not restart: the next activation starts a fresh session, so a binary that
     /// fails on startup cannot turn into a spawn loop.
     func terminalSessionDidTerminate(_ controller: TerminalSessionController) {}

@@ -71,12 +71,16 @@ open "$HOME/Applications/Luma.app"
 13. **Command Recipe** — run a recipe with `/cmd test` and confirm output and exit handling.
 14. **TUI exit and restart** — Ctrl-C out of the TUI, hide, then press Option+Space; a fresh
     session must start instead of an empty window.
-15. **Quit and cleanup** — Cmd+Q, then confirm no `luma` child survives (`pgrep -fl luma`).
+15. **Quit and cleanup** — start a Timer, then Cmd+Q. Confirm no `luma` child survives
+    (`pgrep -fl luma`) and the Timer was persisted as paused, proving graceful module teardown ran.
 16. **Relaunch from the installed bundle** — reopen `$HOME/Applications/Luma.app` and confirm the
     window frame was restored and the hotkey works again.
 17. **Login item (optional, manual)** — the host ships no Launch at Login toggle. If you add
     `Luma.app` under System Settings → General → Login Items, confirm after a reboot that exactly
     one host and one child process are running.
+18. **Memory policy** — inspect the local unified log after normal use and confirm the exit entry
+    reports combined peak RSS. Triggering real warning/critical pressure is optional; when tested,
+    confirm the entry reports scrollback reduction and the TUI remains usable.
 
 If Option+Space is already claimed (Spotlight, an input-source switcher, another launcher), the
 host reports the registration failure at startup instead of silently doing nothing.

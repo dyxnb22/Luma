@@ -1,7 +1,8 @@
 //! Clipboard history under LumaNext (SQLite).
 
 use crate::paths::{ensure_luma_next_dirs, luma_next_support_dir, PathsError};
-use rusqlite::{params, Connection};
+use luma_domain::MAX_PINNED_CLIPBOARD_ROWS;
+use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use thiserror::Error;
@@ -88,6 +89,18 @@ impl ClipboardStore {
         }
         let conn = self.connect()?;
         let tx = conn.unchecked_transaction()?;
+        if pinned {
+            let pinned_count: i64 = tx.query_row(
+                "SELECT COUNT(*) FROM clipboard_entries WHERE pinned = 1",
+                [],
+                |row| row.get(0),
+            )?;
+            if pinned_count >= MAX_PINNED_CLIPBOARD_ROWS as i64 {
+                return Err(ClipboardStoreError::Msg(format!(
+                    "pinned clipboard capacity reached ({MAX_PINNED_CLIPBOARD_ROWS}); unpin an item before pinning another"
+                )));
+            }
+        }
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_secs() as i64)
@@ -231,10 +244,31 @@ impl ClipboardStore {
 
     pub fn set_pinned(&self, id: i64, pinned: bool) -> Result<(), ClipboardStoreError> {
         let conn = self.connect()?;
-        conn.execute(
+        let tx = conn.unchecked_transaction()?;
+        let current: Option<bool> = tx
+            .query_row(
+                "SELECT pinned FROM clipboard_entries WHERE id = ?1",
+                params![id],
+                |row| Ok(row.get::<_, i64>(0)? != 0),
+            )
+            .optional()?;
+        if pinned && current == Some(false) {
+            let pinned_count: i64 = tx.query_row(
+                "SELECT COUNT(*) FROM clipboard_entries WHERE pinned = 1",
+                [],
+                |row| row.get(0),
+            )?;
+            if pinned_count >= MAX_PINNED_CLIPBOARD_ROWS as i64 {
+                return Err(ClipboardStoreError::Msg(format!(
+                    "pinned clipboard capacity reached ({MAX_PINNED_CLIPBOARD_ROWS}); unpin an item before pinning another"
+                )));
+            }
+        }
+        tx.execute(
             "UPDATE clipboard_entries SET pinned = ?1 WHERE id = ?2",
             params![pinned as i64, id],
         )?;
+        tx.commit()?;
         Ok(())
     }
 
@@ -357,5 +391,31 @@ mod tests {
         assert!(store.search("pinned-keep", 5).unwrap().len() == 1);
         assert!(store.search("newest", 5).unwrap().len() == 1);
         assert!(store.search("row-0", 5).unwrap().is_empty());
+    }
+
+    #[test]
+    fn pinned_capacity_requires_unpin_before_another_pin() {
+        let dir = tempdir().unwrap();
+        let store = ClipboardStore::with_path(dir.path().join("c.sqlite")).unwrap();
+        let conn = rusqlite::Connection::open(store.path()).unwrap();
+        for i in 0..MAX_PINNED_CLIPBOARD_ROWS {
+            conn.execute(
+                "INSERT INTO clipboard_entries (text, pinned, created_at) VALUES (?1, 1, ?2)",
+                params![format!("pinned-{i}"), i as i64],
+            )
+            .unwrap();
+        }
+        conn.execute(
+            "INSERT INTO clipboard_entries (text, pinned, created_at) VALUES ('candidate', 0, 9999)",
+            [],
+        )
+        .unwrap();
+        let candidate = conn.last_insert_rowid();
+        drop(conn);
+
+        let err = store.set_pinned(candidate, true).unwrap_err().to_string();
+        assert!(err.contains("capacity reached"), "{err}");
+        store.set_pinned(1, false).unwrap();
+        store.set_pinned(candidate, true).unwrap();
     }
 }

@@ -1,8 +1,8 @@
 # Modules
 
-The optional `luma-menubar` companion is not a module and does not participate in the module
-registry. It provides only Wordbook glance status, visible-window focus, and entry points into
-the terminal TUI. See [ADR-0006](./adr/0006-native-menubar-companion.md).
+The optional native workbench host is not a module and does not participate in the module
+registry. It only hosts the Rust TUI in a PTY and provides global activation. See
+[ADR-0007](./adr/0007-native-workbench-host.md).
 
 Personal daily-driver status. Prefer honest `unavailable` / `permission_required` /
 `not_configured` over empty results.
@@ -94,8 +94,8 @@ Aligned with `luma-storage` clipboard store constants:
 
 ## Product rules
 
-- The full workbench UI is terminal CLI/TUI; the optional menu bar is glance-only and not a
-  module surface.
+- The full workbench UI is the Rust CLI/TUI; the optional native host owns only its window, PTY,
+  activation, and lifecycle.
 - `bins/luma` is the sole module-registration composition root.
 - Platform calls stay behind ports.
 - Tests must not steal focus (`open`, osascript, AX paste, system clipboard mutation).

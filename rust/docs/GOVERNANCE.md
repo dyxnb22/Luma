@@ -4,7 +4,8 @@ Luma is a solo daily-driver. Governance here means **keeping the tree navigable 
 honest**, not process theater. Prefer small friction fixes over roadmap completion.
 
 Related: [MODULES.md](./MODULES.md), [ADR-0001](./adr/0001-rust-tui-product-shape.md),
-[ADR-0002](./adr/0002-defer-luma-agent.md), `scripts/check_architecture.sh`.
+[ADR-0002](./adr/0002-defer-luma-agent.md), [ADR-0007](./adr/0007-native-workbench-host.md),
+`scripts/check_architecture.sh`.
 
 ## 1. What we govern vs what we ignore
 
@@ -21,12 +22,11 @@ Related: [MODULES.md](./MODULES.md), [ADR-0001](./adr/0001-rust-tui-product-shap
 
 ### Product & data
 
-1. **Boundary** — CLI/TUI plus the narrowly scoped native menu-bar companion approved by
-   ADR-0006; no Web/Tauri/Electron/agent daemon/LLM chat unless an ADR explicitly changes
-   ADR-0001 / ADR-0002.
+1. **Boundary** — CLI/TUI plus the narrowly scoped thin PTY workbench host (ADR-0007); no
+   Web/Tauri/Electron/agent daemon/LLM chat unless an ADR explicitly changes ADR-0001 / ADR-0002.
 2. **Composition** — `bins/luma` (+ `compose.rs`) is the sole registration root for modules
-   and adapters. `luma-menubar` is only a UI process root and must not register modules or build
-   the Engine.
+   and adapters. `native/luma-workbench` is only a window/PTY host: it runs `luma tui` as a child
+   process, owns no product UI, and never reads or writes LumaNext.
 3. **Persistence** — live data under LumaNext only (`LUMA_NEXT_*` in tests). No silent writes
    outside that tree.
 4. **Honesty** — permission / unavailable / not-configured / empty are distinct. Never fake
@@ -128,6 +128,14 @@ cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo test --workspace --all-features
 cargo test -p luma --test cli_blackbox
 ./scripts/check_architecture.sh
+```
+
+When the native workbench host (ADR-0007) is touched, add:
+
+```bash
+cd rust
+swift test --package-path native/luma-workbench
+swift build --package-path native/luma-workbench -c release
 ```
 
 No extra CI release gates. Architecture script failures are real; fix them in the same change.

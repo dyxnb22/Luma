@@ -7,9 +7,9 @@
 
 Luma is a **personal** interactive CLI/TUI under `rust/`: a long-running, keyboard-first
 workbench for local modules and personal information. It is **not** a public-release product and
-it is **not an AI-agent product**. We do not ship Web, Tauri, Electron, or a general native GUI;
-the narrow menu-bar companion approved by [ADR-0006](0006-native-menubar-companion.md) is the
-only exception. We do not ship distribution/notarization workflows.
+it is **not an AI-agent product**. We do not ship Web, Tauri, Electron, or a general native GUI.
+The thin native PTY host approved by [ADR-0007](0007-native-workbench-host.md) is the only native
+exception. We do not ship distribution/notarization workflows.
 
 Codex and Claude Code are references for interaction quality — prompt editing, keyboard
 discoverability, previews, command surfaces, and clear progress/failure feedback — not a product
@@ -19,8 +19,9 @@ template. Luma does not adopt their conversational, autonomous-planning, LLM, or
 
 - Primary: `luma` opens a long-running TUI in the terminal.
 - Non-interactive siblings share the same application API: `luma query`, `luma action run`, `luma config`, `luma modules list` (stable `--json` where applicable).
-- Global hotkey / floating panel are out of scope. The limited menu-bar companion is defined by
-  ADR-0006 and is not a search or command surface.
+- A global hotkey and a persistent window are allowed **only** inside the thin native PTY host of
+  ADR-0007, which hosts the same `luma tui` process and owns no product UI of its own. A floating
+  panel that renders its own results, prompt, or module surfaces remains out of scope.
 
 ### Architecture
 
@@ -35,7 +36,7 @@ template. Luma does not adopt their conversational, autonomous-planning, LLM, or
 
 - Public release, App Store, notarization, multi-user product packaging.
 - Web admin, Chrome management pages, Tauri/Electron/GUI product shells, and any GUI beyond the
-  narrow ADR-0006 companion.
+  narrow ADR-0007 PTY host.
 - AI/LLM chat, autonomous planning or execution, agent tool loops, and background-agent or
   multi-session orchestration infrastructure.
 - Stub modules (Media, Window layouts, Menu search, Browser tabs) and signed-host Translate.

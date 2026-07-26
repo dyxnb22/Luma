@@ -5,8 +5,8 @@ alwaysApply: true
 
 # Personal use only
 
-Luma is a **personal daily-driver** Rust CLI/TUI with an optional glance-only native menu-bar
-companion: a keyboard-first workbench for local modules and personal information. Do **not** optimize for public release, distribution, notarization,
+Luma is a **personal daily-driver** Rust CLI/TUI with an optional thin native PTY host window: a
+keyboard-first workbench for local modules and personal information. Do **not** optimize for public release, distribution, notarization,
 multi-user product, or marketing.
 
 Codex and Claude Code are references for TUI ergonomics only — prompt editing, keyboard
@@ -26,6 +26,9 @@ tool-orchestration workflows.
 - Use structured unavailable / permission / not-configured outcomes (no silent fake success).
 - Keep `rust/bins/luma/src/compose.rs` as the sole module/adapters registration root.
 - Keep TUI update/reducer and render pure; effects own I/O and async work.
+- Keep `rust/native/luma-workbench` (ADR-0007) a thin PTY host: window, terminal view, global
+  activation, singleton session, and lifecycle only. All UI, modules, commands, and business state
+  stay in the Rust TUI.
 - Use `/` for every interactive module/local command (`/ssh`, `/rec browse`, `/settings`); bare
   or colon-prefixed command forms are retired and unprefixed input is global search.
 - When adding a module, prefer a module-local implementation plus ports/adapters, one compose
@@ -36,7 +39,11 @@ tool-orchestration workflows.
 
 - Add CI release gates, cargo-deny-as-policy, long soak/PTY evidence packs, or notarization/TCC matrices “for release”.
 - Build Web / general native GUI / Tauri / Electron / agent daemon / plugin ABI. The narrowly
-  scoped `luma-menubar` companion is defined by ADR-0006 and is not a module registry or second TUI.
+  scoped `luma-workbench` PTY host is defined by ADR-0007 and is not a module registry or second
+  product UI.
+- Give the workbench host its own search box, results list, sidebar, preview, settings page,
+  module picker, command palette, dashboard, native overlay, SwiftUI, extra windows/tabs, or any
+  access to LumaNext stores.
 - Add AI/LLM chat, autonomous agents, task planners, tool-execution loops, or background and
   multi-session agent orchestration unless the user explicitly changes the product boundary.
 - Revive deferred stubs (Window layouts, Menu search, Browser tabs) or signed-host Translate —

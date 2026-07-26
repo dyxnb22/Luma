@@ -47,26 +47,36 @@ cargo run -p luma -- record remove 1 --yes
 cargo run -p luma   # interactive TUI
 ```
 
-## Native menu-bar companion
+## Native workbench host
 
-Build the companion into a stable app path before granting macOS permissions or enabling
-Launch at Login. The script performs a local ad-hoc signature with the stable bundle
-identifier `com.luma.next.menubar` and verifies the completed bundle:
+`Luma.app` is a thin Swift/AppKit window that hosts the same `luma tui` process in a real PTY
+behind a global Option+Space hotkey ([ADR-0007](docs/adr/0007-native-workbench-host.md)). It owns
+the window, the PTY, activation, and lifecycle — never product UI or module data.
 
 ```bash
 cd rust
-bash scripts/build_menubar_app.sh "$HOME/Applications/Luma Menu Bar.app"
-open "$HOME/Applications/Luma Menu Bar.app"
+swift test --package-path native/luma-workbench
+swift build --package-path native/luma-workbench -c release
+bash scripts/build_workbench_app.sh "$HOME/Applications/Luma.app"
+open "$HOME/Applications/Luma.app"
 ```
 
-Run the same command to update the app in place. Keep the app at that path so its bundle and
-TCC identity remain stable; do not launch the temporary copy under `target/` after authorizing
-the installed copy. Set `CODESIGN_IDENTITY` if a local signing certificate is preferred.
+Re-run the build script to update in place; keep the app at that path so its bundle identity
+(`com.luma.next.workbench`) and macOS permissions stay stable. Set `CODESIGN_IDENTITY` to use a
+local certificate instead of the default ad-hoc signature.
 
-The menu-bar process has its own macOS permissions. Grant Accessibility to `Luma Menu Bar.app`
-for window focus, and Screen Recording if full window titles are needed. The TUI/Terminal
-permission entry is separate. Launch at Login requires the bundled app to be installed at a
-stable path and may require approval in System Settings.
+Behavior worth knowing:
+
+- Option+Space shows the window and focuses the terminal; pressing it again while Luma is active
+  hides the window and reactivates the app you came from.
+- The close button hides the window. The TUI keeps running; Cmd+Q (or Quit Luma) terminates it.
+- If the TUI exits, the next activation starts a fresh session.
+- The host is an accessory app, so it has no Dock icon and no visible menu bar. Cmd+C, Cmd+V,
+  Cmd+A, Cmd+W and Cmd+Q still work; there is no Launch at Login toggle. To start it at login, add
+  `$HOME/Applications/Luma.app` under System Settings → General → Login Items.
+- The hotkey uses Carbon `RegisterEventHotKey` and needs no Accessibility permission. Modules that
+  need Accessibility (for example `/win` focus) prompt under the `Luma.app` identity, separately
+  from a copy run directly in Terminal.
 
 Optional local hygiene: `bash scripts/check_architecture.sh`.
 
@@ -78,8 +88,8 @@ See [`docs/COMMAND_RECIPES.md`](docs/COMMAND_RECIPES.md) for command templates, 
 See [`docs/SSH.md`](docs/SSH.md) for SSH Connections (`~/.ssh/config` launcher, metadata, CLI).
 See [`docs/PROXY.md`](docs/PROXY.md) for Mihomo/Clash Verge Profile behavior, safety boundaries,
 supported subscription formats, and rollback semantics.
-See [`docs/MACOS_SMOKE.md`](docs/MACOS_SMOKE.md) for real macOS permission, menu-bar, terminal,
-window, Keychain, clipboard, and proxy smoke checks.
+See [`docs/MACOS_SMOKE.md`](docs/MACOS_SMOKE.md) for real macOS permission, workbench host,
+terminal, window, Keychain, clipboard, and proxy smoke checks.
 See [`docs/USAGE_LOG_TEMPLATE.md`](docs/USAGE_LOG_TEMPLATE.md) for an optional privacy-preserving
 14-day local usage experiment.
 

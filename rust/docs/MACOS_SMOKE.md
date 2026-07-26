@@ -18,9 +18,8 @@ cargo test --workspace --all-features
 - Use a disposable macOS user or a clearly labeled test data root where practical.
 - Preserve the current system proxy configuration before touching `/proxy`.
 - Do not use real secrets, private SSH hosts, or sensitive clipboard content.
-- Test the TUI and the menu-bar companion separately: macOS TCC permissions are per app/process.
-- Build the companion with `scripts/build_menubar_app.sh` into a stable app path and verify
-  `codesign --verify --deep --strict "Luma Menu Bar.app"` before granting permissions.
+- Test a TUI launched directly from Terminal and one hosted by `Luma.app` separately: macOS TCC
+  permissions are per app/process.
 
 ## Permission and window checks
 
@@ -28,25 +27,59 @@ cargo test --workspace --all-features
 2. Open `/win` and confirm that the list/search surface remains available.
 3. Attempt to focus a window and confirm the action reports `Permission required` with remediation.
 4. Grant Accessibility and retry focus.
-5. Open two windows with the same title, then refresh and focus each one from `/win` and the menu
-   bar. The selected stable window must be raised; a refresh must not retarget a different row.
-6. Repeat with TUI and menu-bar permissions intentionally different. Each surface must show its
-   own permission state and must not infer the other process's TCC state.
+5. Open two windows with the same title, then refresh and focus each one from `/win`. The selected
+   stable window must be raised; a refresh must not retarget a different row.
+6. Repeat from Terminal and `Luma.app` with intentionally different permissions. Each process must
+   show its own permission state and must not infer the other process's TCC state.
 
-## Menu-bar lifecycle checks
+## Workbench host checks (ADR-0007)
 
-- Start the companion twice; the second instance must exit cleanly with a duplicate-instance
-  message.
-- Open the menu, refresh it, close and reopen it, and verify Wordbook/Windows rows update.
-- Trigger refresh while windows are being opened or closed. A stale snapshot may be labeled stale,
-  but the companion must never focus a different displayed row silently.
-- Remove or override the CLI path and verify Open Luma, Open Settings, and Review Due show a clear
-  local failure instead of doing nothing.
-- Exercise Launch at Login in an unbundled build and a bundled app. Verify Enabled,
-  Requires Approval, Not Registered, and Not Found are not collapsed into one boolean.
-- After updating the installed app in place, re-run the signature check and confirm the bundle
-  identifier remains `com.luma.next.menubar` before re-testing TCC/Login Item behavior.
-- Quit from the menu, wait for termination, then relaunch. The instance lock must be released.
+Build and install the host first, then work through the list. These are the checks that cannot be
+automated: they need real activation, a real input method, and a real GPU-composited window.
+
+```bash
+cd rust
+bash scripts/build_workbench_app.sh "$HOME/Applications/Luma.app"
+/usr/bin/codesign --verify --deep --strict "$HOME/Applications/Luma.app"
+open "$HOME/Applications/Luma.app"
+```
+
+1. **Cold launch** — the window appears centered, the TUI Hub renders, and no Dock icon is added.
+2. **Warm activation** — click another app, press Option+Space; Luma comes forward on the current
+   Space with the terminal already focused and the previous TUI state intact. Repeat while the
+   other app is full-screen; Luma must join that Space instead of remaining behind it.
+3. **Hide and restore focus** — press Option+Space again; the window hides and the app you came
+   from becomes frontmost.
+4. **Rapid toggling and minimize** — hold/repeat Option+Space quickly; exactly one window and one
+   `luma` process must exist afterwards (`pgrep -fl 'Luma.app/Contents/MacOS/luma'`). Minimize the
+   window and press Option+Space; the same window must deminiaturize on the first press.
+5. **Chinese IME** — switch to Pinyin, type a multi-syllable word, confirm the composition marks
+   correctly and only the committed text reaches the prompt.
+6. **CJK alignment** — display Records or Notes rows with mixed CJK/ASCII and confirm columns line
+   up (full-width cells occupy two columns).
+7. **Mouse** — the TUI enables mouse reporting, so plain clicks and drags go to the TUI; hold
+   Shift and drag to select text in the terminal instead. Verify both.
+8. **Copy/paste** — Cmd+C with an active selection, then Cmd+V into the prompt.
+9. **Resize** — resize the window and confirm the TUI reflows without artifacts; enter and leave a
+   full-screen child surface to exercise the alternate screen.
+10. **Timer while hidden** — start a Timer, hide the window, wait past the deadline, and re-show;
+    the timer must have kept running (the child process is not suspended).
+11. **`/wb review due`** — run a review, reveal and grade a card, then Esc out; Escape must reach
+    the TUI and must never close or hide the window.
+12. **Interactive child** — run `/ssh` against a host alias that does not resolve (no real remote
+    connection needed) and confirm the child runs in the same PTY and the TUI resumes afterwards.
+13. **Command Recipe** — run a recipe with `/cmd test` and confirm output and exit handling.
+14. **TUI exit and restart** — Ctrl-C out of the TUI, hide, then press Option+Space; a fresh
+    session must start instead of an empty window.
+15. **Quit and cleanup** — Cmd+Q, then confirm no `luma` child survives (`pgrep -fl luma`).
+16. **Relaunch from the installed bundle** — reopen `$HOME/Applications/Luma.app` and confirm the
+    window frame was restored and the hotkey works again.
+17. **Login item (optional, manual)** — the host ships no Launch at Login toggle. If you add
+    `Luma.app` under System Settings → General → Login Items, confirm after a reboot that exactly
+    one host and one child process are running.
+
+If Option+Space is already claimed (Spotlight, an input-source switcher, another launcher), the
+host reports the registration failure at startup instead of silently doing nothing.
 
 ## Terminal suspend/resume checks
 
@@ -75,6 +108,6 @@ must not be followed by an unconditional resume attempt.
 ## Frequency
 
 - Every commit: automated baseline and pure model/reducer tests.
-- After touching TerminalGuard, menu-bar worker/model, or platform adapters: run the relevant
-  section above.
+- After touching TerminalGuard, the workbench host, or platform adapters: run the relevant section
+  above.
 - Before relying on a new macOS build: run the complete checklist manually.

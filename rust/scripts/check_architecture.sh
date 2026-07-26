@@ -30,21 +30,36 @@ print(' '.join(dep['name'] for dep in p['dependencies'] if dep.get('kind') is No
 check_absent luma-tui luma-platform-macos luma-storage luma-modules
 check_absent luma-modules luma-platform-macos luma-storage
 check_absent luma-domain luma-platform-macos luma-storage luma-modules luma-tui
-check_absent luma luma-menubar objc2 objc2-app-kit objc2-service-management
-# luma-application owns Engine DTOs and therefore brings luma-protocol transitively. The ADR
-# intentionally bans direct protocol coupling and Engine startup, while allowing the narrow
-# application ports used by the companion.
-check_absent luma-menubar luma-tui luma-modules luma-protocol
+check_absent luma objc2 objc2-app-kit objc2-service-management
 
-if rg -n '\b(Engine|ModuleRegistry|compose::|register_modules)\b' bins/luma-menubar/src 2>/dev/null | head -20 | grep .; then
-  echo "FAIL: luma-menubar must not start the Engine or module registry"
+# ADR-0006 is superseded by ADR-0007. The old Rust/AppKit companion must not quietly return as a
+# second native entry point.
+if [[ -e "bins/luma-menubar" || -e "scripts/build_menubar_app.sh" || -e "scripts/menubar-Info.plist" ]]; then
+  echo "FAIL: the superseded menu-bar companion has been restored without a new ADR"
   fail=1
 fi
 
 if rg -n 'objc2(-app-kit|-service-management)?|objc2_foundation' \
   bins/luma/Cargo.toml crates/*/Cargo.toml 2>/dev/null | head -20 | grep .; then
-  echo "FAIL: AppKit/ServiceManagement dependencies must remain confined to bins/luma-menubar"
+  echo "FAIL: Rust crates must remain free of AppKit/ServiceManagement dependencies"
   fail=1
+fi
+
+# ADR-0007: the Swift workbench host has no Rust dependency edges, so its boundary is guarded by
+# source inspection. It hosts a PTY; it is not a second UI, a module surface, or a status item.
+WORKBENCH_SOURCES="native/luma-workbench/Sources"
+if [[ -d "$WORKBENCH_SOURCES" ]]; then
+  if rg -n 'import SwiftUI|NSStatusItem|LumaNext|luma-protocol' "$WORKBENCH_SOURCES" \
+    2>/dev/null | head -20 | grep .; then
+    echo "FAIL: the workbench host must not use SwiftUI, add a status item, or touch LumaNext"
+    fail=1
+  fi
+  # The host owns exactly one child process invocation: the bundled `luma tui`.
+  start_process_calls="$(rg -o --no-filename 'startProcess\(' "$WORKBENCH_SOURCES" 2>/dev/null | wc -l | tr -d ' ')"
+  if [[ "$start_process_calls" -ne 1 ]]; then
+    echo "FAIL: the workbench host must have exactly one bundled luma TUI start path"
+    fail=1
+  fi
 fi
 # application → storage is allowed (settings adapters); engine must not open stores directly.
 if rg -n 'ClipboardStore::luma_next_default|NotesIndexStore::luma_next_default|QuicklinksStore::luma_next_default|SnippetsStore::luma_next_default|TimersStore::luma_next_default' \

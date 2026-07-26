@@ -1,6 +1,6 @@
 # Agent notes (Luma)
 
-Personal Mac workbench (Rust TUI with an optional native menu-bar companion). **Not for public
+Personal Mac workbench (Rust TUI with an optional thin native PTY host window). **Not for public
 release and not an AI-agent product.**
 
 Product intent: a long-running, keyboard-first personal workbench — closer to Raycast plus
@@ -8,7 +8,8 @@ lightweight local modules than to an agent chat. Codex and Claude Code are inter
 references only (prompt editing, discovery, previews, command surfaces, and clear feedback);
 do not copy their conversational-agent, autonomous-planning, or tool-orchestration product shape.
 
-Prefer: fix friction in core modules (including Windows switcher, Wordbook, Projects, Records, and SSH), keep tests green, stay on LumaNext paths. The menu-bar companion is glance-only and must not become a second TUI, launcher, daemon, or module registry.
+Prefer: fix friction in core modules (including Windows switcher, Wordbook, Projects, Records, and SSH), keep tests green, stay on LumaNext paths.
+The Swift workbench host (`rust/native/luma-workbench`, [ADR-0007](rust/docs/adr/0007-native-workbench-host.md)) owns only the window, the PTY, global activation, and lifecycle — never product UI, module data, or Engine startup.
 Follow: [`rust/docs/GOVERNANCE.md`](rust/docs/GOVERNANCE.md) for inventory sync, soft file-size triggers, and what not to “clean up.”
 Avoid: release packaging, long soak campaigns, reviving deferred stubs (Window layouts / Menu / Browser tabs — keep out of tree), architecture busywork without a personal benefit;
 AI/LLM chat, autonomous agents, task planning/execution loops, background agent daemons, or multi-session orchestration

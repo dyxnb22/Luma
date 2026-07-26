@@ -37,14 +37,6 @@ pub enum WordbookStoreError {
     Msg(String),
 }
 
-#[derive(Debug, Error)]
-pub enum WordbookReadOnlyError {
-    #[error("wordbook not configured")]
-    NotConfigured,
-    #[error("wordbook sqlite: {0}")]
-    Sqlite(#[from] rusqlite::Error),
-}
-
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct WordRow {
     pub id: i64,
@@ -122,30 +114,6 @@ pub struct WordpetImportReport {
 
 pub struct WordbookStore {
     path: PathBuf,
-}
-
-/// Read-only view of an existing Wordbook database for lightweight companion processes.
-/// Construction never creates the file, parent directories, schema, indexes, or defaults.
-pub struct WordbookReadOnlyStore {
-    path: PathBuf,
-}
-
-impl WordbookReadOnlyStore {
-    pub fn with_path(path: PathBuf) -> Result<Self, WordbookReadOnlyError> {
-        if !path.is_file() {
-            return Err(WordbookReadOnlyError::NotConfigured);
-        }
-        Ok(Self { path })
-    }
-
-    pub fn path(&self) -> &Path {
-        &self.path
-    }
-
-    pub fn stats(&self) -> Result<WordbookStats, WordbookReadOnlyError> {
-        let conn = crate::sqlite::open_readonly_connection(&self.path)?;
-        Ok(stats_on(&conn)?)
-    }
 }
 
 impl WordbookStore {
@@ -1088,32 +1056,6 @@ fn escape_fts_query(q: &str) -> String {
 mod tests {
     use super::*;
     use tempfile::tempdir;
-
-    #[test]
-    fn readonly_store_does_not_initialize_missing_database() {
-        let dir = tempdir().unwrap();
-        let path = dir.path().join("nested").join("wordbook.sqlite");
-        assert!(matches!(
-            WordbookReadOnlyStore::with_path(path.clone()),
-            Err(WordbookReadOnlyError::NotConfigured)
-        ));
-        assert!(!path.exists());
-        assert!(!path.parent().unwrap().exists());
-    }
-
-    #[test]
-    fn readonly_store_reads_stats_without_mutating_database() {
-        let dir = tempdir().unwrap();
-        let path = dir.path().join("wordbook.sqlite");
-        let writable = WordbookStore::with_path(path.clone()).unwrap();
-        let before = std::fs::metadata(&path).unwrap().len();
-        let expected = writable.stats().unwrap();
-        drop(writable);
-
-        let readonly = WordbookReadOnlyStore::with_path(path.clone()).unwrap();
-        assert_eq!(readonly.stats().unwrap(), expected);
-        assert_eq!(std::fs::metadata(&path).unwrap().len(), before);
-    }
 
     #[test]
     fn upsert_review_and_stats() {

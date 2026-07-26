@@ -1,51 +1,26 @@
 # ADR-0006: Native menu bar companion
 
-- Status: Accepted
+- Status: Superseded by [ADR-0007](0007-native-workbench-host.md)
 - Date: 2026-07-18
+- Superseded: 2026-07-26
 
-## Decision
+## Historical decision
 
-Luma may have a small native macOS menu bar companion for glanceable Wordbook status,
-visible-window switching, and safe entry points into the existing terminal TUI.
+Luma briefly included a small native macOS menu-bar companion for glanceable Wordbook status,
+visible-window switching, and entry points into the terminal TUI. It was a separate Rust/AppKit
+executable with its own bundle identity and permissions.
 
-This is a second executable and UI entry point, not a second module registry or application
-engine. `bins/luma` remains the only module-registration composition root. `luma-menubar` must
-not directly depend on `luma-tui`, `luma-modules`, or `luma-protocol`, and must not start the
-full registry/Engine. It may use the narrow application ports and read-only storage adapters
-needed for its projections. luma-application currently owns the Engine DTO boundary, so
-`luma-protocol` remains an accepted transitive dependency of the companion; the enforced
-boundary is the absence of a direct dependency and of Engine startup.
+## Superseding decision
 
-The companion uses `NSStatusItem`/`NSMenu`, shares only existing LumaNext data, and keeps all
-long-running business work in the terminal application. It does not add menu search, a global
-hotkey, a popover, a daemon, a Unix socket, an agent, or background Clipboard/Notes/Timers work.
+The companion is removed from the product and source tree. The thin native PTY host from
+ADR-0007 now provides the system-level entry point through Option+Space, while Wordbook status,
+window switching, settings, and every other module action stay in the Rust TUI.
 
-The first version includes:
+Maintaining two native entry points added installation, permission, login-item, lifecycle, and
+documentation cost without enough daily-use value. The menu-bar snapshot also duplicated a small
+projection of product state, whereas the PTY host exposes the complete existing workbench without
+duplicating business UI.
 
-- Wordbook due/today summary and a link that pre-fills `/wb review due` in the TUI;
-- up to five visible windows using the existing window port, with local permission/unavailable
-  states;
-- opening `luma`, opening it with `/settings` pre-filled, refresh, launch-at-login, and quit.
-
-All companion reads are non-initializing: absent settings or Wordbook data is reported as
-`not_configured`; corrupt or unavailable data is not repaired by the companion. TUI launch
-queries are editable prompt text and are never submitted automatically.
-
-## Consequences
-
-- `bins/luma-menubar` is a separate AppKit main-loop process and has its own macOS TCC identity.
-- GUI dependencies are confined to the companion binary; the `luma` dependency tree remains
-  terminal-only.
-- Shared settings remain under the existing lock/CAS semantics for writes. Companion reads use
-  explicit existing-only APIs and do not create defaults or schema.
-- Login launch is an explicit user choice backed by `SMAppService.mainApp` in a local app bundle;
-  no LaunchAgent or KeepAlive files are written by Luma.
-- Timers retain their current meaning: quitting the terminal app pauses running timers.
-
-## Verification
-
-Architecture checks must assert the direct dependency boundary, and tests must cover missing,
-corrupt, and unavailable local data without destructive writes. Manual macOS checks cover the
-menu bar lifecycle, Accessibility and Screen Recording guidance, Terminal launch, and
-login-item toggle. The local build script ad-hoc signs the complete bundle and verifies its
-stable identifier before it is used for TCC or Login Item testing.
+The removed artifacts were `bins/luma-menubar`, `scripts/build_menubar_app.sh`, and
+`scripts/menubar-Info.plist`. They must not be restored unless a later ADR identifies a distinct
+personal-use need that cannot be served by the TUI or the workbench hotkey.

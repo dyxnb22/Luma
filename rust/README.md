@@ -106,7 +106,7 @@ See [`docs/USAGE_LOG_TEMPLATE.md`](docs/USAGE_LOG_TEMPLATE.md) for an optional p
 | `~/Library/Application Support/LumaNext/` | Active settings / stores (`ssh_meta.sqlite`, `recall.sqlite`, clipboard, records, …) |
 | `~/Library/Application Support/LumaNext/command-recipes.toml` | User command recipe definitions |
 | `~/Library/Application Support/LumaNext/command-recipes-meta.sqlite` | Recipe favorites / usage metadata |
-| `~/Library/Logs/LumaNext/` | Logs |
+| `~/Library/Logs/LumaNext/` | Logs (`luma.log`, rotated at 5 MiB with three archives) |
 | `~/.ssh/config` | OpenSSH Host aliases — read by `luma.ssh` only (not modified) |
 
 Tests must use tempfile + `LUMA_NEXT_SUPPORT_DIR` / `LUMA_NEXT_LOGS_DIR`.
@@ -119,17 +119,29 @@ backup, and migration ledger, never the Markdown source files.
 - Commands use a leading `/`, for example `/ssh prod`, `/rec browse`, `/cmd test`, `/settings`,
   and `/help`. Input without `/` is always treated as a global search.
 
-- Set up project workspaces without leaving the TUI: `/settings projects-root PATH` or
-  `/settings import-project PATH`.
+- Configure daily-use values without leaving the TUI: `/settings projects-root PATH`,
+  `/settings import-project PATH`, `/settings records-root PATH|none`,
+  `/settings clipboard-retention-days N`, `/settings secrets-idle-lock-secs N`, and
+  `/settings hub-windows-max N`.
 
 - Empty Hub: `1`–`9` focuses visible window rows; status, “more”, and module rows are not numbered.
-- Empty Hub Continue: up to five privacy-safe recent objects appear after Windows. They use their
-  natural primary action; they are not window rows and never receive a digit shortcut. Recall is
-  bounded to 1,000 metadata rows and never stores clipboard bodies, snippet bodies, SSH config,
-  or submitted search text.
+- Empty Hub Continue: up to three items appear after Windows. Live running/paused timers come
+  first, followed by privacy-safe recent objects; each uses its natural primary action. They are
+  not window rows and never receive a digit shortcut. Recall is bounded to 1,000 metadata rows and
+  never stores clipboard bodies, snippet bodies, SSH config, or submitted search text.
 - `/win`: `1`–`9` works only while the result list is focused. Digits typed in the prompt are never hijacked.
-- `/wb due`, `/wb new`, `/wb wrong`: normal lists. `/wb review due|new|wrong`: Enter/Space reveals, `1/2/3` grades, `m` masters after confirmation, `s` skips, Esc exits. `/wb import PATH` accepts a regular non-symlink UTF-8 CSV up to 512 KiB.
-- `/rec`: searches Records. Use `/rec browse`, `/rec add CATEGORY NAME | rating | note`, `/rec rate ID SCORE`, and `/rec note ID TEXT`.
+- `/wb today`, `/wb due`, `/wb new`, `/wb wrong`: normal lists. `/wb review` starts today's
+  queue (due first, then new words up to the remaining goal); append `due|new|wrong` for a specific
+  queue. Enter/Space reveals, `1/2/3` grades, `m` masters after confirmation, `s` skips, Esc exits.
+  `/wb import PATH` accepts a regular non-symlink UTF-8 CSV up to 512 KiB; `/wb backup` writes an
+  atomic SQLite snapshot under `LumaNext/backups/`.
+- `/rec`: searches Records. Use `/rec recent|unrated|top`, `/rec browse`,
+  `/rec add CATEGORY NAME | rating | note`, `/rec rate ID SCORE`, `/rec note ID TEXT`, and
+  `/rec backup`.
+- `/clip pause [30s|10m|2h|1d]`, `/clip resume`, and `/clip status` control session capture.
+  Concealed/transient password-manager pasteboard types are never stored in history.
+- `/s add-from-clipboard TRIGGER` preserves multiline snippet bodies. `/s backup` and
+  `/ql backup` create SQLite snapshots under `LumaNext/backups/`.
 - `/proj`: lists only manually imported projects, recall-ranked by recent/frequent associated
   actions. Enter opens `/proj show PATH`, a single-project workbench with Continue, local Git
   summary, associated Runtime listeners, matching Command Recipes, bounded file browsing, Finder,
@@ -147,10 +159,15 @@ backup, and migration ledger, never the Markdown source files.
 - `/run` (or `/ports`): lists local TCP listeners with port, address, PID, process, owner, cwd, and
   imported-project association. Enter opens that project's `/proj show PATH` workbench. SIGTERM is confirmation-gated,
   same-user only, identity-rechecked, and never escalates to SIGKILL.
-- `/proxy status` is a read-only snapshot of HTTP/HTTPS/SOCKS settings, controller, and Luma-owned
+- `/proxy` is a compact status + group-summary view; `/proxy group NAME` expands nodes.
+  `/proxy status` is a read-only snapshot of HTTP/HTTPS/SOCKS settings, controller, and Luma-owned
   profile state. `/proxy check` performs on-demand local route/DNS/loopback/controller checks; it
   has no daemon or probe-port subsystem.
-- `/ssh`: lists Host aliases from `~/.ssh/config`; Enter runs `ssh <alias>` in the current terminal (TUI suspends first); `/ssh fav` / `/ssh recent` / `/ssh rename ALIAS NAME` / `/ssh reload`; action picker: Open SFTP, Copy alias, Favorite/Unfavorite, Delete local metadata. See [`docs/SSH.md`](docs/SSH.md).
+- `/ssh`: lists Host aliases from `~/.ssh/config` and re-reads config/Include files whenever the
+  targeted surface is visited; Enter runs `ssh <alias>` in the current terminal (TUI suspends
+  first). `/ssh fav` / `/ssh recent` / `/ssh rename ALIAS NAME` / `/ssh reload`; action picker:
+  Open SFTP, Copy alias, Favorite/Unfavorite, Delete local metadata. See
+  [`docs/SSH.md`](docs/SSH.md).
 - There is no `luma doctor`, `:doctor`, or diagnostics overlay. Modules report `permission`, `unavailable`, or `not_configured` locally when applicable.
 
 Optional importers: `luma migrate …` with an explicit legacy path (dry-run by default).

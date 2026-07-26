@@ -289,6 +289,53 @@ impl LumaModule for TimersModule {
         }
     }
 
+    fn supports_hub_items(&self) -> bool {
+        true
+    }
+
+    async fn hub_items(&self, limit: usize) -> Vec<SearchItem> {
+        let Ok(now) = self.now_ms() else {
+            return Vec::new();
+        };
+        let mut entries = self
+            .index
+            .read()
+            .await
+            .iter()
+            .filter(|entry| matches!(entry.state.as_str(), "running" | "paused"))
+            .cloned()
+            .collect::<Vec<_>>();
+        entries.sort_by(|left, right| {
+            (right.state == "running")
+                .cmp(&(left.state == "running"))
+                .then_with(|| left.created_at_ms.cmp(&right.created_at_ms))
+        });
+        entries
+            .into_iter()
+            .take(limit)
+            .map(|entry| {
+                let (action_id, action_label) = primary_for(&entry);
+                SearchItem {
+                    id: luma_domain::ResultId::new(format!("tm:{}", entry.id)),
+                    module_id: ModuleId::new("luma.timers"),
+                    title: timer_title(&entry, now),
+                    subtitle: Some(timer_subtitle(&entry)),
+                    kind: "timer".into(),
+                    score: 100.0,
+                    primary_action: ActionDescriptor {
+                        id: ActionId::new(action_id),
+                        label: action_label.into(),
+                        risk: ActionRisk::Safe,
+                        confirmation: false,
+                    },
+                    secondary_actions: vec![],
+                    ui_intent: None,
+                    action_payload: Some(serde_json::json!({ "timer_id": entry.id })),
+                }
+            })
+            .collect()
+    }
+
     async fn actions(&self, result: &SearchItem) -> Vec<ActionDescriptor> {
         if result.id.as_str().starts_with("tm:create:cd")
             || result.primary_action.id.as_str() == "create_countdown"
@@ -710,6 +757,23 @@ mod tests {
         let running = m.store.get(&created.id).unwrap().unwrap();
         assert_eq!(running.elapsed_ms(clock.ms()), 25_000);
         m.teardown().await;
+    }
+
+    #[tokio::test]
+    async fn running_timer_is_projected_to_hub_with_live_primary_action() {
+        let (m, clock, _) = module_at(1_000_000);
+        m.refresh_index().await.unwrap();
+        let created = m
+            .create_and_start("Focus", "countdown", Some(60_000))
+            .await
+            .unwrap();
+        clock.advance_ms(10_000);
+
+        let rows = m.hub_items(3).await;
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].id.as_str(), format!("tm:{}", created.id));
+        assert!(rows[0].title.contains("00:50"));
+        assert_eq!(rows[0].primary_action.id.as_str(), "pause");
     }
 
     #[tokio::test]

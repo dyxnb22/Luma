@@ -96,6 +96,27 @@ impl RecordsRepository for SqliteRecordsRepository {
             .map_err(|e| RecordsRepoError::msg(e.to_string()))
     }
 
+    fn list_recent(&self, limit: usize) -> Result<Vec<RecordEntry>, RecordsRepoError> {
+        self.store
+            .list_recent(limit)
+            .map(|rows| rows.into_iter().map(map_record).collect())
+            .map_err(|e| RecordsRepoError::msg(e.to_string()))
+    }
+
+    fn list_unrated(&self, limit: usize) -> Result<Vec<RecordEntry>, RecordsRepoError> {
+        self.store
+            .list_unrated(limit)
+            .map(|rows| rows.into_iter().map(map_record).collect())
+            .map_err(|e| RecordsRepoError::msg(e.to_string()))
+    }
+
+    fn list_top(&self, limit: usize) -> Result<Vec<RecordEntry>, RecordsRepoError> {
+        self.store
+            .list_top(limit)
+            .map(|rows| rows.into_iter().map(map_record).collect())
+            .map_err(|e| RecordsRepoError::msg(e.to_string()))
+    }
+
     fn search(
         &self,
         query: &str,

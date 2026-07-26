@@ -9,7 +9,7 @@ use luma_domain::{
     ActionDescriptor, ActionId, ActionRisk, FailureKind, ModuleId, Query, SearchItem,
 };
 use luma_protocol::{Event, SearchItemDto};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicI64, AtomicU64, Ordering};
 use std::sync::Arc;
 use tokio::sync::{Mutex, RwLock};
 use tokio::task::JoinHandle;
@@ -18,6 +18,8 @@ use tokio_util::sync::CancellationToken;
 use crate::clipboard_privacy::ClipboardSuppression;
 
 const DEFAULT_RETENTION_DAYS: u32 = 30;
+const PAUSED_INDEFINITELY: i64 = i64::MAX;
+const MAX_TIMED_PAUSE_SECONDS: u64 = 7 * 24 * 60 * 60;
 
 pub struct ClipboardModule {
     manifest: ModuleManifest,
@@ -27,6 +29,7 @@ pub struct ClipboardModule {
     window_catalog: Arc<dyn WindowCatalogPort>,
     suppression: Arc<ClipboardSuppression>,
     retention_days: Arc<std::sync::atomic::AtomicU32>,
+    capture_paused_until: Arc<AtomicI64>,
     last_seen_text: Arc<Mutex<Option<String>>>,
     index: Arc<RwLock<Vec<ClipboardEntry>>>,
     store_error: Arc<RwLock<Option<String>>>,
@@ -67,6 +70,7 @@ impl ClipboardModule {
             window_catalog,
             suppression,
             retention_days: Arc::new(std::sync::atomic::AtomicU32::new(DEFAULT_RETENTION_DAYS)),
+            capture_paused_until: Arc::new(AtomicI64::new(0)),
             last_seen_text: Arc::new(Mutex::new(None)),
             index: Arc::new(RwLock::new(Vec::new())),
             store_error: Arc::new(RwLock::new(None)),
@@ -78,6 +82,67 @@ impl ClipboardModule {
 
     pub fn suppression(&self) -> Arc<ClipboardSuppression> {
         self.suppression.clone()
+    }
+
+    fn unix_now() -> i64 {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|duration| duration.as_secs() as i64)
+            .unwrap_or(0)
+    }
+
+    fn capture_pause(until: &AtomicI64, now: i64) -> Option<i64> {
+        let value = until.load(Ordering::Relaxed);
+        if value == PAUSED_INDEFINITELY || value > now {
+            Some(value)
+        } else {
+            if value != 0 {
+                until.store(0, Ordering::Relaxed);
+            }
+            None
+        }
+    }
+
+    fn parse_pause_duration(value: &str) -> Result<Option<u64>, String> {
+        let value = value.trim();
+        if value.is_empty() {
+            return Ok(None);
+        }
+        let split = value
+            .find(|character: char| !character.is_ascii_digit())
+            .unwrap_or(value.len());
+        let (number, suffix) = value.split_at(split);
+        let amount = number
+            .parse::<u64>()
+            .map_err(|_| "duration must look like 30s, 10m, 2h, or 1d".to_string())?;
+        let multiplier = match suffix {
+            "s" => 1,
+            "m" => 60,
+            "h" => 60 * 60,
+            "d" => 24 * 60 * 60,
+            _ => return Err("duration must use s, m, h, or d".into()),
+        };
+        let seconds = amount
+            .checked_mul(multiplier)
+            .filter(|seconds| *seconds > 0 && *seconds <= MAX_TIMED_PAUSE_SECONDS)
+            .ok_or_else(|| "pause duration must be between 1 second and 7 days".to_string())?;
+        Ok(Some(seconds))
+    }
+
+    fn pause_subtitle(seconds: Option<u64>) -> String {
+        match seconds {
+            None => "Capture remains paused until /clip resume".into(),
+            Some(seconds) if seconds % 86_400 == 0 => {
+                format!("Pause capture for {} day(s)", seconds / 86_400)
+            }
+            Some(seconds) if seconds % 3_600 == 0 => {
+                format!("Pause capture for {} hour(s)", seconds / 3_600)
+            }
+            Some(seconds) if seconds % 60 == 0 => {
+                format!("Pause capture for {} minute(s)", seconds / 60)
+            }
+            Some(seconds) => format!("Pause capture for {seconds} second(s)"),
+        }
     }
 
     async fn refresh_index(
@@ -116,6 +181,7 @@ impl ClipboardModule {
         pasteboard: &dyn PasteboardPort,
         suppression: &ClipboardSuppression,
         last_seen_text: &Mutex<Option<String>>,
+        capture_paused_until: &AtomicI64,
         retention_days: u32,
         generation: u64,
         refresh_generation: &AtomicU64,
@@ -123,7 +189,16 @@ impl ClipboardModule {
         if refresh_generation.load(Ordering::SeqCst) != generation {
             return;
         }
-        if let Ok(Some(text)) = pasteboard.read_text().await {
+        if Self::capture_pause(capture_paused_until, Self::unix_now()).is_some() {
+            return;
+        }
+        if let Ok(snapshot) = pasteboard.read_for_capture().await {
+            if !snapshot.capture_allowed {
+                return;
+            }
+            let Some(text) = snapshot.text else {
+                return;
+            };
             if refresh_generation.load(Ordering::SeqCst) != generation {
                 return;
             }
@@ -183,6 +258,7 @@ impl ClipboardModule {
         let pasteboard = self.pasteboard.clone();
         let suppression = self.suppression.clone();
         let last_seen_text = self.last_seen_text.clone();
+        let capture_paused_until = self.capture_paused_until.clone();
         let retention_days = self.retention_days.clone();
         let refresh_generation = self.refresh_generation.clone();
         let generation = refresh_generation.load(Ordering::SeqCst);
@@ -200,6 +276,7 @@ impl ClipboardModule {
                             pasteboard.as_ref(),
                             &suppression,
                             &last_seen_text,
+                            &capture_paused_until,
                             days,
                             generation,
                             &refresh_generation,
@@ -247,8 +324,10 @@ impl LumaModule for ClipboardModule {
             }
             // Seed last_seen from the current pasteboard without capturing into history.
             // Avoids writing a pre-existing secret (e.g. after Secrets copy + restart).
-            if let Ok(Some(text)) = self.pasteboard.read_text().await {
-                *self.last_seen_text.lock().await = Some(text);
+            if let Ok(snapshot) = self.pasteboard.read_for_capture().await {
+                if snapshot.capture_allowed {
+                    *self.last_seen_text.lock().await = snapshot.text;
+                }
             }
             let days = self
                 .retention_days
@@ -283,8 +362,129 @@ impl LumaModule for ClipboardModule {
         } else {
             query.limit
         };
+        let targeted = matches!(query.scope, luma_domain::QueryScope::Targeted { .. });
         let needle = needle.to_lowercase();
-        if needle == "clear" {
+        if targeted && (needle == "pause" || needle.starts_with("pause ")) {
+            let duration = needle.strip_prefix("pause").unwrap_or_default().trim();
+            let seconds = match Self::parse_pause_duration(duration) {
+                Ok(seconds) => seconds,
+                Err(message) => {
+                    let _ = sink
+                        .send(Event::ResultsChunk {
+                            request_id: String::new(),
+                            sequence: 1,
+                            upserts: vec![SearchItemDto {
+                                id: "clip:pause-invalid".into(),
+                                module_id: "luma.clipboard".into(),
+                                title: "Invalid clipboard pause duration".into(),
+                                subtitle: Some(format!("{message} · example: /clip pause 10m")),
+                                kind: "command_error".into(),
+                                score: 100.0,
+                                primary_action_id: "noop".into(),
+                                primary_action_label: "Unavailable".into(),
+                                ..Default::default()
+                            }],
+                            removed_ids: vec![],
+                        })
+                        .await;
+                    return;
+                }
+            };
+            let id = seconds
+                .map(|value| format!("clip:pause:{value}"))
+                .unwrap_or_else(|| "clip:pause:forever".into());
+            let _ = sink
+                .send(Event::ResultsChunk {
+                    request_id: String::new(),
+                    sequence: 1,
+                    upserts: vec![SearchItemDto {
+                        id,
+                        module_id: "luma.clipboard".into(),
+                        title: "Pause clipboard capture".into(),
+                        subtitle: Some(Self::pause_subtitle(seconds)),
+                        kind: "manage".into(),
+                        score: 100.0,
+                        primary_action_id: "pause".into(),
+                        primary_action_label: "Pause capture".into(),
+                        ..Default::default()
+                    }],
+                    removed_ids: vec![],
+                })
+                .await;
+            return;
+        }
+        if targeted && needle == "resume" {
+            let _ = sink
+                .send(Event::ResultsChunk {
+                    request_id: String::new(),
+                    sequence: 1,
+                    upserts: vec![SearchItemDto {
+                        id: "clip:resume".into(),
+                        module_id: "luma.clipboard".into(),
+                        title: "Resume clipboard capture".into(),
+                        subtitle: Some("New text copies will be stored again".into()),
+                        kind: "manage".into(),
+                        score: 100.0,
+                        primary_action_id: "resume".into(),
+                        primary_action_label: "Resume capture".into(),
+                        ..Default::default()
+                    }],
+                    removed_ids: vec![],
+                })
+                .await;
+            return;
+        }
+        if targeted && needle == "status" {
+            let now = Self::unix_now();
+            let pause = Self::capture_pause(&self.capture_paused_until, now);
+            let (id, title, subtitle, action, label) = match pause {
+                Some(PAUSED_INDEFINITELY) => (
+                    "clip:resume",
+                    "Clipboard capture is paused",
+                    "Paused until manually resumed",
+                    "resume",
+                    "Resume capture",
+                ),
+                Some(_) => (
+                    "clip:resume",
+                    "Clipboard capture is paused",
+                    "Timed pause is active",
+                    "resume",
+                    "Resume capture",
+                ),
+                None => (
+                    "clip:pause:forever",
+                    "Clipboard capture is active",
+                    "Sensitive pasteboard types and secret-like text are skipped",
+                    "pause",
+                    "Pause capture",
+                ),
+            };
+            let subtitle = pause
+                .filter(|until| *until != PAUSED_INDEFINITELY)
+                .map(|until| format!("Resumes in {} second(s)", until.saturating_sub(now)))
+                .unwrap_or_else(|| subtitle.into());
+            let _ = sink
+                .send(Event::ResultsChunk {
+                    request_id: String::new(),
+                    sequence: 1,
+                    upserts: vec![SearchItemDto {
+                        id: id.into(),
+                        module_id: "luma.clipboard".into(),
+                        title: title.into(),
+                        subtitle: Some(subtitle),
+                        kind: "manage".into(),
+                        score: 100.0,
+                        primary_action_id: action.into(),
+                        primary_action_label: label.into(),
+                        ..Default::default()
+                    }],
+                    removed_ids: vec![],
+                })
+                .await;
+            return;
+        }
+        if targeted && needle == "clear" {
             let _ = sink
                 .send(Event::ResultsChunk {
                     request_id: String::new(),
@@ -447,6 +647,22 @@ impl LumaModule for ClipboardModule {
     }
 
     async fn actions(&self, result: &SearchItem) -> Vec<ActionDescriptor> {
+        if result.id.as_str().starts_with("clip:pause:") {
+            return vec![ActionDescriptor {
+                id: ActionId::new("pause"),
+                label: "Pause capture".into(),
+                risk: ActionRisk::Safe,
+                confirmation: false,
+            }];
+        }
+        if result.id.as_str() == "clip:resume" {
+            return vec![ActionDescriptor {
+                id: ActionId::new("resume"),
+                label: "Resume capture".into(),
+                risk: ActionRisk::Safe,
+                confirmation: false,
+            }];
+        }
         if result.id.as_str() == "clip:clear" {
             return vec![ActionDescriptor {
                 id: ActionId::new("clear"),
@@ -544,6 +760,45 @@ impl LumaModule for ClipboardModule {
 
         match action.action.id.as_str() {
             "noop" => ActionOutcome::Success { message: None },
+            "pause" => {
+                let value = action
+                    .result
+                    .id
+                    .as_str()
+                    .strip_prefix("clip:pause:")
+                    .and_then(|value| {
+                        if value == "forever" {
+                            Some(PAUSED_INDEFINITELY)
+                        } else {
+                            value
+                                .parse::<i64>()
+                                .ok()
+                                .map(|seconds| Self::unix_now().saturating_add(seconds.max(1)))
+                        }
+                    });
+                let Some(until) = value else {
+                    return ActionOutcome::Failed {
+                        kind: FailureKind::InvalidInput {
+                            field: "result_id".into(),
+                            message: "expected clip:pause:<seconds|forever>".into(),
+                        },
+                    };
+                };
+                self.capture_paused_until.store(until, Ordering::Relaxed);
+                ActionOutcome::Success {
+                    message: Some(if until == PAUSED_INDEFINITELY {
+                        "clipboard capture paused until resumed".into()
+                    } else {
+                        "clipboard capture paused".into()
+                    }),
+                }
+            }
+            "resume" => {
+                self.capture_paused_until.store(0, Ordering::Relaxed);
+                ActionOutcome::Success {
+                    message: Some("clipboard capture resumed".into()),
+                }
+            }
             "copy" => {
                 let Some(id) = id else {
                     return ActionOutcome::Failed {
@@ -564,7 +819,7 @@ impl LumaModule for ClipboardModule {
                                 self.suppression
                                     .suppress(&row.text, std::time::Duration::from_secs(45));
                                 ActionOutcome::Success {
-                                    message: Some("copied".into()),
+                                    message: Some("copied clipboard entry".into()),
                                 }
                             }
                             Some(Err(err)) => ActionOutcome::Failed {
@@ -764,6 +1019,7 @@ impl LumaModule for ClipboardModule {
         *self.index.write().await = Vec::new();
         *self.store_error.write().await = None;
         *self.last_seen_text.lock().await = None;
+        self.capture_paused_until.store(0, Ordering::Relaxed);
     }
 
     async fn apply_settings(&self, settings: &luma_application::AppSettings) {
@@ -779,6 +1035,7 @@ mod tests {
     use async_trait::async_trait;
     use luma_application::{
         FakeAccessibility, FakeWindowCatalog, MemoryClipboardHistory, PasteboardError,
+        PasteboardSnapshot,
     };
     use tokio::sync::Mutex as TokioMutex;
 
@@ -799,6 +1056,26 @@ mod tests {
         written: TokioMutex<Option<String>>,
         started: tokio::sync::Notify,
         release: TokioMutex<Option<tokio::sync::oneshot::Receiver<()>>>,
+    }
+
+    struct PrivatePb;
+
+    #[async_trait]
+    impl PasteboardPort for PrivatePb {
+        async fn read_text(&self) -> Result<Option<String>, PasteboardError> {
+            Ok(Some("random-password-without-keywords".into()))
+        }
+
+        async fn read_for_capture(&self) -> Result<PasteboardSnapshot, PasteboardError> {
+            Ok(PasteboardSnapshot {
+                text: None,
+                capture_allowed: false,
+            })
+        }
+
+        async fn write_text(&self, _text: &str) -> Result<(), PasteboardError> {
+            Ok(())
+        }
     }
 
     #[async_trait]
@@ -829,6 +1106,105 @@ mod tests {
 
     fn test_repo() -> Arc<dyn ClipboardHistoryRepository> {
         Arc::new(MemoryClipboardHistory::new())
+    }
+
+    fn manage_request(result_id: &str, action_id: &str) -> ActionRequest {
+        let descriptor = ActionDescriptor {
+            id: ActionId::new(action_id),
+            label: action_id.into(),
+            risk: ActionRisk::Safe,
+            confirmation: false,
+        };
+        ActionRequest {
+            result: SearchItem {
+                id: luma_domain::ResultId::new(result_id),
+                module_id: ModuleId::new("luma.clipboard"),
+                title: action_id.into(),
+                subtitle: None,
+                kind: "manage".into(),
+                score: 100.0,
+                primary_action: descriptor.clone(),
+                secondary_actions: vec![],
+                ui_intent: None,
+                action_payload: None,
+            },
+            action: descriptor,
+            confirmation: false,
+        }
+    }
+
+    #[test]
+    fn clipboard_pause_duration_is_bounded_and_explicit() {
+        assert_eq!(ClipboardModule::parse_pause_duration("").unwrap(), None);
+        assert_eq!(
+            ClipboardModule::parse_pause_duration("10m").unwrap(),
+            Some(600)
+        );
+        assert_eq!(
+            ClipboardModule::parse_pause_duration("2h").unwrap(),
+            Some(7_200)
+        );
+        assert!(ClipboardModule::parse_pause_duration("10").is_err());
+        assert!(ClipboardModule::parse_pause_duration("8d").is_err());
+    }
+
+    #[tokio::test]
+    async fn pause_and_resume_control_capture_state() {
+        let module = ClipboardModule::with_deps(
+            test_repo(),
+            Arc::new(MemPb(TokioMutex::new(None))),
+            denied_ax(),
+            test_catalog(),
+            Arc::new(ClipboardSuppression::new()),
+        );
+        let paused = module
+            .perform(
+                manage_request("clip:pause:600", "pause"),
+                CancellationToken::new(),
+            )
+            .await;
+        assert!(matches!(paused, ActionOutcome::Success { .. }));
+        assert!(ClipboardModule::capture_pause(
+            &module.capture_paused_until,
+            ClipboardModule::unix_now()
+        )
+        .is_some());
+
+        let resumed = module
+            .perform(
+                manage_request("clip:resume", "resume"),
+                CancellationToken::new(),
+            )
+            .await;
+        assert!(matches!(resumed, ActionOutcome::Success { .. }));
+        assert_eq!(module.capture_paused_until.load(Ordering::Relaxed), 0);
+    }
+
+    #[tokio::test]
+    async fn private_pasteboard_metadata_prevents_history_capture() {
+        let store = MemoryClipboardHistory::new();
+        let index = RwLock::new(Vec::new());
+        let store_error = RwLock::new(None);
+        let last_seen = Mutex::new(None);
+        let generation = AtomicU64::new(0);
+        let paused_until = AtomicI64::new(0);
+
+        ClipboardModule::capture_once(
+            &store,
+            &index,
+            &store_error,
+            &PrivatePb,
+            &ClipboardSuppression::new(),
+            &last_seen,
+            &paused_until,
+            DEFAULT_RETENTION_DAYS,
+            0,
+            &generation,
+        )
+        .await;
+
+        assert!(store.list_page(0, 10).unwrap().is_empty());
+        assert!(last_seen.lock().await.is_none());
     }
 
     #[tokio::test]

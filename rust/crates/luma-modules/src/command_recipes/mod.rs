@@ -212,7 +212,7 @@ impl CommandRecipesModule {
     async fn query_context(
         &self,
         query: &Query,
-    ) -> Result<(PathBuf, String, Option<String>), RecipeQueryContextError> {
+    ) -> Result<(PathBuf, String, Option<String>, bool), RecipeQueryContextError> {
         let rest_raw = query.rest_raw().trim();
         let rest_lower = rest_raw.to_lowercase();
         if rest_lower == "project" || rest_lower.starts_with("project ") {
@@ -237,7 +237,7 @@ impl CommandRecipesModule {
                     reason: "project is not in the imported Projects list".into(),
                 });
             }
-            return Ok((PathBuf::from(path), String::new(), Some(path.into())));
+            return Ok((PathBuf::from(path), String::new(), Some(path.into()), false));
         }
         let base = self
             .env
@@ -247,7 +247,7 @@ impl CommandRecipesModule {
                 kind: "unavailable",
                 reason: error.0,
             })?;
-        let filter = if query.is_command() {
+        let mut filter = if query.is_command() {
             query
                 .normalized
                 .split_whitespace()
@@ -257,7 +257,15 @@ impl CommandRecipesModule {
         } else {
             query.normalized.clone()
         };
-        Ok((base, filter, None))
+        let show_all = filter == "all" || filter.starts_with("all ");
+        if show_all {
+            filter = filter
+                .strip_prefix("all")
+                .unwrap_or_default()
+                .trim_start()
+                .to_string();
+        }
+        Ok((base, filter, None, show_all))
     }
 
     fn copy_text(plan: &RecipeRunPlan) -> String {
@@ -387,7 +395,7 @@ impl LumaModule for CommandRecipesModule {
             return;
         }
 
-        let (base, filter, project_path) = match self.query_context(&query).await {
+        let (base, filter, project_path, show_all) = match self.query_context(&query).await {
             Ok(context) => context,
             Err(error) => {
                 let _ = sink
@@ -426,7 +434,14 @@ impl LumaModule for CommandRecipesModule {
                 VariantMatch::Matched(v) => (true, Some(v.id.clone())),
                 VariantMatch::NoMatch => (false, None),
             };
+            if !matched && !show_all && (filter.is_empty() || score < 90.0) {
+                continue;
+            }
             let kind = if matched { "recipe" } else { "no_match" };
+            // Targeted result stores sort by score rather than emission order. Keep runnable
+            // recipes in their normal relevance bands and move explicitly requested incompatible
+            // definitions below them; global search filters `no_match` rows entirely.
+            let display_score = if matched { score } else { score - 1_000.0 };
             let primary = ActionDescriptor {
                 id: ActionId::new("preview"),
                 label: "Preview".into(),
@@ -444,7 +459,7 @@ impl LumaModule for CommandRecipesModule {
                     matched,
                 )),
                 kind: kind.into(),
-                score,
+                score: display_score,
                 primary_action_id: primary.id.as_str().to_string(),
                 primary_action_label: primary.label.clone(),
                 primary_action_risk: primary.risk.clone(),
@@ -461,9 +476,16 @@ impl LumaModule for CommandRecipesModule {
         }
 
         upserts.sort_by(|a, b| {
-            b.score
-                .partial_cmp(&a.score)
-                .unwrap_or(std::cmp::Ordering::Equal)
+            let a_matched = a.kind != "no_match";
+            let b_matched = b.kind != "no_match";
+            b_matched
+                .cmp(&a_matched)
+                .then_with(|| {
+                    b.score
+                        .partial_cmp(&a.score)
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                })
+                .then_with(|| a.title.cmp(&b.title))
         });
 
         let warnings: Vec<_> = catalog.warnings().cloned().collect();
@@ -773,6 +795,17 @@ mod tests {
         )
     }
 
+    async fn search_rows(module: &CommandRecipesModule, prompt: &str) -> Vec<SearchItemDto> {
+        let (tx, mut rx) = tokio::sync::mpsc::channel(8);
+        module
+            .search(Query::parse(prompt, 100), tx, CancellationToken::new())
+            .await;
+        let Event::ResultsChunk { upserts, .. } = rx.recv().await.unwrap() else {
+            panic!("expected results");
+        };
+        upserts
+    }
+
     #[tokio::test]
     async fn cargo_project_matches_rust_test_variant() {
         let env = FakeRecipeEnvironment::new("/proj");
@@ -828,6 +861,60 @@ mod tests {
                 kind: FailureKind::InvalidInput { .. }
             }
         ));
+    }
+
+    #[tokio::test]
+    async fn default_recipe_surface_hides_inapplicable_catalogue_rows() {
+        let module = test_module(FakeRecipeEnvironment::new("/empty"));
+        let rows = search_rows(&module, "/cmd ").await;
+        assert!(rows.iter().all(|row| row.kind != "no_match"));
+
+        let all_rows = search_rows(&module, "/cmd all").await;
+        assert!(all_rows.iter().any(|row| row.kind == "no_match"));
+    }
+
+    #[tokio::test]
+    async fn all_surface_orders_runnable_recipes_before_inapplicable_ones() {
+        let env = FakeRecipeEnvironment::new("/proj");
+        env.add_file(PathBuf::from("/proj/Cargo.toml"));
+        env.add_command("cargo");
+        let module = test_module(env);
+        let rows = search_rows(&module, "/cmd all").await;
+        let first_no_match = rows
+            .iter()
+            .position(|row| row.kind == "no_match")
+            .expect("catalogue contains non-Rust recipes");
+        assert!(rows[..first_no_match]
+            .iter()
+            .all(|row| row.kind == "recipe"));
+        assert!(rows[first_no_match..]
+            .iter()
+            .all(|row| row.kind == "no_match"));
+    }
+
+    #[tokio::test]
+    async fn git_recipes_match_regular_repositories_and_worktrees() {
+        let regular = FakeRecipeEnvironment::new("/repo");
+        regular.add_directory(PathBuf::from("/repo/.git"));
+        regular.add_command("git");
+        let regular_rows = search_rows(&test_module(regular), "/cmd git").await;
+        let regular_git = regular_rows
+            .iter()
+            .filter(|row| row.id.starts_with("cmd:git-"))
+            .collect::<Vec<_>>();
+        assert!(!regular_git.is_empty());
+        assert!(regular_git.iter().all(|row| row.kind == "recipe"));
+
+        let worktree = FakeRecipeEnvironment::new("/worktree");
+        worktree.add_file(PathBuf::from("/worktree/.git"));
+        worktree.add_command("git");
+        let worktree_rows = search_rows(&test_module(worktree), "/cmd git").await;
+        let worktree_git = worktree_rows
+            .iter()
+            .filter(|row| row.id.starts_with("cmd:git-"))
+            .collect::<Vec<_>>();
+        assert!(!worktree_git.is_empty());
+        assert!(worktree_git.iter().all(|row| row.kind == "recipe"));
     }
 
     #[tokio::test]

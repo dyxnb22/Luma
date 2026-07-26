@@ -16,6 +16,25 @@ pub struct SettingsRootsInfo {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SettingsValues {
+    pub records_root: Option<String>,
+    pub clipboard_retention_days: u32,
+    pub secrets_idle_lock_secs: u32,
+    pub hub_windows_max: u32,
+}
+
+impl Default for SettingsValues {
+    fn default() -> Self {
+        Self {
+            records_root: None,
+            clipboard_retention_days: 30,
+            secrets_idle_lock_secs: 300,
+            hub_windows_max: 7,
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct WordbookReviewWord {
     pub id: i64,
     pub term: String,
@@ -63,6 +82,14 @@ pub struct ModuleCatalogEntry {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CommandPaletteEntry {
+    pub id: String,
+    pub label: String,
+    pub description: String,
+    pub query: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct HubWindowRow {
     pub id: String,
     pub title: String,
@@ -104,6 +131,7 @@ pub struct SettingsState {
     pub version: u64,
     pub modules: Vec<SettingsModuleRow>,
     pub roots: SettingsRootsInfo,
+    pub values: SettingsValues,
 }
 
 /// State owned by transient help/command overlays and prompt restoration.
@@ -111,6 +139,7 @@ pub struct SettingsState {
 pub struct OverlayState {
     pub help_scroll: usize,
     pub commands_selected: usize,
+    pub commands_filter: String,
     pub restore_prompt: Option<String>,
 }
 

@@ -218,7 +218,7 @@ pub(super) fn render_overlay_help(
     // Shortcuts first (compact), then enabled modules — config tips last so narrow
     // terminals still see modules after a short scroll.
     let mut lines: Vec<String> = vec![
-        "Triggers need a trailing space (`/clip text`) · Esc clears · empty Esc quits".to_string(),
+        "Enter opens a bare trigger (`/clip`) · unprefixed text is global search".to_string(),
         "Enter action · Ctrl-k actions · Ctrl-/ commands · Tab focus · S-Tab preview · ? help"
             .to_string(),
         format!(
@@ -254,7 +254,10 @@ pub(super) fn render_overlay_help(
     lines.push("Config: luma config set --projects-root ~/dev".to_string());
     lines.push("        /proj add /path/to/project (manual import)".to_string());
     lines.push("        /proj show NAME|PATH (project workbench)".to_string());
-    lines.push("Wordbook: /wb review · /wb review new/wrong · 1/2/3/m in session".to_string());
+    lines.push(
+        "Wordbook: /wb review (today) · due/new/wrong queues · 1/2/3/m in session".to_string(),
+    );
+    lines.push("Backups: /wb backup · /rec backup · /s backup · /ql backup".to_string());
     lines.push("Confirm / Destructive actions always ask first.".to_string());
 
     let overlay = overlay_area(area, (area.height.saturating_sub(2)).clamp(12, 22));
@@ -317,6 +320,39 @@ pub(super) fn render_overlay_settings(
     };
     items.push(ListItem::new(Span::styled(
         projects_line,
+        with_panel_bg(theme.muted(), theme),
+    )));
+    items.push(ListItem::new(Span::styled(
+        fit(format!(
+            " Records: {} · /settings records-root PATH",
+            state
+                .settings
+                .values
+                .records_root
+                .as_deref()
+                .unwrap_or("(none)")
+        )),
+        with_panel_bg(theme.muted(), theme),
+    )));
+    items.push(ListItem::new(Span::styled(
+        fit(format!(
+            " Clipboard: {}d · /settings clipboard-retention-days N",
+            state.settings.values.clipboard_retention_days
+        )),
+        with_panel_bg(theme.muted(), theme),
+    )));
+    items.push(ListItem::new(Span::styled(
+        fit(format!(
+            " Secrets lock: {}s · /settings secrets-idle-lock-secs N",
+            state.settings.values.secrets_idle_lock_secs
+        )),
+        with_panel_bg(theme.muted(), theme),
+    )));
+    items.push(ListItem::new(Span::styled(
+        fit(format!(
+            " Hub windows: {} · /settings hub-windows-max N",
+            state.settings.values.hub_windows_max
+        )),
         with_panel_bg(theme.muted(), theme),
     )));
     let imported_line = if state.settings.roots.imported_projects.is_empty() {
@@ -427,18 +463,24 @@ pub(super) fn render_overlay_commands(
     symbols: &Symbols,
 ) {
     dim_backdrop(frame, area, theme);
-    let overlay = overlay_area(area, 10);
+    let commands = state.command_palette_rows();
+    let overlay = overlay_area(area, (commands.len() as u16).saturating_add(2).clamp(8, 18));
     fill_overlay_panel(frame, overlay, theme);
     let panel = panel_style(theme);
-    let commands = [
-        ("settings", "Open module settings"),
-        ("help", "Keyboard help"),
-        ("quit", "Quit Luma"),
-    ];
+    let visible_rows = overlay.height.saturating_sub(2) as usize;
+    let selected = state
+        .overlay
+        .commands_selected
+        .min(commands.len().saturating_sub(1));
+    let start = selected
+        .saturating_add(1)
+        .saturating_sub(visible_rows.max(1));
     let items: Vec<ListItem> = commands
         .iter()
         .enumerate()
-        .map(|(idx, (name, desc))| {
+        .skip(start)
+        .take(visible_rows.max(1))
+        .map(|(idx, entry)| {
             let selected = idx == state.overlay.commands_selected;
             let prefix = if selected { symbols.selected } else { " " };
             let style = if selected {
@@ -451,21 +493,28 @@ pub(super) fn render_overlay_commands(
             } else {
                 with_panel_bg(theme.muted(), theme)
             };
+            let command = entry
+                .query
+                .as_deref()
+                .map(str::trim_end)
+                .unwrap_or(entry.label.as_str());
             ListItem::new(Line::from(vec![
-                Span::styled(format!(" {prefix} /{name}  "), style),
-                Span::styled((*desc).to_string(), muted),
+                Span::styled(format!(" {prefix} {command}  "), style),
+                Span::styled(entry.description.clone(), muted),
             ]))
         })
         .collect();
+    let title = if state.overlay.commands_filter.is_empty() {
+        " commands · type to filter ".into()
+    } else {
+        format!(" commands · {} ", state.overlay.commands_filter)
+    };
     let list = List::new(items).style(panel).block(
         Block::default()
             .borders(Borders::ALL)
             .border_style(with_panel_bg(theme.border(true), theme))
             .style(panel)
-            .title(Span::styled(
-                " commands ",
-                with_panel_bg(theme.title(), theme),
-            )),
+            .title(Span::styled(title, with_panel_bg(theme.title(), theme))),
     );
     frame.render_widget(list, overlay);
 }

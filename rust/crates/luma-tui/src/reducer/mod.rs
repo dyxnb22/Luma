@@ -22,7 +22,7 @@ use engine::apply_engine;
 use navigation::{
     apply_hub_selection, cancel_msg, pick_window_digit, select_next_msg, select_prev_msg,
 };
-use overlays::{open_commands, open_settings, run_command_selection, toggle_setting, COMMANDS};
+use overlays::{open_commands, open_settings, run_command_selection, toggle_setting};
 use preview::{preview_effect, sync_prompt_viewport};
 use search::{begin_search, cancel_active, flush_pending_search_or_continue, schedule_search};
 
@@ -32,9 +32,8 @@ pub(crate) fn explicit_command_prompt(prompt: &str) -> Option<&str> {
     prompt.trim_start().strip_prefix('/').map(str::trim)
 }
 
-/// Parse the small set of path-setting commands that Luma can complete inside
-/// the workbench. The input stays slash-prefixed, and persistence still goes
-/// through the Engine's versioned settings CAS.
+/// Parse workbench-owned settings commands. The input stays slash-prefixed, and persistence
+/// goes through the Engine's versioned settings CAS.
 fn settings_patch_from_prompt(
     prompt: &str,
     current_project_roots: &[String],
@@ -57,21 +56,57 @@ fn settings_patch_from_prompt(
     // Preserve the path exactly apart from the command separator. Paths can
     // legitimately contain repeated spaces, which `split_whitespace` loses.
     let value = rest[field_end..].trim().to_string();
-    if value.is_empty() {
-        return Err(format!("/settings {field} needs a path"));
-    }
+    let parse_u32 = |name: &str, min: u32, max: u32| -> Result<u32, String> {
+        let parsed = value
+            .parse::<u32>()
+            .map_err(|_| format!("/settings {name} needs a number"))?;
+        if !(min..=max).contains(&parsed) {
+            return Err(format!("/settings {name} must be between {min} and {max}"));
+        }
+        Ok(parsed)
+    };
     let patch = match field {
         "projects-root" => {
+            if value.is_empty() {
+                return Err("/settings projects-root needs a path".into());
+            }
             let mut roots = current_project_roots.to_vec();
             if !roots.iter().any(|root| root == &value) {
                 roots.push(value);
             }
             serde_json::json!({ "projects_roots": roots })
         }
-        "import-project" => serde_json::json!({ "import_project": value }),
+        "import-project" => {
+            if value.is_empty() {
+                return Err("/settings import-project needs a path".into());
+            }
+            serde_json::json!({ "import_project": value })
+        }
+        "records-root" => {
+            if value.is_empty() {
+                return Err("/settings records-root needs PATH or none".into());
+            }
+            if matches!(value.as_str(), "none" | "off" | "-") {
+                serde_json::json!({ "records_root": null })
+            } else {
+                serde_json::json!({ "records_root": value })
+            }
+        }
+        "clipboard-retention-days" => {
+            let days = parse_u32(field, 1, 3_650)?;
+            serde_json::json!({ "clipboard_retention_days": days })
+        }
+        "secrets-idle-lock-secs" => {
+            let seconds = parse_u32(field, 0, 2_592_000)?;
+            serde_json::json!({ "secrets_idle_lock_secs": seconds })
+        }
+        "hub-windows-max" => {
+            let rows = parse_u32(field, 5, 50)?;
+            serde_json::json!({ "hub_windows_max": rows })
+        }
         _ => {
             return Err(format!(
-                "unknown /settings field: {field} (try projects-root or import-project)"
+                "unknown /settings field: {field} (open /settings for available fields)"
             ))
         }
     };

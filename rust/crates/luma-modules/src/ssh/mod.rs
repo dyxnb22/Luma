@@ -86,6 +86,11 @@ impl LumaModule for SshModule {
         if cancel.is_cancelled() {
             return;
         }
+        // Targeted SSH visits are the natural refresh boundary. This picks up edits to the
+        // config and Include files without a restart, while global search remains cache-only.
+        if !matches!(query.scope, luma_domain::QueryScope::Global) {
+            self.refresh().await;
+        }
         self.search_hosts(query, sink, cancel).await;
     }
     async fn actions(&self, result: &SearchItem) -> Vec<ActionDescriptor> {

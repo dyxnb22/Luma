@@ -541,14 +541,29 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn search_redacts_uuid_and_shows_status_and_selected_node() {
+    async fn overview_shows_group_summary_and_group_drilldown_shows_nodes() {
         let (module, _, _) = module();
         let items = collect_search_items(&module, Query::parse("proxy ", 20)).await;
         assert!(items
             .iter()
             .any(|item| item.title == "Proxy running · Rule"));
-        assert!(items.iter().any(|item| item.title == "V2Box-VPS"
-            && item.subtitle.as_deref().unwrap().contains("selected")));
+        assert!(items.iter().any(|item| {
+            item.title == "AI-VPS"
+                && item
+                    .subtitle
+                    .as_deref()
+                    .is_some_and(|subtitle| subtitle.contains("V2Box-VPS"))
+        }));
+        assert!(!items.iter().any(|item| item.kind == "proxy_node"));
+
+        let items = collect_search_items(&module, Query::parse("/proxy group ai-vps", 20)).await;
+        assert!(items.iter().any(|item| {
+            item.title == "V2Box-VPS"
+                && item
+                    .subtitle
+                    .as_deref()
+                    .is_some_and(|subtitle| subtitle.contains("selected"))
+        }));
         assert!(!redact_label("node-123e4567-e89b-12d3-a456-426614174000").contains("123e4567"));
     }
 

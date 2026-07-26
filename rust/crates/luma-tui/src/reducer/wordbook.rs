@@ -6,7 +6,10 @@ use super::actions::execute_action;
 
 pub(super) fn wordbook_review_queue_from_prompt(prompt: &str) -> Option<String> {
     let lower = super::explicit_command_prompt(prompt)?.to_ascii_lowercase();
-    if lower == "wb review" || lower == "wb review due" {
+    if lower == "wb review" || lower == "wb review today" {
+        return Some("today".into());
+    }
+    if lower == "wb review due" {
         return Some("due".into());
     }
     if lower == "wb review new" {
@@ -337,7 +340,7 @@ mod tests {
     #[test]
     fn wordbook_review_starts_from_search_result() {
         let mut state = AppState::default();
-        state.search.prompt = "/wb review".into();
+        state.search.prompt = "/wb review d".into();
         state.search.prompt_cursor = state.prompt_char_len();
         state.search.results.items.push(SearchItem {
             id: ResultId::new("wb:review:due"),

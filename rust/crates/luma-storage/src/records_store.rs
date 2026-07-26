@@ -293,6 +293,51 @@ impl RecordsStore {
         Ok(rows)
     }
 
+    pub fn list_recent(&self, limit: usize) -> Result<Vec<RecordRow>, RecordsStoreError> {
+        self.list_with_order(
+            "1 = 1",
+            "r.updated_at DESC, r.created_at DESC, r.name ASC",
+            limit,
+        )
+    }
+
+    pub fn list_unrated(&self, limit: usize) -> Result<Vec<RecordRow>, RecordsStoreError> {
+        self.list_with_order(
+            "r.rating IS NULL",
+            "r.updated_at DESC, r.created_at DESC, r.name ASC",
+            limit,
+        )
+    }
+
+    pub fn list_top(&self, limit: usize) -> Result<Vec<RecordRow>, RecordsStoreError> {
+        self.list_with_order(
+            "r.rating IS NOT NULL",
+            "r.rating DESC, r.updated_at DESC, r.name ASC",
+            limit,
+        )
+    }
+
+    fn list_with_order(
+        &self,
+        predicate: &str,
+        order: &str,
+        limit: usize,
+    ) -> Result<Vec<RecordRow>, RecordsStoreError> {
+        let conn = self.connect()?;
+        let sql = format!(
+            "SELECT {RECORD_COLS} FROM records r
+             WHERE {predicate}
+             ORDER BY {order}
+             LIMIT ?1"
+        );
+        let mut stmt = conn.prepare(&sql)?;
+        let rows = stmt
+            .query_map(params![limit as i64], map_record_row)?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(RecordsStoreError::from)?;
+        Ok(rows)
+    }
+
     pub fn search(
         &self,
         query: &str,

@@ -224,14 +224,7 @@ async fn apply_settings_mutation(
     let tx = inner.lock().await.event_broadcast_tx.clone();
     let _ = tx.send(Event::SettingsChanged {
         version: saved.settings_version,
-        settings: serde_json::json!({
-            "source": "config_store",
-            "modules": rows.iter().map(|(id, enabled, name)| {
-                serde_json::json!({"id": id, "enabled": enabled, "name": name})
-            }).collect::<Vec<_>>(),
-            "projects_roots": saved.projects_roots,
-            "imported_projects": saved.imported_projects,
-        }),
+        settings: command_dispatch::settings_event_value("config_store", &saved, &rows),
     });
     Ok("settings updated".into())
 }

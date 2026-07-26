@@ -79,6 +79,9 @@ pub trait RecordsRepository: Send + Sync {
         category: &str,
         limit: usize,
     ) -> Result<Vec<RecordEntry>, RecordsRepoError>;
+    fn list_recent(&self, limit: usize) -> Result<Vec<RecordEntry>, RecordsRepoError>;
+    fn list_unrated(&self, limit: usize) -> Result<Vec<RecordEntry>, RecordsRepoError>;
+    fn list_top(&self, limit: usize) -> Result<Vec<RecordEntry>, RecordsRepoError>;
     fn search(
         &self,
         query: &str,

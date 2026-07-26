@@ -63,7 +63,7 @@ pub use network_probe::{
     UnavailableNetworkProbe,
 };
 pub use open_path::{FakeOpenPath, OpenPathError, OpenPathPort};
-pub use pasteboard::{FakePasteboard, PasteboardError, PasteboardPort};
+pub use pasteboard::{FakePasteboard, PasteboardError, PasteboardPort, PasteboardSnapshot};
 pub use profile::{
     ProfileImportResult, ProfileSource, ProfileStoreError, ProfileStorePort, ProfileSummary,
 };

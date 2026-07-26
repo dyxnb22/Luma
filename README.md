@@ -43,13 +43,13 @@ cargo test -p luma --test cli_blackbox
 | Path | Role |
 | --- | --- |
 | `~/Library/Application Support/LumaNext/` | Active app support (settings, `ssh_meta.sqlite`, `recall.sqlite`, stores) |
-| `~/Library/Logs/LumaNext/` | Runtime logs |
+| `~/Library/Logs/LumaNext/` | Runtime logs (5 MiB rotation, three archives) |
 | `~/.ssh/config` | OpenSSH Host aliases (read-only for `luma.ssh`) |
 
-The empty Hub lists visible windows, a privacy-safe Continue section, and modules. Press `1`–`9`
+The empty Hub lists visible windows, up to three live-or-privacy-safe Continue items, and modules. Press `1`–`9`
 to focus a numbered window; Continue and module rows are never digit targets. Digits remain
 ordinary prompt input in search fields. Interactive commands require a leading
-`/`: `/win`, `/wb review due|new|wrong`, `/rec`, and `/ssh `; unprefixed input is global search.
+`/`: `/win`, `/wb review [today|due|new|wrong]`, `/rec`, and `/ssh `; unprefixed input is global search.
 `/proj` lists manually imported projects; Enter opens a single-project workbench that brings
 together recent activity, local Git state, associated listeners, Command Recipes, file browsing,
 an available editor CLI, and a project terminal without moving those source concerns into the

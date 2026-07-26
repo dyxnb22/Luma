@@ -1,7 +1,8 @@
 use crate::paths::{ensure_luma_next_dirs, luma_next_support_dir, PathsError};
+use chrono::Utc;
 use luma_domain::MAX_SNIPPETS;
 use rusqlite::{params, Connection};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use thiserror::Error;
 
 /// Max UTF-8 bytes for a snippet body on upsert (personal-use guardrail).
@@ -131,6 +132,38 @@ impl SnippetsStore {
             .execute("DELETE FROM snippets WHERE trigger = ?1", params![trigger])?;
         Ok(())
     }
+
+    pub fn backup(&self) -> Result<PathBuf, SnippetsStoreError> {
+        ensure_luma_next_dirs()?;
+        let backups = luma_next_support_dir()?.join("backups");
+        std::fs::create_dir_all(&backups)?;
+        let now = Utc::now();
+        let stamp = format!(
+            "{}-{:03}",
+            now.format("%Y%m%d-%H%M%S"),
+            now.timestamp_subsec_millis()
+        );
+        let dest = backups.join(format!("snippets-backup-{stamp}.sqlite"));
+        let tmp = backups.join(format!("snippets-backup-{stamp}.sqlite.tmp"));
+        let _ = std::fs::remove_file(&tmp);
+        let quoted = sqlite_path_literal(&tmp)?;
+        self.connect()?
+            .execute_batch(&format!("VACUUM INTO {quoted}"))?;
+        std::fs::rename(&tmp, &dest)?;
+        Ok(dest)
+    }
+}
+
+fn sqlite_path_literal(path: &Path) -> Result<String, SnippetsStoreError> {
+    let text = path
+        .to_str()
+        .ok_or_else(|| SnippetsStoreError::Msg("backup path is not valid UTF-8".into()))?;
+    if text.contains('\0') {
+        return Err(SnippetsStoreError::Msg(
+            "backup path contains a NUL byte".into(),
+        ));
+    }
+    Ok(format!("'{}'", text.replace('\'', "''")))
 }
 
 #[cfg(test)]
@@ -146,6 +179,22 @@ mod tests {
         assert_eq!(store.get(";sig").unwrap().unwrap().body, "Thanks,\nMe");
         store.delete(";sig").unwrap();
         assert!(store.get(";sig").unwrap().is_none());
+    }
+
+    #[test]
+    fn backup_writes_consistent_snapshot_under_lumanext() {
+        let dir = tempdir().unwrap();
+        let _env = crate::paths::LumaNextTestEnvGuard::override_paths(
+            dir.path(),
+            &dir.path().join("logs"),
+        );
+        let store = SnippetsStore::luma_next_default().unwrap();
+        store.upsert(";sig", "Thanks,\nMe").unwrap();
+
+        let backup = store.backup().unwrap();
+        let snapshot = SnippetsStore::with_path(backup.clone()).unwrap();
+        assert_eq!(snapshot.get(";sig").unwrap().unwrap().body, "Thanks,\nMe");
+        assert!(backup.to_string_lossy().contains("snippets-backup-"));
     }
 
     #[test]

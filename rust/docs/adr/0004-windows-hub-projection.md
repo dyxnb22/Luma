@@ -2,6 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-07-14
+- Last amended: 2026-07-26
 
 ## Context
 
@@ -17,7 +18,7 @@ pin/unpin remains available via `/clip`.
    default **on**. Lists visible windows; primary action `focus`.
 2. **Hub projection** — empty prompt shows **all visible windows** (terminals / Luma
    filtered out), sorted by app then title. Enter focuses immediately (does not fill the
-   prompt). Default cap **15** rows (`hub_windows_max`, clamped 5–50); overflow is a single
+   prompt). Default cap **7** rows (`hub_windows_max`, clamped 5–50); overflow is a single
    `N more → /win` row that opens the full module. Row labels include `title · app` for
    disambiguation. When any title is `Untitled`, Hub status hints to grant Screen Recording.
 3. **Hub pins removed** — empty-prompt Hub no longer shows former Notes shortcuts or Clipboard
@@ -27,8 +28,12 @@ pin/unpin remains available via `/clip`.
    focus needs Accessibility. Failures use `PermissionRequired` / `Unavailable`, never a
    silent empty list.
 5. **Tests** — never call real `focus`, `osascript`, or otherwise steal focus (MODULES.md).
+6. **Bounded Continue** — after Windows, Hub may show at most **3** live-or-recent objects.
+   Running/paused Timers are projected from live module state before Recall objects. This is a
+   generic module projection, not a timer-specific protocol command; Clipboard/Snippet bodies,
+   SSH configuration, proxy endpoints, and submitted search text remain excluded.
 
 ## Consequences
 
-- Hub = Windows slice + Modules (see MODULES.md).
+- Hub = Windows slice + bounded live/recent Continue + Modules (see MODULES.md).
 - Out of scope: Window layouts, menu-bar search, Browser tabs, global hotkey overlay.

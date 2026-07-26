@@ -148,6 +148,16 @@ pub trait LumaModule: Send + Sync {
         None
     }
 
+    /// Optional live Hub objects such as running timers. These use the same natural-action
+    /// contract as Continue rows but are derived from current module state, not persistence.
+    fn supports_hub_items(&self) -> bool {
+        false
+    }
+
+    async fn hub_items(&self, _limit: usize) -> Vec<SearchItem> {
+        Vec::new()
+    }
+
     /// Apply settings that change at runtime (roots, excludes). Default: no-op.
     async fn apply_settings(&self, _settings: &AppSettings) {}
 

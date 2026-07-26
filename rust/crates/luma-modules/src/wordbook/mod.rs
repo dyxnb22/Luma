@@ -12,7 +12,7 @@ use luma_application::{
 use luma_domain::{
     ActionDescriptor, ActionId, ActionRisk, FailureKind, ModuleId, Query, SearchItem,
 };
-use luma_protocol::{Event, SearchItemDto};
+use luma_protocol::{Event, SearchItemDto, UiIntent};
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -46,9 +46,9 @@ impl WordbookModule {
                 required_capabilities: vec![],
                 workbench: luma_application::WorkbenchMeta {
                     glyph: Some("W".into()),
-                    suggested_query: Some("/wb due".into()),
+                    suggested_query: Some("/wb review".into()),
                     empty_hint: Some(
-                        "/wb due · /wb new · /wb wrong · /wb status · /wb add TERM | meaning"
+                        "/wb review · /wb today · /wb due · /wb new · /wb wrong · /wb status"
                             .into(),
                     ),
                     supports_browse: false,
@@ -423,8 +423,10 @@ impl LumaModule for WordbookModule {
                 "new"
             } else if rest_norm == "review wrong" {
                 "wrong"
-            } else {
+            } else if rest_norm == "review due" {
                 "due"
+            } else {
+                "today"
             };
             let _ = sink
                 .send(Event::ResultsChunk {
@@ -486,7 +488,9 @@ impl LumaModule for WordbookModule {
             return;
         }
 
-        let mode = if rest_norm.is_empty() || rest_norm == "due" {
+        let mode = if rest_norm.is_empty() || rest_norm == "today" {
+            "today"
+        } else if rest_norm == "due" {
             "due"
         } else if rest_norm == "new" {
             "new"
@@ -497,6 +501,16 @@ impl LumaModule for WordbookModule {
         };
 
         let result = match mode {
+            "today" => {
+                let stats = self.store.stats().unwrap_or_default();
+                let available = stats.due.max(stats.remaining_goal).max(0);
+                if available == 0 {
+                    Ok(Vec::new())
+                } else {
+                    self.store
+                        .list_today(available.min(query.limit as i64) as usize)
+                }
+            }
             "due" => self.store.list_due(query.limit),
             "new" => self.store.list_new(query.limit),
             "wrong" => self.store.list_wrong(query.limit),
@@ -523,32 +537,87 @@ impl LumaModule for WordbookModule {
             .collect();
 
         if upserts.is_empty() {
-            let (title, subtitle) = match mode {
-                "due" => (
-                    "No words due".into(),
-                    "Try `/wb new` or `/wb status`".into(),
-                ),
-                "new" => (
-                    "No new words".into(),
-                    "Add with `/wb add TERM | meaning`".into(),
-                ),
-                "wrong" => ("No wrong words".into(), "Nice work".into()),
-                _ => (
-                    format!("No words matching \"{rest}\""),
-                    "Try `/wb due` or `/wb add TERM | meaning`".into(),
-                ),
-            };
-            upserts.push(SearchItemDto {
-                id: "wb:empty".into(),
-                module_id: "luma.wordbook".into(),
-                title,
-                subtitle: Some(subtitle),
-                kind: "status".into(),
-                score: 5.0,
-                primary_action_id: "noop".into(),
-                primary_action_label: "OK".into(),
-                ..Default::default()
-            });
+            let empty_wordbook = self
+                .store
+                .stats()
+                .map(|stats| stats.total == 0)
+                .unwrap_or(false);
+            if empty_wordbook {
+                upserts.extend([
+                    SearchItemDto {
+                        id: "wb:onboarding:add".into(),
+                        module_id: "luma.wordbook".into(),
+                        title: "Add your first word".into(),
+                        subtitle: Some("TERM | meaning | example | category".into()),
+                        kind: "onboarding".into(),
+                        score: 100.0,
+                        primary_action_id: "seed_add".into(),
+                        primary_action_label: "Add word".into(),
+                        ui_intent: Some(UiIntent::SeedAdd),
+                        action_payload: Some(serde_json::json!({
+                            "seed_prompt": "/wb add "
+                        })),
+                        ..Default::default()
+                    },
+                    SearchItemDto {
+                        id: "wb:paste".into(),
+                        module_id: "luma.wordbook".into(),
+                        title: "Import words from the clipboard".into(),
+                        subtitle: Some("Markdown table or `word - meaning - example`".into()),
+                        kind: "onboarding".into(),
+                        score: 90.0,
+                        primary_action_id: "import_paste".into(),
+                        primary_action_label: "Import clipboard".into(),
+                        ..Default::default()
+                    },
+                    SearchItemDto {
+                        id: "wb:onboarding:csv".into(),
+                        module_id: "luma.wordbook".into(),
+                        title: "Import a Wordbook CSV".into(),
+                        subtitle: Some("Choose a local CSV path".into()),
+                        kind: "onboarding".into(),
+                        score: 80.0,
+                        primary_action_id: "seed_add".into(),
+                        primary_action_label: "Enter CSV path".into(),
+                        ui_intent: Some(UiIntent::SeedAdd),
+                        action_payload: Some(serde_json::json!({
+                            "seed_prompt": "/wb import "
+                        })),
+                        ..Default::default()
+                    },
+                ]);
+            } else {
+                let (title, subtitle) = match mode {
+                    "today" => (
+                        "Today's queue is complete".into(),
+                        "Use `/wb status` to see progress".into(),
+                    ),
+                    "due" => (
+                        "No words due".into(),
+                        "Try `/wb new` or `/wb status`".into(),
+                    ),
+                    "new" => (
+                        "No new words".into(),
+                        "Add with `/wb add TERM | meaning`".into(),
+                    ),
+                    "wrong" => ("No wrong words".into(), "Nice work".into()),
+                    _ => (
+                        format!("No words matching \"{rest}\""),
+                        "Try `/wb due` or `/wb add TERM | meaning`".into(),
+                    ),
+                };
+                upserts.push(SearchItemDto {
+                    id: "wb:empty".into(),
+                    module_id: "luma.wordbook".into(),
+                    title,
+                    subtitle: Some(subtitle),
+                    kind: "status".into(),
+                    score: 5.0,
+                    primary_action_id: "noop".into(),
+                    primary_action_label: "OK".into(),
+                    ..Default::default()
+                });
+            }
         }
 
         let _ = sink
@@ -578,6 +647,12 @@ impl LumaModule for WordbookModule {
 
     async fn actions(&self, result: &SearchItem) -> Vec<ActionDescriptor> {
         match result.primary_action.id.as_str() {
+            "seed_add" => vec![ActionDescriptor {
+                id: ActionId::new("seed_add"),
+                label: result.primary_action.label.clone(),
+                risk: ActionRisk::Safe,
+                confirmation: false,
+            }],
             "add" => vec![ActionDescriptor {
                 id: ActionId::new("add"),
                 label: result.primary_action.label.clone(),
@@ -720,6 +795,12 @@ impl LumaModule for WordbookModule {
             return ActionOutcome::Cancelled;
         }
         match action.action.id.as_str() {
+            "seed_add" => ActionOutcome::Failed {
+                kind: FailureKind::InvalidInput {
+                    field: "action".into(),
+                    message: "continue editing the seeded /wb command in the workbench".into(),
+                },
+            },
             "noop" => ActionOutcome::Success { message: None },
             "start_review" => ActionOutcome::Success {
                 message: Some("review session is TUI-only — use Enter on the review row".into()),
@@ -1054,7 +1135,7 @@ impl LumaModule for WordbookModule {
                 {
                     None => ActionOutcome::Cancelled,
                     Some(Ok(())) => ActionOutcome::Success {
-                        message: Some("copied".into()),
+                        message: Some(format!("copied {}", word.term)),
                     },
                     Some(Err(err)) => ActionOutcome::Failed {
                         kind: FailureKind::Unavailable {
@@ -1168,6 +1249,27 @@ mod tests {
             reader,
         );
         (module, store)
+    }
+
+    #[tokio::test]
+    async fn empty_wordbook_offers_add_clipboard_and_csv_onboarding() {
+        let (module, _) = module_with_reader(Arc::new(FakeBoundedUtf8FileReader::default()));
+        let (tx, mut rx) = tokio::sync::mpsc::channel(4);
+        module
+            .search(Query::parse("/wb due", 20), tx, CancellationToken::new())
+            .await;
+        let Event::ResultsChunk { upserts, .. } = rx.recv().await.unwrap() else {
+            panic!("expected results");
+        };
+        assert_eq!(
+            upserts
+                .iter()
+                .map(|row| row.id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["wb:onboarding:add", "wb:paste", "wb:onboarding:csv"]
+        );
+        assert_eq!(upserts[0].ui_intent, Some(UiIntent::SeedAdd));
+        assert_eq!(upserts[1].primary_action_id, "import_paste");
     }
 
     #[tokio::test]

@@ -324,6 +324,12 @@ impl Engine {
                         let mut upserts: Vec<_> = upserts
                             .into_iter()
                             .filter(|u| g.registry.is_enabled(&u.module_id))
+                            .filter(|u| {
+                                !is_global_search
+                                    || super::recall::visible_in_global_search(
+                                        &u.clone().into_domain(),
+                                    )
+                            })
                             .collect();
                         let mut all_removed = removed_ids;
                         for id in &all_removed {

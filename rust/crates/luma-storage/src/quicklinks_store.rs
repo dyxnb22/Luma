@@ -1,7 +1,8 @@
 use crate::paths::{ensure_luma_next_dirs, luma_next_support_dir, PathsError};
+use chrono::Utc;
 use luma_domain::MAX_QUICKLINKS;
 use rusqlite::{params, Connection};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use thiserror::Error;
 
 /// Max UTF-8 bytes for a quicklink URL on upsert (personal-use guardrail).
@@ -119,6 +120,38 @@ impl QuicklinksStore {
         )?;
         Ok(())
     }
+
+    pub fn backup(&self) -> Result<PathBuf, QuicklinksStoreError> {
+        ensure_luma_next_dirs()?;
+        let backups = luma_next_support_dir()?.join("backups");
+        std::fs::create_dir_all(&backups)?;
+        let now = Utc::now();
+        let stamp = format!(
+            "{}-{:03}",
+            now.format("%Y%m%d-%H%M%S"),
+            now.timestamp_subsec_millis()
+        );
+        let dest = backups.join(format!("quicklinks-backup-{stamp}.sqlite"));
+        let tmp = backups.join(format!("quicklinks-backup-{stamp}.sqlite.tmp"));
+        let _ = std::fs::remove_file(&tmp);
+        let quoted = sqlite_path_literal(&tmp)?;
+        self.connect()?
+            .execute_batch(&format!("VACUUM INTO {quoted}"))?;
+        std::fs::rename(&tmp, &dest)?;
+        Ok(dest)
+    }
+}
+
+fn sqlite_path_literal(path: &Path) -> Result<String, QuicklinksStoreError> {
+    let text = path
+        .to_str()
+        .ok_or_else(|| QuicklinksStoreError::Msg("backup path is not valid UTF-8".into()))?;
+    if text.contains('\0') {
+        return Err(QuicklinksStoreError::Msg(
+            "backup path contains a NUL byte".into(),
+        ));
+    }
+    Ok(format!("'{}'", text.replace('\'', "''")))
 }
 
 #[cfg(test)]
@@ -134,6 +167,22 @@ mod tests {
         assert_eq!(store.list().unwrap().len(), 1);
         store.delete("gh").unwrap();
         assert!(store.list().unwrap().is_empty());
+    }
+
+    #[test]
+    fn backup_writes_consistent_snapshot_under_lumanext() {
+        let dir = tempdir().unwrap();
+        let _env = crate::paths::LumaNextTestEnvGuard::override_paths(
+            dir.path(),
+            &dir.path().join("logs"),
+        );
+        let store = QuicklinksStore::luma_next_default().unwrap();
+        store.upsert("gh", "https://github.com").unwrap();
+
+        let backup = store.backup().unwrap();
+        let snapshot = QuicklinksStore::with_path(backup.clone()).unwrap();
+        assert_eq!(snapshot.list().unwrap()[0].trigger, "gh");
+        assert!(backup.to_string_lossy().contains("quicklinks-backup-"));
     }
 
     #[test]

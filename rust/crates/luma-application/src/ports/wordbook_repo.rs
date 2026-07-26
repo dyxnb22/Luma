@@ -65,6 +65,14 @@ pub trait WordbookRepository: Send + Sync {
     fn list_due(&self, limit: usize) -> Result<Vec<WordEntry>, WordbookRepoError>;
     fn list_new(&self, limit: usize) -> Result<Vec<WordEntry>, WordbookRepoError>;
     fn list_wrong(&self, limit: usize) -> Result<Vec<WordEntry>, WordbookRepoError>;
+    /// Daily queue: overdue words first, then enough unseen words to fill the requested batch.
+    fn list_today(&self, limit: usize) -> Result<Vec<WordEntry>, WordbookRepoError> {
+        let mut words = self.list_due(limit)?;
+        if words.len() < limit {
+            words.extend(self.list_new(limit - words.len())?);
+        }
+        Ok(words)
+    }
     fn search(&self, query: &str, limit: usize) -> Result<Vec<WordEntry>, WordbookRepoError>;
     fn stats(&self) -> Result<WordbookStatsView, WordbookRepoError>;
     fn daily_goal(&self) -> Result<i64, WordbookRepoError>;

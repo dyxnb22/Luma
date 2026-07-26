@@ -19,8 +19,11 @@ use luma_storage::{
 };
 use luma_tui::{run_tui_with_options, RunTuiOptions};
 use std::io::Read;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
+
+const LOG_ROTATE_BYTES: u64 = 5 * 1024 * 1024;
+const LOG_ARCHIVES: usize = 3;
 
 #[derive(Debug, Parser)]
 #[command(name = "luma", version, about = "Luma interactive CLI/TUI")]
@@ -337,6 +340,35 @@ enum MigrateCmd {
     },
 }
 
+fn log_archive_path(path: &Path, index: usize) -> PathBuf {
+    let mut archived = path.as_os_str().to_os_string();
+    archived.push(format!(".{index}"));
+    archived.into()
+}
+
+fn rotate_log_if_needed(path: &Path, max_bytes: u64, archives: usize) -> std::io::Result<()> {
+    let size = match std::fs::metadata(path) {
+        Ok(metadata) => metadata.len(),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(error),
+    };
+    if max_bytes == 0 || archives == 0 || size < max_bytes {
+        return Ok(());
+    }
+
+    let oldest = log_archive_path(path, archives);
+    if oldest.exists() {
+        std::fs::remove_file(oldest)?;
+    }
+    for index in (1..archives).rev() {
+        let source = log_archive_path(path, index);
+        if source.exists() {
+            std::fs::rename(source, log_archive_path(path, index + 1))?;
+        }
+    }
+    std::fs::rename(path, log_archive_path(path, 1))
+}
+
 fn init_tracing() {
     use tracing_subscriber::layer::SubscriberExt;
     use tracing_subscriber::util::SubscriberInitExt;
@@ -348,6 +380,7 @@ fn init_tracing() {
     if let Ok(dir) = luma_storage::luma_next_logs_dir() {
         let _ = std::fs::create_dir_all(&dir);
         let path = dir.join("luma.log");
+        let _ = rotate_log_if_needed(&path, LOG_ROTATE_BYTES, LOG_ARCHIVES);
         if let Ok(file) = std::fs::OpenOptions::new()
             .create(true)
             .append(true)
@@ -1215,4 +1248,31 @@ fn print_import_report(report: luma_storage::ImportReport, json: bool) -> anyhow
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tracing_tests {
+    use super::*;
+
+    #[test]
+    fn log_rotation_is_bounded_and_preserves_newest_archive() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("luma.log");
+        std::fs::write(&path, b"current").unwrap();
+        std::fs::write(log_archive_path(&path, 1), b"previous").unwrap();
+        std::fs::write(log_archive_path(&path, 2), b"older").unwrap();
+
+        rotate_log_if_needed(&path, 1, 2).unwrap();
+
+        assert!(!path.exists());
+        assert_eq!(
+            std::fs::read(log_archive_path(&path, 1)).unwrap(),
+            b"current"
+        );
+        assert_eq!(
+            std::fs::read(log_archive_path(&path, 2)).unwrap(),
+            b"previous"
+        );
+        assert!(!log_archive_path(&path, 3).exists());
+    }
 }

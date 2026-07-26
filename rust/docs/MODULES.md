@@ -17,7 +17,7 @@ Interactive module commands require a leading `/` (for example `/ssh`, `/rec bro
 | Area | Status | Notes |
 | --- | --- | --- |
 | Doctor / diagnostics | Removed | Centralized doctor removed; modules still surface permission/unavailable/not_configured |
-| Config | Available | Versioned settings; `luma config get/set`; TUI Settings via `/settings`; `/settings projects-root PATH` and `/settings import-project PATH` make first-time module setup actionable in the workbench; Ctrl-/ opens command palette; Space toggle persists via `UpdateSettings` CAS. `enabled_modules` keys are **sticky** by module id string — renaming a module id does not migrate or delete the old key; stale entries remain until cleaned by hand |
+| Config | Available | Versioned settings; `luma config get/set`; TUI Settings via `/settings`; commands cover project import/root, Records root, Clipboard retention, Secrets idle lock, and Hub window count. Ctrl-/ opens a searchable palette generated from enabled module manifests; Space toggle persists via `UpdateSettings` CAS. `enabled_modules` keys are **sticky** by module id string — renaming a module id does not migrate or delete the old key; stale entries remain until cleaned by hand |
 | Module registry | Available | Manifest + enable/disable; warmup for enabled modules |
 
 ## Modules
@@ -25,19 +25,19 @@ Interactive module commands require a leading `/` (for example `/ssh`, `/rec bro
 | Module | Triggers | Status | Default |
 | --- | --- | --- | --- |
 | Apps | `/app` / `/apps` | Available — fuzzy + session MRU; launch / reveal / copy path | on |
-| Windows | `/win` / `/window` / `/windows` | Available — list/search works without Accessibility; focus and Hub focus report AX permission locally; Hub 1–9 quick focus; prompt digits are preserved; hard cap 15 | on |
-| Git | `/git` | Available — imported projects only; bounded repository discovery; dashboard prioritizes conflict/dirty/ahead; safe stage/unstage, confirmed tracked-file discard, local log/branches/commit. No remote, fetch, push, pull, clone, rebase, reset, or `git clean`. | on |
+| Windows | `/win` / `/window` / `/windows` | Available — list/search works without Accessibility; focus and Hub focus report AX permission locally; Hub 1–9 quick focus; prompt digits are preserved; default Hub cap **7**, configurable 5–50 | on |
+| Git | `/git` | Available — imported projects only; bounded repository discovery; dashboard prioritizes conflict/dirty/ahead; state-aware stage/unstage controls, confirmed tracked-file discard, local log/branches/commit. Clean repositories do not offer irrelevant staging actions. No remote, fetch, push, pull, clone, rebase, reset, or `git clean`. | on |
 | Runtime | `/run` / `/ports` | Available — on-demand local TCP listener list with project association; copy fields and guarded same-user, identity-rechecked SIGTERM only. No background monitor or SIGKILL. | on |
-| Proxy | `/proxy` / `/px` | Available — controller-first Mihomo status, groups/nodes, mode, `/proxy status` and on-demand `/proxy check`, local macOS HTTP/SOCKS proxy controls, and safe Luma Profile import/list/use/delete/refresh; HTTPS is reported read-only. Clash Verge Profiles are read-only unless Luma-owned. See [Proxy](./PROXY.md). | on |
-| Clipboard | `/clip` / `/cb` | Available — history, pin/unpin, `/clip clear`, paste needs AX; caps: **500** unpinned, **100** pinned; entries over **256 KiB** rejected | on |
-| Quicklinks | `/ql` / `/quicklinks` | Available — add/overwrite, open, copy URL, delete; hard cap **1000** entries (updates remain allowed at capacity) | on |
-| Snippets | `/s` / `/snip` | Available — search/add/overwrite/copy/delete without Accessibility; paste reports AX permission locally; hard cap **1000** entries | on |
-| Wordbook | `/wb` / `/wordbook` / `/words` | Available — due/new/wrong lists; `/wb review due\|new\|wrong` one-word session; Enter/Space reveal, 1/2/3 grade, m mastered with confirmation, s skip, Esc exit; queue uses remaining daily goal; `/wb import PATH` accepts a regular non-symlink UTF-8 CSV up to 512 KiB; daily goal. Search/perform (import, speak, pasteboard) honor cancel tokens | on |
-| Records | `/rec` / `/record` | Available — SQLite-backed media log; `/rec <query>` / `/rec browse`; `/rec add`, `/rec rate`, `/rec note`, ActionPicker edit/remove; CLI also has `record import`, `import-status`, `backup`; Markdown import is dry-run by default and `--apply` is ledger-backed with a LumaNext backup, source Markdown stays read-only | on |
+| Proxy | `/proxy` / `/px` | Available — compact status + group overview; `/proxy group NAME` drills into nodes; mode, `/proxy status` and on-demand `/proxy check`, local macOS HTTP/SOCKS proxy controls, and safe Luma Profile import/list/use/delete/refresh; HTTPS is reported read-only. Clash Verge Profiles are read-only unless Luma-owned. See [Proxy](./PROXY.md). | on |
+| Clipboard | `/clip` / `/cb` | Available — history, pin/unpin, `/clip clear`, session `/clip pause [duration]` / `resume` / `status`; concealed/transient password-manager pasteboard types are skipped; paste needs AX; caps: **500** unpinned, **100** pinned; entries over **256 KiB** rejected | on |
+| Quicklinks | `/ql` / `/quicklinks` | Available — add/overwrite, open, copy URL, delete, `/ql backup`; hard cap **1000** entries (updates remain allowed at capacity) | on |
+| Snippets | `/s` / `/snip` | Available — search/add/overwrite/copy/delete without Accessibility; `/s add-from-clipboard TRIGGER` preserves multiline text; `/s backup`; paste reports AX permission locally; hard cap **1000** entries | on |
+| Wordbook | `/wb` / `/wordbook` / `/words` | Available — today/due/new/wrong lists; `/wb review` builds a due-first daily queue and fills it with new words to the remaining goal; specific due/new/wrong review queues remain available. Enter/Space reveal, 1/2/3 grade, m mastered with confirmation, s skip, Esc exit; CSV/clipboard import, daily goal, `/wb backup`. Search/perform honor cancel tokens | on |
+| Records | `/rec` / `/record` | Available — SQLite-backed media log; search/browse plus `/rec recent`, `/rec unrated`, `/rec top`; add/rate/note and ActionPicker edit/remove; `/rec backup`; CLI import is dry-run by default and `--apply` is ledger-backed with a LumaNext backup, source Markdown stays read-only | on |
 | Projects | `/p` / `/proj` / `/project` | Available — recall-ranked manually imported projects; Enter opens `/proj show PATH`, which aggregates Continue, on-demand Git status, associated Runtime listeners, matching Command Recipes, bounded files, Finder, an available editor CLI, and a project-rooted terminal. `/proj add/import PATH`, `/proj remove NAME\|PATH`, `/proj browse`; canonical existing non-symlink paths, duplicate rejection, config-only removal | on |
-| Command Recipes | `/cmd` / `/recipe` / `/recipes` | Available — semantic templates with project variants; `/cmd project PATH` evaluates against an exact imported project for Projects-workbench handoff; ordered `program + args`; TUI runs in current terminal; user TOML + built-ins. See [Command Recipes](./COMMAND_RECIPES.md). | on |
-| SSH | `/ssh` | Available — reads `~/.ssh/config` Host aliases; `/ssh fav` / `/ssh recent` / `/ssh rename`; favorite/recent metadata in `ssh_meta.sqlite` with a **1000-row** cap; Enter connects in current terminal; SFTP + copy alias actions. See [SSH](./SSH.md). | on |
-| Timers | `/tm` / `/timer` / `/timers` | Available — stopwatch + countdown/Pomodoro; `/tm pomo [min] [name]`, `/tm sw [name]`, `/tm 25`; start/pause/resume/reset/delete; state in `timers.sqlite`, hard cap **256**; speech alert on completion while Luma is running (no daemon — graceful quitting pauses running timers). In-process 1s poller cancels on teardown; search/perform honor cancel | on |
+| Command Recipes | `/cmd` / `/recipe` / `/recipes` | Available — default surface shows runnable current-directory variants; `/cmd all [filter]` includes inapplicable recipes after runnable rows; `.git/` repositories and `.git` worktrees both match; executable symlinks are followed. `/cmd project PATH` evaluates against an exact imported project; ordered `program + args`; user TOML + built-ins. See [Command Recipes](./COMMAND_RECIPES.md). | on |
+| SSH | `/ssh` | Available — reads `~/.ssh/config` Host aliases and automatically refreshes config/Include files on targeted visits; `/ssh fav` / `/ssh recent` / `/ssh rename` / explicit `/ssh reload`; favorite/recent metadata in `ssh_meta.sqlite` with a **1000-row** cap; Enter connects in current terminal; SFTP + copy alias actions. See [SSH](./SSH.md). | on |
+| Timers | `/tm` / `/timer` / `/timers` | Available — stopwatch + countdown/Pomodoro; start/pause/resume/reset/delete; running/paused timers appear as live Hub Continue items; state in `timers.sqlite`, hard cap **256**; speech alert on completion while Luma is running (no daemon — graceful quitting pauses running timers). In-process 1s poller cancels on teardown; search/perform honor cancel | on |
 | Secrets | `/sec` / `/secret` / `/secrets` | Copy-only for pre-provisioned labels; `luma secrets set` bootstrap; unlock is in-process UX only (no Touch ID); copy confirm | **off** (enable in Settings after bootstrap) |
 | Fake | — | Test/demo module for CLI blackbox | **off** |
 
@@ -62,7 +62,8 @@ Read-only launcher over OpenSSH — not a full SSH client:
 
 - **Config:** `~/.ssh/config` (concrete `Host` aliases; `Include` depth 8; wildcard patterns skipped). Override with `SSH_CONFIG` for tests.
 - **Metadata:** `~/Library/Application Support/LumaNext/ssh_meta.sqlite` — favorites, local display names, `last_connected_at`, `connection_count`. Luma does not write back to `~/.ssh/config`.
-- **Resolve:** macOS adapter runs `ssh -G <alias>` (cached per session; `/ssh reload` clears cache).
+- **Resolve:** macOS adapter runs `ssh -G <alias>`; entering a targeted `/ssh` surface re-reads
+  config/Includes and clears resolved-host cache. `/ssh reload` is the explicit equivalent.
 - **Connect:** TUI suspends → `ssh <alias>` or `sftp <alias>` in the current terminal → resume. Successful exit (`0`) records connection metadata.
 - **Queries:** `/ssh `, `/ssh <needle>`, `/ssh fav`, `/ssh recent`, `/ssh reload`, `/ssh rename ALIAS NAME` (case-insensitive `rename` prefix; name may contain spaces).
 - **CLI:** `luma ssh list|connect|sftp|favorite|unfavorite|rename`.
@@ -72,14 +73,17 @@ Read-only launcher over OpenSSH — not a full SSH client:
 ### Continue and global recall
 
 - Global search contributors are Apps, Windows, Projects, Command Recipes, SSH, Clipboard,
-  Snippets, Quicklinks, and Git. Results are capped at 12 per module and 60 total, then selected
-  round-robin so one large catalogue cannot fill the first page. Records and Wordbook remain
+  Snippets, Quicklinks, and Git. Informational/unavailable/no-match rows are excluded. Results are
+  capped at 12 per module and 60 total and remain relevance-first; after two rows from one module,
+  a near-equivalent alternative (within three score points) may diversify the page. Recall boosts
+  are deliberately smaller than a semantic match band. Records and Wordbook remain
   targeted-only because their dense historical rows lack a clear bounded global-search benefit.
 - A successful action records only bounded recall metadata in `recall.sqlite`: object/module/kind,
   natural primary action, a safe display title, optional project association, count, and last use.
   Failed/cancelled actions are not recorded. Clipboard bodies, snippet bodies, SSH configuration,
   proxy endpoints, and search text are never copied into Recall.
-- The empty Hub may render at most five compatible Continue rows after Windows. Direct Git and
+- The empty Hub renders at most three live-or-compatible Continue rows after Windows. Running or
+  paused Timers are projected first; remaining slots come from Recall. Direct Git and
   Runtime objects are not Hub-continued because their live repository/listener payload must be
   revalidated. `/proj show PATH` may offer one project-scoped Continue row by converting stored
   metadata back into a slash surface and letting the destination module re-read live state.
@@ -125,6 +129,8 @@ In-session stopwatch and countdown (Pomodoro) — no background daemon:
 - **Store:** `~/Library/Application Support/LumaNext/timers.sqlite`
 - **Queries:** `/tm ` lists timers; `/tm pomo [minutes] [name]`, `/tm 25`, `/tm sw [name]` / `/tm start [name]` create+start rows.
 - **Actions:** Start / Pause / Resume / Reset; Delete (confirm).
+- **Hub:** running and paused timers occupy the bounded Continue section before recalled objects;
+  Enter performs the current natural action (Pause/Resume) against live state.
 - **Alerts:** speech (“… done”) when a countdown finishes **while Luma is running**. Quitting pauses running timers so elapsed time does not advance silently offline.
 - **Concurrency / cancel:** warmup starts a session-scoped 1s poller; teardown cancels it and bumps a generation so in-flight ticks cannot alert after shutdown. Search and perform return early when their cancel token fires.
 - **Honesty:** store/clock failures surface as `unavailable` rows.
@@ -134,6 +140,8 @@ In-session stopwatch and countdown (Pomodoro) — no background daemon:
 - Search and perform check cancel before mutating or speaking.
 - Import / pasteboard / speech paths use cancel-aware awaits so Esc / superseded ops do not leave half-applied UI side effects.
 - Review queue load is engine-owned (`LoadWordbookReview`); grading still goes through normal ExecuteAction cancel.
+- `/wb review` means the daily queue: all due words first, then new words until the remaining
+  daily goal is filled. `/wb review due|new|wrong` keeps queue-specific control.
 
 ### Clipboard capacity
 
@@ -143,6 +151,17 @@ Aligned with `luma-storage` clipboard store constants:
 - **100** pinned rows (hard cap; unpin one before pinning another; pinned data is never silently
   deleted).
 - **256 KiB** max bytes per entry (`MAX_ENTRY_BYTES`); larger pastes are rejected.
+- AppKit concealed/transient/autogenerated pasteboard types (including common password-manager
+  markers) are ignored by history capture. Direct user-requested paste still reads text.
+- `/clip pause` lasts for the current session; an optional bounded duration resumes automatically.
+  `/clip status` reports the current capture state.
+
+### Backups and logs
+
+- `/wb backup`, `/rec backup`, `/s backup`, and `/ql backup` use SQLite `VACUUM INTO` plus an
+  atomic rename under `~/Library/Application Support/LumaNext/backups/`.
+- `~/Library/Logs/LumaNext/luma.log` rotates at 5 MiB and retains `luma.log.1` through
+  `luma.log.3`.
 
 ## Product rules
 

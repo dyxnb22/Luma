@@ -107,6 +107,59 @@ impl LumaModule for SnippetsModule {
         }
     }
     async fn search(&self, query: Query, sink: SearchSink, cancel: CancellationToken) {
+        // Clipboard-backed creation preserves multiline text without forcing it through the
+        // single-line workbench prompt.
+        if query.is_command() {
+            if let Some(trigger) = query
+                .rest_raw()
+                .strip_prefix("add-from-clipboard ")
+                .map(str::trim)
+                .filter(|trigger| !trigger.is_empty() && !trigger.contains(char::is_whitespace))
+            {
+                let exists = self.index.read().await.iter().any(|s| s.trigger == trigger);
+                let _ = sink
+                    .send(Event::ResultsChunk {
+                        request_id: String::new(),
+                        sequence: 1,
+                        upserts: vec![SearchItemDto {
+                            id: format!("snip:add-clipboard:{trigger}"),
+                            module_id: "luma.snippets".into(),
+                            title: if exists {
+                                format!("Overwrite {trigger} from clipboard")
+                            } else {
+                                format!("Add {trigger} from clipboard")
+                            },
+                            subtitle: Some(
+                                "Reads the current clipboard when executed; multiline text is preserved"
+                                    .into(),
+                            ),
+                            kind: if exists {
+                                "update".into()
+                            } else {
+                                "create".into()
+                            },
+                            score: 100.0,
+                            primary_action_id: "add_from_clipboard".into(),
+                            primary_action_label: if exists {
+                                "Overwrite".into()
+                            } else {
+                                "Add".into()
+                            },
+                            primary_action_risk: if exists {
+                                ActionRisk::Confirm
+                            } else {
+                                ActionRisk::Safe
+                            },
+                            primary_action_confirmation: exists,
+                            ..Default::default()
+                        }],
+                        removed_ids: vec![],
+                    })
+                    .await;
+                return;
+            }
+        }
+
         // /s add <trigger> <body…>
         let rest_for_add = query.rest_raw();
         if query.is_command() {
@@ -179,6 +232,28 @@ impl LumaModule for SnippetsModule {
                         score: 0.0,
                         primary_action_id: "noop".into(),
                         primary_action_label: "Unavailable".into(),
+                        ..Default::default()
+                    }],
+                    removed_ids: vec![],
+                })
+                .await;
+            return;
+        }
+
+        if query.is_command() && query.rest_normalized() == "backup" {
+            let _ = sink
+                .send(Event::ResultsChunk {
+                    request_id: String::new(),
+                    sequence: 1,
+                    upserts: vec![SearchItemDto {
+                        id: "snip:backup".into(),
+                        module_id: "luma.snippets".into(),
+                        title: "Backup snippets".into(),
+                        subtitle: Some("Copy SQLite snapshot to LumaNext/backups/".into()),
+                        kind: "command".into(),
+                        score: 100.0,
+                        primary_action_id: "backup".into(),
+                        primary_action_label: "Backup".into(),
                         ..Default::default()
                     }],
                     removed_ids: vec![],
@@ -269,6 +344,14 @@ impl LumaModule for SnippetsModule {
             .or_else(|| result.subtitle.clone())
     }
     async fn actions(&self, result: &SearchItem) -> Vec<ActionDescriptor> {
+        if result.primary_action.id.as_str() == "backup" {
+            return vec![ActionDescriptor {
+                id: ActionId::new("backup"),
+                label: "Backup".into(),
+                risk: ActionRisk::Safe,
+                confirmation: false,
+            }];
+        }
         if result.id.as_str() == "snip:empty"
             || result.id.as_str() == "snip:no-matches"
             || result.primary_action.id.as_str() == "seed_add"
@@ -293,6 +376,23 @@ impl LumaModule for SnippetsModule {
             let exists = result.kind == "update";
             return vec![ActionDescriptor {
                 id: ActionId::new("add"),
+                label: if exists {
+                    "Overwrite".into()
+                } else {
+                    "Add".into()
+                },
+                risk: if exists {
+                    ActionRisk::Confirm
+                } else {
+                    ActionRisk::Safe
+                },
+                confirmation: exists,
+            }];
+        }
+        if result.id.as_str().starts_with("snip:add-clipboard:") {
+            let exists = result.kind == "update";
+            return vec![ActionDescriptor {
+                id: ActionId::new("add_from_clipboard"),
                 label: if exists {
                     "Overwrite".into()
                 } else {
@@ -333,6 +433,16 @@ impl LumaModule for SnippetsModule {
         }
         match action.action.id.as_str() {
             "noop" => ActionOutcome::Success { message: None },
+            "backup" => match self.store.backup() {
+                Ok(path) => ActionOutcome::Success {
+                    message: Some(format!("backup saved to {}", path.display())),
+                },
+                Err(err) => ActionOutcome::Failed {
+                    kind: FailureKind::Io {
+                        context: err.to_string(),
+                    },
+                },
+            },
             "seed_add" => ActionOutcome::Failed {
                 kind: FailureKind::InvalidInput {
                     field: "action".into(),
@@ -370,6 +480,62 @@ impl LumaModule for SnippetsModule {
                             format!("updated {trigger}")
                         } else {
                             format!("added {trigger}")
+                        }),
+                    },
+                    Err(err) => ActionOutcome::Failed {
+                        kind: FailureKind::Io { context: err },
+                    },
+                }
+            }
+            "add_from_clipboard" => {
+                let Some(trigger) = action
+                    .result
+                    .id
+                    .as_str()
+                    .strip_prefix("snip:add-clipboard:")
+                else {
+                    return ActionOutcome::Failed {
+                        kind: FailureKind::InvalidInput {
+                            field: "result_id".into(),
+                            message: "expected snip:add-clipboard:<trigger>".into(),
+                        },
+                    };
+                };
+                let exists = self.index.read().await.iter().any(|s| s.trigger == trigger);
+                if exists && !action.confirmation {
+                    return ActionOutcome::Failed {
+                        kind: FailureKind::SecurityDenied {
+                            reason: "confirmation required to overwrite snippet".into(),
+                        },
+                    };
+                }
+                let body = match await_unless_cancelled(&cancel, self.pasteboard.read_text()).await
+                {
+                    None => return ActionOutcome::Cancelled,
+                    Some(Ok(Some(body))) if !body.is_empty() => body,
+                    Some(Ok(_)) => {
+                        return ActionOutcome::Failed {
+                            kind: FailureKind::InvalidInput {
+                                field: "clipboard".into(),
+                                message: "clipboard does not contain text".into(),
+                            },
+                        }
+                    }
+                    Some(Err(err)) => {
+                        return ActionOutcome::Failed {
+                            kind: FailureKind::Unavailable {
+                                reason: err.to_string(),
+                                retryable: true,
+                            },
+                        }
+                    }
+                };
+                match self.upsert(trigger, &body).await {
+                    Ok(()) => ActionOutcome::Success {
+                        message: Some(if exists {
+                            format!("updated {trigger} from clipboard")
+                        } else {
+                            format!("added {trigger} from clipboard")
                         }),
                     },
                     Err(err) => ActionOutcome::Failed {
@@ -431,7 +597,7 @@ impl LumaModule for SnippetsModule {
                     {
                         None => ActionOutcome::Cancelled,
                         Some(Ok(())) => ActionOutcome::Success {
-                            message: Some("copied".into()),
+                            message: Some(format!("copied snippet {trigger}")),
                         },
                         Some(Err(err)) => ActionOutcome::Failed {
                             kind: FailureKind::Unavailable {
@@ -511,5 +677,53 @@ mod teardown_tests {
         assert!(m.index.read().await.is_empty());
         assert!(m.store_error.read().await.is_none());
         m.teardown().await;
+    }
+
+    #[tokio::test]
+    async fn add_from_clipboard_preserves_multiline_body() {
+        let store = Arc::new(MemorySnippetsRepository::new());
+        let pasteboard = Arc::new(luma_application::FakePasteboard::new());
+        pasteboard
+            .write_text("first line\nsecond line")
+            .await
+            .unwrap();
+        let m = SnippetsModule::with_store(
+            store.clone(),
+            pasteboard,
+            Arc::new(luma_application::FakeAccessibility::new(false, false)),
+            Arc::new(luma_application::FakeWindowCatalog::default()),
+        );
+        let descriptor = ActionDescriptor {
+            id: ActionId::new("add_from_clipboard"),
+            label: "Add".into(),
+            risk: ActionRisk::Safe,
+            confirmation: false,
+        };
+        let outcome = m
+            .perform(
+                ActionRequest {
+                    result: SearchItem {
+                        id: luma_domain::ResultId::new("snip:add-clipboard:signature"),
+                        module_id: ModuleId::new("luma.snippets"),
+                        title: "Add signature".into(),
+                        subtitle: None,
+                        kind: "create".into(),
+                        score: 100.0,
+                        primary_action: descriptor.clone(),
+                        secondary_actions: vec![],
+                        ui_intent: None,
+                        action_payload: None,
+                    },
+                    action: descriptor,
+                    confirmation: false,
+                },
+                CancellationToken::new(),
+            )
+            .await;
+        assert!(matches!(outcome, ActionOutcome::Success { .. }));
+        assert_eq!(
+            store.get("signature").unwrap().unwrap().body,
+            "first line\nsecond line"
+        );
     }
 }

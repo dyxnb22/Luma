@@ -8,7 +8,7 @@ socket，不负责启动代理核心，也不执行导入 Profile 中的脚本�
 
 | Query | 作用 |
 | --- | --- |
-| `/proxy ` | 查看 Mihomo 状态、当前 Profile、模式、端口和系统代理 |
+| `/proxy ` | 紧凑显示 Mihomo 状态和代理组当前选择；不重复展开节点 |
 | `/proxy group <name>` | 查看代理组及节点，选择节点不显示原始凭据 |
 | `/proxy global` / `/proxy rule` | 切换 Mihomo 模式，使用 `PATCH /configs` |
 | `/proxy profile` | 列出 Luma Profile 和现有 Clash Verge Profile |

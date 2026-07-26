@@ -107,19 +107,50 @@ impl AppsModule {
         if name_l.starts_with(&needle_l) {
             return Some(92.0 + mru_boost);
         }
-        if name_l.contains(&needle_l) {
+        let words = name_l
+            .split(|character: char| !character.is_alphanumeric())
+            .filter(|word| !word.is_empty())
+            .collect::<Vec<_>>();
+        if words.iter().any(|word| word.starts_with(&needle_l)) {
+            return Some(86.0 + mru_boost);
+        }
+        if needle_l.chars().count() >= 4 && name_l.contains(&needle_l) {
             return Some(80.0 + mru_boost);
         }
-        // subsequence match: "sf" matches "Safari"
-        let mut it = name_l.chars();
+        let acronym = words
+            .iter()
+            .filter_map(|word| word.chars().next())
+            .collect::<String>();
+        if acronym.len() >= 2 && acronym.starts_with(&needle_l) {
+            return Some(72.0 + mru_boost);
+        }
+        // Bounded subsequence match: "sf" matches "Safari", while a loose "git" must not make
+        // "Digital Color Meter" look like a meaningful application result.
+        if needle_l.chars().count() > 2 {
+            return None;
+        }
+        let mut positions = Vec::new();
+        let mut it = name_l.chars().enumerate();
         for ch in needle_l.chars() {
             loop {
                 match it.next() {
-                    Some(c) if c == ch => break,
+                    Some((index, candidate)) if candidate == ch => {
+                        positions.push(index);
+                        break;
+                    }
                     Some(_) => continue,
                     None => return None,
                 }
             }
+        }
+        let span = positions
+            .last()
+            .zip(positions.first())
+            .map(|(last, first)| last.saturating_sub(*first) + 1)
+            .unwrap_or(0);
+        let max_span = 4;
+        if span > max_span {
+            return None;
         }
         Some(65.0 + mru_boost)
     }
@@ -334,7 +365,7 @@ impl LumaModule for AppsModule {
                     .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
             });
             let mut upserts = Vec::new();
-            for app in ranked.into_iter().take(query.limit) {
+            for (index, app) in ranked.into_iter().take(query.limit).enumerate() {
                 if cancel.is_cancelled() {
                     return;
                 }
@@ -346,7 +377,7 @@ impl LumaModule for AppsModule {
                     title: app.name,
                     subtitle: Some(app.path.display().to_string()),
                     kind: "app".into(),
-                    score: 60.0 + mru.min(20.0),
+                    score: 60.0 + mru.min(20.0) - index as f64 * 0.001,
                     primary_action_id: "launch".into(),
                     primary_action_label: "Launch".into(),
                     ..Default::default()
@@ -396,9 +427,13 @@ impl LumaModule for AppsModule {
                 Self::fuzzy_score(&app.name, &needle, mru.min(10.0)).map(|s| (s, app))
             })
             .collect();
-        scored.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
+        scored.sort_by(|a, b| {
+            b.0.partial_cmp(&a.0)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then_with(|| a.1.name.to_lowercase().cmp(&b.1.name.to_lowercase()))
+        });
         let mut upserts = Vec::new();
-        for (score, app) in scored.into_iter().take(query.limit) {
+        for (index, (score, app)) in scored.into_iter().take(query.limit).enumerate() {
             if cancel.is_cancelled() {
                 return;
             }
@@ -408,7 +443,7 @@ impl LumaModule for AppsModule {
                 title: app.name,
                 subtitle: Some(app.path.display().to_string()),
                 kind: "app".into(),
-                score,
+                score: score - index as f64 * 0.001,
                 primary_action_id: "launch".into(),
                 primary_action_label: "Launch".into(),
                 ..Default::default()
@@ -625,6 +660,14 @@ mod tests {
 
     struct FakeCatalog {
         apps: Vec<AppEntry>,
+    }
+
+    #[test]
+    fn fuzzy_matching_keeps_compact_shortcuts_and_rejects_loose_noise() {
+        assert!(AppsModule::fuzzy_score("Safari", "sf", 0.0).is_some());
+        assert!(AppsModule::fuzzy_score("Digital Color Meter", "dcm", 0.0).is_some());
+        assert!(AppsModule::fuzzy_score("Digital Color Meter", "git", 0.0).is_none());
+        assert!(AppsModule::fuzzy_score("Migration Assistant", "git", 0.0).is_none());
     }
 
     #[async_trait]

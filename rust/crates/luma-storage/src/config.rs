@@ -243,13 +243,13 @@ impl LumaSettings {
             .get("clipboard_retention_days")
             .and_then(|v| v.as_u64())
         {
-            self.clipboard_retention_days = days as u32;
+            self.clipboard_retention_days = u32::try_from(days).unwrap_or(u32::MAX).clamp(1, 3_650);
         }
         if let Some(secs) = patch.get("secrets_idle_lock_secs").and_then(|v| v.as_u64()) {
-            self.secrets_idle_lock_secs = secs as u32;
+            self.secrets_idle_lock_secs = u32::try_from(secs).unwrap_or(u32::MAX).min(2_592_000);
         }
         if let Some(max) = patch.get("hub_windows_max").and_then(|v| v.as_u64()) {
-            self.hub_windows_max = (max as u32).clamp(5, 50);
+            self.hub_windows_max = u32::try_from(max).unwrap_or(u32::MAX).clamp(5, 50);
         }
         apply_optional_string_field(
             patch,
@@ -321,7 +321,7 @@ fn default_secrets_idle_lock_secs() -> u32 {
 }
 
 fn default_hub_windows_max() -> u32 {
-    15
+    7
 }
 
 impl Default for LumaSettings {

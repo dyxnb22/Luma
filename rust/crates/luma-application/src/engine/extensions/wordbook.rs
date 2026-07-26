@@ -43,6 +43,12 @@ impl Engine {
         let queue_available = match queue.as_str() {
             "new" => stats.new_count.max(0) as usize,
             "wrong" => stats.wrong.max(0) as usize,
+            "today" => stats
+                .due
+                .max(stats.remaining_goal)
+                .max(0)
+                .min(stats.due.saturating_add(stats.new_count).max(0))
+                as usize,
             _ => stats.due.max(0) as usize,
         };
         let goal_batch = if stats.remaining_goal > 0 {
@@ -50,11 +56,22 @@ impl Engine {
         } else {
             stats.goal.max(1) as usize
         };
-        let limit = goal_batch.min(queue_available.max(1)).clamp(1, 500);
-        let words_result = match queue.as_str() {
-            "new" => repo.list_new(limit),
-            "wrong" => repo.list_wrong(limit),
-            _ => repo.list_due(limit),
+        let limit = if queue == "today" {
+            // Daily review must not strand overdue cards merely because today's target is lower.
+            queue_available.max(1)
+        } else {
+            goal_batch.min(queue_available.max(1))
+        }
+        .clamp(1, 500);
+        let words_result = if queue_available == 0 {
+            Ok(Vec::new())
+        } else {
+            match queue.as_str() {
+                "new" => repo.list_new(limit),
+                "wrong" => repo.list_wrong(limit),
+                "today" => repo.list_today(limit),
+                _ => repo.list_due(limit),
+            }
         };
         let words: Vec<WordReviewWordDto> = match words_result {
             Ok(entries) => {

@@ -124,6 +124,11 @@ impl GitModule {
             "repo_path": repo.path.display().to_string(),
             "project_path": repo.path.display().to_string(),
             "project_name": repo.project_name,
+            "branch": repo.branch,
+            "staged_count": repo.staged_count(),
+            "worktree_count": repo.unstaged_count()
+                .saturating_add(repo.untracked_count())
+                .saturating_add(repo.conflicted_count()),
             "surface_query": format!("/git repo {}", repo.path.display()),
         })
     }
@@ -220,6 +225,10 @@ impl GitModule {
                 "unstaged": file.unstaged,
                 "untracked": file.untracked,
                 "conflicted": file.conflicted,
+                "repo_staged_count": repo.staged_count(),
+                "repo_worktree_count": repo.unstaged_count()
+                    .saturating_add(repo.untracked_count())
+                    .saturating_add(repo.conflicted_count()),
             })),
             ..Default::default()
         }
@@ -335,30 +344,34 @@ impl GitModule {
         }
         *self.cached.write().await = vec![repo.clone()];
         let mut upserts = vec![Self::repo_row(&repo, 100.0)];
-        upserts.push(SearchItemDto {
-            id: format!("git:stage-all:{}", repo.path.display()),
-            module_id: MODULE_ID.into(),
-            title: "Stage all tracked and untracked changes".into(),
-            subtitle: Some(repo.path.display().to_string()),
-            kind: "git_control".into(),
-            score: 96.0,
-            primary_action_id: "stage_all".into(),
-            primary_action_label: "Stage all".into(),
-            action_payload: Some(Self::repo_payload(&repo)),
-            ..Default::default()
-        });
-        upserts.push(SearchItemDto {
-            id: format!("git:unstage-all:{}", repo.path.display()),
-            module_id: MODULE_ID.into(),
-            title: "Unstage all changes".into(),
-            subtitle: Some(repo.path.display().to_string()),
-            kind: "git_control".into(),
-            score: 95.0,
-            primary_action_id: "unstage_all".into(),
-            primary_action_label: "Unstage all".into(),
-            action_payload: Some(Self::repo_payload(&repo)),
-            ..Default::default()
-        });
+        if repo.unstaged_count() + repo.untracked_count() + repo.conflicted_count() > 0 {
+            upserts.push(SearchItemDto {
+                id: format!("git:stage-all:{}", repo.path.display()),
+                module_id: MODULE_ID.into(),
+                title: "Stage all tracked and untracked changes".into(),
+                subtitle: Some(repo.path.display().to_string()),
+                kind: "git_control".into(),
+                score: 96.0,
+                primary_action_id: "stage_all".into(),
+                primary_action_label: "Stage all".into(),
+                action_payload: Some(Self::repo_payload(&repo)),
+                ..Default::default()
+            });
+        }
+        if repo.staged_count() > 0 {
+            upserts.push(SearchItemDto {
+                id: format!("git:unstage-all:{}", repo.path.display()),
+                module_id: MODULE_ID.into(),
+                title: "Unstage all changes".into(),
+                subtitle: Some(repo.path.display().to_string()),
+                kind: "git_control".into(),
+                score: 95.0,
+                primary_action_id: "unstage_all".into(),
+                primary_action_label: "Unstage all".into(),
+                action_payload: Some(Self::repo_payload(&repo)),
+                ..Default::default()
+            });
+        }
         upserts.push(SearchItemDto { id: format!("git:branches:{}", repo.path.display()), module_id: MODULE_ID.into(), title: "Branches".into(), subtitle: Some("switch is blocked when working tree is dirty".into()), kind: "git_surface".into(), score: 94.0, primary_action_id: "open_branches".into(), primary_action_label: "Branches".into(), ui_intent: Some(UiIntent::OpenSurface), action_payload: Some(serde_json::json!({ "surface_query": format!("/git branches {}", repo.path.display()), "repo_path": repo.path.display().to_string(), "project_path": repo.path.display().to_string() })), ..Default::default() });
         upserts.push(SearchItemDto { id: format!("git:log:{}", repo.path.display()), module_id: MODULE_ID.into(), title: "Recent commits".into(), subtitle: Some("local history only".into()), kind: "git_surface".into(), score: 93.0, primary_action_id: "open_log".into(), primary_action_label: "Log".into(), ui_intent: Some(UiIntent::OpenSurface), action_payload: Some(serde_json::json!({ "surface_query": format!("/git log {}", repo.path.display()), "repo_path": repo.path.display().to_string(), "project_path": repo.path.display().to_string() })), ..Default::default() });
         for file in &repo.files {
@@ -478,12 +491,12 @@ impl GitModule {
             })
     }
 
-    async fn copy(&self, value: String) -> ActionOutcome {
+    async fn copy(&self, value: String, label: &str) -> ActionOutcome {
         self.pasteboard
             .write_text(&value)
             .await
             .map(|_| ActionOutcome::Success {
-                message: Some("copied".into()),
+                message: Some(format!("copied {label}")),
             })
             .unwrap_or_else(|error| ActionOutcome::Failed {
                 kind: FailureKind::Unavailable {
@@ -550,7 +563,9 @@ impl LumaModule for GitModule {
             let repos = self.cached.read().await.clone();
             let repo = repos.first().cloned();
             if let Some(repo) = repo {
-                let _ = sink.send(Event::ResultsChunk { request_id: String::new(), sequence: 1, upserts: vec![SearchItemDto { id: format!("git:commit:{}", repo.path.display()), module_id: MODULE_ID.into(), title: "Commit staged changes".into(), subtitle: Some(if message.is_empty() { "Type a non-empty commit message".into() } else { message.into() }), kind: "git_commit".into(), score: 100.0, primary_action_id: "commit".into(), primary_action_label: "Commit".into(), primary_action_risk: ActionRisk::Confirm, primary_action_confirmation: true, action_payload: Some(serde_json::json!({ "repo_path": repo.path.display().to_string(), "project_path": repo.path.display().to_string(), "message": message })), ..Default::default() }], removed_ids: vec![] }).await;
+                let staged = repo.staged_count() > 0;
+                let valid = staged && !message.is_empty();
+                let _ = sink.send(Event::ResultsChunk { request_id: String::new(), sequence: 1, upserts: vec![SearchItemDto { id: format!("git:commit:{}", repo.path.display()), module_id: MODULE_ID.into(), title: if staged { "Commit staged changes".into() } else { "Nothing staged to commit".into() }, subtitle: Some(if !staged { "Stage one or more changes first".into() } else if message.is_empty() { "Type a non-empty commit message".into() } else { message.into() }), kind: if valid { "git_commit" } else { "status" }.into(), score: 100.0, primary_action_id: if valid { "commit" } else { "noop" }.into(), primary_action_label: if valid { "Commit" } else { "Unavailable" }.into(), primary_action_risk: if valid { ActionRisk::Confirm } else { ActionRisk::Safe }, primary_action_confirmation: valid, action_payload: Some(serde_json::json!({ "repo_path": repo.path.display().to_string(), "project_path": repo.path.display().to_string(), "message": message })), ..Default::default() }], removed_ids: vec![] }).await;
             }
             return;
         }
@@ -559,20 +574,32 @@ impl LumaModule for GitModule {
     async fn actions(&self, result: &SearchItem) -> Vec<ActionDescriptor> {
         match result.kind.as_str() {
             "git_file" => {
-                let mut actions = vec![
-                    action(
-                        if result.primary_action.id.as_str() == "stage" {
-                            "stage"
-                        } else {
-                            "unstage"
-                        },
-                        result.primary_action.label.as_str(),
-                        ActionRisk::Safe,
-                    ),
-                    action("stage_all", "Stage all", ActionRisk::Safe),
-                    action("unstage_all", "Unstage all", ActionRisk::Safe),
-                ];
+                let mut actions = vec![action(
+                    if result.primary_action.id.as_str() == "stage" {
+                        "stage"
+                    } else {
+                        "unstage"
+                    },
+                    result.primary_action.label.as_str(),
+                    ActionRisk::Safe,
+                )];
                 let payload = result.action_payload.as_ref();
+                if payload
+                    .and_then(|value| value.get("repo_worktree_count"))
+                    .and_then(|value| value.as_u64())
+                    .unwrap_or(0)
+                    > 0
+                {
+                    actions.push(action("stage_all", "Stage all", ActionRisk::Safe));
+                }
+                if payload
+                    .and_then(|value| value.get("repo_staged_count"))
+                    .and_then(|value| value.as_u64())
+                    .unwrap_or(0)
+                    > 0
+                {
+                    actions.push(action("unstage_all", "Unstage all", ActionRisk::Safe));
+                }
                 let unstaged = payload
                     .and_then(|value| value.get("unstaged"))
                     .and_then(|value| value.as_bool())
@@ -605,12 +632,38 @@ impl LumaModule for GitModule {
                 "Switch branch",
                 ActionRisk::Confirm,
             )],
-            "git_repo" => vec![
-                action("stage_all", "Stage all", ActionRisk::Safe),
-                action("unstage_all", "Unstage all", ActionRisk::Safe),
-                action("copy_path", "Copy repository path", ActionRisk::Safe),
-                action("copy_branch", "Copy branch", ActionRisk::Safe),
-            ],
+            "git_repo" => {
+                let payload = result.action_payload.as_ref();
+                let mut actions = Vec::new();
+                if payload
+                    .and_then(|value| value.get("worktree_count"))
+                    .and_then(|value| value.as_u64())
+                    .unwrap_or(0)
+                    > 0
+                {
+                    actions.push(action("stage_all", "Stage all", ActionRisk::Safe));
+                }
+                if payload
+                    .and_then(|value| value.get("staged_count"))
+                    .and_then(|value| value.as_u64())
+                    .unwrap_or(0)
+                    > 0
+                {
+                    actions.push(action("unstage_all", "Unstage all", ActionRisk::Safe));
+                }
+                actions.push(action(
+                    "copy_path",
+                    "Copy repository path",
+                    ActionRisk::Safe,
+                ));
+                if payload
+                    .and_then(|value| value.get("branch"))
+                    .is_some_and(|value| value.is_string())
+                {
+                    actions.push(action("copy_branch", "Copy branch", ActionRisk::Safe));
+                }
+                actions
+            }
             _ => vec![action("noop", "OK", ActionRisk::Safe)],
         }
     }
@@ -703,13 +756,19 @@ impl LumaModule for GitModule {
                     .to_string();
                 self.git.switch_branch(repo, branch).await
             }
-            "copy_path" => return self.copy(repo.display().to_string()).await,
+            "copy_path" => {
+                return self
+                    .copy(repo.display().to_string(), "repository path")
+                    .await
+            }
             "copy_branch" => {
                 let branch = self
                     .repo_by_path(&repo.display().to_string())
                     .await
                     .and_then(|state| state.branch);
-                return self.copy(branch.unwrap_or_else(|| "detached".into())).await;
+                return self
+                    .copy(branch.unwrap_or_else(|| "detached".into()), "branch")
+                    .await;
             }
             "copy_sha" => {
                 return self
@@ -722,6 +781,7 @@ impl LumaModule for GitModule {
                             .and_then(|value| value.as_str())
                             .unwrap_or("")
                             .into(),
+                        "commit SHA",
                     )
                     .await
             }
@@ -914,5 +974,37 @@ mod tests {
         assert!(!untracked_actions
             .iter()
             .any(|action| action.id.as_str() == "discard"));
+    }
+
+    #[tokio::test]
+    async fn clean_repository_hides_irrelevant_stage_controls() {
+        let mut clean = repo();
+        clean.files.clear();
+        clean.ahead = 0;
+        let git = FakeGitRepository::new(vec![clean.clone()]);
+        let module = GitModule::with_deps(
+            vec![ImportedProject {
+                name: Some("Example".into()),
+                path: "/tmp/example".into(),
+            }],
+            git,
+            Arc::new(FakePasteboard::new()),
+        );
+
+        let actions = module
+            .actions(&GitModule::repo_row(&clean, 100.0).into_domain())
+            .await;
+        assert_eq!(
+            actions
+                .iter()
+                .map(|action| action.id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["copy_path", "copy_branch"]
+        );
+
+        let items = collect_search_items(&module, query("/git repo /tmp/example")).await;
+        assert!(!items.iter().any(|item| {
+            matches!(item.primary_action.id.as_str(), "stage_all" | "unstage_all")
+        }));
     }
 }

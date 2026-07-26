@@ -22,4 +22,5 @@ pub trait QuicklinksRepository: Send + Sync {
     fn list(&self) -> Result<Vec<QuicklinkEntry>, QuicklinksRepoError>;
     fn upsert(&self, trigger: &str, url: &str) -> Result<(), QuicklinksRepoError>;
     fn delete(&self, trigger: &str) -> Result<(), QuicklinksRepoError>;
+    fn backup(&self) -> Result<std::path::PathBuf, QuicklinksRepoError>;
 }

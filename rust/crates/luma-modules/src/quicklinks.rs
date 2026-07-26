@@ -239,6 +239,28 @@ impl LumaModule for QuicklinksModule {
             return;
         }
 
+        if query.is_command() && rest == "backup" {
+            let _ = sink
+                .send(Event::ResultsChunk {
+                    request_id: String::new(),
+                    sequence: 1,
+                    upserts: vec![SearchItemDto {
+                        id: "ql:backup".into(),
+                        module_id: "luma.quicklinks".into(),
+                        title: "Backup quicklinks".into(),
+                        subtitle: Some("Copy SQLite snapshot to LumaNext/backups/".into()),
+                        kind: "command".into(),
+                        score: 100.0,
+                        primary_action_id: "backup".into(),
+                        primary_action_label: "Backup".into(),
+                        ..Default::default()
+                    }],
+                    removed_ids: vec![],
+                })
+                .await;
+            return;
+        }
+
         let links = self.index.read().await.clone();
         let mut upserts = Vec::new();
         for link in links {
@@ -302,6 +324,14 @@ impl LumaModule for QuicklinksModule {
         }
     }
     async fn actions(&self, result: &SearchItem) -> Vec<ActionDescriptor> {
+        if result.primary_action.id.as_str() == "backup" {
+            return vec![ActionDescriptor {
+                id: ActionId::new("backup"),
+                label: "Backup".into(),
+                risk: ActionRisk::Safe,
+                confirmation: false,
+            }];
+        }
         if let Some(trigger) = result.id.as_str().strip_prefix("ql:add:") {
             let exists = self
                 .index
@@ -372,6 +402,16 @@ impl LumaModule for QuicklinksModule {
             return ActionOutcome::Cancelled;
         }
         match action.action.id.as_str() {
+            "backup" => match self.store.backup() {
+                Ok(path) => ActionOutcome::Success {
+                    message: Some(format!("backup saved to {}", path.display())),
+                },
+                Err(err) => ActionOutcome::Failed {
+                    kind: FailureKind::Io {
+                        context: err.to_string(),
+                    },
+                },
+            },
             "add" => {
                 let Some(trigger) = action.result.id.as_str().strip_prefix("ql:add:") else {
                     return ActionOutcome::Failed {

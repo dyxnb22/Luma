@@ -217,6 +217,59 @@ fn slash_help_meta_opens_help_without_search() {
 }
 
 #[test]
+fn enter_commits_a_bare_slash_module_trigger() {
+    let mut state = AppState::default();
+    state.module_catalog = vec![crate::view_model::ModuleCatalogEntry {
+        id: "luma.clipboard".into(),
+        display_name: "Clipboard".into(),
+        enabled: true,
+        glyph: None,
+        suggested_query: Some("/clip ".into()),
+        empty_hint: None,
+        supports_browse: false,
+        triggers: vec!["clip".into()],
+    }];
+    state.search.prompt = "/clip".into();
+    state.search.prompt_cursor = state.prompt_char_len();
+
+    let effects = update(&mut state, Msg::Submit);
+
+    assert_eq!(state.search.prompt, "/clip ");
+    assert!(effects
+        .iter()
+        .any(|effect| matches!(effect, Effect::Search { query, .. } if query == "/clip ")));
+}
+
+#[test]
+fn command_palette_filters_modules_and_opens_the_selected_surface() {
+    let mut state = AppState::default();
+    state.module_catalog = vec![crate::view_model::ModuleCatalogEntry {
+        id: "luma.clipboard".into(),
+        display_name: "Clipboard".into(),
+        enabled: true,
+        glyph: None,
+        suggested_query: Some("/clip ".into()),
+        empty_hint: None,
+        supports_browse: false,
+        triggers: vec!["clip".into()],
+    }];
+    let _ = update(&mut state, Msg::OpenCommands);
+    for character in "clip".chars() {
+        let _ = update(&mut state, Msg::KeyChar(character));
+    }
+    assert_eq!(state.route, Route::Commands);
+    assert_eq!(state.command_palette_rows().len(), 1);
+
+    let effects = update(&mut state, Msg::Submit);
+
+    assert_eq!(state.route, Route::Search);
+    assert_eq!(state.search.prompt, "/clip ");
+    assert!(effects
+        .iter()
+        .any(|effect| matches!(effect, Effect::Search { query, .. } if query == "/clip ")));
+}
+
+#[test]
 fn meta_command_does_not_require_enter_to_flush_debounce() {
     let mut state = AppState::default();
     for c in "/commands".chars() {
@@ -1244,6 +1297,27 @@ fn local_settings_command_requires_a_path() {
 
     assert_eq!(effects, vec![Effect::None]);
     assert!(state.status.text.contains("needs a path"));
+}
+
+#[test]
+fn local_settings_commands_cover_core_personal_values() {
+    assert_eq!(
+        settings_patch_from_prompt("/settings records-root /tmp/records", &[]).unwrap(),
+        Some(serde_json::json!({"records_root": "/tmp/records"}))
+    );
+    assert_eq!(
+        settings_patch_from_prompt("/settings clipboard-retention-days 14", &[]).unwrap(),
+        Some(serde_json::json!({"clipboard_retention_days": 14}))
+    );
+    assert_eq!(
+        settings_patch_from_prompt("/settings secrets-idle-lock-secs 0", &[]).unwrap(),
+        Some(serde_json::json!({"secrets_idle_lock_secs": 0}))
+    );
+    assert_eq!(
+        settings_patch_from_prompt("/settings hub-windows-max 7", &[]).unwrap(),
+        Some(serde_json::json!({"hub_windows_max": 7}))
+    );
+    assert!(settings_patch_from_prompt("/settings hub-windows-max 3", &[]).is_err());
 }
 
 #[test]

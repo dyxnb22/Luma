@@ -1,5 +1,26 @@
 use super::*;
 
+pub(super) fn settings_event_value(
+    source: &str,
+    settings: &crate::ports::AppSettings,
+    rows: &[(String, bool, String)],
+) -> serde_json::Value {
+    let mut value = serde_json::to_value(settings).unwrap_or_else(|_| serde_json::json!({}));
+    if let Some(object) = value.as_object_mut() {
+        object.insert("source".into(), source.into());
+        object.insert(
+            "modules".into(),
+            rows.iter()
+                .map(|(id, enabled, name)| {
+                    serde_json::json!({"id": id, "enabled": enabled, "name": name})
+                })
+                .collect::<Vec<_>>()
+                .into(),
+        );
+    }
+    value
+}
+
 impl Engine {
     pub async fn handle_command(&self, command: Command) {
         match command {
@@ -60,6 +81,7 @@ impl Engine {
                 };
                 let mut windows_dto: Option<luma_protocol::HubWindowsDto> = None;
                 let mut seeded: Vec<luma_domain::SearchItem> = Vec::new();
+                let mut continue_search_items = Vec::new();
                 for module in &modules {
                     if windows_dto.is_none() && module.supports_hub_windows() {
                         if let Some(slice) = module.hub_windows().await {
@@ -101,17 +123,38 @@ impl Engine {
                             });
                         }
                     }
+                    if module.supports_hub_items()
+                        && continue_search_items.len() < super::recall::HUB_CONTINUE_LIMIT
+                    {
+                        continue_search_items.extend(
+                            module
+                                .hub_items(
+                                    super::recall::HUB_CONTINUE_LIMIT - continue_search_items.len(),
+                                )
+                                .await,
+                        );
+                    }
                 }
-                let continue_items = self
+                continue_search_items.truncate(super::recall::HUB_CONTINUE_LIMIT);
+                let remaining =
+                    super::recall::HUB_CONTINUE_LIMIT.saturating_sub(continue_search_items.len());
+                let recent_records = self
                     .recall
                     .as_ref()
-                    .and_then(|repo| repo.list_recent(super::recall::HUB_CONTINUE_LIMIT).ok())
+                    .and_then(|repo| {
+                        repo.list_recent(super::recall::HUB_CONTINUE_LIMIT.saturating_mul(2))
+                            .ok()
+                    })
                     .unwrap_or_default();
                 let enabled_ids = modules
                     .iter()
                     .map(|module| module.manifest().id.as_str().to_string())
                     .collect::<std::collections::HashSet<_>>();
-                let continue_items = continue_items
+                let live_ids = continue_search_items
+                    .iter()
+                    .map(|item| item.id.as_str())
+                    .collect::<std::collections::HashSet<_>>();
+                let recent_items = recent_records
                     .into_iter()
                     .filter(|record| {
                         enabled_ids.contains(&record.module_id)
@@ -119,19 +162,23 @@ impl Engine {
                             // They remain recall-ranked in global search, but Hub Continue never
                             // guesses that volatile payload from a persistent record.
                             && !matches!(record.module_id.as_str(), "luma.git" | "luma.runtime")
+                            && !live_ids.contains(record.object_id.as_str())
                     })
+                    .take(remaining)
+                    .map(|record| super::recall::hub_item(&record))
                     .collect::<Vec<_>>();
-                let continue_dto = continue_items
+                continue_search_items.extend(recent_items);
+                let continue_dto = continue_search_items
                     .iter()
-                    .map(|record| luma_protocol::HubContinueDto {
-                        id: record.object_id.clone(),
-                        module_id: record.module_id.clone(),
-                        kind: record.kind.clone(),
-                        title: record.title.clone(),
-                        primary_action_id: record.primary_action.clone(),
+                    .map(|item| luma_protocol::HubContinueDto {
+                        id: item.id.as_str().to_string(),
+                        module_id: item.module_id.as_str().to_string(),
+                        kind: item.kind.clone(),
+                        title: item.title.clone(),
+                        primary_action_id: item.primary_action.id.as_str().to_string(),
                     })
                     .collect::<Vec<_>>();
-                seeded.extend(continue_items.iter().map(super::recall::hub_item));
+                seeded.extend(continue_search_items);
                 let evicted = {
                     let mut g = self.inner.lock().await;
                     g.insert_results_batch(
@@ -161,32 +208,26 @@ impl Engine {
                 self.handle_load_wordbook_review(queue).await;
             }
             Command::GetSettings => {
-                let (rows, version, projects_roots, imported_projects) = {
+                let (rows, snapshot) = {
                     let g = self.inner.lock().await;
                     let rows = g.registry.list();
                     let snapshot = self
                         .settings
                         .as_ref()
                         .and_then(|repo| repo.load_or_default().ok());
-                    let version = snapshot.as_ref().map(|s| s.settings_version).unwrap_or(0);
-                    let projects_roots = snapshot
-                        .as_ref()
-                        .map(|s| s.projects_roots.clone())
-                        .unwrap_or_default();
-                    let imported_projects = snapshot
-                        .as_ref()
-                        .map(|s| s.imported_projects.clone())
-                        .unwrap_or_default();
-                    (rows, version, projects_roots, imported_projects)
+                    (rows, snapshot)
                 };
-                let settings = serde_json::json!({
-                    "source": if self.settings.is_some() { "config_store" } else { "engine_registry" },
-                    "projects_roots": projects_roots,
-                    "imported_projects": imported_projects,
-                    "modules": rows.iter().map(|(id, enabled, name)| {
-                        serde_json::json!({"id": id, "enabled": enabled, "name": name})
-                    }).collect::<Vec<_>>(),
-                });
+                let snapshot = snapshot.unwrap_or_default();
+                let version = snapshot.settings_version;
+                let settings = settings_event_value(
+                    if self.settings.is_some() {
+                        "config_store"
+                    } else {
+                        "engine_registry"
+                    },
+                    &snapshot,
+                    &rows,
+                );
                 let _ = self
                     .emit(Event::SettingsChanged { version, settings })
                     .await;
@@ -225,9 +266,6 @@ impl Engine {
                         .await;
                     return;
                 }
-                let roots_changed = next.records_root != current.records_root
-                    || next.projects_roots != current.projects_roots
-                    || next.imported_projects != current.imported_projects;
                 let saved = match settings_repo.update_cas(expected_version, next) {
                     Ok(value) => value,
                     Err(err) => {
@@ -255,14 +293,15 @@ impl Engine {
                 for (id, enabled) in changes {
                     let _ = self.apply_module_enabled(&id, enabled).await;
                 }
-                if roots_changed {
-                    let modules = {
-                        let g = self.inner.lock().await;
-                        g.registry.enabled_modules().into_iter().collect::<Vec<_>>()
-                    };
-                    for module in modules {
-                        module.apply_settings(&saved).await;
-                    }
+                // Every persisted field is module-owned (retention, idle lock, Hub cap, proxy
+                // endpoint, roots). Apply the complete saved snapshot so changes take effect in
+                // the running workbench rather than only after another root mutation or restart.
+                let modules = {
+                    let g = self.inner.lock().await;
+                    g.registry.enabled_modules().into_iter().collect::<Vec<_>>()
+                };
+                for module in modules {
+                    module.apply_settings(&saved).await;
                 }
                 let rows = {
                     let g = self.inner.lock().await;
@@ -271,14 +310,7 @@ impl Engine {
                 let _ = self
                     .emit(Event::SettingsChanged {
                         version: saved.settings_version,
-                        settings: serde_json::json!({
-                            "source": "config_store",
-                            "modules": rows.iter().map(|(id, enabled, name)| {
-                                serde_json::json!({"id": id, "enabled": enabled, "name": name})
-                            }).collect::<Vec<_>>(),
-                            "projects_roots": saved.projects_roots,
-                            "imported_projects": saved.imported_projects,
-                        }),
+                        settings: settings_event_value("config_store", &saved, &rows),
                     })
                     .await;
             }

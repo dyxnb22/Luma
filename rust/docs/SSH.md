@@ -33,6 +33,9 @@ Override the config path for tests or tooling with `SSH_CONFIG`.
 | `/ssh rename ALIAS NAME` | Set a local display name (Enter or action picker to save). Prefix is case-insensitive; `NAME` may contain spaces. |
 
 Sorting: **favorite first** → **most recently connected** → relevance score → alias.
+Opening any targeted `/ssh …` query automatically re-reads the main config and `Include` files
+and invalidates resolved-host cache entries, so HostName/User/Port edits do not require a restart.
+`/ssh reload` remains an explicit manual refresh row.
 
 Unprefixed `ssh` text is a global search; use `/ssh ` (with space) or Hub Enter on the SSH
 module row.

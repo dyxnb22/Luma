@@ -4,11 +4,13 @@ use std::collections::{BTreeMap, HashMap};
 
 pub(crate) const GLOBAL_RESULTS_PER_MODULE: usize = 12;
 pub(crate) const MAX_GLOBAL_RESULTS: usize = 60;
-pub(crate) const HUB_CONTINUE_LIMIT: usize = 5;
+pub(crate) const HUB_CONTINUE_LIMIT: usize = 3;
+const DIVERSITY_SCORE_WINDOW: f64 = 3.0;
+const MAX_CONSECUTIVE_MODULE_RESULTS: usize = 2;
 
-pub(crate) fn recall_object_from_item(item: &SearchItem, now_unix: i64) -> Option<RecallObject> {
-    if item.module_id.as_str() == "luma.system"
-        || matches!(
+pub(crate) fn visible_in_global_search(item: &SearchItem) -> bool {
+    item.module_id.as_str() != "luma.system"
+        && !matches!(
             item.kind.as_str(),
             "status"
                 | "warning"
@@ -18,9 +20,13 @@ pub(crate) fn recall_object_from_item(item: &SearchItem, now_unix: i64) -> Optio
                 | "not_configured"
                 | "command_error"
                 | "onboarding"
+                | "no_match"
         )
-        || item.primary_action.id.as_str() == "noop"
-    {
+        && item.primary_action.id.as_str() != "noop"
+}
+
+pub(crate) fn recall_object_from_item(item: &SearchItem, now_unix: i64) -> Option<RecallObject> {
+    if !visible_in_global_search(item) {
         return None;
     }
     let title = privacy_safe_title(item);
@@ -80,27 +86,31 @@ pub(crate) fn apply_recall_score(
     };
     let age = now_unix.saturating_sub(record.last_used_at).max(0);
     let recency = match age {
-        0..=3_600 => 28.0,
-        3_601..=86_400 => 20.0,
-        86_401..=604_800 => 12.0,
-        604_801..=2_592_000 => 6.0,
-        _ => 1.0,
+        0..=3_600 => 4.0,
+        3_601..=86_400 => 3.0,
+        86_401..=604_800 => 2.0,
+        604_801..=2_592_000 => 1.0,
+        _ => 0.25,
     };
-    let frequency = ((record.use_count.max(1) as f64).log2() + 1.0).min(6.0) * 4.0;
+    let frequency = (((record.use_count.max(1) as f64).log2() + 1.0) * 0.5).min(3.0);
     let context = match (recent_project, record.project_path.as_deref()) {
-        (Some(current), Some(associated)) if current == associated => 10.0,
+        (Some(current), Some(associated)) if current == associated => 2.0,
         _ => 0.0,
     };
-    // Existing module scores are their text-relevance signal. The additive terms remain small
-    // enough that a good text match wins over an unrelated old item.
+    // Module scores are the text-relevance signal. Recall is deliberately capped below the
+    // ten-point exact/prefix/contains bands used by the built-in catalogues, so usage history can
+    // order similarly relevant objects without making an unrelated old object win.
     item.score += recency + frequency + context;
 }
 
-/// Round-robin selection makes global search type-fair even when one catalogue has hundreds of
-/// textual matches. The stable module/id ordering means identical inputs always rank identically.
+/// Rank globally by semantic score, using module diversity only for near-equivalent candidates.
+///
+/// Every module is capped before the merge so a large catalogue cannot flood all rows. Unlike the
+/// former unconditional round-robin, a weak fuzzy match can never jump ahead of an exact result
+/// merely because its module sorts first.
 pub(crate) fn fair_global_results(mut items: Vec<SearchItem>) -> Vec<SearchItem> {
     let mut by_module: BTreeMap<String, Vec<SearchItem>> = BTreeMap::new();
-    for item in items.drain(..) {
+    for item in items.drain(..).filter(visible_in_global_search) {
         by_module
             .entry(item.module_id.as_str().to_string())
             .or_default()
@@ -115,25 +125,67 @@ pub(crate) fn fair_global_results(mut items: Vec<SearchItem>) -> Vec<SearchItem>
         });
         module_items.truncate(GLOBAL_RESULTS_PER_MODULE);
     }
-    let mut result = Vec::new();
-    for index in 0..GLOBAL_RESULTS_PER_MODULE {
-        for module_items in by_module.values() {
-            if let Some(item) = module_items.get(index) {
-                result.push(item.clone());
-                if result.len() == MAX_GLOBAL_RESULTS {
-                    break;
-                }
-            }
-        }
-        if result.len() == MAX_GLOBAL_RESULTS {
-            break;
-        }
+
+    let mut candidates = by_module.into_values().flatten().collect::<Vec<_>>();
+    candidates.sort_by(|a, b| {
+        b.score
+            .partial_cmp(&a.score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| a.module_id.as_str().cmp(b.module_id.as_str()))
+            .then_with(|| a.id.as_str().cmp(b.id.as_str()))
+    });
+
+    let mut result: Vec<SearchItem> = Vec::with_capacity(MAX_GLOBAL_RESULTS);
+    while !candidates.is_empty() && result.len() < MAX_GLOBAL_RESULTS {
+        let top_score = candidates[0].score;
+        let repeated_module = (result.len() >= MAX_CONSECUTIVE_MODULE_RESULTS)
+            .then(|| result.last().map(|item| item.module_id.as_str()))
+            .flatten()
+            .filter(|module| {
+                result
+                    .iter()
+                    .rev()
+                    .take(MAX_CONSECUTIVE_MODULE_RESULTS)
+                    .all(|item| item.module_id.as_str() == *module)
+            });
+        let selected = repeated_module
+            .and_then(|module| {
+                candidates.iter().position(|item| {
+                    item.module_id.as_str() != module
+                        && item.score >= top_score - DIVERSITY_SCORE_WINDOW
+                })
+            })
+            .unwrap_or(0);
+        result.push(candidates.remove(selected));
     }
+
     for (index, item) in result.iter_mut().enumerate() {
-        // TUI sorting is score-based. Preserve the intentionally fair total order there too.
+        // The TUI sorts chunks by score. Encode the already relevance-first total order so the
+        // optional near-score diversity decision survives transport without exposing another rank.
         item.score = (MAX_GLOBAL_RESULTS.saturating_sub(index)) as f64 * 10_000.0;
     }
     result
+}
+
+#[cfg(test)]
+fn informational_item(module: &str, id: &str, kind: &str) -> SearchItem {
+    SearchItem {
+        id: luma_domain::ResultId::new(id),
+        module_id: ModuleId::new(module),
+        title: id.into(),
+        subtitle: None,
+        kind: kind.into(),
+        score: 100.0,
+        primary_action: ActionDescriptor {
+            id: ActionId::new("noop"),
+            label: "Status".into(),
+            risk: ActionRisk::Safe,
+            confirmation: false,
+        },
+        secondary_actions: vec![],
+        ui_intent: None,
+        action_payload: None,
+    }
 }
 
 pub(crate) fn hub_item(record: &RecallObject) -> SearchItem {
@@ -206,7 +258,7 @@ mod tests {
     }
 
     #[test]
-    fn ranking_prefers_recent_frequent_item_without_erasing_text_score() {
+    fn ranking_prefers_recent_frequent_item_within_text_band() {
         let mut record = HashMap::new();
         record.insert(
             "a".into(),
@@ -223,20 +275,44 @@ mod tests {
         );
         let mut candidate = item("luma.projects", "a", 70.0);
         apply_recall_score(&mut candidate, &record, 200, Some("/p"));
-        assert!(candidate.score > 100.0);
+        assert_eq!(candidate.score, 78.0);
     }
 
     #[test]
-    fn fair_selection_does_not_allow_one_module_to_flood_top_rows() {
+    fn semantic_relevance_wins_before_module_diversity() {
         let mut items = (0..20)
             .map(|i| item("luma.clipboard", &format!("c{i}"), 100.0 - i as f64))
             .collect::<Vec<_>>();
-        items.push(item("luma.projects", "p", 1.0));
-        items.push(item("luma.ssh", "s", 1.0));
+        items.push(item("luma.projects", "exact-project", 100.0));
+        items.push(item("luma.apps", "weak-app", 65.0));
         let ranked = fair_global_results(items);
         assert_eq!(ranked[0].module_id.as_str(), "luma.clipboard");
         assert_eq!(ranked[1].module_id.as_str(), "luma.projects");
-        assert_eq!(ranked[2].module_id.as_str(), "luma.ssh");
+        assert_eq!(ranked[2].module_id.as_str(), "luma.clipboard");
+        assert_ne!(ranked[3].id.as_str(), "weak-app");
+    }
+
+    #[test]
+    fn near_equivalent_results_are_diversified_after_two_rows() {
+        let items = vec![
+            item("luma.apps", "app-1", 100.0),
+            item("luma.apps", "app-2", 99.0),
+            item("luma.apps", "app-3", 98.0),
+            item("luma.projects", "project", 97.0),
+        ];
+        let ranked = fair_global_results(items);
+        assert_eq!(ranked[0].id.as_str(), "app-1");
+        assert_eq!(ranked[1].id.as_str(), "app-2");
+        assert_eq!(ranked[2].id.as_str(), "project");
+        assert_eq!(ranked[3].id.as_str(), "app-3");
+    }
+
+    #[test]
+    fn informational_rows_do_not_enter_global_results_or_recall() {
+        let status = informational_item("luma.command_recipes", "cmd:none", "no_match");
+        assert!(!visible_in_global_search(&status));
+        assert!(recall_object_from_item(&status, 1).is_none());
+        assert!(fair_global_results(vec![status]).is_empty());
     }
 
     #[test]

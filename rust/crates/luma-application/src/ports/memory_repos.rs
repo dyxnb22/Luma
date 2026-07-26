@@ -222,6 +222,12 @@ impl QuicklinksRepository for MemoryQuicklinksRepository {
         self.rows.lock().expect("lock").remove(trigger);
         Ok(())
     }
+
+    fn backup(&self) -> Result<std::path::PathBuf, QuicklinksRepoError> {
+        Ok(std::path::PathBuf::from(
+            "/tmp/quicklinks-memory-backup.sqlite",
+        ))
+    }
 }
 
 /// In-memory snippets for module tests.
@@ -288,6 +294,12 @@ impl SnippetsRepository for MemorySnippetsRepository {
     fn delete(&self, trigger: &str) -> Result<(), SnippetsRepoError> {
         self.rows.lock().expect("lock").remove(trigger);
         Ok(())
+    }
+
+    fn backup(&self) -> Result<std::path::PathBuf, SnippetsRepoError> {
+        Ok(std::path::PathBuf::from(
+            "/tmp/snippets-memory-backup.sqlite",
+        ))
     }
 }
 
@@ -697,6 +709,51 @@ impl RecordsRepository for MemoryRecordsRepository {
             .filter(|r| r.category_name == category)
             .cloned()
             .collect();
+        rows.truncate(limit);
+        Ok(rows)
+    }
+
+    fn list_recent(&self, limit: usize) -> Result<Vec<RecordEntry>, RecordsRepoError> {
+        let mut rows = self.records.lock().expect("lock").clone();
+        rows.sort_by(|a, b| {
+            b.updated_at
+                .cmp(&a.updated_at)
+                .then(b.created_at.cmp(&a.created_at))
+                .then(a.name.cmp(&b.name))
+        });
+        rows.truncate(limit);
+        Ok(rows)
+    }
+
+    fn list_unrated(&self, limit: usize) -> Result<Vec<RecordEntry>, RecordsRepoError> {
+        let mut rows: Vec<_> = self
+            .records
+            .lock()
+            .expect("lock")
+            .iter()
+            .filter(|record| record.rating.is_none())
+            .cloned()
+            .collect();
+        rows.sort_by(|a, b| b.updated_at.cmp(&a.updated_at).then(a.name.cmp(&b.name)));
+        rows.truncate(limit);
+        Ok(rows)
+    }
+
+    fn list_top(&self, limit: usize) -> Result<Vec<RecordEntry>, RecordsRepoError> {
+        let mut rows: Vec<_> = self
+            .records
+            .lock()
+            .expect("lock")
+            .iter()
+            .filter(|record| record.rating.is_some())
+            .cloned()
+            .collect();
+        rows.sort_by(|a, b| {
+            b.rating
+                .cmp(&a.rating)
+                .then(b.updated_at.cmp(&a.updated_at))
+                .then(a.name.cmp(&b.name))
+        });
         rows.truncate(limit);
         Ok(rows)
     }

@@ -11,15 +11,24 @@ fn step(id: &str, label: &str, program: &str, args: &[&str], cwd: &str) -> Comma
     }
 }
 
-fn git_variant(id: &str, program_args: &[&str], label: &str) -> RecipeVariant {
-    RecipeVariant {
+fn git_variants(id: &str, program_args: &[&str], label: &str) -> Vec<RecipeVariant> {
+    let repository = RecipeVariant {
         id: id.into(),
         description: "Git repository".into(),
+        requires_files: vec![],
+        requires_directories: vec![".git".into()],
+        requires_commands: vec!["git".into()],
+        steps: vec![step(id, label, "git", program_args, "current")],
+    };
+    let worktree = RecipeVariant {
+        id: format!("{id}-worktree"),
+        description: "Git worktree".into(),
         requires_files: vec![".git".into()],
         requires_directories: vec![],
         requires_commands: vec!["git".into()],
         steps: vec![step(id, label, "git", program_args, "current")],
-    }
+    };
+    vec![repository, worktree]
 }
 
 fn recipe(
@@ -71,11 +80,11 @@ pub fn builtin_recipes() -> Vec<Recipe> {
             "Short branch status",
             &["git"],
             RecipeScope::CurrentProject,
-            vec![git_variant(
+            git_variants(
                 "git-status",
                 &["status", "--short", "--branch"],
                 "git status",
-            )],
+            ),
         ),
         recipe(
             "git-diff",
@@ -83,11 +92,7 @@ pub fn builtin_recipes() -> Vec<Recipe> {
             "Diff stat summary",
             &["git"],
             RecipeScope::CurrentProject,
-            vec![git_variant(
-                "git-diff",
-                &["diff", "--stat"],
-                "git diff --stat",
-            )],
+            git_variants("git-diff", &["diff", "--stat"], "git diff --stat"),
         ),
         recipe(
             "git-log",
@@ -95,11 +100,7 @@ pub fn builtin_recipes() -> Vec<Recipe> {
             "Recent commits oneline",
             &["git"],
             RecipeScope::CurrentProject,
-            vec![git_variant(
-                "git-log",
-                &["log", "--oneline", "-10"],
-                "git log",
-            )],
+            git_variants("git-log", &["log", "--oneline", "-10"], "git log"),
         ),
         recipe(
             "git-branch",
@@ -107,11 +108,7 @@ pub fn builtin_recipes() -> Vec<Recipe> {
             "Show current branch",
             &["git"],
             RecipeScope::CurrentProject,
-            vec![git_variant(
-                "git-branch",
-                &["branch", "--show-current"],
-                "git branch",
-            )],
+            git_variants("git-branch", &["branch", "--show-current"], "git branch"),
         ),
         recipe(
             "git-worktree",
@@ -119,11 +116,7 @@ pub fn builtin_recipes() -> Vec<Recipe> {
             "List worktrees",
             &["git"],
             RecipeScope::CurrentProject,
-            vec![git_variant(
-                "git-worktree",
-                &["worktree", "list"],
-                "git worktree list",
-            )],
+            git_variants("git-worktree", &["worktree", "list"], "git worktree list"),
         ),
         // Rust
         recipe(
@@ -409,11 +402,7 @@ pub fn builtin_recipes() -> Vec<Recipe> {
             "Print git repository root",
             &["git", "dev"],
             RecipeScope::CurrentProject,
-            vec![git_variant(
-                "git-root",
-                &["rev-parse", "--show-toplevel"],
-                "git root",
-            )],
+            git_variants("git-root", &["rev-parse", "--show-toplevel"], "git root"),
         ),
         recipe_with_risk(
             "show-env",

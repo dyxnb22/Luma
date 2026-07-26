@@ -221,6 +221,14 @@ pub(super) fn seed_module_config(
         );
         return vec![Effect::None];
     }
+    if item.id.as_str() == "rec:not-configured" {
+        seed_local_settings_prompt(
+            state,
+            "/settings records-root ",
+            "type the Records markdown root · Enter saves it · Esc cancels",
+        );
+        return vec![Effect::None];
+    }
     if let Some(cmd) = super::payload_str(item, "config_hint") {
         state
             .status
@@ -408,8 +416,8 @@ pub(super) fn select_next_msg(state: &mut AppState) -> Vec<Effect> {
         return vec![Effect::None];
     }
     if state.route == Route::Commands {
-        state.overlay.commands_selected =
-            (state.overlay.commands_selected + 1).min(super::overlays::COMMANDS.len() - 1);
+        let max = state.command_palette_rows().len().saturating_sub(1);
+        state.overlay.commands_selected = (state.overlay.commands_selected + 1).min(max);
         return vec![Effect::None];
     }
     if state.route == Route::Help {

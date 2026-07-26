@@ -40,4 +40,10 @@ impl QuicklinksRepository for SqliteQuicklinksRepository {
             .delete(trigger)
             .map_err(|e| QuicklinksRepoError::msg(e.to_string()))
     }
+
+    fn backup(&self) -> Result<std::path::PathBuf, QuicklinksRepoError> {
+        self.store
+            .backup()
+            .map_err(|e| QuicklinksRepoError::msg(e.to_string()))
+    }
 }

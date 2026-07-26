@@ -52,4 +52,10 @@ impl SnippetsRepository for SqliteSnippetsRepository {
             .delete(trigger)
             .map_err(|e| SnippetsRepoError::msg(e.to_string()))
     }
+
+    fn backup(&self) -> Result<std::path::PathBuf, SnippetsRepoError> {
+        self.store
+            .backup()
+            .map_err(|e| SnippetsRepoError::msg(e.to_string()))
+    }
 }

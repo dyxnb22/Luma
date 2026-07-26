@@ -3,6 +3,7 @@ use luma_application::{
     RecipeEnvironmentError, RecipeEnvironmentPort, RecipeStdioMode,
 };
 use luma_domain::{RecipeVariant, ResolvedCommandStep, StepRunResult, VariantMatch};
+use std::os::unix::fs::PermissionsExt;
 use std::path::{Component, Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::thread;
@@ -62,6 +63,23 @@ impl MacRecipeEnvironment {
             Err(_) => false,
         }
     }
+
+    fn executable_file(path: &Path) -> bool {
+        // `metadata` intentionally follows symlinks. Homebrew, rustup and app-bundled developer
+        // CLIs normally expose commands through symlinks; rejecting the link makes an installed
+        // command look unavailable. The resolved target must still be a regular executable file.
+        std::fs::metadata(path)
+            .map(|metadata| metadata.is_file() && metadata.permissions().mode() & 0o111 != 0)
+            .unwrap_or(false)
+    }
+
+    fn command_available_in(name: &str, paths: impl IntoIterator<Item = PathBuf>) -> bool {
+        !name.is_empty()
+            && !name.contains('/')
+            && paths
+                .into_iter()
+                .any(|directory| Self::executable_file(&directory.join(name)))
+    }
 }
 
 impl Default for MacRecipeEnvironment {
@@ -86,18 +104,9 @@ impl RecipeEnvironmentPort for MacRecipeEnvironment {
     }
 
     fn command_available(&self, name: &str) -> bool {
-        if name.contains('/') {
-            return false;
-        }
-        if let Ok(path_var) = std::env::var("PATH") {
-            for dir in std::env::split_paths(&path_var) {
-                let candidate = dir.join(name);
-                if Self::safe_metadata(&candidate, false) {
-                    return true;
-                }
-            }
-        }
-        false
+        std::env::var_os("PATH")
+            .map(|path| Self::command_available_in(name, std::env::split_paths(&path)))
+            .unwrap_or(false)
     }
 
     fn resolve_cwd(&self, base: &Path, step_cwd: &str) -> Result<PathBuf, RecipeEnvironmentError> {
@@ -286,5 +295,54 @@ impl CommandRunnerPort for MacCommandRunner {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod recipe_environment_tests {
+    use super::*;
+    use std::fs;
+    use std::os::unix::fs::symlink;
+    use tempfile::tempdir;
+
+    fn make_executable(path: &Path) {
+        fs::write(path, "#!/bin/sh\n").unwrap();
+        let mut permissions = fs::metadata(path).unwrap().permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(path, permissions).unwrap();
+    }
+
+    #[test]
+    fn command_availability_follows_executable_symlink() {
+        let temp = tempdir().unwrap();
+        let bin = temp.path().join("bin");
+        let tools = temp.path().join("tools");
+        fs::create_dir_all(&bin).unwrap();
+        fs::create_dir_all(&tools).unwrap();
+        let target = tools.join("rustup");
+        make_executable(&target);
+        symlink(&target, bin.join("cargo")).unwrap();
+
+        assert!(MacRecipeEnvironment::command_available_in("cargo", [bin]));
+    }
+
+    #[test]
+    fn command_availability_rejects_broken_non_executable_and_directory_targets() {
+        let temp = tempdir().unwrap();
+        let bin = temp.path().join("bin");
+        fs::create_dir_all(&bin).unwrap();
+        symlink(temp.path().join("missing"), bin.join("broken")).unwrap();
+        fs::write(bin.join("plain"), "not executable").unwrap();
+        fs::create_dir(bin.join("folder")).unwrap();
+
+        assert!(!MacRecipeEnvironment::command_available_in(
+            "broken",
+            [bin.clone()]
+        ));
+        assert!(!MacRecipeEnvironment::command_available_in(
+            "plain",
+            [bin.clone()]
+        ));
+        assert!(!MacRecipeEnvironment::command_available_in("folder", [bin]));
     }
 }

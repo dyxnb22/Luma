@@ -4,20 +4,16 @@ use std::collections::HashMap;
 
 impl SshModule {
     pub(super) async fn refresh(&self) {
-        let aliases = match self.config.list_aliases() {
+        match self.config.list_aliases() {
             Ok(aliases) => {
-                *self.aliases.write().await = aliases.clone();
-                aliases
+                *self.aliases.write().await = aliases;
             }
             Err(_) => {
                 *self.aliases.write().await = Vec::new();
-                Vec::new()
             }
-        };
-        {
-            let mut resolved = self.resolved_cache.write().await;
-            resolved.retain(|alias, _| aliases.iter().any(|a| a == alias));
         }
+        // An alias may keep the same name while HostName/User/Port changes.
+        self.resolved_cache.write().await.clear();
         if let Some(meta) = &self.meta {
             match meta.list() {
                 Ok(rows) => {

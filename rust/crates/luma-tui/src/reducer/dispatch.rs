@@ -6,6 +6,17 @@ pub fn update(state: &mut AppState, msg: Msg) -> Vec<Effect> {
     match msg {
         Msg::RecipeShortcut { action_id } => recipe_shortcut(state, &action_id),
         Msg::KeyChar(c) => {
+            if state.route == Route::Commands {
+                if !c.is_control() {
+                    state.overlay.commands_filter.push(c);
+                    state.overlay.commands_selected = 0;
+                    state.status.set(
+                        format!("commands · filter: {}", state.overlay.commands_filter),
+                        StatusTone::Neutral,
+                    );
+                }
+                return vec![Effect::None];
+            }
             if matches!(
                 state.route,
                 Route::ConfirmAction
@@ -55,7 +66,11 @@ pub fn update(state: &mut AppState, msg: Msg) -> Vec<Effect> {
             schedule_search(state)
         }
         Msg::Backspace => {
-            if state.route == Route::Help {
+            if state.route == Route::Commands {
+                state.overlay.commands_filter.pop();
+                state.overlay.commands_selected = 0;
+                return vec![Effect::None];
+            } else if state.route == Route::Help {
                 dismiss_help_for_prompt_edit(state);
             } else if state.route != Route::Search {
                 return vec![Effect::None];
@@ -204,6 +219,11 @@ pub fn update(state: &mut AppState, msg: Msg) -> Vec<Effect> {
                         return open_commands(state);
                     }
                 }
+                if state.incomplete_slash_trigger().is_some() {
+                    state.search.prompt.push(' ');
+                    state.search.prompt_cursor = state.prompt_char_len();
+                    return begin_search(state);
+                }
                 if let Some(effects) = flush_pending_search_or_continue(state) {
                     return effects;
                 }
@@ -312,8 +332,9 @@ pub fn update(state: &mut AppState, msg: Msg) -> Vec<Effect> {
                 return vec![Effect::None];
             }
             if state.route == Route::Commands {
+                let max = state.command_palette_rows().len().saturating_sub(1);
                 state.overlay.commands_selected =
-                    (state.overlay.commands_selected + PAGE_SIZE).min(COMMANDS.len() - 1);
+                    (state.overlay.commands_selected + PAGE_SIZE).min(max);
                 return vec![Effect::None];
             }
             if matches!(state.route, Route::Search) {

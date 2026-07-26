@@ -70,7 +70,7 @@ when continuity matters.
    full-screen child surface to exercise the alternate screen.
 10. **Timer while hidden** — start a Timer, hide the window, wait past the deadline, and re-show;
     the timer must have kept running (the child process is not suspended).
-11. **`/wb review due`** — run a review, reveal and grade a card, then Esc out; Escape must reach
+11. **`/wb review`** — run today's due-first review queue, reveal and grade a card, then Esc out; Escape must reach
     the TUI and must never close or hide the window.
 12. **Interactive child** — run `/ssh` against a host alias that does not resolve (no real remote
     connection needed) and confirm the child runs in the same PTY and the TUI resumes afterwards.

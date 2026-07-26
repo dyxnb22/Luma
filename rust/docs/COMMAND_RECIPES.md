@@ -8,7 +8,8 @@ an autonomous agent.
 
 | Query | Meaning |
 | --- | --- |
-| `/cmd ` | List recipes |
+| `/cmd ` | List recipes that are runnable in the current directory |
+| `/cmd all [filter]` | Include inapplicable recipes after runnable recipes |
 | `/cmd test` | Search recipes matching `test` |
 | `/cmd project /exact/imported/path` | List variants evaluated against that imported project |
 | `/recipe test` | Alias for `/cmd test` |
@@ -27,6 +28,9 @@ Run executes in the **current terminal** (TUI suspends, command output appears, 
 Rows opened from `/proj show PATH` carry that exact imported path through preview, copy, and run;
 removing the import before execution blocks the action.
 CLI and TUI share one recipe runner in `luma-application` (step loop, risk gate, metadata record).
+Git recipes recognize both normal repositories (`.git/`) and linked worktrees (`.git` file).
+Command availability follows executable symlinks, so tools installed through shims such as
+`cargo -> rustup` remain runnable.
 
 ## CLI
 

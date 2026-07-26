@@ -23,4 +23,5 @@ pub trait SnippetsRepository: Send + Sync {
     fn get(&self, trigger: &str) -> Result<Option<SnippetEntry>, SnippetsRepoError>;
     fn upsert(&self, trigger: &str, body: &str) -> Result<(), SnippetsRepoError>;
     fn delete(&self, trigger: &str) -> Result<(), SnippetsRepoError>;
+    fn backup(&self) -> Result<std::path::PathBuf, SnippetsRepoError>;
 }

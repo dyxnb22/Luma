@@ -483,13 +483,6 @@ impl ProxyModule {
                             .insert(item.id.clone(), (group.name.clone(), node.name.clone()));
                         items.push(item);
                     }
-                } else if let Some(node) = group.nodes.iter().find(|node| node.selected) {
-                    let item = Self::node_item(&group.name, node, 88.0);
-                    self.selection_keys
-                        .write()
-                        .await
-                        .insert(item.id.clone(), (group.name.clone(), node.name.clone()));
-                    items.push(item);
                 }
             }
         }

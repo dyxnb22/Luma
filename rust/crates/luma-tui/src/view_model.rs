@@ -111,6 +111,78 @@ impl AppState {
         )
     }
 
+    pub fn command_palette_rows(&self) -> Vec<CommandPaletteEntry> {
+        let mut rows = vec![CommandPaletteEntry {
+            id: "settings".into(),
+            label: "Settings".into(),
+            description: "Open workbench settings".into(),
+            query: None,
+        }];
+        let recent_modules = self
+            .hub
+            .continue_items
+            .iter()
+            .map(|item| item.module_id.as_str())
+            .collect::<Vec<_>>();
+        let mut modules = self
+            .module_catalog
+            .iter()
+            .filter(|module| module.enabled)
+            .collect::<Vec<_>>();
+        modules.sort_by(|a, b| {
+            let a_recent = recent_modules
+                .iter()
+                .position(|id| *id == a.id)
+                .unwrap_or(usize::MAX);
+            let b_recent = recent_modules
+                .iter()
+                .position(|id| *id == b.id)
+                .unwrap_or(usize::MAX);
+            a_recent.cmp(&b_recent).then_with(|| {
+                a.display_name
+                    .to_lowercase()
+                    .cmp(&b.display_name.to_lowercase())
+            })
+        });
+        rows.extend(modules.into_iter().filter_map(|module| {
+            let query = module.suggested_query.clone().or_else(|| {
+                module
+                    .triggers
+                    .first()
+                    .map(|trigger| format!("/{trigger} "))
+            })?;
+            Some(CommandPaletteEntry {
+                id: format!("module:{}", module.id),
+                label: module.display_name.clone(),
+                description: query.trim_end().to_string(),
+                query: Some(query),
+            })
+        }));
+        rows.extend([
+            CommandPaletteEntry {
+                id: "help".into(),
+                label: "Help".into(),
+                description: "Keyboard and module help".into(),
+                query: None,
+            },
+            CommandPaletteEntry {
+                id: "quit".into(),
+                label: "Quit Luma".into(),
+                description: "Stop the workbench session".into(),
+                query: None,
+            },
+        ]);
+
+        let filter = self.overlay.commands_filter.trim().to_lowercase();
+        if !filter.is_empty() {
+            rows.retain(|row| {
+                row.label.to_lowercase().contains(&filter)
+                    || row.description.to_lowercase().contains(&filter)
+            });
+        }
+        rows
+    }
+
     pub fn command_recipes_selected(&self) -> bool {
         self.selected_search_item()
             .is_some_and(|item| item.module_id.as_str() == "luma.command_recipes")

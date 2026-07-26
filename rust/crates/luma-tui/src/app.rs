@@ -381,7 +381,11 @@ fn map_key(code: KeyCode, modifiers: KeyModifiers, state: &AppState) -> Msg {
         }
         KeyCode::Char(' ') if matches!(state.route, Route::WordbookReview) => Msg::WordbookReveal,
         KeyCode::Char(' ') if matches!(state.route, Route::Settings) => Msg::ToggleSetting,
-        KeyCode::Char(c) if matches!(state.route, Route::Search | Route::Help) => Msg::KeyChar(c),
+        KeyCode::Char(c)
+            if matches!(state.route, Route::Search | Route::Help | Route::Commands) =>
+        {
+            Msg::KeyChar(c)
+        }
         KeyCode::Char(_) => Msg::Tick,
         KeyCode::Backspace => Msg::Backspace,
         KeyCode::Delete => Msg::DeleteForward,

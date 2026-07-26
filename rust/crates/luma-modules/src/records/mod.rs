@@ -138,6 +138,39 @@ impl RecordsModule {
             .await;
     }
 
+    async fn setup_row(&self) -> SearchItemDto {
+        if let Some(root) = self.import_root.read().await.as_ref() {
+            let path = root.display().to_string();
+            SearchItemDto {
+                id: format!("rec:import:{path}"),
+                module_id: "luma.records".into(),
+                title: "Import Records from the configured root".into(),
+                subtitle: Some(format!("{path} · source remains read-only")),
+                kind: "onboarding".into(),
+                score: 100.0,
+                primary_action_id: "import".into(),
+                primary_action_label: "Import".into(),
+                primary_action_risk: ActionRisk::Confirm,
+                primary_action_confirmation: true,
+                action_payload: Some(serde_json::json!({ "path": path })),
+                ..Default::default()
+            }
+        } else {
+            SearchItemDto {
+                id: "rec:not-configured".into(),
+                module_id: "luma.records".into(),
+                title: "Choose a Records markdown root".into(),
+                subtitle: Some("/settings records-root PATH · then return to /rec".into()),
+                kind: "not_configured".into(),
+                score: 100.0,
+                primary_action_id: "seed_config".into(),
+                primary_action_label: "Set records root".into(),
+                ui_intent: Some(UiIntent::SeedConfig),
+                ..Default::default()
+            }
+        }
+    }
+
     fn unavailable_outcome(err: impl std::fmt::Display) -> ActionOutcome {
         ActionOutcome::Failed {
             kind: FailureKind::Unavailable {
@@ -246,7 +279,7 @@ impl LumaModule for RecordsModule {
                     let root_hint = root
                         .as_ref()
                         .map(|p| p.display().to_string())
-                        .unwrap_or_else(|| "luma record import --root PATH".into());
+                        .unwrap_or_else(|| "/settings records-root PATH".into());
                     let _ = sink
                         .send(Event::ResultsChunk {
                             request_id: String::new(),
@@ -271,6 +304,28 @@ impl LumaModule for RecordsModule {
                 }
                 Err(err) => Self::send_unavailable(&sink, &err.to_string()).await,
             }
+            return;
+        }
+
+        if rest_norm == "backup" {
+            let _ = sink
+                .send(Event::ResultsChunk {
+                    request_id: String::new(),
+                    sequence: 1,
+                    upserts: vec![SearchItemDto {
+                        id: "rec:backup".into(),
+                        module_id: "luma.records".into(),
+                        title: "Backup records".into(),
+                        subtitle: Some("Copy SQLite snapshot to LumaNext/backups/".into()),
+                        kind: "command".into(),
+                        score: 100.0,
+                        primary_action_id: "backup".into(),
+                        primary_action_label: "Backup".into(),
+                        ..Default::default()
+                    }],
+                    removed_ids: vec![],
+                })
+                .await;
             return;
         }
 
@@ -437,6 +492,54 @@ impl LumaModule for RecordsModule {
             return;
         }
 
+        if matches!(rest_norm.as_str(), "recent" | "unrated" | "top") {
+            let rows = match rest_norm.as_str() {
+                "recent" => self.store.list_recent(query.limit),
+                "unrated" => self.store.list_unrated(query.limit),
+                "top" => self.store.list_top(query.limit),
+                _ => unreachable!(),
+            };
+            let mut upserts = match rows {
+                Ok(rows) => rows
+                    .iter()
+                    .enumerate()
+                    .map(|(index, row)| Self::record_dto(row, 90.0 - index as f64 * 0.1))
+                    .collect::<Vec<_>>(),
+                Err(err) => {
+                    Self::send_unavailable(&sink, &err.to_string()).await;
+                    return;
+                }
+            };
+            if upserts.is_empty() {
+                let label = match rest_norm.as_str() {
+                    "recent" => "No recent records",
+                    "unrated" => "No unrated records",
+                    "top" => "No rated records",
+                    _ => unreachable!(),
+                };
+                upserts.push(SearchItemDto {
+                    id: format!("rec:{rest_norm}-empty"),
+                    module_id: "luma.records".into(),
+                    title: label.into(),
+                    subtitle: Some("/rec add CATEGORY NAME | rating | note".into()),
+                    kind: "status".into(),
+                    score: 5.0,
+                    primary_action_id: "noop".into(),
+                    primary_action_label: "OK".into(),
+                    ..Default::default()
+                });
+            }
+            let _ = sink
+                .send(Event::ResultsChunk {
+                    request_id: String::new(),
+                    sequence: 1,
+                    upserts,
+                    removed_ids: vec![],
+                })
+                .await;
+            return;
+        }
+
         let categories = match self.store.list_categories() {
             Ok(c) => c,
             Err(err) => {
@@ -504,20 +607,7 @@ impl LumaModule for RecordsModule {
                     });
                 }
                 if upserts.is_empty() {
-                    upserts.push(SearchItemDto {
-                        id: "rec:not-configured".into(),
-                        module_id: "luma.records".into(),
-                        title: "No record categories yet".into(),
-                        subtitle: Some(
-                            "luma record import --root ~/Documents/Notes/Records --apply".into(),
-                        ),
-                        kind: "not_configured".into(),
-                        score: 0.0,
-                        primary_action_id: "seed_config".into(),
-                        primary_action_label: "Show command".into(),
-                        ui_intent: Some(UiIntent::SeedConfig),
-                        ..Default::default()
-                    });
+                    upserts.push(self.setup_row().await);
                 }
             }
             upserts.truncate(query.limit);
@@ -535,20 +625,7 @@ impl LumaModule for RecordsModule {
         if rest_norm.is_empty() {
             let mut upserts = Vec::new();
             if categories.is_empty() {
-                upserts.push(SearchItemDto {
-                    id: "rec:not-configured".into(),
-                    module_id: "luma.records".into(),
-                    title: "Import your Records markdown tables".into(),
-                    subtitle: Some(
-                        "luma record import --root ~/Documents/Notes/Records --apply".into(),
-                    ),
-                    kind: "not_configured".into(),
-                    score: 0.0,
-                    primary_action_id: "seed_config".into(),
-                    primary_action_label: "Show command".into(),
-                    ui_intent: Some(UiIntent::SeedConfig),
-                    ..Default::default()
-                });
+                upserts.push(self.setup_row().await);
             } else {
                 for (i, cat) in categories.iter().enumerate() {
                     upserts.push(SearchItemDto {
@@ -661,10 +738,18 @@ impl LumaModule for RecordsModule {
     }
 
     async fn actions(&self, result: &SearchItem) -> Vec<ActionDescriptor> {
+        if result.primary_action.id.as_str() == "backup" {
+            return vec![ActionDescriptor {
+                id: ActionId::new("backup"),
+                label: "Backup".into(),
+                risk: ActionRisk::Safe,
+                confirmation: false,
+            }];
+        }
         if result.kind == "not_configured" {
             return vec![ActionDescriptor {
                 id: ActionId::new("seed_config"),
-                label: "Show command".into(),
+                label: "Set records root".into(),
                 risk: ActionRisk::Safe,
                 confirmation: false,
             }];
@@ -768,10 +853,15 @@ impl LumaModule for RecordsModule {
         }
         match action.action.id.as_str() {
             "noop" => ActionOutcome::Success { message: None },
+            "backup" => match self.store.backup() {
+                Ok(path) => ActionOutcome::Success {
+                    message: Some(format!("backup saved to {}", path.display())),
+                },
+                Err(err) => Self::unavailable_outcome(err),
+            },
             "seed_config" => ActionOutcome::Failed {
                 kind: FailureKind::NotConfigured {
-                    remediation: "Run: luma record import --root ~/Documents/Notes/Records --apply"
-                        .into(),
+                    remediation: "Use /settings records-root PATH, then return to /rec".into(),
                 },
             },
             "browse" => ActionOutcome::Failed {
@@ -1028,6 +1118,23 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn configured_empty_store_offers_in_workbench_import() {
+        let m = RecordsModule::with_deps(
+            Arc::new(MemoryRecordsRepository::new()),
+            Some(PathBuf::from("/records")),
+        );
+        let (tx, mut rx) = mpsc::channel(4);
+        m.search(Query::parse("/rec ", 10), tx, CancellationToken::new())
+            .await;
+        let Event::ResultsChunk { upserts, .. } = rx.recv().await.unwrap() else {
+            panic!("expected chunk");
+        };
+        assert_eq!(upserts[0].id, "rec:import:/records");
+        assert_eq!(upserts[0].primary_action_id, "import");
+        assert!(upserts[0].primary_action_confirmation);
+    }
+
+    #[tokio::test]
     async fn search_finds_inserted_record() {
         let store = Arc::new(MemoryRecordsRepository::new());
         store.add_category("电影");
@@ -1041,5 +1148,47 @@ mod tests {
             panic!("expected chunk");
         };
         assert!(upserts.iter().any(|u| u.title == "沙丘"));
+    }
+
+    #[tokio::test]
+    async fn curated_views_separate_unrated_and_top_records() {
+        let store = Arc::new(MemoryRecordsRepository::new());
+        store.add_category("电影");
+        store.insert("电影", "未看完", None, "").unwrap();
+        store.insert("电影", "佳作", Some(9), "").unwrap();
+        store.insert("电影", "普通", Some(6), "").unwrap();
+        let m = RecordsModule::with_store_for_tests(store);
+
+        let (tx, mut rx) = mpsc::channel(4);
+        m.search(
+            Query::parse("/rec unrated", 10),
+            tx,
+            CancellationToken::new(),
+        )
+        .await;
+        let Event::ResultsChunk { upserts, .. } = rx.recv().await.unwrap() else {
+            panic!("expected chunk");
+        };
+        assert_eq!(
+            upserts
+                .iter()
+                .map(|row| row.title.as_str())
+                .collect::<Vec<_>>(),
+            vec!["未看完"]
+        );
+
+        let (tx, mut rx) = mpsc::channel(4);
+        m.search(Query::parse("/rec top", 10), tx, CancellationToken::new())
+            .await;
+        let Event::ResultsChunk { upserts, .. } = rx.recv().await.unwrap() else {
+            panic!("expected chunk");
+        };
+        assert_eq!(
+            upserts
+                .iter()
+                .map(|row| row.title.as_str())
+                .collect::<Vec<_>>(),
+            vec!["佳作", "普通"]
+        );
     }
 }

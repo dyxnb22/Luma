@@ -335,6 +335,25 @@ impl AppState {
                     })
                     .unwrap_or_default();
                 self.settings.roots.loaded = true;
+                self.settings.values.records_root = settings
+                    .get("records_root")
+                    .and_then(|value| value.as_str())
+                    .map(str::to_string);
+                self.settings.values.clipboard_retention_days = settings
+                    .get("clipboard_retention_days")
+                    .and_then(|value| value.as_u64())
+                    .and_then(|value| u32::try_from(value).ok())
+                    .unwrap_or(30);
+                self.settings.values.secrets_idle_lock_secs = settings
+                    .get("secrets_idle_lock_secs")
+                    .and_then(|value| value.as_u64())
+                    .and_then(|value| u32::try_from(value).ok())
+                    .unwrap_or(300);
+                self.settings.values.hub_windows_max = settings
+                    .get("hub_windows_max")
+                    .and_then(|value| value.as_u64())
+                    .and_then(|value| u32::try_from(value).ok())
+                    .unwrap_or(7);
                 if let Some(modules) = settings.get("modules").and_then(|v| v.as_array()) {
                     for row in modules {
                         let id = row

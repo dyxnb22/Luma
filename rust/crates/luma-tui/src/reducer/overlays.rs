@@ -3,12 +3,6 @@ use crate::view_model::{AppState, Route, StatusTone};
 
 use super::actions::clear_action_ui;
 
-pub(super) const COMMANDS: &[(&str, &str)] = &[
-    ("settings", "Open module settings"),
-    ("help", "Keyboard help"),
-    ("quit", "Quit Luma"),
-];
-
 pub(super) fn open_settings(state: &mut AppState) -> Vec<Effect> {
     clear_action_ui(state);
     state.route = Route::Settings;
@@ -23,6 +17,7 @@ pub(super) fn open_commands(state: &mut AppState) -> Vec<Effect> {
     clear_action_ui(state);
     state.route = Route::Commands;
     state.overlay.commands_selected = 0;
+    state.overlay.commands_filter.clear();
     state
         .status
         .set("commands · Enter run · Esc back", StatusTone::Neutral);
@@ -30,8 +25,19 @@ pub(super) fn open_commands(state: &mut AppState) -> Vec<Effect> {
 }
 
 pub(super) fn run_command_selection(state: &mut AppState) -> Vec<Effect> {
-    let idx = state.overlay.commands_selected.min(COMMANDS.len() - 1);
-    match COMMANDS[idx].0 {
+    let rows = state.command_palette_rows();
+    let Some(entry) = rows
+        .get(
+            state
+                .overlay
+                .commands_selected
+                .min(rows.len().saturating_sub(1)),
+        )
+        .cloned()
+    else {
+        return vec![Effect::None];
+    };
+    match entry.id.as_str() {
         "settings" => open_settings(state),
         "help" => {
             state.route = Route::Help;
@@ -43,6 +49,18 @@ pub(super) fn run_command_selection(state: &mut AppState) -> Vec<Effect> {
             state.route = Route::QuitConfirm;
             state.status.set("Quit Luma?", StatusTone::Warning);
             vec![Effect::None]
+        }
+        id if id.starts_with("module:") => {
+            let Some(query) = entry.query else {
+                return vec![Effect::None];
+            };
+            state.route = Route::Search;
+            state.overlay.restore_prompt = None;
+            state.overlay.commands_filter.clear();
+            state.search.prompt = query;
+            state.search.prompt_cursor = state.prompt_char_len();
+            state.focus = crate::view_model::FocusZone::Prompt;
+            super::search::begin_search(state)
         }
         _ => vec![Effect::None],
     }

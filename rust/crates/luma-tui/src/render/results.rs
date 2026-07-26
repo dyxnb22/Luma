@@ -212,7 +212,7 @@ fn hub_list_items(state: &AppState, theme: &Theme, symbols: &Symbols) -> Vec<Lis
             out.push(ListItem::new(vec![
                 Line::from(Span::styled("  Continue", theme.title())),
                 Line::from(Span::styled(
-                    "  Enter resumes the recent object · ↑↓ move",
+                    "  Enter acts on active or recent item · ↑↓ move",
                     theme.key_hint(),
                 )),
             ]));
@@ -304,8 +304,8 @@ fn empty_state_item(state: &AppState, theme: &Theme, symbols: &Symbols) -> ListI
         )
     } else if let Some((trigger, hint)) = incomplete_trigger_hint(state) {
         (
-            format!("Add a space to enter `{trigger}`"),
-            hint.unwrap_or_else(|| format!("Try `{trigger} ` or `{trigger} query`")),
+            format!("Press Enter to open `{trigger}`"),
+            hint.unwrap_or_else(|| format!("Enter opens `{trigger}` · or keep typing a query")),
         )
     } else if state.search.active_request.is_some() && state.status.tone == StatusTone::Progress {
         (

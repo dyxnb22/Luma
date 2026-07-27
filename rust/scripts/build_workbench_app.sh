@@ -16,8 +16,6 @@ fi
 mkdir -p "$APP_PARENT"
 APP_PARENT="$(cd "$APP_PARENT" && pwd -P)"
 APP="$APP_PARENT/$APP_BASENAME"
-CONTENTS="$APP/Contents"
-MACOS="$CONTENTS/MacOS"
 BUNDLE_IDENTIFIER="com.luma.next.workbench"
 SIGNING_IDENTITY="-"
 if [[ -n "${CODESIGN_IDENTITY+x}" && -n "$CODESIGN_IDENTITY" ]]; then
@@ -39,7 +37,21 @@ if [[ ! -x "$HOST_BIN" ]]; then
     exit 1
 fi
 
-rm -rf "$APP"
+STAGING_ROOT="$(mktemp -d "$APP_PARENT/.${APP_BASENAME}.build.XXXXXX")"
+STAGED_APP="$STAGING_ROOT/$APP_BASENAME"
+CONTENTS="$STAGED_APP/Contents"
+MACOS="$CONTENTS/MacOS"
+PREVIOUS_APP=""
+cleanup_staging() {
+    local status=$?
+    if [[ -n "$PREVIOUS_APP" && -e "$PREVIOUS_APP" && ! -e "$APP" ]]; then
+        mv "$PREVIOUS_APP" "$APP" || true
+    fi
+    rm -rf -- "$STAGING_ROOT"
+    return "$status"
+}
+trap cleanup_staging EXIT
+
 mkdir -p "$MACOS"
 # Contents/MacOS/LumaWorkbench is the AppKit host; Contents/MacOS/luma is the Rust workbench it
 # runs. The host cannot be named "Luma": APFS is case-insensitive by default, so that name and
@@ -80,7 +92,21 @@ fi
 /usr/bin/codesign --force --sign "$SIGNING_IDENTITY" --identifier "$BUNDLE_IDENTIFIER" \
     --timestamp=none "$MACOS/LumaWorkbench"
 /usr/bin/codesign --force --sign "$SIGNING_IDENTITY" --identifier "$BUNDLE_IDENTIFIER" \
-    --timestamp=none "$APP"
-/usr/bin/codesign --verify --deep --strict "$APP"
+    --timestamp=none "$STAGED_APP"
+/usr/bin/codesign --verify --deep --strict "$STAGED_APP"
+
+# Do not expose a half-built bundle at the installed path. Keep the previous app intact until the
+# staged bundle has passed signing verification, then replace it with same-filesystem renames.
+if [[ -e "$APP" ]]; then
+    PREVIOUS_APP="$STAGING_ROOT/previous-$APP_BASENAME"
+    mv "$APP" "$PREVIOUS_APP"
+fi
+if ! mv "$STAGED_APP" "$APP"; then
+    if [[ -n "$PREVIOUS_APP" && -e "$PREVIOUS_APP" ]]; then
+        mv "$PREVIOUS_APP" "$APP"
+    fi
+    echo "could not install the verified workbench bundle at $APP" >&2
+    exit 1
+fi
 
 echo "built and signed $APP (identity: $SIGNING_IDENTITY, identifier: $BUNDLE_IDENTIFIER)"

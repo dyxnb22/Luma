@@ -75,6 +75,8 @@ impl MacWindowCatalog {
                 | "systemuiserver"
                 | "notification center"
                 | "spotlight"
+                | "system settings"
+                | "system preferences"
         ) || lower.contains("terminal")
             || lower.contains("iterm")
             || lower.contains("ghostty")

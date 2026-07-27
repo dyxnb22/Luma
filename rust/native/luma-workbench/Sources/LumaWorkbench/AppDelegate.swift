@@ -11,6 +11,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var hotKeyController: GlobalHotKeyController?
     private var memoryPressureController: MemoryPressureController?
     private var activation = ActivationPolicy()
+    private var openedScreenRecordingSettings = false
 
     private var ownProcessIdentifier: pid_t { ProcessInfo.processInfo.processIdentifier }
 
@@ -189,6 +190,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func requestScreenCaptureAccess() {
         guard !CGPreflightScreenCaptureAccess() else { return }
         _ = CGRequestScreenCaptureAccess()
+        // A fresh ad-hoc rebuild can lose its TCC decision. Open the exact Privacy pane once so
+        // the user can see the Luma entry that macOS adds after this request, rather than hunting
+        // through the generic '+' picker where a running accessory app is easy to miss.
+        guard !openedScreenRecordingSettings,
+              let settingsURL = URL(
+                string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture"
+              )
+        else { return }
+        openedScreenRecordingSettings = true
+        NSWorkspace.shared.open(settingsURL)
     }
 
     // MARK: - Alerts

@@ -248,6 +248,7 @@ impl AppState {
     pub fn clear_prompt(&mut self) {
         self.search.prompt.clear();
         self.search.prompt_cursor = 0;
+        self.search.prompt_scroll = 0;
     }
 
     /// Readline-style Ctrl-u: delete from start through grapheme before cursor.
@@ -422,14 +423,11 @@ impl AppState {
             self.search.prompt_scroll += 1;
         }
         while self.search.prompt_scroll > 0 {
+            let candidate_scroll = self.search.prompt_scroll - 1;
             let before_cursor: String = graphemes
                 .iter()
-                .skip(self.search.prompt_scroll)
-                .take(
-                    self.search
-                        .prompt_cursor
-                        .saturating_sub(self.search.prompt_scroll),
-                )
+                .skip(candidate_scroll)
+                .take(self.search.prompt_cursor.saturating_sub(candidate_scroll))
                 .copied()
                 .collect();
             let at_cursor = graphemes
@@ -438,9 +436,10 @@ impl AppState {
                 .unwrap_or(" ");
             let line = format!("{before_cursor}{at_cursor}");
             if UnicodeWidthStr::width(line.as_str()) <= budget {
+                self.search.prompt_scroll = candidate_scroll;
+            } else {
                 break;
             }
-            self.search.prompt_scroll += 1;
         }
         if self.search.prompt_scroll > self.search.prompt_cursor {
             self.search.prompt_scroll = self.search.prompt_cursor;

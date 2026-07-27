@@ -1,6 +1,14 @@
 use super::*;
 use luma_protocol::Event;
 
+fn accept_preview_request(latest_preview_id: &mut u64, preview_id: u64) -> bool {
+    if preview_id < *latest_preview_id {
+        return false;
+    }
+    *latest_preview_id = preview_id;
+    true
+}
+
 impl Engine {
     pub(super) async fn handle_execute_action(
         &self,
@@ -229,7 +237,9 @@ impl Engine {
     pub(super) async fn handle_load_preview(&self, result_id: String, preview_id: u64) {
         let (item, module) = {
             let mut g = self.inner.lock().await;
-            g.latest_preview_id = preview_id;
+            if !accept_preview_request(&mut g.latest_preview_id, preview_id) {
+                return;
+            }
             Self::resolve_enabled_module(&mut g, &result_id)
         };
         let body = match (item, module) {
@@ -315,8 +325,17 @@ impl Engine {
 #[cfg(test)]
 mod tests {
     use super::super::{EngineInner, ModuleRegistry, OperationTask, MAX_OPERATIONS};
+    use super::accept_preview_request;
     use std::collections::{HashMap, VecDeque};
     use tokio_util::sync::CancellationToken;
+
+    #[test]
+    fn older_preview_request_cannot_replace_the_latest_generation() {
+        let mut latest = 0;
+        assert!(accept_preview_request(&mut latest, 2));
+        assert!(!accept_preview_request(&mut latest, 1));
+        assert_eq!(latest, 2);
+    }
 
     #[test]
     fn operation_order_evicts_oldest_first() {

@@ -523,9 +523,10 @@ pub(super) fn select_prev_msg(state: &mut AppState) -> Vec<Effect> {
     vec![Effect::None]
 }
 
-/// Pure page movement shared by Fn+Up/Down (or PgUp/PgDn) and `/scroll up|down`.
+/// Page movement shared by Fn+Up/Down (or PgUp/PgDn) and `/scroll up|down`.
 ///
-/// It deliberately does not request previews, execute actions, load Hub data, or perform I/O.
+/// Moving a search-result selection requests its preview just like single-row navigation. Other
+/// routes remain local-only: paging never executes actions or activates Hub rows.
 pub(super) fn scroll_page(state: &mut AppState, direction: ScrollDirection) -> Vec<Effect> {
     let delta = match direction {
         ScrollDirection::Up => -(super::PAGE_SIZE as isize),
@@ -596,11 +597,16 @@ pub(super) fn scroll_page(state: &mut AppState, direction: ScrollDirection) -> V
         }
         Route::Search => {
             state.focus = FocusZone::List;
+            let previous_id = state.search.results.selected_id.clone();
             state.search.results.select_offset(delta);
+            if state.search.results.selected_id == previous_id {
+                return vec![Effect::None];
+            }
             state.preview.body = None;
             state.preview.result_id = None;
             state.preview.pending_id = None;
             state.preview.scroll = 0;
+            return preview_effect(state);
         }
         Route::WordbookReview | Route::ConfirmAction | Route::QuitConfirm => {
             state

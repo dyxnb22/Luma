@@ -5,7 +5,7 @@ use luma_domain::ActionRisk;
 use ratatui::layout::{Alignment, Rect};
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, List, ListItem, Paragraph, Wrap};
+use ratatui::widgets::{Block, Borders, Clear, List, ListItem, Paragraph, Wrap};
 use ratatui::Frame;
 
 pub(super) fn overlay_area(frame_area: Rect, prefer_height: u16) -> Rect {
@@ -27,8 +27,9 @@ pub(super) fn dim_backdrop(frame: &mut Frame<'_>, area: Rect, theme: &Theme) {
     frame.render_widget(dim, area);
 }
 
-/// Paint overlay panel with theme background (avoid `Clear`, which uses the terminal default).
+/// Clear underlying glyphs, then paint the opaque themed panel.
 pub(super) fn fill_overlay_panel(frame: &mut Frame<'_>, area: Rect, theme: &Theme) {
+    frame.render_widget(Clear, area);
     frame.render_widget(Block::default().style(panel_style(theme)), area);
 }
 

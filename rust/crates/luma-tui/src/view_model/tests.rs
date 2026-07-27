@@ -3,6 +3,26 @@ use luma_domain::FailureKind;
 use luma_protocol::{ActionOutcomeDto, Event, SearchItemDto};
 
 #[test]
+fn prompt_viewport_resets_after_clear_and_reveals_text_that_now_fits() {
+    let mut state = AppState::default();
+    state.search.prompt = "abcdefghijklmnopqrstuvwxyz".into();
+    state.search.prompt_cursor = state.prompt_char_len();
+    state.ensure_prompt_visible(12);
+    assert!(state.search.prompt_scroll > 0);
+
+    state.clear_prompt();
+    assert_eq!(state.search.prompt_scroll, 0);
+
+    state.search.prompt = "数据🙂e\u{301}".into();
+    state.search.prompt_cursor = state.prompt_char_len();
+    // Simulate a stale offset from an older, longer prompt. The visibility pass
+    // should reveal all left-hand graphemes now that they fit.
+    state.search.prompt_scroll = 2;
+    state.ensure_prompt_visible(20);
+    assert_eq!(state.search.prompt_scroll, 0);
+}
+
+#[test]
 fn action_started_ignored_without_active_operation() {
     let mut state = AppState::default();
     let applied = state.apply_engine_event(Event::ActionStarted {

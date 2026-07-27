@@ -4,7 +4,8 @@ use crate::view_model::{
     ActionsState, HubState, ResultsView, SearchState, SettingsState, TerminalState, WordbookState,
 };
 use luma_domain::{ActionDescriptor, ActionId, ActionRisk, ModuleId, ResultId, SearchItem};
-use ratatui::backend::TestBackend;
+use ratatui::backend::{Backend, TestBackend};
+use ratatui::layout::Position;
 use ratatui::style::Modifier;
 use ratatui::Terminal;
 
@@ -219,6 +220,34 @@ fn render_uses_layered_canvas_and_surface_backgrounds() {
 }
 
 #[test]
+fn overlay_panel_clears_underlying_glyphs_before_applying_its_background() {
+    let theme = Theme::dark();
+    let backend = TestBackend::new(40, 12);
+    let mut terminal = Terminal::new(backend).expect("terminal");
+    let panel = Rect::new(5, 3, 20, 6);
+    let completed = terminal
+        .draw(|frame| {
+            frame.render_widget(
+                Paragraph::new(vec![Line::from("LEAK".repeat(10)); 12]),
+                frame.area(),
+            );
+            fill_overlay_panel(frame, panel, &theme);
+        })
+        .expect("draw");
+
+    for y in panel.top()..panel.bottom() {
+        for x in panel.left()..panel.right() {
+            assert_eq!(
+                completed.buffer[(x, y)].symbol(),
+                " ",
+                "underlying glyph survived at ({x}, {y})"
+            );
+            assert_eq!(completed.buffer[(x, y)].bg, theme.panel_bg);
+        }
+    }
+}
+
+#[test]
 fn selected_result_band_fills_the_panel_width() {
     let state = state_with_results();
     let (_, buffer) = draw(&state, 80, 24);
@@ -248,6 +277,42 @@ fn prompt_exposes_global_search_and_command_modes() {
     let (flat, _) = draw(&command, 80, 24);
     assert!(flat.contains("COMMAND"));
     assert!(!flat.contains("GLOBAL SEARCH"));
+}
+
+#[test]
+fn prompt_renders_cjk_emoji_and_combining_graphemes_from_the_first_cell() {
+    let mut state = AppState::default();
+    state.search.prompt = "数据🙂e\u{301}".into();
+    state.search.prompt_cursor = state.prompt_char_len();
+    let (_, buffer) = draw(&state, 80, 24);
+
+    for grapheme in ["数", "据", "🙂", "e\u{301}"] {
+        assert!(
+            buffer.content.iter().any(|cell| cell.symbol() == grapheme),
+            "prompt omitted grapheme {grapheme:?}"
+        );
+    }
+}
+
+#[test]
+fn prompt_places_the_real_terminal_cursor_at_the_grapheme_cursor() {
+    let mut state = AppState::default();
+    state.search.prompt = "数据🙂e\u{301}".into();
+    state.search.prompt_cursor = 3;
+    state.search.prompt_scroll = 1;
+
+    let backend = TestBackend::new(80, 24);
+    let mut terminal = Terminal::new(backend).expect("terminal");
+    terminal.draw(|frame| render(frame, &state)).expect("draw");
+
+    // Workspace x=1, prompt border=1, " ⌕ "=3, visible "据🙂"=4.
+    assert_eq!(
+        terminal
+            .backend_mut()
+            .get_cursor_position()
+            .expect("cursor position"),
+        Position::new(9, 1)
+    );
 }
 
 #[test]

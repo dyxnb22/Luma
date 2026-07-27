@@ -79,6 +79,7 @@ pub fn update(state: &mut AppState, msg: Msg) -> Vec<Effect> {
             state.search.history_browse = None;
             state.search.browse_nav_stack.clear();
             state.backspace_prompt();
+            sync_prompt_viewport(state);
             schedule_search(state)
         }
         Msg::DeleteForward => {
@@ -91,6 +92,7 @@ pub fn update(state: &mut AppState, msg: Msg) -> Vec<Effect> {
             state.search.history_browse = None;
             state.search.browse_nav_stack.clear();
             state.delete_forward_prompt();
+            sync_prompt_viewport(state);
             schedule_search(state)
         }
         Msg::CursorLeft => {
@@ -101,6 +103,7 @@ pub fn update(state: &mut AppState, msg: Msg) -> Vec<Effect> {
                 state.focus = FocusZone::Prompt;
                 state.clamp_prompt_cursor();
                 state.search.prompt_cursor = state.search.prompt_cursor.saturating_sub(1);
+                sync_prompt_viewport(state);
             }
             vec![Effect::None]
         }
@@ -114,6 +117,7 @@ pub fn update(state: &mut AppState, msg: Msg) -> Vec<Effect> {
                 if state.search.prompt_cursor < state.prompt_char_len() {
                     state.search.prompt_cursor += 1;
                 }
+                sync_prompt_viewport(state);
             }
             vec![Effect::None]
         }
@@ -124,6 +128,7 @@ pub fn update(state: &mut AppState, msg: Msg) -> Vec<Effect> {
             if matches!(state.route, Route::Search) {
                 state.focus = FocusZone::Prompt;
                 state.search.prompt_cursor = 0;
+                sync_prompt_viewport(state);
             }
             vec![Effect::None]
         }
@@ -134,6 +139,7 @@ pub fn update(state: &mut AppState, msg: Msg) -> Vec<Effect> {
             if matches!(state.route, Route::Search) {
                 state.focus = FocusZone::Prompt;
                 state.search.prompt_cursor = state.prompt_char_len();
+                sync_prompt_viewport(state);
             }
             vec![Effect::None]
         }
@@ -145,6 +151,7 @@ pub fn update(state: &mut AppState, msg: Msg) -> Vec<Effect> {
             state.search.history_browse = None;
             state.search.browse_nav_stack.clear();
             state.clear_prompt_to_start();
+            sync_prompt_viewport(state);
             schedule_search(state)
         }
         Msg::DeleteWordBack => {
@@ -155,6 +162,7 @@ pub fn update(state: &mut AppState, msg: Msg) -> Vec<Effect> {
             state.search.history_browse = None;
             state.search.browse_nav_stack.clear();
             state.delete_prompt_word_back();
+            sync_prompt_viewport(state);
             schedule_search(state)
         }
         Msg::Submit => match state.route {
@@ -313,6 +321,7 @@ pub fn update(state: &mut AppState, msg: Msg) -> Vec<Effect> {
             if state.route == Route::Search {
                 state.focus = FocusZone::Prompt;
                 state.history_older();
+                sync_prompt_viewport(state);
                 schedule_search(state)
             } else {
                 vec![Effect::None]
@@ -322,6 +331,7 @@ pub fn update(state: &mut AppState, msg: Msg) -> Vec<Effect> {
             if state.route == Route::Search {
                 state.focus = FocusZone::Prompt;
                 state.history_newer();
+                sync_prompt_viewport(state);
                 schedule_search(state)
             } else {
                 vec![Effect::None]

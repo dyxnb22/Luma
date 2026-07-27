@@ -1,6 +1,6 @@
 use crate::theme::{Symbols, Theme};
 use crate::view_model::{AppState, Route};
-use ratatui::layout::{Constraint, Direction, Layout, Margin, Rect};
+use ratatui::layout::{Constraint, Direction, Layout, Margin, Position, Rect};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph};
 use ratatui::Frame;
@@ -111,8 +111,11 @@ fn render_prompt(
         .skip(state.search.prompt_cursor)
         .copied()
         .collect();
+    let prompt_prefix = format!(" {} ", symbols.search);
+    let cursor_offset =
+        util::display_width(&prompt_prefix).saturating_add(util::display_width(&before));
     let mut spans = vec![
-        Span::styled(format!(" {} ", symbols.search), theme.accent()),
+        Span::styled(prompt_prefix, theme.accent()),
         Span::styled(before, theme.text()),
         Span::styled(cursor, theme.accent()),
         Span::styled(after, theme.text()),
@@ -145,6 +148,18 @@ fn render_prompt(
             .title(Line::from(Span::styled(mode, mode_style)).right_aligned()),
     );
     frame.render_widget(widget, area);
+    if focused && area.width > 2 && area.height > 2 {
+        // Ratatui otherwise hides the real terminal cursor and only our decorative glyph remains.
+        // SwiftTerm anchors IME marked text and candidate windows to that real cursor, so leaving
+        // it at the final ANSI write position puts composition at the bottom-right of the window.
+        let content_right = area.right().saturating_sub(2);
+        let cursor_x = area
+            .x
+            .saturating_add(1)
+            .saturating_add(cursor_offset as u16)
+            .min(content_right);
+        frame.set_cursor_position(Position::new(cursor_x, area.y.saturating_add(1)));
+    }
 }
 
 #[cfg(test)]

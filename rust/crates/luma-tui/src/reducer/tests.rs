@@ -585,6 +585,20 @@ fn prompt_cursor_inserts_in_middle() {
 }
 
 #[test]
+fn typing_after_clearing_a_scrolled_prompt_shows_the_first_grapheme() {
+    let mut state = AppState::default();
+    state.terminal.width = 20;
+    let _ = update(&mut state, Msg::Paste("abcdefghijklmnopqrstuvwxyz".into()));
+    assert!(state.search.prompt_scroll > 0);
+
+    state.clear_prompt();
+    let _ = update(&mut state, Msg::Paste("数据🙂e\u{301}".into()));
+
+    assert_eq!(state.search.prompt, "数据🙂e\u{301}");
+    assert_eq!(state.search.prompt_scroll, 0);
+}
+
+#[test]
 fn prompt_editing_never_splits_a_combining_grapheme() {
     let mut state = AppState::default();
     state.search.prompt = "e\u{301}x".into();
@@ -672,14 +686,21 @@ fn page_down_moves_selection() {
     state.preview.body = Some("cached preview".into());
     state.preview.result_id = Some("0".into());
     let effects = update(&mut state, Msg::SelectPageDown);
-    assert_eq!(effects, vec![Effect::None]);
+    assert!(matches!(
+        effects.as_slice(),
+        [Effect::LoadPreview {
+            result_id,
+            preview_id: 1
+        }] if result_id == "5"
+    ));
     assert_eq!(state.search.results.selected_id.as_deref(), Some("5"));
     assert!(state.preview.body.is_none());
-    assert!(state.preview.result_id.is_none());
+    assert_eq!(state.preview.result_id.as_deref(), Some("5"));
+    assert_eq!(state.preview.pending_id, Some(1));
 }
 
 #[test]
-fn page_scroll_clamps_results_and_empty_list_without_effects() {
+fn page_scroll_clamps_results_and_reloads_each_changed_selection() {
     let mut state = AppState::default();
     state.search.prompt = "/clip ".into();
     assert_eq!(update(&mut state, Msg::SelectPageDown), vec![Effect::None]);
@@ -710,12 +731,76 @@ fn page_scroll_clamps_results_and_empty_list_without_effects() {
         state.search.results.selected_id.as_deref(),
         Some("scroll:0")
     );
-    assert_eq!(update(&mut state, Msg::SelectPageDown), vec![Effect::None]);
-    assert_eq!(update(&mut state, Msg::SelectPageDown), vec![Effect::None]);
+    let down = update(&mut state, Msg::SelectPageDown);
+    assert!(matches!(
+        down.as_slice(),
+        [Effect::LoadPreview {
+            result_id,
+            preview_id: 1
+        }] if result_id == "scroll:5"
+    ));
+    let down_again = update(&mut state, Msg::SelectPageDown);
+    assert!(matches!(
+        down_again.as_slice(),
+        [Effect::LoadPreview {
+            result_id,
+            preview_id: 2
+        }] if result_id == "scroll:6"
+    ));
     assert_eq!(
         state.search.results.selected_id.as_deref(),
         Some("scroll:6")
     );
+    assert_eq!(update(&mut state, Msg::SelectPageDown), vec![Effect::None]);
+    assert_eq!(state.preview.pending_id, Some(2));
+}
+
+#[test]
+fn rapid_page_down_then_up_supersedes_the_pending_preview() {
+    let mut state = AppState::default();
+    for i in 0..7 {
+        state.search.results.items.push(SearchItem {
+            id: ResultId::new(format!("rapid:{i}")),
+            module_id: ModuleId::new("mock"),
+            title: format!("Item {i}"),
+            subtitle: None,
+            kind: "mock".into(),
+            score: 1.0,
+            primary_action: ActionDescriptor {
+                id: ActionId::new("open"),
+                label: "Open".into(),
+                risk: ActionRisk::Safe,
+                confirmation: false,
+            },
+            secondary_actions: vec![],
+            ui_intent: None,
+            action_payload: None,
+        });
+    }
+    state.search.results.selected_id = Some("rapid:0".into());
+    state.preview.result_id = Some("rapid:0".into());
+    state.preview.body = Some("first".into());
+
+    let down = update(&mut state, Msg::SelectPageDown);
+    assert!(matches!(
+        down.as_slice(),
+        [Effect::LoadPreview {
+            result_id,
+            preview_id: 1
+        }] if result_id == "rapid:5"
+    ));
+
+    let up = update(&mut state, Msg::SelectPageUp);
+    assert!(matches!(
+        up.as_slice(),
+        [Effect::LoadPreview {
+            result_id,
+            preview_id: 2
+        }] if result_id == "rapid:0"
+    ));
+    assert_eq!(state.search.results.selected_id.as_deref(), Some("rapid:0"));
+    assert_eq!(state.preview.result_id.as_deref(), Some("rapid:0"));
+    assert_eq!(state.preview.pending_id, Some(2));
 }
 
 #[test]
@@ -866,7 +951,14 @@ fn slash_scroll_is_local_but_unprefixed_text_remains_global_search() {
     state.search.results.selected_id = Some("local-scroll:0".into());
     state.search.prompt = "/scroll down".into();
     state.search.prompt_cursor = state.prompt_char_len();
-    assert_eq!(update(&mut state, Msg::Submit), vec![Effect::None]);
+    let local_effects = update(&mut state, Msg::Submit);
+    assert!(matches!(
+        local_effects.as_slice(),
+        [Effect::LoadPreview {
+            result_id,
+            preview_id: 1
+        }] if result_id == "local-scroll:5"
+    ));
     assert_eq!(
         state.search.results.selected_id.as_deref(),
         Some("local-scroll:5")

@@ -38,6 +38,24 @@ private final class LumaTerminalView: LocalProcessTerminalView {
         super.dataReceived(slice: safe[...])
     }
 
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        // Constraints attach this view before an accessory app necessarily becomes key. Set the
+        // terminal as the responder once the attachment is complete; the window controller also
+        // repeats this after every show/activation.
+        DispatchQueue.main.async { [weak self] in
+            guard let self, let window = self.window, window.isVisible else { return }
+            _ = window.makeFirstResponder(self)
+        }
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        // A click anywhere in the terminal must always recover keyboard input, even if another
+        // AppKit control briefly became the responder while the workbench was hidden.
+        _ = window?.makeFirstResponder(self)
+        super.mouseDown(with: event)
+    }
+
     private func installPageKeyMonitor() {
         // SwiftTerm consumes Page Up/Down for its local scrollback. Intercept only those two
         // keys after the terminal has become first responder; all ordinary text, IME commits,

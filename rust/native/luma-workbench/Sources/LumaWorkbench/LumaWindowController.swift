@@ -12,6 +12,11 @@ protocol LumaWindowControllerDelegate: AnyObject {
 private final class TerminalWindow: NSWindow {
     weak var terminalView: NSView?
 
+    // Accessory applications do not use the ordinary Dock activation path. Be explicit that this
+    // is still a keyboard-capable document window when brought forward by the global shortcut.
+    override var canBecomeKey: Bool { true }
+    override var canBecomeMain: Bool { true }
+
     override func sendEvent(_ event: NSEvent) {
         if event.type == .keyDown,
            let terminalView,
@@ -127,14 +132,17 @@ final class LumaWindowController: NSObject, NSWindowDelegate {
     }
 
     private func focusTerminalWhenKey() {
-        guard window.isKeyWindow else { return }
-        window.makeFirstResponder(terminalView)
-        // Accessory applications can become key after the initial show call has returned. Queue
-        // one standard responder-chain handoff; do not manually invoke `keyDown`, because that
-        // bypasses AppKit's text-input/IME path used by SwiftTerm.
+        // `makeKeyAndOrderFront` is asynchronous for an accessory application: the window can
+        // become visible before `isKeyWindow` turns true. `makeFirstResponder` is valid in that
+        // interval, whereas guarding on `isKeyWindow` leaves the SwiftTerm view unfocused and
+        // makes every typed character appear to be ignored.
+        _ = window.makeFirstResponder(terminalView)
+        // Repeat after AppKit completes its activation turn. This keeps the normal responder
+        // chain (and SwiftTerm's text-input/IME handling) intact rather than forwarding events
+        // manually.
         DispatchQueue.main.async { [weak self] in
-            guard let self, self.window.isKeyWindow else { return }
-            self.window.makeFirstResponder(self.terminalView)
+            guard let self, self.window.isVisible else { return }
+            _ = self.window.makeFirstResponder(self.terminalView)
         }
     }
 }

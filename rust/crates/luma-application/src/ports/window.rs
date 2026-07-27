@@ -11,6 +11,10 @@ pub struct WindowEntry {
     pub app_name: String,
     pub app_bundle_id: Option<String>,
     pub title: String,
+    /// `true` when macOS redacted an otherwise title-bearing field because Screen Recording is
+    /// not active for the current process identity. A genuinely titleless window stays `false`.
+    #[serde(default)]
+    pub title_redacted: bool,
     pub is_on_screen: bool,
     /// CGWindow layer; normal windows are `0`.
     pub layer: i64,

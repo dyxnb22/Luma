@@ -1,5 +1,4 @@
 import AppKit
-import CoreGraphics
 import LumaWorkbenchCore
 
 /// Wires the four pieces of the host together: bundled binary → PTY session → window → hotkey.
@@ -109,7 +108,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
             activateApplication()
             windowController?.showOnCurrentSpace()
-            requestScreenCaptureAccess()
         case .hide(let previous):
             windowController?.hide()
             if let previous, reactivate(previous) { return }
@@ -180,15 +178,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 message: "\(error)\n\nThe window still opens from Finder or the Dock."
             )
         }
-    }
-
-    /// TCC associates Screen Recording with the app bundle that makes the request. The Rust TUI
-    /// runs in a PTY child, so its CoreGraphics request does not create a selectable Luma entry in
-    /// System Settings. Request from the bundled host instead; the Windows module remains solely
-    /// responsible for consuming the resulting window-title capability.
-    private func requestScreenCaptureAccess() {
-        guard !CGPreflightScreenCaptureAccess() else { return }
-        _ = CGRequestScreenCaptureAccess()
     }
 
     // MARK: - Alerts

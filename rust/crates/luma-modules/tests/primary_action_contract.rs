@@ -206,6 +206,7 @@ async fn windows_row_matches_actions_contract() {
             app_name: "Cursor".into(),
             app_bundle_id: None,
             title: "Luma".into(),
+            title_redacted: false,
             is_on_screen: true,
             layer: 0,
             owner_pid: 1,

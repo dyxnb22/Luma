@@ -84,6 +84,7 @@ impl MacWindowCatalog {
     }
 
     fn list_windows_blocking() -> Result<Vec<WindowEntry>, WindowError> {
+        let screen_capture_authorized = unsafe { CGPreflightScreenCaptureAccess() };
         // SAFETY: CGWindowListCopyWindowInfo returns a retained CFArray or null.
         let info = unsafe {
             CGWindowListCopyWindowInfo(
@@ -118,6 +119,7 @@ impl MacWindowCatalog {
             }
             let window_number = cf_dict_i64(dict, "kCGWindowNumber").unwrap_or(0);
             let title = cf_dict_string(dict, "kCGWindowName").unwrap_or_default();
+            let title_redacted = title.trim().is_empty() && !screen_capture_authorized;
             let display_title = if title.trim().is_empty() {
                 "Untitled".to_string()
             } else {
@@ -129,6 +131,7 @@ impl MacWindowCatalog {
                 app_name,
                 app_bundle_id: None,
                 title: display_title,
+                title_redacted,
                 is_on_screen,
                 layer,
                 owner_pid,
@@ -167,7 +170,7 @@ impl MacWindowCatalog {
         if !unsafe { AXIsProcessTrusted() } {
             return Err(WindowError::PermissionRequired {
                 capability: "accessibility".into(),
-                guidance: "Grant Accessibility to the app that launched Luma in System Settings → Privacy & Security → Accessibility, then retry.".into(),
+                guidance: "Allow Luma (or its terminal host) in System Settings → Privacy & Security → Accessibility".into(),
             });
         }
         let (pid, _) = parse_window_id(id)
@@ -208,10 +211,7 @@ impl MacWindowCatalog {
 fn request_screen_capture_access_if_needed(entries: &[WindowEntry]) {
     static REQUESTED: AtomicBool = AtomicBool::new(false);
 
-    if !entries.iter().any(|entry| entry.title == "Untitled")
-        || unsafe { CGPreflightScreenCaptureAccess() }
-        || REQUESTED.swap(true, Ordering::SeqCst)
-    {
+    if !entries.iter().any(|entry| entry.title_redacted) || REQUESTED.swap(true, Ordering::SeqCst) {
         return;
     }
 
@@ -248,6 +248,7 @@ fn fill_missing_titles_from_accessibility(entries: &mut [WindowEntry]) {
             };
             if !title.trim().is_empty() {
                 entry.title = title.clone();
+                entry.title_redacted = false;
             }
         }
     }
@@ -416,7 +417,7 @@ fn map_ax_error(code: AXError, context: &str) -> WindowError {
     if code == K_AX_ERROR_API_DISABLED || !unsafe { AXIsProcessTrusted() } {
         return WindowError::PermissionRequired {
             capability: "accessibility".into(),
-            guidance: "Grant Accessibility to the app that launched Luma in System Settings → Privacy & Security → Accessibility, then retry.".into(),
+            guidance: "Allow Luma (or its terminal host) in System Settings → Privacy & Security → Accessibility".into(),
         };
     }
     WindowError::Unavailable(format!("{context} (AXError {code})"))

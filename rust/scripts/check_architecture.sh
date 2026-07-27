@@ -54,6 +54,11 @@ if [[ -d "$WORKBENCH_SOURCES" ]]; then
     echo "FAIL: the workbench host must not use SwiftUI, add a status item, or touch LumaNext"
     fail=1
   fi
+  if rg -n 'CG(Request|Preflight)ScreenCaptureAccess' "$WORKBENCH_SOURCES" \
+    2>/dev/null | head -20 | grep .; then
+    echo "FAIL: module permissions must stay in their platform adapter, not the PTY host"
+    fail=1
+  fi
   # The host owns exactly one child process invocation: the bundled `luma tui`.
   start_process_calls="$(rg -o --no-filename 'startProcess\(' "$WORKBENCH_SOURCES" 2>/dev/null | wc -l | tr -d ' ')"
   if [[ "$start_process_calls" -ne 1 ]]; then

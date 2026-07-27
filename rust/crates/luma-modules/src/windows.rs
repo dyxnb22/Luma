@@ -365,7 +365,7 @@ impl LumaModule for WindowsModule {
         };
         // Keep catalog order (front-to-back on macOS) so recent apps stay near the top.
         let hub_max = self.hub_cap();
-        let has_untitled = list.iter().any(|e| e.title == "Untitled");
+        let has_redacted_titles = list.iter().any(|e| e.title_redacted);
         let total = list.len();
         let more = if total > hub_max {
             Some((total - hub_max) as u32)
@@ -381,11 +381,14 @@ impl LumaModule for WindowsModule {
                 title: format!("{} · {}", e.title, e.app_name),
             })
             .collect();
-        let status = if has_untitled {
+        let status = if has_redacted_titles {
             Some(HubWindowsStatus {
-                kind: "unavailable".into(),
-                title: "Some window titles are Untitled".into(),
-                subtitle: Some("Grant Screen Recording in System Settings for full titles".into()),
+                kind: "permission_required".into(),
+                title: "Window titles need Screen Recording".into(),
+                subtitle: Some(
+                    "System Settings → Privacy & Security → Screen & System Audio Recording: allow Luma; if already on, toggle off/on, then reopen Luma"
+                        .into(),
+                ),
             })
         } else {
             None
@@ -465,6 +468,7 @@ mod tests {
             app_name: app.into(),
             app_bundle_id: None,
             title: title.into(),
+            title_redacted: false,
             is_on_screen: true,
             layer: 0,
             owner_pid: 1,
@@ -615,20 +619,34 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn hub_windows_hints_untitled_needs_screen_recording() {
+    async fn hub_windows_hints_redacted_titles_need_screen_recording() {
+        let mut redacted = sample("pid:1|num:1", "Cursor", "Untitled");
+        redacted.title_redacted = true;
+        let catalog = Arc::new(FakeWindowCatalog::with_entries(
+            vec![redacted],
+            Some("Cursor".into()),
+        ));
+        let m = WindowsModule::with_catalog(catalog);
+        let slice = m.hub_windows().await.unwrap();
+        let status = slice.status.expect("redaction should set hub status");
+        assert_eq!(status.kind, "permission_required");
+        assert!(status.title.contains("Screen Recording"));
+        assert!(status
+            .subtitle
+            .as_deref()
+            .unwrap_or("")
+            .contains("toggle off/on"));
+    }
+
+    #[tokio::test]
+    async fn hub_windows_does_not_treat_a_genuinely_untitled_window_as_missing_permission() {
         let catalog = Arc::new(FakeWindowCatalog::with_entries(
             vec![sample("pid:1|num:1", "Cursor", "Untitled")],
             Some("Cursor".into()),
         ));
         let m = WindowsModule::with_catalog(catalog);
         let slice = m.hub_windows().await.unwrap();
-        let status = slice.status.expect("untitled should set hub status");
-        assert!(status.title.contains("Untitled"));
-        assert!(status
-            .subtitle
-            .as_deref()
-            .unwrap_or("")
-            .contains("Screen Recording"));
+        assert!(slice.status.is_none());
     }
 
     #[tokio::test]

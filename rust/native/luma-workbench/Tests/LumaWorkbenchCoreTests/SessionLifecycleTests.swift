@@ -46,7 +46,7 @@ final class SessionLifecycleTests: XCTestCase {
         let notice = try? XCTUnwrap(lifecycle.terminationNotice)
         XCTAssertEqual(
             notice,
-            "[luma tui ended — exit code 130. Press ⌥Space to start a new session.]"
+            "[luma tui ended — exit code 130. Press ⌘Space to start a new session.]"
         )
     }
 
@@ -79,7 +79,7 @@ final class SessionLifecycleTests: XCTestCase {
 
         XCTAssertEqual(
             lifecycle.terminationNotice,
-            "[luma tui ended — signal 15. Press ⌥Space to start a new session.]"
+            "[luma tui ended — signal 15. Press ⌘Space to start a new session.]"
         )
     }
 }

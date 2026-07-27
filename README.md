@@ -21,7 +21,7 @@ cargo test -p luma --test cli_blackbox
 | Local TUI + CLI and a thin native PTY host window on your Mac | App Store / notarized shipping |
 | Apps, Calculator, Downloads Inbox, Packages, Apple Shortcuts Bridge, Shell Recall, Renewals, Database Portals, Screen OCR, Windows, Git, Runtime, Proxy, Clipboard, Quicklinks, Snippets, Wordbook, Projects, Records, Command Recipes, SSH, Timers, Secrets | Window layouts, Menu search, Browser tabs, signed-host Translate |
 | Honest permission / unavailable states in each surface | Release soak, deny-as-policy, marketing docs |
-| Global Option+Space activation of the one TUI session | A native product UI: search box, results, sidebar, settings, or overlays in Swift |
+| Global Command+Space activation of the one TUI session | A native product UI: search box, results, sidebar, settings, or overlays in Swift |
 | Module-local status and remediation rows | Centralized `doctor` command or diagnostics overlay |
 
 ## Docs
@@ -54,7 +54,7 @@ ordinary prompt input in search fields. Interactive commands require a leading
 `/`: `/win`, `/wb review [today|due|new|wrong]`, `/rec`, and `/ssh `; unprefixed input is global search.
 `Ctrl-/` opens the command palette, whose module subcommands, parameter placeholders, and examples
 come from the same manifest descriptions used by `/help` and slash-command completion.
-`PgUp`/`PgDn` or the palette actions `/scroll up` and `/scroll down` page the focused Results,
+`Fn` + `↑`/`↓` (or `PgUp`/`PgDn` on an extended keyboard) and the palette actions `/scroll up` and `/scroll down` page the focused Results,
 Hub, Preview, Help, Settings, command palette, or ActionPicker without running a business action.
 The Rust TUI uses layered panels, a single focused accent, full-row selection, and a contextual
 shortcut footer; the native host does not own or duplicate this visual system.

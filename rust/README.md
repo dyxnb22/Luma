@@ -58,7 +58,7 @@ cargo run -p luma   # interactive TUI
 ## Native workbench host
 
 `Luma.app` is a thin Swift/AppKit window that hosts the same `luma tui` process in a real PTY
-behind a global Option+Space hotkey ([ADR-0007](docs/adr/0007-native-workbench-host.md)). It owns
+behind a global Command+Space hotkey ([ADR-0007](docs/adr/0007-native-workbench-host.md)). It owns
 the window, the PTY, activation, and lifecycle — never product UI or module data.
 
 ```bash
@@ -77,7 +77,7 @@ TCC grants survive a rebuild: re-check module permissions after updating. Set
 
 Behavior worth knowing:
 
-- Option+Space shows the window and focuses the terminal; pressing it again while Luma is active
+- Command+Space shows the window and focuses the terminal; pressing it again while Luma is active
   hides the window and reactivates the app you came from.
 - The close button hides the window. The TUI keeps running; Cmd+Q (or Quit Luma) terminates it.
 - If the TUI exits, the next activation starts a fresh session.
@@ -133,7 +133,7 @@ backup, and migration ledger, never the Markdown source files.
 - `Ctrl-/` opens the searchable command palette; `/commands [filter]` opens the same surface.
   Enabled modules publish their real subcommands, argument placeholders, and short examples there
   and in `/help`. Partial slash commands show bounded completion candidates.
-- `PgUp`/`PgDn` page the focused surface. `/scroll up` and `/scroll down` expose the same pure
+- `Fn` + `↑`/`↓` (or `PgUp`/`PgDn` on an extended keyboard) page the focused surface. `/scroll up` and `/scroll down` expose the same pure
   navigation through the command palette, including Results, the empty Hub, Preview, Help,
   Settings, the palette itself, and ActionPicker. Paging never runs an action or requests module I/O.
 

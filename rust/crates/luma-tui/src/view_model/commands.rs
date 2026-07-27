@@ -230,7 +230,7 @@ impl AppState {
             "Enter action · Ctrl-k actions · Ctrl-/ commands · Tab focus · S-Tab preview · ? help"
                 .into(),
             format!(
-                "{}{} move · PgUp/PgDn or /scroll up/down page · Ctrl-p/n history",
+                "{}{} move · Fn+↑/↓ or /scroll up/down page · Ctrl-p/n history",
                 self.symbols.up, self.symbols.down
             ),
             "Hub / win list: 1-9 focus visible window · Enter open".into(),

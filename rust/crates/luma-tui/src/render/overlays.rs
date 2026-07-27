@@ -324,7 +324,7 @@ pub(super) fn render_overlay_help(
                         .right_aligned(),
                 )
                 .title_bottom(overlay_hint(
-                    format!(" PgUp/PgDn page {} Esc back ", symbols.sep),
+                    format!(" Fn+↑/↓ page {} Esc back ", symbols.sep),
                     theme,
                 )),
         );

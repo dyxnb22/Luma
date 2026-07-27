@@ -29,7 +29,7 @@ final class GlobalHotKeyController {
     private var hotKeyRef: EventHotKeyRef?
     private var eventHandlerRef: EventHandlerRef?
 
-    init(definition: HotKeyDefinition = .optionSpace, onActivate: @escaping () -> Void) {
+    init(definition: HotKeyDefinition = .commandSpace, onActivate: @escaping () -> Void) {
         self.definition = definition
         self.onActivate = onActivate
     }

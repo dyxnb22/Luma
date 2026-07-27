@@ -14,11 +14,51 @@ protocol TerminalSessionControllerDelegate: AnyObject {
 /// unbounded string in the dependency parser.
 private final class LumaTerminalView: LocalProcessTerminalView {
     private var controlFilter = TerminalControlFilter()
+    private var pageKeyMonitor: Any?
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        installPageKeyMonitor()
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        installPageKeyMonitor()
+    }
+
+    deinit {
+        if let pageKeyMonitor {
+            NSEvent.removeMonitor(pageKeyMonitor)
+        }
+    }
 
     override func dataReceived(slice: ArraySlice<UInt8>) {
         let safe = controlFilter.filter(slice)
         guard !safe.isEmpty else { return }
         super.dataReceived(slice: safe[...])
+    }
+
+    private func installPageKeyMonitor() {
+        // SwiftTerm consumes Page Up/Down for its local scrollback. Intercept only those two
+        // keys after the terminal has become first responder; all ordinary text, IME commits,
+        // and navigation continue through AppKit's normal text-input chain. Fn+Up/Down emits
+        // these same function-key values on compact Mac keyboards.
+        pageKeyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard let self,
+                  self.window?.firstResponder === self,
+                  let scalar = event.charactersIgnoringModifiers?.unicodeScalars.first
+            else { return event }
+            switch Int(scalar.value) {
+            case NSPageUpFunctionKey:
+                send([0x1b, 0x5b, 0x35, 0x7e])
+                return nil
+            case NSPageDownFunctionKey:
+                send([0x1b, 0x5b, 0x36, 0x7e])
+                return nil
+            default:
+                return event
+            }
+        }
     }
 }
 

@@ -6,7 +6,7 @@ use async_trait::async_trait;
 use luma_application::{WindowCatalogPort, WindowEntry, WindowError};
 use std::ffi::{c_void, CStr, CString};
 use std::ptr;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 
 /// Live macOS adapter.
@@ -133,6 +133,7 @@ impl MacWindowCatalog {
             });
         }
         fill_missing_titles_from_accessibility(&mut out);
+        request_screen_capture_access_if_needed(&out);
         unsafe { CFRelease(info) };
         Ok(out)
     }
@@ -196,6 +197,25 @@ impl MacWindowCatalog {
         self.set_paste_target_locked(label.clone());
         Ok(label)
     }
+}
+
+// The title-bearing `kCGWindowName` field is redacted without Screen Recording. Merely reading
+// the window list does not make an app appear in the Privacy pane; CoreGraphics requires this
+// explicit one-time request. Keeping it here makes the Windows module own its own permission
+// prompt rather than putting a product permission flow in the native PTY host.
+fn request_screen_capture_access_if_needed(entries: &[WindowEntry]) {
+    static REQUESTED: AtomicBool = AtomicBool::new(false);
+
+    if !entries.iter().any(|entry| entry.title == "Untitled")
+        || unsafe { CGPreflightScreenCaptureAccess() }
+        || REQUESTED.swap(true, Ordering::SeqCst)
+    {
+        return;
+    }
+
+    // The return value only indicates the current authorization state; macOS presents the
+    // system-owned prompt asynchronously when it needs the user's decision.
+    let _ = unsafe { CGRequestScreenCaptureAccess() };
 }
 
 /// CoreGraphics often omits window names for document-less or sandboxed apps. When
@@ -541,6 +561,8 @@ const K_CF_NUMBER_SINT64_TYPE: i32 = 4;
 #[link(name = "CoreGraphics", kind = "framework")]
 extern "C" {
     fn CGWindowListCopyWindowInfo(option: u32, relative_to_window: u32) -> CFArrayRef;
+    fn CGPreflightScreenCaptureAccess() -> bool;
+    fn CGRequestScreenCaptureAccess() -> bool;
 }
 
 #[link(name = "CoreFoundation", kind = "framework")]

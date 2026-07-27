@@ -19,6 +19,7 @@ use std::time::Duration;
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 use tracing::warn;
+use unicode_width::UnicodeWidthChar;
 
 /// Interactive TUI entry. Composition root (`bins/luma`) supplies the engine port.
 pub async fn run_tui_with_engine(
@@ -58,6 +59,7 @@ pub async fn run_tui_with_options(
 
     guard.terminal_mut().draw(|f| render(f, &state))?;
     state.dirty = false;
+    let mut previous_visible_content_had_wide_text = visible_content_contains_wide_text(&state);
 
     let mut engine_rx = engine.subscribe();
     let mut effect_tasks: JoinSet<()> = JoinSet::new();
@@ -106,8 +108,16 @@ pub async fn run_tui_with_options(
         }
 
         if state.dirty {
+            let visible_content_has_wide_text = visible_content_contains_wide_text(&state);
+            // SwiftTerm does not always erase the trailing cell when a CJK result replaces an
+            // ASCII loading row. Clear once at that transition; clearing every frame corrupts
+            // the PTY's incremental screen state and is intentionally avoided.
+            if visible_content_has_wide_text && !previous_visible_content_had_wide_text {
+                guard.terminal_mut().clear()?;
+            }
             guard.terminal_mut().draw(|f| render(f, &state))?;
             state.dirty = false;
+            previous_visible_content_had_wide_text = visible_content_has_wide_text;
         }
 
         let poll_timeout = Duration::from_millis(33);
@@ -182,6 +192,26 @@ pub async fn run_tui_with_options(
     drop(guard);
     let _ = engine.submit(Command::ShutdownSession).await;
     Ok(())
+}
+
+fn visible_content_contains_wide_text(state: &AppState) -> bool {
+    if state.showing_hub() {
+        return state.hub_rows().iter().any(|(_, _, title, query)| {
+            text_contains_wide_characters(title) || text_contains_wide_characters(query)
+        });
+    }
+    state.search.results.items.iter().any(|item| {
+        text_contains_wide_characters(&item.title)
+            || item
+                .subtitle
+                .as_deref()
+                .is_some_and(text_contains_wide_characters)
+    })
+}
+
+fn text_contains_wide_characters(text: &str) -> bool {
+    text.chars()
+        .any(|character| UnicodeWidthChar::width(character).unwrap_or(0) > 1)
 }
 
 #[cfg(unix)]
@@ -783,5 +813,44 @@ mod tests {
             }
         }
         assert!(!got.is_empty());
+    }
+
+    #[test]
+    fn wide_visible_text_marks_a_full_redraw_boundary() {
+        let mut state = AppState::default();
+        assert!(!visible_content_contains_wide_text(&state));
+        state.search.results.items.push(luma_domain::SearchItem {
+            id: luma_domain::ResultId::new("wordbook:data-retention"),
+            module_id: luma_domain::ModuleId::new("luma.wordbook"),
+            title: "data retention".into(),
+            subtitle: Some("数据保留期限".into()),
+            kind: "word".into(),
+            score: 1.0,
+            primary_action: luma_domain::ActionDescriptor {
+                id: luma_domain::ActionId::new("open"),
+                label: "Open".into(),
+                risk: luma_domain::ActionRisk::Safe,
+                confirmation: false,
+            },
+            secondary_actions: vec![],
+            ui_intent: None,
+            action_payload: None,
+        });
+        assert!(visible_content_contains_wide_text(&state));
+
+        state.search.results.items.clear();
+        state.search.prompt.clear();
+        state.hub.windows = Some(crate::view_model::HubWindowsState {
+            app_name: "System Settings".into(),
+            windows: vec![crate::view_model::HubWindowRow {
+                id: "pid:1|num:2".into(),
+                title: "系统设置".into(),
+            }],
+            more: None,
+            status_kind: None,
+            status_title: None,
+            status_subtitle: None,
+        });
+        assert!(visible_content_contains_wide_text(&state));
     }
 }

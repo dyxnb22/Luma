@@ -6,6 +6,23 @@ protocol LumaWindowControllerDelegate: AnyObject {
     func windowControllerDidRequestHide(_ controller: LumaWindowController)
 }
 
+/// AppKit can replace the responder during activation of an accessory application. Restore the
+/// terminal before dispatching keyboard events, but always let the normal responder chain handle
+/// the event so SwiftTerm's text-input and IME support remain intact.
+private final class TerminalWindow: NSWindow {
+    weak var terminalView: NSView?
+
+    override func sendEvent(_ event: NSEvent) {
+        if event.type == .keyDown,
+           let terminalView,
+           firstResponder !== terminalView
+        {
+            makeFirstResponder(terminalView)
+        }
+        super.sendEvent(event)
+    }
+}
+
 /// The one workbench window. There is never a second one, and it holds exactly one content view:
 /// the terminal.
 final class LumaWindowController: NSObject, NSWindowDelegate {
@@ -23,12 +40,14 @@ final class LumaWindowController: NSObject, NSWindowDelegate {
             preferred: TerminalGeometry.preferredContentSize,
             cell: cellSize
         )
-        window = NSWindow(
+        let terminalWindow = TerminalWindow(
             contentRect: NSRect(origin: .zero, size: contentSize),
             styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
             backing: .buffered,
             defer: false
         )
+        terminalWindow.terminalView = terminalView
+        window = terminalWindow
         super.init()
 
         window.title = HostIdentity.applicationName
@@ -51,6 +70,7 @@ final class LumaWindowController: NSObject, NSWindowDelegate {
         window.delegate = self
 
         installTerminalView()
+        window.initialFirstResponder = terminalView
 
         // Centered on first launch, remembered afterwards.
         if !window.setFrameUsingName(HostIdentity.windowFrameAutosaveName) {
@@ -88,7 +108,7 @@ final class LumaWindowController: NSObject, NSWindowDelegate {
             window.deminiaturize(nil)
         }
         window.makeKeyAndOrderFront(nil)
-        window.makeFirstResponder(terminalView)
+        focusTerminalWhenKey()
     }
 
     func hide() {
@@ -100,5 +120,21 @@ final class LumaWindowController: NSObject, NSWindowDelegate {
     func windowShouldClose(_ sender: NSWindow) -> Bool {
         delegate?.windowControllerDidRequestHide(self)
         return false
+    }
+
+    func windowDidBecomeKey(_ notification: Notification) {
+        focusTerminalWhenKey()
+    }
+
+    private func focusTerminalWhenKey() {
+        guard window.isKeyWindow else { return }
+        window.makeFirstResponder(terminalView)
+        // Accessory applications can become key after the initial show call has returned. Queue
+        // one standard responder-chain handoff; do not manually invoke `keyDown`, because that
+        // bypasses AppKit's text-input/IME path used by SwiftTerm.
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.window.isKeyWindow else { return }
+            self.window.makeFirstResponder(self.terminalView)
+        }
     }
 }

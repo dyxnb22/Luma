@@ -66,12 +66,12 @@ fn contextual_hints(state: &AppState, symbols: &Symbols) -> Vec<Hint> {
         Route::Search if state.showing_hub() => vec![
             ("1-9".into(), "focus"),
             (arrows, "move"),
-            ("PgUp/Dn".into(), "page"),
+            ("Fn+↑/↓".into(), "page"),
             ("Enter".into(), "open"),
             ("Ctrl-/".into(), "commands"),
         ],
         Route::Search if state.focus == FocusZone::Preview => vec![
-            ("PgUp/Dn".into(), "scroll"),
+            ("Fn+↑/↓".into(), "scroll"),
             ("Tab".into(), "focus"),
             ("Esc".into(), "back"),
         ],
@@ -103,20 +103,20 @@ fn contextual_hints(state: &AppState, symbols: &Symbols) -> Vec<Hint> {
         ],
         Route::ActionPicker => vec![
             (arrows, "move"),
-            ("PgUp/Dn".into(), "page"),
+            ("Fn+↑/↓".into(), "page"),
             ("1-9".into(), "pick"),
             ("Enter".into(), "run"),
             ("Esc".into(), "back"),
         ],
         Route::Settings => vec![
             (arrows, "move"),
-            ("PgUp/Dn".into(), "page"),
+            ("Fn+↑/↓".into(), "page"),
             ("Space".into(), "toggle"),
             ("Esc".into(), "back"),
         ],
         Route::Commands => vec![
             ("Type".into(), "filter"),
-            ("PgUp/Dn".into(), "page"),
+            ("Fn+↑/↓".into(), "page"),
             ("Enter".into(), "run"),
             ("Esc".into(), "back"),
         ],
@@ -125,7 +125,7 @@ fn contextual_hints(state: &AppState, symbols: &Symbols) -> Vec<Hint> {
         }
         Route::Help => vec![
             (arrows, "scroll"),
-            ("PgUp/Dn".into(), "page"),
+            ("Fn+↑/↓".into(), "page"),
             ("Esc".into(), "back"),
         ],
         Route::WordbookReview => {

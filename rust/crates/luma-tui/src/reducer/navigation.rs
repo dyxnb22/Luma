@@ -523,7 +523,7 @@ pub(super) fn select_prev_msg(state: &mut AppState) -> Vec<Effect> {
     vec![Effect::None]
 }
 
-/// Pure page movement shared by PgUp/PgDn and `/scroll up|down`.
+/// Pure page movement shared by Fn+Up/Down (or PgUp/PgDn) and `/scroll up|down`.
 ///
 /// It deliberately does not request previews, execute actions, load Hub data, or perform I/O.
 pub(super) fn scroll_page(state: &mut AppState, direction: ScrollDirection) -> Vec<Effect> {

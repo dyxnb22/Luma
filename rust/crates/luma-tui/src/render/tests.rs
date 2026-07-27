@@ -156,6 +156,59 @@ fn render_search_80x24_smoke() {
 }
 
 #[test]
+fn result_refresh_replaces_loading_copy_with_wide_character_subtitle() {
+    let backend = TestBackend::new(100, 30);
+    let mut terminal = Terminal::new(backend).expect("terminal");
+    let mut loading = AppState {
+        search: SearchState {
+            prompt: "/wb data retention".into(),
+            active_request: Some("req-1".into()),
+            ..SearchState::default()
+        },
+        status: crate::view_model::StatusLine {
+            text: "Searching…".into(),
+            tone: StatusTone::Progress,
+        },
+        ..AppState::default()
+    };
+    terminal
+        .draw(|frame| render(frame, &loading))
+        .expect("loading draw");
+
+    loading.search.results = ResultsView {
+        items: vec![sample_item(
+            "wordbook:data-retention",
+            "data retention",
+            "wordbook",
+            "数据保留期限",
+        )],
+        selected_id: Some("wordbook:data-retention".into()),
+        ..ResultsView::default()
+    };
+    terminal.clear().expect("clear before wide subtitle redraw");
+    terminal
+        .draw(|frame| render(frame, &loading))
+        .expect("results draw");
+
+    let buffer = terminal.backend().buffer();
+    let subtitle_y = (0..buffer.area.height)
+        .find(|&y| (0..buffer.area.width).any(|x| buffer[(x, y)].symbol() == "数"))
+        .expect("subtitle row");
+    let subtitle_x = (0..buffer.area.width)
+        .find(|&x| buffer[(x, subtitle_y)].symbol() == "数")
+        .expect("subtitle start");
+    for (offset, character) in "数据保留期限".chars().enumerate() {
+        let x = subtitle_x + (offset as u16 * 2);
+        assert_eq!(buffer[(x, subtitle_y)].symbol(), character.to_string());
+        assert_eq!(
+            buffer[(x + 1, subtitle_y)].symbol(),
+            " ",
+            "wide character at x={x} left old loading text in its trailing cell"
+        );
+    }
+}
+
+#[test]
 fn render_uses_layered_canvas_and_surface_backgrounds() {
     let state = state_with_results();
     let (_, buffer) = draw(&state, 80, 24);
@@ -295,7 +348,7 @@ fn help_overlay_keeps_module_syntax_discoverable_when_scrolled() {
     assert!(flat.contains("HELP"));
     assert!(flat.contains("Enabled module commands:"));
     assert!(flat.contains("/proj add <path>"));
-    assert!(flat.contains("PgUp/PgDn page"));
+    assert!(flat.contains("Fn+↑/↓ page"));
 }
 
 #[test]

@@ -7,7 +7,7 @@ use luma_domain::SearchItem;
 use ratatui::layout::Rect;
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, List, ListItem};
+use ratatui::widgets::{Block, Borders, Clear, List, ListItem};
 use ratatui::Frame;
 
 pub(super) fn render_results(
@@ -18,6 +18,11 @@ pub(super) fn render_results(
     symbols: &Symbols,
 ) {
     use crate::view_model::FocusZone;
+
+    // Search rows arrive asynchronously.  Clear the entire pane before replacing an
+    // empty/loading message with results so no text from the previous two-line item
+    // remains beside a short (especially wide-character) subtitle.
+    frame.render_widget(Clear, area);
 
     let list_focused =
         matches!(state.focus, FocusZone::List) && matches!(state.route, Route::Search);

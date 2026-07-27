@@ -4,7 +4,7 @@ import Foundation
 /// redesigning the controller around it.
 ///
 /// Values are Carbon constants, repeated here so this file stays free of Carbon imports and
-/// remains testable: `kVK_Space` is `0x31`, `optionKey` is `1 << 11`.
+/// remains testable: `kVK_Space` is `0x31`, `cmdKey` is `1 << 8`.
 public struct HotKeyDefinition: Equatable {
     public let keyCode: UInt32
     public let carbonModifiers: UInt32
@@ -17,10 +17,10 @@ public struct HotKeyDefinition: Equatable {
         self.displayName = displayName
     }
 
-    public static let optionSpace = HotKeyDefinition(
+    public static let commandSpace = HotKeyDefinition(
         keyCode: 0x31,
-        carbonModifiers: 1 << 11,
-        displayName: "⌥Space"
+        carbonModifiers: 1 << 8,
+        displayName: "⌘Space"
     )
 
     /// Four-character code identifying our hotkey to Carbon.

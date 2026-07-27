@@ -160,8 +160,9 @@ final class HotKeyDebouncerTests: XCTestCase {
         XCTAssertEqual(accepted.count, 1)
     }
 
-    func testHotKeyDefinitionIsOptionSpace() {
-        XCTAssertEqual(HotKeyDefinition.optionSpace.keyCode, 0x31, "kVK_Space")
-        XCTAssertEqual(HotKeyDefinition.optionSpace.carbonModifiers, 2048, "Carbon optionKey")
+    func testHotKeyDefinitionIsCommandSpace() {
+        XCTAssertEqual(HotKeyDefinition.commandSpace.keyCode, 0x31, "kVK_Space")
+        XCTAssertEqual(HotKeyDefinition.commandSpace.carbonModifiers, 256, "Carbon cmdKey")
+        XCTAssertEqual(HotKeyDefinition.commandSpace.displayName, "⌘Space")
     }
 }

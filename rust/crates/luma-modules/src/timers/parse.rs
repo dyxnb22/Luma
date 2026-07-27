@@ -25,6 +25,8 @@ pub(super) fn parse_countdown_spec(rest: &str) -> Option<(u32, String)> {
             Some(t) => {
                 if let Some(m) = parse_minutes_token(t) {
                     (m, parts.collect())
+                } else if t.chars().all(|character| character.is_ascii_digit()) {
+                    return None;
                 } else {
                     // `/tm pomo deep work` — default minutes, name starts at first
                     let mut name = vec![t];
@@ -86,5 +88,8 @@ mod tests {
             parse_countdown_spec("pomo deep work"),
             Some((25, "deep work".into()))
         );
+        assert_eq!(parse_countdown_spec("pomo 0 Focus"), None);
+        assert_eq!(parse_countdown_spec("pomo 1441"), None);
+        assert_eq!(parse_countdown_spec("1441"), None);
     }
 }

@@ -1,6 +1,7 @@
 use crate::theme::{Symbols, Theme, ThemeMode};
 use std::collections::HashMap;
 
+mod commands;
 mod input;
 mod status;
 mod surfaces;
@@ -87,100 +88,6 @@ impl AppState {
                 .iter()
                 .find(|item| item.id.as_str() == id.as_str())
         })
-    }
-
-    /// Slash-prefixed bare module trigger (`/clip`, not `clip` or `/clip `).
-    /// Unprefixed input is always a global search under the strict command format.
-    pub fn incomplete_slash_trigger(&self) -> Option<String> {
-        let is_prefix = |token: &str| {
-            matches!(token, "help" | "settings" | "commands")
-                || self
-                    .module_catalog
-                    .iter()
-                    .any(|m| m.enabled && m.triggers.iter().any(|t| t.eq_ignore_ascii_case(token)))
-        };
-        let query =
-            luma_domain::Query::parse_with_prefixes_strict(&self.search.prompt, 50, is_prefix);
-        if !query.is_incomplete_trigger(is_prefix) {
-            return None;
-        }
-        Some(
-            luma_domain::strip_command_prefix(&self.search.prompt)
-                .trim()
-                .to_ascii_lowercase(),
-        )
-    }
-
-    pub fn command_palette_rows(&self) -> Vec<CommandPaletteEntry> {
-        let mut rows = vec![CommandPaletteEntry {
-            id: "settings".into(),
-            label: "Settings".into(),
-            description: "Open workbench settings".into(),
-            query: None,
-        }];
-        let recent_modules = self
-            .hub
-            .continue_items
-            .iter()
-            .map(|item| item.module_id.as_str())
-            .collect::<Vec<_>>();
-        let mut modules = self
-            .module_catalog
-            .iter()
-            .filter(|module| module.enabled)
-            .collect::<Vec<_>>();
-        modules.sort_by(|a, b| {
-            let a_recent = recent_modules
-                .iter()
-                .position(|id| *id == a.id)
-                .unwrap_or(usize::MAX);
-            let b_recent = recent_modules
-                .iter()
-                .position(|id| *id == b.id)
-                .unwrap_or(usize::MAX);
-            a_recent.cmp(&b_recent).then_with(|| {
-                a.display_name
-                    .to_lowercase()
-                    .cmp(&b.display_name.to_lowercase())
-            })
-        });
-        rows.extend(modules.into_iter().filter_map(|module| {
-            let query = module.suggested_query.clone().or_else(|| {
-                module
-                    .triggers
-                    .first()
-                    .map(|trigger| format!("/{trigger} "))
-            })?;
-            Some(CommandPaletteEntry {
-                id: format!("module:{}", module.id),
-                label: module.display_name.clone(),
-                description: query.trim_end().to_string(),
-                query: Some(query),
-            })
-        }));
-        rows.extend([
-            CommandPaletteEntry {
-                id: "help".into(),
-                label: "Help".into(),
-                description: "Keyboard and module help".into(),
-                query: None,
-            },
-            CommandPaletteEntry {
-                id: "quit".into(),
-                label: "Quit Luma".into(),
-                description: "Stop the workbench session".into(),
-                query: None,
-            },
-        ]);
-
-        let filter = self.overlay.commands_filter.trim().to_lowercase();
-        if !filter.is_empty() {
-            rows.retain(|row| {
-                row.label.to_lowercase().contains(&filter)
-                    || row.description.to_lowercase().contains(&filter)
-            });
-        }
-        rows
     }
 
     pub fn command_recipes_selected(&self) -> bool {
@@ -392,10 +299,29 @@ impl AppState {
         self.preview_side_by_side() || self.preview_stacked()
     }
 
+    pub fn preview_scroll_max(&self) -> usize {
+        if !self.preview_visible() {
+            return 0;
+        }
+        let Some(body) = self.preview.body.as_deref() else {
+            return 0;
+        };
+        let body_lines = body.lines().count();
+        let pane_height = if self.preview_stacked() {
+            8
+        } else {
+            self.terminal.height.saturating_sub(6)
+        } as usize;
+        // Title/module/subtitle chrome plus borders consume at least six lines.
+        let visible = pane_height.saturating_sub(6).max(1);
+        body_lines.saturating_sub(visible)
+    }
+
     pub fn sync_results_viewport(&mut self) {
-        // Vertical chrome: prompt(3) + status(3); list borders(2); each row = 2 lines.
+        // Vertical chrome: prompt(3) + status(1) + two gutters; list borders(2);
+        // each result row = 2 lines.
         let body = self.terminal.height.saturating_sub(6) as usize;
-        let preview_take = if self.preview_stacked() { 8 } else { 0 };
+        let preview_take = if self.preview_stacked() { 9 } else { 0 };
         let list_inner = body.saturating_sub(2 + preview_take);
         let rows = (list_inner / 2).max(1);
         self.search.results.set_viewport_rows(rows);
@@ -633,6 +559,7 @@ impl AppState {
                     empty_hint: None,
                     supports_browse: false,
                     triggers: vec![],
+                    commands: vec![],
                 })
                 .collect();
         }

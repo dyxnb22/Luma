@@ -24,7 +24,7 @@ pub(crate) const SEARCH_COMPLETION_BOUND: Duration = Duration::from_millis(300);
 pub(crate) const SEARCH_COMPLETION_BOUND: Duration = Duration::from_secs(5);
 
 fn is_meta_prefix(token: &str) -> bool {
-    matches!(token, "help" | "settings" | "commands")
+    matches!(token, "help" | "settings" | "commands" | "scroll" | "quit")
 }
 
 // Freeze: do not add new module-specific Command arms here — see `extensions/` + GOVERNANCE §2.7a.

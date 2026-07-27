@@ -5,7 +5,7 @@ use crate::view_model::{
 };
 use luma_domain::{ActionDescriptor, ActionId, ActionRisk, ModuleId, ResultId, SearchItem};
 use ratatui::backend::TestBackend;
-use ratatui::style::{Color, Modifier};
+use ratatui::style::Modifier;
 use ratatui::Terminal;
 
 fn sample_item(id: &str, title: &str, module: &str, subtitle: &str) -> SearchItem {
@@ -116,6 +116,7 @@ fn hub_layout_80x24_last_row_visible() {
                 empty_hint: None,
                 supports_browse: false,
                 triggers: vec![],
+                commands: vec![],
             })
             .collect(),
         hub: HubState {
@@ -148,10 +149,51 @@ fn hub_layout_80x24_last_row_visible() {
 #[test]
 fn render_search_80x24_smoke() {
     let (flat, _) = draw(&state_with_results(), 80, 24);
-    assert!(flat.contains("Luma"), "brand title missing: {flat}");
+    assert!(flat.contains("LUMA"), "brand title missing: {flat}");
     assert!(flat.contains("Safari"), "result title missing: {flat}");
     assert!(flat.contains("Apps"), "module label missing: {flat}");
     assert!(flat.contains("Launch"), "action hint missing: {flat}");
+}
+
+#[test]
+fn render_uses_layered_canvas_and_surface_backgrounds() {
+    let state = state_with_results();
+    let (_, buffer) = draw(&state, 80, 24);
+    assert_eq!(buffer[(0, 3)].bg, state.theme.canvas_bg);
+    assert_eq!(buffer[(2, 1)].bg, state.theme.surface_bg);
+    assert_ne!(state.theme.canvas_bg, state.theme.surface_bg);
+}
+
+#[test]
+fn selected_result_band_fills_the_panel_width() {
+    let state = state_with_results();
+    let (_, buffer) = draw(&state, 80, 24);
+    let selected_y = (0..buffer.area.height)
+        .find(|&y| {
+            (0..buffer.area.width).any(|x| buffer[(x, y)].symbol() == state.symbols.selected)
+        })
+        .expect("selected marker");
+    for x in 2..78 {
+        assert_eq!(
+            buffer[(x, selected_y)].bg,
+            state.theme.selected_bg,
+            "selected band ended before x={x}"
+        );
+    }
+}
+
+#[test]
+fn prompt_exposes_global_search_and_command_modes() {
+    let empty = AppState::default();
+    let (flat, _) = draw(&empty, 80, 24);
+    assert!(flat.contains("GLOBAL SEARCH"));
+    assert!(flat.contains("Search everything or type / for commands"));
+
+    let mut command = state_with_results();
+    command.search.prompt = "/app saf".into();
+    let (flat, _) = draw(&command, 80, 24);
+    assert!(flat.contains("COMMAND"));
+    assert!(!flat.contains("GLOBAL SEARCH"));
 }
 
 #[test]
@@ -174,7 +216,7 @@ fn render_search_light_80x24() {
     let mut state = state_with_results();
     state.theme = Theme::resolve(ThemeMode::Light);
     let (flat, _) = draw(&state, 80, 24);
-    assert!(flat.contains("Luma"));
+    assert!(flat.contains("LUMA"));
     assert!(flat.contains("Safari"));
 }
 
@@ -187,11 +229,103 @@ fn render_ascii_symbols_fallback() {
     assert!(flat.contains("Ret"), "ascii enter hint missing: {flat}");
     assert!(!flat.contains('›'));
     assert!(!flat.contains('↵'));
+    assert!(
+        !flat.contains('╭'),
+        "ASCII mode should avoid rounded chrome"
+    );
+}
+
+#[test]
+fn command_palette_renders_syntax_placeholders_not_seed_query() {
+    let state = AppState {
+        route: Route::Commands,
+        module_catalog: vec![crate::view_model::ModuleCatalogEntry {
+            id: "luma.projects".into(),
+            display_name: "Projects".into(),
+            enabled: true,
+            glyph: Some("P".into()),
+            suggested_query: Some("/proj ".into()),
+            empty_hint: None,
+            supports_browse: true,
+            triggers: vec!["proj".into()],
+            commands: vec![crate::view_model::CommandCatalogEntry {
+                syntax: "/proj add <path>".into(),
+                description: "Import an existing project".into(),
+                query: "/proj add ".into(),
+                example: Some("/proj add ~/Code/luma".into()),
+            }],
+        }],
+        ..AppState::default()
+    };
+    let (flat, _) = draw(&state, 100, 30);
+    assert!(
+        flat.contains("/proj add <path>"),
+        "parameter placeholder missing: {flat}"
+    );
+}
+
+#[test]
+fn help_overlay_keeps_module_syntax_discoverable_when_scrolled() {
+    let mut state = AppState {
+        route: Route::Help,
+        terminal: TerminalState {
+            width: 100,
+            height: 30,
+        },
+        module_catalog: vec![crate::view_model::ModuleCatalogEntry {
+            id: "luma.projects".into(),
+            display_name: "Projects".into(),
+            enabled: true,
+            glyph: Some("P".into()),
+            suggested_query: Some("/proj ".into()),
+            empty_hint: None,
+            supports_browse: true,
+            triggers: vec!["proj".into()],
+            commands: vec![crate::view_model::CommandCatalogEntry {
+                syntax: "/proj add <path>".into(),
+                description: "Import an existing project".into(),
+                query: "/proj add ".into(),
+                example: Some("/proj add ~/Code/luma".into()),
+            }],
+        }],
+        ..AppState::default()
+    };
+    state.overlay.help_scroll = state.help_scroll_max();
+    let (flat, _) = draw(&state, 100, 30);
+    assert!(flat.contains("HELP"));
+    assert!(flat.contains("Enabled module commands:"));
+    assert!(flat.contains("/proj add <path>"));
+    assert!(flat.contains("PgUp/PgDn page"));
+}
+
+#[test]
+fn compact_terminal_keeps_every_overlay_inside_the_frame() {
+    for route in [
+        Route::Help,
+        Route::Settings,
+        Route::Commands,
+        Route::QuitConfirm,
+        Route::ConfirmAction,
+        Route::ActionPicker,
+    ] {
+        let state = AppState {
+            route,
+            terminal: TerminalState {
+                width: 28,
+                height: 8,
+            },
+            ..AppState::default()
+        };
+        let (_, buffer) = draw(&state, 28, 8);
+        assert_eq!(buffer.area.width, 28);
+        assert_eq!(buffer.area.height, 8);
+    }
 }
 
 #[test]
 fn render_match_highlight_requires_underline_on_query() {
     let state = state_with_results();
+    let accent = state.theme.accent;
     let (_, buffer) = draw(&state, 80, 24);
     let mut found_underline = false;
     for y in 0..buffer.area.height {
@@ -199,7 +333,7 @@ fn render_match_highlight_requires_underline_on_query() {
             let cell = &buffer[(x, y)];
             if matches!(cell.symbol(), "S" | "a" | "f")
                 && cell.modifier.contains(Modifier::UNDERLINED)
-                && cell.fg == Color::Cyan
+                && cell.fg == accent
             {
                 found_underline = true;
             }
@@ -207,7 +341,7 @@ fn render_match_highlight_requires_underline_on_query() {
     }
     assert!(
         found_underline,
-        "expected underlined cyan match cells for query 'saf'"
+        "expected underlined accent match cells for query 'saf'"
     );
 }
 
@@ -525,11 +659,11 @@ fn wide_review_hides_search_preview() {
     state.terminal.width = 120;
     let (flat, _) = draw(&state, 120, 40);
     assert!(
-        flat.contains("wordbook review"),
+        flat.contains("WORDBOOK REVIEW"),
         "review body missing: {flat}"
     );
     assert!(
-        !flat.contains(" preview "),
+        !flat.contains(" PREVIEW "),
         "search preview leaked into review: {flat}"
     );
 
@@ -575,17 +709,18 @@ fn settings_overlay_keeps_selected_module_visible() {
 fn render_fatal_status_uses_error_color() {
     let mut state = state_with_results();
     state.status.set("Error: boom", StatusTone::Error);
+    let error = state.theme.error;
     let (_, buffer) = draw(&state, 80, 24);
     let mut saw_error = false;
     for y in 0..buffer.area.height {
         for x in 0..buffer.area.width {
             let cell = &buffer[(x, y)];
-            if cell.symbol() == "E" && cell.fg == Color::Red {
+            if cell.symbol() == "E" && cell.fg == error {
                 saw_error = true;
             }
         }
     }
-    assert!(saw_error, "expected red error status cells");
+    assert!(saw_error, "expected semantic error-color status cells");
 }
 
 #[test]

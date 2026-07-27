@@ -52,6 +52,12 @@ The empty Hub lists visible windows, up to three live-or-privacy-safe Continue i
 to focus a numbered window; Continue and module rows are never digit targets. Digits remain
 ordinary prompt input in search fields. Interactive commands require a leading
 `/`: `/win`, `/wb review [today|due|new|wrong]`, `/rec`, and `/ssh `; unprefixed input is global search.
+`Ctrl-/` opens the command palette, whose module subcommands, parameter placeholders, and examples
+come from the same manifest descriptions used by `/help` and slash-command completion.
+`PgUp`/`PgDn` or the palette actions `/scroll up` and `/scroll down` page the focused Results,
+Hub, Preview, Help, Settings, command palette, or ActionPicker without running a business action.
+The Rust TUI uses layered panels, a single focused accent, full-row selection, and a contextual
+shortcut footer; the native host does not own or duplicate this visual system.
 `/proj` lists manually imported projects; Enter opens a single-project workbench that brings
 together recent activity, local Git state, associated listeners, Command Recipes, file browsing,
 an available editor CLI, and a project terminal without moving those source concerns into the

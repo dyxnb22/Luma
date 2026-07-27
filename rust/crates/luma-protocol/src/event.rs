@@ -251,6 +251,15 @@ impl ActionOutcomeDto {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CommandSpecDto {
+    pub syntax: String,
+    pub description: String,
+    pub query: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub example: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ModuleInfoDto {
     pub id: String,
     pub display_name: String,
@@ -265,6 +274,8 @@ pub struct ModuleInfoDto {
     pub supports_browse: bool,
     #[serde(default)]
     pub triggers: Vec<String>,
+    #[serde(default)]
+    pub commands: Vec<CommandSpecDto>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

@@ -20,6 +20,73 @@ pub struct RecordsModule {
 }
 
 impl RecordsModule {
+    /// Canonical command discovery owned by this module, including unavailable fallbacks.
+    pub fn command_specs() -> Vec<luma_application::CommandSpec> {
+        vec![
+            crate::ux::command_spec(
+                "/rec [category] [query]",
+                "List categories or search records",
+                "/rec ",
+                Some("/rec 电影 dune"),
+            ),
+            crate::ux::command_spec(
+                "/rec browse [category]",
+                "Browse categories or records in one category",
+                "/rec browse ",
+                Some("/rec browse 电影"),
+            ),
+            crate::ux::command_spec(
+                "/rec recent",
+                "List recently updated records",
+                "/rec recent",
+                None,
+            ),
+            crate::ux::command_spec(
+                "/rec unrated",
+                "List records without a rating",
+                "/rec unrated",
+                None,
+            ),
+            crate::ux::command_spec("/rec top", "List highest-rated records", "/rec top", None),
+            crate::ux::command_spec(
+                "/rec add <category> <name> [| rating | note]",
+                "Add or explicitly overwrite a record",
+                "/rec add ",
+                Some("/rec add 电影 Dune | 9 | rewatch"),
+            ),
+            crate::ux::command_spec(
+                "/rec rate <id> <1-10|clear>",
+                "Set or clear a record rating",
+                "/rec rate ",
+                Some("/rec rate 1 9"),
+            ),
+            crate::ux::command_spec(
+                "/rec note <id> <text>",
+                "Replace a record note",
+                "/rec note ",
+                Some("/rec note 1 worth rewatching"),
+            ),
+            crate::ux::command_spec(
+                "/rec import <path>",
+                "Import Records Markdown from a read-only source",
+                "/rec import ",
+                Some("/rec import /Users/me/Documents/Records"),
+            ),
+            crate::ux::command_spec(
+                "/rec status",
+                "Show record/category counts and configured source",
+                "/rec status",
+                None,
+            ),
+            crate::ux::command_spec(
+                "/rec backup",
+                "Back up the Records database",
+                "/rec backup",
+                None,
+            ),
+        ]
+    }
+
     pub fn with_deps(store: Arc<dyn RecordsRepository>, import_root: Option<PathBuf>) -> Self {
         Self {
             manifest: ModuleManifest {
@@ -33,10 +100,11 @@ impl RecordsModule {
                     glyph: Some("R".into()),
                     suggested_query: Some("/rec ".into()),
                     empty_hint: Some(
-                        "/rec <query> · /rec 电影 browse · /rec add 电影 NAME | rating | note"
+                        "/rec <query> · /rec browse 电影 · /rec add 电影 NAME | rating | note"
                             .into(),
                     ),
                     supports_browse: true,
+                    commands: Self::command_specs(),
                 },
             },
             store,
@@ -138,6 +206,22 @@ impl RecordsModule {
             .await;
     }
 
+    async fn send_command_error(sink: &SearchSink, id: &str, message: &str) {
+        let _ = sink
+            .send(Event::ResultsChunk {
+                request_id: String::new(),
+                sequence: 1,
+                upserts: vec![crate::ux::command_error(
+                    "luma.records",
+                    id,
+                    "Records command is incomplete",
+                    message,
+                )],
+                removed_ids: vec![],
+            })
+            .await;
+    }
+
     async fn setup_row(&self) -> SearchItemDto {
         if let Some(root) = self.import_root.read().await.as_ref() {
             let path = root.display().to_string();
@@ -225,6 +309,9 @@ impl RecordsModule {
         let mut tokens = rest.split_whitespace();
         let id = tokens.next()?.parse().ok()?;
         let score = tokens.next()?;
+        if tokens.next().is_some() {
+            return None;
+        }
         if score.eq_ignore_ascii_case("clear") {
             return Some((id, None));
         }
@@ -357,6 +444,11 @@ impl LumaModule for RecordsModule {
                 .await;
             return;
         }
+        if rest_norm == "import" || rest_norm.starts_with("import ") {
+            Self::send_command_error(&sink, "rec:import-invalid", "Usage: /rec import <path>")
+                .await;
+            return;
+        }
 
         if let Some(payload) = rest
             .strip_prefix("add ")
@@ -409,25 +501,22 @@ impl LumaModule for RecordsModule {
                     })
                     .await;
             } else {
-                let _ = sink
-                    .send(Event::ResultsChunk {
-                        request_id: String::new(),
-                        sequence: 1,
-                        upserts: vec![SearchItemDto {
-                            id: "rec:add-usage".into(),
-                            module_id: "luma.records".into(),
-                            title: "Add a record".into(),
-                            subtitle: Some("Usage: /rec add 电影 NAME | rating | note".into()),
-                            kind: "status".into(),
-                            score: 50.0,
-                            primary_action_id: "noop".into(),
-                            primary_action_label: "OK".into(),
-                            ..Default::default()
-                        }],
-                        removed_ids: vec![],
-                    })
-                    .await;
+                Self::send_command_error(
+                    &sink,
+                    "rec:add-invalid",
+                    "Usage: /rec add <category> <name> [| rating | note]",
+                )
+                .await;
             }
+            return;
+        }
+        if rest_norm == "add" {
+            Self::send_command_error(
+                &sink,
+                "rec:add-invalid",
+                "Usage: /rec add <category> <name> [| rating | note]",
+            )
+            .await;
             return;
         }
 
@@ -457,38 +546,58 @@ impl LumaModule for RecordsModule {
                     .await;
                 return;
             }
+            Self::send_command_error(
+                &sink,
+                "rec:rate-invalid",
+                "Usage: /rec rate <id> <1-10|clear>",
+            )
+            .await;
+            return;
+        }
+        if rest_norm == "rate" {
+            Self::send_command_error(
+                &sink,
+                "rec:rate-invalid",
+                "Usage: /rec rate <id> <1-10|clear>",
+            )
+            .await;
+            return;
         }
 
-        if rest_norm.starts_with("note ") {
-            let Some((_, rest)) = rest.split_once(char::is_whitespace) else {
-                return;
-            };
-            let Some((id, text)) = rest.split_once(char::is_whitespace) else {
-                return;
-            };
-            let Ok(id) = id.parse::<i64>() else {
-                return;
-            };
-            let text = text.trim().to_string();
-            let _ = sink
-                .send(Event::ResultsChunk {
-                    request_id: String::new(),
-                    sequence: 1,
-                    upserts: vec![SearchItemDto {
-                        id: format!("rec:note:{id}"),
-                        module_id: "luma.records".into(),
-                        title: format!("Update note for record {id}"),
-                        subtitle: Some(truncate_note(&text, 80)),
-                        kind: "command".into(),
-                        score: 100.0,
-                        primary_action_id: "note".into(),
-                        primary_action_label: "Save note".into(),
-                        action_payload: Some(serde_json::json!({ "id": id, "text": text })),
-                        ..Default::default()
-                    }],
-                    removed_ids: vec![],
-                })
-                .await;
+        if rest_norm == "note" || rest_norm.starts_with("note ") {
+            let parsed = rest
+                .split_once(char::is_whitespace)
+                .and_then(|(_, rest)| rest.split_once(char::is_whitespace))
+                .and_then(|(id, text)| {
+                    let text = text.trim();
+                    (!text.is_empty())
+                        .then(|| id.parse::<i64>().ok().map(|id| (id, text.to_string())))
+                        .flatten()
+                });
+            if let Some((id, text)) = parsed {
+                let _ = sink
+                    .send(Event::ResultsChunk {
+                        request_id: String::new(),
+                        sequence: 1,
+                        upserts: vec![SearchItemDto {
+                            id: format!("rec:note:{id}"),
+                            module_id: "luma.records".into(),
+                            title: format!("Update note for record {id}"),
+                            subtitle: Some(truncate_note(&text, 80)),
+                            kind: "command".into(),
+                            score: 100.0,
+                            primary_action_id: "note".into(),
+                            primary_action_label: "Save note".into(),
+                            action_payload: Some(serde_json::json!({ "id": id, "text": text })),
+                            ..Default::default()
+                        }],
+                        removed_ids: vec![],
+                    })
+                    .await;
+            } else {
+                Self::send_command_error(&sink, "rec:note-invalid", "Usage: /rec note <id> <text>")
+                    .await;
+            }
             return;
         }
 
@@ -1102,6 +1211,7 @@ mod tests {
     use luma_application::MemoryRecordsRepository;
     use luma_domain::Query;
     use luma_protocol::Event;
+    use luma_test_support::collect_search_items;
     use tokio::sync::mpsc;
 
     #[tokio::test]
@@ -1132,6 +1242,21 @@ mod tests {
         assert_eq!(upserts[0].id, "rec:import:/records");
         assert_eq!(upserts[0].primary_action_id, "import");
         assert!(upserts[0].primary_action_confirmation);
+    }
+
+    #[tokio::test]
+    async fn invalid_mutating_subcommands_are_explicit_errors() {
+        let module = RecordsModule::with_store_for_tests(Arc::new(MemoryRecordsRepository::new()));
+        for query in [
+            "/rec add 电影",
+            "/rec rate 1 9 extra",
+            "/rec note 1",
+            "/rec import",
+        ] {
+            let items = collect_search_items(&module, Query::parse(query, 20)).await;
+            assert_eq!(items.len(), 1, "{query}");
+            assert_eq!(items[0].kind, "command_error", "{query}");
+        }
     }
 
     #[tokio::test]

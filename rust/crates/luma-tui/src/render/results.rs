@@ -46,7 +46,7 @@ pub(super) fn render_results(
     let mut items: Vec<ListItem> = Vec::new();
     if state.search.results.items.is_empty() {
         if state.search.prompt.trim().is_empty() {
-            items.extend(hub_list_items(state, theme, symbols));
+            items.extend(hub_list_items(state, inner_width, theme, symbols));
         } else {
             items.push(empty_state_item(state, theme, symbols));
         }
@@ -93,7 +93,7 @@ pub(super) fn render_results(
         }
     }
 
-    let title = if state.search.results.items.is_empty() {
+    let (title, meta) = if state.search.results.items.is_empty() {
         if state.search.prompt.trim().is_empty() {
             let hub_total = state.hub_rows().len();
             let sel = state.hub.selected + 1;
@@ -110,17 +110,15 @@ pub(super) fn render_results(
                 format!(" {scroll_marks}")
             };
             if hub_total > 0 {
-                format!(
-                    " hub {} {}/{}{scroll_part} ",
-                    symbols.sep,
-                    sel.min(hub_total),
-                    hub_total
+                (
+                    " HOME ".to_string(),
+                    format!(" {}/{}{scroll_part} ", sel.min(hub_total), hub_total),
                 )
             } else {
-                " hub ".to_string()
+                (" HOME ".to_string(), String::new())
             }
         } else {
-            " results ".to_string()
+            (" RESULTS ".to_string(), " 0 ".to_string())
         }
     } else {
         let mut scroll_marks = String::new();
@@ -135,19 +133,20 @@ pub(super) fn render_results(
         } else {
             format!(" {scroll_marks}")
         };
-        format!(
-            " results {} {}/{}{scroll_part} ",
-            symbols.sep,
-            selected_idx + 1,
-            total
+        (
+            " RESULTS ".to_string(),
+            format!(" {}/{}{scroll_part} ", selected_idx + 1, total),
         )
     };
 
-    let list = List::new(items).block(
+    let list = List::new(items).style(theme.surface()).block(
         Block::default()
             .borders(Borders::ALL)
+            .border_type(symbols.border_type())
             .border_style(theme.border(list_focused))
-            .title(Span::styled(title, theme.muted())),
+            .style(theme.surface())
+            .title(Span::styled(title, theme.panel_title(list_focused)))
+            .title(Line::from(Span::styled(meta, theme.muted())).right_aligned()),
     );
     frame.render_widget(list, area);
 }
@@ -170,7 +169,12 @@ fn hub_module_title(state: &AppState, module_id: &str, title: &str) -> String {
     }
 }
 
-fn hub_list_items(state: &AppState, theme: &Theme, symbols: &Symbols) -> Vec<ListItem<'static>> {
+fn hub_list_items(
+    state: &AppState,
+    inner_width: u16,
+    theme: &Theme,
+    symbols: &Symbols,
+) -> Vec<ListItem<'static>> {
     let rows = state.hub_rows();
     if rows.is_empty() {
         return vec![ListItem::new(vec![
@@ -198,47 +202,57 @@ fn hub_list_items(state: &AppState, theme: &Theme, symbols: &Symbols) -> Vec<Lis
         {
             shown_windows = true;
             let header = match state.hub.windows.as_ref().map(|h| h.app_name.as_str()) {
-                Some("all") | Some("") | None => "  Windows".to_string(),
-                Some(app) => format!("  Windows · {app}"),
+                Some("all") | Some("") | None => "  WINDOWS".to_string(),
+                Some(app) => format!("  WINDOWS  {symbols_sep}  {app}", symbols_sep = symbols.sep),
             };
-            let hint = "  Enter focuses window · 1-9 focus · ↑↓ move";
+            let hint = format!(
+                "  {} focus selected  {}  1-9 direct",
+                symbols.enter, symbols.sep
+            );
             out.push(ListItem::new(vec![
-                Line::from(Span::styled(header, theme.title())),
-                Line::from(Span::styled(hint, theme.key_hint())),
+                Line::from(Span::styled(header, theme.section())),
+                Line::from(Span::styled(hint, theme.muted())),
             ]));
         }
         if kind == "continue" && !shown_continue && continue_global_start == Some(idx) {
             shown_continue = true;
             out.push(ListItem::new(vec![
-                Line::from(Span::styled("  Continue", theme.title())),
+                Line::from(Span::styled("  CONTINUE", theme.section())),
                 Line::from(Span::styled(
-                    "  Enter acts on active or recent item · ↑↓ move",
-                    theme.key_hint(),
+                    format!("  {} resume the selected item", symbols.enter),
+                    theme.muted(),
                 )),
             ]));
         }
         if kind == "module" && !shown_modules && module_global_start == Some(idx) {
             shown_modules = true;
             out.push(ListItem::new(vec![
-                Line::from(Span::styled("  Modules", theme.title())),
+                Line::from(Span::styled("  MODULES", theme.section())),
                 Line::from(Span::styled(
-                    "  Enter opens trigger · ↑↓ move",
-                    theme.key_hint(),
+                    format!("  {} open a command surface", symbols.enter),
+                    theme.muted(),
                 )),
             ]));
         }
         let selected = idx == state.hub.selected;
         let prefix = if selected { symbols.selected } else { " " };
+        let row_bg = if selected {
+            Style::default().bg(theme.selected_bg)
+        } else {
+            Style::default().bg(theme.surface_bg)
+        };
         let style = if selected {
             theme.selected_row()
         } else {
             theme.text()
-        };
+        }
+        .patch(row_bg);
         let muted = if selected {
-            theme.selected_row()
+            Style::default().fg(theme.selected_fg).bg(theme.selected_bg)
         } else {
             theme.muted()
-        };
+        }
+        .patch(row_bg);
         let right = match kind.as_str() {
             "window" => state
                 .hub_row_window_digit(idx)
@@ -250,10 +264,10 @@ fn hub_list_items(state: &AppState, theme: &Theme, symbols: &Symbols) -> Vec<Lis
         };
         let right = truncate(
             &right,
-            (state.terminal.width.saturating_sub(6) as usize / 3).max(8),
+            (inner_width.saturating_sub(4) as usize / 3).max(8),
             symbols,
         );
-        let content_width = state.terminal.width.saturating_sub(4) as usize;
+        let content_width = inner_width as usize;
         let guidance = if kind == "window_status" {
             state
                 .hub
@@ -272,24 +286,42 @@ fn hub_list_items(state: &AppState, theme: &Theme, symbols: &Symbols) -> Vec<Lis
         let display_title = truncate(
             &display_title,
             content_width
-                .saturating_sub(display_width(&right) + 4)
+                .saturating_sub(display_width(&right) + 5)
                 .max(8),
             symbols,
         );
-        let mut lines = vec![Line::from(vec![
-            Span::styled(format!(" {prefix} {display_title}"), style),
-            Span::styled(format!("  {right}"), muted),
-        ])];
+        let left = format!(" {prefix} {display_title}");
+        let gap = content_width
+            .saturating_sub(display_width(&left) + display_width(&right))
+            .max(1);
+        let mut title_spans = vec![
+            Span::styled(" ", style),
+            Span::styled(
+                prefix.to_string(),
+                if selected {
+                    theme.selected_marker()
+                } else {
+                    style
+                },
+            ),
+            Span::styled(format!(" {display_title}"), style),
+            Span::styled(" ".repeat(gap), row_bg),
+            Span::styled(right, muted),
+        ];
+        pad_line_to_width(&mut title_spans, content_width, row_bg);
+        let mut lines = vec![Line::from(title_spans)];
         if let Some(sub) = guidance {
-            lines.push(Line::from(Span::styled(
+            let mut detail = vec![Span::styled(
                 format!(
                     "    {}",
                     truncate(&sub, content_width.saturating_sub(4), symbols)
                 ),
                 muted,
-            )));
+            )];
+            pad_line_to_width(&mut detail, content_width, row_bg);
+            lines.push(Line::from(detail));
         } else {
-            lines.push(Line::from(""));
+            lines.push(Line::from(Span::styled(" ".repeat(content_width), row_bg)));
         }
         out.push(ListItem::new(lines));
     }
@@ -320,6 +352,8 @@ fn empty_state_item(state: &AppState, theme: &Theme, symbols: &Symbols) -> ListI
                 symbols.sep, symbols.sep
             ),
         )
+    } else if let Some(candidates) = command_completion_hint(state) {
+        ("Complete command".to_string(), candidates)
     } else if let Some(hint) = empty_hint_for_prompt(state) {
         ("No results".to_string(), hint)
     } else {
@@ -329,9 +363,17 @@ fn empty_state_item(state: &AppState, theme: &Theme, symbols: &Symbols) -> ListI
         )
     };
     ListItem::new(vec![
-        Line::from(Span::styled(format!("  {title}"), theme.muted())),
-        Line::from(Span::styled(format!("  {detail}"), theme.key_hint())),
+        Line::from(Span::styled(
+            format!("  {title}"),
+            theme.text().add_modifier(Modifier::BOLD),
+        )),
+        Line::from(Span::styled(format!("  {detail}"), theme.muted())),
     ])
+}
+
+fn command_completion_hint(state: &AppState) -> Option<String> {
+    let candidates = state.command_completion_candidates();
+    (!candidates.is_empty()).then(|| candidates.join(" · "))
 }
 
 /// Slash-prefixed bare module trigger without trailing space (`/clip`, not `clip` or `/clip `).
@@ -390,7 +432,7 @@ fn result_row(
     let row_bg = if selected {
         Style::default().bg(theme.selected_bg)
     } else {
-        Style::default()
+        Style::default().bg(theme.surface_bg)
     };
     let base = theme.kind_style(kind, selected).patch(row_bg);
     let muted = if selected {
@@ -430,18 +472,19 @@ fn result_row(
     let badge = if selected {
         Style::default().fg(theme.muted).bg(theme.selected_bg)
     } else {
-        theme.module_badge()
+        theme.module_badge().bg(theme.surface_alt_bg)
     };
 
     let kind_badge = kind.badge().unwrap_or("");
     let prefix_w = display_width(&format!("{prefix} {glyph} "));
     let right_w = display_width(&format!(
-        "{} {module}  {action}",
+        "{}{} {module}   {action}",
         if kind_badge.is_empty() {
             String::new()
         } else {
             format!(" {kind_badge}")
-        }
+        },
+        win_digit.map(|d| format!(" [{d}]")).unwrap_or_default()
     ));
     let title_budget = (width as usize).saturating_sub(prefix_w + right_w).max(8);
     let title = truncate(&item.title, title_budget, symbols);
@@ -451,7 +494,24 @@ fn result_row(
         .map(|s| truncate(s, width.saturating_sub(4) as usize, symbols))
         .unwrap_or_default();
 
-    let mut title_spans = vec![Span::styled(format!("{prefix} {glyph} "), base)];
+    let mut title_spans = vec![
+        Span::styled(
+            prefix.to_string(),
+            if selected {
+                theme.selected_marker()
+            } else {
+                base
+            },
+        ),
+        Span::styled(
+            format!(" {glyph} "),
+            if selected {
+                theme.selected_marker()
+            } else {
+                theme.accent_secondary().patch(row_bg)
+            },
+        ),
+    ];
     title_spans.extend(highlighted_spans(
         &pad_right(&title, title_budget),
         query,
@@ -464,7 +524,7 @@ fn result_row(
     if let Some(d) = win_digit {
         title_spans.push(Span::styled(format!(" [{d}]"), hint));
     }
-    title_spans.push(Span::styled(format!(" {module}"), badge));
+    title_spans.push(Span::styled(format!(" {module} "), badge));
     title_spans.push(Span::styled(format!("  {action}"), hint));
     pad_line_to_width(&mut title_spans, width as usize, row_bg);
 

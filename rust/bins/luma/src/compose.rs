@@ -4,13 +4,13 @@
 //! listed in Settings but do not warm up or appear on the Hub.
 
 use luma_application::{
-    CapabilityPort, CommandRecipesRepository, ModuleManifest, ModuleRegistry, RecallRepository,
-    RegistryError as ModuleRegistryError, SearchMode, SettingsRepository, SqliteClipboardHistory,
-    SqliteCommandRecipesRepository, SqliteDatabasePortalsRepository, SqliteQuicklinksRepository,
-    SqliteRecallRepository, SqliteRecordsRepository, SqliteRenewalsRepository,
-    SqliteSnippetsRepository, SqliteSshMetaRepository, SqliteTimersRepository,
-    SqliteWordbookRepository, TomlSettingsRepository, UnavailableModule, WordbookRepository,
-    WorkbenchMeta,
+    CapabilityPort, CommandRecipesRepository, CommandSpec, ModuleManifest, ModuleRegistry,
+    RecallRepository, RegistryError as ModuleRegistryError, SearchMode, SettingsRepository,
+    SqliteClipboardHistory, SqliteCommandRecipesRepository, SqliteDatabasePortalsRepository,
+    SqliteQuicklinksRepository, SqliteRecallRepository, SqliteRecordsRepository,
+    SqliteRenewalsRepository, SqliteSnippetsRepository, SqliteSshMetaRepository,
+    SqliteTimersRepository, SqliteWordbookRepository, TomlSettingsRepository, UnavailableModule,
+    WordbookRepository, WorkbenchMeta,
 };
 use luma_modules::{
     AppsModule, CalculatorModule, ClipboardModule, ClipboardSuppression, CommandRecipesModule,
@@ -159,6 +159,7 @@ pub fn registry_from_settings(
                 "/dl ",
                 "/dl recent · large · old 30d · type image",
                 false,
+                DownloadsModule::command_specs(),
                 &reason,
             )?;
         }
@@ -192,6 +193,7 @@ pub fn registry_from_settings(
                 "/hist ",
                 "/hist recent · /hist <query>",
                 false,
+                ShellHistoryModule::command_specs(),
                 &reason,
             )?;
         }
@@ -218,6 +220,7 @@ pub fn registry_from_settings(
             "/clip ",
             "/clip · history · pin/unpin · paste needs AX",
             false,
+            ClipboardModule::command_specs(),
             "Clipboard store could not be opened. Existing data was left untouched; close Luma, repair or restore the local store, then reopen.",
         )?;
     }
@@ -238,6 +241,7 @@ pub fn registry_from_settings(
             "/ql ",
             "/ql · /ql add <trigger> <url>",
             false,
+            QuicklinksModule::command_specs(),
             "Quicklinks store could not be opened. Existing data was left untouched; close Luma, repair or restore the local store, then reopen.",
         )?;
     }
@@ -259,6 +263,7 @@ pub fn registry_from_settings(
             "/s ",
             "/s · /snip add <trigger> <body>",
             false,
+            SnippetsModule::command_specs(),
             "Snippets store could not be opened. Existing data was left untouched; close Luma, repair or restore the local store, then reopen.",
         )?;
     }
@@ -280,6 +285,7 @@ pub fn registry_from_settings(
             "/wb due",
             "/wb due · /wb new · /wb wrong · /wb status · /wb add TERM | meaning",
             false,
+            WordbookModule::command_specs(),
             "Wordbook store could not be opened. Existing data was left untouched; close Luma, repair or restore the local store, then reopen.",
         )?;
     }
@@ -297,8 +303,9 @@ pub fn registry_from_settings(
             &["rec", "record"],
             "R",
             "/rec ",
-            "/rec <query> · /rec 电影 browse · /rec add 电影 NAME | rating | note",
+            "/rec <query> · /rec browse 电影 · /rec add 电影 NAME | rating | note",
             true,
+            RecordsModule::command_specs(),
             "Records store could not be opened. Existing data was left untouched; close Luma, repair or restore the local store, then reopen.",
         )?;
     }
@@ -355,6 +362,7 @@ pub fn registry_from_settings(
             "/cmd ",
             "/cmd · /cmd test · r run · c copy · f favorite",
             false,
+            CommandRecipesModule::command_specs(),
             "Command Recipes metadata store could not be opened. Existing data was left untouched; close Luma, repair or restore the local store, then reopen.",
         )?;
     }
@@ -391,6 +399,7 @@ pub fn registry_from_settings(
             "/tm ",
             "/tm · /tm pomo [min] [name] · /tm sw [name] · start/pause/resume",
             false,
+            TimersModule::command_specs(),
             "Timers store could not be opened. Existing data was left untouched; close Luma, repair or restore the local store, then reopen.",
         )?;
     }
@@ -410,6 +419,7 @@ pub fn registry_from_settings(
             "/renew ",
             "/renew · due · 30d · add · paid · cancel · delete · backup",
             false,
+            RenewalsModule::command_specs(),
             "Renewals store could not be opened. Existing data was left untouched; close Luma, repair or restore the local store, then reopen.",
         )?;
     }
@@ -431,6 +441,7 @@ pub fn registry_from_settings(
             "/db ",
             "/db add sqlite LABEL | PATH · /db add postgres LABEL | HOST | PORT | DB | USER",
             false,
+            DatabasePortalsModule::command_specs(),
             "Database portal metadata store could not be opened. Existing data was left untouched; close Luma, repair or restore the local store, then reopen.",
         )?;
     }
@@ -483,6 +494,7 @@ fn register_unavailable_store_module(
     suggested_query: &str,
     empty_hint: &str,
     supports_browse: bool,
+    commands: Vec<CommandSpec>,
     reason: &str,
 ) -> Result<(), ModuleRegistryError> {
     warn!(module = id, "{reason}");
@@ -501,6 +513,7 @@ fn register_unavailable_store_module(
                 suggested_query: Some(suggested_query.into()),
                 empty_hint: Some(empty_hint.into()),
                 supports_browse,
+                commands,
             },
         },
         reason,
@@ -649,6 +662,7 @@ mod tests {
             "/renew ",
             "/renew add",
             false,
+            RenewalsModule::command_specs(),
             "fixture failure",
         )
         .unwrap();
@@ -663,6 +677,11 @@ mod tests {
             "luma.renewals"
         );
         assert!(registry.all_triggers().contains(&"renewals".into()));
+        assert!(registry
+            .list_module_info()
+            .iter()
+            .find(|module| module.id == "luma.renewals")
+            .is_some_and(|module| !module.commands.is_empty()));
         assert_eq!(skipped[0].id, "luma.renewals");
     }
 
@@ -680,6 +699,7 @@ mod tests {
             "/db ",
             "/db add sqlite",
             false,
+            DatabasePortalsModule::command_specs(),
             "fixture failure",
         )
         .unwrap();
@@ -688,6 +708,11 @@ mod tests {
         assert!(registry.get("luma.databases").is_some());
         assert!(registry.all_triggers().contains(&"db".into()));
         assert!(!registry.is_enabled("luma.databases"));
+        assert!(registry
+            .list_module_info()
+            .iter()
+            .find(|module| module.id == "luma.databases")
+            .is_some_and(|module| !module.commands.is_empty()));
 
         let mut enabled = LumaSettings::default();
         enabled

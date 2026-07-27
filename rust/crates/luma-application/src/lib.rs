@@ -27,8 +27,8 @@ pub use interactive_terminal::{
 };
 pub use luma_storage::ImportedProject;
 pub use module::{
-    ActionOutcome, ActionRequest, HubWindowRow, HubWindowsSlice, HubWindowsStatus, LumaModule,
-    ModuleManifest, ModuleState, SearchMode, SearchSink, WarmupContext, WorkbenchMeta,
+    ActionOutcome, ActionRequest, CommandSpec, HubWindowRow, HubWindowsSlice, HubWindowsStatus,
+    LumaModule, ModuleManifest, ModuleState, SearchMode, SearchSink, WarmupContext, WorkbenchMeta,
 };
 pub use paste::{paste_to_target_app, AX_PASTE_TIMEOUT, NO_PASTE_TARGET_REASON};
 pub use port::EnginePort;

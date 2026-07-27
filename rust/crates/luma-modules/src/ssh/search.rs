@@ -336,6 +336,20 @@ impl SshModule {
                 .await;
                 return;
             }
+            if rest_check == "rename" || rest_check.starts_with("rename ") {
+                self.emit_results(
+                    &sink,
+                    vec![Self::status_row(
+                        "ssh:rename-invalid",
+                        "command_error",
+                        "SSH rename command is incomplete",
+                        Some("Usage: /ssh rename <alias> <display-name>".into()),
+                    )],
+                    vec![],
+                )
+                .await;
+                return;
+            }
         }
 
         let favorites_only = matches!(

@@ -33,6 +33,30 @@ pub struct CommandRecipesModule {
 }
 
 impl CommandRecipesModule {
+    /// Canonical command discovery owned by this module, including unavailable fallbacks.
+    pub fn command_specs() -> Vec<luma_application::CommandSpec> {
+        vec![
+            crate::ux::command_spec(
+                "/cmd [filter]",
+                "List runnable recipes in the current directory",
+                "/cmd ",
+                Some("/cmd test"),
+            ),
+            crate::ux::command_spec(
+                "/cmd all [filter]",
+                "Include inapplicable recipes after runnable rows",
+                "/cmd all ",
+                Some("/cmd all rust"),
+            ),
+            crate::ux::command_spec(
+                "/cmd project <imported-path>",
+                "Evaluate recipes against one exact imported project",
+                "/cmd project ",
+                Some("/cmd project /Users/me/project"),
+            ),
+        ]
+    }
+
     pub fn with_deps(
         repo: Arc<dyn CommandRecipesRepository>,
         env: Arc<dyn RecipeEnvironmentPort>,
@@ -52,6 +76,7 @@ impl CommandRecipesModule {
                     suggested_query: Some("/cmd ".into()),
                     empty_hint: Some("/cmd · /cmd test · r run · c copy · f favorite".into()),
                     supports_browse: false,
+                    commands: Self::command_specs(),
                 },
             },
             repo,

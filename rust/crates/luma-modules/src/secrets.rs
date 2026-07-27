@@ -54,6 +54,12 @@ impl SecretsModule {
                         "/sec · Enter unlocks vault (confirm) · labels only, never values".into(),
                     ),
                     supports_browse: false,
+                    commands: vec![crate::ux::command_spec(
+                        "/sec [label]",
+                        "Unlock and search provisioned secret labels; values never appear",
+                        "/sec ",
+                        Some("/sec api"),
+                    )],
                 },
             },
             unlocked: Arc::new(AtomicBool::new(false)),

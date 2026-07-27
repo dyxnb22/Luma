@@ -17,7 +17,8 @@ Interactive module commands require a leading `/` (for example `/ssh`, `/rec bro
 | Area | Status | Notes |
 | --- | --- | --- |
 | Doctor / diagnostics | Removed | Centralized doctor removed; modules still surface permission/unavailable/not_configured |
-| Config | Available | Versioned settings; `luma config get/set`; TUI Settings via `/settings`; commands cover project import/root, Records root, Clipboard retention, Secrets idle lock, and Hub window count. Ctrl-/ opens a searchable palette generated from enabled module manifests; Space toggle persists via `UpdateSettings` CAS. `enabled_modules` keys are **sticky** by module id string — renaming a module id does not migrate or delete the old key; stale entries remain until cleaned by hand |
+| Config | Available | Versioned settings; `luma config get/set`; TUI Settings via `/settings`; commands cover project import/root, Records root, Clipboard retention, Secrets idle lock, and Hub window count. Ctrl-/ and `/commands [filter]` open a searchable palette generated from enabled module command descriptions; the same descriptions drive `/help` and slash completion. Space toggle persists via `UpdateSettings` CAS. `enabled_modules` keys are **sticky** by module id string — renaming a module id does not migrate or delete the old key; stale entries remain until cleaned by hand |
+| Keyboard navigation | Available | Arrow keys move one row; `PgUp`/`PgDn` and `/scroll up|down` page the focused Results, Hub, Preview, Help, Settings, command palette, or ActionPicker. Page movement is reducer-only and does not execute actions, refresh modules, or request previews. Mouse reporting remains disabled so terminal-native text selection is preserved |
 | Module registry | Available | Manifest + enable/disable; warmup for enabled modules |
 
 ## Modules

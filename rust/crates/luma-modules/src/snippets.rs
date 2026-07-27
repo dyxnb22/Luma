@@ -26,6 +26,26 @@ pub struct SnippetsModule {
 }
 
 impl SnippetsModule {
+    /// Canonical command discovery owned by this module, including unavailable fallbacks.
+    pub fn command_specs() -> Vec<luma_application::CommandSpec> {
+        vec![
+            crate::ux::command_spec("/s [query]", "List or search snippets", "/s ", None),
+            crate::ux::command_spec(
+                "/s add <trigger> <body>",
+                "Add or explicitly overwrite a single-line snippet",
+                "/s add ",
+                Some("/s add sig Best regards"),
+            ),
+            crate::ux::command_spec(
+                "/s add-from-clipboard <trigger>",
+                "Add a snippet from clipboard while preserving newlines",
+                "/s add-from-clipboard ",
+                Some("/s add-from-clipboard template"),
+            ),
+            crate::ux::command_spec("/s backup", "Back up snippets metadata", "/s backup", None),
+        ]
+    }
+
     pub fn with_store(
         store: Arc<dyn SnippetsRepository>,
         pasteboard: Arc<dyn PasteboardPort>,
@@ -47,6 +67,7 @@ impl SnippetsModule {
                     suggested_query: Some("/s ".into()),
                     empty_hint: Some("/s · /snip add <trigger> <body>".into()),
                     supports_browse: false,
+                    commands: Self::command_specs(),
                 },
             },
             store,
@@ -110,12 +131,33 @@ impl LumaModule for SnippetsModule {
         // Clipboard-backed creation preserves multiline text without forcing it through the
         // single-line workbench prompt.
         if query.is_command() {
-            if let Some(trigger) = query
-                .rest_raw()
-                .strip_prefix("add-from-clipboard ")
-                .map(str::trim)
-                .filter(|trigger| !trigger.is_empty() && !trigger.contains(char::is_whitespace))
+            let rest_normalized = query.rest_normalized();
+            if rest_normalized == "add-from-clipboard"
+                || rest_normalized.starts_with("add-from-clipboard ")
             {
+                let trigger = query
+                    .rest_raw()
+                    .split_once(char::is_whitespace)
+                    .map(|(_, trigger)| trigger.trim())
+                    .filter(|trigger| {
+                        !trigger.is_empty() && !trigger.contains(char::is_whitespace)
+                    });
+                let Some(trigger) = trigger else {
+                    let _ = sink
+                        .send(Event::ResultsChunk {
+                            request_id: String::new(),
+                            sequence: 1,
+                            upserts: vec![crate::ux::command_error(
+                                "luma.snippets",
+                                "snip:add-clipboard-invalid",
+                                "Snippet clipboard command is incomplete",
+                                "Usage: /s add-from-clipboard <trigger>",
+                            )],
+                            removed_ids: vec![],
+                        })
+                        .await;
+                    return;
+                };
                 let exists = self.index.read().await.iter().any(|s| s.trigger == trigger);
                 let _ = sink
                     .send(Event::ResultsChunk {
@@ -162,10 +204,12 @@ impl LumaModule for SnippetsModule {
 
         // /s add <trigger> <body…>
         let rest_for_add = query.rest_raw();
-        if query.is_command() {
+        if query.is_command()
+            && (query.rest_normalized() == "add" || query.rest_normalized().starts_with("add "))
+        {
             if let Some(payload) = rest_for_add
-                .strip_prefix("add ")
-                .map(str::trim)
+                .split_once(char::is_whitespace)
+                .map(|(_, body)| body.trim())
                 .filter(|s| !s.is_empty())
             {
                 if let Some((trigger, body)) = payload.split_once(char::is_whitespace) {
@@ -213,6 +257,20 @@ impl LumaModule for SnippetsModule {
                     }
                 }
             }
+            let _ = sink
+                .send(Event::ResultsChunk {
+                    request_id: String::new(),
+                    sequence: 1,
+                    upserts: vec![crate::ux::command_error(
+                        "luma.snippets",
+                        "snip:add-invalid",
+                        "Snippet command is incomplete",
+                        "Usage: /s add <trigger> <body>",
+                    )],
+                    removed_ids: vec![],
+                })
+                .await;
+            return;
         }
 
         if let Some(err) = self.store_error.read().await.clone() {
@@ -657,6 +715,7 @@ fn truncate_snippet_subtitle(body: &str) -> String {
 mod teardown_tests {
     use super::*;
     use luma_application::MemorySnippetsRepository;
+    use luma_test_support::collect_search_items;
 
     #[tokio::test]
     async fn teardown_releases_runtime_caches() {
@@ -677,6 +736,21 @@ mod teardown_tests {
         assert!(m.index.read().await.is_empty());
         assert!(m.store_error.read().await.is_none());
         m.teardown().await;
+    }
+
+    #[tokio::test]
+    async fn incomplete_creation_commands_are_explicit_errors() {
+        let module = SnippetsModule::with_store(
+            Arc::new(MemorySnippetsRepository::new()),
+            Arc::new(luma_application::FakePasteboard::new()),
+            Arc::new(luma_application::FakeAccessibility::new(false, false)),
+            Arc::new(luma_application::FakeWindowCatalog::default()),
+        );
+        for query in ["/s add greeting", "/s add-from-clipboard two words"] {
+            let items = collect_search_items(&module, Query::parse(query, 20)).await;
+            assert_eq!(items.len(), 1, "{query}");
+            assert_eq!(items[0].kind, "command_error", "{query}");
+        }
     }
 
     #[tokio::test]

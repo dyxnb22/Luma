@@ -52,6 +52,38 @@ impl SshModule {
                             .into(),
                     ),
                     supports_browse: false,
+                    commands: vec![
+                        crate::ux::command_spec(
+                            "/ssh [query]",
+                            "List or search concrete OpenSSH Host aliases",
+                            "/ssh ",
+                            Some("/ssh production"),
+                        ),
+                        crate::ux::command_spec(
+                            "/ssh fav",
+                            "List favorite SSH hosts",
+                            "/ssh fav",
+                            None,
+                        ),
+                        crate::ux::command_spec(
+                            "/ssh recent",
+                            "List hosts with successful connection history",
+                            "/ssh recent",
+                            None,
+                        ),
+                        crate::ux::command_spec(
+                            "/ssh rename <alias> <display-name>",
+                            "Set a Luma-local display name",
+                            "/ssh rename ",
+                            Some("/ssh rename prod Production"),
+                        ),
+                        crate::ux::command_spec(
+                            "/ssh reload",
+                            "Re-read SSH config and clear resolved-host cache",
+                            "/ssh reload",
+                            None,
+                        ),
+                    ],
                 },
             },
             config,
@@ -349,6 +381,16 @@ mod tests {
         let module = test_module();
         let items = collect_search(&module, "/ssh ").await;
         assert!(items.iter().any(|i| i.id == "ssh:production"));
+    }
+
+    #[tokio::test]
+    async fn incomplete_rename_is_an_explicit_error() {
+        let module = test_module();
+        for raw in ["/ssh rename", "/ssh rename production"] {
+            let items = collect_search(&module, raw).await;
+            assert_eq!(items.len(), 1, "{raw}");
+            assert_eq!(items[0].kind, "command_error", "{raw}");
+        }
     }
 
     #[tokio::test]

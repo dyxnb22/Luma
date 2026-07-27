@@ -29,6 +29,54 @@ pub struct DatabasePortalsModule {
 }
 
 impl DatabasePortalsModule {
+    /// Canonical command discovery owned by this module, including unavailable fallbacks.
+    pub fn command_specs() -> Vec<luma_application::CommandSpec> {
+        vec![
+            crate::ux::command_spec(
+                "/db [query]",
+                "List or search configured database portals",
+                "/db ",
+                None,
+            ),
+            crate::ux::command_spec(
+                "/db add sqlite <label> | <path> [| environment]",
+                "Add a canonical local SQLite portal",
+                "/db add sqlite ",
+                Some("/db add sqlite Local | /tmp/app.sqlite"),
+            ),
+            crate::ux::command_spec(
+                "/db add postgres <label> | <host> | <port> | <database> | <user> [| environment]",
+                "Add non-secret PostgreSQL launcher metadata",
+                "/db add postgres ",
+                Some("/db add postgres Dev | localhost | 5432 | app | me"),
+            ),
+            crate::ux::command_spec(
+                "/db tables <id>",
+                "List SQLite tables and indexes",
+                "/db tables ",
+                Some("/db tables 1"),
+            ),
+            crate::ux::command_spec(
+                "/db schema <id>",
+                "Show bounded read-only SQLite DDL",
+                "/db schema ",
+                Some("/db schema 1"),
+            ),
+            crate::ux::command_spec(
+                "/db remove <id>",
+                "Remove portal metadata after confirmation",
+                "/db remove ",
+                Some("/db remove 1"),
+            ),
+            crate::ux::command_spec(
+                "/db backup",
+                "Back up portal metadata only",
+                "/db backup",
+                None,
+            ),
+        ]
+    }
+
     pub fn with_deps(
         repository: Arc<dyn DatabasePortalsRepository>,
         platform: Arc<dyn DatabasePlatformPort>,
@@ -48,6 +96,7 @@ impl DatabasePortalsModule {
                     suggested_query: Some("/db ".into()),
                     empty_hint: Some("/db add sqlite LABEL | PATH".into()),
                     supports_browse: false,
+                    commands: Self::command_specs(),
                 },
             },
             repository,

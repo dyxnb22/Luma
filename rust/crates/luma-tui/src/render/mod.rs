@@ -1,6 +1,6 @@
 use crate::theme::{Symbols, Theme};
 use crate::view_model::{AppState, Route};
-use ratatui::layout::{Constraint, Direction, Layout, Rect};
+use ratatui::layout::{Constraint, Direction, Layout, Margin, Rect};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph};
 use ratatui::Frame;
@@ -25,14 +25,23 @@ pub fn render(frame: &mut Frame<'_>, state: &AppState) {
 
 fn render_with(frame: &mut Frame<'_>, state: &AppState, theme: &Theme, symbols: &Symbols) {
     let area = frame.area();
+    frame.render_widget(Block::default().style(theme.canvas()), area);
+
+    let horizontal_margin = u16::from(area.width >= 48);
+    let workspace = area.inner(Margin {
+        horizontal: horizontal_margin,
+        vertical: 0,
+    });
+    let spacing = u16::from(workspace.height >= 12);
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
             Constraint::Length(3),
             Constraint::Min(3),
-            Constraint::Length(3),
+            Constraint::Length(1),
         ])
-        .split(area);
+        .spacing(spacing)
+        .split(workspace);
 
     let prompt_focused = matches!(state.focus, crate::view_model::FocusZone::Prompt)
         && matches!(state.route, Route::Search);
@@ -47,6 +56,7 @@ fn render_with(frame: &mut Frame<'_>, state: &AppState, theme: &Theme, symbols: 
         let cols = Layout::default()
             .direction(Direction::Horizontal)
             .constraints([Constraint::Percentage(58), Constraint::Percentage(42)])
+            .spacing(1)
             .split(body);
         results::render_results(frame, cols[0], state, theme, symbols);
         preview::render_preview(frame, cols[1], state, theme, symbols);
@@ -54,6 +64,7 @@ fn render_with(frame: &mut Frame<'_>, state: &AppState, theme: &Theme, symbols: 
         let rows = Layout::default()
             .direction(Direction::Vertical)
             .constraints([Constraint::Min(3), Constraint::Length(8)])
+            .spacing(1)
             .split(body);
         results::render_results(frame, rows[0], state, theme, symbols);
         preview::render_preview(frame, rows[1], state, theme, symbols);
@@ -82,8 +93,6 @@ fn render_prompt(
     focused: bool,
 ) {
     use unicode_segmentation::UnicodeSegmentation;
-    let inner_w = area.width.saturating_sub(2) as usize;
-    let _ = inner_w;
     let cursor = if focused { symbols.cursor } else { " " };
     let graphemes: Vec<&str> = state.search.prompt.graphemes(true).collect();
     let before: String = graphemes
@@ -102,17 +111,38 @@ fn render_prompt(
         .skip(state.search.prompt_cursor)
         .copied()
         .collect();
-    let line = Line::from(vec![
-        Span::styled("  ", theme.muted()),
+    let mut spans = vec![
+        Span::styled(format!(" {} ", symbols.search), theme.accent()),
         Span::styled(before, theme.text()),
         Span::styled(cursor, theme.accent()),
         Span::styled(after, theme.text()),
-    ]);
+    ];
+    if state.search.prompt.is_empty() {
+        spans.push(Span::styled(
+            " Search everything or type / for commands",
+            theme.muted(),
+        ));
+    }
+    let line = Line::from(spans);
+    let command_mode = state.search.prompt.trim_start().starts_with('/');
+    let mode = if command_mode {
+        " COMMAND "
+    } else {
+        " GLOBAL SEARCH "
+    };
+    let mode_style = if command_mode {
+        theme.accent_secondary()
+    } else {
+        theme.muted()
+    };
     let widget = Paragraph::new(line).block(
         Block::default()
             .borders(Borders::ALL)
+            .border_type(symbols.border_type())
             .border_style(theme.border(focused))
-            .title(Span::styled(" Luma ", theme.title())),
+            .style(theme.surface())
+            .title(Span::styled(" LUMA ", theme.title()))
+            .title(Line::from(Span::styled(mode, mode_style)).right_aligned()),
     );
     frame.render_widget(widget, area);
 }

@@ -112,29 +112,36 @@ when continuity matters.
    correctly and only the committed text reaches the prompt.
 6. **CJK alignment** — display Records rows with mixed CJK/ASCII and confirm columns line
    up (full-width cells occupy two columns).
-7. **Mouse** — plain terminal click/drag must select text normally; the keyboard-first TUI does
+7. **Keyboard paging** — populate enough Hub, Results, Help, Preview, Settings, command-palette,
+   and ActionPicker rows to overflow. Verify `PgUp`/`PgDn` and the `Ctrl-/` palette actions
+   `/scroll up` / `/scroll down` clamp at both ends, keep the current surface/focus, and never run
+   the highlighted action or trigger a refresh.
+8. **Mouse** — plain terminal click/drag must select text normally; the keyboard-first TUI does
    not claim mouse reporting and must not block native selection.
-8. **Copy/paste** — Cmd+C with an active selection, then Cmd+V into the prompt. Paste a
+9. **Copy/paste** — Cmd+C with an active selection, then Cmd+V into the prompt. Paste a
    multi-line value while an action confirmation is visible: it must not confirm or run anything.
-9. **Resize** — resize the window and confirm the TUI reflows without artifacts; enter and leave a
-   full-screen child surface to exercise the alternate screen.
-10. **Timer while hidden** — start a Timer, hide the window, wait past the deadline, and re-show;
+10. **Resize and visual focus** — resize the window and confirm the TUI reflows without artifacts.
+    Verify exactly one pane has the accent focus border, the selected row fills its available
+    width, overlays retain an opaque raised panel over the dimmed workbench, and the contextual
+    shortcut bar remains on the last row. Enter and leave a full-screen child surface to exercise
+    the alternate screen.
+11. **Timer while hidden** — start a Timer, hide the window, wait past the deadline, and re-show;
     the timer must have kept running (the child process is not suspended).
-11. **`/wb review`** — run today's due-first review queue, reveal and grade a card, then Esc out; Escape must reach
+12. **`/wb review`** — run today's due-first review queue, reveal and grade a card, then Esc out; Escape must reach
     the TUI and must never close or hide the window.
-12. **Interactive child** — run `/ssh` against a host alias that does not resolve (no real remote
+13. **Interactive child** — run `/ssh` against a host alias that does not resolve (no real remote
     connection needed) and confirm the child runs in the same PTY and the TUI resumes afterwards.
-13. **Command Recipe** — run a recipe with `/cmd test` and confirm output and exit handling.
-14. **TUI exit and restart** — Ctrl-C out of the TUI, hide, then press Option+Space; a fresh
+14. **Command Recipe** — run a recipe with `/cmd test` and confirm output and exit handling.
+15. **TUI exit and restart** — Ctrl-C out of the TUI, hide, then press Option+Space; a fresh
     session must start instead of an empty window.
-15. **Quit and cleanup** — start a Timer, then Cmd+Q. Confirm no `luma` child survives
+16. **Quit and cleanup** — start a Timer, then Cmd+Q. Confirm no `luma` child survives
     (`pgrep -fl luma`) and the Timer was persisted as paused, proving graceful module teardown ran.
-16. **Relaunch from the installed bundle** — reopen `$HOME/Applications/Luma.app` and confirm the
+17. **Relaunch from the installed bundle** — reopen `$HOME/Applications/Luma.app` and confirm the
     window frame was restored and the hotkey works again.
-17. **Login item (optional, manual)** — the host ships no Launch at Login toggle. If you add
+18. **Login item (optional, manual)** — the host ships no Launch at Login toggle. If you add
     `Luma.app` under System Settings → General → Login Items, confirm after a reboot that exactly
     one host and one child process are running.
-18. **Memory policy** — inspect the local unified log after normal use and confirm the exit entry
+19. **Memory policy** — inspect the local unified log after normal use and confirm the exit entry
     reports combined peak RSS. Triggering real warning/critical pressure is optional; when tested,
     confirm the entry reports scrollback reduction and the TUI remains usable.
 

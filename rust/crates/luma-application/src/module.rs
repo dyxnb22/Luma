@@ -27,6 +27,41 @@ pub struct WorkbenchMeta {
     /// Module participates in browse / drill-down queries.
     #[serde(default)]
     pub supports_browse: bool,
+    /// Canonical slash-command surfaces owned by this module.
+    ///
+    /// Help, command discovery, and completion project this same list. `query` is the editable
+    /// seed inserted by the command palette; `syntax` remains the user-facing usage string.
+    #[serde(default)]
+    pub commands: Vec<CommandSpec>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CommandSpec {
+    pub syntax: String,
+    pub description: String,
+    pub query: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub example: Option<String>,
+}
+
+impl CommandSpec {
+    pub fn new(
+        syntax: impl Into<String>,
+        description: impl Into<String>,
+        query: impl Into<String>,
+    ) -> Self {
+        Self {
+            syntax: syntax.into(),
+            description: description.into(),
+            query: query.into(),
+            example: None,
+        }
+    }
+
+    pub fn example(mut self, example: impl Into<String>) -> Self {
+        self.example = Some(example.into());
+        self
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

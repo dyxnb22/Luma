@@ -1,6 +1,7 @@
-//! Semantic color tokens and ASCII-safe symbols for the launcher TUI.
+//! Semantic color tokens and terminal-safe symbols for the launcher TUI.
 
 use ratatui::style::{Color, Modifier, Style};
+use ratatui::widgets::BorderType;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum ThemeMode {
@@ -11,10 +12,17 @@ pub enum ThemeMode {
     Auto,
 }
 
-/// Visual tokens for a compact Raycast-style launcher.
+/// Visual tokens for a compact, layered workbench.
 #[derive(Clone, Copy, Debug)]
 pub struct Theme {
+    /// Full terminal background.
+    pub canvas_bg: Color,
+    /// Standard workbench panel background.
+    pub surface_bg: Color,
+    /// Raised strip / secondary panel background.
+    pub surface_alt_bg: Color,
     pub accent: Color,
+    pub accent_secondary: Color,
     pub muted: Color,
     pub text: Color,
     pub border: Color,
@@ -45,23 +53,27 @@ impl Theme {
         }
     }
 
-    /// Default dark terminal palette — restrained, not neon.
+    /// Default dark terminal palette — restrained, cool, and high-contrast.
     pub fn dark() -> Self {
         Self {
-            accent: Color::Cyan,
-            muted: Color::DarkGray,
-            text: Color::Gray,
-            border: Color::DarkGray,
-            border_focused: Color::Cyan,
-            selected_bg: Color::Indexed(236),
-            selected_fg: Color::White,
-            success: Color::Green,
-            warning: Color::Yellow,
-            error: Color::Red,
-            destructive: Color::LightRed,
-            permission: Color::Magenta,
-            overlay_dim: Color::Indexed(234),
-            panel_bg: Color::Indexed(236),
+            canvas_bg: Color::Rgb(11, 12, 18),
+            surface_bg: Color::Rgb(18, 20, 30),
+            surface_alt_bg: Color::Rgb(26, 29, 42),
+            accent: Color::Rgb(112, 222, 194),
+            accent_secondary: Color::Rgb(183, 166, 255),
+            muted: Color::Rgb(119, 128, 151),
+            text: Color::Rgb(218, 221, 232),
+            border: Color::Rgb(50, 55, 75),
+            border_focused: Color::Rgb(112, 222, 194),
+            selected_bg: Color::Rgb(40, 55, 72),
+            selected_fg: Color::Rgb(246, 248, 252),
+            success: Color::Rgb(126, 217, 149),
+            warning: Color::Rgb(235, 190, 113),
+            error: Color::Rgb(240, 120, 131),
+            destructive: Color::Rgb(255, 132, 143),
+            permission: Color::Rgb(207, 164, 255),
+            overlay_dim: Color::Rgb(8, 9, 14),
+            panel_bg: Color::Rgb(25, 27, 41),
             // Soft light wash + slightly brighter panel (still readable distinction).
             quit_backdrop_bg: Color::Indexed(252),
             quit_panel_bg: Color::Indexed(255),
@@ -72,20 +84,24 @@ impl Theme {
     /// Light terminal palette for bright backgrounds.
     pub fn light() -> Self {
         Self {
-            accent: Color::Blue,
-            muted: Color::Gray,
-            text: Color::Black,
-            border: Color::Gray,
-            border_focused: Color::Blue,
-            selected_bg: Color::Indexed(251),
-            selected_fg: Color::Black,
-            success: Color::Green,
-            warning: Color::Rgb(180, 110, 0),
-            error: Color::Red,
-            destructive: Color::Red,
-            permission: Color::Magenta,
-            overlay_dim: Color::Indexed(254),
-            panel_bg: Color::Indexed(255),
+            canvas_bg: Color::Rgb(239, 241, 247),
+            surface_bg: Color::Rgb(250, 251, 254),
+            surface_alt_bg: Color::Rgb(241, 244, 250),
+            accent: Color::Rgb(20, 125, 118),
+            accent_secondary: Color::Rgb(103, 88, 196),
+            muted: Color::Rgb(103, 112, 135),
+            text: Color::Rgb(33, 37, 50),
+            border: Color::Rgb(199, 205, 220),
+            border_focused: Color::Rgb(20, 125, 118),
+            selected_bg: Color::Rgb(218, 239, 235),
+            selected_fg: Color::Rgb(25, 39, 43),
+            success: Color::Rgb(36, 135, 76),
+            warning: Color::Rgb(173, 105, 0),
+            error: Color::Rgb(190, 52, 67),
+            destructive: Color::Rgb(190, 52, 67),
+            permission: Color::Rgb(123, 70, 177),
+            overlay_dim: Color::Rgb(224, 227, 235),
+            panel_bg: Color::Rgb(252, 252, 255),
             quit_backdrop_bg: Color::Indexed(254),
             quit_panel_bg: Color::Indexed(255),
             quit_panel_fg: Color::Black,
@@ -112,6 +128,18 @@ impl Theme {
             .add_modifier(Modifier::BOLD)
     }
 
+    pub fn canvas(&self) -> Style {
+        Style::default().fg(self.text).bg(self.canvas_bg)
+    }
+
+    pub fn surface(&self) -> Style {
+        Style::default().fg(self.text).bg(self.surface_bg)
+    }
+
+    pub fn surface_alt(&self) -> Style {
+        Style::default().fg(self.text).bg(self.surface_alt_bg)
+    }
+
     pub fn border(&self, focused: bool) -> Style {
         Style::default().fg(if focused {
             self.border_focused
@@ -132,6 +160,37 @@ impl Theme {
         Style::default().fg(self.accent)
     }
 
+    pub fn accent_secondary(&self) -> Style {
+        Style::default().fg(self.accent_secondary)
+    }
+
+    pub fn panel_title(&self, focused: bool) -> Style {
+        if focused {
+            self.title()
+        } else {
+            Style::default().fg(self.muted).add_modifier(Modifier::BOLD)
+        }
+    }
+
+    pub fn section(&self) -> Style {
+        Style::default()
+            .fg(self.accent_secondary)
+            .add_modifier(Modifier::BOLD)
+    }
+
+    pub fn keycap(&self) -> Style {
+        Style::default()
+            .fg(self.accent_secondary)
+            .add_modifier(Modifier::BOLD)
+    }
+
+    pub fn selected_marker(&self) -> Style {
+        Style::default()
+            .fg(self.accent)
+            .bg(self.selected_bg)
+            .add_modifier(Modifier::BOLD)
+    }
+
     pub fn selected_row(&self) -> Style {
         Style::default()
             .fg(self.selected_fg)
@@ -144,7 +203,9 @@ impl Theme {
     }
 
     pub fn module_badge(&self) -> Style {
-        Style::default().fg(self.muted)
+        Style::default()
+            .fg(self.accent_secondary)
+            .add_modifier(Modifier::BOLD)
     }
 
     pub fn action_hint(&self) -> Style {
@@ -185,7 +246,7 @@ impl Theme {
                 .add_modifier(Modifier::BOLD | Modifier::UNDERLINED)
         } else {
             Style::default()
-                .fg(self.accent)
+                .fg(self.accent_secondary)
                 .add_modifier(Modifier::BOLD)
         }
     }
@@ -220,40 +281,49 @@ impl Default for Theme {
     }
 }
 
-/// Decorative glyphs with a pure-ASCII fallback (no Nerd Font required).
+/// Decorative glyphs with an ASCII fallback (no Nerd Font required).
 #[derive(Clone, Copy, Debug)]
 pub struct Symbols {
     pub selected: &'static str,
+    pub search: &'static str,
+    pub status: &'static str,
     pub enter: &'static str,
     pub cursor: &'static str,
     pub up: &'static str,
     pub down: &'static str,
     pub ellipsis: &'static str,
     pub sep: &'static str,
+    pub rounded_borders: bool,
 }
 
 impl Symbols {
     pub fn unicode() -> Self {
         Self {
             selected: "›",
+            search: "⌕",
+            status: "●",
             enter: "↵",
             cursor: "▌",
             up: "↑",
             down: "↓",
             ellipsis: "…",
             sep: "·",
+            rounded_borders: true,
         }
     }
 
     pub fn ascii() -> Self {
         Self {
             selected: ">",
+            search: ">",
+            status: "*",
             enter: "Ret",
             cursor: "|",
             up: "^",
             down: "v",
             ellipsis: "...",
             sep: "|",
+            rounded_borders: false,
         }
     }
 
@@ -262,6 +332,14 @@ impl Symbols {
         match std::env::var("LUMA_TUI_ASCII") {
             Ok(v) if matches!(v.as_str(), "1" | "true" | "TRUE" | "yes" | "YES") => Self::ascii(),
             _ => Self::unicode(),
+        }
+    }
+
+    pub fn border_type(&self) -> BorderType {
+        if self.rounded_borders {
+            BorderType::Rounded
+        } else {
+            BorderType::Plain
         }
     }
 }
@@ -367,5 +445,16 @@ mod tests {
     #[test]
     fn light_and_dark_differ() {
         assert_ne!(Theme::dark().accent, Theme::light().accent);
+    }
+
+    #[test]
+    fn palettes_keep_canvas_surface_selection_and_accents_distinct() {
+        for theme in [Theme::dark(), Theme::light()] {
+            assert_ne!(theme.canvas_bg, theme.surface_bg);
+            assert_ne!(theme.surface_bg, theme.surface_alt_bg);
+            assert_ne!(theme.selected_bg, theme.surface_bg);
+            assert_ne!(theme.accent, theme.accent_secondary);
+            assert_ne!(theme.text, theme.muted);
+        }
     }
 }

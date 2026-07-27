@@ -27,6 +27,54 @@ pub struct RenewalsModule {
 }
 
 impl RenewalsModule {
+    /// Canonical command discovery owned by this module, including unavailable fallbacks.
+    pub fn command_specs() -> Vec<luma_application::CommandSpec> {
+        vec![
+                        crate::ux::command_spec(
+                            "/renew [upcoming|due|30d|query]",
+                            "List or search active renewals",
+                            "/renew ",
+                            Some("/renew 30d"),
+                        ),
+                        crate::ux::command_spec(
+                            "/renew add <name> | <YYYY-MM-DD> | <amount currency> | <cadence> [| category | auto | url | note]",
+                            "Add a renewal",
+                            "/renew add ",
+                            Some("/renew add Music | 2026-08-01 | 10 USD | monthly"),
+                        ),
+                        crate::ux::command_spec(
+                            "/renew edit <id> <all fields>",
+                            "Replace an existing renewal using the add field format",
+                            "/renew edit ",
+                            None,
+                        ),
+                        crate::ux::command_spec(
+                            "/renew paid <id>",
+                            "Mark a renewal paid and advance its due date",
+                            "/renew paid ",
+                            Some("/renew paid 1"),
+                        ),
+                        crate::ux::command_spec(
+                            "/renew cancel <id>",
+                            "Cancel an active renewal after confirmation",
+                            "/renew cancel ",
+                            Some("/renew cancel 1"),
+                        ),
+                        crate::ux::command_spec(
+                            "/renew delete <id>",
+                            "Delete renewal metadata after confirmation",
+                            "/renew delete ",
+                            Some("/renew delete 1"),
+                        ),
+                        crate::ux::command_spec(
+                            "/renew backup",
+                            "Back up the renewals ledger",
+                            "/renew backup",
+                            None,
+                        ),
+                    ]
+    }
+
     pub fn with_deps(repository: Arc<dyn RenewalsRepository>, clock: Arc<dyn ClockPort>) -> Self {
         Self {
             manifest: ModuleManifest {
@@ -41,6 +89,7 @@ impl RenewalsModule {
                     suggested_query: Some("/renew ".into()),
                     empty_hint: Some("/renew add NAME | DATE | AMOUNT CURRENCY | monthly".into()),
                     supports_browse: false,
+                    commands: Self::command_specs(),
                 },
             },
             repository,

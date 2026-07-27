@@ -44,6 +44,38 @@ impl GitModule {
                     suggested_query: Some("/git ".into()),
                     empty_hint: Some("/git · /git repo PATH · /git commit MESSAGE".into()),
                     supports_browse: true,
+                    commands: vec![
+                        crate::ux::command_spec(
+                            "/git [dirty|conflict|ahead|behind|clean|query]",
+                            "Open or filter the imported-project Git dashboard",
+                            "/git ",
+                            Some("/git dirty"),
+                        ),
+                        crate::ux::command_spec(
+                            "/git repo <imported-path>",
+                            "Open a repository workbench",
+                            "/git repo ",
+                            Some("/git repo /Users/me/project"),
+                        ),
+                        crate::ux::command_spec(
+                            "/git branches <imported-path>",
+                            "List local branches for an imported repository",
+                            "/git branches ",
+                            Some("/git branches /Users/me/project"),
+                        ),
+                        crate::ux::command_spec(
+                            "/git log <imported-path>",
+                            "Show the bounded local commit log",
+                            "/git log ",
+                            Some("/git log /Users/me/project"),
+                        ),
+                        crate::ux::command_spec(
+                            "/git commit <message>",
+                            "Commit staged changes in the currently opened workbench",
+                            "/git commit ",
+                            Some("/git commit Fix parser"),
+                        ),
+                    ],
                 },
             },
             projects: Arc::new(RwLock::new(projects)),
@@ -532,6 +564,38 @@ impl LumaModule for GitModule {
             .await;
             return;
         }
+        if matches!(rest, "repo" | "branches" | "log") {
+            let _ = sink
+                .send(Event::ResultsChunk {
+                    request_id: String::new(),
+                    sequence: 1,
+                    upserts: vec![crate::ux::command_error(
+                        MODULE_ID,
+                        "git:path-command-invalid",
+                        "Git command is incomplete",
+                        format!("Usage: /git {rest} <imported-path>"),
+                    )],
+                    removed_ids: vec![],
+                })
+                .await;
+            return;
+        }
+        if rest == "commit" {
+            let _ = sink
+                .send(Event::ResultsChunk {
+                    request_id: String::new(),
+                    sequence: 1,
+                    upserts: vec![crate::ux::command_error(
+                        MODULE_ID,
+                        "git:commit-invalid",
+                        "Git commit command is incomplete",
+                        "Usage: /git commit <message>",
+                    )],
+                    removed_ids: vec![],
+                })
+                .await;
+            return;
+        }
         if let Some(path) = rest
             .strip_prefix("repo ")
             .map(str::trim)
@@ -566,6 +630,20 @@ impl LumaModule for GitModule {
                 let staged = repo.staged_count() > 0;
                 let valid = staged && !message.is_empty();
                 let _ = sink.send(Event::ResultsChunk { request_id: String::new(), sequence: 1, upserts: vec![SearchItemDto { id: format!("git:commit:{}", repo.path.display()), module_id: MODULE_ID.into(), title: if staged { "Commit staged changes".into() } else { "Nothing staged to commit".into() }, subtitle: Some(if !staged { "Stage one or more changes first".into() } else if message.is_empty() { "Type a non-empty commit message".into() } else { message.into() }), kind: if valid { "git_commit" } else { "status" }.into(), score: 100.0, primary_action_id: if valid { "commit" } else { "noop" }.into(), primary_action_label: if valid { "Commit" } else { "Unavailable" }.into(), primary_action_risk: if valid { ActionRisk::Confirm } else { ActionRisk::Safe }, primary_action_confirmation: valid, action_payload: Some(serde_json::json!({ "repo_path": repo.path.display().to_string(), "project_path": repo.path.display().to_string(), "message": message })), ..Default::default() }], removed_ids: vec![] }).await;
+            } else {
+                let _ = sink
+                    .send(Event::ResultsChunk {
+                        request_id: String::new(),
+                        sequence: 1,
+                        upserts: vec![crate::ux::command_error(
+                            MODULE_ID,
+                            "git:commit-no-workbench",
+                            "No Git workbench is open",
+                            "Open one with /git repo <imported-path>, then use /git commit <message>",
+                        )],
+                        removed_ids: vec![],
+                    })
+                    .await;
             }
             return;
         }
@@ -929,6 +1007,27 @@ mod tests {
 
         assert_eq!(items.len(), 1);
         assert_eq!(git.calls.lock().await.as_slice(), &["discover"]);
+    }
+
+    #[tokio::test]
+    async fn incomplete_surface_commands_are_explicit_errors() {
+        let git = FakeGitRepository::new(vec![repo()]);
+        let module = GitModule::with_deps(
+            vec![ImportedProject {
+                name: Some("Example".into()),
+                path: "/tmp/example".into(),
+            }],
+            git.clone(),
+            Arc::new(FakePasteboard::new()),
+        );
+        for raw in ["/git repo", "/git branches", "/git log", "/git commit"] {
+            let items = collect_search_items(&module, query(raw)).await;
+            assert_eq!(items.len(), 1, "{raw}");
+            assert_eq!(items[0].kind, "command_error", "{raw}");
+        }
+        let items = collect_search_items(&module, query("/git commit message")).await;
+        assert_eq!(items[0].kind, "command_error");
+        assert!(git.calls.lock().await.is_empty());
     }
 
     #[tokio::test]

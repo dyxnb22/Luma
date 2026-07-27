@@ -8,6 +8,12 @@ use super::preview::preview_effect;
 use super::search::{begin_search, cancel_active, schedule_search};
 use super::wordbook;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum ScrollDirection {
+    Up,
+    Down,
+}
+
 pub(super) fn apply_hub_selection(state: &mut AppState) -> Vec<Effect> {
     let entries = state.hub_rows();
     if entries.is_empty() {
@@ -318,6 +324,21 @@ pub(super) fn cancel_msg(state: &mut AppState) -> Vec<Effect> {
         state.status.set("Dismissed", StatusTone::Warning);
         return vec![Effect::None];
     }
+    if state.route == Route::Commands {
+        if let Some(route) = state.overlay.commands_return_route.take() {
+            state.route = route;
+            state.overlay.commands_filter.clear();
+            if state.route == Route::Search {
+                if let Some(prompt) = state.overlay.restore_prompt.take() {
+                    state.search.prompt = prompt;
+                    state.search.prompt_cursor = state.prompt_char_len();
+                    state.focus = FocusZone::Prompt;
+                }
+            }
+            state.status.set("Ready", StatusTone::Neutral);
+            return vec![Effect::None];
+        }
+    }
     if state.route != Route::Search {
         state.route = Route::Search;
         if let Some(prompt) = state.overlay.restore_prompt.take() {
@@ -421,12 +442,20 @@ pub(super) fn select_next_msg(state: &mut AppState) -> Vec<Effect> {
         return vec![Effect::None];
     }
     if state.route == Route::Help {
-        state.overlay.help_scroll = state.overlay.help_scroll.saturating_add(1);
+        state.overlay.help_scroll = state
+            .overlay
+            .help_scroll
+            .saturating_add(1)
+            .min(state.help_scroll_max());
         return vec![Effect::None];
     }
     if state.route == Route::Search && state.focus == FocusZone::Preview && state.preview_visible()
     {
-        state.preview.scroll = state.preview.scroll.saturating_add(1);
+        state.preview.scroll = state
+            .preview
+            .scroll
+            .saturating_add(1)
+            .min(state.preview_scroll_max());
         return vec![Effect::None];
     }
     if state.route == Route::Search
@@ -490,6 +519,94 @@ pub(super) fn select_prev_msg(state: &mut AppState) -> Vec<Effect> {
         state.preview.pending_id = None;
         state.preview.scroll = 0;
         return preview_effect(state);
+    }
+    vec![Effect::None]
+}
+
+/// Pure page movement shared by PgUp/PgDn and `/scroll up|down`.
+///
+/// It deliberately does not request previews, execute actions, load Hub data, or perform I/O.
+pub(super) fn scroll_page(state: &mut AppState, direction: ScrollDirection) -> Vec<Effect> {
+    let delta = match direction {
+        ScrollDirection::Up => -(super::PAGE_SIZE as isize),
+        ScrollDirection::Down => super::PAGE_SIZE as isize,
+    };
+    match state.route {
+        Route::ActionPicker => {
+            if state.actions.action_choices.is_empty() {
+                state.actions.action_selected = 0;
+            } else {
+                let max = state.actions.action_choices.len() - 1;
+                state.actions.action_selected = match direction {
+                    ScrollDirection::Up => state
+                        .actions
+                        .action_selected
+                        .saturating_sub(super::PAGE_SIZE),
+                    ScrollDirection::Down => {
+                        (state.actions.action_selected + super::PAGE_SIZE).min(max)
+                    }
+                };
+            }
+        }
+        Route::Help => {
+            let max = state.help_scroll_max();
+            state.overlay.help_scroll = match direction {
+                ScrollDirection::Up => state.overlay.help_scroll.saturating_sub(super::PAGE_SIZE),
+                ScrollDirection::Down => (state.overlay.help_scroll + super::PAGE_SIZE).min(max),
+            };
+        }
+        Route::Settings => {
+            if state.settings.modules.is_empty() {
+                state.settings.selected = 0;
+            } else {
+                let max = state.settings.modules.len() - 1;
+                state.settings.selected = match direction {
+                    ScrollDirection::Up => state.settings.selected.saturating_sub(super::PAGE_SIZE),
+                    ScrollDirection::Down => (state.settings.selected + super::PAGE_SIZE).min(max),
+                };
+            }
+        }
+        Route::Commands => {
+            let max = state.command_palette_rows().len().saturating_sub(1);
+            state.overlay.commands_selected = match direction {
+                ScrollDirection::Up => state
+                    .overlay
+                    .commands_selected
+                    .saturating_sub(super::PAGE_SIZE),
+                ScrollDirection::Down => {
+                    (state.overlay.commands_selected + super::PAGE_SIZE).min(max)
+                }
+            };
+        }
+        Route::Search if state.focus == FocusZone::Preview && state.preview_visible() => {
+            let max = state.preview_scroll_max();
+            state.preview.scroll = match direction {
+                ScrollDirection::Up => state.preview.scroll.saturating_sub(super::PAGE_SIZE),
+                ScrollDirection::Down => (state.preview.scroll + super::PAGE_SIZE).min(max),
+            };
+        }
+        Route::Search if state.showing_hub() => {
+            let max = state.hub_rows().len().saturating_sub(1);
+            state.focus = FocusZone::List;
+            state.hub.selected = match direction {
+                ScrollDirection::Up => state.hub.selected.saturating_sub(super::PAGE_SIZE),
+                ScrollDirection::Down => (state.hub.selected + super::PAGE_SIZE).min(max),
+            };
+            state.ensure_hub_selection_visible();
+        }
+        Route::Search => {
+            state.focus = FocusZone::List;
+            state.search.results.select_offset(delta);
+            state.preview.body = None;
+            state.preview.result_id = None;
+            state.preview.pending_id = None;
+            state.preview.scroll = 0;
+        }
+        Route::WordbookReview | Route::ConfirmAction | Route::QuitConfirm => {
+            state
+                .status
+                .set("Nothing scrollable is focused", StatusTone::Neutral);
+        }
     }
     vec![Effect::None]
 }

@@ -2,10 +2,12 @@ use crate::effect::Effect;
 use crate::view_model::{AppState, Route, StatusTone};
 
 use super::actions::clear_action_ui;
+use super::navigation::{scroll_page, ScrollDirection};
 
 pub(super) fn open_settings(state: &mut AppState) -> Vec<Effect> {
     clear_action_ui(state);
     state.route = Route::Settings;
+    state.overlay.commands_return_route = None;
     state.settings.selected = 0;
     state
         .status
@@ -14,7 +16,9 @@ pub(super) fn open_settings(state: &mut AppState) -> Vec<Effect> {
 }
 
 pub(super) fn open_commands(state: &mut AppState) -> Vec<Effect> {
-    clear_action_ui(state);
+    if state.route != Route::Commands {
+        state.overlay.commands_return_route = Some(state.route.clone());
+    }
     state.route = Route::Commands;
     state.overlay.commands_selected = 0;
     state.overlay.commands_filter.clear();
@@ -39,28 +43,58 @@ pub(super) fn run_command_selection(state: &mut AppState) -> Vec<Effect> {
     };
     match entry.id.as_str() {
         "settings" => open_settings(state),
+        "scroll:up" | "scroll:down" => {
+            state.route = state
+                .overlay
+                .commands_return_route
+                .take()
+                .unwrap_or(Route::Search);
+            state.overlay.commands_filter.clear();
+            scroll_page(
+                state,
+                if entry.id == "scroll:up" {
+                    ScrollDirection::Up
+                } else {
+                    ScrollDirection::Down
+                },
+            )
+        }
         "help" => {
             state.route = Route::Help;
+            state.overlay.commands_return_route = None;
             state.overlay.help_scroll = 0;
             state.status.set("help", StatusTone::Neutral);
             vec![Effect::None]
         }
+        "commands" => vec![Effect::None],
         "quit" => {
+            clear_action_ui(state);
             state.route = Route::QuitConfirm;
+            state.overlay.commands_return_route = None;
             state.status.set("Quit Luma?", StatusTone::Warning);
             vec![Effect::None]
         }
-        id if id.starts_with("module:") => {
-            let Some(query) = entry.query else {
-                return vec![Effect::None];
-            };
+        _ if entry.query.is_some() => {
+            let query = entry.query.expect("checked above");
+            clear_action_ui(state);
             state.route = Route::Search;
+            state.overlay.commands_return_route = None;
             state.overlay.restore_prompt = None;
             state.overlay.commands_filter.clear();
             state.search.prompt = query;
             state.search.prompt_cursor = state.prompt_char_len();
             state.focus = crate::view_model::FocusZone::Prompt;
-            super::search::begin_search(state)
+            if entry.submit {
+                super::search::begin_search(state)
+            } else {
+                state.search.debounce_deadline = None;
+                state.search.results.items.clear();
+                state.search.results.selected_id = None;
+                state
+                    .status
+                    .set(format!("Complete {}", entry.label), StatusTone::Neutral);
+                vec![Effect::None]
+            }
         }
         _ => vec![Effect::None],
     }

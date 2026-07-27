@@ -310,7 +310,10 @@ fn map_key(code: KeyCode, modifiers: KeyModifiers, state: &AppState) -> Msg {
             KeyCode::Char('l') => Msg::Redraw,
             KeyCode::Char('k') if matches!(state.route, Route::Search) => Msg::OpenActions,
             KeyCode::Char('/') | KeyCode::Char('_') | KeyCode::Char('\u{1f}')
-                if matches!(state.route, Route::Search) =>
+                if matches!(
+                    state.route,
+                    Route::Search | Route::Help | Route::Settings | Route::ActionPicker
+                ) =>
             {
                 Msg::OpenCommands
             }
@@ -678,6 +681,28 @@ mod tests {
         let state = AppState::default();
         let msg = map_key(KeyCode::Char('\u{1f}'), KeyModifiers::empty(), &state);
         assert!(matches!(msg, Msg::OpenCommands));
+    }
+
+    #[test]
+    fn command_palette_and_page_keys_cover_scrollable_overlays() {
+        for route in [Route::Help, Route::Settings, Route::ActionPicker] {
+            let state = AppState {
+                route,
+                ..AppState::default()
+            };
+            assert!(matches!(
+                map_key(KeyCode::Char('/'), KeyModifiers::CONTROL, &state),
+                Msg::OpenCommands
+            ));
+            assert!(matches!(
+                map_key(KeyCode::PageUp, KeyModifiers::empty(), &state),
+                Msg::SelectPageUp
+            ));
+            assert!(matches!(
+                map_key(KeyCode::PageDown, KeyModifiers::empty(), &state),
+                Msg::SelectPageDown
+            ));
+        }
     }
 
     #[test]

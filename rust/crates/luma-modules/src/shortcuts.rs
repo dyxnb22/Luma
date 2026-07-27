@@ -39,6 +39,26 @@ impl ShortcutsModule {
                     suggested_query: Some("/sc ".into()),
                     empty_hint: Some("/sc · /sc folders · /sc folder <name>".into()),
                     supports_browse: false,
+                    commands: vec![
+                        crate::ux::command_spec(
+                            "/sc [query]",
+                            "List or search Apple Shortcuts",
+                            "/sc ",
+                            None,
+                        ),
+                        crate::ux::command_spec(
+                            "/sc folders",
+                            "List custom Shortcuts folders",
+                            "/sc folders",
+                            None,
+                        ),
+                        crate::ux::command_spec(
+                            "/sc folder <exact-name>",
+                            "List shortcuts in an exact custom folder",
+                            "/sc folder ",
+                            Some("/sc folder Daily"),
+                        ),
+                    ],
                 },
             },
             shortcuts,

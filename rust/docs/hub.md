@@ -7,6 +7,8 @@ surfaces also accept `/settings` and `/help`. For first-time setup, use `/settin
 or `/settings import-project PATH`; Records can be connected with
 `/settings records-root PATH`. Input without `/` is treated as a global search. Enter on a bare
 slash trigger such as `/clip` commits it as `/clip `.
+`Ctrl-/` or `/commands [filter]` opens the command palette. Enabled module manifests supply its
+subcommands, parameter placeholders, examples, `/help` entries, and partial-command candidates.
 
 Empty prompt shows:
 
@@ -42,3 +44,8 @@ Clipboard favorites: pin/unpin inside `/clip` (not on Hub).
 - In `/win`, digits target windows only while `FocusZone::List` is active. When the prompt is
   focused, digits remain search input.
 - ActionPicker digit behavior is unchanged; it continues to select actions rather than windows.
+- `PgUp`/`PgDn` page the Hub without opening the selected row. From the Hub, `Ctrl-/` exposes
+  `/scroll up` and `/scroll down`; selecting either returns to the Hub and performs the same
+  reducer-only movement without a Hub refresh or module I/O.
+- Mouse reporting is not enabled. Click/drag remains available to the terminal host for ordinary
+  text selection.

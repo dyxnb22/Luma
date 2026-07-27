@@ -20,7 +20,8 @@ use actions::{
 };
 use engine::apply_engine;
 use navigation::{
-    apply_hub_selection, cancel_msg, pick_window_digit, select_next_msg, select_prev_msg,
+    apply_hub_selection, cancel_msg, pick_window_digit, scroll_page, select_next_msg,
+    select_prev_msg, ScrollDirection,
 };
 use overlays::{open_commands, open_settings, run_command_selection, toggle_setting};
 use preview::{preview_effect, sync_prompt_viewport};

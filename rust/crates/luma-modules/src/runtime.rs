@@ -47,6 +47,12 @@ impl RuntimeModule {
                         "/run · local TCP listeners · terminate needs confirmation".into(),
                     ),
                     supports_browse: false,
+                    commands: vec![crate::ux::command_spec(
+                        "/run [port|process|project]",
+                        "List or filter current local TCP listeners",
+                        "/run ",
+                        Some("/run 3000"),
+                    )],
                 },
             },
             runtime,

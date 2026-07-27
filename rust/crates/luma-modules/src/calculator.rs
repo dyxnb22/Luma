@@ -39,6 +39,12 @@ impl CalculatorModule {
                     suggested_query: Some("/calc ".into()),
                     empty_hint: Some("/calc 1 + 2 · unit conversion · base/date helpers".into()),
                     supports_browse: false,
+                    commands: vec![crate::ux::command_spec(
+                        "/calc <expression>",
+                        "Calculate arithmetic, units, bases, Unix time, or date offsets",
+                        "/calc ",
+                        Some("/calc 128 MiB in GiB"),
+                    )],
                 },
             },
             pasteboard,

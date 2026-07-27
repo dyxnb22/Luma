@@ -46,6 +46,12 @@ impl AppsModule {
                     suggested_query: Some("/app ".into()),
                     empty_hint: Some("/app safari".into()),
                     supports_browse: false,
+                    commands: vec![crate::ux::command_spec(
+                        "/app [query]",
+                        "Search applications; Enter launches the selected app",
+                        "/app ",
+                        Some("/app safari"),
+                    )],
                 },
             },
             catalog,

@@ -212,11 +212,67 @@ pub fn update(state: &mut AppState, msg: Msg) -> Vec<Effect> {
                         state.status.set("help", StatusTone::Neutral);
                         return vec![Effect::None];
                     }
-                    if command == "commands" {
+                    if let Some(arguments) = command.strip_prefix("help ") {
+                        state.search.debounce_deadline = None;
+                        state.status.set(
+                            format!("/help takes no arguments (got `{}`)", arguments.trim()),
+                            StatusTone::Warning,
+                        );
+                        return vec![Effect::None];
+                    }
+                    if command == "commands" || command.starts_with("commands ") {
+                        let filter = command
+                            .strip_prefix("commands")
+                            .unwrap_or_default()
+                            .trim()
+                            .to_string();
                         state.overlay.restore_prompt = Some(state.search.prompt.clone());
                         state.clear_prompt();
                         state.search.debounce_deadline = None;
-                        return open_commands(state);
+                        let effects = open_commands(state);
+                        state.overlay.commands_filter = filter;
+                        return effects;
+                    }
+                    if command == "scroll up" || command == "scroll down" {
+                        state.search.debounce_deadline = None;
+                        let direction = if command.ends_with("up") {
+                            ScrollDirection::Up
+                        } else {
+                            ScrollDirection::Down
+                        };
+                        state.status.set(
+                            format!(
+                                "Scrolled {}",
+                                if direction == ScrollDirection::Up {
+                                    "up"
+                                } else {
+                                    "down"
+                                }
+                            ),
+                            StatusTone::Neutral,
+                        );
+                        return scroll_page(state, direction);
+                    }
+                    if command == "scroll" || command.starts_with("scroll ") {
+                        state.search.debounce_deadline = None;
+                        state
+                            .status
+                            .set("Usage: /scroll up or /scroll down", StatusTone::Warning);
+                        return vec![Effect::None];
+                    }
+                    if command == "quit" {
+                        state.search.debounce_deadline = None;
+                        clear_action_ui(state);
+                        state.route = Route::QuitConfirm;
+                        state.status.set("Quit Luma?", StatusTone::Warning);
+                        return vec![Effect::None];
+                    }
+                    if command.starts_with("quit ") {
+                        state.search.debounce_deadline = None;
+                        state
+                            .status
+                            .set("/quit takes no arguments", StatusTone::Warning);
+                        return vec![Effect::None];
                     }
                 }
                 if state.incomplete_slash_trigger().is_some() {
@@ -273,91 +329,8 @@ pub fn update(state: &mut AppState, msg: Msg) -> Vec<Effect> {
         }
         Msg::SelectNext => select_next_msg(state),
         Msg::SelectPrev => select_prev_msg(state),
-        Msg::SelectPageUp => {
-            if state.route == Route::ActionPicker {
-                state.actions.action_selected =
-                    state.actions.action_selected.saturating_sub(PAGE_SIZE);
-                return vec![Effect::None];
-            }
-            if state.route == Route::Help {
-                state.overlay.help_scroll = state.overlay.help_scroll.saturating_sub(PAGE_SIZE);
-                return vec![Effect::None];
-            }
-            if state.route == Route::Settings {
-                state.settings.selected = state.settings.selected.saturating_sub(PAGE_SIZE);
-                return vec![Effect::None];
-            }
-            if state.route == Route::Commands {
-                state.overlay.commands_selected =
-                    state.overlay.commands_selected.saturating_sub(PAGE_SIZE);
-                return vec![Effect::None];
-            }
-            if matches!(state.route, Route::Search) {
-                if state.focus == FocusZone::Preview && state.preview_visible() {
-                    state.preview.scroll = state.preview.scroll.saturating_sub(PAGE_SIZE);
-                    return vec![Effect::None];
-                }
-                if state.search.prompt.is_empty() && state.search.results.items.is_empty() {
-                    state.hub.selected = state.hub.selected.saturating_sub(PAGE_SIZE);
-                    state.ensure_hub_selection_visible();
-                } else {
-                    state.focus = FocusZone::List;
-                    state.search.results.select_offset(-(PAGE_SIZE as isize));
-                    state.preview.body = None;
-                    state.preview.result_id = None;
-                    state.preview.pending_id = None;
-                    state.preview.scroll = 0;
-                    return preview_effect(state);
-                }
-            }
-            vec![Effect::None]
-        }
-        Msg::SelectPageDown => {
-            if state.route == Route::ActionPicker {
-                if !state.actions.action_choices.is_empty() {
-                    state.actions.action_selected = (state.actions.action_selected + PAGE_SIZE)
-                        .min(state.actions.action_choices.len() - 1);
-                }
-                return vec![Effect::None];
-            }
-            if state.route == Route::Help {
-                state.overlay.help_scroll = state.overlay.help_scroll.saturating_add(PAGE_SIZE);
-                return vec![Effect::None];
-            }
-            if state.route == Route::Settings {
-                if !state.settings.modules.is_empty() {
-                    state.settings.selected =
-                        (state.settings.selected + PAGE_SIZE).min(state.settings.modules.len() - 1);
-                }
-                return vec![Effect::None];
-            }
-            if state.route == Route::Commands {
-                let max = state.command_palette_rows().len().saturating_sub(1);
-                state.overlay.commands_selected =
-                    (state.overlay.commands_selected + PAGE_SIZE).min(max);
-                return vec![Effect::None];
-            }
-            if matches!(state.route, Route::Search) {
-                if state.focus == FocusZone::Preview && state.preview_visible() {
-                    state.preview.scroll = state.preview.scroll.saturating_add(PAGE_SIZE);
-                    return vec![Effect::None];
-                }
-                if state.search.prompt.is_empty() && state.search.results.items.is_empty() {
-                    let max = state.hub_rows().len().saturating_sub(1);
-                    state.hub.selected = (state.hub.selected + PAGE_SIZE).min(max);
-                    state.ensure_hub_selection_visible();
-                } else {
-                    state.focus = FocusZone::List;
-                    state.search.results.select_offset(PAGE_SIZE as isize);
-                    state.preview.body = None;
-                    state.preview.result_id = None;
-                    state.preview.pending_id = None;
-                    state.preview.scroll = 0;
-                    return preview_effect(state);
-                }
-            }
-            vec![Effect::None]
-        }
+        Msg::SelectPageUp => scroll_page(state, ScrollDirection::Up),
+        Msg::SelectPageDown => scroll_page(state, ScrollDirection::Down),
         Msg::PickActionDigit(digit) => {
             if state.route != Route::ActionPicker || digit == 0 {
                 return vec![Effect::None];

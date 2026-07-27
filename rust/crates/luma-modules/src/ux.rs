@@ -1,5 +1,40 @@
 //! Small UX helpers shared across modules (user-facing copy).
 
+use luma_application::CommandSpec;
+use luma_protocol::SearchItemDto;
+
+pub(crate) fn command_spec(
+    syntax: &str,
+    description: &str,
+    query: &str,
+    example: Option<&str>,
+) -> CommandSpec {
+    let command = CommandSpec::new(syntax, description, query);
+    match example {
+        Some(example) => command.example(example),
+        None => command,
+    }
+}
+
+pub(crate) fn command_error(
+    module_id: &str,
+    id: &str,
+    title: &str,
+    message: impl Into<String>,
+) -> SearchItemDto {
+    SearchItemDto {
+        id: id.into(),
+        module_id: module_id.into(),
+        title: title.into(),
+        subtitle: Some(message.into()),
+        kind: "command_error".into(),
+        score: 100.0,
+        primary_action_id: "noop".into(),
+        primary_action_label: "Fix command".into(),
+        ..Default::default()
+    }
+}
+
 /// Map store/IO/sqlite noise into a short subtitle for daily use.
 pub(crate) fn friendly_store_error(err: &str) -> String {
     let e = err.trim();

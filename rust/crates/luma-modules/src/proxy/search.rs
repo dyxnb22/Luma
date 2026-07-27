@@ -357,6 +357,46 @@ impl ProxyModule {
         cancel: &CancellationToken,
     ) {
         let normalized_rest = query.rest_normalized();
+        if normalized_rest == "group" {
+            let _ = sink
+                .send(Event::ResultsChunk {
+                    request_id: String::new(),
+                    sequence: 1,
+                    upserts: vec![crate::ux::command_error(
+                        MODULE_ID,
+                        "proxy:group-invalid",
+                        "Proxy group command is incomplete",
+                        "Usage: /proxy group <name>",
+                    )],
+                    removed_ids: vec![],
+                })
+                .await;
+            return;
+        }
+        let recognized = normalized_rest.is_empty()
+            || matches!(
+                normalized_rest.as_str(),
+                "status" | "check" | "global" | "rule" | "profile" | "import"
+            )
+            || normalized_rest.starts_with("group ")
+            || normalized_rest.starts_with("profile ")
+            || normalized_rest.starts_with("import ");
+        if !recognized {
+            let _ = sink
+                .send(Event::ResultsChunk {
+                    request_id: String::new(),
+                    sequence: 1,
+                    upserts: vec![crate::ux::command_error(
+                        MODULE_ID,
+                        "proxy:command-invalid",
+                        "Unknown Proxy command",
+                        "Use /proxy, /proxy status, /proxy check, /proxy group <name>, /proxy global, /proxy rule, /proxy profile, or /proxy import <source>",
+                    )],
+                    removed_ids: vec![],
+                })
+                .await;
+            return;
+        }
         if normalized_rest == "profile"
             || normalized_rest.starts_with("profile ")
             || normalized_rest == "import"

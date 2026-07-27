@@ -35,6 +35,12 @@ impl ScreenOcrModule {
                     suggested_query: Some("/ocr ".into()),
                     empty_hint: Some("/ocr · select a screen region and copy text".into()),
                     supports_browse: false,
+                    commands: vec![crate::ux::command_spec(
+                        "/ocr",
+                        "Select a screen region and copy locally recognized text",
+                        "/ocr ",
+                        None,
+                    )],
                 },
             },
             ocr,
@@ -53,8 +59,24 @@ impl LumaModule for ScreenOcrModule {
         ModuleState::Ready
     }
 
-    async fn search(&self, _query: Query, sink: SearchSink, cancel: CancellationToken) {
+    async fn search(&self, query: Query, sink: SearchSink, cancel: CancellationToken) {
         if cancel.is_cancelled() {
+            return;
+        }
+        if !query.rest_normalized().is_empty() {
+            let _ = sink
+                .send(Event::ResultsChunk {
+                    request_id: String::new(),
+                    sequence: 1,
+                    upserts: vec![crate::ux::command_error(
+                        MODULE_ID,
+                        "ocr:arguments-invalid",
+                        "Screen OCR takes no arguments",
+                        "Usage: /ocr",
+                    )],
+                    removed_ids: vec![],
+                })
+                .await;
             return;
         }
         let _ = sink
@@ -183,6 +205,7 @@ mod tests {
     use super::*;
     use luma_application::{FakePasteboard, FakeScreenOcr};
     use luma_domain::ResultId;
+    use luma_test_support::collect_search_items;
 
     fn result() -> SearchItem {
         SearchItem {
@@ -205,6 +228,18 @@ mod tests {
             action: safe_action("capture_copy", "Select region"),
             confirmation: false,
         }
+    }
+
+    #[tokio::test]
+    async fn arguments_are_rejected_before_capture_is_offered() {
+        let module = ScreenOcrModule::with_deps(
+            Arc::new(FakeScreenOcr::new([])),
+            Arc::new(FakePasteboard::new()),
+        );
+        let items = collect_search_items(&module, Query::parse("/ocr now", 20)).await;
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].kind, "command_error");
+        assert_ne!(items[0].primary_action.id.as_str(), "capture_copy");
     }
 
     #[tokio::test]

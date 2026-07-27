@@ -40,6 +40,42 @@ pub struct ClipboardModule {
 }
 
 impl ClipboardModule {
+    /// Canonical command discovery owned by this module, including unavailable fallbacks.
+    pub fn command_specs() -> Vec<luma_application::CommandSpec> {
+        vec![
+            crate::ux::command_spec(
+                "/clip [query]",
+                "Search clipboard history",
+                "/clip ",
+                Some("/clip docker"),
+            ),
+            crate::ux::command_spec(
+                "/clip pause [duration]",
+                "Pause capture for this session; duration uses s/m/h/d",
+                "/clip pause ",
+                Some("/clip pause 10m"),
+            ),
+            crate::ux::command_spec(
+                "/clip resume",
+                "Resume session clipboard capture",
+                "/clip resume",
+                None,
+            ),
+            crate::ux::command_spec(
+                "/clip status",
+                "Show whether clipboard capture is active or paused",
+                "/clip status",
+                None,
+            ),
+            crate::ux::command_spec(
+                "/clip clear",
+                "Clear unpinned history after confirmation",
+                "/clip clear",
+                None,
+            ),
+        ]
+    }
+
     pub fn with_deps(
         store: Arc<dyn ClipboardHistoryRepository>,
         pasteboard: Arc<dyn PasteboardPort>,
@@ -62,6 +98,7 @@ impl ClipboardModule {
                     suggested_query: Some("/clip ".into()),
                     empty_hint: Some("/clip · history · pin/unpin · paste needs AX".into()),
                     supports_browse: false,
+                    commands: Self::command_specs(),
                 },
             },
             store,

@@ -228,6 +228,7 @@ fn enter_commits_a_bare_slash_module_trigger() {
         empty_hint: None,
         supports_browse: false,
         triggers: vec!["clip".into()],
+        commands: vec![],
     }];
     state.search.prompt = "/clip".into();
     state.search.prompt_cursor = state.prompt_char_len();
@@ -252,13 +253,19 @@ fn command_palette_filters_modules_and_opens_the_selected_surface() {
         empty_hint: None,
         supports_browse: false,
         triggers: vec!["clip".into()],
+        commands: vec![],
     }];
     let _ = update(&mut state, Msg::OpenCommands);
     for character in "clip".chars() {
         let _ = update(&mut state, Msg::KeyChar(character));
     }
     assert_eq!(state.route, Route::Commands);
-    assert_eq!(state.command_palette_rows().len(), 1);
+    let rows = state.command_palette_rows();
+    let module_row = rows
+        .iter()
+        .position(|row| row.label == "/clip")
+        .expect("clipboard module command");
+    state.overlay.commands_selected = module_row;
 
     let effects = update(&mut state, Msg::Submit);
 
@@ -267,6 +274,39 @@ fn command_palette_filters_modules_and_opens_the_selected_surface() {
     assert!(effects
         .iter()
         .any(|effect| matches!(effect, Effect::Search { query, .. } if query == "/clip ")));
+}
+
+#[test]
+fn structured_parameter_command_seeds_prompt_instead_of_submitting_incomplete_search() {
+    let mut state = AppState::default();
+    state.module_catalog = vec![crate::view_model::ModuleCatalogEntry {
+        id: "luma.records".into(),
+        display_name: "Records".into(),
+        enabled: true,
+        glyph: Some("R".into()),
+        suggested_query: Some("/rec ".into()),
+        empty_hint: None,
+        supports_browse: true,
+        triggers: vec!["rec".into()],
+        commands: vec![crate::view_model::CommandCatalogEntry {
+            syntax: "/rec rate <id> <1-10|clear>".into(),
+            description: "Set or clear a rating".into(),
+            query: "/rec rate ".into(),
+            example: Some("/rec rate 1 9".into()),
+        }],
+    }];
+    let _ = update(&mut state, Msg::OpenCommands);
+    for character in "rec rate".chars() {
+        let _ = update(&mut state, Msg::KeyChar(character));
+    }
+
+    let effects = update(&mut state, Msg::Submit);
+
+    assert_eq!(effects, vec![Effect::None]);
+    assert_eq!(state.route, Route::Search);
+    assert_eq!(state.search.prompt, "/rec rate ");
+    assert!(state.search.active_request.is_none());
+    assert!(state.status.text.contains("/rec rate <id>"));
 }
 
 #[test]
@@ -284,6 +324,44 @@ fn meta_command_does_not_require_enter_to_flush_debounce() {
     assert!(state.search.prompt.is_empty());
     assert_eq!(state.overlay.restore_prompt.as_deref(), Some("/commands"));
     assert!(state.search.debounce_deadline.is_none());
+}
+
+#[test]
+fn commands_meta_accepts_a_filter_and_invalid_meta_arguments_are_explicit() {
+    let mut state = AppState::default();
+    state.module_catalog = vec![crate::view_model::ModuleCatalogEntry {
+        id: "luma.clipboard".into(),
+        display_name: "Clipboard".into(),
+        enabled: true,
+        glyph: None,
+        suggested_query: Some("/clip ".into()),
+        empty_hint: None,
+        supports_browse: false,
+        triggers: vec!["clip".into()],
+        commands: vec![],
+    }];
+    state.search.prompt = "/commands clip".into();
+    state.search.prompt_cursor = state.prompt_char_len();
+    assert_eq!(update(&mut state, Msg::Submit), vec![Effect::None]);
+    assert_eq!(state.route, Route::Commands);
+    assert_eq!(state.overlay.commands_filter, "clip");
+    assert!(state
+        .command_palette_rows()
+        .iter()
+        .any(|row| row.label == "/clip"));
+
+    for (prompt, expected) in [
+        ("/scroll sideways", "Usage: /scroll up or /scroll down"),
+        ("/quit now", "/quit takes no arguments"),
+        ("/help modules", "/help takes no arguments"),
+    ] {
+        let mut invalid = AppState::default();
+        invalid.search.prompt = prompt.into();
+        invalid.search.prompt_cursor = invalid.prompt_char_len();
+        assert_eq!(update(&mut invalid, Msg::Submit), vec![Effect::None]);
+        assert_eq!(invalid.route, Route::Search);
+        assert!(invalid.status.text.contains(expected), "{prompt}");
+    }
 }
 
 #[test]
@@ -591,8 +669,216 @@ fn page_down_moves_selection() {
         });
     }
     state.search.results.selected_id = Some("0".into());
-    let _ = update(&mut state, Msg::SelectPageDown);
+    state.preview.body = Some("cached preview".into());
+    state.preview.result_id = Some("0".into());
+    let effects = update(&mut state, Msg::SelectPageDown);
+    assert_eq!(effects, vec![Effect::None]);
     assert_eq!(state.search.results.selected_id.as_deref(), Some("5"));
+    assert!(state.preview.body.is_none());
+    assert!(state.preview.result_id.is_none());
+}
+
+#[test]
+fn page_scroll_clamps_results_and_empty_list_without_effects() {
+    let mut state = AppState::default();
+    state.search.prompt = "/clip ".into();
+    assert_eq!(update(&mut state, Msg::SelectPageDown), vec![Effect::None]);
+    assert!(state.search.results.selected_id.is_none());
+
+    for i in 0..7 {
+        state.search.results.items.push(SearchItem {
+            id: ResultId::new(format!("scroll:{i}")),
+            module_id: ModuleId::new("mock"),
+            title: format!("Item {i}"),
+            subtitle: None,
+            kind: "mock".into(),
+            score: 1.0,
+            primary_action: ActionDescriptor {
+                id: ActionId::new("open"),
+                label: "Open".into(),
+                risk: ActionRisk::Safe,
+                confirmation: false,
+            },
+            secondary_actions: vec![],
+            ui_intent: None,
+            action_payload: None,
+        });
+    }
+    state.search.results.selected_id = Some("scroll:0".into());
+    assert_eq!(update(&mut state, Msg::SelectPageUp), vec![Effect::None]);
+    assert_eq!(
+        state.search.results.selected_id.as_deref(),
+        Some("scroll:0")
+    );
+    assert_eq!(update(&mut state, Msg::SelectPageDown), vec![Effect::None]);
+    assert_eq!(update(&mut state, Msg::SelectPageDown), vec![Effect::None]);
+    assert_eq!(
+        state.search.results.selected_id.as_deref(),
+        Some("scroll:6")
+    );
+}
+
+#[test]
+fn page_scroll_is_pure_across_help_preview_and_overlays() {
+    let mut help = AppState::default();
+    help.route = Route::Help;
+    help.terminal.height = 10;
+    assert_eq!(update(&mut help, Msg::SelectPageDown), vec![Effect::None]);
+    assert_eq!(help.overlay.help_scroll, 5.min(help.help_scroll_max()));
+    for _ in 0..20 {
+        assert_eq!(update(&mut help, Msg::SelectPageDown), vec![Effect::None]);
+    }
+    assert_eq!(help.overlay.help_scroll, help.help_scroll_max());
+    assert_eq!(update(&mut help, Msg::SelectPageUp), vec![Effect::None]);
+
+    let mut preview = AppState::default();
+    preview.terminal.width = 120;
+    preview.terminal.height = 24;
+    preview.search.results.items.push(SearchItem {
+        id: ResultId::new("preview-scroll"),
+        module_id: ModuleId::new("mock"),
+        title: "Preview".into(),
+        subtitle: None,
+        kind: "mock".into(),
+        score: 1.0,
+        primary_action: ActionDescriptor {
+            id: ActionId::new("open"),
+            label: "Open".into(),
+            risk: ActionRisk::Safe,
+            confirmation: false,
+        },
+        secondary_actions: vec![],
+        ui_intent: None,
+        action_payload: None,
+    });
+    preview.search.results.selected_id = Some("preview-scroll".into());
+    preview.preview.body = Some(
+        (0..40)
+            .map(|i| format!("line {i}"))
+            .collect::<Vec<_>>()
+            .join("\n"),
+    );
+    preview.focus = FocusZone::Preview;
+    assert_eq!(
+        update(&mut preview, Msg::SelectPageDown),
+        vec![Effect::None]
+    );
+    assert_eq!(preview.preview.scroll, 5);
+
+    let mut settings = AppState::default();
+    settings.route = Route::Settings;
+    settings.settings.modules = (0..12)
+        .map(|i| crate::view_model::SettingsModuleRow {
+            id: format!("module-{i}"),
+            name: format!("Module {i}"),
+            enabled: true,
+        })
+        .collect();
+    assert_eq!(
+        update(&mut settings, Msg::SelectPageDown),
+        vec![Effect::None]
+    );
+    assert_eq!(settings.settings.selected, 5);
+
+    let mut commands = AppState {
+        route: Route::Commands,
+        ..AppState::default()
+    };
+    assert_eq!(
+        update(&mut commands, Msg::SelectPageDown),
+        vec![Effect::None]
+    );
+    assert_eq!(commands.overlay.commands_selected, 5);
+
+    let mut picker = AppState::default();
+    picker.route = Route::ActionPicker;
+    picker.actions.action_choices = (0..12)
+        .map(|i| ActionDescriptorDto {
+            id: format!("action-{i}"),
+            label: format!("Action {i}"),
+            risk: ActionRisk::Safe,
+            confirmation: false,
+        })
+        .collect();
+    assert_eq!(update(&mut picker, Msg::SelectPageDown), vec![Effect::None]);
+    assert_eq!(picker.actions.action_selected, 5);
+}
+
+#[test]
+fn page_scroll_moves_hub_without_loading_or_activating_rows() {
+    let mut state = AppState::default();
+    state.module_catalog = (0..12)
+        .map(|i| crate::view_model::ModuleCatalogEntry {
+            id: format!("luma.module-{i}"),
+            display_name: format!("Module {i}"),
+            enabled: true,
+            glyph: None,
+            suggested_query: Some(format!("/m{i} ")),
+            empty_hint: None,
+            supports_browse: false,
+            triggers: vec![format!("m{i}")],
+            commands: vec![],
+        })
+        .collect();
+    assert!(state.showing_hub());
+    assert_eq!(update(&mut state, Msg::SelectPageDown), vec![Effect::None]);
+    assert_eq!(state.hub.selected, 5);
+    assert_eq!(state.focus, FocusZone::List);
+}
+
+#[test]
+fn scroll_palette_action_returns_to_and_scrolls_help() {
+    let mut state = AppState::default();
+    state.route = Route::Help;
+    state.terminal.height = 10;
+    assert_eq!(update(&mut state, Msg::OpenCommands), vec![Effect::None]);
+    assert_eq!(state.route, Route::Commands);
+    for character in "scroll down".chars() {
+        let _ = update(&mut state, Msg::KeyChar(character));
+    }
+    assert_eq!(update(&mut state, Msg::Submit), vec![Effect::None]);
+    assert_eq!(state.route, Route::Help);
+    assert_eq!(state.overlay.help_scroll, 5.min(state.help_scroll_max()));
+}
+
+#[test]
+fn slash_scroll_is_local_but_unprefixed_text_remains_global_search() {
+    let mut state = AppState::default();
+    for i in 0..7 {
+        state.search.results.items.push(SearchItem {
+            id: ResultId::new(format!("local-scroll:{i}")),
+            module_id: ModuleId::new("mock"),
+            title: format!("Item {i}"),
+            subtitle: None,
+            kind: "mock".into(),
+            score: 1.0,
+            primary_action: ActionDescriptor {
+                id: ActionId::new("open"),
+                label: "Open".into(),
+                risk: ActionRisk::Safe,
+                confirmation: false,
+            },
+            secondary_actions: vec![],
+            ui_intent: None,
+            action_payload: None,
+        });
+    }
+    state.search.results.selected_id = Some("local-scroll:0".into());
+    state.search.prompt = "/scroll down".into();
+    state.search.prompt_cursor = state.prompt_char_len();
+    assert_eq!(update(&mut state, Msg::Submit), vec![Effect::None]);
+    assert_eq!(
+        state.search.results.selected_id.as_deref(),
+        Some("local-scroll:5")
+    );
+
+    state.search.prompt = "scroll down".into();
+    state.search.prompt_cursor = state.prompt_char_len();
+    state.search.debounce_deadline = Some(std::time::Instant::now());
+    let effects = update(&mut state, Msg::Submit);
+    assert!(effects
+        .iter()
+        .any(|effect| matches!(effect, Effect::Search { query, .. } if query == "scroll down")));
 }
 
 #[test]
@@ -1403,6 +1689,7 @@ fn hub_rows_order_window_then_module() {
         empty_hint: None,
         supports_browse: false,
         triggers: vec![],
+        commands: vec![],
     }];
     let rows = state.hub_rows();
     assert_eq!(rows[0].0, "window");
@@ -1426,6 +1713,7 @@ fn hub_loaded_clamps_selection() {
         empty_hint: None,
         supports_browse: false,
         triggers: vec![],
+        commands: vec![],
     }];
     let _ = state.apply_engine_event(Event::HubLoaded {
         windows: Some(luma_protocol::HubWindowsDto {

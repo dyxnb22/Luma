@@ -20,6 +20,16 @@ impl AppState {
                         empty_hint: m.empty_hint.clone(),
                         supports_browse: m.supports_browse,
                         triggers: m.triggers.clone(),
+                        commands: m
+                            .commands
+                            .iter()
+                            .map(|command| crate::view_model::CommandCatalogEntry {
+                                syntax: command.syntax.clone(),
+                                description: command.description.clone(),
+                                query: command.query.clone(),
+                                example: command.example.clone(),
+                            })
+                            .collect(),
                     })
                     .collect();
                 self.module_labels = modules
@@ -142,8 +152,14 @@ impl AppState {
                 if self.search.active_request.as_deref() == Some(request_id.as_str()) {
                     // End the active request so Esc Clear works on the first press.
                     self.search.active_request = None;
+                    let candidates = self.command_completion_candidates();
                     let (text, tone) = if self.incomplete_slash_trigger().is_some() {
                         ("Add space to search".into(), StatusTone::Neutral)
+                    } else if !candidates.is_empty() {
+                        (
+                            format!("Try: {}", candidates.join(" · ")),
+                            StatusTone::Neutral,
+                        )
                     } else if total == 0 {
                         ("No results".into(), StatusTone::Neutral)
                     } else {

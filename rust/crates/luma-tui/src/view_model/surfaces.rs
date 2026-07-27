@@ -79,6 +79,15 @@ pub struct ModuleCatalogEntry {
     pub empty_hint: Option<String>,
     pub supports_browse: bool,
     pub triggers: Vec<String>,
+    pub commands: Vec<CommandCatalogEntry>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CommandCatalogEntry {
+    pub syntax: String,
+    pub description: String,
+    pub query: String,
+    pub example: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -87,6 +96,8 @@ pub struct CommandPaletteEntry {
     pub label: String,
     pub description: String,
     pub query: Option<String>,
+    /// Execute/search immediately. Required-argument entries only seed the prompt.
+    pub submit: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -141,6 +152,7 @@ pub struct OverlayState {
     pub commands_selected: usize,
     pub commands_filter: String,
     pub restore_prompt: Option<String>,
+    pub commands_return_route: Option<crate::view_model::Route>,
 }
 
 /// Last known terminal geometry. Rendering and viewport calculations read this snapshot only.

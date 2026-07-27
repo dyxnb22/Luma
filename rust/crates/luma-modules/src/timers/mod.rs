@@ -43,6 +43,31 @@ pub struct TimersModule {
 }
 
 impl TimersModule {
+    /// Canonical command discovery owned by this module, including unavailable fallbacks.
+    pub fn command_specs() -> Vec<luma_application::CommandSpec> {
+        vec![
+            crate::ux::command_spec("/tm [query]", "List or search timers", "/tm ", None),
+            crate::ux::command_spec(
+                "/tm pomo [minutes] [name]",
+                "Create and start a countdown",
+                "/tm pomo ",
+                Some("/tm pomo 25 Focus"),
+            ),
+            crate::ux::command_spec(
+                "/tm <minutes> [name]",
+                "Create and start a countdown by minute count",
+                "/tm ",
+                Some("/tm 10 Tea"),
+            ),
+            crate::ux::command_spec(
+                "/tm sw [name]",
+                "Create and start a stopwatch",
+                "/tm sw ",
+                Some("/tm sw Build"),
+            ),
+        ]
+    }
+
     pub fn with_deps(
         store: Arc<dyn TimersRepository>,
         clock: Arc<dyn ClockPort>,
@@ -63,6 +88,7 @@ impl TimersModule {
                         "/tm · /tm pomo [min] [name] · /tm sw [name] · start/pause/resume".into(),
                     ),
                     supports_browse: false,
+                    commands: Self::command_specs(),
                 },
             },
             store,
@@ -118,6 +144,29 @@ impl LumaModule for TimersModule {
                         primary_action_label: "Unavailable".into(),
                         ..Default::default()
                     }],
+                    removed_ids: vec![],
+                })
+                .await;
+            return;
+        }
+
+        let first_token = rest.split_whitespace().next().unwrap_or("");
+        let countdown_requested = matches!(first_token, "pomo" | "pomodoro" | "cd" | "countdown")
+            || (!first_token.is_empty()
+                && first_token
+                    .chars()
+                    .all(|character| character.is_ascii_digit()));
+        if countdown_requested && parse_countdown_spec(&rest).is_none() {
+            let _ = sink
+                .send(Event::ResultsChunk {
+                    request_id: String::new(),
+                    sequence: 1,
+                    upserts: vec![crate::ux::command_error(
+                        "luma.timers",
+                        "tm:countdown-invalid",
+                        "Countdown duration is invalid",
+                        "Use 1-1440 minutes · example: /tm pomo 25 Focus",
+                    )],
                     removed_ids: vec![],
                 })
                 .await;
@@ -857,6 +906,16 @@ mod tests {
             "stale CAS must not speak"
         );
         m.teardown().await;
+    }
+
+    #[tokio::test]
+    async fn out_of_range_countdown_is_an_explicit_error() {
+        let (module, _, _) = module_at(0);
+        for raw in ["/tm pomo 0 Focus", "/tm 1441"] {
+            let items = collect_search_items(&module, Query::parse(raw, 20)).await;
+            assert_eq!(items.len(), 1, "{raw}");
+            assert_eq!(items[0].kind, "command_error", "{raw}");
+        }
     }
 
     #[tokio::test]

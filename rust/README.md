@@ -124,8 +124,18 @@ backup, and migration ledger, never the Markdown source files.
 
 ## TUI quick reference
 
+- The visual shell uses a layered dark/light semantic palette, one accent border for the focused
+  pane, full-width selection bands, and a one-line contextual shortcut bar. `COLORFGBG` selects
+  the light palette in auto mode; `LUMA_TUI_ASCII=1` keeps simpler decorative glyphs and
+  non-rounded panel chrome.
 - Commands use a leading `/`, for example `/ssh prod`, `/rec browse`, `/cmd test`, `/settings`,
   and `/help`. Input without `/` is always treated as a global search.
+- `Ctrl-/` opens the searchable command palette; `/commands [filter]` opens the same surface.
+  Enabled modules publish their real subcommands, argument placeholders, and short examples there
+  and in `/help`. Partial slash commands show bounded completion candidates.
+- `PgUp`/`PgDn` page the focused surface. `/scroll up` and `/scroll down` expose the same pure
+  navigation through the command palette, including Results, the empty Hub, Preview, Help,
+  Settings, the palette itself, and ActionPicker. Paging never runs an action or requests module I/O.
 
 - Configure daily-use values without leaving the TUI: `/settings projects-root PATH`,
   `/settings import-project PATH`, `/settings records-root PATH|none`,

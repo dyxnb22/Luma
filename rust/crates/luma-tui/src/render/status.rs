@@ -1,11 +1,13 @@
 use super::util::{display_width, truncate};
 use crate::theme::{Symbols, Theme};
-use crate::view_model::{AppState, Route, StatusTone};
+use crate::view_model::{AppState, FocusZone, Route, StatusTone};
 use ratatui::layout::Rect;
 use ratatui::style::Style;
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Paragraph};
+use ratatui::widgets::Paragraph;
 use ratatui::Frame;
+
+type Hint = (String, &'static str);
 
 pub(super) fn render_status(
     frame: &mut Frame<'_>,
@@ -14,128 +16,169 @@ pub(super) fn render_status(
     theme: &Theme,
     symbols: &Symbols,
 ) {
-    let status_style = status_style(state.status.tone, theme);
-    let hints = match state.route {
-        Route::Search if state.showing_hub() => {
-            format!(
-                "1-9 focus {}{}{} move {} Enter open {} Ctrl-/ commands",
-                symbols.sep, symbols.up, symbols.down, symbols.sep, symbols.sep
-            )
+    let width = area.width as usize;
+    let narrow = width < 60;
+    let hints = contextual_hints(state, symbols);
+    let hints_budget = (width.saturating_mul(2) / 3).clamp(12, 78);
+    let (hint_spans, hints_width) = styled_hints(&hints, hints_budget, theme, symbols);
+
+    let status_text = compact_status(state, narrow);
+    let status_budget = width.saturating_sub(hints_width + 5).max(6);
+    let status_text = truncate(status_text, status_budget, symbols);
+    let status_width = display_width(&status_text) + 3;
+    let gap = width.saturating_sub(status_width + hints_width).max(1);
+    let background = theme.surface_alt();
+    let tone = status_style(state.status.tone, theme).bg(theme.surface_alt_bg);
+
+    let mut spans = vec![
+        Span::styled(" ", background),
+        Span::styled(symbols.status, tone),
+        Span::styled(" ", background),
+        Span::styled(status_text, tone),
+        Span::styled(" ".repeat(gap), background),
+    ];
+    spans.extend(hint_spans);
+    let used = status_width + gap + hints_width;
+    if used < width {
+        spans.push(Span::styled(" ".repeat(width - used), background));
+    }
+
+    frame.render_widget(Paragraph::new(Line::from(spans)).style(background), area);
+}
+
+fn compact_status(state: &AppState, narrow: bool) -> &str {
+    if narrow && state.route == Route::WordbookReview {
+        if state.wordbook.review.as_ref().is_some_and(|r| r.finished) {
+            "done"
+        } else {
+            "review"
         }
-        Route::Search => {
-            if state.focus == crate::view_model::FocusZone::Preview {
-                format!(
-                    "PgUp/Dn scroll {} Tab focus {} Esc back",
-                    symbols.sep, symbols.sep
-                )
-            } else if state.is_win_search() && state.focus == crate::view_model::FocusZone::List {
-                format!(
-                    "1-9 focus {}{} move {} Enter open {} Ctrl-k actions {} Tab focus",
-                    symbols.sep, symbols.up, symbols.sep, symbols.sep, symbols.sep
-                )
-            } else if !state.search.results.items.is_empty()
-                && state.focus == crate::view_model::FocusZone::List
-            {
-                format!(
-                    "{}{} move {} Enter run {} Ctrl-k actions {} Tab focus {} S-Tab preview {} Esc back {} ? help",
-                    symbols.up,
-                    symbols.down,
-                    symbols.sep,
-                    symbols.sep,
-                    symbols.sep,
-                    symbols.sep,
-                    symbols.sep,
-                    symbols.sep
-                )
-            } else {
-                format!(
-                    "{}{} move {} Enter search {} Ctrl-k actions {} Tab focus {} S-Tab preview {} Esc back {} ? help",
-                    symbols.up,
-                    symbols.down,
-                    symbols.sep,
-                    symbols.sep,
-                    symbols.sep,
-                    symbols.sep,
-                    symbols.sep,
-                    symbols.sep
-                )
-            }
+    } else if narrow && state.status.text.starts_with("removed ") {
+        "removed · dir kept"
+    } else {
+        state.status.text.as_str()
+    }
+}
+
+fn contextual_hints(state: &AppState, symbols: &Symbols) -> Vec<Hint> {
+    let arrows = format!("{}{}", symbols.up, symbols.down);
+    match state.route {
+        Route::Search if state.showing_hub() => vec![
+            ("1-9".into(), "focus"),
+            (arrows, "move"),
+            ("PgUp/Dn".into(), "page"),
+            ("Enter".into(), "open"),
+            ("Ctrl-/".into(), "commands"),
+        ],
+        Route::Search if state.focus == FocusZone::Preview => vec![
+            ("PgUp/Dn".into(), "scroll"),
+            ("Tab".into(), "focus"),
+            ("Esc".into(), "back"),
+        ],
+        Route::Search if state.is_win_search() && state.focus == FocusZone::List => vec![
+            ("1-9".into(), "focus"),
+            (arrows, "move"),
+            ("Enter".into(), "open"),
+            ("Ctrl-k".into(), "actions"),
+            ("Tab".into(), "focus"),
+        ],
+        Route::Search
+            if !state.search.results.items.is_empty() && state.focus == FocusZone::List =>
+        {
+            vec![
+                (arrows, "move"),
+                ("Enter".into(), "run"),
+                ("Ctrl-k".into(), "actions"),
+                ("S-Tab".into(), "preview"),
+                ("?".into(), "help"),
+            ]
         }
-        Route::ActionPicker => format!(
-            "{}{} 1-9 {} Enter Run {} Esc Back",
-            symbols.up, symbols.down, symbols.sep, symbols.sep
-        ),
-        Route::Settings => format!(
-            "{}{} Enter/Space Toggle {} Esc Back",
-            symbols.up, symbols.down, symbols.sep
-        ),
-        Route::Commands => format!("Enter Run {} Esc Back", symbols.sep),
+        Route::Search => vec![
+            (arrows, "move"),
+            ("Enter".into(), "search"),
+            ("Ctrl-k".into(), "actions"),
+            ("Tab".into(), "focus"),
+            ("S-Tab".into(), "preview"),
+            ("?".into(), "help"),
+        ],
+        Route::ActionPicker => vec![
+            (arrows, "move"),
+            ("PgUp/Dn".into(), "page"),
+            ("1-9".into(), "pick"),
+            ("Enter".into(), "run"),
+            ("Esc".into(), "back"),
+        ],
+        Route::Settings => vec![
+            (arrows, "move"),
+            ("PgUp/Dn".into(), "page"),
+            ("Space".into(), "toggle"),
+            ("Esc".into(), "back"),
+        ],
+        Route::Commands => vec![
+            ("Type".into(), "filter"),
+            ("PgUp/Dn".into(), "page"),
+            ("Enter".into(), "run"),
+            ("Esc".into(), "back"),
+        ],
         Route::ConfirmAction | Route::QuitConfirm => {
-            format!("Enter Confirm {} Esc Cancel", symbols.sep)
+            vec![("Enter".into(), "confirm"), ("Esc".into(), "cancel")]
         }
-        Route::Help => format!(
-            "{}{} / PgUp PgDn scroll {} Esc Back",
-            symbols.up, symbols.down, symbols.sep
-        ),
+        Route::Help => vec![
+            (arrows, "scroll"),
+            ("PgUp/Dn".into(), "page"),
+            ("Esc".into(), "back"),
+        ],
         Route::WordbookReview => {
             if state.wordbook.review.as_ref().is_some_and(|r| r.finished) {
-                "Esc back".into()
+                vec![("Esc".into(), "back")]
             } else {
-                "Enter/Space reveal · 1/2/3 grade · m master · s skip · Esc exit".into()
+                vec![
+                    ("1/2/3".into(), "grade"),
+                    ("Esc".into(), "exit"),
+                    ("m".into(), "master"),
+                    ("s".into(), "skip"),
+                ]
             }
         }
-    };
+    }
+}
 
-    let inner_w = area.width.saturating_sub(2) as usize;
-    let narrow = inner_w < 60;
-    let (status_text, hints) = if narrow {
-        let compact_hints = match state.route {
-            Route::Search if state.showing_hub() => "1-9 · ↑↓ · Enter".to_string(),
-            Route::Search => "Enter · Ctrl-k · Esc".to_string(),
-            Route::ActionPicker => "1-9 · Enter · Esc".to_string(),
-            Route::Settings => "↑↓ · Space · Esc".to_string(),
-            Route::Commands => "Enter · Esc".to_string(),
-            Route::ConfirmAction | Route::QuitConfirm => "Enter yes · Esc no".to_string(),
-            Route::Help => "↑↓ · Esc".to_string(),
-            Route::WordbookReview => {
-                if state.wordbook.review.as_ref().is_some_and(|r| r.finished) {
-                    "Esc back".to_string()
-                } else {
-                    "1/2/3 · s skip · Esc".to_string()
-                }
+fn styled_hints(
+    hints: &[Hint],
+    budget: usize,
+    theme: &Theme,
+    symbols: &Symbols,
+) -> (Vec<Span<'static>>, usize) {
+    let mut spans = Vec::new();
+    let mut used = 0;
+    for (index, (key, label)) in hints.iter().enumerate() {
+        let separator = usize::from(index > 0) * 2;
+        let piece_width = separator + display_width(key) + 1 + display_width(label);
+        if used + piece_width > budget {
+            if used + display_width(symbols.ellipsis) <= budget {
+                spans.push(Span::styled(
+                    symbols.ellipsis.to_string(),
+                    theme.muted().bg(theme.surface_alt_bg),
+                ));
+                used += display_width(symbols.ellipsis);
             }
-        };
-        let compact_status = if state.route == Route::WordbookReview {
-            if state.wordbook.review.as_ref().is_some_and(|r| r.finished) {
-                "done"
-            } else {
-                "review"
-            }
-        } else if state.status.text.starts_with("removed ") {
-            "removed · dir kept"
-        } else {
-            state.status.text.as_str()
-        };
-        (compact_status.to_string(), compact_hints)
-    } else {
-        (state.status.text.clone(), hints)
-    };
-    let hints_budget = (inner_w / 2).clamp(16, 60);
-    let hints = truncate(&hints, hints_budget, symbols);
-    let status_budget = inner_w.saturating_sub(display_width(&hints) + 3).max(8);
-    let status_text = truncate(&status_text, status_budget, symbols);
-
-    let line = Line::from(vec![
-        Span::styled(format!(" {status_text}  "), status_style),
-        Span::styled(hints, theme.key_hint()),
-    ]);
-    let widget = Paragraph::new(line).block(
-        Block::default()
-            .borders(Borders::ALL)
-            .border_style(theme.border(false))
-            .title(Span::styled(" status ", theme.muted())),
-    );
-    frame.render_widget(widget, area);
+            break;
+        }
+        if index > 0 {
+            spans.push(Span::styled("  ", theme.muted().bg(theme.surface_alt_bg)));
+            used += 2;
+        }
+        spans.push(Span::styled(
+            key.clone(),
+            theme.keycap().bg(theme.surface_alt_bg),
+        ));
+        spans.push(Span::styled(
+            format!(" {label}"),
+            theme.muted().bg(theme.surface_alt_bg),
+        ));
+        used += display_width(key) + 1 + display_width(label);
+    }
+    (spans, used)
 }
 
 fn status_style(tone: StatusTone, theme: &Theme) -> Style {

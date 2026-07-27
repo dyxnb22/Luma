@@ -21,6 +21,16 @@ pub struct ShellHistoryModule {
 }
 
 impl ShellHistoryModule {
+    /// Canonical command discovery owned by this module, including unavailable fallbacks.
+    pub fn command_specs() -> Vec<luma_application::CommandSpec> {
+        vec![crate::ux::command_spec(
+            "/hist [recent|query]",
+            "Search the bounded privacy-filtered zsh history tail",
+            "/hist ",
+            Some("/hist rg"),
+        )]
+    }
+
     pub fn with_deps(
         history: Arc<dyn ShellHistoryPort>,
         pasteboard: Arc<dyn PasteboardPort>,
@@ -38,6 +48,7 @@ impl ShellHistoryModule {
                     suggested_query: Some("/hist ".into()),
                     empty_hint: Some("/hist recent · /hist <query>".into()),
                     supports_browse: false,
+                    commands: Self::command_specs(),
                 },
             },
             history,

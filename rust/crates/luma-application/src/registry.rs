@@ -140,6 +140,17 @@ impl ModuleRegistry {
                     empty_hint: man.workbench.empty_hint.clone(),
                     supports_browse: man.workbench.supports_browse,
                     triggers: man.triggers.clone(),
+                    commands: man
+                        .workbench
+                        .commands
+                        .iter()
+                        .map(|command| luma_protocol::CommandSpecDto {
+                            syntax: command.syntax.clone(),
+                            description: command.description.clone(),
+                            query: command.query.clone(),
+                            example: command.example.clone(),
+                        })
+                        .collect(),
                 }
             })
             .collect();
@@ -294,5 +305,38 @@ mod tests {
 
         assert!(denied.is_empty());
         assert!(reg.is_enabled("luma.window-list"));
+    }
+
+    #[test]
+    fn module_info_projects_structured_command_specs() {
+        let mut reg = ModuleRegistry::new();
+        reg.register(Arc::new(StubModule {
+            manifest: ModuleManifest {
+                id: ModuleId::new("luma.records"),
+                display_name: "Records".into(),
+                triggers: vec!["rec".into()],
+                default_enabled: true,
+                search_mode: SearchMode::TargetedOnly,
+                required_capabilities: vec![],
+                workbench: crate::module::WorkbenchMeta {
+                    commands: vec![crate::module::CommandSpec::new(
+                        "/rec rate <id> <1-10|clear>",
+                        "Set or clear a rating",
+                        "/rec rate ",
+                    )
+                    .example("/rec rate 1 9")],
+                    ..Default::default()
+                },
+            },
+        }))
+        .unwrap();
+
+        let info = reg.list_module_info();
+        assert_eq!(info[0].commands.len(), 1);
+        assert_eq!(info[0].commands[0].query, "/rec rate ");
+        assert_eq!(
+            info[0].commands[0].example.as_deref(),
+            Some("/rec rate 1 9")
+        );
     }
 }

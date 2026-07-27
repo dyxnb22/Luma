@@ -66,6 +66,38 @@ impl ProjectsModule {
                             .into(),
                     ),
                     supports_browse: true,
+                    commands: vec![
+                        crate::ux::command_spec(
+                            "/proj [query]",
+                            "List or search imported projects",
+                            "/proj ",
+                            None,
+                        ),
+                        crate::ux::command_spec(
+                            "/proj show <name|path>",
+                            "Open the project workbench",
+                            "/proj show ",
+                            Some("/proj show Luma"),
+                        ),
+                        crate::ux::command_spec(
+                            "/proj browse [path]",
+                            "Browse configured project roots",
+                            "/proj browse ",
+                            None,
+                        ),
+                        crate::ux::command_spec(
+                            "/proj add <path>",
+                            "Import an existing canonical directory",
+                            "/proj add ",
+                            Some("/proj add /Users/me/project"),
+                        ),
+                        crate::ux::command_spec(
+                            "/proj remove <name|path>",
+                            "Remove import configuration; never delete the directory",
+                            "/proj remove ",
+                            Some("/proj remove Luma"),
+                        ),
+                    ],
                 },
             },
             roots: Arc::new(RwLock::new(roots)),

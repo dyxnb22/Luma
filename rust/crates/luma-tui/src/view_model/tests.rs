@@ -252,6 +252,7 @@ fn module_state_changed_updates_catalog_enabled() {
         empty_hint: None,
         supports_browse: false,
         triggers: vec![],
+        commands: vec![],
     });
     let applied = state.apply_engine_event(Event::ModuleStateChanged {
         module_id: "luma.projects".into(),
@@ -293,6 +294,7 @@ fn hub_row_window_digit_skips_status_more_and_modules() {
             empty_hint: None,
             supports_browse: false,
             triggers: vec![],
+            commands: vec![],
         }],
         ..Default::default()
     };
@@ -451,7 +453,56 @@ fn catalog_with_clipboard_trigger() -> Vec<ModuleCatalogEntry> {
         empty_hint: None,
         supports_browse: false,
         triggers: vec!["clip".into()],
+        commands: vec![],
     }]
+}
+
+#[test]
+fn module_command_specs_drive_palette_help_and_completion() {
+    let mut state = AppState {
+        module_catalog: vec![ModuleCatalogEntry {
+            id: "luma.records".into(),
+            display_name: "Records".into(),
+            enabled: true,
+            glyph: Some("R".into()),
+            suggested_query: Some("/rec ".into()),
+            empty_hint: None,
+            supports_browse: true,
+            triggers: vec!["rec".into()],
+            commands: vec![
+                CommandCatalogEntry {
+                    syntax: "/rec browse [category]".into(),
+                    description: "Browse records".into(),
+                    query: "/rec browse ".into(),
+                    example: Some("/rec browse 电影".into()),
+                },
+                CommandCatalogEntry {
+                    syntax: "/rec rate <id> <1-10|clear>".into(),
+                    description: "Set or clear a rating".into(),
+                    query: "/rec rate ".into(),
+                    example: Some("/rec rate 1 9".into()),
+                },
+            ],
+        }],
+        ..AppState::default()
+    };
+
+    let rows = state.command_palette_rows();
+    assert!(rows
+        .iter()
+        .any(|row| row.label == "/rec browse [category]" && row.submit));
+    assert!(rows
+        .iter()
+        .any(|row| row.label == "/rec rate <id> <1-10|clear>" && !row.submit));
+    let help = state.help_lines().join("\n");
+    assert!(help.contains("/rec rate <id> <1-10|clear>"));
+    assert!(help.contains("e.g. /rec rate 1 9"));
+
+    state.search.prompt = "/rec r".into();
+    assert_eq!(
+        state.command_completion_candidates(),
+        vec!["/rec rate <id> <1-10|clear>"]
+    );
 }
 
 #[test]

@@ -52,6 +52,12 @@ impl WindowsModule {
                     suggested_query: Some("/win ".into()),
                     empty_hint: Some("/win · focus a window".into()),
                     supports_browse: false,
+                    commands: vec![crate::ux::command_spec(
+                        "/win [query]",
+                        "List or search visible windows; Enter focuses",
+                        "/win ",
+                        Some("/win safari"),
+                    )],
                 },
             },
             catalog,

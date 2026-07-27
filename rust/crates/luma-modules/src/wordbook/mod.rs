@@ -30,6 +30,66 @@ pub struct WordbookModule {
 }
 
 impl WordbookModule {
+    /// Canonical command discovery owned by this module, including unavailable fallbacks.
+    pub fn command_specs() -> Vec<luma_application::CommandSpec> {
+        vec![
+            crate::ux::command_spec(
+                "/wb [today|due|new|wrong|query]",
+                "List Wordbook queues or search words",
+                "/wb ",
+                Some("/wb due"),
+            ),
+            crate::ux::command_spec(
+                "/wb review",
+                "Start today's due-first review queue",
+                "/wb review",
+                None,
+            ),
+            crate::ux::command_spec(
+                "/wb review <due|new|wrong>",
+                "Start a specific review queue",
+                "/wb review ",
+                Some("/wb review wrong"),
+            ),
+            crate::ux::command_spec(
+                "/wb add <term> | <meaning> [| example | category]",
+                "Add or explicitly overwrite a word",
+                "/wb add ",
+                Some("/wb add lume | light"),
+            ),
+            crate::ux::command_spec(
+                "/wb goal <count>",
+                "Set the daily new-word goal",
+                "/wb goal ",
+                Some("/wb goal 10"),
+            ),
+            crate::ux::command_spec(
+                "/wb import <csv-path>",
+                "Import a bounded regular UTF-8 CSV",
+                "/wb import ",
+                Some("/wb import /tmp/words.csv"),
+            ),
+            crate::ux::command_spec(
+                "/wb paste",
+                "Import words from clipboard text",
+                "/wb paste",
+                None,
+            ),
+            crate::ux::command_spec(
+                "/wb status",
+                "Show today, due, new, wrong, and goal counts",
+                "/wb status",
+                None,
+            ),
+            crate::ux::command_spec(
+                "/wb backup",
+                "Back up the Wordbook database",
+                "/wb backup",
+                None,
+            ),
+        ]
+    }
+
     pub fn with_deps(
         store: Arc<dyn WordbookRepository>,
         pasteboard: Arc<dyn PasteboardPort>,
@@ -52,6 +112,7 @@ impl WordbookModule {
                             .into(),
                     ),
                     supports_browse: false,
+                    commands: Self::command_specs(),
                 },
             },
             store,
@@ -230,6 +291,22 @@ impl WordbookModule {
             })
             .await;
     }
+
+    async fn send_command_error(sink: &SearchSink, id: &str, message: &str) {
+        let _ = sink
+            .send(Event::ResultsChunk {
+                request_id: String::new(),
+                sequence: 1,
+                upserts: vec![crate::ux::command_error(
+                    "luma.wordbook",
+                    id,
+                    "Wordbook command is incomplete",
+                    message,
+                )],
+                removed_ids: vec![],
+            })
+            .await;
+    }
 }
 
 #[async_trait]
@@ -318,6 +395,15 @@ impl LumaModule for WordbookModule {
                 return;
             }
         }
+        if rest_norm == "add" || rest_norm.starts_with("add ") {
+            Self::send_command_error(
+                &sink,
+                "wb:add-invalid",
+                "Usage: /wb add <term> | <meaning> [| example | category]",
+            )
+            .await;
+            return;
+        }
 
         // /wb goal N
         if let Some(n) = rest_norm
@@ -346,6 +432,15 @@ impl LumaModule for WordbookModule {
                 .await;
             return;
         }
+        if rest_norm == "goal" || rest_norm.starts_with("goal ") {
+            Self::send_command_error(
+                &sink,
+                "wb:goal-invalid",
+                "Usage: /wb goal <positive count> · example: /wb goal 10",
+            )
+            .await;
+            return;
+        }
 
         // /wb import PATH
         if let Some(path) = rest
@@ -370,6 +465,11 @@ impl LumaModule for WordbookModule {
                     }],
                     removed_ids: vec![],
                 })
+                .await;
+            return;
+        }
+        if rest_norm == "import" || rest_norm.starts_with("import ") {
+            Self::send_command_error(&sink, "wb:import-invalid", "Usage: /wb import <csv-path>")
                 .await;
             return;
         }
@@ -418,16 +518,14 @@ impl LumaModule for WordbookModule {
             return;
         }
 
-        if rest_norm.starts_with("review") {
-            let queue = if rest_norm == "review new" {
-                "new"
-            } else if rest_norm == "review wrong" {
-                "wrong"
-            } else if rest_norm == "review due" {
-                "due"
-            } else {
-                "today"
-            };
+        if matches!(
+            rest_norm.as_str(),
+            "review" | "review today" | "review due" | "review new" | "review wrong"
+        ) {
+            let queue = rest_norm
+                .strip_prefix("review ")
+                .filter(|queue| *queue != "today")
+                .unwrap_or("today");
             let _ = sink
                 .send(Event::ResultsChunk {
                     request_id: String::new(),
@@ -449,6 +547,15 @@ impl LumaModule for WordbookModule {
                     removed_ids: vec![],
                 })
                 .await;
+            return;
+        }
+        if rest_norm.starts_with("review ") {
+            Self::send_command_error(
+                &sink,
+                "wb:review-invalid",
+                "Usage: /wb review [today|due|new|wrong]",
+            )
+            .await;
             return;
         }
 
@@ -1210,6 +1317,7 @@ mod tests {
         WordbookRepository,
     };
     use luma_domain::{ActionDescriptor, ActionId, ActionRisk, ResultId, SearchItem};
+    use luma_test_support::collect_search_items;
     use std::path::PathBuf;
     use std::sync::Arc;
 
@@ -1249,6 +1357,16 @@ mod tests {
             reader,
         );
         (module, store)
+    }
+
+    #[tokio::test]
+    async fn invalid_reserved_subcommands_are_explicit_errors() {
+        let (module, _) = module_with_reader(Arc::new(FakeBoundedUtf8FileReader::default()));
+        for query in ["/wb goal 0", "/wb review later", "/wb import"] {
+            let items = collect_search_items(&module, Query::parse(query, 20)).await;
+            assert_eq!(items.len(), 1, "{query}");
+            assert_eq!(items[0].kind, "command_error", "{query}");
+        }
     }
 
     #[tokio::test]

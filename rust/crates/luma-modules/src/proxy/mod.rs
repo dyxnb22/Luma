@@ -61,6 +61,62 @@ impl ProxyModule {
                     suggested_query: Some("/proxy ".into()),
                     empty_hint: Some("/proxy · inspect Mihomo and system proxy".into()),
                     supports_browse: true,
+                    commands: vec![
+                        crate::ux::command_spec(
+                            "/proxy",
+                            "Show Mihomo status and proxy-group overview",
+                            "/proxy ",
+                            None,
+                        ),
+                        crate::ux::command_spec(
+                            "/proxy status",
+                            "Show Mihomo, controller, profiles, and macOS proxy status",
+                            "/proxy status",
+                            None,
+                        ),
+                        crate::ux::command_spec(
+                            "/proxy check",
+                            "Run on-demand local route, DNS, listener, and controller checks",
+                            "/proxy check",
+                            None,
+                        ),
+                        crate::ux::command_spec(
+                            "/proxy group <name>",
+                            "Drill into matching proxy groups and nodes",
+                            "/proxy group ",
+                            Some("/proxy group Proxy"),
+                        ),
+                        crate::ux::command_spec(
+                            "/proxy global",
+                            "Prepare a confirmed switch to Global mode",
+                            "/proxy global",
+                            None,
+                        ),
+                        crate::ux::command_spec(
+                            "/proxy rule",
+                            "Prepare a confirmed switch to Rule mode",
+                            "/proxy rule",
+                            None,
+                        ),
+                        crate::ux::command_spec(
+                            "/proxy profile [filter]",
+                            "List Luma-owned and read-only external profiles",
+                            "/proxy profile ",
+                            None,
+                        ),
+                        crate::ux::command_spec(
+                            "/proxy profile refresh",
+                            "List refreshable Luma-owned subscriptions",
+                            "/proxy profile refresh",
+                            None,
+                        ),
+                        crate::ux::command_spec(
+                            "/proxy import <https-url|yaml-path>",
+                            "Validate and prepare a Luma-owned profile import",
+                            "/proxy import ",
+                            Some("/proxy import /tmp/profile.yaml"),
+                        ),
+                    ],
                 },
             },
             core,
@@ -565,6 +621,16 @@ mod tests {
                     .is_some_and(|subtitle| subtitle.contains("selected"))
         }));
         assert!(!redact_label("node-123e4567-e89b-12d3-a456-426614174000").contains("123e4567"));
+    }
+
+    #[tokio::test]
+    async fn incomplete_and_unknown_commands_are_explicit_errors() {
+        let (module, _, _) = module();
+        for raw in ["/proxy group", "/proxy unknown"] {
+            let items = collect_search_items(&module, Query::parse(raw, 20)).await;
+            assert_eq!(items.len(), 1, "{raw}");
+            assert_eq!(items[0].kind, "command_error", "{raw}");
+        }
     }
 
     #[tokio::test]

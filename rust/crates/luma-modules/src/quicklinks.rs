@@ -25,6 +25,25 @@ pub struct QuicklinksModule {
 }
 
 impl QuicklinksModule {
+    /// Canonical command discovery owned by this module, including unavailable fallbacks.
+    pub fn command_specs() -> Vec<luma_application::CommandSpec> {
+        vec![
+            crate::ux::command_spec("/ql [query]", "List or search quicklinks", "/ql ", None),
+            crate::ux::command_spec(
+                "/ql add <trigger> <url>",
+                "Add or explicitly overwrite a quicklink",
+                "/ql add ",
+                Some("/ql add gh https://github.com"),
+            ),
+            crate::ux::command_spec(
+                "/ql backup",
+                "Back up quicklinks metadata",
+                "/ql backup",
+                None,
+            ),
+        ]
+    }
+
     pub fn with_deps(
         store: Arc<dyn QuicklinksRepository>,
         opener: Arc<dyn OpenPathPort>,
@@ -43,6 +62,7 @@ impl QuicklinksModule {
                     suggested_query: Some("/ql ".into()),
                     empty_hint: Some("/ql · /ql add <trigger> <url>".into()),
                     supports_browse: false,
+                    commands: Self::command_specs(),
                 },
             },
             store,
@@ -150,13 +170,11 @@ impl LumaModule for QuicklinksModule {
         let rest = query.rest_normalized();
         let rest_raw = query.rest_raw();
 
-        if query.is_command() && rest.starts_with("add ") {
+        if query.is_command() && (rest == "add" || rest.starts_with("add ")) {
             let body_raw = rest_raw
-                .strip_prefix("add ")
-                .or_else(|| rest_raw.strip_prefix("Add "))
-                .or_else(|| rest_raw.strip_prefix("ADD "))
-                .unwrap_or(rest_raw)
-                .trim();
+                .split_once(char::is_whitespace)
+                .map(|(_, body)| body.trim())
+                .unwrap_or("");
             let parts: Vec<_> = body_raw.split_whitespace().collect();
             if parts.len() >= 2 {
                 let trigger = parts[0].to_lowercase();
@@ -212,6 +230,20 @@ impl LumaModule for QuicklinksModule {
                     .await;
                 return;
             }
+            let _ = sink
+                .send(Event::ResultsChunk {
+                    request_id: String::new(),
+                    sequence: 1,
+                    upserts: vec![crate::ux::command_error(
+                        "luma.quicklinks",
+                        "ql:add-invalid",
+                        "Quicklink command is incomplete",
+                        "Usage: /ql add <trigger> <url> · example: /ql add gh https://github.com",
+                    )],
+                    removed_ids: vec![],
+                })
+                .await;
+            return;
         }
 
         if let Some(err) = self.store_error.read().await.clone() {
@@ -583,6 +615,7 @@ mod tests {
     use super::*;
     use async_trait::async_trait;
     use luma_application::{MemoryQuicklinksRepository, PasteboardError};
+    use luma_test_support::collect_search_items;
     use tokio::sync::Mutex as TokioMutex;
 
     #[derive(Default)]
@@ -632,6 +665,22 @@ mod tests {
         // Index is independent of the backing store after upsert.
         store.delete("docs").unwrap();
         assert!(m.index.read().await.iter().any(|l| l.trigger == "docs"));
+    }
+
+    #[tokio::test]
+    async fn incomplete_add_is_an_explicit_command_error() {
+        let module = QuicklinksModule::with_deps(
+            Arc::new(MemoryQuicklinksRepository::new()),
+            Arc::new(luma_application::FakeOpenPath::new()),
+            Arc::new(MemPb::default()),
+        );
+        let items = collect_search_items(&module, Query::parse("/ql add docs", 20)).await;
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].kind, "command_error");
+        assert!(items[0]
+            .subtitle
+            .as_deref()
+            .is_some_and(|subtitle| subtitle.contains("/ql add <trigger> <url>")));
     }
 
     #[tokio::test]

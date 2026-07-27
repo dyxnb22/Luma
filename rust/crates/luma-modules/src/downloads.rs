@@ -24,6 +24,36 @@ pub struct DownloadsModule {
 }
 
 impl DownloadsModule {
+    /// Canonical command discovery owned by this module, including unavailable fallbacks.
+    pub fn command_specs() -> Vec<luma_application::CommandSpec> {
+        vec![
+            crate::ux::command_spec(
+                "/dl [recent|large|query]",
+                "List recent downloads or filter direct children",
+                "/dl ",
+                Some("/dl recent"),
+            ),
+            crate::ux::command_spec(
+                "/dl old <days>d",
+                "List direct children older than a bounded duration",
+                "/dl old ",
+                Some("/dl old 30d"),
+            ),
+            crate::ux::command_spec(
+                "/dl type <archive|image|video|document|installer>",
+                "Filter Downloads by file category",
+                "/dl type ",
+                Some("/dl type image"),
+            ),
+            crate::ux::command_spec(
+                "/dl rename <result-id> | <new-name>",
+                "Prepare an explicit rename; extension changes confirm",
+                "/dl rename ",
+                Some("/dl rename dl:abc | report.pdf"),
+            ),
+        ]
+    }
+
     pub fn with_deps(
         downloads: Arc<dyn DownloadsPort>,
         opener: Arc<dyn OpenPathPort>,
@@ -42,6 +72,7 @@ impl DownloadsModule {
                     suggested_query: Some("/dl ".into()),
                     empty_hint: Some("/dl recent · large · old 30d · type image".into()),
                     supports_browse: false,
+                    commands: Self::command_specs(),
                 },
             },
             downloads,

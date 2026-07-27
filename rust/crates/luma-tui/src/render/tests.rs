@@ -185,12 +185,13 @@ fn result_refresh_replaces_loading_copy_with_wide_character_subtitle() {
         selected_id: Some("wordbook:data-retention".into()),
         ..ResultsView::default()
     };
-    terminal.clear().expect("clear before wide subtitle redraw");
-    terminal
+    let completed = terminal
         .draw(|frame| render(frame, &loading))
         .expect("results draw");
 
-    let buffer = terminal.backend().buffer();
+    // Inspect Ratatui's frame, not TestBackend's text grid. A real terminal advances two cells
+    // when it receives a CJK glyph; TestBackend intentionally stores it in one cell only.
+    let buffer = completed.buffer;
     let subtitle_y = (0..buffer.area.height)
         .find(|&y| (0..buffer.area.width).any(|x| buffer[(x, y)].symbol() == "数"))
         .expect("subtitle row");
@@ -203,7 +204,7 @@ fn result_refresh_replaces_loading_copy_with_wide_character_subtitle() {
         assert_eq!(
             buffer[(x + 1, subtitle_y)].symbol(),
             " ",
-            "wide character at x={x} left old loading text in its trailing cell"
+            "wide character at x={x} must reserve a blank trailing terminal cell"
         );
     }
 }

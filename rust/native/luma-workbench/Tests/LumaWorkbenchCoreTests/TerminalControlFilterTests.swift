@@ -28,6 +28,19 @@ final class TerminalControlFilterTests: XCTestCase {
         )
     }
 
+    func testKeepsUtf8ContinuationByteThatMatchesEightBitOsc() {
+        var filter = TerminalControlFilter()
+        let input = Array("数据保留期限".utf8)
+        XCTAssertEqual(filter.filter(input[...]), input)
+    }
+
+    func testKeepsUtf8AcrossPtyChunkBoundaryBeforeC1LookingByte() {
+        var filter = TerminalControlFilter()
+        // 保 is E4 BF 9D. Its final byte must not start an 8-bit OSC string.
+        XCTAssertEqual(filter.filter([0xe4, 0xbf][...]), [0xe4, 0xbf])
+        XCTAssertEqual(filter.filter([0x9d, 0x61][...]), [0x9d, 0x61])
+    }
+
     func testUnterminatedStringDoesNotRetainPayload() {
         var filter = TerminalControlFilter()
         XCTAssertEqual(filter.filter([0x1b, 0x5d][...]), [])

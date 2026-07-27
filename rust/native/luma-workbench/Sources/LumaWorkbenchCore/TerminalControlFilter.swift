@@ -15,6 +15,10 @@ public struct TerminalControlFilter: Sendable {
     }
 
     private var state: State = .passthrough
+    /// Number of UTF-8 continuation bytes expected after a leading byte. C1 OSC/APC values
+    /// (0x9D / 0x9F) overlap the UTF-8 continuation range, so they are control bytes only when
+    /// they occur outside a UTF-8 scalar.
+    private var utf8ContinuationBytes = 0
 
     public init() {}
 
@@ -24,6 +28,16 @@ public struct TerminalControlFilter: Sendable {
         output.reserveCapacity(input.count)
 
         for byte in input {
+            if case .passthrough = state, utf8ContinuationBytes > 0 {
+                if byte & 0xc0 == 0x80 {
+                    output.append(byte)
+                    utf8ContinuationBytes -= 1
+                    continue
+                }
+                // Invalid or interrupted UTF-8 must not make the next byte look protected.
+                utf8ContinuationBytes = 0
+            }
+
             switch state {
             case .passthrough:
                 if byte == 0x1b {
@@ -31,7 +45,7 @@ public struct TerminalControlFilter: Sendable {
                 } else if byte == 0x9d || byte == 0x9f { // 8-bit OSC/APC
                     state = .discardingString(afterEscape: false)
                 } else {
-                    output.append(byte)
+                    appendPlaintextByte(byte, to: &output)
                 }
 
             case .escape:
@@ -40,7 +54,7 @@ public struct TerminalControlFilter: Sendable {
                     state = .discardingString(afterEscape: false)
                 default:
                     output.append(0x1b)
-                    output.append(byte)
+                    appendPlaintextByte(byte, to: &output)
                     state = .passthrough
                 }
 
@@ -59,5 +73,15 @@ public struct TerminalControlFilter: Sendable {
         }
 
         return output
+    }
+
+    private mutating func appendPlaintextByte(_ byte: UInt8, to output: inout [UInt8]) {
+        output.append(byte)
+        utf8ContinuationBytes = switch byte {
+        case 0xc2...0xdf: 1
+        case 0xe0...0xef: 2
+        case 0xf0...0xf4: 3
+        default: 0
+        }
     }
 }

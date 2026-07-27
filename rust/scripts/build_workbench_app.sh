@@ -22,6 +22,11 @@ BUNDLE_IDENTIFIER="com.luma.next.workbench"
 SIGNING_IDENTITY="-"
 if [[ -n "${CODESIGN_IDENTITY+x}" && -n "$CODESIGN_IDENTITY" ]]; then
     SIGNING_IDENTITY="$CODESIGN_IDENTITY"
+elif /usr/bin/security find-identity -v -p codesigning 2>/dev/null \
+    | /usr/bin/grep -Fq '"Luma Local Development"'; then
+    # This local certificate gives the bundle a stable designated requirement, so a normal
+    # rebuild does not discard macOS privacy grants such as Screen Recording.
+    SIGNING_IDENTITY="Luma Local Development"
 fi
 
 cd "$RUST_ROOT"
@@ -64,11 +69,13 @@ if [[ ! -x "/usr/bin/codesign" ]]; then
     exit 1
 fi
 
-# Sign nested executables first, then bind the bundle identifier to the app itself.
+# Sign nested executables first, then bind the bundle identifier to the app itself. The Rust TUI
+# calls CoreGraphics itself, so it must share the host's identifier for Screen Recording TCC to
+# apply to the PTY child as well as the AppKit process.
 # The default ad-hoc identity is enough to make a local bundle runnable, but rebuilding it can
 # invalidate TCC grants. Set CODESIGN_IDENTITY to a stable local certificate when continuity
 # matters, and re-check module-local permissions after an ad-hoc rebuild.
-/usr/bin/codesign --force --sign "$SIGNING_IDENTITY" --identifier "$BUNDLE_IDENTIFIER.cli" \
+/usr/bin/codesign --force --sign "$SIGNING_IDENTITY" --identifier "$BUNDLE_IDENTIFIER" \
     --timestamp=none "$MACOS/luma"
 /usr/bin/codesign --force --sign "$SIGNING_IDENTITY" --identifier "$BUNDLE_IDENTIFIER" \
     --timestamp=none "$MACOS/LumaWorkbench"

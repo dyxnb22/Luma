@@ -10,8 +10,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var hotKeyController: GlobalHotKeyController?
     private var memoryPressureController: MemoryPressureController?
     private var activation = ActivationPolicy()
+    private var pendingExternalShowRequest = false
 
     private var ownProcessIdentifier: pid_t { ProcessInfo.processInfo.processIdentifier }
+
+    override init() {
+        super.init()
+        DistributedNotificationCenter.default().addObserver(
+            self,
+            selector: #selector(showRunningInstance),
+            name: Notification.Name(HostIdentity.showRunningInstanceNotification),
+            object: nil
+        )
+    }
+
+    deinit {
+        DistributedNotificationCenter.default().removeObserver(self)
+    }
 
     // MARK: - NSApplicationDelegate
 
@@ -51,6 +66,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     sessionIsRunning: false
                 )
             )
+            if self.pendingExternalShowRequest {
+                self.pendingExternalShowRequest = false
+                self.showWindow()
+            }
         }
     }
 
@@ -98,6 +117,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             sessionIsRunning: session?.isRunning ?? false
         )
         apply(action)
+    }
+
+    @objc private func showRunningInstance() {
+        guard windowController != nil else {
+            pendingExternalShowRequest = true
+            return
+        }
+        showWindow()
     }
 
     private func apply(_ action: ActivationAction) {

@@ -26,6 +26,7 @@ mod shortcuts;
 mod speech;
 mod ssh_config;
 mod system_proxy;
+mod system_settings;
 #[cfg(target_os = "macos")]
 mod window;
 #[cfg(not(target_os = "macos"))]
@@ -55,4 +56,5 @@ pub use shortcuts::MacShortcuts;
 pub use speech::MacSpeech;
 pub use ssh_config::MacSshConfig;
 pub use system_proxy::MacSystemProxy;
+pub use system_settings::MacSystemSettings;
 pub use window::MacWindowCatalog;

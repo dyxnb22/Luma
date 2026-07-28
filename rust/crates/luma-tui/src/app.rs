@@ -465,7 +465,7 @@ fn run_interactive_terminal_effect(
 
     let terminal_started = spawn_result.is_some();
     let (status, message, tone) = match spawn_result {
-        Some(Ok(status)) => interactive_status(&program, status),
+        Some(Ok(status)) => interactive_status(&program, &args, status),
         Some(Err(err)) => (
             None,
             format!("failed to start {program}: {err}"),
@@ -484,6 +484,12 @@ fn run_interactive_terminal_effect(
         } else {
             state.status.set(message, tone);
             state.dirty = true;
+            if status.is_some_and(|status| status.success())
+                && explicit_command_prompt(&state.search.prompt)
+                    .is_some_and(|command| command.starts_with("pkg"))
+            {
+                state.search.debounce_deadline = Some(std::time::Instant::now());
+            }
         }
     } else {
         state.status.set(message, tone);
@@ -492,6 +498,7 @@ fn run_interactive_terminal_effect(
 
     if state.actions.active_operation.as_deref() == Some(operation_id.as_str()) {
         state.actions.active_operation = None;
+        state.actions.active_kind = None;
     }
 
     if let (Some(alias), Some(status)) = (record_alias, status) {
@@ -516,9 +523,24 @@ fn run_interactive_terminal_effect(
 
 fn interactive_status(
     program: &str,
+    args: &[String],
     status: ExitStatus,
 ) -> (Option<ExitStatus>, String, StatusTone) {
     if status.success() {
+        if program.ends_with("/brew") || program == "brew" {
+            let operation = args.first().map(String::as_str).unwrap_or("operation");
+            let package = args
+                .iter()
+                .rev()
+                .find(|arg| !arg.starts_with('-') && arg.as_str() != operation)
+                .map(String::as_str)
+                .unwrap_or("package");
+            return (
+                Some(status),
+                format!("Homebrew {operation} {package} completed · refreshing"),
+                StatusTone::Success,
+            );
+        }
         (
             Some(status),
             format!("{program} exited"),
@@ -832,12 +854,27 @@ mod tests {
         use std::os::unix::process::ExitStatusExt;
 
         let status = ExitStatus::from_raw(15);
-        let (returned, message, tone) = interactive_status("ssh", status);
+        let (returned, message, tone) = interactive_status("ssh", &[], status);
 
         assert_eq!(returned.and_then(|status| status.signal()), Some(15));
         assert_eq!(message, "ssh ended by signal 15");
         assert!(!message.contains("code 1"));
         assert_eq!(tone, StatusTone::Warning);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn interactive_status_names_successful_homebrew_mutation_and_refresh() {
+        use std::os::unix::process::ExitStatusExt;
+
+        let status = ExitStatus::from_raw(0);
+        let (_, message, tone) = interactive_status(
+            "/opt/homebrew/bin/brew",
+            &["install".into(), "--cask".into(), "zed".into()],
+            status,
+        );
+        assert_eq!(message, "Homebrew install zed completed · refreshing");
+        assert_eq!(tone, StatusTone::Success);
     }
 
     #[test]

@@ -36,6 +36,7 @@ mod speech;
 mod ssh_config;
 mod ssh_meta_repo;
 mod system_proxy;
+mod system_settings;
 mod timers_repo;
 mod window;
 mod wordbook_repo;
@@ -132,6 +133,9 @@ pub use ssh_config::{
 pub use ssh_meta_repo::{SshHostMeta, SshMetaRepoError, SshMetaRepository};
 pub use system_proxy::{
     FakeSystemProxy, SystemProxyError, SystemProxyPort, SystemProxySetting, SystemProxyStatus,
+};
+pub use system_settings::{
+    FakeSystemSettings, SystemSettingsError, SystemSettingsPane, SystemSettingsPort,
 };
 pub use timers_repo::{TimerEntry, TimersRepoError, TimersRepository};
 pub use window::{FakeWindowCatalog, WindowCatalogPort, WindowEntry, WindowError};

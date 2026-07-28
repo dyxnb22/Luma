@@ -27,6 +27,7 @@ impl AppState {
         let mut rows = vec![
             CommandPaletteEntry {
                 id: "settings".into(),
+                group: "System".into(),
                 label: "/settings".into(),
                 description: "Open workbench settings".into(),
                 query: None,
@@ -34,6 +35,7 @@ impl AppState {
             },
             CommandPaletteEntry {
                 id: "settings:projects-root".into(),
+                group: "System".into(),
                 label: "/settings projects-root <path>".into(),
                 description: "Add a project browse root".into(),
                 query: Some("/settings projects-root ".into()),
@@ -41,6 +43,7 @@ impl AppState {
             },
             CommandPaletteEntry {
                 id: "settings:import-project".into(),
+                group: "System".into(),
                 label: "/settings import-project <path>".into(),
                 description: "Import one existing project directory".into(),
                 query: Some("/settings import-project ".into()),
@@ -48,6 +51,7 @@ impl AppState {
             },
             CommandPaletteEntry {
                 id: "settings:records-root".into(),
+                group: "System".into(),
                 label: "/settings records-root <path|none>".into(),
                 description: "Set or clear the Records Markdown source".into(),
                 query: Some("/settings records-root ".into()),
@@ -55,6 +59,7 @@ impl AppState {
             },
             CommandPaletteEntry {
                 id: "settings:clipboard-retention".into(),
+                group: "System".into(),
                 label: "/settings clipboard-retention-days <days>".into(),
                 description: "Set clipboard history retention".into(),
                 query: Some("/settings clipboard-retention-days ".into()),
@@ -62,6 +67,7 @@ impl AppState {
             },
             CommandPaletteEntry {
                 id: "settings:secrets-lock".into(),
+                group: "System".into(),
                 label: "/settings secrets-idle-lock-secs <seconds>".into(),
                 description: "Set the in-process Secrets idle lock".into(),
                 query: Some("/settings secrets-idle-lock-secs ".into()),
@@ -69,6 +75,7 @@ impl AppState {
             },
             CommandPaletteEntry {
                 id: "settings:hub-windows".into(),
+                group: "System".into(),
                 label: "/settings hub-windows-max <5-50>".into(),
                 description: "Set the visible-window Hub cap".into(),
                 query: Some("/settings hub-windows-max ".into()),
@@ -76,6 +83,7 @@ impl AppState {
             },
             CommandPaletteEntry {
                 id: "scroll:up".into(),
+                group: "Navigate".into(),
                 label: "/scroll up".into(),
                 description: "Scroll the underlying focused surface up one page".into(),
                 query: None,
@@ -83,6 +91,7 @@ impl AppState {
             },
             CommandPaletteEntry {
                 id: "scroll:down".into(),
+                group: "Navigate".into(),
                 label: "/scroll down".into(),
                 description: "Scroll the underlying focused surface down one page".into(),
                 query: None,
@@ -101,6 +110,8 @@ impl AppState {
             .filter(|module| module.enabled)
             .collect::<Vec<_>>();
         modules.sort_by(|a, b| {
+            let a_group = command_group(&a.id);
+            let b_group = command_group(&b.id);
             let a_recent = recent_modules
                 .iter()
                 .position(|id| *id == a.id)
@@ -109,11 +120,14 @@ impl AppState {
                 .iter()
                 .position(|id| *id == b.id)
                 .unwrap_or(usize::MAX);
-            a_recent.cmp(&b_recent).then_with(|| {
-                a.display_name
-                    .to_lowercase()
-                    .cmp(&b.display_name.to_lowercase())
-            })
+            command_group_order(a_group)
+                .cmp(&command_group_order(b_group))
+                .then_with(|| a_recent.cmp(&b_recent))
+                .then_with(|| {
+                    a.display_name
+                        .to_lowercase()
+                        .cmp(&b.display_name.to_lowercase())
+                })
         });
         for module in modules {
             if module.commands.is_empty() {
@@ -127,6 +141,7 @@ impl AppState {
                 };
                 rows.push(CommandPaletteEntry {
                     id: format!("module:{}", module.id),
+                    group: command_group(&module.id).into(),
                     label: query.trim_end().to_string(),
                     description: format!("Open {}", module.display_name),
                     query: Some(query),
@@ -142,6 +157,7 @@ impl AppState {
                     .unwrap_or_else(|| command.description.clone());
                 CommandPaletteEntry {
                     id: format!("module:{}:{index}", module.id),
+                    group: command_group(&module.id).into(),
                     label: command.syntax.clone(),
                     description,
                     query: Some(command.query.clone()),
@@ -152,6 +168,7 @@ impl AppState {
         rows.extend([
             CommandPaletteEntry {
                 id: "help".into(),
+                group: "System".into(),
                 label: "/help".into(),
                 description: "Keyboard and module help".into(),
                 query: None,
@@ -159,6 +176,7 @@ impl AppState {
             },
             CommandPaletteEntry {
                 id: "commands".into(),
+                group: "System".into(),
                 label: "/commands [filter]".into(),
                 description: "Search this command palette".into(),
                 query: None,
@@ -166,6 +184,7 @@ impl AppState {
             },
             CommandPaletteEntry {
                 id: "quit".into(),
+                group: "System".into(),
                 label: "/quit".into(),
                 description: "Stop the workbench session".into(),
                 query: None,
@@ -173,6 +192,8 @@ impl AppState {
             },
         ]);
 
+        // Stable sort keeps each module's CommandSpec order while making task groups contiguous.
+        rows.sort_by_key(|entry| command_group_order(&entry.group));
         rows
     }
 
@@ -293,5 +314,36 @@ impl AppState {
         let overlay_height = preferred.min(self.terminal.height.saturating_sub(4)).max(5);
         let visible = overlay_height.saturating_sub(2) as usize;
         self.help_lines().len().saturating_sub(visible.max(1))
+    }
+}
+
+fn command_group(module_id: &str) -> &'static str {
+    match module_id {
+        "luma.apps" | "luma.windows" | "luma.downloads" | "luma.shell_history" | "luma.ocr" => {
+            "Find"
+        }
+        "luma.calculator" | "luma.clipboard" | "luma.quicklinks" | "luma.snippets"
+        | "luma.wordbook" | "luma.records" | "luma.timers" | "luma.renewals" | "luma.shortcuts"
+        | "luma.secrets" => "Personal",
+        "luma.projects"
+        | "luma.git"
+        | "luma.runtime"
+        | "luma.command_recipes"
+        | "luma.ssh"
+        | "luma.databases"
+        | "luma.packages" => "Develop",
+        "luma.proxy" => "Network",
+        _ => "System",
+    }
+}
+
+fn command_group_order(group: &str) -> u8 {
+    match group {
+        "Find" => 0,
+        "Personal" => 1,
+        "Develop" => 2,
+        "Network" => 3,
+        "Navigate" => 4,
+        _ => 5,
     }
 }

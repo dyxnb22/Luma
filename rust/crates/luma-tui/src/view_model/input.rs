@@ -177,6 +177,8 @@ pub struct ActionsState {
     pub action_result_id: Option<String>,
     pub action_selected: usize,
     pub active_operation: Option<String>,
+    /// Result kind for operation-specific, user-facing progress without exposing module internals.
+    pub active_kind: Option<String>,
 }
 
 /// Preview state is intentionally separate from search results: preview requests can outlive a

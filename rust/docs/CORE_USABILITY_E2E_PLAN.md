@@ -27,9 +27,9 @@ declared `CommandSpec` rows.
 
 | Area | Status | Evidence |
 | --- | --- | --- |
-| Native activation/lifecycle/input | `FIXED` | Installed app accepted leading `1`; hide/show retained `hide-state-1` and accepted the following `2`; one host and one bundled TUI remained alive while hidden. |
-| Keyboard/render/PTY | `FIXED` | Real PTY blackbox covered digits, arrows, bracketed paste, CJK/emoji, PageUp/PageDown, and Ctrl-K; installed UI covered side/stacked preview resizing and Unicode paste; Swift terminal-filter tests covered split UTF-8 and control strings. |
-| Windows/TCC | `FIXED` / `BLOCKED` | After final rebuild, Screen Recording remained authorized and real Chinese/English titles were visible without another prompt. Focus correctly reported the still-missing Accessibility permission; final focus success awaits the user-authenticated toggle. |
+| Native activation/lifecycle/input | `FIXED` | Installed app accepted leading `1`; the final rebuilt app retained `persist-42` across hide/show and accepted the following `x`; one host and one bundled TUI remained alive while hidden. |
+| Keyboard/render/PTY | `FIXED` | Real PTY blackbox covered digits, arrows, bracketed paste, CJK/emoji, PageUp/PageDown, and Ctrl-K; installed UI covered INPUT/TAB TO INPUT recovery, numbered actions, task-grouped commands, paging, side/stacked preview resizing, and Unicode paste; Swift terminal-filter tests covered split UTF-8 and control strings. |
+| Windows/TCC | `FIXED` / `BLOCKED` | After final rebuild, Screen Recording remained authorized and real Chinese/English titles were visible without another prompt. The local action opened the exact Accessibility pane, where the installed Luma toggle was observed off; Focus was annotated before execution and final focus success awaits the user-authenticated toggle. |
 | Apps/Calculator/Downloads | `FIXED` | Calculator launch, Finder reveal, copy/restore, Downloads rename confirmation, real Finder Trash, three Put Back cycles, and pure JSON output passed. |
 | Packages/Proxy/Runtime | `FIXED` | Test-owned Homebrew formula install/upgrade/uninstall, proxy enable/conflict/disable with exact state restoration, and exact test listener termination passed. |
 | Shortcuts/Secrets | `PASS` / `BLOCKED` | Unicode exact-name Shortcut list/view/run/folder/copy passed; Keychain write/delete passed, while read required interactive system authentication. Test Shortcut deletion awaits action-time confirmation. |
@@ -37,8 +37,8 @@ declared `CommandSpec` rows.
 | Clipboard/Quicklinks/Snippets | `FIXED` | Real clipboard capture pause/resume/pin/delete/clear and CRUD/overwrite/backup/copy/import paths passed; clipboard was restored. |
 | Renewals/Timers/Wordbook/Records | `FIXED` | CRUD, confirmation/cancel, recurrence, review/mastery/import/backup, rating/note/top/unrated and migration rollback paths passed with isolated stores. |
 | Projects/Git/Recipes | `FIXED` | Imported-project workbench/files, stage/unstage/discard/branch/log/commit, recipe run/copy/favorite and project index removal passed; project directory hashes were preserved. |
-| OCR | `PASS` / `BLOCKED` | Permission preflight and cancellation cleaned the screencapture process/private temp file. Computer Use cannot deliver a drag to the system-owned crosshair, so final successful region recognition requires one user drag. |
-| Verification | `PASS` | `cargo fmt`, `git diff --check`, architecture allowlist, workspace check, Clippy `-D warnings`, 719 Rust tests, 58 Swift tests, release build, deep codesign, bundle identity and embedded release UUID all passed. |
+| OCR | `PASS` / `BLOCKED` | Permission preflight and cancellation cleaned the screencapture process/private temp file. The local action opened the exact “Screen & System Audio Recording” pane and the installed Luma toggle was observed on. Computer Use cannot deliver a drag to the system-owned crosshair, so final successful region recognition requires one user drag. |
+| Verification | `PASS` | `cargo fmt`, `git diff --check`, architecture allowlist, workspace check, Clippy `-D warnings`, 730 Rust tests, 26 additional CLI blackbox tests, 58 Swift tests, release build, deep codesign, bundle identity and embedded release UUID all passed. |
 
 ### Reproducible defects fixed in this run
 
@@ -56,11 +56,17 @@ declared `CommandSpec` rows.
 | `UX-010` | Git workbench/branch/log rows returned not-found instead of opening their declared surfaces. | Return explicit `OpenSurface` routes after fresh imported-repo validation; module tests plus real repo navigation and commit. |
 | `UX-011` | Timer names were lowercased because parsing used normalized query text. | Parse names from raw input while matching keywords case-insensitively; CJK/emoji tests and isolated timer lifecycle. |
 | `UX-012` | Recipe JSON preflight errors emitted mixed/non-machine-readable output and copy used retired bare command syntax. | Emit pure JSON failures and route copy through `/cmd`; CLI blackbox/unit tests plus real recipe run/copy. |
+| `UX-013` | macOS permission copy implied audio recording, and Windows revealed its Accessibility dependency only after Focus failed. | Explain the system pane name and still-image/title-only scope; annotate Focus before execution; add module-local actions for the exact Privacy panes. |
+| `UX-014` | Duplicate Untitled windows were visually indistinguishable although their CG identities were distinct. | Number same-app Untitled rows for display only while preserving the original IDs/titles used by focus matching. |
+| `UX-015` | OCR showed generic running text and a repeated Enter gave no selection-specific guidance. | Keep “drag to select · Esc cancel” visible throughout the operation and reject duplicate execution explicitly. |
+| `UX-016` | Input/action focus, command purpose, and external mutation completion were harder to scan than necessary. | Add INPUT/TAB TO INPUT labels, numbered ActionPicker rows, task-grouped CommandSpec rows, specific Git/Homebrew completion, and one package refresh. |
+| `UX-017` | A Command+Space conflict had only a manual Spotlight recovery path. | Offer and persist one of three explicit host-owned shortcuts; never choose an alternative silently. |
 
 ### Remaining action-time handoffs
 
-- `BLOCKED`: enable Luma under System Settings -> Privacy & Security -> Accessibility, then retry
-  a `/win` Focus action. This is separate from the already-working Screen Recording grant.
+- `BLOCKED`: enable the currently-off Luma toggle under System Settings -> Privacy & Security ->
+  Accessibility, then retry a `/win` Focus action. This is separate from the verified-on
+  Screen Recording grant.
 - `BLOCKED`: perform one physical drag for `/ocr`; Computer Use synthetic mouse events are handled
   by SwiftTerm instead of the system-owned screencapture crosshair.
 - `BLOCKED`: approve system authentication for one namespaced Keychain read if the real read path

@@ -93,6 +93,8 @@ pub struct CommandCatalogEntry {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CommandPaletteEntry {
     pub id: String,
+    /// User-task grouping; command rows themselves still come from each module's CommandSpec.
+    pub group: String,
     pub label: String,
     pub description: String,
     pub query: Option<String>,

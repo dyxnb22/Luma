@@ -810,7 +810,24 @@ impl LumaModule for GitModule {
             .and_then(|value| value.as_str())
             .unwrap_or("")
             .to_string();
-        let result = match action.action.id.as_str() {
+        let action_id = action.action.id.as_str();
+        let success_message = match action_id {
+            "stage" => format!("Staged {path}"),
+            "unstage" => format!("Unstaged {path}"),
+            "stage_all" => "Staged all changes".into(),
+            "unstage_all" => "Unstaged all changes".into(),
+            "discard" => format!("Discarded changes in {path}"),
+            "switch_branch" => action
+                .result
+                .action_payload
+                .as_ref()
+                .and_then(|payload| payload.get("branch"))
+                .and_then(|value| value.as_str())
+                .map(|branch| format!("Switched to {branch}"))
+                .unwrap_or_else(|| "Switched branch".into()),
+            _ => "Git updated".into(),
+        };
+        let result = match action_id {
             "open_workbench" | "open_branches" | "open_log" => {
                 let Some(query) = action
                     .result
@@ -843,7 +860,24 @@ impl LumaModule for GitModule {
                     .and_then(|value| value.as_str())
                     .unwrap_or("")
                     .to_string();
-                self.git.commit(repo, message).await
+                match self.git.commit(repo.clone(), message).await {
+                    Ok(()) => {
+                        let sha = self
+                            .git
+                            .log(repo, 1)
+                            .await
+                            .ok()
+                            .and_then(|commits| commits.into_iter().next())
+                            .map(|commit| commit.short_sha);
+                        return ActionOutcome::Success {
+                            message: Some(match sha {
+                                Some(sha) => format!("Committed {sha}"),
+                                None => "Committed staged changes".into(),
+                            }),
+                        };
+                    }
+                    Err(error) => Err(error),
+                }
             }
             "switch_branch" => {
                 let branch = action
@@ -895,7 +929,7 @@ impl LumaModule for GitModule {
         };
         match result {
             Ok(()) => ActionOutcome::Success {
-                message: Some("Git updated · press r or refresh".into()),
+                message: Some(success_message),
             },
             Err(error) => ActionOutcome::Failed {
                 kind: git_failure(error),
@@ -957,7 +991,7 @@ fn git_failure(error: GitError) -> FailureKind {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use luma_application::{FakeGitRepository, FakePasteboard};
+    use luma_application::{FakeGitRepository, FakePasteboard, GitCommit};
     use luma_test_support::collect_search_items;
     use tokio::sync::mpsc;
 
@@ -1029,6 +1063,56 @@ mod tests {
 
         assert_eq!(items.len(), 1);
         assert_eq!(git.calls.lock().await.as_slice(), &["discover"]);
+    }
+
+    #[tokio::test]
+    async fn mutation_feedback_names_the_effect_and_commit_sha() {
+        let mut staged_repo = repo();
+        staged_repo.files[0].staged = true;
+        staged_repo.files[0].unstaged = false;
+        let git = FakeGitRepository::new(vec![staged_repo]);
+        git.logs_by_repo.lock().await.insert(
+            "/tmp/example".into(),
+            vec![GitCommit {
+                short_sha: "abc1234".into(),
+                subject: "Fix parser".into(),
+                authored_at: "now".into(),
+            }],
+        );
+        let module = GitModule::with_deps(
+            vec![ImportedProject {
+                name: Some("Example".into()),
+                path: "/tmp/example".into(),
+            }],
+            git,
+            Arc::new(FakePasteboard::new()),
+        );
+        module
+            .warmup(WarmupContext {
+                cancel: CancellationToken::new(),
+            })
+            .await;
+        let items = collect_search_items(&module, query("/git commit Fix parser")).await;
+        let commit = items
+            .into_iter()
+            .find(|item| item.kind == "git_commit")
+            .expect("commit action");
+        let outcome = module
+            .perform(
+                ActionRequest {
+                    result: commit.clone(),
+                    action: commit.primary_action,
+                    confirmation: true,
+                },
+                CancellationToken::new(),
+            )
+            .await;
+        assert_eq!(
+            outcome,
+            ActionOutcome::Success {
+                message: Some("Committed abc1234".into())
+            }
+        );
     }
 
     #[tokio::test]

@@ -49,6 +49,25 @@ fn action_started_applies_when_operation_matches() {
 }
 
 #[test]
+fn screen_ocr_action_started_keeps_selection_instructions_visible() {
+    let mut state = AppState {
+        actions: ActionsState {
+            active_operation: Some("op-ocr".into()),
+            active_kind: Some("screen_ocr".into()),
+            ..ActionsState::default()
+        },
+        ..AppState::default()
+    };
+    assert!(state.apply_engine_event(Event::ActionStarted {
+        operation_id: "op-ocr".into(),
+    }));
+    assert_eq!(
+        state.status.text,
+        "OCR selection active · drag to select · Esc cancel"
+    );
+}
+
+#[test]
 fn action_finished_ignored_without_active_operation() {
     let mut state = AppState::default();
     let applied = state.apply_engine_event(Event::ActionFinished {
@@ -76,6 +95,7 @@ fn action_finished_cancelled_is_warning() {
     assert!(applied);
     assert_eq!(state.status.tone, StatusTone::Warning);
     assert!(state.actions.active_operation.is_none());
+    assert!(state.actions.active_kind.is_none());
 }
 
 #[test]
@@ -510,7 +530,7 @@ fn module_command_specs_drive_palette_help_and_completion() {
     let rows = state.command_palette_rows();
     assert!(rows
         .iter()
-        .any(|row| row.label == "/rec browse [category]" && row.submit));
+        .any(|row| row.label == "/rec browse [category]" && row.group == "Personal" && row.submit));
     assert!(rows
         .iter()
         .any(|row| row.label == "/rec rate <id> <1-10|clear>" && !row.submit));
@@ -523,6 +543,47 @@ fn module_command_specs_drive_palette_help_and_completion() {
         state.command_completion_candidates(),
         vec!["/rec rate <id> <1-10|clear>"]
     );
+}
+
+#[test]
+fn command_palette_task_groups_are_contiguous_and_keep_command_specs() {
+    let module = |id: &str, syntax: &str| ModuleCatalogEntry {
+        id: id.into(),
+        display_name: id.into(),
+        enabled: true,
+        glyph: None,
+        suggested_query: Some(format!("{syntax} ")),
+        empty_hint: None,
+        supports_browse: false,
+        triggers: vec![syntax.trim_start_matches('/').into()],
+        commands: vec![CommandCatalogEntry {
+            syntax: syntax.into(),
+            description: "fixture command".into(),
+            query: format!("{syntax} "),
+            example: None,
+        }],
+    };
+    let state = AppState {
+        module_catalog: vec![
+            module("luma.projects", "/proj"),
+            module("luma.records", "/rec"),
+            module("luma.windows", "/win"),
+        ],
+        ..AppState::default()
+    };
+    let rows = state.command_palette_rows();
+    let mut groups = rows
+        .iter()
+        .map(|row| row.group.as_str())
+        .collect::<Vec<_>>();
+    groups.dedup();
+    assert_eq!(
+        groups,
+        vec!["Find", "Personal", "Develop", "Navigate", "System"]
+    );
+    assert!(rows.iter().any(|row| row.label == "/proj"));
+    assert!(rows.iter().any(|row| row.label == "/rec"));
+    assert!(rows.iter().any(|row| row.label == "/win"));
 }
 
 #[test]

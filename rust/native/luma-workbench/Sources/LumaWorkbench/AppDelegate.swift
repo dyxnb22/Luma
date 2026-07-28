@@ -5,6 +5,7 @@ import LumaWorkbenchCore
 ///
 /// Everything the user actually works with is drawn by the Rust TUI inside the terminal view.
 final class AppDelegate: NSObject, NSApplicationDelegate {
+    private static let activationShortcutDefaultsKey = "activationShortcut"
     private var session: TerminalSessionController?
     private var windowController: LumaWindowController?
     private var hotKeyController: GlobalHotKeyController?
@@ -55,7 +56,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         windowController.delegate = self
         self.windowController = windowController
 
-        registerHotKey()
+        let savedHotKey = HotKeyDefinition.saved(
+            identifier: UserDefaults.standard.string(
+                forKey: Self.activationShortcutDefaultsKey
+            )
+        )
+        registerHotKey(savedHotKey)
 
         // An activation request made while the app is still launching is dropped, which leaves the
         // window ordered behind whatever was frontmost. One turn of the run loop is enough.
@@ -192,35 +198,53 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    private func registerHotKey() {
-        let controller = GlobalHotKeyController { [weak self] in
+    private func registerHotKey(_ definition: HotKeyDefinition) {
+        let controller = GlobalHotKeyController(definition: definition) { [weak self] in
             self?.handleHotKey()
         }
         do {
             try controller.register()
             hotKeyController = controller
-        } catch {
-            // Honest local failure: the window still works, it just cannot be summoned.
-            presentWarning(
-                title: "\(HostIdentity.applicationName) could not register "
-                    + "\(HotKeyDefinition.commandSpace.displayName)",
-                message: "\(error)\n\n"
-                    + HotKeyDefinition.commandSpace.registrationRecoveryMessage(
-                        appPath: Bundle.main.bundleURL.path
-                    )
+            UserDefaults.standard.set(
+                definition.identifier,
+                forKey: Self.activationShortcutDefaultsKey
             )
+        } catch {
+            let alternative = presentHotKeyRecovery(
+                title: "\(HostIdentity.applicationName) could not register "
+                    + "\(definition.displayName)",
+                message: "\(error)\n\n"
+                    + definition.registrationRecoveryMessage(
+                        appPath: Bundle.main.bundleURL.path
+                    ),
+                alternatives: definition.alternatives()
+            )
+            if let alternative {
+                registerHotKey(alternative)
+            }
         }
     }
 
     // MARK: - Alerts
 
-    private func presentWarning(title: String, message: String) {
+    private func presentHotKeyRecovery(
+        title: String,
+        message: String,
+        alternatives: [HotKeyDefinition]
+    ) -> HotKeyDefinition? {
         activateApplication()
         let alert = NSAlert()
         alert.alertStyle = .warning
         alert.messageText = title
         alert.informativeText = message
-        alert.runModal()
+        for alternative in alternatives {
+            alert.addButton(withTitle: "Use \(alternative.displayName)")
+        }
+        alert.addButton(withTitle: "Keep without shortcut")
+        let response = alert.runModal()
+        let index = response.rawValue - NSApplication.ModalResponse.alertFirstButtonReturn.rawValue
+        guard index >= 0, index < alternatives.count else { return nil }
+        return alternatives[index]
     }
 
     private func presentUnrecoverable(_ message: String) {

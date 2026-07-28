@@ -2,7 +2,8 @@ use crate::cancel::await_unless_cancelled;
 use async_trait::async_trait;
 use luma_application::{
     ActionOutcome, ActionRequest, LumaModule, ModuleManifest, ModuleState, PasteboardPort,
-    ScreenOcrError, ScreenOcrPort, SearchMode, SearchSink, WarmupContext, MAX_OCR_TEXT_BYTES,
+    ScreenOcrError, ScreenOcrPort, SearchMode, SearchSink, SystemSettingsPane, SystemSettingsPort,
+    WarmupContext, MAX_OCR_TEXT_BYTES,
 };
 use luma_domain::{
     ActionDescriptor, ActionId, ActionRisk, FailureKind, ModuleId, Query, SearchItem,
@@ -17,6 +18,7 @@ pub struct ScreenOcrModule {
     manifest: ModuleManifest,
     ocr: Arc<dyn ScreenOcrPort>,
     pasteboard: Arc<dyn PasteboardPort>,
+    system_settings: Arc<dyn SystemSettingsPort>,
 }
 
 impl ScreenOcrModule {
@@ -45,7 +47,13 @@ impl ScreenOcrModule {
             },
             ocr,
             pasteboard,
+            system_settings: Arc::new(luma_application::FakeSystemSettings::default()),
         }
+    }
+
+    pub fn with_system_settings(mut self, system_settings: Arc<dyn SystemSettingsPort>) -> Self {
+        self.system_settings = system_settings;
+        self
     }
 }
 
@@ -88,7 +96,8 @@ impl LumaModule for ScreenOcrModule {
                     module_id: MODULE_ID.into(),
                     title: "Select screen region and copy recognized text".into(),
                     subtitle: Some(
-                        "Apple Vision · local only · screenshot deleted after recognition".into(),
+                        "Apple Vision · local only · no audio · screenshot deleted after recognition"
+                            .into(),
                     ),
                     kind: "screen_ocr".into(),
                     score: 100.0,
@@ -103,7 +112,13 @@ impl LumaModule for ScreenOcrModule {
 
     async fn actions(&self, result: &SearchItem) -> Vec<ActionDescriptor> {
         if result.kind == "screen_ocr" {
-            vec![safe_action("capture_copy", "Select region")]
+            vec![
+                safe_action("capture_copy", "Select region"),
+                safe_action(
+                    "open_screen_recording_settings",
+                    "Open Screen Recording Settings",
+                ),
+            ]
         } else {
             vec![safe_action("noop", "OK")]
         }
@@ -115,6 +130,23 @@ impl LumaModule for ScreenOcrModule {
         }
         if request.action.id.as_str() == "noop" {
             return ActionOutcome::Success { message: None };
+        }
+        if request.action.id.as_str() == "open_screen_recording_settings" {
+            return match self
+                .system_settings
+                .open(SystemSettingsPane::ScreenRecording)
+                .await
+            {
+                Ok(()) => ActionOutcome::Success {
+                    message: Some("Opened Screen & System Audio Recording settings".into()),
+                },
+                Err(error) => ActionOutcome::Failed {
+                    kind: FailureKind::Unavailable {
+                        reason: error.to_string(),
+                        retryable: true,
+                    },
+                },
+            };
         }
         if request.action.id.as_str() != "capture_copy" {
             return ActionOutcome::Failed {
@@ -181,7 +213,7 @@ fn ocr_outcome(error: ScreenOcrError) -> ActionOutcome {
             kind: FailureKind::PermissionRequired {
                 capability: "screen_recording".into(),
                 guidance:
-                    "Allow or re-add Luma in System Settings → Privacy & Security → Screen & System Audio Recording, then retry /ocr"
+                    "macOS names this pane “Screen & System Audio Recording”; Luma captures only your selected still image and never records audio · open it from Ctrl-K, allow or re-add Luma, then retry /ocr"
                         .into(),
             },
         },
@@ -243,6 +275,39 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn actions_explain_recording_scope_and_open_the_exact_privacy_pane() {
+        let settings = Arc::new(luma_application::FakeSystemSettings::default());
+        let module = ScreenOcrModule::with_deps(
+            Arc::new(FakeScreenOcr::new([])),
+            Arc::new(FakePasteboard::new()),
+        )
+        .with_system_settings(settings.clone());
+        let items = collect_search_items(&module, Query::parse("/ocr", 20)).await;
+        assert!(items[0]
+            .subtitle
+            .as_deref()
+            .unwrap_or_default()
+            .contains("no audio"));
+        let actions = module.actions(&items[0]).await;
+        assert_eq!(actions[1].id.as_str(), "open_screen_recording_settings");
+        let outcome = module
+            .perform(
+                ActionRequest {
+                    result: items[0].clone(),
+                    action: actions[1].clone(),
+                    confirmation: false,
+                },
+                CancellationToken::new(),
+            )
+            .await;
+        assert!(matches!(outcome, ActionOutcome::Success { .. }));
+        assert_eq!(
+            settings.calls.lock().unwrap().as_slice(),
+            &[SystemSettingsPane::ScreenRecording]
+        );
+    }
+
+    #[tokio::test]
     async fn recognized_text_is_bounded_then_copied_without_echoing_it() {
         let secret_marker = "PRIVATE_OCR_TEXT";
         let oversized = format!("{secret_marker}{}", "界".repeat(100_000));
@@ -283,6 +348,14 @@ mod tests {
                 Arc::new(FakePasteboard::new()),
             );
             let outcome = module.perform(request(), CancellationToken::new()).await;
+            if matches!(
+                outcome,
+                ActionOutcome::Failed {
+                    kind: FailureKind::PermissionRequired { .. }
+                }
+            ) {
+                assert!(format!("{outcome:?}").contains("never records audio"));
+            }
             let actual = match outcome {
                 ActionOutcome::Cancelled => "cancelled",
                 ActionOutcome::Failed {

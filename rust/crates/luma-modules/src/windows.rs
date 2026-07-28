@@ -4,13 +4,14 @@ use crate::cancel::await_unless_cancelled;
 use async_trait::async_trait;
 use luma_application::{
     ActionOutcome, ActionRequest, HubWindowRow, HubWindowsSlice, HubWindowsStatus, LumaModule,
-    ModuleManifest, ModuleState, SearchMode, SearchSink, WarmupContext, WindowCatalogPort,
-    WindowEntry, WindowError,
+    ModuleManifest, ModuleState, SearchMode, SearchSink, SystemSettingsPane, SystemSettingsPort,
+    WarmupContext, WindowCatalogPort, WindowEntry, WindowError,
 };
 use luma_domain::{
     ActionDescriptor, ActionId, ActionRisk, FailureKind, ModuleId, Query, SearchItem,
 };
 use luma_protocol::{Event, SearchItemDto};
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -28,6 +29,7 @@ const WINDOWS_CACHE_TTL: Duration = Duration::from_secs(2);
 pub struct WindowsModule {
     manifest: ModuleManifest,
     catalog: Arc<dyn WindowCatalogPort>,
+    system_settings: Arc<dyn SystemSettingsPort>,
     cache: Arc<RwLock<Vec<WindowEntry>>>,
     cache_at: Arc<RwLock<Option<Instant>>>,
     hub_max: AtomicUsize,
@@ -37,6 +39,16 @@ pub struct WindowsModule {
 
 impl WindowsModule {
     pub fn with_catalog(catalog: Arc<dyn WindowCatalogPort>) -> Self {
+        Self::with_deps(
+            catalog,
+            Arc::new(luma_application::FakeSystemSettings::default()),
+        )
+    }
+
+    pub fn with_deps(
+        catalog: Arc<dyn WindowCatalogPort>,
+        system_settings: Arc<dyn SystemSettingsPort>,
+    ) -> Self {
         Self {
             manifest: ModuleManifest {
                 id: ModuleId::new("luma.windows"),
@@ -61,6 +73,7 @@ impl WindowsModule {
                 },
             },
             catalog,
+            system_settings,
             cache: Arc::new(RwLock::new(Vec::new())),
             cache_at: Arc::new(RwLock::new(None)),
             hub_max: AtomicUsize::new(HUB_WINDOWS_MAX),
@@ -82,20 +95,56 @@ impl WindowsModule {
         result_id.strip_prefix("win:")
     }
 
-    fn entry_to_dto(entry: &WindowEntry, score: f64) -> SearchItemDto {
+    fn entry_to_dto(
+        entry: &WindowEntry,
+        display_title: String,
+        score: f64,
+        focus_available: bool,
+    ) -> SearchItemDto {
         SearchItemDto {
             id: Self::result_id(entry),
             module_id: "luma.windows".into(),
-            title: entry.title.clone(),
+            title: display_title,
             subtitle: Some(entry.app_name.clone()),
             kind: "window".into(),
             score,
             primary_action_id: "focus".into(),
-            primary_action_label: "Focus".into(),
+            primary_action_label: if focus_available {
+                "Focus".into()
+            } else {
+                "Focus (needs Accessibility)".into()
+            },
             primary_action_risk: ActionRisk::Safe,
             primary_action_confirmation: false,
             ..Default::default()
         }
+    }
+
+    fn display_titles(entries: &[WindowEntry]) -> HashMap<String, String> {
+        let mut totals: HashMap<(&str, &str), usize> = HashMap::new();
+        for entry in entries {
+            if entry.title == "Untitled" {
+                *totals
+                    .entry((entry.app_name.as_str(), entry.title.as_str()))
+                    .or_default() += 1;
+            }
+        }
+        let mut seen: HashMap<(&str, &str), usize> = HashMap::new();
+        entries
+            .iter()
+            .map(|entry| {
+                let key = (entry.app_name.as_str(), entry.title.as_str());
+                let title = match totals.get(&key).copied().unwrap_or(0) {
+                    total if total > 1 => {
+                        let index = seen.entry(key).or_default();
+                        *index += 1;
+                        format!("Untitled {index}/{total}")
+                    }
+                    _ => entry.title.clone(),
+                };
+                (entry.id.clone(), title)
+            })
+            .collect()
     }
 
     fn matches(entry: &WindowEntry, needle: &str) -> bool {
@@ -111,17 +160,24 @@ impl WindowsModule {
             WindowError::PermissionRequired {
                 capability,
                 guidance,
-            } => SearchItemDto {
-                id: "win:permission".into(),
-                module_id: "luma.windows".into(),
-                title: format!("Permission required ({capability})"),
-                subtitle: Some(guidance.clone()),
-                kind: "permission_required".into(),
-                score: 0.0,
-                primary_action_id: "noop".into(),
-                primary_action_label: "OK".into(),
-                ..Default::default()
-            },
+            } => {
+                let action = if capability == "accessibility" {
+                    "open_accessibility_settings"
+                } else {
+                    "open_screen_recording_settings"
+                };
+                SearchItemDto {
+                    id: "win:permission".into(),
+                    module_id: "luma.windows".into(),
+                    title: format!("Permission required ({capability})"),
+                    subtitle: Some(guidance.clone()),
+                    kind: "permission_required".into(),
+                    score: 0.0,
+                    primary_action_id: action.into(),
+                    primary_action_label: "Open System Settings".into(),
+                    ..Default::default()
+                }
+            }
             WindowError::Unavailable(reason) | WindowError::NotFound(reason) => SearchItemDto {
                 id: "win:unavailable".into(),
                 module_id: "luma.windows".into(),
@@ -247,13 +303,19 @@ impl LumaModule for WindowsModule {
                 .then_with(|| a.title.to_lowercase().cmp(&b.title.to_lowercase()))
         });
 
+        let display_titles = Self::display_titles(&list);
+        let focus_available = self.catalog.focus_available();
         let mut upserts = Vec::new();
         for entry in list {
             if cancel.is_cancelled() {
                 return;
             }
             if Self::matches(&entry, &needle) {
-                upserts.push(Self::entry_to_dto(&entry, 50.0));
+                let title = display_titles
+                    .get(&entry.id)
+                    .cloned()
+                    .unwrap_or_else(|| entry.title.clone());
+                upserts.push(Self::entry_to_dto(&entry, title, 50.0, focus_available));
             }
             if upserts.len() >= query.limit {
                 break;
@@ -309,7 +371,8 @@ impl LumaModule for WindowsModule {
                 risk: ActionRisk::Safe,
                 confirmation: false,
             }],
-            "status" | "unavailable" | "permission_required" => vec![ActionDescriptor {
+            "permission_required" => vec![result.primary_action.clone()],
+            "status" | "unavailable" => vec![ActionDescriptor {
                 id: ActionId::new("noop"),
                 label: "OK".into(),
                 risk: ActionRisk::Safe,
@@ -321,12 +384,18 @@ impl LumaModule for WindowsModule {
                 risk: ActionRisk::Safe,
                 confirmation: false,
             }],
-            _ => vec![ActionDescriptor {
-                id: ActionId::new("focus"),
-                label: "Focus".into(),
-                risk: ActionRisk::Safe,
-                confirmation: false,
-            }],
+            _ => {
+                let mut actions = vec![result.primary_action.clone()];
+                if !self.catalog.focus_available() {
+                    actions.push(ActionDescriptor {
+                        id: ActionId::new("open_accessibility_settings"),
+                        label: "Open Accessibility Settings".into(),
+                        risk: ActionRisk::Safe,
+                        confirmation: false,
+                    });
+                }
+                actions
+            }
         }
     }
 
@@ -372,13 +441,21 @@ impl LumaModule for WindowsModule {
         } else {
             None
         };
+        let display_titles = Self::display_titles(&list);
         let windows = list
             .into_iter()
             .take(hub_max)
             .map(|e| HubWindowRow {
                 id: Self::result_id(&e),
                 // Disambiguate across apps on the Hub.
-                title: format!("{} · {}", e.title, e.app_name),
+                title: format!(
+                    "{} · {}",
+                    display_titles
+                        .get(&e.id)
+                        .cloned()
+                        .unwrap_or_else(|| e.title.clone()),
+                    e.app_name
+                ),
             })
             .collect();
         let status = if has_redacted_titles {
@@ -386,9 +463,15 @@ impl LumaModule for WindowsModule {
                 kind: "permission_required".into(),
                 title: "Window titles need Screen Recording".into(),
                 subtitle: Some(
-                    "Allow or re-add Luma in System Settings → Privacy & Security → Screen & System Audio Recording, then reopen Luma"
+                    "macOS calls the pane “Screen & System Audio Recording”; Luma reads titles only and does not record audio · use /win actions to open it"
                         .into(),
                 ),
+            })
+        } else if !self.catalog.focus_available() {
+            Some(HubWindowsStatus {
+                kind: "permission_required".into(),
+                title: "Listing works; Focus needs Accessibility".into(),
+                subtitle: Some("Use /win, then Ctrl-K → Open Accessibility Settings".into()),
             })
         } else {
             None
@@ -415,6 +498,20 @@ impl LumaModule for WindowsModule {
                 },
                 Err(err) => Self::map_focus_error(err),
             },
+            "open_accessibility_settings" => {
+                open_settings(
+                    self.system_settings.as_ref(),
+                    SystemSettingsPane::Accessibility,
+                )
+                .await
+            }
+            "open_screen_recording_settings" => {
+                open_settings(
+                    self.system_settings.as_ref(),
+                    SystemSettingsPane::ScreenRecording,
+                )
+                .await
+            }
             "focus" => {
                 let Some(window_id) = Self::parse_window_id(action.result.id.as_str()) else {
                     return ActionOutcome::Failed {
@@ -452,6 +549,23 @@ impl LumaModule for WindowsModule {
         let max =
             (settings.hub_windows_max as usize).clamp(HUB_WINDOWS_MAX_MIN, HUB_WINDOWS_MAX_MAX);
         self.hub_max.store(max, Ordering::Relaxed);
+    }
+}
+
+async fn open_settings(
+    system_settings: &dyn SystemSettingsPort,
+    pane: SystemSettingsPane,
+) -> ActionOutcome {
+    match system_settings.open(pane).await {
+        Ok(()) => ActionOutcome::Success {
+            message: Some(format!("Opened {} settings", pane.display_name())),
+        },
+        Err(error) => ActionOutcome::Failed {
+            kind: FailureKind::Unavailable {
+                reason: error.to_string(),
+                retryable: true,
+            },
+        },
     }
 }
 
@@ -499,6 +613,76 @@ mod tests {
         assert_eq!(upserts.len(), 1);
         assert_eq!(upserts[0].title, "Luma");
         assert_eq!(upserts[0].primary_action_id, "focus");
+    }
+
+    #[tokio::test]
+    async fn focus_is_annotated_before_execution_when_accessibility_is_missing() {
+        let catalog = Arc::new(FakeWindowCatalog::with_entries(
+            vec![sample("pid:1|num:1", "Safari", "Apple")],
+            None,
+        ));
+        catalog.focus_available.store(false, Ordering::SeqCst);
+        let settings = Arc::new(luma_application::FakeSystemSettings::default());
+        let m = WindowsModule::with_deps(catalog, settings.clone());
+        m.warmup(WarmupContext {
+            cancel: CancellationToken::new(),
+        })
+        .await;
+        let (tx, mut rx) = mpsc::channel(8);
+        m.search(Query::parse("/win ", 20), tx, CancellationToken::new())
+            .await;
+        let Event::ResultsChunk { upserts, .. } = rx.recv().await.unwrap() else {
+            panic!("expected chunk");
+        };
+        assert_eq!(
+            upserts[0].primary_action_label,
+            "Focus (needs Accessibility)"
+        );
+        let actions = m.actions(&upserts[0].clone().into_domain()).await;
+        assert!(actions
+            .iter()
+            .any(|action| action.id.as_str() == "open_accessibility_settings"));
+
+        let outcome = m
+            .perform(
+                ActionRequest {
+                    result: upserts[0].clone().into_domain(),
+                    action: actions[1].clone(),
+                    confirmation: false,
+                },
+                CancellationToken::new(),
+            )
+            .await;
+        assert!(matches!(outcome, ActionOutcome::Success { .. }));
+        assert_eq!(
+            settings.calls.lock().unwrap().as_slice(),
+            &[SystemSettingsPane::Accessibility]
+        );
+    }
+
+    #[tokio::test]
+    async fn duplicate_untitled_windows_are_numbered_for_display_only() {
+        let catalog = Arc::new(FakeWindowCatalog::with_entries(
+            vec![
+                sample("pid:1|num:1", "Preview", "Untitled"),
+                sample("pid:1|num:2", "Preview", "Untitled"),
+            ],
+            None,
+        ));
+        let m = WindowsModule::with_catalog(catalog);
+        m.warmup(WarmupContext {
+            cancel: CancellationToken::new(),
+        })
+        .await;
+        let (tx, mut rx) = mpsc::channel(8);
+        m.search(Query::parse("/win ", 20), tx, CancellationToken::new())
+            .await;
+        let Event::ResultsChunk { upserts, .. } = rx.recv().await.unwrap() else {
+            panic!("expected chunk");
+        };
+        assert_eq!(upserts[0].title, "Untitled 1/2");
+        assert_eq!(upserts[1].title, "Untitled 2/2");
+        assert_eq!(upserts[0].id, "win:pid:1|num:1");
     }
 
     #[tokio::test]
@@ -635,7 +819,7 @@ mod tests {
             .subtitle
             .as_deref()
             .unwrap_or("")
-            .contains("Allow or re-add Luma"));
+            .contains("does not record audio"));
     }
 
     #[tokio::test]

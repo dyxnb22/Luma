@@ -28,6 +28,10 @@ fn unavailable() -> WindowError {
 
 #[async_trait]
 impl WindowCatalogPort for MacWindowCatalog {
+    fn focus_available(&self) -> bool {
+        false
+    }
+
     async fn snapshot_previous_frontmost_app(&self) -> Result<Option<String>, WindowError> {
         Err(unavailable())
     }

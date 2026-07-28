@@ -267,18 +267,35 @@ pub(super) fn execute_action(
     action: ActionDescriptorDto,
     confirmation: bool,
 ) -> Vec<Effect> {
+    let requested_kind = state
+        .search
+        .results
+        .items
+        .iter()
+        .find(|item| item.id.as_str() == result_id)
+        .map(|item| item.kind.clone());
     if state.actions.active_operation.is_some() {
-        state.status.set(
-            "action already running — Esc to cancel",
-            StatusTone::Warning,
-        );
+        let message = if state.actions.active_kind.as_deref() == Some("screen_ocr") {
+            "OCR selection already active · drag to select · Esc cancel"
+        } else {
+            "action already running — Esc to cancel"
+        };
+        state.status.set(message, StatusTone::Warning);
         return vec![Effect::None];
     }
     let operation_id = next_operation_id(state);
     state.actions.active_operation = Some(operation_id.clone());
-    state
-        .status
-        .set(format!("running {}", action.label), StatusTone::Progress);
+    state.actions.active_kind = requested_kind.clone();
+    if requested_kind.as_deref() == Some("screen_ocr") {
+        state.status.set(
+            "OCR selection active · drag to select · Esc cancel",
+            StatusTone::Progress,
+        );
+    } else {
+        state
+            .status
+            .set(format!("running {}", action.label), StatusTone::Progress);
+    }
     vec![Effect::ExecuteAction {
         operation_id,
         result_id,

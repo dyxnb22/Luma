@@ -164,6 +164,24 @@ final class HotKeyDebouncerTests: XCTestCase {
         XCTAssertEqual(HotKeyDefinition.commandSpace.keyCode, 0x31, "kVK_Space")
         XCTAssertEqual(HotKeyDefinition.commandSpace.carbonModifiers, 256, "Carbon cmdKey")
         XCTAssertEqual(HotKeyDefinition.commandSpace.displayName, "⌘Space")
+        XCTAssertEqual(HotKeyDefinition.optionSpace.carbonModifiers, 2_048, "Carbon optionKey")
+        XCTAssertEqual(
+            HotKeyDefinition.commandShiftSpace.carbonModifiers,
+            768,
+            "Carbon cmdKey | shiftKey"
+        )
+        XCTAssertEqual(
+            HotKeyDefinition.commandSpace.alternatives().map(\.displayName),
+            ["⌥Space", "⌘⇧Space"]
+        )
+        XCTAssertEqual(
+            HotKeyDefinition.saved(identifier: "option-space"),
+            .optionSpace
+        )
+        XCTAssertEqual(
+            HotKeyDefinition.saved(identifier: "unknown"),
+            .commandSpace
+        )
     }
 
     func testHotKeyFailureRecoveryNamesTheRealSpotlightPathAndRetry() {
@@ -176,7 +194,7 @@ final class HotKeyDebouncerTests: XCTestCase {
             )
         )
         XCTAssertTrue(message.contains("Show Spotlight search"))
-        XCTAssertTrue(message.contains("Quit and reopen Luma"))
+        XCTAssertTrue(message.lowercased().contains("quit and reopen luma"))
         XCTAssertTrue(message.contains("/Users/me/Applications/Luma.app"))
         XCTAssertFalse(message.contains("Dock"))
     }

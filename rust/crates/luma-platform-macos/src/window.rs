@@ -431,6 +431,10 @@ const K_AX_ERROR_FAILURE: AXError = -25200;
 
 #[async_trait]
 impl WindowCatalogPort for MacWindowCatalog {
+    fn focus_available(&self) -> bool {
+        unsafe { AXIsProcessTrusted() }
+    }
+
     async fn snapshot_previous_frontmost_app(&self) -> Result<Option<String>, WindowError> {
         let label = tokio::task::spawn_blocking(|| {
             let entries = MacWindowCatalog::list_windows_blocking()?;

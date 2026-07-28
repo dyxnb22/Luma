@@ -271,6 +271,7 @@ fn prompt_exposes_global_search_and_command_modes() {
     let empty = AppState::default();
     let (flat, _) = draw(&empty, 80, 24);
     assert!(flat.contains("GLOBAL SEARCH"));
+    assert!(flat.contains("INPUT"));
     assert!(flat.contains("Search everything or type / for commands"));
 
     let mut command = state_with_results();
@@ -278,6 +279,14 @@ fn prompt_exposes_global_search_and_command_modes() {
     let (flat, _) = draw(&command, 80, 24);
     assert!(flat.contains("COMMAND"));
     assert!(!flat.contains("GLOBAL SEARCH"));
+}
+
+#[test]
+fn prompt_explicitly_shows_when_tab_must_restore_input_focus() {
+    let mut state = state_with_results();
+    state.focus = FocusZone::List;
+    let (flat, _) = draw(&state, 80, 24);
+    assert!(flat.contains("TAB TO INPUT"), "{flat}");
 }
 
 #[test]
@@ -382,6 +391,44 @@ fn command_palette_renders_syntax_placeholders_not_seed_query() {
         flat.contains("/proj add <path>"),
         "parameter placeholder missing: {flat}"
     );
+    assert!(flat.contains("Develop"), "task group missing: {flat}");
+}
+
+#[test]
+fn action_picker_renders_number_shortcuts_next_to_actions() {
+    let state = AppState {
+        route: Route::ActionPicker,
+        actions: ActionsState {
+            action_result_id: Some("1".into()),
+            action_choices: vec![
+                luma_protocol::ActionDescriptorDto {
+                    id: "open".into(),
+                    label: "Open".into(),
+                    risk: ActionRisk::Safe,
+                    confirmation: false,
+                },
+                luma_protocol::ActionDescriptorDto {
+                    id: "copy".into(),
+                    label: "Copy".into(),
+                    risk: ActionRisk::Safe,
+                    confirmation: false,
+                },
+            ],
+            ..ActionsState::default()
+        },
+        search: SearchState {
+            results: ResultsView {
+                items: vec![sample_item("1", "Safari", "apps", "browser")],
+                selected_id: Some("1".into()),
+                ..ResultsView::default()
+            },
+            ..SearchState::default()
+        },
+        ..AppState::default()
+    };
+    let (flat, _) = draw(&state, 80, 24);
+    assert!(flat.contains("[1] Open"), "{flat}");
+    assert!(flat.contains("[2] Copy"), "{flat}");
 }
 
 #[test]

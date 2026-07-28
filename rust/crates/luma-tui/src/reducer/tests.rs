@@ -1323,6 +1323,53 @@ fn second_execute_rejected_while_action_active() {
 }
 
 #[test]
+fn duplicate_screen_ocr_submit_explains_the_active_selection() {
+    let mut state = AppState::default();
+    state.actions.active_operation = Some("op-ocr".into());
+    state.actions.active_kind = Some("screen_ocr".into());
+    state.search.results.items = vec![SearchItem {
+        id: ResultId::new("ocr:capture"),
+        module_id: ModuleId::new("luma.ocr"),
+        title: "Select screen region".into(),
+        subtitle: None,
+        kind: "screen_ocr".into(),
+        score: 1.0,
+        primary_action: ActionDescriptor {
+            id: ActionId::new("capture_copy"),
+            label: "Select region".into(),
+            risk: ActionRisk::Safe,
+            confirmation: false,
+        },
+        secondary_actions: vec![],
+        ui_intent: None,
+        action_payload: None,
+    }];
+    state.actions.awaiting_actions = Some(AwaitingActions {
+        intent: ActionsIntent::Primary,
+        result_id: "ocr:capture".into(),
+    });
+    assert_eq!(
+        update(
+            &mut state,
+            Msg::Engine(Event::ActionsAvailable {
+                result_id: "ocr:capture".into(),
+                actions: vec![ActionDescriptorDto {
+                    id: "capture_copy".into(),
+                    label: "Select region".into(),
+                    risk: ActionRisk::Safe,
+                    confirmation: false,
+                }],
+            }),
+        ),
+        vec![Effect::None]
+    );
+    assert_eq!(
+        state.status.text,
+        "OCR selection already active · drag to select · Esc cancel"
+    );
+}
+
+#[test]
 fn tab_opens_action_picker() {
     let mut state = AppState::default();
     state.search.results.selected_id = Some("1".into());

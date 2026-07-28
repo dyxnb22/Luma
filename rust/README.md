@@ -58,7 +58,7 @@ cargo run -p luma   # interactive TUI
 ## Native workbench host
 
 `Luma.app` is a thin Swift/AppKit window that hosts the same `luma tui` process in a real PTY
-behind a global Command+Space hotkey ([ADR-0007](docs/adr/0007-native-workbench-host.md)). It owns
+behind a global activation hotkey ([ADR-0007](docs/adr/0007-native-workbench-host.md)). It owns
 the window, the PTY, activation, and lifecycle — never product UI or module data.
 
 ```bash
@@ -78,7 +78,9 @@ TCC grants survive a rebuild: re-check module permissions after updating. Set
 Behavior worth knowing:
 
 - Command+Space shows the window and focuses the terminal; pressing it again while Luma is active
-  hides the window and reactivates the app you came from.
+  hides the window and reactivates the app you came from. If macOS Spotlight or another app owns
+  it, Luma offers the explicit alternatives Option+Space and Command+Shift+Space and remembers the
+  user's choice; it never silently changes the shortcut.
 - The close button hides the window. The TUI keeps running; Cmd+Q (or Quit Luma) terminates it.
 - If the TUI exits, the next activation starts a fresh session.
 - The host is an accessory app, so it has no Dock icon and no visible menu bar. Cmd+C, Cmd+V,
@@ -132,7 +134,8 @@ backup, and migration ledger, never the Markdown source files.
   and `/help`. Input without `/` is always treated as a global search.
 - `Ctrl-/` opens the searchable command palette; `/commands [filter]` opens the same surface.
   Enabled modules publish their real subcommands, argument placeholders, and short examples there
-  and in `/help`. Partial slash commands show bounded completion candidates.
+  in task groups and in `/help`; all rows still come from module `CommandSpec` metadata. Partial
+  slash commands show bounded completion candidates.
 - `Fn` + `↑`/`↓` (or `PgUp`/`PgDn` on an extended keyboard) page the focused surface. `/scroll up` and `/scroll down` expose the same pure
   navigation through the command palette, including Results, the empty Hub, Preview, Help,
   Settings, the palette itself, and ActionPicker. Paging never runs an action or requests module I/O.

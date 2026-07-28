@@ -211,10 +211,15 @@ pub(super) fn render_overlay_action_picker(
                 String::new()
             };
             let risk_text = format!("{risk}{confirm}");
+            let shortcut = if idx < 9 {
+                format!("[{}] ", idx + 1)
+            } else {
+                String::new()
+            };
             let label = truncate(
                 &action.label,
                 content_width
-                    .saturating_sub(display_width(&risk_text) + 5)
+                    .saturating_sub(display_width(&risk_text) + display_width(&shortcut) + 5)
                     .max(6),
                 symbols,
             );
@@ -228,7 +233,8 @@ pub(super) fn render_overlay_action_picker(
                         style
                     },
                 ),
-                Span::styled(format!(" {label}"), style),
+                Span::styled(format!(" {shortcut}"), theme.keycap().patch(row_bg)),
+                Span::styled(label, style),
             ];
             let gap = content_width
                 .saturating_sub(
@@ -593,12 +599,18 @@ pub(super) fn render_overlay_commands(
     let start = selected
         .saturating_add(1)
         .saturating_sub(visible_rows.max(1));
+    let group_column = commands
+        .iter()
+        .map(|entry| display_width(&entry.group))
+        .max()
+        .unwrap_or(7)
+        .clamp(4, 8);
     let command_column = commands
         .iter()
         .map(|entry| display_width(&entry.label))
         .max()
         .unwrap_or(12)
-        .min(content_width.saturating_mul(45) / 100)
+        .min(content_width.saturating_mul(38) / 100)
         .max(12);
     let items: Vec<ListItem> = if commands.is_empty() {
         vec![ListItem::new(Line::from(Span::styled(
@@ -629,12 +641,16 @@ pub(super) fn render_overlay_commands(
                 } else {
                     with_panel_bg(theme.muted(), theme)
                 };
+                let group = truncate(&entry.group, group_column, symbols);
                 let command = truncate(&entry.label, command_column, symbols);
                 let description = truncate(
                     &entry.description,
-                    content_width.saturating_sub(command_column + 5).max(8),
+                    content_width
+                        .saturating_sub(group_column + command_column + 7)
+                        .max(8),
                     symbols,
                 );
+                let group_gap = group_column.saturating_sub(display_width(&group)) + 1;
                 let command_gap = command_column.saturating_sub(display_width(&command)) + 2;
                 let mut spans = vec![
                     Span::styled(" ", style),
@@ -647,7 +663,16 @@ pub(super) fn render_overlay_commands(
                         },
                     ),
                     Span::styled(
-                        format!(" {command}"),
+                        format!(" {group}"),
+                        if selected {
+                            style
+                        } else {
+                            theme.section().bg(theme.panel_bg)
+                        },
+                    ),
+                    Span::styled(" ".repeat(group_gap), row_bg),
+                    Span::styled(
+                        command,
                         if selected {
                             style
                         } else {

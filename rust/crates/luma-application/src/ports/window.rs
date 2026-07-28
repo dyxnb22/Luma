@@ -2,6 +2,7 @@
 
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
+use std::sync::atomic::{AtomicBool, Ordering};
 use thiserror::Error;
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -36,6 +37,9 @@ pub enum WindowError {
 
 #[async_trait]
 pub trait WindowCatalogPort: Send + Sync {
+    /// Listing stays useful without Accessibility, but focusing does not.
+    fn focus_available(&self) -> bool;
+
     /// Call once at compose / TUI attach — caches previous-frontmost app label.
     async fn snapshot_previous_frontmost_app(&self) -> Result<Option<String>, WindowError>;
 
@@ -63,6 +67,7 @@ pub trait WindowCatalogPort: Send + Sync {
 
 /// Deterministic fake for module / engine tests. Never steals focus.
 pub struct FakeWindowCatalog {
+    pub focus_available: AtomicBool,
     pub entries: tokio::sync::Mutex<Vec<WindowEntry>>,
     pub previous_frontmost: tokio::sync::Mutex<Option<String>>,
     pub paste_target: tokio::sync::Mutex<Option<String>>,
@@ -76,6 +81,7 @@ pub struct FakeWindowCatalog {
 impl Default for FakeWindowCatalog {
     fn default() -> Self {
         Self {
+            focus_available: AtomicBool::new(true),
             entries: tokio::sync::Mutex::new(Vec::new()),
             previous_frontmost: tokio::sync::Mutex::new(None),
             paste_target: tokio::sync::Mutex::new(None),
@@ -101,6 +107,10 @@ impl FakeWindowCatalog {
 
 #[async_trait]
 impl WindowCatalogPort for FakeWindowCatalog {
+    fn focus_available(&self) -> bool {
+        self.focus_available.load(Ordering::SeqCst)
+    }
+
     async fn snapshot_previous_frontmost_app(&self) -> Result<Option<String>, WindowError> {
         *self.snapshot_calls.lock().await += 1;
         let label = self.previous_frontmost.lock().await.clone();

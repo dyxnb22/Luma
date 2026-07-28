@@ -18,6 +18,7 @@ pub(super) fn apply_engine(state: &mut AppState, event: Event) -> Vec<Effect> {
     {
         if state.actions.active_operation.as_deref() == Some(operation_id.as_str()) {
             state.actions.active_operation = None;
+            state.actions.active_kind = None;
             return open_surface_query(state, query);
         }
     }

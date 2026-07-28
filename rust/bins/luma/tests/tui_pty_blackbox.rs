@@ -61,6 +61,10 @@ struct PtyTui {
 
 impl PtyTui {
     fn spawn(root: &Path) -> Self {
+        Self::spawn_with_fake(root, false)
+    }
+
+    fn spawn_with_fake(root: &Path, fake_enabled: bool) -> Self {
         let support = root.join("support");
         let logs = root.join("logs");
         let home = root.join("home");
@@ -68,7 +72,7 @@ impl PtyTui {
         for directory in [&support, &logs, &home, &tmp] {
             fs::create_dir_all(directory).expect("create isolated PTY test directory");
         }
-        write_all_modules_disabled(&support);
+        write_isolated_settings(&support, fake_enabled);
 
         // `script` owns the PTY. `stty` gives both crossterm and the ANSI parser
         // deterministic geometry even though the Rust test runner itself has no TTY.
@@ -243,8 +247,9 @@ fn parse_screen(bytes: &[u8]) -> vt100::Screen {
     parser.screen().clone()
 }
 
-fn write_all_modules_disabled(support: &Path) {
-    let settings = r#"schema_version = 1
+fn write_isolated_settings(support: &Path, fake_enabled: bool) {
+    let settings = format!(
+        r#"schema_version = 1
 settings_version = 1
 projects_roots = []
 imported_projects = []
@@ -259,7 +264,7 @@ hub_windows_max = 7
 "luma.command_recipes" = false
 "luma.databases" = false
 "luma.downloads" = false
-"luma.fake" = false
+"luma.fake" = {fake_enabled}
 "luma.git" = false
 "luma.ocr" = false
 "luma.packages" = false
@@ -277,7 +282,8 @@ hub_windows_max = 7
 "luma.timers" = false
 "luma.windows" = false
 "luma.wordbook" = false
-"#;
+"#
+    );
     fs::write(support.join("settings.toml"), settings).expect("write isolated settings");
 }
 
@@ -436,6 +442,42 @@ fn real_pty_preserves_keyboard_first_prompt_and_navigation() {
     tui.wait_for_screen(marker, "first Ctrl-C quit confirmation", |screen| {
         let contents = screen.contents();
         contents.contains("Quit Luma?") && contents.contains("Enter confirm")
+    });
+    tui.write(b"\x03");
+    tui.wait_for_exit();
+}
+
+#[test]
+fn real_pty_runs_the_test_only_result_action_matrix_without_external_effects() {
+    let root = tempdir().expect("temporary PTY test root");
+    let mut tui = PtyTui::spawn_with_fake(root.path(), true);
+    tui.wait_for_screen(0, "focused initial input", |screen| {
+        screen.contents().contains("GLOBAL SEARCH · INPUT")
+    });
+
+    let marker = tui.mark();
+    tui.write(b"/fake keyboard");
+    tui.wait_for_screen(marker, "test-only result", |screen| {
+        screen.contents().contains("Echo: keyboard")
+    });
+
+    let marker = tui.mark();
+    tui.write(b"\x0b");
+    tui.wait_for_screen(marker, "numbered action picker", |screen| {
+        let contents = screen.contents();
+        contents.contains(" ACTIONS ") && contents.contains("[1] Open")
+    });
+
+    let marker = tui.mark();
+    tui.write(b"1");
+    tui.wait_for_screen(marker, "digit action execution", |screen| {
+        screen.contents().contains("performed open")
+    });
+
+    let marker = tui.mark();
+    tui.write(b"\x03");
+    tui.wait_for_screen(marker, "quit confirmation", |screen| {
+        screen.contents().contains("Quit Luma?")
     });
     tui.write(b"\x03");
     tui.wait_for_exit();

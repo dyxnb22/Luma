@@ -129,9 +129,15 @@ fn render_prompt(
     let line = Line::from(spans);
     let command_mode = state.search.prompt.trim_start().starts_with('/');
     let mode = if command_mode {
-        " COMMAND "
+        if focused {
+            " COMMAND · INPUT "
+        } else {
+            " COMMAND · TAB TO INPUT "
+        }
+    } else if focused {
+        " GLOBAL SEARCH · INPUT "
     } else {
-        " GLOBAL SEARCH "
+        " GLOBAL SEARCH · TAB TO INPUT "
     };
     let mode_style = if command_mode {
         theme.accent_secondary()

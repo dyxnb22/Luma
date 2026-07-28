@@ -24,7 +24,7 @@ use luma_platform_macos::{
     MacDatabasePlatform, MacDownloads, MacGitRepository, MacHomebrew, MacKeychain,
     MacMihomoProxyCore, MacNetworkProbe, MacOpenPath, MacPasteboard, MacProfileStore,
     MacProjectWorkspace, MacRecipeEnvironment, MacRuntimeInspector, MacScreenOcr, MacShellHistory,
-    MacShortcuts, MacSpeech, MacSshConfig, MacSystemProxy, MacWindowCatalog,
+    MacShortcuts, MacSpeech, MacSshConfig, MacSystemProxy, MacSystemSettings, MacWindowCatalog,
 };
 use luma_storage::{
     luma_next_support_dir, ClipboardStore, CommandRecipesMetaStore, ConfigError, ConfigStore,
@@ -172,10 +172,10 @@ pub fn registry_from_settings(
         Arc::new(MacShortcuts::system_default()),
         pasteboard.clone(),
     )))?;
-    reg.register(Arc::new(ScreenOcrModule::with_deps(
-        Arc::new(MacScreenOcr),
-        pasteboard.clone(),
-    )))?;
+    reg.register(Arc::new(
+        ScreenOcrModule::with_deps(Arc::new(MacScreenOcr), pasteboard.clone())
+            .with_system_settings(Arc::new(MacSystemSettings)),
+    ))?;
     match MacShellHistory::system_default() {
         Ok(history) => reg.register(Arc::new(ShellHistoryModule::with_deps(
             Arc::new(history),
@@ -198,8 +198,9 @@ pub fn registry_from_settings(
             )?;
         }
     }
-    reg.register(Arc::new(WindowsModule::with_catalog(
+    reg.register(Arc::new(WindowsModule::with_deps(
         window_catalog.clone(),
+        Arc::new(MacSystemSettings),
     )))?;
     if let Some(clipboard) = clipboard {
         reg.register(Arc::new(ClipboardModule::with_deps(

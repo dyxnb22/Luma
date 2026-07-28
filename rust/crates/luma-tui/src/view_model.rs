@@ -123,13 +123,13 @@ impl AppState {
         matches!(token.as_str(), "win" | "window" | "windows")
     }
 
-    /// Digit shortcuts for window focus: Hub (empty prompt) or win list when list is focused.
+    /// Digit shortcuts for window focus: Hub or win list, only while the list is focused.
     pub fn should_intercept_window_digit(&self) -> bool {
         if self.route != Route::Search || self.actions.active_operation.is_some() {
             return false;
         }
         if self.showing_hub() {
-            return true;
+            return self.focus == FocusZone::List;
         }
         self.is_win_search() && self.focus == FocusZone::List
     }

@@ -715,8 +715,18 @@ mod tests {
     }
 
     #[test]
-    fn map_key_digit_routes_to_window_pick_on_hub() {
+    fn map_key_digit_routes_to_prompt_on_hub_when_prompt_is_focused() {
         let state = AppState::default();
+        let msg = map_key(KeyCode::Char('1'), KeyModifiers::empty(), &state);
+        assert!(matches!(msg, Msg::KeyChar('1')));
+    }
+
+    #[test]
+    fn map_key_digit_routes_to_window_pick_on_hub_list() {
+        let state = AppState {
+            focus: crate::view_model::FocusZone::List,
+            ..AppState::default()
+        };
         let msg = map_key(KeyCode::Char('2'), KeyModifiers::empty(), &state);
         assert!(matches!(msg, Msg::PickWindowDigit(2)));
     }

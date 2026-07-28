@@ -63,10 +63,17 @@ fn compact_status(state: &AppState, narrow: bool) -> &str {
 fn contextual_hints(state: &AppState, symbols: &Symbols) -> Vec<Hint> {
     let arrows = format!("{}{}", symbols.up, symbols.down);
     match state.route {
-        Route::Search if state.showing_hub() => vec![
+        Route::Search if state.showing_hub() && state.focus == FocusZone::List => vec![
             ("1-9".into(), "focus"),
             (arrows, "move"),
             ("Fn+↑/↓".into(), "page"),
+            ("Enter".into(), "open"),
+            ("Ctrl-/".into(), "commands"),
+        ],
+        Route::Search if state.showing_hub() => vec![
+            ("Type".into(), "search"),
+            (arrows, "move"),
+            ("Tab".into(), "focus"),
             ("Enter".into(), "open"),
             ("Ctrl-/".into(), "commands"),
         ],

@@ -132,7 +132,10 @@ fn typing_keeps_results_during_debounce_submit_flushes_search() {
 
 #[test]
 fn hub_digit_focuses_third_window() {
-    let mut state = AppState::default();
+    let mut state = AppState {
+        focus: FocusZone::List,
+        ..AppState::default()
+    };
     state.hub.windows = Some(crate::view_model::HubWindowsState {
         app_name: "all".into(),
         windows: vec![

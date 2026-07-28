@@ -1,7 +1,8 @@
 use super::*;
 use crate::theme::{Symbols, Theme, ThemeMode};
 use crate::view_model::{
-    ActionsState, HubState, ResultsView, SearchState, SettingsState, TerminalState, WordbookState,
+    ActionsState, FocusZone, HubState, ResultsView, SearchState, SettingsState, TerminalState,
+    WordbookState,
 };
 use luma_domain::{ActionDescriptor, ActionId, ActionRisk, ModuleId, ResultId, SearchItem};
 use ratatui::backend::{Backend, TestBackend};
@@ -845,6 +846,7 @@ fn render_fatal_status_uses_error_color() {
 #[test]
 fn hub_window_rows_show_digit_hints() {
     let state = AppState {
+        focus: FocusZone::List,
         hub: HubState {
             windows: Some(crate::view_model::HubWindowsState {
                 app_name: "all".into(),
@@ -877,6 +879,31 @@ fn hub_window_rows_show_digit_hints() {
         !flat.contains("grant AX[1]"),
         "status row must not be numbered"
     );
+}
+
+#[test]
+fn hub_prompt_focus_keeps_digits_available_for_search() {
+    let state = AppState {
+        hub: HubState {
+            windows: Some(crate::view_model::HubWindowsState {
+                app_name: "all".into(),
+                windows: vec![crate::view_model::HubWindowRow {
+                    id: "win:1".into(),
+                    title: "Alpha".into(),
+                }],
+                more: None,
+                status_kind: None,
+                status_title: None,
+                status_subtitle: None,
+            }),
+            ..HubState::default()
+        },
+        ..AppState::default()
+    };
+    let (flat, _) = draw(&state, 80, 24);
+    assert!(flat.contains("type to search"), "{flat}");
+    assert!(!flat.contains("[1]"), "{flat}");
+    assert!(!flat.contains("1-9 direct"), "{flat}");
 }
 
 #[test]

@@ -2,7 +2,7 @@ use super::util::{
     display_width, highlight_query, highlighted_spans, pad_line_to_width, pad_right, truncate,
 };
 use crate::theme::{module_glyph, module_label, ResultKindVisual, Symbols, Theme};
-use crate::view_model::{is_informational_kind, AppState, Route, StatusTone};
+use crate::view_model::{is_informational_kind, AppState, FocusZone, Route, StatusTone};
 use luma_domain::SearchItem;
 use ratatui::layout::Rect;
 use ratatui::style::{Modifier, Style};
@@ -17,8 +17,6 @@ pub(super) fn render_results(
     theme: &Theme,
     symbols: &Symbols,
 ) {
-    use crate::view_model::FocusZone;
-
     let list_focused =
         matches!(state.focus, FocusZone::List) && matches!(state.route, Route::Search);
     let inner_height = area.height.saturating_sub(2) as usize;
@@ -205,10 +203,14 @@ fn hub_list_items(
                 Some("all") | Some("") | None => "  WINDOWS".to_string(),
                 Some(app) => format!("  WINDOWS  {symbols_sep}  {app}", symbols_sep = symbols.sep),
             };
-            let hint = format!(
-                "  {} focus selected  {}  1-9 direct",
-                symbols.enter, symbols.sep
-            );
+            let hint = if state.focus == FocusZone::List {
+                format!(
+                    "  {} focus selected  {}  1-9 direct",
+                    symbols.enter, symbols.sep
+                )
+            } else {
+                format!("  Tab focus list  {}  type to search", symbols.sep)
+            };
             out.push(ListItem::new(vec![
                 Line::from(Span::styled(header, theme.section())),
                 Line::from(Span::styled(hint, theme.muted())),
@@ -254,10 +256,11 @@ fn hub_list_items(
         }
         .patch(row_bg);
         let right = match kind.as_str() {
-            "window" => state
+            "window" if state.focus == FocusZone::List => state
                 .hub_row_window_digit(idx)
                 .map(|d| format!("[{d}]"))
                 .unwrap_or_default(),
+            "window" => String::new(),
             "window_more" | "window_status" => "win".to_string(),
             "continue" => "continue".to_string(),
             _ => query.clone(),

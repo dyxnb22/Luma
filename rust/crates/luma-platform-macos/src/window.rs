@@ -170,7 +170,9 @@ impl MacWindowCatalog {
         if !unsafe { AXIsProcessTrusted() } {
             return Err(WindowError::PermissionRequired {
                 capability: "accessibility".into(),
-                guidance: "Allow Luma (or its terminal host) in System Settings → Privacy & Security → Accessibility".into(),
+                guidance:
+                    "Allow Luma in System Settings → Privacy & Security → Accessibility, then retry"
+                        .into(),
             });
         }
         let (pid, _) = parse_window_id(id)
@@ -417,7 +419,9 @@ fn map_ax_error(code: AXError, context: &str) -> WindowError {
     if code == K_AX_ERROR_API_DISABLED || !unsafe { AXIsProcessTrusted() } {
         return WindowError::PermissionRequired {
             capability: "accessibility".into(),
-            guidance: "Allow Luma (or its terminal host) in System Settings → Privacy & Security → Accessibility".into(),
+            guidance:
+                "Allow Luma in System Settings → Privacy & Security → Accessibility, then retry"
+                    .into(),
         };
     }
     WindowError::Unavailable(format!("{context} (AXError {code})"))

@@ -386,7 +386,7 @@ impl LumaModule for WindowsModule {
                 kind: "permission_required".into(),
                 title: "Window titles need Screen Recording".into(),
                 subtitle: Some(
-                    "System Settings → Privacy & Security → Screen & System Audio Recording: allow Luma; if already on, toggle off/on, then reopen Luma"
+                    "Allow or re-add Luma in System Settings → Privacy & Security → Screen & System Audio Recording, then reopen Luma"
                         .into(),
                 ),
             })
@@ -635,7 +635,7 @@ mod tests {
             .subtitle
             .as_deref()
             .unwrap_or("")
-            .contains("toggle off/on"));
+            .contains("Allow or re-add Luma"));
     }
 
     #[tokio::test]

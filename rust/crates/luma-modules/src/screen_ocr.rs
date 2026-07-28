@@ -181,7 +181,7 @@ fn ocr_outcome(error: ScreenOcrError) -> ActionOutcome {
             kind: FailureKind::PermissionRequired {
                 capability: "screen_recording".into(),
                 guidance:
-                    "Allow Luma in System Settings → Privacy & Security → Screen & System Audio Recording, then retry /ocr"
+                    "Allow or re-add Luma in System Settings → Privacy & Security → Screen & System Audio Recording, then retry /ocr"
                         .into(),
             },
         },

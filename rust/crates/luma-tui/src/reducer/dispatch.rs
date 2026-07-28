@@ -1,4 +1,5 @@
 use super::*;
+use unicode_segmentation::UnicodeSegmentation;
 
 /// Pure synchronous reducer. Must not perform I/O.
 pub fn update(state: &mut AppState, msg: Msg) -> Vec<Effect> {
@@ -19,13 +20,11 @@ pub fn update(state: &mut AppState, msg: Msg) -> Vec<Effect> {
             }
             if matches!(
                 state.route,
-                Route::ConfirmAction
-                    | Route::ActionPicker
-                    | Route::Help
-                    | Route::Settings
-                    | Route::Commands
-                    | Route::QuitConfirm
+                Route::ConfirmAction | Route::ActionPicker | Route::QuitConfirm
             ) {
+                return vec![Effect::None];
+            }
+            if matches!(state.route, Route::Help | Route::Settings | Route::Commands) {
                 clear_action_ui(state);
                 // Typing abandons overlay restore (Esc is the restore path).
                 state.overlay.restore_prompt = None;
@@ -67,7 +66,14 @@ pub fn update(state: &mut AppState, msg: Msg) -> Vec<Effect> {
         }
         Msg::Backspace => {
             if state.route == Route::Commands {
-                state.overlay.commands_filter.pop();
+                if let Some((index, _)) = state
+                    .overlay
+                    .commands_filter
+                    .grapheme_indices(true)
+                    .next_back()
+                {
+                    state.overlay.commands_filter.truncate(index);
+                }
                 state.overlay.commands_selected = 0;
                 return vec![Effect::None];
             } else if state.route == Route::Help {

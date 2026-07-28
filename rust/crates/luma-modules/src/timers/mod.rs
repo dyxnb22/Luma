@@ -25,9 +25,7 @@ mod poller;
 
 use format::{format_hms, primary_for, timer_subtitle, timer_title};
 use mutate::{payload_str, payload_u64, timer_id_from_item};
-use parse::{
-    parse_countdown_spec, parse_minutes_token, parse_stopwatch_name, DEFAULT_POMO_MINUTES,
-};
+use parse::{parse_countdown_spec, parse_stopwatch_name, DEFAULT_POMO_MINUTES};
 
 pub struct TimersModule {
     manifest: ModuleManifest,
@@ -48,8 +46,8 @@ impl TimersModule {
         vec![
             crate::ux::command_spec("/tm [query]", "List or search timers", "/tm ", None),
             crate::ux::command_spec(
-                "/tm pomo [minutes] [name]",
-                "Create and start a countdown",
+                "/tm pomo|pomodoro|cd|countdown [minutes] [name]",
+                "Create and start a countdown (four equivalent forms)",
                 "/tm pomo ",
                 Some("/tm pomo 25 Focus"),
             ),
@@ -60,8 +58,8 @@ impl TimersModule {
                 Some("/tm 10 Tea"),
             ),
             crate::ux::command_spec(
-                "/tm sw [name]",
-                "Create and start a stopwatch",
+                "/tm sw|start|stopwatch [name]",
+                "Create and start a stopwatch (three equivalent forms)",
                 "/tm sw ",
                 Some("/tm sw Build"),
             ),
@@ -156,6 +154,7 @@ impl LumaModule for TimersModule {
                 && first_token
                     .chars()
                     .all(|character| character.is_ascii_digit()));
+        let stopwatch_requested = matches!(first_token, "sw" | "stopwatch" | "start");
         if countdown_requested && parse_countdown_spec(&rest).is_none() {
             let _ = sink
                 .send(Event::ResultsChunk {
@@ -201,14 +200,8 @@ impl LumaModule for TimersModule {
         let mut upserts = Vec::new();
 
         // Create rows
-        if rest.starts_with("pomo")
-            || rest.starts_with("pomodoro")
-            || rest.starts_with("cd ")
-            || rest == "cd"
-            || rest.starts_with("countdown")
-            || parse_minutes_token(rest.split_whitespace().next().unwrap_or("")).is_some()
-        {
-            if let Some((minutes, name)) = parse_countdown_spec(&rest) {
+        if countdown_requested {
+            if let Some((minutes, name)) = parse_countdown_spec(rest_raw) {
                 let duration_ms = (minutes as i64) * 60_000;
                 upserts.push(SearchItemDto {
                     id: format!("tm:create:cd:{minutes}"),
@@ -228,13 +221,7 @@ impl LumaModule for TimersModule {
             }
         }
 
-        if rest.starts_with("sw")
-            || rest.starts_with("stopwatch")
-            || rest.starts_with("start")
-            || rest == "sw"
-            || rest == "stopwatch"
-            || rest == "start"
-        {
+        if stopwatch_requested {
             let name = parse_stopwatch_name(rest_raw);
             upserts.push(SearchItemDto {
                 id: "tm:create:sw".into(),
@@ -250,18 +237,7 @@ impl LumaModule for TimersModule {
             });
         }
 
-        let needle = if rest.starts_with("pomo")
-            || rest.starts_with("pomodoro")
-            || rest == "cd"
-            || rest.starts_with("cd ")
-            || rest.starts_with("countdown")
-            || rest == "sw"
-            || rest.starts_with("sw ")
-            || rest.starts_with("stopwatch")
-            || rest == "start"
-            || rest.starts_with("start ")
-            || parse_minutes_token(rest.split_whitespace().next().unwrap_or("")).is_some()
-        {
+        let needle = if countdown_requested || stopwatch_requested {
             String::new()
         } else {
             rest.clone()
@@ -916,6 +892,38 @@ mod tests {
             assert_eq!(items.len(), 1, "{raw}");
             assert_eq!(items[0].kind, "command_error", "{raw}");
         }
+    }
+
+    #[tokio::test]
+    async fn command_prefixes_do_not_consume_ordinary_timer_searches() {
+        let (module, _, _) = module_at(0);
+        module
+            .store
+            .insert(&TimerEntry {
+                id: "sweet".into(),
+                name: "Sweet tea".into(),
+                kind: "stopwatch".into(),
+                state: "paused".into(),
+                duration_ms: None,
+                accumulated_ms: 0,
+                started_at_ms: None,
+                alerted: false,
+                created_at_ms: 0,
+                updated_at_ms: 0,
+            })
+            .unwrap();
+        module.refresh_index().await.unwrap();
+
+        let sweet = collect_search_items(&module, Query::parse("/tm sweet", 20)).await;
+        assert!(
+            sweet.iter().any(|item| item.title.contains("Sweet tea")),
+            "got: {:?}",
+            sweet.iter().map(|item| &item.title).collect::<Vec<_>>()
+        );
+        assert!(!sweet.iter().any(|item| item.kind == "create"));
+
+        let pomegranate = collect_search_items(&module, Query::parse("/tm pomegranate", 20)).await;
+        assert!(!pomegranate.iter().any(|item| item.kind == "create"));
     }
 
     #[tokio::test]

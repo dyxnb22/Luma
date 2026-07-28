@@ -647,6 +647,89 @@ pub fn load_registry_with_settings() -> Result<RegistryLoad, RegistryError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::BTreeMap;
+
+    #[test]
+    fn production_manifest_inventory_is_complete_and_command_driven() {
+        let temp = tempfile::tempdir().unwrap();
+        let settings = LumaSettings::default();
+        let (registry, _) = registry_from_settings(
+            &settings,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            temp.path().to_path_buf(),
+        )
+        .unwrap();
+        let actual = registry
+            .list_module_info()
+            .into_iter()
+            .filter(|module| module.id != "luma.fake")
+            .map(|module| {
+                assert!(!module.triggers.is_empty(), "{} has no trigger", module.id);
+                for command in &module.commands {
+                    assert!(
+                        command.syntax.starts_with('/'),
+                        "{} has non-slash syntax {}",
+                        module.id,
+                        command.syntax
+                    );
+                    assert!(
+                        command.query.starts_with('/'),
+                        "{} has non-slash query {}",
+                        module.id,
+                        command.query
+                    );
+                    if let Some(example) = &command.example {
+                        assert!(
+                            example.starts_with('/'),
+                            "{} has non-slash example {example}",
+                            module.id
+                        );
+                    }
+                }
+                (module.id, module.commands.len())
+            })
+            .collect::<BTreeMap<_, _>>();
+        let expected = [
+            ("luma.apps", 1),
+            ("luma.calculator", 1),
+            ("luma.clipboard", 5),
+            ("luma.command_recipes", 3),
+            ("luma.databases", 7),
+            ("luma.downloads", 4),
+            ("luma.git", 5),
+            ("luma.ocr", 1),
+            ("luma.packages", 6),
+            ("luma.projects", 5),
+            ("luma.proxy", 9),
+            ("luma.quicklinks", 3),
+            ("luma.records", 11),
+            ("luma.renewals", 7),
+            ("luma.runtime", 1),
+            ("luma.secrets", 1),
+            ("luma.shell_history", 1),
+            ("luma.shortcuts", 3),
+            ("luma.snippets", 4),
+            ("luma.ssh", 5),
+            ("luma.timers", 4),
+            ("luma.windows", 1),
+            ("luma.wordbook", 9),
+        ]
+        .into_iter()
+        .map(|(id, count)| (id.to_string(), count))
+        .collect::<BTreeMap<_, _>>();
+
+        assert_eq!(actual, expected);
+        assert_eq!(actual.values().sum::<usize>(), 97);
+    }
 
     #[test]
     fn unavailable_renewals_store_keeps_id_and_triggers_registered() {

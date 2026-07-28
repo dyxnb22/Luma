@@ -268,6 +268,10 @@ impl LumaModule for PackagesModule {
                 ActionOutcome::InteractiveTerminal {
                     program: plan.program,
                     args: plan.args,
+                    environment: vec![
+                        ("HOMEBREW_NO_AUTO_UPDATE".into(), "1".into()),
+                        ("HOMEBREW_NO_INSTALL_CLEANUP".into(), "1".into()),
+                    ],
                     record_alias: None,
                 }
             }
@@ -611,6 +615,10 @@ mod tests {
             ActionOutcome::InteractiveTerminal {
                 program: "/fixture/brew".into(),
                 args: vec!["install".into(), "ripgrep".into()],
+                environment: vec![
+                    ("HOMEBREW_NO_AUTO_UPDATE".into(), "1".into()),
+                    ("HOMEBREW_NO_INSTALL_CLEANUP".into(), "1".into()),
+                ],
                 record_alias: None,
             }
         );

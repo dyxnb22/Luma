@@ -187,7 +187,7 @@ impl ShortcutsPort for FakeShortcuts {
             .push(name.into());
         Ok(ShortcutRunPlan {
             program: "/usr/bin/shortcuts".into(),
-            args: vec!["run".into(), name.into()],
+            args: vec!["run".into(), "--".into(), name.into()],
             shortcut,
         })
     }

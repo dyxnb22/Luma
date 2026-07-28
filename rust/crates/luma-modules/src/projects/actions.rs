@@ -187,7 +187,7 @@ impl ProjectsModule {
                 .next()
                 .unwrap_or("");
             let cancel = CancellationToken::new();
-            let roots = self.roots.read().await.clone();
+            let roots = self.browse_roots().await;
             let directory = self
                 .workspace
                 .resolve_browse_path(PathBuf::from(path_part), roots, cancel.clone())
@@ -337,6 +337,7 @@ impl ProjectsModule {
                     ActionOutcome::InteractiveTerminal {
                         program: editor,
                         args: vec![open_path.display().to_string()],
+                        environment: Vec::new(),
                         record_alias: None,
                     }
                 } else {
@@ -348,6 +349,7 @@ impl ProjectsModule {
                             "luma-project".into(),
                             open_path.display().to_string(),
                         ],
+                        environment: Vec::new(),
                         record_alias: None,
                     }
                 }

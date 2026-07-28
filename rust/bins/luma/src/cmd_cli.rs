@@ -164,16 +164,24 @@ async fn cmd_run(
     json: bool,
 ) -> anyhow::Result<()> {
     let catalog = repo.load_catalog();
-    let recipe = catalog
-        .recipe_by_id(recipe_id)
-        .ok_or_else(|| anyhow::anyhow!("recipe not found: {recipe_id}"))?;
-    let base = env.working_directory().map_err(|e| anyhow::anyhow!(e.0))?;
-    recipe_runnable(env, &base, recipe).map_err(|e| anyhow::anyhow!(e))?;
+    let Some(recipe) = catalog.recipe_by_id(recipe_id) else {
+        return cmd_run_failure(recipe_id, json, format!("recipe not found: {recipe_id}"));
+    };
+    let base = match env.working_directory() {
+        Ok(base) => base,
+        Err(error) => return cmd_run_failure(recipe_id, json, error.0),
+    };
+    if let Err(error) = recipe_runnable(env, &base, recipe) {
+        return cmd_run_failure(recipe_id, json, error);
+    }
     let variant = match env.match_variant(&base, &recipe.variants) {
         VariantMatch::Matched(v) => v,
-        VariantMatch::NoMatch => anyhow::bail!("当前项目不适用"),
+        VariantMatch::NoMatch => return cmd_run_failure(recipe_id, json, "当前项目不适用"),
     };
-    let steps = resolve_steps(env, &base, &variant).map_err(|e| anyhow::anyhow!(e.0))?;
+    let steps = match resolve_steps(env, &base, &variant) {
+        Ok(steps) => steps,
+        Err(error) => return cmd_run_failure(recipe_id, json, error.0),
+    };
     let plan = RecipeRunPlan {
         recipe_id: recipe.id.clone(),
         recipe_title: recipe.title.clone(),
@@ -226,7 +234,7 @@ async fn cmd_run(
 
     let report = match report {
         Ok(report) => report,
-        Err(err) => anyhow::bail!(err),
+        Err(error) => return cmd_run_failure(recipe_id, json, error.to_string()),
     };
 
     record_recipe_run_outcome(repo, &plan.recipe_id, report.outcome.clone(), now_unix());
@@ -263,11 +271,31 @@ async fn cmd_run(
     Ok(())
 }
 
+fn cmd_run_failure(
+    recipe_id: &str,
+    json_output: bool,
+    message: impl Into<String>,
+) -> anyhow::Result<()> {
+    let message = message.into();
+    if json_output {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&json!({
+                "recipe_id": recipe_id,
+                "outcome": "failed",
+                "error": message,
+            }))?
+        );
+        std::process::exit(1);
+    }
+    anyhow::bail!(message)
+}
+
 async fn cmd_copy(recipe_id: &str, json: bool) -> anyhow::Result<()> {
     let load = load_registry_with_settings()?;
     let (item, outcome) = run_action(
         load.registry,
-        &format!("cmd {recipe_id}"),
+        &recipe_query(recipe_id),
         None,
         "copy",
         false,
@@ -298,4 +326,18 @@ async fn cmd_copy(recipe_id: &str, json: bool) -> anyhow::Result<()> {
         println!("{}", message.unwrap_or_else(|| "copied".into()));
     }
     Ok(())
+}
+
+fn recipe_query(recipe_id: &str) -> String {
+    format!("/cmd {recipe_id}")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::recipe_query;
+
+    #[test]
+    fn dedicated_cli_uses_explicit_command_syntax() {
+        assert_eq!(recipe_query("git-status"), "/cmd git-status");
+    }
 }

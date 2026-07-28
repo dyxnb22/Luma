@@ -628,6 +628,22 @@ fn highlight_query_skips_module_trigger() {
 }
 
 #[test]
+fn empty_preview_explains_tab_and_shift_tab_correctly() {
+    let mut state = state_with_results();
+    state.terminal = TerminalState {
+        width: 120,
+        height: 40,
+    };
+    state.search.results.selected_id = None;
+
+    let (flat, _) = draw(&state, 120, 40);
+
+    assert!(flat.contains("Tab focuses"), "{flat}");
+    assert!(flat.contains("Shift-Tab toggles preview"), "{flat}");
+    assert!(!flat.contains("Shift-Tab moves focus"), "{flat}");
+}
+
+#[test]
 fn render_confirm_overlay_shows_target() {
     use crate::view_model::PendingAction;
     use luma_protocol::ActionDescriptorDto;

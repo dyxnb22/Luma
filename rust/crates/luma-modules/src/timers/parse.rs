@@ -20,7 +20,10 @@ pub(super) fn parse_countdown_spec(rest: &str) -> Option<(u32, String)> {
     let first = parts.next()?;
     let (minutes, name_bits): (u32, Vec<&str>) = if let Some(m) = parse_minutes_token(first) {
         (m, parts.collect())
-    } else if matches!(first, "pomo" | "pomodoro" | "cd" | "countdown") {
+    } else if matches!(
+        first.to_ascii_lowercase().as_str(),
+        "pomo" | "pomodoro" | "cd" | "countdown"
+    ) {
         match parts.next() {
             Some(t) => {
                 if let Some(m) = parse_minutes_token(t) {
@@ -91,5 +94,9 @@ mod tests {
         assert_eq!(parse_countdown_spec("pomo 0 Focus"), None);
         assert_eq!(parse_countdown_spec("pomo 1441"), None);
         assert_eq!(parse_countdown_spec("1441"), None);
+        assert_eq!(
+            parse_countdown_spec("Countdown 5 Luma 中文🙂"),
+            Some((5, "Luma 中文🙂".into()))
+        );
     }
 }

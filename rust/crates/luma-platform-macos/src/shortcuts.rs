@@ -174,7 +174,8 @@ impl ShortcutsPort for MacShortcuts {
         if cancel.is_cancelled() {
             return Err(ShortcutsError::Cancelled);
         }
-        self.run(&["view".into(), exact.name], &cancel).await?;
+        self.run(&["view".into(), "--".into(), exact.name], &cancel)
+            .await?;
         Ok(())
     }
 
@@ -193,7 +194,7 @@ impl ShortcutsPort for MacShortcuts {
                 .to_str()
                 .ok_or(ShortcutsError::Unavailable)?
                 .into(),
-            args: vec!["run".into(), shortcut.name.clone()],
+            args: vec!["run".into(), "--".into(), shortcut.name.clone()],
             shortcut,
         })
     }
@@ -318,12 +319,12 @@ mod tests {
             ["list", "-f", "Work Stuff"]
         );
         assert_eq!(
-            vec!["view".to_string(), "Exact Name".into()],
-            ["view", "Exact Name"]
+            vec!["view".to_string(), "--".into(), "Exact Name".into()],
+            ["view", "--", "Exact Name"]
         );
         assert_eq!(
-            vec!["run".to_string(), "Exact Name".into()],
-            ["run", "Exact Name"]
+            vec!["run".to_string(), "--".into(), "Exact Name".into()],
+            ["run", "--", "Exact Name"]
         );
     }
 

@@ -1,6 +1,6 @@
 use luma_application::{
-    run_action, run_interactive_terminal, run_query, sftp_args, ssh_connect_args, EnginePort,
-    ModuleRegistry, SettingsRepository, SshConfigPort,
+    run_action, run_interactive_terminal, run_query, EnginePort, ModuleRegistry,
+    SettingsRepository, SshConfigPort,
 };
 use luma_protocol::Command;
 use std::process::ExitStatus;
@@ -38,7 +38,7 @@ pub async fn ssh_set_favorite(
     favorite: bool,
 ) -> Result<(), String> {
     let action = if favorite { "favorite" } else { "unfavorite" };
-    ssh_meta_action(registry, settings, "ssh", &format!("ssh:{alias}"), action).await
+    ssh_meta_action(registry, settings, "/ssh", &format!("ssh:{alias}"), action).await
 }
 
 pub async fn ssh_set_display_name(
@@ -50,7 +50,7 @@ pub async fn ssh_set_display_name(
     ssh_meta_action(
         registry,
         settings,
-        &format!("ssh rename {alias} {name}"),
+        &format!("/ssh rename {alias} {name}"),
         &format!("ssh:rename:{alias}"),
         "rename",
     )
@@ -61,7 +61,7 @@ pub async fn ssh_list_json(
     registry: ModuleRegistry,
     settings: Option<Arc<dyn SettingsRepository>>,
 ) -> Result<serde_json::Value, String> {
-    let (items, _) = run_query(registry, "ssh", settings).await?;
+    let (items, _) = run_query(registry, "/ssh", settings).await?;
     Ok(serde_json::json!({ "results": items }))
 }
 
@@ -81,14 +81,8 @@ pub async fn ssh_connect_cli(
     if program != "sftp" && !ssh_config.ssh_available() {
         return Err("ssh command unavailable".into());
     }
-    let (executable, args) = if program == "sftp" {
-        ("/usr/bin/sftp", sftp_args(alias))
-    } else if program == "ssh" {
-        ("/usr/bin/ssh", ssh_connect_args(alias))
-    } else {
-        return Err(format!("unsupported SSH executable: {program}"));
-    };
-    let status = run_interactive_terminal(executable, &args).map_err(|e| e.to_string())?;
+    let (executable, args) = connection_command(ssh_config.as_ref(), alias, program)?;
+    let status = run_interactive_terminal(executable, &args, &[]).map_err(|e| e.to_string())?;
     if status.success() {
         if let Some(engine) = engine {
             let _ = engine
@@ -112,10 +106,74 @@ pub async fn ssh_connect_cli(
     Ok(status)
 }
 
+fn connection_command(
+    ssh_config: &dyn SshConfigPort,
+    alias: &str,
+    program: &str,
+) -> Result<(&'static str, Vec<String>), String> {
+    match program {
+        "sftp" => Ok(("/usr/bin/sftp", ssh_config.sftp_invocation_args(alias))),
+        "ssh" => Ok(("/usr/bin/ssh", ssh_config.ssh_invocation_args(alias))),
+        _ => Err(format!("unsupported SSH executable: {program}")),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use luma_application::{FakeSshConfigPort, ModuleRegistry};
+    use luma_application::{
+        FakeSshConfigPort, ModuleRegistry, ResolvedSshHost, SshConfigError, SshConfigState,
+    };
+
+    struct ExplicitConfig;
+
+    impl SshConfigPort for ExplicitConfig {
+        fn config_state(&self) -> SshConfigState {
+            SshConfigState::Found
+        }
+
+        fn list_aliases(&self) -> Result<Vec<String>, SshConfigError> {
+            Ok(vec!["loopback".into()])
+        }
+
+        fn resolve(&self, alias: &str) -> Result<ResolvedSshHost, SshConfigError> {
+            Ok(ResolvedSshHost {
+                alias: alias.into(),
+                hostname: Some("127.0.0.1".into()),
+                user: None,
+                port: None,
+                identity_file: None,
+                proxy_jump: None,
+                connect_timeout: None,
+            })
+        }
+
+        fn ssh_available(&self) -> bool {
+            true
+        }
+
+        fn sftp_available(&self) -> bool {
+            true
+        }
+
+        fn ssh_invocation_args(&self, alias: &str) -> Vec<String> {
+            vec![
+                "-F".into(),
+                "/fixture/config".into(),
+                "--".into(),
+                alias.into(),
+            ]
+        }
+
+        fn sftp_invocation_args(&self, alias: &str) -> Vec<String> {
+            vec![
+                "-F".into(),
+                "/fixture/config".into(),
+                "--".into(),
+                alias.into(),
+            ]
+        }
+    }
 
     #[tokio::test]
     async fn ssh_connect_cli_rejects_dash_alias() {
@@ -140,5 +198,18 @@ mod tests {
         .await
         .unwrap_err();
         assert!(err.contains("unknown"), "{err}");
+    }
+
+    #[test]
+    fn cli_connection_reuses_the_config_ports_exact_invocation() {
+        let config = ExplicitConfig;
+        for program in ["ssh", "sftp"] {
+            let (_, args) = connection_command(&config, "loopback", program).unwrap();
+            assert_eq!(
+                args,
+                ["-F", "/fixture/config", "--", "loopback"],
+                "{program} must use the same config that was resolved"
+            );
+        }
     }
 }

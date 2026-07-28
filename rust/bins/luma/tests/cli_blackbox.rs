@@ -169,6 +169,25 @@ fn cmd_run_json_stdout_is_pure_json() {
 }
 
 #[test]
+fn cmd_run_json_preflight_failures_are_machine_readable() {
+    let dir = tempdir().unwrap();
+    let support = dir.path().join("support");
+    let logs = dir.path().join("logs");
+    fs::create_dir_all(&support).unwrap();
+    fs::create_dir_all(&logs).unwrap();
+
+    for recipe in ["show-env", "no-such-recipe"] {
+        let (code, stdout, _stderr) = run_luma(&support, &logs, &["cmd", "run", recipe, "--json"]);
+        assert_eq!(code, 1, "recipe={recipe} stdout={stdout}");
+        let value: serde_json::Value = serde_json::from_str(stdout.trim())
+            .unwrap_or_else(|error| panic!("recipe={recipe}: {error}; stdout={stdout:?}"));
+        assert_eq!(value["recipe_id"], recipe);
+        assert_eq!(value["outcome"], "failed");
+        assert!(value["error"].as_str().is_some_and(|text| !text.is_empty()));
+    }
+}
+
+#[test]
 fn action_run_executes_recipe_not_silent_success() {
     let dir = tempdir().unwrap();
     let support = dir.path().join("support");
@@ -868,6 +887,67 @@ fn ssh_query_not_configured_without_ssh_config() {
     let blob = stdout.to_lowercase();
     assert!(!blob.contains("-----begin"));
     assert!(!blob.contains("private-key"));
+}
+
+#[test]
+fn ssh_cli_list_favorite_and_rename_use_slash_surfaces() {
+    let dir = tempdir().unwrap();
+    let support = dir.path().join("support");
+    let logs = dir.path().join("logs");
+    fs::create_dir_all(&support).unwrap();
+    fs::create_dir_all(&logs).unwrap();
+    let config = dir.path().join("ssh-config");
+    fs::write(
+        &config,
+        "Host luma-e2e-local\n  HostName 127.0.0.1\n  User luma-e2e\n  Port 43128\n",
+    )
+    .unwrap();
+
+    let run = |args: &[&str]| {
+        Command::new(luma_bin())
+            .args(args)
+            .env("LUMA_NEXT_SUPPORT_DIR", &support)
+            .env("LUMA_NEXT_LOGS_DIR", &logs)
+            .env("SSH_CONFIG", &config)
+            .output()
+            .expect("spawn luma")
+    };
+
+    let listed = run(&["ssh", "list", "--json"]);
+    assert!(listed.status.success());
+    let listed: serde_json::Value = serde_json::from_slice(&listed.stdout).unwrap();
+    let results = listed["results"].as_array().unwrap();
+    assert_eq!(
+        results
+            .iter()
+            .filter(|row| row["action_payload"]["alias"] == "luma-e2e-local")
+            .count(),
+        1
+    );
+
+    assert!(run(&["ssh", "favorite", "luma-e2e-local"]).status.success());
+    assert!(run(&["ssh", "rename", "luma-e2e-local", "Loopback Test"])
+        .status
+        .success());
+    let listed = run(&["ssh", "list", "--json"]);
+    assert!(listed.status.success());
+    let listed: serde_json::Value = serde_json::from_slice(&listed.stdout).unwrap();
+    let row = listed["results"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|row| row["action_payload"]["alias"] == "luma-e2e-local")
+        .unwrap();
+    assert_eq!(row["title"], "Loopback Test");
+    assert!(row["secondary_actions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|action| action["id"] == "unfavorite"));
+
+    assert!(run(&["ssh", "unfavorite", "luma-e2e-local"])
+        .status
+        .success());
 }
 
 #[test]

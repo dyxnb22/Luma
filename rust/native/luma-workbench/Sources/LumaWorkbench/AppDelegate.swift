@@ -32,7 +32,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
-        NSApp.mainMenu = AppMenu.make()
 
         guard let executableURL = resolveBundledLuma() else { return }
 
@@ -42,6 +41,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         )
         session.delegate = self
         self.session = session
+        // Explicit edit targets keep Cmd-C/V/A and their menu items available even while AppKit
+        // reports the accessory window, rather than SwiftTerm, as the responder between events.
+        NSApp.mainMenu = AppMenu.make(editTarget: session.terminalView)
         let memoryPressureController = MemoryPressureController(session: session)
         memoryPressureController.start()
         self.memoryPressureController = memoryPressureController
@@ -202,7 +204,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             presentWarning(
                 title: "\(HostIdentity.applicationName) could not register "
                     + "\(HotKeyDefinition.commandSpace.displayName)",
-                message: "\(error)\n\nThe window still opens from Finder or the Dock."
+                message: "\(error)\n\n"
+                    + HotKeyDefinition.commandSpace.registrationRecoveryMessage(
+                        appPath: Bundle.main.bundleURL.path
+                    )
             )
         }
     }

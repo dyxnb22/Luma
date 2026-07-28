@@ -38,6 +38,10 @@ private final class LumaTerminalView: LocalProcessTerminalView {
         super.dataReceived(slice: safe[...])
     }
 
+    func resetControlFilter() {
+        controlFilter.reset()
+    }
+
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         // Constraints attach this view before an accessory app necessarily becomes key. Set the
@@ -144,6 +148,9 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
     @discardableResult
     func startIfNeeded() -> Bool {
         guard lifecycle.needsStartBeforeShowing else { return true }
+        // Control-sequence state is scoped to one PTY byte stream. An old child can exit in the
+        // middle of OSC/APC output; carrying that state forward would hide the new TUI entirely.
+        (terminalView as? LumaTerminalView)?.resetControlFilter()
         if case .exited = lifecycle.state {
             terminalView.terminal.resetToInitialState()
         }

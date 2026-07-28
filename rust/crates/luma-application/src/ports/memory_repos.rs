@@ -806,6 +806,7 @@ impl RecordsRepository for MemoryRecordsRepository {
         if norm.is_empty() {
             return Err(RecordsRepoError::msg("name is empty"));
         }
+        self.add_category(category);
         let mut records = self.records.lock().expect("lock");
         if records
             .iter()
@@ -814,11 +815,6 @@ impl RecordsRepository for MemoryRecordsRepository {
             return Err(RecordsRepoError::msg("duplicate name"));
         }
         let cats = self.categories.lock().expect("lock");
-        if !cats.iter().any(|c| c.name == category) {
-            return Err(RecordsRepoError::msg(
-                "category does not exist; import categories first",
-            ));
-        }
         let cat_id = cats
             .iter()
             .find(|c| c.name == category)

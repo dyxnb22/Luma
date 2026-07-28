@@ -26,6 +26,7 @@ pub(super) fn apply_engine(state: &mut AppState, event: Event) -> Vec<Effect> {
             luma_protocol::ActionOutcomeDto::InteractiveTerminal {
                 program,
                 args,
+                environment,
                 record_alias,
             },
         operation_id,
@@ -38,6 +39,7 @@ pub(super) fn apply_engine(state: &mut AppState, event: Event) -> Vec<Effect> {
             return vec![Effect::RunInteractiveTerminal {
                 program: program.clone(),
                 args: args.clone(),
+                environment: environment.clone(),
                 record_alias: record_alias.clone(),
                 operation_id: operation_id.clone(),
             }];
@@ -60,10 +62,8 @@ pub(super) fn apply_engine(state: &mut AppState, event: Event) -> Vec<Effect> {
     }
     if let Event::ActionsAvailable { result_id, actions } = event {
         let Some(pending) = state.actions.awaiting_actions.take() else {
-            state.status.set(
-                format!("{result_id}: {} actions", actions.len()),
-                StatusTone::Neutral,
-            );
+            // The prompt or selection moved on while this asynchronous response was in flight.
+            // It no longer belongs to any visible request and must not overwrite current status.
             return vec![Effect::None];
         };
         if pending.result_id != result_id {

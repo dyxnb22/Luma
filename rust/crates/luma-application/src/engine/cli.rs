@@ -174,10 +174,11 @@ pub async fn run_action(
         luma_protocol::ActionOutcomeDto::InteractiveTerminal {
             program,
             args,
+            environment,
             record_alias,
         } => {
             use crate::interactive_terminal::run_interactive_terminal;
-            match run_interactive_terminal(&program, &args) {
+            match run_interactive_terminal(&program, &args, &environment) {
                 Ok(status) => {
                     if status.success() {
                         if let Some(alias) = record_alias {

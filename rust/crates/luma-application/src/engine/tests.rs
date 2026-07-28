@@ -1122,6 +1122,106 @@ async fn search_completion_bound_aborts_slow_module() {
     );
 }
 
+struct DelayedTargetedSearchModule {
+    manifest: ModuleManifest,
+}
+
+#[async_trait]
+impl LumaModule for DelayedTargetedSearchModule {
+    fn manifest(&self) -> &ModuleManifest {
+        &self.manifest
+    }
+
+    async fn warmup(&self, _ctx: WarmupContext) -> ModuleState {
+        ModuleState::Ready
+    }
+
+    async fn search(&self, _query: Query, sink: SearchSink, _cancel: CancellationToken) {
+        tokio::time::sleep(SEARCH_COMPLETION_BOUND + Duration::from_millis(100)).await;
+        let _ = sink
+            .send(Event::ResultsChunk {
+                request_id: String::new(),
+                sequence: 1,
+                upserts: vec![SearchItemDto {
+                    id: "targeted:ready".into(),
+                    module_id: self.manifest.id.as_str().into(),
+                    title: "Targeted query completed".into(),
+                    kind: "status".into(),
+                    primary_action_id: "noop".into(),
+                    primary_action_label: "OK".into(),
+                    ..Default::default()
+                }],
+                removed_ids: vec![],
+            })
+            .await;
+    }
+
+    async fn actions(&self, _result: &SearchItem) -> Vec<ActionDescriptor> {
+        Vec::new()
+    }
+
+    async fn perform(&self, _action: ActionRequest, _cancel: CancellationToken) -> ActionOutcome {
+        ActionOutcome::Success { message: None }
+    }
+
+    async fn teardown(&self) {}
+}
+
+#[tokio::test]
+async fn targeted_search_can_report_after_the_global_completion_bound() {
+    let mut registry = ModuleRegistry::new();
+    registry
+        .register(Arc::new(DelayedTargetedSearchModule {
+            manifest: ModuleManifest {
+                id: ModuleId::new("luma.targeted"),
+                display_name: "Targeted".into(),
+                triggers: vec!["targeted".into()],
+                default_enabled: true,
+                search_mode: SearchMode::TargetedOnly,
+                required_capabilities: vec![],
+                workbench: Default::default(),
+            },
+        }))
+        .expect("register targeted module");
+    let engine = Engine::new(registry);
+    let mut events = engine.subscribe();
+    engine
+        .handle_command(Command::Search {
+            request_id: "targeted-1".into(),
+            query: "/targeted wait".into(),
+        })
+        .await;
+
+    let mut saw_result = false;
+    let finished = tokio::time::timeout(Duration::from_secs(2), async {
+        loop {
+            match events.recv().await {
+                Ok(Event::ResultsChunk {
+                    request_id,
+                    upserts,
+                    ..
+                }) if request_id == "targeted-1" => {
+                    saw_result |= upserts.iter().any(|item| item.id == "targeted:ready");
+                }
+                Ok(Event::SearchFinished { request_id, .. }) if request_id == "targeted-1" => {
+                    break;
+                }
+                Ok(_) => {}
+                Err(error) => panic!("event stream failed: {error}"),
+            }
+        }
+    })
+    .await;
+    assert!(
+        finished.is_ok(),
+        "targeted search must finish within its bound"
+    );
+    assert!(
+        saw_result,
+        "targeted result must not be aborted at the global bound"
+    );
+}
+
 struct BulkSearchModule {
     manifest: ModuleManifest,
     count: usize,

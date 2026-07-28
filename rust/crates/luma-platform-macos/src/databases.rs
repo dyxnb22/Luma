@@ -75,9 +75,10 @@ impl DatabasePlatformPort for MacDatabasePlatform {
             } => {
                 validate_postgres_metadata(host, *port, database, username)
                     .map_err(DatabasePlatformError::Invalid)?;
-                let program = find_path_program("psql").ok_or_else(|| {
+                let program = find_psql_program().ok_or_else(|| {
                     DatabasePlatformError::NotConfigured(
-                        "psql is not executable on the current PATH".into(),
+                        "psql was not found on PATH or in a Homebrew PostgreSQL/libpq opt path"
+                            .into(),
                     )
                 })?;
                 DatabaseClientPlan {
@@ -219,11 +220,97 @@ fn require_program(path: &str, label: &str) -> Result<String, DatabasePlatformEr
     }
 }
 
-fn find_path_program(name: &str) -> Option<PathBuf> {
-    let path = std::env::var_os("PATH")?;
-    std::env::split_paths(&path)
-        .map(|directory| directory.join(name))
-        .find(|candidate| is_executable(candidate))
+fn find_psql_program() -> Option<PathBuf> {
+    let path_directories = std::env::var_os("PATH")
+        .as_deref()
+        .map(std::env::split_paths)
+        .into_iter()
+        .flatten()
+        .collect::<Vec<_>>();
+    let mut homebrew_prefixes = Vec::new();
+    for directory in &path_directories {
+        if is_executable(&directory.join("brew")) {
+            if let Some(prefix) = directory.parent() {
+                push_unique_path(&mut homebrew_prefixes, prefix.to_path_buf());
+            }
+        }
+    }
+    if let Some(prefix) = std::env::var_os("HOMEBREW_PREFIX").map(PathBuf::from) {
+        push_unique_path(&mut homebrew_prefixes, prefix);
+    }
+    push_unique_path(&mut homebrew_prefixes, PathBuf::from("/opt/homebrew"));
+    push_unique_path(&mut homebrew_prefixes, PathBuf::from("/usr/local"));
+    find_psql_program_in(&path_directories, &homebrew_prefixes)
+}
+
+fn find_psql_program_in(
+    path_directories: &[PathBuf],
+    homebrew_prefixes: &[PathBuf],
+) -> Option<PathBuf> {
+    for directory in path_directories {
+        let candidate = directory.join("psql");
+        if is_executable(&candidate) {
+            return Some(candidate);
+        }
+    }
+    for directory in path_directories {
+        if let Some(candidate) = highest_versioned_executable(directory, "psql-") {
+            return Some(candidate);
+        }
+    }
+    for prefix in homebrew_prefixes {
+        for formula in ["libpq", "postgresql"] {
+            let candidate = prefix.join("opt").join(formula).join("bin").join("psql");
+            if is_executable(&candidate) {
+                return Some(candidate);
+            }
+        }
+        if let Some(candidate) = versioned_entries(&prefix.join("opt"), "postgresql@")
+            .into_iter()
+            .map(|(_, formula)| formula.join("bin").join("psql"))
+            .find(|candidate| is_executable(candidate))
+        {
+            return Some(candidate);
+        }
+    }
+    None
+}
+
+fn highest_versioned_executable(directory: &Path, prefix: &str) -> Option<PathBuf> {
+    versioned_entries(directory, prefix)
+        .into_iter()
+        .find_map(|(_, path)| is_executable(&path).then_some(path))
+}
+
+fn versioned_entries(directory: &Path, prefix: &str) -> Vec<(u32, PathBuf)> {
+    let Ok(entries) = std::fs::read_dir(directory) else {
+        return Vec::new();
+    };
+    let mut matches = entries
+        .filter_map(Result::ok)
+        .filter_map(|entry| {
+            let name = entry.file_name();
+            let name = name.to_str()?;
+            let major = numeric_suffix(name, prefix)?;
+            Some((major, entry.path()))
+        })
+        .collect::<Vec<_>>();
+    matches.sort_by(|left, right| right.0.cmp(&left.0).then_with(|| left.1.cmp(&right.1)));
+    matches
+}
+
+fn numeric_suffix(name: &str, prefix: &str) -> Option<u32> {
+    let suffix = name.strip_prefix(prefix)?;
+    if suffix.is_empty() || !suffix.bytes().all(|byte| byte.is_ascii_digit()) {
+        return None;
+    }
+    suffix.parse().ok()
+}
+
+fn push_unique_path(paths: &mut Vec<PathBuf>, candidate: PathBuf) {
+    if !paths.contains(&candidate) {
+        paths.push(candidate);
+    }
 }
 
 fn is_executable(path: &Path) -> bool {
@@ -243,6 +330,13 @@ fn path_to_string(path: &Path) -> Result<String, DatabasePlatformError> {
 mod tests {
     use super::*;
     use rusqlite::Connection;
+    use std::os::unix::fs::PermissionsExt;
+
+    fn make_executable(path: &Path) {
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, "#!/bin/sh\nexit 0\n").unwrap();
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o700)).unwrap();
+    }
 
     #[tokio::test]
     async fn canonicalizes_regular_sqlite_and_reads_bounded_schema_read_only() {
@@ -345,5 +439,90 @@ mod tests {
             ]
         );
         assert!(!args.iter().any(|arg| arg.contains("password")));
+    }
+
+    #[test]
+    fn psql_resolver_prefers_plain_path_then_versioned_path() {
+        let temp = tempfile::tempdir().unwrap();
+        let first = temp.path().join("first");
+        let second = temp.path().join("second");
+        make_executable(&first.join("psql-17"));
+        make_executable(&first.join("psql-18"));
+        make_executable(&second.join("psql"));
+
+        assert_eq!(
+            find_psql_program_in(&[first.clone(), second.clone()], &[]),
+            Some(second.join("psql"))
+        );
+
+        std::fs::remove_file(second.join("psql")).unwrap();
+        assert_eq!(
+            find_psql_program_in(&[first.clone(), second], &[]),
+            Some(first.join("psql-18"))
+        );
+    }
+
+    #[test]
+    fn psql_resolver_finds_keg_only_homebrew_opt_paths() {
+        let temp = tempfile::tempdir().unwrap();
+        let prefix = temp.path().join("homebrew");
+        let versioned = prefix
+            .join("opt")
+            .join("postgresql@18")
+            .join("bin")
+            .join("psql");
+        make_executable(&versioned);
+        assert_eq!(
+            find_psql_program_in(&[], std::slice::from_ref(&prefix)),
+            Some(versioned)
+        );
+
+        let libpq = prefix.join("opt").join("libpq").join("bin").join("psql");
+        make_executable(&libpq);
+        assert_eq!(
+            find_psql_program_in(&[], std::slice::from_ref(&prefix)),
+            Some(libpq)
+        );
+    }
+
+    #[test]
+    fn psql_resolver_uses_prefix_order_and_highest_numeric_major() {
+        let temp = tempfile::tempdir().unwrap();
+        let first = temp.path().join("first");
+        let second = temp.path().join("second");
+        let first_17 = first
+            .join("opt")
+            .join("postgresql@17")
+            .join("bin")
+            .join("psql");
+        let first_18 = first
+            .join("opt")
+            .join("postgresql@18")
+            .join("bin")
+            .join("psql");
+        let second_19 = second
+            .join("opt")
+            .join("postgresql@19")
+            .join("bin")
+            .join("psql");
+        std::fs::create_dir_all(first.join("opt").join("postgresql@20").join("bin")).unwrap();
+        for path in [&first_17, &first_18, &second_19] {
+            make_executable(path);
+        }
+        assert_eq!(find_psql_program_in(&[], &[first, second]), Some(first_18));
+    }
+
+    #[test]
+    fn psql_resolver_ignores_lookalikes_non_executables_and_directories() {
+        let temp = tempfile::tempdir().unwrap();
+        let bin = temp.path().join("bin");
+        std::fs::create_dir_all(bin.join("psql-20")).unwrap();
+        std::fs::write(bin.join("psql-19"), "not executable").unwrap();
+        make_executable(&bin.join("psql-evil"));
+
+        assert_eq!(find_psql_program_in(&[bin], &[]), None);
+        assert_eq!(numeric_suffix("psql-18", "psql-"), Some(18));
+        assert_eq!(numeric_suffix("psql-evil", "psql-"), None);
+        assert_eq!(numeric_suffix("psql-", "psql-"), None);
     }
 }

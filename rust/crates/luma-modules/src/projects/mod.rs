@@ -36,6 +36,17 @@ pub struct ProjectsModule {
 }
 
 impl ProjectsModule {
+    async fn browse_roots(&self) -> Vec<PathBuf> {
+        let mut roots = self.roots.read().await.clone();
+        for project in self.imported.read().await.iter() {
+            let path = PathBuf::from(&project.path);
+            if !roots.contains(&path) {
+                roots.push(path);
+            }
+        }
+        roots
+    }
+
     pub fn with_roots(
         roots: Vec<PathBuf>,
         opener: Arc<dyn OpenPathPort>,
@@ -86,8 +97,8 @@ impl ProjectsModule {
                             None,
                         ),
                         crate::ux::command_spec(
-                            "/proj add <path>",
-                            "Import an existing canonical directory",
+                            "/proj add|import <path>",
+                            "Import an existing canonical directory (aliases: add, import)",
                             "/proj add ",
                             Some("/proj add /Users/me/project"),
                         ),
@@ -241,6 +252,47 @@ mod tests {
             "relative browse under root should list empty folder: {upserts:?}"
         );
         assert_eq!(upserts[0].title, "Empty folder");
+    }
+
+    #[tokio::test]
+    async fn imported_project_is_a_browse_root_without_separate_root_setting() {
+        let project = PathBuf::from("/workspace/imported");
+        let file = project.join("README.md");
+        let workspace = Arc::new(FakeProjectWorkspace::new());
+        workspace.set_listing(
+            project.clone(),
+            ProjectDirectoryListing {
+                entries: vec![ProjectDirectoryEntry {
+                    name: "README.md".into(),
+                    path: file,
+                    is_directory: false,
+                }],
+                truncated: false,
+            },
+        );
+        let module = ProjectsModule::with_deps(
+            vec![],
+            vec![ImportedProject {
+                path: project.display().to_string(),
+                name: Some("imported".into()),
+            }],
+            Arc::new(FakeOpenPath::new()),
+            workspace,
+        );
+
+        let (tx, mut rx) = mpsc::channel(8);
+        module
+            .search(
+                Query::parse(format!("/proj browse {}", project.display()), 20),
+                tx,
+                CancellationToken::new(),
+            )
+            .await;
+        let Event::ResultsChunk { upserts, .. } = rx.recv().await.unwrap() else {
+            panic!("expected chunk");
+        };
+        assert_eq!(upserts[0].title, "README.md");
+        assert_ne!(upserts[0].id, "proj:configure");
     }
 
     #[tokio::test]

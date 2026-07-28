@@ -1,13 +1,11 @@
 use crate::cancel::await_unless_cancelled;
 use async_trait::async_trait;
 use luma_application::{
-    sanitize_identity_display, sftp_args, ssh_connect_args, ActionOutcome, ActionRequest,
-    ClockPort, LumaModule, ModuleManifest, ModuleState, PasteboardPort, ResolvedSshHost,
-    SearchMode, SearchSink, SshConfigPort, SshHostMeta, SshMetaRepository, WarmupContext,
+    sanitize_identity_display, ActionOutcome, ActionRequest, ClockPort, LumaModule, ModuleManifest,
+    ModuleState, PasteboardPort, ResolvedSshHost, SearchMode, SearchSink, SshConfigPort,
+    SshHostMeta, SshMetaRepository, WarmupContext,
 };
-use luma_domain::{
-    ActionDescriptor, ActionId, ActionRisk, FailureKind, ModuleId, Query, SearchItem,
-};
+use luma_domain::{ActionDescriptor, FailureKind, ModuleId, Query, SearchItem};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -127,12 +125,10 @@ impl LumaModule for SshModule {
     }
     async fn actions(&self, result: &SearchItem) -> Vec<ActionDescriptor> {
         if result.kind != "ssh_host" {
-            return vec![ActionDescriptor {
-                id: ActionId::new("noop"),
-                label: "—".into(),
-                risk: ActionRisk::Safe,
-                confirmation: false,
-            }];
+            // Command rows such as `/ssh rename …` and `/ssh reload` carry their executable
+            // primary action directly. Replacing it with `noop` made those documented surfaces
+            // visible but impossible to execute through Engine/CLI action dispatch.
+            return vec![result.primary_action.clone()];
         }
         let Some(alias) = Self::alias_from_item(result) else {
             return Self::host_actions(false);
@@ -280,7 +276,8 @@ impl LumaModule for SshModule {
                 }
                 ActionOutcome::InteractiveTerminal {
                     program: "/usr/bin/ssh".into(),
-                    args: ssh_connect_args(&alias),
+                    args: self.config.ssh_invocation_args(&alias),
+                    environment: Vec::new(),
                     record_alias: Some(alias),
                 }
             }
@@ -295,7 +292,8 @@ impl LumaModule for SshModule {
                 }
                 ActionOutcome::InteractiveTerminal {
                     program: "/usr/bin/sftp".into(),
-                    args: sftp_args(&alias),
+                    args: self.config.sftp_invocation_args(&alias),
+                    environment: Vec::new(),
                     record_alias: Some(alias),
                 }
             }
@@ -326,6 +324,7 @@ mod tests {
     use luma_application::{
         FakePasteboard, FakeSshConfigPort, MemorySshMetaRepository, ResolvedSshHost, SshConfigState,
     };
+    use luma_domain::{ActionId, ActionRisk};
     use luma_protocol::{Event, SearchItemDto};
     use tokio::sync::mpsc;
 

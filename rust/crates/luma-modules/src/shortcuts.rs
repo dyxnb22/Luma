@@ -268,6 +268,7 @@ impl LumaModule for ShortcutsModule {
                 ActionOutcome::InteractiveTerminal {
                     program: plan.program,
                     args: plan.args,
+                    environment: Vec::new(),
                     record_alias: None,
                 }
             }
@@ -509,7 +510,8 @@ mod tests {
             outcome,
             ActionOutcome::InteractiveTerminal {
                 program: "/usr/bin/shortcuts".into(),
-                args: vec!["run".into(), "Morning Routine".into()],
+                args: vec!["run".into(), "--".into(), "Morning Routine".into()],
+                environment: Vec::new(),
                 record_alias: None,
             }
         );

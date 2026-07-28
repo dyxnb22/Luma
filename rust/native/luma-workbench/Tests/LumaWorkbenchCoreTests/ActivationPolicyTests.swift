@@ -165,4 +165,19 @@ final class HotKeyDebouncerTests: XCTestCase {
         XCTAssertEqual(HotKeyDefinition.commandSpace.carbonModifiers, 256, "Carbon cmdKey")
         XCTAssertEqual(HotKeyDefinition.commandSpace.displayName, "⌘Space")
     }
+
+    func testHotKeyFailureRecoveryNamesTheRealSpotlightPathAndRetry() {
+        let message = HotKeyDefinition.commandSpace.registrationRecoveryMessage(
+            appPath: "/Users/me/Applications/Luma.app"
+        )
+        XCTAssertTrue(
+            message.contains(
+                "System Settings → Keyboard → Keyboard Shortcuts → Spotlight"
+            )
+        )
+        XCTAssertTrue(message.contains("Show Spotlight search"))
+        XCTAssertTrue(message.contains("Quit and reopen Luma"))
+        XCTAssertTrue(message.contains("/Users/me/Applications/Luma.app"))
+        XCTAssertFalse(message.contains("Dock"))
+    }
 }

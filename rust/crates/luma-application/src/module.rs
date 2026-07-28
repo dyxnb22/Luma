@@ -117,6 +117,7 @@ pub enum ActionOutcome {
     InteractiveTerminal {
         program: String,
         args: Vec<String>,
+        environment: Vec<(String, String)>,
         record_alias: Option<String>,
     },
     /// Request a settings.toml CAS update (handled by the engine).

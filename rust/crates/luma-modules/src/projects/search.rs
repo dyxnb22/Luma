@@ -23,7 +23,7 @@ impl ProjectsModule {
         sink: SearchSink,
         cancel: CancellationToken,
     ) {
-        let roots = self.roots.read().await.clone();
+        let roots = self.browse_roots().await;
         let imported = self.imported.read().await.clone();
         let rest_norm = query.rest_normalized();
         let rest_raw = query.rest_raw().trim().to_string();

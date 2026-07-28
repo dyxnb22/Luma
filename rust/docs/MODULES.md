@@ -138,7 +138,8 @@ Read-only launcher over OpenSSH — not a full SSH client:
 In-session stopwatch and countdown (Pomodoro) — no background daemon:
 
 - **Store:** `~/Library/Application Support/LumaNext/timers.sqlite`
-- **Queries:** `/tm ` lists timers; `/tm pomo [minutes] [name]`, `/tm 25`, `/tm sw [name]` / `/tm start [name]` create+start rows.
+- **Queries:** `/tm ` lists timers; `/tm pomo|pomodoro|cd|countdown [minutes] [name]`,
+  `/tm 25`, and `/tm sw|start|stopwatch [name]` create+start rows.
 - **Actions:** Start / Pause / Resume / Reset; Delete (confirm).
 - **Hub:** running and paused timers occupy the bounded Continue section before recalled objects;
   Enter performs the current natural action (Pause/Resume) against live state.

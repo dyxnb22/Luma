@@ -249,6 +249,11 @@ impl PackageManagerPort for FakePackageManager {
 
 pub fn mutation_args(mutation: PackageMutation, name: &str, kind: PackageKind) -> Vec<String> {
     let mut args = vec![mutation.program_arg().into()];
+    if mutation == PackageMutation::Uninstall {
+        // `brew uninstall` removes only the newest keg when older versions remain. Luma's
+        // package-level Uninstall action must leave the formula/cask genuinely uninstalled.
+        args.push("--force".into());
+    }
     if kind == PackageKind::Cask {
         args.push("--cask".into());
     }
@@ -293,7 +298,7 @@ mod tests {
                 "hostile; name",
                 PackageKind::Cask
             ),
-            ["uninstall", "--cask", "hostile; name"]
+            ["uninstall", "--force", "--cask", "hostile; name"]
         );
     }
 }

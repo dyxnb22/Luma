@@ -463,19 +463,7 @@ impl RecordsStore {
         let now = now_iso();
         let revision = new_revision();
         let tx = conn.unchecked_transaction()?;
-        let category_id: i64 = tx
-            .query_row(
-                "SELECT id FROM record_categories WHERE name = ?1",
-                params![category_name.trim()],
-                |r| r.get(0),
-            )
-            .optional()?
-            .ok_or_else(|| {
-                RecordsStoreError::Msg(format!(
-                    "category \"{}\" does not exist; import categories first",
-                    category_name.trim()
-                ))
-            })?;
+        let category_id = upsert_category_tx(&tx, category_name, "", &now)?;
         tx.execute(
             "INSERT INTO records (
                 category_id, category_name, name, name_normalized, rating, note,
@@ -1129,10 +1117,10 @@ mod tests {
     fn insert_search_delete_round_trip() {
         let dir = tempdir().unwrap();
         let store = RecordsStore::with_path(dir.path().join("records.sqlite")).unwrap();
-        seed_category(&store, "电影");
         let row = store
             .insert_record("电影", "沙丘", Some(8), "史诗")
             .unwrap();
+        assert_eq!(store.stats().unwrap().categories, 1);
         assert_eq!(row.rating, Some(8));
         let hits = store.search("沙丘", None, 10).unwrap();
         assert_eq!(hits.len(), 1);

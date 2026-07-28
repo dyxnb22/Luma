@@ -7,6 +7,7 @@ use std::process::{Command, ExitStatus, Stdio};
 pub struct InteractiveTerminalRequest {
     pub program: String,
     pub args: Vec<String>,
+    pub environment: Vec<(String, String)>,
 }
 
 #[derive(Debug)]
@@ -33,9 +34,12 @@ impl InteractiveTerminalError {
 pub fn run_interactive_terminal(
     program: &str,
     args: &[String],
+    environment: &[(String, String)],
 ) -> Result<ExitStatus, InteractiveTerminalError> {
-    Command::new(program)
+    let mut command = Command::new(program);
+    command
         .args(args)
+        .envs(environment.iter().map(|(key, value)| (key, value)))
         .stdin(Stdio::inherit())
         .stdout(Stdio::inherit())
         .stderr(Stdio::inherit())
@@ -74,7 +78,7 @@ mod tests {
         if !std::path::Path::new("/bin/true").exists() {
             return;
         }
-        let status = run_interactive_terminal("/bin/true", &[]).expect("spawn");
+        let status = run_interactive_terminal("/bin/true", &[], &[]).expect("spawn");
         assert!(status.success());
     }
 
@@ -83,7 +87,24 @@ mod tests {
         if !std::path::Path::new("/bin/false").exists() {
             return;
         }
-        let status = run_interactive_terminal("/bin/false", &[]).expect("spawn");
+        let status = run_interactive_terminal("/bin/false", &[], &[]).expect("spawn");
         assert!(!status.success());
+    }
+
+    #[test]
+    fn explicit_environment_is_applied_to_the_child() {
+        if !std::path::Path::new("/bin/sh").exists() {
+            return;
+        }
+        let status = run_interactive_terminal(
+            "/bin/sh",
+            &[
+                "-c".into(),
+                "test \"$LUMA_INTERACTIVE_TEST\" = exact".into(),
+            ],
+            &[("LUMA_INTERACTIVE_TEST".into(), "exact".into())],
+        )
+        .expect("spawn");
+        assert!(status.success());
     }
 }

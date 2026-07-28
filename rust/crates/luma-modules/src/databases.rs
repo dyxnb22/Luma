@@ -633,6 +633,7 @@ impl LumaModule for DatabasePortalsModule {
                 ActionOutcome::InteractiveTerminal {
                     program: plan.program,
                     args: plan.args,
+                    environment: Vec::new(),
                     record_alias: None,
                 }
             }
@@ -1237,6 +1238,7 @@ mod tests {
             ActionOutcome::InteractiveTerminal {
                 program: "/fixture/sqlite3".into(),
                 args: vec!["/fixture/app.sqlite".into()],
+                environment: Vec::new(),
                 record_alias: None,
             }
         );

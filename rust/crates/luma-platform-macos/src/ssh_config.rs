@@ -8,20 +8,30 @@ const SFTP_EXECUTABLE: &str = "/usr/bin/sftp";
 
 pub struct MacSshConfig {
     config_path: PathBuf,
+    explicit_config: bool,
 }
 
 impl MacSshConfig {
     pub fn system_default() -> Self {
-        let path = std::env::var("SSH_CONFIG")
-            .map(PathBuf::from)
-            .ok()
-            .or_else(|| dirs::home_dir().map(|h| h.join(".ssh").join("config")))
-            .unwrap_or_else(|| PathBuf::from("/dev/null"));
-        Self { config_path: path }
+        if let Some(path) = std::env::var_os("SSH_CONFIG").map(PathBuf::from) {
+            return Self {
+                config_path: path,
+                explicit_config: true,
+            };
+        }
+        Self {
+            config_path: dirs::home_dir()
+                .map(|h| h.join(".ssh").join("config"))
+                .unwrap_or_else(|| PathBuf::from("/dev/null")),
+            explicit_config: false,
+        }
     }
 
     pub fn with_config_path(path: PathBuf) -> Self {
-        Self { config_path: path }
+        Self {
+            config_path: path,
+            explicit_config: true,
+        }
     }
 
     fn read_file(path: &Path) -> Result<String, String> {
@@ -77,13 +87,29 @@ impl MacSshConfig {
     }
 
     fn command_available(name: &str) -> bool {
-        Command::new(name)
-            .arg("-V")
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .status()
-            .map(|s| s.success())
-            .unwrap_or(false)
+        let Ok(metadata) = std::fs::metadata(name) else {
+            return false;
+        };
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            metadata.is_file() && metadata.permissions().mode() & 0o111 != 0
+        }
+        #[cfg(not(unix))]
+        {
+            metadata.is_file()
+        }
+    }
+
+    fn invocation_args(&self, alias: &str) -> Vec<String> {
+        let mut args = Vec::with_capacity(if self.explicit_config { 4 } else { 2 });
+        if self.explicit_config {
+            args.push("-F".into());
+            args.push(self.config_path.to_string_lossy().into_owned());
+        }
+        args.push("--".into());
+        args.push(alias.into());
+        args
     }
 }
 
@@ -121,7 +147,8 @@ impl SshConfigPort for MacSshConfig {
             )));
         }
         let output = Command::new(SSH_EXECUTABLE)
-            .args(["-G", "--", alias])
+            .arg("-G")
+            .args(self.invocation_args(alias))
             .output()
             .map_err(|e| SshConfigError::msg(format!("ssh -G failed: {e}")))?;
         if !output.status.success() {
@@ -141,6 +168,14 @@ impl SshConfigPort for MacSshConfig {
     fn sftp_available(&self) -> bool {
         Self::command_available(SFTP_EXECUTABLE)
     }
+
+    fn ssh_invocation_args(&self, alias: &str) -> Vec<String> {
+        self.invocation_args(alias)
+    }
+
+    fn sftp_invocation_args(&self, alias: &str) -> Vec<String> {
+        self.invocation_args(alias)
+    }
 }
 
 #[cfg(test)]
@@ -157,5 +192,82 @@ mod tests {
         assert_eq!(host.identity_file.as_deref(), Some("/home/u/.ssh/id_rsa"));
         assert_eq!(host.proxy_jump.as_deref(), Some("bastion"));
         assert_eq!(host.connect_timeout, Some(30));
+    }
+
+    #[test]
+    fn explicit_config_is_used_for_resolution_and_interactive_connections() {
+        let config = MacSshConfig::with_config_path(PathBuf::from("/tmp/luma ssh/config"));
+        let expected = vec![
+            "-F".to_string(),
+            "/tmp/luma ssh/config".to_string(),
+            "--".to_string(),
+            "local-test".to_string(),
+        ];
+        assert_eq!(config.invocation_args("local-test"), expected);
+        assert_eq!(config.ssh_invocation_args("local-test"), expected);
+        assert_eq!(config.sftp_invocation_args("local-test"), expected);
+    }
+
+    #[test]
+    fn default_config_keeps_openssh_system_config_layer() {
+        let config = MacSshConfig {
+            config_path: PathBuf::from("/Users/test/.ssh/config"),
+            explicit_config: false,
+        };
+        assert_eq!(
+            config.invocation_args("production"),
+            vec!["--".to_string(), "production".to_string()]
+        );
+    }
+
+    #[test]
+    fn resolve_reads_the_same_explicit_config_that_will_be_connected() {
+        if !Path::new(SSH_EXECUTABLE).is_file() {
+            return;
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("isolated-config");
+        std::fs::write(
+            &path,
+            "Host local-test\n  HostName 127.0.0.9\n  User luma-e2e\n  Port 22222\n",
+        )
+        .unwrap();
+        let config = MacSshConfig::with_config_path(path.clone());
+
+        let resolved = config.resolve("local-test").unwrap();
+
+        assert_eq!(resolved.hostname.as_deref(), Some("127.0.0.9"));
+        assert_eq!(resolved.user.as_deref(), Some("luma-e2e"));
+        assert_eq!(resolved.port, Some(22222));
+        assert_eq!(
+            config.ssh_invocation_args("local-test"),
+            vec![
+                "-F".to_string(),
+                path.to_string_lossy().into_owned(),
+                "--".to_string(),
+                "local-test".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn command_availability_checks_executable_files_not_version_exit_codes() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = tempfile::tempdir().unwrap();
+        let executable = dir.path().join("sftp");
+        std::fs::write(&executable, "#!/bin/sh\nexit 1\n").unwrap();
+        std::fs::set_permissions(&executable, std::fs::Permissions::from_mode(0o700)).unwrap();
+        assert!(MacSshConfig::command_available(
+            executable.to_str().unwrap()
+        ));
+
+        std::fs::set_permissions(&executable, std::fs::Permissions::from_mode(0o600)).unwrap();
+        assert!(!MacSshConfig::command_available(
+            executable.to_str().unwrap()
+        ));
+        assert!(!MacSshConfig::command_available(
+            dir.path().join("missing").to_str().unwrap()
+        ));
     }
 }

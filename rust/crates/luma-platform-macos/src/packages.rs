@@ -59,6 +59,10 @@ impl MacHomebrew {
         let program = self.program()?.to_path_buf();
         let mut child = tokio::process::Command::new(program)
             .args(args)
+            // A targeted read must not unexpectedly update taps or download Homebrew runtime
+            // components. Mutations are returned as an interactive terminal plan and therefore
+            // do not pass through this query runner.
+            .env("HOMEBREW_NO_AUTO_UPDATE", "1")
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -124,6 +128,20 @@ impl MacHomebrew {
         let output = self.run(args, cancel).await?;
         parse_name_lines(&output, kind)
     }
+
+    async fn search_lines(
+        &self,
+        args: &[String],
+        kind: PackageKind,
+        cancel: &CancellationToken,
+    ) -> Result<Vec<PackageRecord>, PackageError> {
+        match self.line_query(args, kind, cancel).await {
+            Err(PackageError::CommandFailed(message)) if is_empty_brew_search(&message) => {
+                Ok(Vec::new())
+            }
+            result => result,
+        }
+    }
 }
 
 #[async_trait]
@@ -154,7 +172,7 @@ impl PackageManagerPort for MacHomebrew {
             PackageQuery::Search(needle) => {
                 validate_search(&needle)?;
                 let mut formulae = self
-                    .line_query(
+                    .search_lines(
                         &["search".into(), "--formula".into(), needle.clone()],
                         PackageKind::Formula,
                         &cancel,
@@ -164,7 +182,7 @@ impl PackageManagerPort for MacHomebrew {
                     return Err(PackageError::Cancelled);
                 }
                 let casks = self
-                    .line_query(
+                    .search_lines(
                         &["search".into(), "--cask".into(), needle],
                         PackageKind::Cask,
                         &cancel,
@@ -270,7 +288,7 @@ fn parse_brew_json(bytes: &[u8]) -> Result<Vec<PackageRecord>, PackageError> {
             if records.len() >= MAX_PACKAGE_RESULTS {
                 break;
             }
-            let name = required_string(formula, "name")?;
+            let name = package_identity(formula, "name")?;
             validate_package_name(&name)?;
             records.push(PackageRecord {
                 name,
@@ -281,15 +299,10 @@ fn parse_brew_json(bytes: &[u8]) -> Result<Vec<PackageRecord>, PackageError> {
                     .get("versions")
                     .and_then(|versions| versions.get("stable"))
                     .and_then(Value::as_str)
+                    .or_else(|| formula.get("current_version").and_then(Value::as_str))
                     .map(|value| bounded_single_line(value, MAX_PACKAGE_VERSION_BYTES)),
-                installed: formula
-                    .get("installed")
-                    .and_then(Value::as_array)
-                    .is_some_and(|installed| !installed.is_empty()),
-                outdated: formula
-                    .get("outdated")
-                    .and_then(Value::as_bool)
-                    .unwrap_or(false),
+                installed: package_is_installed(formula),
+                outdated: package_is_outdated(formula),
             });
         }
     }
@@ -298,24 +311,18 @@ fn parse_brew_json(bytes: &[u8]) -> Result<Vec<PackageRecord>, PackageError> {
             if records.len() >= MAX_PACKAGE_RESULTS {
                 break;
             }
-            let name = required_string(cask, "token")?;
+            let name = cask_identity(cask)?;
             validate_package_name(&name)?;
             records.push(PackageRecord {
                 name,
                 kind: PackageKind::Cask,
                 description: optional_string(cask, "desc", MAX_PACKAGE_DESCRIPTION_BYTES),
                 homepage: optional_string(cask, "homepage", MAX_PACKAGE_HOMEPAGE_BYTES),
-                version: optional_string(cask, "version", MAX_PACKAGE_VERSION_BYTES),
-                installed: cask.get("installed").is_some_and(|installed| {
-                    installed.as_str().is_some_and(|value| !value.is_empty())
-                        || installed
-                            .as_array()
-                            .is_some_and(|values| !values.is_empty())
-                }),
-                outdated: cask
-                    .get("outdated")
-                    .and_then(Value::as_bool)
-                    .unwrap_or(false),
+                version: optional_string(cask, "version", MAX_PACKAGE_VERSION_BYTES).or_else(
+                    || optional_string(cask, "current_version", MAX_PACKAGE_VERSION_BYTES),
+                ),
+                installed: package_is_installed(cask),
+                outdated: package_is_outdated(cask),
             });
         }
     }
@@ -342,6 +349,58 @@ fn required_string(value: &Value, field: &str) -> Result<String, PackageError> {
         .filter(|value| !value.is_empty())
         .map(str::to_string)
         .ok_or_else(|| PackageError::Malformed(format!("missing required field `{field}`")))
+}
+
+fn package_identity(value: &Value, fallback_field: &str) -> Result<String, PackageError> {
+    value
+        .get("full_name")
+        .and_then(Value::as_str)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+        .map(Ok)
+        .unwrap_or_else(|| required_string(value, fallback_field))
+}
+
+fn cask_identity(value: &Value) -> Result<String, PackageError> {
+    if let Some(full_name) = value
+        .get("full_name")
+        .and_then(Value::as_str)
+        .filter(|value| !value.is_empty())
+    {
+        return Ok(full_name.into());
+    }
+    value
+        .get("token")
+        .and_then(Value::as_str)
+        .filter(|value| !value.is_empty())
+        .or_else(|| value.get("name").and_then(Value::as_str))
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+        .ok_or_else(|| PackageError::Malformed("missing required cask identity".into()))
+}
+
+fn package_is_installed(value: &Value) -> bool {
+    ["installed", "installed_versions"]
+        .into_iter()
+        .any(|field| {
+            value.get(field).is_some_and(|installed| {
+                installed.as_str().is_some_and(|value| !value.is_empty())
+                    || installed
+                        .as_array()
+                        .is_some_and(|values| !values.is_empty())
+            })
+        })
+}
+
+fn package_is_outdated(value: &Value) -> bool {
+    value
+        .get("outdated")
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+        || value
+            .get("installed_versions")
+            .and_then(Value::as_array)
+            .is_some_and(|versions| !versions.is_empty())
 }
 
 fn optional_string(value: &Value, field: &str, max_bytes: usize) -> Option<String> {
@@ -429,6 +488,10 @@ fn sanitized_stderr(bytes: &[u8]) -> String {
     }
 }
 
+fn is_empty_brew_search(message: &str) -> bool {
+    message.starts_with("Error: No formulae or casks found for \"") && message.ends_with("\".")
+}
+
 fn resolve_brew() -> Option<PathBuf> {
     let known = ["/opt/homebrew/bin/brew", "/usr/local/bin/brew"];
     for path in known.into_iter().map(PathBuf::from) {
@@ -465,6 +528,7 @@ mod tests {
     const FIXTURE: &str = r#"{
       "formulae": [{
         "name": "ripgrep",
+        "full_name": "example/tools/ripgrep",
         "desc": "Search tool",
         "homepage": "https://example.test/rg",
         "versions": {"stable": "14.1.0"},
@@ -474,6 +538,7 @@ mod tests {
       }],
       "casks": [{
         "token": "visual-studio-code",
+        "full_name": "example/apps/visual-studio-code",
         "name": ["Visual Studio Code"],
         "desc": "Editor",
         "homepage": "https://example.test/code",
@@ -487,10 +552,11 @@ mod tests {
     fn parses_formulae_casks_and_forward_fields() {
         let records = parse_brew_json(FIXTURE.as_bytes()).unwrap();
         assert_eq!(records.len(), 2);
-        assert_eq!(records[0].name, "ripgrep");
+        assert_eq!(records[0].name, "example/tools/ripgrep");
         assert!(records[0].installed);
         assert!(records[0].outdated);
         assert_eq!(records[1].kind, PackageKind::Cask);
+        assert_eq!(records[1].name, "example/apps/visual-studio-code");
         assert!(!records[1].installed);
     }
 
@@ -514,6 +580,36 @@ mod tests {
                 Err(PackageError::Malformed(_))
             ));
         }
+    }
+
+    #[test]
+    fn parses_homebrew_six_outdated_schema_for_formulae_and_casks() {
+        let records = parse_brew_json(
+            br#"{
+              "formulae": [{
+                "name": "example/tools/probe",
+                "installed_versions": ["1.0.0"],
+                "current_version": "1.1.0"
+              }],
+              "casks": [{
+                "name": "example/apps/probe-app",
+                "installed_versions": ["2.0.0"],
+                "current_version": "2.1.0"
+              }]
+            }"#,
+        )
+        .unwrap();
+
+        assert_eq!(records.len(), 2);
+        assert_eq!(records[0].name, "example/tools/probe");
+        assert_eq!(records[0].version.as_deref(), Some("1.1.0"));
+        assert!(records[0].installed);
+        assert!(records[0].outdated);
+        assert_eq!(records[1].name, "example/apps/probe-app");
+        assert_eq!(records[1].kind, PackageKind::Cask);
+        assert_eq!(records[1].version.as_deref(), Some("2.1.0"));
+        assert!(records[1].installed);
+        assert!(records[1].outdated);
     }
 
     #[test]
@@ -595,6 +691,86 @@ mod tests {
             cancel_adapter.run(&["30".into()], &cancel).await,
             Err(PackageError::Cancelled)
         );
+    }
+
+    #[tokio::test]
+    async fn read_queries_disable_homebrew_auto_update() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let temp = tempfile::tempdir().unwrap();
+        let program = temp.path().join("brew");
+        std::fs::write(
+            &program,
+            "#!/bin/sh\nprintf '%s\\n' \"${HOMEBREW_NO_AUTO_UPDATE:-missing}\"\n",
+        )
+        .unwrap();
+        std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o700)).unwrap();
+
+        let adapter = MacHomebrew::with_program(program);
+        assert_eq!(
+            adapter.run(&[], &CancellationToken::new()).await.unwrap(),
+            b"1\n"
+        );
+    }
+
+    #[tokio::test]
+    async fn search_keeps_formula_matches_when_the_cask_side_is_empty() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let temp = tempfile::tempdir().unwrap();
+        let program = temp.path().join("brew");
+        std::fs::write(
+            &program,
+            r##"#!/bin/sh
+case "$2" in
+  --formula) printf '%s\n' 'luma-e2e-probe' ;;
+  --cask)
+    printf '%s\n' 'Error: No formulae or casks found for "luma-e2e-probe".' >&2
+    exit 1
+    ;;
+esac
+"##,
+        )
+        .unwrap();
+        std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o700)).unwrap();
+
+        let records = MacHomebrew::with_program(program)
+            .query(
+                PackageQuery::Search("luma-e2e-probe".into()),
+                10,
+                CancellationToken::new(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0].name, "luma-e2e-probe");
+        assert_eq!(records[0].kind, PackageKind::Formula);
+    }
+
+    #[tokio::test]
+    async fn search_does_not_hide_unrelated_command_failures() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let temp = tempfile::tempdir().unwrap();
+        let program = temp.path().join("brew");
+        std::fs::write(
+            &program,
+            "#!/bin/sh\nprintf '%s\\n' 'Error: tap is unavailable' >&2\nexit 1\n",
+        )
+        .unwrap();
+        std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o700)).unwrap();
+
+        assert!(matches!(
+            MacHomebrew::with_program(program)
+                .query(
+                    PackageQuery::Search("luma-e2e-probe".into()),
+                    10,
+                    CancellationToken::new(),
+                )
+                .await,
+            Err(PackageError::CommandFailed(message))
+                if message == "Error: tap is unavailable"
+        ));
     }
 
     #[test]

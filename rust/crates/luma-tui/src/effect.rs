@@ -49,6 +49,7 @@ pub enum Effect {
     RunInteractiveTerminal {
         program: String,
         args: Vec<String>,
+        environment: Vec<(String, String)>,
         record_alias: Option<String>,
         operation_id: String,
     },

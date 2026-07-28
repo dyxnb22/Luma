@@ -705,6 +705,7 @@ impl LumaModule for GitModule {
                 result.primary_action.label.as_str(),
                 ActionRisk::Safe,
             )],
+            "git_surface" => vec![result.primary_action.clone()],
             "git_branch" => vec![action(
                 "switch_branch",
                 "Switch branch",
@@ -713,6 +714,9 @@ impl LumaModule for GitModule {
             "git_repo" => {
                 let payload = result.action_payload.as_ref();
                 let mut actions = Vec::new();
+                if result.primary_action.id.as_str() == "open_workbench" {
+                    actions.push(result.primary_action.clone());
+                }
                 if payload
                     .and_then(|value| value.get("worktree_count"))
                     .and_then(|value| value.as_u64())
@@ -807,6 +811,24 @@ impl LumaModule for GitModule {
             .unwrap_or("")
             .to_string();
         let result = match action.action.id.as_str() {
+            "open_workbench" | "open_branches" | "open_log" => {
+                let Some(query) = action
+                    .result
+                    .action_payload
+                    .as_ref()
+                    .and_then(|payload| payload.get("surface_query"))
+                    .and_then(|value| value.as_str())
+                    .map(str::to_string)
+                else {
+                    return ActionOutcome::Failed {
+                        kind: FailureKind::InvalidInput {
+                            field: "surface_query".into(),
+                            message: "missing Git surface route".into(),
+                        },
+                    };
+                };
+                return ActionOutcome::OpenSurface { query };
+            }
             "stage" => self.git.stage(repo, path).await,
             "unstage" => self.git.unstage(repo, path).await,
             "stage_all" => self.git.stage_all(repo).await,
@@ -1053,6 +1075,39 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn workbench_surface_rows_open_their_bound_queries() {
+        let git = FakeGitRepository::new(vec![repo()]);
+        let module = GitModule::with_deps(
+            vec![ImportedProject {
+                name: Some("Example".into()),
+                path: "/tmp/example".into(),
+            }],
+            git,
+            Arc::new(FakePasteboard::new()),
+        );
+        let items = collect_search_items(&module, query("/git repo /tmp/example")).await;
+        let branches = items
+            .into_iter()
+            .find(|item| item.primary_action.id.as_str() == "open_branches")
+            .unwrap();
+        let outcome = module
+            .perform(
+                ActionRequest {
+                    action: branches.primary_action.clone(),
+                    result: branches,
+                    confirmation: false,
+                },
+                CancellationToken::new(),
+            )
+            .await;
+        assert!(matches!(
+            outcome,
+            ActionOutcome::OpenSurface { query }
+                if query == "/git branches /tmp/example"
+        ));
+    }
+
+    #[tokio::test]
     async fn discard_is_only_offered_for_safe_tracked_unstaged_rows() {
         let module = GitModule::with_deps(
             vec![],
@@ -1098,7 +1153,7 @@ mod tests {
                 .iter()
                 .map(|action| action.id.as_str())
                 .collect::<Vec<_>>(),
-            vec!["copy_path", "copy_branch"]
+            vec!["open_workbench", "copy_path", "copy_branch"]
         );
 
         let items = collect_search_items(&module, query("/git repo /tmp/example")).await;

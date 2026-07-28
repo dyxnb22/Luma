@@ -7,10 +7,10 @@ import LumaWorkbenchCore
 /// equivalents: Cmd+C, Cmd+V and Cmd+A reach the terminal view, Cmd+W hides, Cmd+Q quits. No
 /// module surfaces and no preferences window.
 enum AppMenu {
-    static func make() -> NSMenu {
+    static func make(editTarget: AnyObject) -> NSMenu {
         let mainMenu = NSMenu()
         mainMenu.addItem(applicationMenuItem())
-        mainMenu.addItem(editMenuItem())
+        mainMenu.addItem(editMenuItem(target: editTarget))
         return mainMenu
     }
 
@@ -37,15 +37,26 @@ enum AppMenu {
         return item
     }
 
-    private static func editMenuItem() -> NSMenuItem {
+    private static func editMenuItem(target: AnyObject) -> NSMenuItem {
         let menu = NSMenu(title: "Edit")
-        menu.addItem(withTitle: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
-        menu.addItem(withTitle: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
-        menu.addItem(
+        let copy = menu.addItem(
+            withTitle: "Copy",
+            action: #selector(NSText.copy(_:)),
+            keyEquivalent: "c"
+        )
+        copy.target = target
+        let paste = menu.addItem(
+            withTitle: "Paste",
+            action: #selector(NSText.paste(_:)),
+            keyEquivalent: "v"
+        )
+        paste.target = target
+        let selectAll = menu.addItem(
             withTitle: "Select All",
             action: #selector(NSText.selectAll(_:)),
             keyEquivalent: "a"
         )
+        selectAll.target = target
 
         let item = NSMenuItem()
         item.submenu = menu

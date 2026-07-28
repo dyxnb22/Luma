@@ -61,4 +61,14 @@ pub trait SshConfigPort: Send + Sync {
     fn resolve(&self, alias: &str) -> Result<ResolvedSshHost, SshConfigError>;
     fn ssh_available(&self) -> bool;
     fn sftp_available(&self) -> bool;
+
+    /// Build argv for an interactive connection. Adapters that enumerate an explicit
+    /// non-default config override these so resolution and connection cannot drift.
+    fn ssh_invocation_args(&self, alias: &str) -> Vec<String> {
+        vec!["--".into(), alias.into()]
+    }
+
+    fn sftp_invocation_args(&self, alias: &str) -> Vec<String> {
+        vec!["--".into(), alias.into()]
+    }
 }

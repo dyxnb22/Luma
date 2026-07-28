@@ -8,6 +8,7 @@ use luma_application::{
 use sha2::{Digest, Sha256};
 use std::ffi::OsString;
 use std::path::{Component, Path, PathBuf};
+use std::process::Stdio;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio_util::sync::CancellationToken;
 
@@ -353,7 +354,9 @@ fn finder_trash_args(path: &Path) -> Vec<OsString> {
         "-e".into(),
         "on run argv".into(),
         "-e".into(),
-        "tell application \"Finder\" to delete POSIX file (item 1 of argv)".into(),
+        "set targetFile to POSIX file (item 1 of argv)".into(),
+        "-e".into(),
+        "tell application \"Finder\" to delete targetFile".into(),
         "-e".into(),
         "end run".into(),
         path.as_os_str().to_owned(),
@@ -372,6 +375,8 @@ async fn trash_with_finder(path: &Path) -> Result<(), DownloadsError> {
     {
         let status = tokio::process::Command::new("/usr/bin/osascript")
             .args(finder_trash_args(path))
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
             .status()
             .await
             .map_err(|error| DownloadsError::Unavailable(error.to_string()))?;
@@ -579,6 +584,9 @@ mod tests {
         let hostile = Path::new("/tmp/quote'\"; shell");
         let args = finder_trash_args(hostile);
         assert_eq!(args.last().unwrap(), hostile.as_os_str());
+        assert!(args
+            .iter()
+            .any(|arg| arg == "set targetFile to POSIX file (item 1 of argv)"));
         assert!(args[..args.len() - 1].iter().all(|arg| !arg
             .to_string_lossy()
             .contains(hostile.to_string_lossy().as_ref())));

@@ -22,6 +22,13 @@ pub(crate) const MAX_OPERATIONS: usize = 32;
 pub(crate) const SEARCH_COMPLETION_BOUND: Duration = Duration::from_millis(300);
 #[cfg(not(test))]
 pub(crate) const SEARCH_COMPLETION_BOUND: Duration = Duration::from_secs(5);
+/// Explicit module visits may perform a bounded on-demand system query. Keep this above the
+/// longest adapter-local search timeout so the module can surface its own actionable failure
+/// instead of being aborted into a misleading empty result.
+#[cfg(test)]
+pub(crate) const TARGETED_SEARCH_COMPLETION_BOUND: Duration = Duration::from_millis(900);
+#[cfg(not(test))]
+pub(crate) const TARGETED_SEARCH_COMPLETION_BOUND: Duration = Duration::from_secs(15);
 
 fn is_meta_prefix(token: &str) -> bool {
     matches!(token, "help" | "settings" | "commands" | "scroll" | "quit")

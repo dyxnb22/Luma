@@ -224,6 +224,11 @@ impl Engine {
             return;
         }
         let is_global_search = matches!(query.scope, QueryScope::Global);
+        let completion_bound = if is_global_search {
+            SEARCH_COMPLETION_BOUND
+        } else {
+            TARGETED_SEARCH_COMPLETION_BOUND
+        };
         let recall_records = if is_global_search {
             self.recall
                 .as_ref()
@@ -417,7 +422,7 @@ impl Engine {
         let engine_for_supervisor = engine.clone();
         let request_for_supervisor = request_id.clone();
         let supervisor = tokio::spawn(async move {
-            let deadline = tokio::time::sleep(SEARCH_COMPLETION_BOUND);
+            let deadline = tokio::time::sleep(completion_bound);
             tokio::pin!(deadline);
             tokio::select! {
                 _ = cancel_for_task.cancelled() => {

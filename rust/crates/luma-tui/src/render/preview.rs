@@ -30,7 +30,10 @@ pub(super) fn render_preview(
                 "  Select a result to preview",
                 theme.text().add_modifier(Modifier::BOLD),
             )),
-            Line::from(Span::styled("  Shift-Tab moves focus here", theme.muted())),
+            Line::from(Span::styled(
+                "  Tab focuses · Shift-Tab toggles preview",
+                theme.muted(),
+            )),
         ])
         .style(theme.surface())
         .block(

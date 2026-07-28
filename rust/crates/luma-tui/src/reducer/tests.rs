@@ -368,6 +368,24 @@ fn commands_meta_accepts_a_filter_and_invalid_meta_arguments_are_explicit() {
 }
 
 #[test]
+fn commands_backspace_removes_one_grapheme_cluster() {
+    let mut state = AppState {
+        route: Route::Commands,
+        ..AppState::default()
+    };
+
+    state.overlay.commands_filter = "open 👨‍👩‍👧‍👦".into();
+    state.overlay.commands_selected = 3;
+    assert_eq!(update(&mut state, Msg::Backspace), vec![Effect::None]);
+    assert_eq!(state.overlay.commands_filter, "open ");
+    assert_eq!(state.overlay.commands_selected, 0);
+
+    state.overlay.commands_filter = "cafe\u{301}".into();
+    assert_eq!(update(&mut state, Msg::Backspace), vec![Effect::None]);
+    assert_eq!(state.overlay.commands_filter, "caf");
+}
+
+#[test]
 fn esc_from_commands_restores_meta_prompt() {
     let mut state = AppState::default();
     state.search.prompt = "/commands".into();
@@ -661,6 +679,45 @@ fn preview_toggle_hides_an_automatic_preview_and_restores_it() {
     assert!(!state.preview.hidden);
     assert!(state.preview_visible());
     assert!(matches!(effects.as_slice(), [Effect::LoadPreview { .. }]));
+}
+
+#[test]
+fn focus_next_cycles_only_through_visible_search_zones() {
+    let mut state = AppState::default();
+    state.terminal.width = 120;
+    state.search.results.items.push(SearchItem {
+        id: ResultId::new("focus"),
+        module_id: ModuleId::new("mock"),
+        title: "Focus".into(),
+        subtitle: None,
+        kind: "mock".into(),
+        score: 1.0,
+        primary_action: ActionDescriptor {
+            id: ActionId::new("open"),
+            label: "Open".into(),
+            risk: ActionRisk::Safe,
+            confirmation: false,
+        },
+        secondary_actions: vec![],
+        ui_intent: None,
+        action_payload: None,
+    });
+    state.search.results.selected_id = Some("focus".into());
+    assert!(state.preview_visible());
+
+    for expected in [FocusZone::List, FocusZone::Preview, FocusZone::Prompt] {
+        assert_eq!(update(&mut state, Msg::FocusNext), vec![Effect::None]);
+        assert_eq!(state.focus, expected);
+    }
+
+    state.preview.hidden = true;
+    state.focus = FocusZone::List;
+    assert_eq!(update(&mut state, Msg::FocusNext), vec![Effect::None]);
+    assert_eq!(state.focus, FocusZone::Prompt);
+
+    state.route = Route::Help;
+    assert_eq!(update(&mut state, Msg::FocusNext), vec![Effect::None]);
+    assert_eq!(state.focus, FocusZone::Prompt);
 }
 
 #[test]
@@ -1005,6 +1062,51 @@ fn action_picker_digit_runs_action() {
 }
 
 #[test]
+fn ordinary_characters_do_not_dismiss_confirmation_surfaces() {
+    for route in [
+        Route::ConfirmAction,
+        Route::ActionPicker,
+        Route::QuitConfirm,
+    ] {
+        let mut state = AppState {
+            route: route.clone(),
+            ..AppState::default()
+        };
+        state.search.prompt = "keep".into();
+        state.search.prompt_cursor = state.prompt_char_len();
+        state.overlay.restore_prompt = Some("restore".into());
+
+        assert_eq!(update(&mut state, Msg::KeyChar('x')), vec![Effect::None]);
+        assert_eq!(state.route, route);
+        assert_eq!(state.search.prompt, "keep");
+        assert_eq!(state.search.prompt_cursor, 4);
+        assert_eq!(state.overlay.restore_prompt.as_deref(), Some("restore"));
+        assert!(state.search.debounce_deadline.is_none());
+    }
+}
+
+#[test]
+fn typing_from_settings_keeps_the_existing_return_to_search_behavior() {
+    let mut state = AppState {
+        route: Route::Settings,
+        ..AppState::default()
+    };
+    state.search.prompt = "keep".into();
+    state.search.prompt_cursor = state.prompt_char_len();
+    state.overlay.restore_prompt = Some("restore".into());
+
+    let effects = update(&mut state, Msg::KeyChar('x'));
+
+    assert!(effects
+        .iter()
+        .all(|effect| matches!(effect, Effect::None | Effect::CancelSearch { .. })));
+    assert_eq!(state.route, Route::Search);
+    assert_eq!(state.search.prompt, "keepx");
+    assert!(state.overlay.restore_prompt.is_none());
+    assert!(state.search.debounce_deadline.is_some());
+}
+
+#[test]
 fn submit_lists_actions_for_selected_result() {
     let mut state = AppState::default();
     state.search.results.items.push(SearchItem {
@@ -1081,6 +1183,31 @@ fn actions_available_enters_confirm_for_destructive() {
     assert_eq!(effects, vec![Effect::None]);
     assert_eq!(state.route, Route::ConfirmAction);
     assert!(state.actions.pending_action.is_some());
+}
+
+#[test]
+fn stale_actions_response_does_not_overwrite_current_status() {
+    let mut state = AppState::default();
+    state
+        .status
+        .set("searching current query…", StatusTone::Progress);
+
+    let effects = update(
+        &mut state,
+        Msg::Engine(Event::ActionsAvailable {
+            result_id: "old-result".into(),
+            actions: vec![ActionDescriptorDto {
+                id: "open".into(),
+                label: "Open".into(),
+                risk: ActionRisk::Safe,
+                confirmation: false,
+            }],
+        }),
+    );
+
+    assert_eq!(effects, vec![Effect::None]);
+    assert_eq!(state.status.text, "searching current query…");
+    assert_eq!(state.status.tone, StatusTone::Progress);
 }
 
 #[test]

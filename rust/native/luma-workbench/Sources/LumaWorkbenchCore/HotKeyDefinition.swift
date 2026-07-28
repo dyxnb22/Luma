@@ -25,4 +25,14 @@ public struct HotKeyDefinition: Equatable {
 
     /// Four-character code identifying our hotkey to Carbon.
     public static let signature: UInt32 = 0x6C_75_6D_61 // 'luma'
+
+    public func registrationRecoveryMessage(appPath: String) -> String {
+        """
+        To free \(displayName), open System Settings → Keyboard → Keyboard Shortcuts → Spotlight, \
+        then disable or change “Show Spotlight search”.
+
+        Quit and reopen Luma from \(appPath) to retry registration. Until then, keep this window \
+        open or reopen the app from Finder.
+        """
+    }
 }

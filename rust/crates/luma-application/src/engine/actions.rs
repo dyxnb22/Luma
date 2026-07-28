@@ -119,10 +119,12 @@ impl Engine {
                                 crate::module::ActionOutcome::InteractiveTerminal {
                                     program,
                                     args,
+                                    environment,
                                     record_alias,
                                 } => luma_protocol::ActionOutcomeDto::InteractiveTerminal {
                                     program,
                                     args,
+                                    environment,
                                     record_alias,
                                 },
                                 crate::module::ActionOutcome::SettingsMutation { patch } => {

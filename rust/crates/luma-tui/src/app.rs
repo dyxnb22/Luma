@@ -418,10 +418,18 @@ fn handle_effect_sync(runtime: SyncEffectRuntime<'_>, effect: Effect) -> bool {
         Effect::RunInteractiveTerminal {
             program,
             args,
+            environment,
             record_alias,
             operation_id,
         } => {
-            run_interactive_terminal_effect(runtime, program, args, record_alias, operation_id);
+            run_interactive_terminal_effect(
+                runtime,
+                program,
+                args,
+                environment,
+                record_alias,
+                operation_id,
+            );
             true
         }
         _ => false,
@@ -432,6 +440,7 @@ fn run_interactive_terminal_effect(
     runtime: SyncEffectRuntime<'_>,
     program: String,
     args: Vec<String>,
+    environment: Vec<(String, String)>,
     record_alias: Option<String>,
     operation_id: String,
 ) {
@@ -443,7 +452,7 @@ fn run_interactive_terminal_effect(
     } = runtime;
     let suspend_result = guard.suspend();
     let spawn_result = match suspend_result {
-        Ok(()) => Some(run_interactive_terminal(&program, &args)),
+        Ok(()) => Some(run_interactive_terminal(&program, &args, &environment)),
         Err(err) => {
             state
                 .status
@@ -515,11 +524,28 @@ fn interactive_status(
             format!("{program} exited"),
             StatusTone::Success,
         )
-    } else {
-        let code = status.code().unwrap_or(1);
+    } else if let Some(code) = status.code() {
         (
             Some(status),
             format!("{program} exited with code {code}"),
+            StatusTone::Warning,
+        )
+    } else {
+        #[cfg(unix)]
+        {
+            use std::os::unix::process::ExitStatusExt;
+
+            if let Some(signal) = status.signal() {
+                return (
+                    Some(status),
+                    format!("{program} ended by signal {signal}"),
+                    StatusTone::Warning,
+                );
+            }
+        }
+        (
+            Some(status),
+            format!("{program} ended without an exit code"),
             StatusTone::Warning,
         )
     }
@@ -706,6 +732,32 @@ mod tests {
     }
 
     #[test]
+    fn tab_and_backtab_have_distinct_search_behaviors() {
+        let state = AppState::default();
+        assert!(matches!(
+            map_key(KeyCode::Tab, KeyModifiers::empty(), &state),
+            Msg::FocusNext
+        ));
+        assert!(matches!(
+            map_key(KeyCode::BackTab, KeyModifiers::SHIFT, &state),
+            Msg::TogglePreview
+        ));
+
+        let overlay = AppState {
+            route: Route::Help,
+            ..AppState::default()
+        };
+        assert!(matches!(
+            map_key(KeyCode::Tab, KeyModifiers::empty(), &overlay),
+            Msg::Tick
+        ));
+        assert!(matches!(
+            map_key(KeyCode::BackTab, KeyModifiers::SHIFT, &overlay),
+            Msg::Tick
+        ));
+    }
+
+    #[test]
     fn map_key_digit_routes_to_prompt_when_not_intercepting() {
         let mut state = AppState::default();
         state.search.prompt = "app ".into();
@@ -739,6 +791,53 @@ mod tests {
         };
         let msg = map_key(KeyCode::Char('1'), KeyModifiers::empty(), &state);
         assert!(matches!(msg, Msg::PickActionDigit(1)));
+    }
+
+    #[test]
+    fn numeric_shortcuts_are_scoped_to_their_active_surface() {
+        let action_picker = AppState {
+            route: Route::ActionPicker,
+            ..Default::default()
+        };
+        for digit in '1'..='9' {
+            assert!(matches!(
+                map_key(KeyCode::Char(digit), KeyModifiers::empty(), &action_picker),
+                Msg::PickActionDigit(index) if index == digit.to_digit(10).unwrap() as usize
+            ));
+        }
+        assert!(matches!(
+            map_key(KeyCode::Char('0'), KeyModifiers::empty(), &action_picker),
+            Msg::Tick
+        ));
+
+        let wordbook = AppState {
+            route: Route::WordbookReview,
+            ..Default::default()
+        };
+        for (digit, action_id) in [('1', "known"), ('2', "fuzzy"), ('3', "unknown")] {
+            assert!(matches!(
+                map_key(KeyCode::Char(digit), KeyModifiers::empty(), &wordbook),
+                Msg::WordbookGrade { action_id: actual } if actual == action_id
+            ));
+        }
+        assert!(matches!(
+            map_key(KeyCode::Char('4'), KeyModifiers::empty(), &wordbook),
+            Msg::Tick
+        ));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn interactive_status_reports_signal_without_a_fake_exit_code() {
+        use std::os::unix::process::ExitStatusExt;
+
+        let status = ExitStatus::from_raw(15);
+        let (returned, message, tone) = interactive_status("ssh", status);
+
+        assert_eq!(returned.and_then(|status| status.signal()), Some(15));
+        assert_eq!(message, "ssh ended by signal 15");
+        assert!(!message.contains("code 1"));
+        assert_eq!(tone, StatusTone::Warning);
     }
 
     #[test]

@@ -30,8 +30,8 @@ impl RecordsModule {
                 Some("/rec 电影 dune"),
             ),
             crate::ux::command_spec(
-                "/rec browse [category]",
-                "Browse categories or records in one category",
+                "/rec browse|ls [category]",
+                "Browse categories or records in one category (aliases: browse, ls)",
                 "/rec browse ",
                 Some("/rec browse 电影"),
             ),
@@ -456,6 +456,14 @@ impl LumaModule for RecordsModule {
             .filter(|s| !s.is_empty())
         {
             if let Some((category, name, rating, note)) = Self::parse_add_payload(payload) {
+                let rating_label = rating
+                    .map(|value| format!("{value}/10"))
+                    .unwrap_or_else(|| "unrated".into());
+                let subtitle = if note.is_empty() {
+                    rating_label
+                } else {
+                    format!("{rating_label} · {}", truncate_note(&note, 60))
+                };
                 let exists = self
                     .store
                     .get_by_category_and_name(&category, &name)
@@ -474,7 +482,7 @@ impl LumaModule for RecordsModule {
                             } else {
                                 format!("Add {name} to {category}")
                             },
-                            subtitle: Some(format!("{rating:?} · {}", truncate_note(&note, 60))),
+                            subtitle: Some(subtitle),
                             kind: if exists { "update" } else { "create" }.into(),
                             score: 100.0,
                             primary_action_id: "add".into(),
@@ -1257,6 +1265,18 @@ mod tests {
             assert_eq!(items.len(), 1, "{query}");
             assert_eq!(items[0].kind, "command_error", "{query}");
         }
+    }
+
+    #[tokio::test]
+    async fn add_preview_formats_optional_rating_for_people() {
+        let module = RecordsModule::with_store_for_tests(Arc::new(MemoryRecordsRepository::new()));
+
+        let rated =
+            collect_search_items(&module, Query::parse("/rec add 电影 Luma | 9 | 备注", 20)).await;
+        assert_eq!(rated[0].subtitle.as_deref(), Some("9/10 · 备注"));
+
+        let unrated = collect_search_items(&module, Query::parse("/rec add 电影 Luma", 20)).await;
+        assert_eq!(unrated[0].subtitle.as_deref(), Some("unrated"));
     }
 
     #[tokio::test]

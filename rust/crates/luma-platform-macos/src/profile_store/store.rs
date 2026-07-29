@@ -50,6 +50,8 @@ pub(super) struct StoredProfile {
 
 #[derive(Clone, Debug, Serialize, Deserialize, Default)]
 struct ProfileIndex {
+    #[serde(default)]
+    active_profile_id: Option<String>,
     profiles: Vec<StoredProfile>,
 }
 
@@ -80,13 +82,14 @@ impl MacProfileStore {
     pub fn new(
         keychain: Arc<dyn KeychainPort>,
         runtime: Arc<crate::MacMihomoProxyCore>,
+        integrate_clash_verge: bool,
     ) -> Result<Self, ProfileStoreError> {
         let root = luma_next_support_dir()
             .map_err(|e| ProfileStoreError::Unavailable(e.to_string()))?
             .join("proxy-profiles");
         Ok(Self {
             root,
-            clash_root: default_clash_root(),
+            clash_root: integrate_clash_verge.then(default_clash_root).flatten(),
             keychain,
             runtime: Some(runtime),
             operation_lock: Mutex::new(()),
@@ -298,6 +301,13 @@ impl MacProfileStore {
         };
         index.profiles.retain(|p| p.id != id);
         index.profiles.push(stored.clone());
+        if index.active_profile_id.as_deref() == Some(id.as_str())
+            && old_source.as_deref() != Some(raw.as_bytes())
+        {
+            // Sync/import stores a draft. It must not claim that changed bytes are already
+            // running until the user explicitly chooses Use again.
+            index.active_profile_id = None;
+        }
         if let Err(error) = atomic_json(&index_path, &index) {
             let rollback = restore_file(&source_path, old_source.as_deref())
                 .and_then(|_| restore_file(&index_path, old_index.as_deref()));
@@ -348,7 +358,7 @@ impl MacProfileStore {
         })
     }
     async fn apply_stored(&self, id: &str) -> Result<ProfileImportResult, ProfileStoreError> {
-        let index = self.read_index()?;
+        let mut index = self.read_index()?;
         let stored = index
             .profiles
             .iter()
@@ -356,7 +366,16 @@ impl MacProfileStore {
             .cloned()
             .ok_or_else(|| ProfileStoreError::NotFound("Luma Profile".into()))?;
         let path = self.source_path(id)?;
-        let snapshot = self.register_clash(&stored, &path)?;
+        let index_path = self.index_path();
+        let old_index = read_optional_file(&index_path)?;
+        let clash_snapshot = self.register_clash(&stored, &path)?;
+        index.active_profile_id = Some(id.to_string());
+        if let Err(error) = atomic_json(&index_path, &index) {
+            let rollback = clash_snapshot
+                .map(|snapshot| self.restore_clash(snapshot))
+                .unwrap_or(Ok(()));
+            return Err(rollback_failure(error, rollback));
+        }
         let Some(runtime) = &self.runtime else {
             return Ok(ProfileImportResult {
                 summary: Self::to_summary(stored, true),
@@ -366,14 +385,14 @@ impl MacProfileStore {
             });
         };
         if let Err(error) = runtime.apply_profile(&path).await {
-            if let Some(snapshot) = snapshot {
-                if let Err(rollback) = self.restore_clash(snapshot) {
-                    return Err(ProfileStoreError::Conflict(format!(
-                        "Mihomo runtime application failed and Clash Verge rollback failed: {rollback}"
-                    )));
-                }
-            }
-            return Err(error);
+            let index_rollback = restore_file(&index_path, old_index.as_deref());
+            let clash_rollback = clash_snapshot
+                .map(|snapshot| self.restore_clash(snapshot))
+                .unwrap_or(Ok(()));
+            return Err(rollback_failure(
+                error,
+                combine_rollbacks(index_rollback, clash_rollback),
+            ));
         }
         Ok(ProfileImportResult {
             summary: Self::to_summary(stored, true),
@@ -388,8 +407,10 @@ impl MacProfileStore {
 impl ProfileStorePort for MacProfileStore {
     async fn list_profiles(&self) -> Result<Vec<ProfileSummary>, ProfileStoreError> {
         let _guard = self.lock_store().await?;
-        let current = self.read_current_uid()?;
         let index = self.read_index()?;
+        let current = self
+            .read_current_uid()?
+            .or_else(|| index.active_profile_id.clone());
         let mut out: Vec<_> = index
             .profiles
             .into_iter()
@@ -552,6 +573,9 @@ impl ProfileStorePort for MacProfileStore {
             return Err(rollback_failure(error, rollback));
         }
         index.profiles.retain(|p| p.id != id);
+        if index.active_profile_id.as_deref() == Some(id) {
+            index.active_profile_id = None;
+        }
         if let Err(error) = atomic_json(&index_path, &index) {
             let files_rollback = restore_file(&path, old_source.as_deref())
                 .and_then(|_| restore_file(&index_path, old_index.as_deref()));
@@ -718,6 +742,55 @@ mod tests {
             ))
         }
     }
+
+    struct SuccessfulRuntime;
+
+    #[async_trait]
+    impl RuntimeApplyPort for SuccessfulRuntime {
+        async fn apply_profile(&self, _path: &Path) -> Result<(), ProfileStoreError> {
+            Ok(())
+        }
+    }
+
+    #[tokio::test]
+    async fn standalone_last_applied_profile_persists_and_runtime_failure_rolls_it_back() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("profiles");
+        let first_path = dir.path().join("first.yaml");
+        let second_path = dir.path().join("second.yaml");
+        fs::write(&first_path, "name: First\nproxies: []\n").unwrap();
+        fs::write(&second_path, "name: Second\nproxies: []\n").unwrap();
+
+        let store = MacProfileStore::with_paths(root.clone(), None, keychain())
+            .with_runtime(Arc::new(SuccessfulRuntime));
+        let first = store.import_local_file(&first_path, None).await.unwrap();
+        let second = store.import_local_file(&second_path, None).await.unwrap();
+        let applied = store.use_profile(&first.summary.id).await.unwrap();
+        assert!(applied.runtime_applied);
+        drop(store);
+
+        let reopened = MacProfileStore::with_paths(root.clone(), None, keychain());
+        let listed = reopened.list_profiles().await.unwrap();
+        assert!(listed
+            .iter()
+            .any(|profile| profile.id == first.summary.id && profile.current));
+        drop(reopened);
+
+        let failing = MacProfileStore::with_paths(root.clone(), None, keychain())
+            .with_runtime(Arc::new(FailingRuntime));
+        assert!(failing.use_profile(&second.summary.id).await.is_err());
+        drop(failing);
+
+        let after_failure = MacProfileStore::with_paths(root, None, keychain());
+        let listed = after_failure.list_profiles().await.unwrap();
+        assert!(listed
+            .iter()
+            .any(|profile| profile.id == first.summary.id && profile.current));
+        assert!(listed
+            .iter()
+            .any(|profile| profile.id == second.summary.id && !profile.current));
+    }
+
     #[tokio::test]
     async fn imports_yaml_and_persists_only_redacted_metadata() {
         let dir = tempfile::tempdir().unwrap();

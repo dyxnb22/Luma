@@ -243,60 +243,14 @@ impl LumaModule for ProxyModule {
             }],
             "profile_import_help" => vec![],
             _ => {
-                let system_on = self
-                    .system_proxy
-                    .get_status()
-                    .await
-                    .map(|s| s.http.enabled || s.socks.enabled)
-                    .unwrap_or(false);
-                let mut actions = vec![
-                    ActionDescriptor {
-                        id: ActionId::new("set_global"),
-                        label: "Set Global".into(),
-                        risk: ActionRisk::Confirm,
-                        confirmation: true,
-                    },
-                    ActionDescriptor {
-                        id: ActionId::new("set_rule"),
-                        label: "Set Rule".into(),
-                        risk: ActionRisk::Confirm,
-                        confirmation: true,
-                    },
-                    ActionDescriptor {
-                        id: ActionId::new("refresh"),
-                        label: "Refresh".into(),
-                        risk: ActionRisk::Safe,
-                        confirmation: false,
-                    },
-                    ActionDescriptor {
-                        id: ActionId::new(if system_on {
-                            "disable_system_proxy"
-                        } else {
-                            "enable_system_proxy"
-                        }),
-                        label: if system_on {
-                            "Disable System Proxy"
-                        } else {
-                            "Enable System Proxy"
-                        }
-                        .into(),
-                        risk: ActionRisk::Confirm,
-                        confirmation: true,
-                    },
-                ];
-                if result
-                    .action_payload
-                    .as_ref()
-                    .and_then(|p| p.get("address"))
-                    .and_then(Value::as_str)
-                    .is_some()
-                {
-                    actions.push(ActionDescriptor {
-                        id: ActionId::new("copy_proxy_address"),
-                        label: "Copy Proxy Address".into(),
-                        risk: ActionRisk::Safe,
-                        confirmation: false,
-                    });
+                let mut actions = vec![result.primary_action.clone()];
+                for action in &result.secondary_actions {
+                    if !actions
+                        .iter()
+                        .any(|existing| existing.id.as_str() == action.id.as_str())
+                    {
+                        actions.push(action.clone());
+                    }
                 }
                 actions
             }
@@ -543,6 +497,7 @@ impl LumaModule for ProxyModule {
                     .system_proxy
                     .enable(
                         status.ports.http.or(status.ports.mixed),
+                        status.ports.http.or(status.ports.mixed),
                         status.ports.socks.or(status.ports.mixed),
                     )
                     .await
@@ -737,6 +692,113 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn status_primary_action_enables_off_and_switches_mismatched_system_proxy() {
+        let (module, _, system) = module();
+        let off = collect_search_items(&module, Query::parse("proxy ", 20))
+            .await
+            .into_iter()
+            .find(|item| item.id.as_str() == "proxy:status")
+            .unwrap();
+        assert_eq!(off.primary_action.id.as_str(), "enable_system_proxy");
+        assert_eq!(off.primary_action.label, "Enable System Proxy");
+        assert!(off.primary_action.confirmation);
+
+        let mismatched = SystemProxySetting {
+            enabled: true,
+            server: Some("127.0.0.1".into()),
+            port: Some(7897),
+        };
+        {
+            let mut status = system.status.lock().await;
+            status.http = mismatched.clone();
+            status.https = mismatched.clone();
+            status.socks = mismatched;
+        }
+        let item = collect_search_items(&module, Query::parse("proxy ", 20))
+            .await
+            .into_iter()
+            .find(|item| item.id.as_str() == "proxy:status")
+            .unwrap();
+        assert!(item
+            .subtitle
+            .as_deref()
+            .is_some_and(|subtitle| subtitle.contains("System proxy: MISMATCH")));
+        assert_eq!(item.primary_action.id.as_str(), "enable_system_proxy");
+        assert_eq!(item.primary_action.label, "Switch System Proxy");
+        let actions = module.actions(&item).await;
+        assert_eq!(actions[0].id.as_str(), "enable_system_proxy");
+        assert!(!actions
+            .iter()
+            .any(|action| action.id.as_str() == "disable_system_proxy"));
+        let outcome = module
+            .perform(
+                ActionRequest {
+                    result: item,
+                    action: actions[0].clone(),
+                    confirmation: true,
+                },
+                CancellationToken::new(),
+            )
+            .await;
+        assert!(matches!(outcome, ActionOutcome::Success { .. }));
+        assert_eq!(
+            *system.enable_calls.lock().await,
+            vec![(Some(7899), Some(7899), Some(7898))]
+        );
+    }
+
+    #[tokio::test]
+    async fn status_requires_all_expected_protocols_before_reporting_on() {
+        let (module, _, system) = module();
+        {
+            let mut status = system.status.lock().await;
+            status.http = SystemProxySetting {
+                enabled: true,
+                server: Some("127.0.0.1".into()),
+                port: Some(7899),
+            };
+        }
+        let partial = collect_search_items(&module, Query::parse("proxy ", 20))
+            .await
+            .into_iter()
+            .find(|item| item.id.as_str() == "proxy:status")
+            .unwrap();
+        assert!(partial
+            .subtitle
+            .as_deref()
+            .is_some_and(|subtitle| subtitle.contains("System proxy: MISMATCH")));
+
+        {
+            let mut status = system.status.lock().await;
+            status.https = SystemProxySetting {
+                enabled: true,
+                server: Some("localhost".into()),
+                port: Some(7899),
+            };
+            status.socks = SystemProxySetting {
+                enabled: true,
+                server: Some("::1".into()),
+                port: Some(7898),
+            };
+        }
+        let on = collect_search_items(&module, Query::parse("proxy ", 20))
+            .await
+            .into_iter()
+            .find(|item| item.id.as_str() == "proxy:status")
+            .unwrap();
+        assert!(on
+            .subtitle
+            .as_deref()
+            .is_some_and(|subtitle| subtitle.contains("System proxy: ON")));
+        assert_eq!(on.primary_action.id.as_str(), "refresh");
+        assert!(module
+            .actions(&on)
+            .await
+            .iter()
+            .any(|action| action.id.as_str() == "disable_system_proxy"));
+    }
+
+    #[tokio::test]
     async fn selecting_node_is_safe_and_calls_core() {
         let (module, core, _) = module();
         let items = collect_search_items(&module, Query::parse("proxy group AI-VPS", 20)).await;
@@ -905,6 +967,35 @@ mod tests {
                 runtime_applied: false,
             })
         }
+    }
+
+    #[tokio::test]
+    async fn standalone_status_uses_last_applied_luma_profile_name() {
+        let (base, core, _) = module();
+        core.status.lock().await.profile = None;
+        let module = base.with_profile_store(Arc::new(TestProfiles {
+            summary: ProfileSummary {
+                id: "p-c0ffee0000000000000001".into(),
+                name: "Personal VPS".into(),
+                node_count: 1,
+                group_count: 1,
+                rule_count: 1,
+                metadata_available: true,
+                updated_at: Some(1),
+                source: ProfileSource::LumaLocal,
+                owned_by_luma: true,
+                current: true,
+            },
+        }));
+        let status = collect_search_items(&module, Query::parse("proxy ", 20))
+            .await
+            .into_iter()
+            .find(|item| item.id.as_str() == "proxy:status")
+            .unwrap();
+        assert!(status
+            .subtitle
+            .as_deref()
+            .is_some_and(|subtitle| subtitle.contains("Profile: Personal VPS")));
     }
 
     #[tokio::test]
@@ -1241,7 +1332,7 @@ mod tests {
         assert!(matches!(outcome, ActionOutcome::Success { .. }));
         assert_eq!(
             *system.enable_calls.lock().await,
-            vec![(Some(7897), Some(7897))]
+            vec![(Some(7897), Some(7897), Some(7897))]
         );
     }
 }

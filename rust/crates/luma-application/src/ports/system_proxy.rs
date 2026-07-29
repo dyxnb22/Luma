@@ -17,8 +17,7 @@ pub struct SystemProxySetting {
 pub struct SystemProxyStatus {
     pub service: String,
     pub http: SystemProxySetting,
-    /// HTTPS (macOS "secure web") proxy. Luma reports this setting but deliberately
-    /// does not mutate it: ownership remains limited to HTTP and SOCKS.
+    /// HTTPS (macOS "secure web") proxy. Managed alongside HTTP and SOCKS.
     #[serde(default)]
     pub https: SystemProxySetting,
     pub socks: SystemProxySetting,
@@ -42,16 +41,20 @@ pub trait SystemProxyPort: Send + Sync {
     async fn enable(
         &self,
         http_port: Option<u16>,
+        https_port: Option<u16>,
         socks_port: Option<u16>,
     ) -> Result<SystemProxyStatus, SystemProxyError>;
     async fn disable(&self) -> Result<SystemProxyStatus, SystemProxyError>;
 }
 
+/// Record of an enable call: (http_port, https_port, socks_port).
+pub type EnableCallRecord = (Option<u16>, Option<u16>, Option<u16>);
+
 /// In-memory system proxy adapter for tests. It records mutations but never calls macOS.
 pub struct FakeSystemProxy {
     pub status: Mutex<SystemProxyStatus>,
     pub error: Mutex<Option<SystemProxyError>>,
-    pub enable_calls: Mutex<Vec<(Option<u16>, Option<u16>)>>,
+    pub enable_calls: Mutex<Vec<EnableCallRecord>>,
     pub disable_calls: Mutex<u32>,
     pub applied: Mutex<Option<SystemProxyStatus>>,
 }
@@ -84,15 +87,26 @@ impl SystemProxyPort for FakeSystemProxy {
     async fn enable(
         &self,
         http_port: Option<u16>,
+        https_port: Option<u16>,
         socks_port: Option<u16>,
     ) -> Result<SystemProxyStatus, SystemProxyError> {
         if let Some(err) = self.error.lock().await.clone() {
             return Err(err);
         }
-        self.enable_calls.lock().await.push((http_port, socks_port));
+        self.enable_calls
+            .lock()
+            .await
+            .push((http_port, https_port, socks_port));
         let mut status = self.status.lock().await;
         if let Some(port) = http_port {
             status.http = SystemProxySetting {
+                enabled: true,
+                server: Some("127.0.0.1".into()),
+                port: Some(port),
+            };
+        }
+        if let Some(port) = https_port {
+            status.https = SystemProxySetting {
                 enabled: true,
                 server: Some("127.0.0.1".into()),
                 port: Some(port),
@@ -119,6 +133,7 @@ impl SystemProxyPort for FakeSystemProxy {
         *self.disable_calls.lock().await += 1;
         let mut status = self.status.lock().await;
         status.http.enabled = false;
+        status.https.enabled = false;
         status.socks.enabled = false;
         *self.applied.lock().await = None;
         Ok(status.clone())

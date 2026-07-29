@@ -41,6 +41,7 @@ impl Endpoint {
 
 pub struct MacMihomoProxyCore {
     endpoints: Vec<Endpoint>,
+    integrates_clash_verge: bool,
     secret: Option<String>,
     secret_keychain: Option<std::sync::Arc<dyn KeychainPort>>,
     secret_account: Option<String>,
@@ -64,6 +65,7 @@ impl MacMihomoProxyCore {
                 Endpoint::Unix(PathBuf::from(DEFAULT_UNIX_SOCKET)),
                 Endpoint::Tcp(DEFAULT_CONTROLLER),
             ],
+            integrates_clash_verge: true,
             secret: None,
             secret_keychain: None,
             secret_account: None,
@@ -77,13 +79,14 @@ impl MacMihomoProxyCore {
     pub fn with_unix_socket(path: PathBuf) -> Self {
         Self {
             endpoints: vec![Endpoint::Unix(path)],
+            integrates_clash_verge: false,
             secret: None,
             secret_keychain: None,
             secret_account: None,
             configuration_error: None,
             timeout: Duration::from_millis(900),
-            effective_config: default_effective_config_path(),
-            profiles_manifest: default_profiles_manifest_path(),
+            effective_config: None,
+            profiles_manifest: None,
         }
     }
 
@@ -97,14 +100,19 @@ impl MacMihomoProxyCore {
         }
         Ok(Self {
             endpoints: vec![Endpoint::Tcp(addr)],
+            integrates_clash_verge: false,
             secret: None,
             secret_keychain: None,
             secret_account: None,
             configuration_error: None,
             timeout: Duration::from_millis(900),
-            effective_config: default_effective_config_path(),
-            profiles_manifest: default_profiles_manifest_path(),
+            effective_config: None,
+            profiles_manifest: None,
         })
+    }
+
+    pub fn uses_clash_verge_integration(&self) -> bool {
+        self.integrates_clash_verge
     }
 
     /// Test/configuration hook for the read-only effective-config fallback.
@@ -141,32 +149,37 @@ impl MacMihomoProxyCore {
     ) -> Self {
         let mut endpoints = Vec::new();
         let mut configuration_error = None;
-        if let Some(path) = settings
+        let unix_socket = settings
             .proxy_controller_unix_socket
             .as_deref()
-            .filter(|path| !path.is_empty())
-        {
-            endpoints.push(Endpoint::Unix(PathBuf::from(path)));
-        } else if settings.proxy_controller_unix_socket.is_none() {
-            endpoints.push(Endpoint::Unix(PathBuf::from(DEFAULT_UNIX_SOCKET)));
-        }
-        if let Some(address) = settings
+            .filter(|path| !path.is_empty());
+        let controller_address = settings
             .proxy_controller_address
             .as_deref()
-            .filter(|address| !address.is_empty())
-        {
-            match address.parse::<SocketAddr>() {
-                Ok(addr) if addr.ip().is_loopback() => endpoints.push(Endpoint::Tcp(addr)),
-                _ => {
-                    configuration_error =
-                        Some("controller address must be a loopback socket address".into())
+            .filter(|address| !address.is_empty());
+        let has_explicit_endpoint = unix_socket.is_some() || controller_address.is_some();
+        if has_explicit_endpoint {
+            if let Some(path) = unix_socket {
+                endpoints.push(Endpoint::Unix(PathBuf::from(path)));
+            }
+            if let Some(address) = controller_address {
+                match address.parse::<SocketAddr>() {
+                    Ok(addr) if addr.ip().is_loopback() => endpoints.push(Endpoint::Tcp(addr)),
+                    _ => {
+                        configuration_error =
+                            Some("controller address must be a loopback socket address".into())
+                    }
                 }
             }
-        } else if settings.proxy_controller_address.is_none() {
+        } else {
+            endpoints.push(Endpoint::Unix(PathBuf::from(DEFAULT_UNIX_SOCKET)));
             endpoints.push(Endpoint::Tcp(DEFAULT_CONTROLLER));
         }
+        let integrates_clash_verge = !has_explicit_endpoint
+            || (unix_socket == Some(DEFAULT_UNIX_SOCKET) && controller_address.is_none());
         Self {
             endpoints,
+            integrates_clash_verge,
             secret: None,
             secret_keychain: settings
                 .proxy_controller_secret_account
@@ -175,8 +188,12 @@ impl MacMihomoProxyCore {
             secret_account: settings.proxy_controller_secret_account.clone(),
             configuration_error,
             timeout: Duration::from_millis(900),
-            effective_config: default_effective_config_path(),
-            profiles_manifest: default_profiles_manifest_path(),
+            effective_config: integrates_clash_verge
+                .then(default_effective_config_path)
+                .flatten(),
+            profiles_manifest: integrates_clash_verge
+                .then(default_profiles_manifest_path)
+                .flatten(),
         }
     }
 
@@ -891,9 +908,19 @@ fn default_profiles_manifest_path() -> Option<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use luma_application::FakeKeychain;
+    use std::collections::BTreeMap;
     use std::fs;
+    use std::sync::Arc;
     use tokio::io::{duplex, AsyncWriteExt};
     use tokio::net::TcpListener;
+
+    fn keychain() -> Arc<FakeKeychain> {
+        Arc::new(FakeKeychain {
+            unlocked: true,
+            entries: tokio::sync::Mutex::new(BTreeMap::new()),
+        })
+    }
 
     async fn wire_response(raw: &'static [u8]) -> Result<(u16, Vec<u8>), String> {
         let (mut server, mut client) = duplex(4096);
@@ -911,6 +938,55 @@ mod tests {
             MacMihomoProxyCore::with_loopback_controller(addr),
             Err(ProxyCoreError::SecurityDenied(_))
         ));
+    }
+
+    #[test]
+    fn explicit_unix_controller_does_not_fall_back_to_clash_verge() {
+        let settings = luma_storage::LumaSettings {
+            proxy_controller_unix_socket: Some("/tmp/luma-mihomo.sock".into()),
+            ..Default::default()
+        };
+        let core = MacMihomoProxyCore::from_settings(&settings, keychain());
+        assert_eq!(core.endpoints.len(), 1);
+        assert!(matches!(
+            &core.endpoints[0],
+            Endpoint::Unix(path) if path == std::path::Path::new("/tmp/luma-mihomo.sock")
+        ));
+        assert!(!core.uses_clash_verge_integration());
+        assert!(core.effective_config.is_none());
+        assert!(core.profiles_manifest.is_none());
+    }
+
+    #[test]
+    fn explicit_tcp_controller_does_not_add_default_unix_socket() {
+        let settings = luma_storage::LumaSettings {
+            proxy_controller_address: Some("127.0.0.1:19097".into()),
+            ..Default::default()
+        };
+        let core = MacMihomoProxyCore::from_settings(&settings, keychain());
+        assert_eq!(core.endpoints.len(), 1);
+        assert!(matches!(
+            &core.endpoints[0],
+            Endpoint::Tcp(address) if *address == "127.0.0.1:19097".parse().unwrap()
+        ));
+        assert!(!core.uses_clash_verge_integration());
+    }
+
+    #[test]
+    fn absent_controller_settings_keep_clash_verge_defaults() {
+        let core =
+            MacMihomoProxyCore::from_settings(&luma_storage::LumaSettings::default(), keychain());
+        assert_eq!(core.endpoints.len(), 2);
+        assert!(
+            matches!(&core.endpoints[0], Endpoint::Unix(path) if path == std::path::Path::new(DEFAULT_UNIX_SOCKET))
+        );
+        assert!(matches!(
+            &core.endpoints[1],
+            Endpoint::Tcp(address) if *address == DEFAULT_CONTROLLER
+        ));
+        assert!(core.uses_clash_verge_integration());
+        assert!(core.effective_config.is_some());
+        assert!(core.profiles_manifest.is_some());
     }
 
     #[test]

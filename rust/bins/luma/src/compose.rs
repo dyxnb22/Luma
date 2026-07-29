@@ -130,9 +130,11 @@ pub fn registry_from_settings(
     ));
     // Profile subscription references must remain private: they are not Secret-module labels
     // and must never become copyable UI entries.
+    let integrate_clash_verge = proxy_core.uses_clash_verge_integration();
     let proxy_store = MacProfileStore::new(
         Arc::new(MacKeychain::private_references()),
         proxy_core.clone(),
+        integrate_clash_verge,
     )
     .ok()
     .map(|store| Arc::new(store) as Arc<dyn luma_application::ProfileStorePort>);

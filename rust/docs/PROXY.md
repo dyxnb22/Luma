@@ -124,19 +124,29 @@ loopback HTTP 不接受重定向。下载以流式 512 KiB 上限读取，因而
 应用过程分为：
 
 1. 写入 Luma Profile 源文件
-2. 写入 Luma-owned Clash Verge metadata/源文件
-3. 应用 Mihomo runtime
+2. 默认 Clash Verge 模式下，写入 Luma-owned Clash Verge metadata/源文件
+3. 应用 Mihomo runtime，并记录最后成功应用的 Luma Profile
 
 任一步失败都会尽可能恢复原文件、原 Profile metadata 和 current UID；如果恢复也失败，
 会明确返回 rollback failure。Profile refresh / convention sync 只更新本地/已注册源文件，
-不自动应用 runtime，需要再次执行 `/proxy profile <name>` 的 `Use`。
+不自动应用 runtime，需要再次执行 `/proxy profile <name>` 的 `Use`。显式配置独立 Mihomo
+Controller 时，Profile current 状态由 Luma 的 `profiles.json` 维护，不读取或写入 Clash Verge。
+
+Luma 不负责 Mihomo 进程生命周期。外部 Mihomo 重启后会重新读取它自己的基础配置；若该配置
+不会恢复最后应用的节点和规则，需要再次执行 Profile 的 `Use`。`profiles.json` 中的 current
+表示 Luma 最后一次成功应用，而不是外部进程重启后的配置证明。
 
 ## 系统代理安全边界
 
-Luma 只管理 HTTP 和 SOCKS 的 loopback 设置，并只在 Luma 上次写入的值仍然匹配时恢复原值。
-如果当前网络服务启用了 HTTP/SOCKS 认证、Secure Web Proxy、PAC URL 或 Proxy Auto Discovery，
-Luma 返回 `conflict`，不会接管该服务，也不会尝试回滚这些设置。启用时若 Mihomo 只提供
-`mixed-port`，该端口会同时用于 HTTP 和 SOCKS；整个操作仍需确认。
+Luma 以一个事务管理 macOS HTTP、HTTPS（Secure Web Proxy）和 SOCKS 三项 loopback 设置，
+并只在 Luma 上次写入的值仍然匹配时恢复原值。如果当前网络服务启用了 HTTP/SOCKS/HTTPS
+认证、PAC URL 或 Proxy Auto Discovery，Luma 返回 `conflict`，不会接管该服务，也不会尝试
+回滚这些设置。普通、无认证的 loopback HTTPS 可安全接管。启用时若 Mihomo 只提供
+`mixed-port`，该端口会同时用于三项；整个操作仍需确认。
+
+状态只有在所有 Mihomo 提供的协议均已启用并且 loopback 地址、端口完全匹配时才显示 `ON`；
+全部关闭显示 `OFF`，部分启用或端口不同显示 `MISMATCH`。OFF 时 Enter 为 Enable，
+MISMATCH 时 Enter 为 Switch；不会先要求 Disable 一个并非由 Luma 接管的旧代理。
 
 ## Clash Verge 兼容
 
@@ -168,6 +178,11 @@ cargo run -p luma -- config set --proxy-controller-address 127.0.0.1:9097
 cargo run -p luma -- config set --proxy-controller-secret-account mihomo-controller
 cargo run -p luma -- config set --proxy-network-service Wi-Fi
 ```
+
+两个 Controller endpoint 都未配置时才使用 Clash Verge 的默认 socket + TCP fallback。
+只要显式配置 Unix socket 或 loopback TCP，Luma 就只连接显式 endpoint，不会在失败时切换到
+另一套代理核心；除非显式 socket 本身就是 Clash Verge 默认 socket，否则同时关闭 Clash Verge
+Profile metadata 集成。
 
 Controller secret 只接受 Keychain account 名称，不接受或持久化 secret 明文。非 loopback TCP
 地址会被拒绝。Controller 请求失败对 UI 只返回通用操作/实体说明，不回显请求路径、代理组或节点

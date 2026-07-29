@@ -186,8 +186,13 @@ impl MacSystemProxy {
         if !should_force_restore(&live, applied, &previous) {
             return Err(SystemProxyError::Conflict);
         }
-        self.apply_pair(&live.service, &previous.http, &previous.socks)
-            .await?;
+        self.apply_pair(
+            &live.service,
+            &previous.http,
+            &previous.https,
+            &previous.socks,
+        )
+        .await?;
         *self.saved.lock().await = None;
         *self.applied.lock().await = None;
         clear_journal()?;
@@ -243,10 +248,10 @@ impl MacSystemProxy {
             },
             unsupported: UnsupportedProxyFeatures {
                 http_authentication: authenticated_proxy_enabled(&http_output),
-                // HTTPS has an independent `networksetup` setting. Luma intentionally owns
-                // only HTTP and SOCKS, so an enabled secure Web proxy makes a partial snapshot
-                // unsafe to take over or restore.
-                secure_web_proxy: enabled_setting(&secure_web_output),
+                // HTTPS proxy without authentication is safe for Luma to manage
+                // alongside HTTP and SOCKS. Authenticated HTTPS requires credentials
+                // we cannot restore, so it remains unsupported.
+                secure_web_proxy: authenticated_proxy_enabled(&secure_web_output),
                 socks_authentication: authenticated_proxy_enabled(&socks_output),
                 auto_proxy_url: enabled_setting(&auto_proxy_url),
                 proxy_auto_discovery: enabled_setting(&proxy_auto_discovery),
@@ -269,6 +274,7 @@ impl MacSystemProxy {
     ) -> Result<(), SystemProxyError> {
         let (set, state) = match kind {
             "http" => ("-setwebproxy", "-setwebproxystate"),
+            "https" => ("-setsecurewebproxy", "-setsecurewebproxystate"),
             "socks" => ("-setsocksfirewallproxy", "-setsocksfirewallproxystate"),
             _ => return Err(SystemProxyError::Unavailable("unknown proxy kind".into())),
         };
@@ -293,9 +299,11 @@ impl MacSystemProxy {
         &self,
         service: &str,
         http: &SystemProxySetting,
+        https: &SystemProxySetting,
         socks: &SystemProxySetting,
     ) -> Result<(), SystemProxyError> {
         Self::set_setting(service, "http", http).await?;
+        Self::set_setting(service, "https", https).await?;
         Self::set_setting(service, "socks", socks).await?;
         Ok(())
     }
@@ -313,14 +321,15 @@ impl SystemProxyPort for MacSystemProxy {
     async fn enable(
         &self,
         http_port: Option<u16>,
+        https_port: Option<u16>,
         socks_port: Option<u16>,
     ) -> Result<SystemProxyStatus, SystemProxyError> {
         let _guard = self.lock_ops().await?;
         self.hydrate_from_journal().await;
-        if http_port.is_none() && socks_port.is_none() {
+        if http_port.is_none() && https_port.is_none() && socks_port.is_none() {
             return Err(SystemProxyError::InvalidInput {
                 field: "ports".into(),
-                message: "Mihomo exposes neither an HTTP nor a SOCKS port".into(),
+                message: "Mihomo exposes no proxy ports".into(),
             });
         }
         let before = self.read_status().await?;
@@ -342,6 +351,13 @@ impl SystemProxyPort for MacSystemProxy {
                 port: Some(port),
             })
             .unwrap_or_else(|| before.http.clone());
+        let wanted_https = https_port
+            .map(|port| SystemProxySetting {
+                enabled: true,
+                server: Some("127.0.0.1".into()),
+                port: Some(port),
+            })
+            .unwrap_or_else(|| before.https.clone());
         let wanted_socks = socks_port
             .map(|port| SystemProxySetting {
                 enabled: true,
@@ -352,18 +368,18 @@ impl SystemProxyPort for MacSystemProxy {
         let desired = SystemProxyStatus {
             service: before.service.clone(),
             http: wanted_http.clone(),
-            https: before.https.clone(),
+            https: wanted_https.clone(),
             socks: wanted_socks.clone(),
         };
         *self.applied.lock().await = Some(desired.clone());
         let saved = self.saved.lock().await.clone();
         persist_journal(&saved, &Some(desired))?;
         if let Err(error) = self
-            .apply_pair(&before.service, &wanted_http, &wanted_socks)
+            .apply_pair(&before.service, &wanted_http, &wanted_https, &wanted_socks)
             .await
         {
             let rollback = self
-                .apply_pair(&before.service, &before.http, &before.socks)
+                .apply_pair(&before.service, &before.http, &before.https, &before.socks)
                 .await;
             if rollback.is_ok() {
                 *self.saved.lock().await = None;
@@ -405,11 +421,21 @@ impl SystemProxyPort for MacSystemProxy {
             return Err(SystemProxyError::Conflict);
         };
         if let Err(error) = self
-            .apply_pair(&current.service, &previous.http, &previous.socks)
+            .apply_pair(
+                &current.service,
+                &previous.http,
+                &previous.https,
+                &previous.socks,
+            )
             .await
         {
             let rollback = self
-                .apply_pair(&current.service, &applied.http, &applied.socks)
+                .apply_pair(
+                    &current.service,
+                    &applied.http,
+                    &applied.https,
+                    &applied.socks,
+                )
                 .await;
             return Err(if rollback.is_err() {
                 SystemProxyError::Unavailable(
@@ -645,15 +671,27 @@ fn should_force_restore(
     if live.service != applied.service || live.service != saved.service {
         return false;
     }
-    if live.https != applied.https || live.https != saved.https {
+    // Not a divergence — caller already handles this, but guard defensively.
+    if same_settings(live, applied) {
         return false;
     }
-    // A journal can safely identify the ordinary pre-apply and first-setting half-apply states.
-    // Any other divergence may be a user change while Luma owns the proxy, so leave it alone and
-    // report Conflict rather than overwriting it with the saved snapshot.
+    // apply_pair always writes HTTP -> HTTPS -> SOCKS. A recoverable crash can therefore
+    // leave only a prefix applied, or (while rolling back) only a prefix restored. Merely
+    // matching either snapshot per field is too broad: e.g. applied/saved/applied cannot
+    // be produced by either sequence and may be an external change.
+    let forward_after_http =
+        live.http == applied.http && live.https == saved.https && live.socks == saved.socks;
+    let forward_after_https =
+        live.http == applied.http && live.https == applied.https && live.socks == saved.socks;
+    let rollback_after_http =
+        live.http == saved.http && live.https == applied.https && live.socks == applied.socks;
+    let rollback_after_https =
+        live.http == saved.http && live.https == saved.https && live.socks == applied.socks;
     same_settings(live, saved)
-        || (live.http == applied.http && live.socks == saved.socks)
-        || (live.http == saved.http && live.socks == applied.socks)
+        || forward_after_http
+        || forward_after_https
+        || rollback_after_http
+        || rollback_after_https
 }
 
 #[cfg(test)]
@@ -705,6 +743,22 @@ mod tests {
             proxy_auto_discovery: false,
         };
         assert!(features.any());
+        // Plain loopback HTTPS without authentication is NOT unsupported.
+        let plain_https = UnsupportedProxyFeatures {
+            secure_web_proxy: authenticated_proxy_enabled(
+                "Enabled: Yes\nServer: 127.0.0.1\nPort: 17897\n",
+            ),
+            ..Default::default()
+        };
+        assert!(!plain_https.any());
+        // Authenticated HTTPS is still unsupported.
+        let auth_https = UnsupportedProxyFeatures {
+            secure_web_proxy: authenticated_proxy_enabled(
+                "Enabled: Yes\nAuthenticated Proxy Enabled: 1\nServer: 127.0.0.1\nPort: 17897\n",
+            ),
+            ..Default::default()
+        };
+        assert!(auth_https.any());
     }
 
     #[test]
@@ -778,6 +832,74 @@ mod tests {
             },
         };
         assert!(!should_force_restore(&external, &applied, &saved));
+        // Three-protocol forward and rollback prefixes are recoverable.
+        let https_applied = SystemProxyStatus {
+            service: "Wi-Fi".into(),
+            http: SystemProxySetting {
+                enabled: true,
+                server: Some("127.0.0.1".into()),
+                port: Some(7890),
+            },
+            https: SystemProxySetting {
+                enabled: true,
+                server: Some("127.0.0.1".into()),
+                port: Some(7890),
+            },
+            socks: SystemProxySetting {
+                enabled: true,
+                server: Some("127.0.0.1".into()),
+                port: Some(7891),
+            },
+        };
+        let forward_after_https = SystemProxyStatus {
+            service: "Wi-Fi".into(),
+            http: https_applied.http.clone(),
+            https: https_applied.https.clone(),
+            socks: saved.socks.clone(),
+        };
+        assert!(should_force_restore(
+            &forward_after_https,
+            &https_applied,
+            &saved
+        ));
+        let rollback_after_http = SystemProxyStatus {
+            service: "Wi-Fi".into(),
+            http: saved.http.clone(),
+            https: https_applied.https.clone(),
+            socks: https_applied.socks.clone(),
+        };
+        assert!(should_force_restore(
+            &rollback_after_http,
+            &https_applied,
+            &saved
+        ));
+        let impossible_interleaving = SystemProxyStatus {
+            service: "Wi-Fi".into(),
+            http: https_applied.http.clone(),
+            https: saved.https.clone(),
+            socks: https_applied.socks.clone(),
+        };
+        assert!(!should_force_restore(
+            &impossible_interleaving,
+            &https_applied,
+            &saved
+        ));
+        // HTTPS external change: HTTPS points to an unknown address.
+        let https_external = SystemProxyStatus {
+            service: "Wi-Fi".into(),
+            http: saved.http.clone(),
+            https: SystemProxySetting {
+                enabled: true,
+                server: Some("192.0.2.1".into()),
+                port: Some(9999),
+            },
+            socks: saved.socks.clone(),
+        };
+        assert!(!should_force_restore(
+            &https_external,
+            &https_applied,
+            &saved
+        ));
     }
 
     #[test]

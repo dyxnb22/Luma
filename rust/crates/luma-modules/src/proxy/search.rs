@@ -4,12 +4,69 @@ use super::{ImportIntent, ProxyModule, MODULE_ID};
 use crate::cancel::await_unless_cancelled;
 use luma_application::{
     NetworkProbeState, ProfileSource, ProxyCoreError, ProxyGroup, ProxyMode, ProxyNode,
-    ProxyStatus, SearchSink,
+    ProxyStatus, SearchSink, SystemProxySetting, SystemProxyStatus,
 };
 use luma_domain::{ActionRisk, Query};
 use luma_protocol::{Event, SearchItemDto};
 use std::path::PathBuf;
 use tokio_util::sync::CancellationToken;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum SystemProxyState {
+    Off,
+    On,
+    Mismatch,
+    Unavailable,
+}
+
+impl SystemProxyState {
+    fn label(self) -> &'static str {
+        match self {
+            Self::Off => "OFF",
+            Self::On => "ON",
+            Self::Mismatch => "MISMATCH",
+            Self::Unavailable => "unavailable",
+        }
+    }
+}
+
+pub(super) fn system_proxy_state(
+    status: &ProxyStatus,
+    system: Option<&SystemProxyStatus>,
+) -> SystemProxyState {
+    let Some(system) = system else {
+        return SystemProxyState::Unavailable;
+    };
+    let expected_http = status.ports.http.or(status.ports.mixed);
+    let expected_https = expected_http;
+    let expected_socks = status.ports.socks.or(status.ports.mixed);
+    if expected_http.is_none() && expected_socks.is_none() {
+        return SystemProxyState::Unavailable;
+    }
+    if !system.http.enabled && !system.https.enabled && !system.socks.enabled {
+        return SystemProxyState::Off;
+    }
+
+    let matches = |setting: &SystemProxySetting, expected: Option<u16>| match expected {
+        Some(port) => {
+            setting.enabled
+                && setting.port == Some(port)
+                && setting
+                    .server
+                    .as_deref()
+                    .is_some_and(|server| matches!(server, "127.0.0.1" | "localhost" | "::1"))
+        }
+        None => !setting.enabled,
+    };
+    if matches(&system.http, expected_http)
+        && matches(&system.https, expected_https)
+        && matches(&system.socks, expected_socks)
+    {
+        SystemProxyState::On
+    } else {
+        SystemProxyState::Mismatch
+    }
+}
 
 impl ProxyModule {
     fn check_row(step: luma_application::NetworkProbeStep) -> SearchItemDto {
@@ -42,7 +99,7 @@ impl ProxyModule {
     ) -> Vec<SearchItemDto> {
         let mut rows = vec![Self::status_item(status, system)];
         if let Some(system) = system {
-            let setting = |name: &str, value: &luma_application::SystemProxySetting| {
+            let setting = |name: &str, value: &SystemProxySetting| {
                 let endpoint = match (value.server.as_deref(), value.port) {
                     (Some(server), Some(port)) => format!("{server}:{port}"),
                     (Some(server), None) => server.to_string(),
@@ -218,15 +275,7 @@ impl ProxyModule {
         system: Option<&luma_application::SystemProxyStatus>,
     ) -> SearchItemDto {
         let mode = mode_label(status.mode);
-        let system_label = system
-            .map(|s| {
-                if s.http.enabled || s.https.enabled || s.socks.enabled {
-                    "ON"
-                } else {
-                    "OFF"
-                }
-            })
-            .unwrap_or("unavailable");
+        let system_state = system_proxy_state(status, system);
         let mut parts = vec![format!(
             "Profile: {}",
             status
@@ -244,13 +293,31 @@ impl ProxyModule {
         if let Some(port) = status.ports.socks {
             parts.push(format!("SOCKS: {port}"));
         }
-        parts.push(format!("System proxy: {system_label}"));
+        parts.push(format!("System proxy: {}", system_state.label()));
         parts.push("Mihomo: connected".into());
         let address = status
             .ports
             .mixed
             .or(status.ports.http)
             .map(|port| format!("127.0.0.1:{port}"));
+        let (primary_action_id, primary_action_label, primary_risk, primary_confirmation) =
+            match system_state {
+                SystemProxyState::Off => (
+                    "enable_system_proxy",
+                    "Enable System Proxy",
+                    ActionRisk::Confirm,
+                    true,
+                ),
+                SystemProxyState::Mismatch => (
+                    "enable_system_proxy",
+                    "Switch System Proxy",
+                    ActionRisk::Confirm,
+                    true,
+                ),
+                SystemProxyState::On | SystemProxyState::Unavailable => {
+                    ("refresh", "Refresh", ActionRisk::Safe, false)
+                }
+            };
         SearchItemDto {
             id: "proxy:status".into(),
             module_id: MODULE_ID.into(),
@@ -258,9 +325,11 @@ impl ProxyModule {
             subtitle: Some(parts.join(" · ")),
             kind: "status".into(),
             score: 100.0,
-            primary_action_id: "refresh".into(),
-            primary_action_label: "Refresh".into(),
-            secondary_actions: status_actions(system, address.is_some()),
+            primary_action_id: primary_action_id.into(),
+            primary_action_label: primary_action_label.into(),
+            primary_action_risk: primary_risk,
+            primary_action_confirmation: primary_confirmation,
+            secondary_actions: status_actions(system_state, address.is_some()),
             action_payload: address.map(|address| serde_json::json!({ "address": address })),
             ..Default::default()
         }
@@ -438,7 +507,7 @@ impl ProxyModule {
                 .await;
             return;
         }
-        let status = match await_unless_cancelled(cancel, self.core.get_status()).await {
+        let mut status = match await_unless_cancelled(cancel, self.core.get_status()).await {
             None => return,
             Some(Ok(status)) => status,
             Some(Err(error)) => {
@@ -453,6 +522,16 @@ impl ProxyModule {
                 return;
             }
         };
+        if status.profile.is_none() {
+            if let Some(profiles) = &self.profiles {
+                if let Ok(items) = profiles.list_profiles().await {
+                    status.profile = items
+                        .into_iter()
+                        .find(|profile| profile.owned_by_luma && profile.current)
+                        .map(|profile| profile.name);
+                }
+            }
+        }
         self.selection_keys.write().await.clear();
         *self.last_status.write().await = Some(status.clone());
         let system = self.system_proxy.get_status().await.ok();
@@ -700,31 +779,25 @@ fn mode_label(mode: ProxyMode) -> &'static str {
 }
 
 fn status_actions(
-    system: Option<&luma_application::SystemProxyStatus>,
+    system_state: SystemProxyState,
     can_copy: bool,
 ) -> Vec<luma_protocol::ActionDescriptorDto> {
-    let system_on = system
-        .map(|s| s.http.enabled || s.https.enabled || s.socks.enabled)
-        .unwrap_or(false);
     let mut actions = vec![
         action_dto("set_global", "Set Global", ActionRisk::Confirm, true),
         action_dto("set_rule", "Set Rule", ActionRisk::Confirm, true),
-        action_dto("refresh", "Refresh", ActionRisk::Safe, false),
-        action_dto(
-            if system_on {
-                "disable_system_proxy"
-            } else {
-                "enable_system_proxy"
-            },
-            if system_on {
-                "Disable System Proxy"
-            } else {
-                "Enable System Proxy"
-            },
+    ];
+    match system_state {
+        SystemProxyState::On => actions.push(action_dto(
+            "disable_system_proxy",
+            "Disable System Proxy",
             ActionRisk::Confirm,
             true,
-        ),
-    ];
+        )),
+        SystemProxyState::Off | SystemProxyState::Mismatch => {
+            actions.push(action_dto("refresh", "Refresh", ActionRisk::Safe, false));
+        }
+        SystemProxyState::Unavailable => {}
+    }
     if can_copy {
         actions.push(action_dto(
             "copy_proxy_address",

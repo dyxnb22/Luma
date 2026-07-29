@@ -197,12 +197,13 @@ backup, and migration ledger, never the Markdown source files.
   profile state. `/proxy check` performs on-demand local route/DNS/loopback/controller checks; it
   has no daemon or probe-port subsystem.
 - `/ssh`: lists Host aliases from `~/.ssh/config` and re-reads config/Include files whenever the
-  targeted surface is visited; Enter runs `ssh <alias>` in the current terminal (TUI suspends
-  first). `/ssh fav` / `/ssh recent` / `/ssh rename ALIAS NAME` / `/ssh reload`; action picker:
-  Open SFTP, Copy alias, Favorite/Unfavorite, Delete local metadata. Optional passwords can be
-  stored in macOS Keychain with `luma ssh password set ALIAS` and are supplied through OpenSSH
-  AskPass without entering argv, logs, search results, or SSH metadata. See
-  [`docs/SSH.md`](docs/SSH.md).
+  targeted surface is visited; Enter opens an **SSH Workspace** (embedded PTY inside the TUI) by
+  default, with a Command Recipes shelf (Copy/Insert). Compat mode keeps the legacy full-terminal
+  handoff. `/ssh fav` / `/ssh recent` / `/ssh rename ALIAS NAME` / `/ssh reload`; action picker:
+  Connect, Connect (compat mode), Open SFTP, Copy alias, Favorite/Unfavorite, Delete local metadata.
+  Optional passwords can be stored in macOS Keychain with `luma ssh password set ALIAS` and are
+  supplied through OpenSSH AskPass without entering argv, logs, search results, or SSH metadata. See
+  [`docs/SSH.md`](docs/SSH.md) and [`docs/adr/0008-ssh-workspace.md`](docs/adr/0008-ssh-workspace.md).
 - There is no `luma doctor`, `:doctor`, or diagnostics overlay. Modules report `permission`, `unavailable`, or `not_configured` locally when applicable.
 
 Optional importers: `luma migrate …` with an explicit legacy path (dry-run by default).

@@ -45,7 +45,8 @@ Clipboard favorites: pin/unpin inside `/clip` (not on Hub).
 - In `/win`, digits target windows only while `FocusZone::List` is active. When the prompt is
   focused, digits remain search input.
 - ActionPicker digit behavior is unchanged; it continues to select actions rather than windows.
-- `Fn` + `↑`/`↓` (or `PgUp`/`PgDn` on an extended keyboard) page the Hub without opening the selected row. From the Hub, `Ctrl-/` exposes
+- `⌥↑` / `⌥↓` page the Hub without opening the selected row (`fn↑` / `fn↓` is a
+  compact-Mac compatibility alias). From the Hub, `Ctrl-/` exposes
   `/scroll up` and `/scroll down`; selecting either returns to the Hub and performs the same
   reducer-only movement without a Hub refresh or module I/O.
 - Mouse reporting is not enabled. Click/drag remains available to the terminal host for ordinary

@@ -378,13 +378,13 @@ fn real_pty_preserves_keyboard_first_prompt_and_navigation() {
         screen.contents().contains("粘贴🙂e\u{301}")
     });
 
-    // Enter opens a local overlay. PageDown/PageUp must move it and Esc must
+    // Enter opens a local overlay. The canonical Mac Option-arrow gestures must move it and Esc must
     // restore the exact prompt without causing an external action.
     let marker = tui.mark();
     tui.write(b"\x15/help\r");
     let help_top = tui.wait_for_screen(marker, "Enter opening /help", |screen| {
         let contents = screen.contents();
-        contents.contains(" HELP ") && contents.contains("Fn+")
+        contents.contains(" HELP ") && contents.contains("⌥")
     });
     let help_top_contents = help_top.contents();
 
@@ -402,16 +402,16 @@ fn real_pty_preserves_keyboard_first_prompt_and_navigation() {
     });
 
     let marker = tui.mark();
-    tui.write(b"\x1b[6~");
-    let help_down = tui.wait_for_screen(marker, "PageDown scrolling help", |screen| {
+    tui.write(b"\x1b[1;3B");
+    let help_down = tui.wait_for_screen(marker, "Option-Down scrolling help", |screen| {
         let contents = screen.contents();
         contents.contains(" HELP ") && contents != help_top_contents
     });
     assert_ne!(help_down.contents(), help_top_contents);
 
     let marker = tui.mark();
-    tui.write(b"\x1b[5~");
-    tui.wait_for_screen(marker, "PageUp restoring help", |screen| {
+    tui.write(b"\x1b[1;3A");
+    tui.wait_for_screen(marker, "Option-Up restoring help", |screen| {
         let contents = screen.contents();
         contents.contains("Enter opens a bare trigger") && contents.contains("Workbench commands:")
     });
@@ -420,7 +420,7 @@ fn real_pty_preserves_keyboard_first_prompt_and_navigation() {
     tui.write(b"\x1b");
     tui.wait_for_screen(marker, "Esc restoring the search prompt", |screen| {
         let contents = screen.contents();
-        contents.contains("/help") && contents.contains("COMMAND") && !contents.contains("Fn+")
+        contents.contains("/help") && contents.contains("COMMAND") && !contents.contains("⌥")
     });
 
     // With every module disabled, a global query finishes deterministically

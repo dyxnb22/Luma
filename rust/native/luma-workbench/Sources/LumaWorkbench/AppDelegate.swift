@@ -205,6 +205,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         do {
             try controller.register()
             hotKeyController = controller
+            session?.activationShortcutDisplayName = definition.displayName
             UserDefaults.standard.set(
                 definition.identifier,
                 forKey: Self.activationShortcutDefaultsKey

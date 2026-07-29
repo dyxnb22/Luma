@@ -142,9 +142,9 @@ Layout: ≥118 cols → terminal + shelf (shelf hidden until Phase 2 but layout 
 - Modify: `ssh_workspace/input.rs`, `app.rs`, `terminal.rs` if needed
 - Test: input unit tests; OSC52 ignored test
 
-`F6` opens/focuses the shelf. `Ctrl+Space` arms the terminal leader;
-`Ctrl+Space` then `Space` sends raw Ctrl+Space to PTY, `f` toggles fullscreen,
-`d` confirms disconnect, `r` reconnects, and `q` leaves. When focus is Terminal, keys go to
+`Ctrl-/` arms the local command layer; `c` opens/focuses the shelf and `Space` sends raw Ctrl-/
+to PTY. `f` toggles fullscreen, `d` confirms disconnect, `r` reconnects, and `q` leaves.
+When focus is Terminal, all other keys go to
 the PTY (including Ctrl+C and Esc). Esc from the shelf returns to the terminal. On quit of Luma,
 kill the PTY process group and wait.
 

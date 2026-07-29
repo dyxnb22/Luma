@@ -61,10 +61,10 @@ private final class LumaTerminalView: LocalProcessTerminalView {
     }
 
     private func installNavigationKeyMonitor() {
-        // SwiftTerm consumes Page Up/Down for its local scrollback. Intercept only those two
-        // keys after the terminal has become first responder. Fn+Up/Down emits these function-key
-        // values on compact Mac keyboards. Option+Up/Down is encoded explicitly as an xterm
-        // modified arrow so Crossterm can expose it as a local SSH scrollback shortcut.
+        // Normalize both Mac paging gestures to xterm Option-arrow sequences after the terminal
+        // becomes first responder. Compact keyboards emit function-key values for fn+Up/Down;
+        // Option+Up/Down arrives as an arrow plus the Option modifier. Rust therefore owns one
+        // product shortcut instead of exposing terminal-specific Page keys in the UI.
         navigationKeyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard let self,
                   self.window?.firstResponder === self,
@@ -73,10 +73,10 @@ private final class LumaTerminalView: LocalProcessTerminalView {
             let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
             switch Int(scalar.value) {
             case NSPageUpFunctionKey:
-                send([0x1b, 0x5b, 0x35, 0x7e])
+                send([0x1b, 0x5b, 0x31, 0x3b, 0x33, 0x41])
                 return nil
             case NSPageDownFunctionKey:
-                send([0x1b, 0x5b, 0x36, 0x7e])
+                send([0x1b, 0x5b, 0x31, 0x3b, 0x33, 0x42])
                 return nil
             case NSUpArrowFunctionKey where modifiers.contains(.option):
                 send([0x1b, 0x5b, 0x31, 0x3b, 0x33, 0x41])
@@ -97,6 +97,7 @@ private final class LumaTerminalView: LocalProcessTerminalView {
 /// so TUI state, running Timers, and interactive children (ssh, sftp, recipes) survive.
 final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegate {
     let terminalView: LocalProcessTerminalView
+    var activationShortcutDisplayName = HotKeyDefinition.defaultActivation.displayName
 
     private let executableURL: URL
     private let workingDirectory: String
@@ -228,7 +229,9 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
 
     func processTerminated(source: TerminalView, exitCode: Int32?) {
         lifecycle.markTerminated(swiftTermWaitStatus: exitCode)
-        if let notice = lifecycle.terminationNotice {
+        if let notice = lifecycle.terminationNotice(
+            activationShortcut: activationShortcutDisplayName
+        ) {
             terminalView.feed(text: "\r\n\(notice)\r\n")
         }
         delegate?.terminalSessionDidTerminate(self)

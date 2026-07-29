@@ -418,19 +418,28 @@ fn map_key(code: KeyCode, modifiers: KeyModifiers, state: &AppState) -> Msg {
         return map_ssh_workspace_key(code, modifiers, state);
     }
 
+    if modifiers == KeyModifiers::ALT {
+        match code {
+            KeyCode::Up => return Msg::SelectPageBackward,
+            KeyCode::Down => return Msg::SelectPageForward,
+            _ => {}
+        }
+    }
+
+    if is_command_shortcut(code, modifiers)
+        && matches!(
+            state.route,
+            Route::Search | Route::Help | Route::Settings | Route::ActionPicker
+        )
+    {
+        return Msg::OpenCommands;
+    }
+
     if modifiers.contains(KeyModifiers::CONTROL) {
         return match code {
             KeyCode::Char('c') => Msg::Quit,
             KeyCode::Char('l') => Msg::Redraw,
             KeyCode::Char('k') if matches!(state.route, Route::Search) => Msg::OpenActions,
-            KeyCode::Char('/') | KeyCode::Char('_') | KeyCode::Char('\u{1f}')
-                if matches!(
-                    state.route,
-                    Route::Search | Route::Help | Route::Settings | Route::ActionPicker
-                ) =>
-            {
-                Msg::OpenCommands
-            }
             KeyCode::Char('p') => {
                 if state.focus == FocusZone::Prompt {
                     Msg::HistoryOlder
@@ -455,7 +464,6 @@ fn map_key(code: KeyCode, modifiers: KeyModifiers, state: &AppState) -> Msg {
     match code {
         KeyCode::BackTab if matches!(state.route, Route::Search) => Msg::TogglePreview,
         KeyCode::Tab if matches!(state.route, Route::Search) => Msg::FocusNext,
-        KeyCode::Char('\u{1f}') if matches!(state.route, Route::Search) => Msg::OpenCommands,
         KeyCode::Char('?') if matches!(state.route, Route::Search) => Msg::OpenHelp,
         KeyCode::Char(c)
             if state.should_intercept_window_digit() && c.is_ascii_digit() && c != '0' =>
@@ -513,18 +521,24 @@ fn map_key(code: KeyCode, modifiers: KeyModifiers, state: &AppState) -> Msg {
         KeyCode::End => Msg::CursorEnd,
         KeyCode::Up => Msg::SelectPrev,
         KeyCode::Down => Msg::SelectNext,
-        KeyCode::PageUp => Msg::SelectPageUp,
-        KeyCode::PageDown => Msg::SelectPageDown,
+        // Compact Mac keyboards report fn+Up/Down through these terminal key
+        // codes. They are compatibility inputs; the product shortcut is
+        // Option+Up/Down.
+        KeyCode::PageUp => Msg::SelectPageBackward,
+        KeyCode::PageDown => Msg::SelectPageForward,
         KeyCode::Esc => Msg::Cancel,
         _ => Msg::Tick,
     }
 }
 
+fn is_command_shortcut(code: KeyCode, modifiers: KeyModifiers) -> bool {
+    (modifiers.contains(KeyModifiers::CONTROL)
+        && matches!(code, KeyCode::Char('/') | KeyCode::Char('_')))
+        || (modifiers.is_empty() && code == KeyCode::Char('\u{1f}'))
+}
+
 fn map_ssh_workspace_key(code: KeyCode, modifiers: KeyModifiers, state: &AppState) -> Msg {
-    if code == KeyCode::F(6) {
-        return Msg::SshToggleShelf;
-    }
-    if modifiers.contains(KeyModifiers::CONTROL) && matches!(code, KeyCode::Char(' ')) {
+    if is_command_shortcut(code, modifiers) {
         return Msg::SshArmLeader;
     }
     let leader_armed = state
@@ -1275,14 +1289,26 @@ mod tests {
     }
 
     #[test]
-    fn ssh_reserved_keys_and_terminal_keys_are_unambiguous() {
+    fn ssh_local_command_prefix_and_terminal_keys_are_unambiguous() {
         let state = ssh_workspace_state();
         assert!(matches!(
             map_key(KeyCode::F(6), KeyModifiers::empty(), &state),
-            Msg::SshToggleShelf
+            Msg::SshPtyInput { bytes } if bytes == b"\x1b[17~"
         ));
         assert!(matches!(
             map_key(KeyCode::Char(' '), KeyModifiers::CONTROL, &state),
+            Msg::SshPtyInput { bytes } if bytes == [0x00]
+        ));
+        assert!(matches!(
+            map_key(KeyCode::Char('/'), KeyModifiers::CONTROL, &state),
+            Msg::SshArmLeader
+        ));
+        assert!(matches!(
+            map_key(KeyCode::Char('_'), KeyModifiers::CONTROL, &state),
+            Msg::SshArmLeader
+        ));
+        assert!(matches!(
+            map_key(KeyCode::Char('\u{1f}'), KeyModifiers::empty(), &state),
             Msg::SshArmLeader
         ));
         assert!(matches!(
@@ -1376,7 +1402,7 @@ mod tests {
     }
 
     #[test]
-    fn command_palette_and_page_keys_cover_scrollable_overlays() {
+    fn command_palette_and_macos_page_shortcuts_cover_scrollable_overlays() {
         for route in [Route::Help, Route::Settings, Route::ActionPicker] {
             let state = AppState {
                 route,
@@ -1387,12 +1413,20 @@ mod tests {
                 Msg::OpenCommands
             ));
             assert!(matches!(
+                map_key(KeyCode::Up, KeyModifiers::ALT, &state),
+                Msg::SelectPageBackward
+            ));
+            assert!(matches!(
+                map_key(KeyCode::Down, KeyModifiers::ALT, &state),
+                Msg::SelectPageForward
+            ));
+            assert!(matches!(
                 map_key(KeyCode::PageUp, KeyModifiers::empty(), &state),
-                Msg::SelectPageUp
+                Msg::SelectPageBackward
             ));
             assert!(matches!(
                 map_key(KeyCode::PageDown, KeyModifiers::empty(), &state),
-                Msg::SelectPageDown
+                Msg::SelectPageForward
             ));
         }
     }

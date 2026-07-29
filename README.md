@@ -21,7 +21,7 @@ cargo test -p luma --test cli_blackbox
 | Local TUI + CLI and a thin native PTY host window on your Mac | App Store / notarized shipping |
 | Apps, Calculator, Downloads Inbox, Packages, Apple Shortcuts Bridge, Shell Recall, Renewals, Database Portals, Screen OCR, Windows, Git, Runtime, Proxy, Clipboard, Quicklinks, Snippets, Wordbook, Projects, Records, Command Recipes, SSH, Timers, Secrets | Window layouts, Menu search, Browser tabs, signed-host Translate |
 | Honest permission / unavailable states in each surface | Release soak, deny-as-policy, marketing docs |
-| Global Command+Space activation of the one TUI session | A native product UI: search box, results, sidebar, settings, or overlays in Swift |
+| Configurable global activation of the one TUI session (fresh default `⌥Space`) | A native product UI: search box, results, sidebar, settings, or overlays in Swift |
 | Module-local status and remediation rows | Centralized `doctor` command or diagnostics overlay |
 
 ## Docs
@@ -31,6 +31,7 @@ cargo test -p luma --test cli_blackbox
 | Operator guide | [`rust/README.md`](rust/README.md) |
 | Module status | [`rust/docs/MODULES.md`](rust/docs/MODULES.md) |
 | Codebase governance | [`rust/docs/GOVERNANCE.md`](rust/docs/GOVERNANCE.md) |
+| macOS keyboard contract | [`rust/docs/KEYBOARD.md`](rust/docs/KEYBOARD.md) |
 | Implemented module contract | [`rust/docs/SELECTED_MODULES_PLAN.md`](rust/docs/SELECTED_MODULES_PLAN.md) |
 | Archived eight-module handoff prompt | [`rust/docs/CODEX_TERRA_SELECTED_MODULES_PROMPT.md`](rust/docs/CODEX_TERRA_SELECTED_MODULES_PROMPT.md) |
 | SSH Connections | [`rust/docs/SSH.md`](rust/docs/SSH.md) |
@@ -55,8 +56,9 @@ ordinary prompt input in search fields. Interactive commands require a leading
 `/`: `/win`, `/wb review [today|due|new|wrong]`, `/rec`, and `/ssh `; unprefixed input is global search.
 `Ctrl-/` opens the command palette, whose module subcommands, parameter placeholders, and examples
 come from the same manifest descriptions used by `/help` and slash-command completion.
-`Fn` + `↑`/`↓` (or `PgUp`/`PgDn` on an extended keyboard) and the palette actions `/scroll up` and `/scroll down` page the focused Results,
+`⌥↑` / `⌥↓` and the palette actions `/scroll up` and `/scroll down` page the focused Results,
 Hub, Preview, Help, Settings, command palette, or ActionPicker without running a business action.
+Compact-Mac `fn↑` / `fn↓` remains a compatibility alias; Luma never requires dedicated Page keys.
 The Rust TUI uses layered panels, a single focused accent, full-row selection, and a contextual
 shortcut footer; the native host does not own or duplicate this visual system.
 `/proj` lists manually imported projects; Enter opens a single-project workbench that brings

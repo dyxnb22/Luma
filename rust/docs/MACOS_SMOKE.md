@@ -100,20 +100,22 @@ permission) after replacing the bundle; use `CODESIGN_IDENTITY` with a stable lo
 when continuity matters.
 
 1. **Cold launch** — the window appears centered, the TUI Hub renders, and no Dock icon is added.
-2. **Warm activation** — click another app, press Command+Space; Luma comes forward on the current
+2. **Warm activation** — click another app, press the saved activation shortcut (fresh default
+   Option+Space); Luma comes forward on the current
    Space with the terminal already focused and the previous TUI state intact. Repeat while the
    other app is full-screen; Luma must join that Space instead of remaining behind it.
-3. **Hide and restore focus** — press Command+Space again; the window hides and the app you came
+3. **Hide and restore focus** — press the saved activation shortcut again; the window hides and the app you came
    from becomes frontmost.
-4. **Rapid toggling and minimize** — hold/repeat Command+Space quickly; exactly one window and one
+4. **Rapid toggling and minimize** — hold/repeat the saved activation shortcut quickly; exactly one window and one
    `luma` process must exist afterwards (`pgrep -fl 'Luma.app/Contents/MacOS/luma'`). Minimize the
-   window and press Command+Space; the same window must deminiaturize on the first press.
+   window and press the saved shortcut; the same window must deminiaturize on the first press.
 5. **Chinese IME** — switch to Pinyin, type a multi-syllable word, confirm the composition marks
    correctly and only the committed text reaches the prompt.
 6. **CJK alignment** — display Records rows with mixed CJK/ASCII and confirm columns line
    up (full-width cells occupy two columns).
 7. **Keyboard paging** — populate enough Hub, Results, Help, Preview, Settings, command-palette,
-   and ActionPicker rows to overflow. Verify `Fn` + `↑`/`↓` (or `PgUp`/`PgDn`) and the `Ctrl-/` palette actions
+   and ActionPicker rows to overflow. Verify `⌥↑` / `⌥↓`, the compact-Mac `fn↑` / `fn↓` alias,
+   and the `Ctrl-/` palette actions
    `/scroll up` / `/scroll down` clamp at both ends, keep the current surface/focus, and never run
    the highlighted action or trigger a refresh.
 8. **Mouse** — plain terminal click/drag must select text normally; the keyboard-first TUI does
@@ -132,7 +134,8 @@ when continuity matters.
 13. **Interactive child** — run `/ssh` against a host alias that does not resolve (no real remote
     connection needed) and confirm the child runs in the same PTY and the TUI resumes afterwards.
 14. **Command Recipe** — run a recipe with `/cmd test` and confirm output and exit handling.
-15. **TUI exit and restart** — Ctrl-C out of the TUI, hide, then press Command+Space; a fresh
+15. **TUI exit and restart** — Ctrl-C out of the TUI, hide, then press the saved activation
+    shortcut; a fresh
     session must start instead of an empty window.
 16. **Quit and cleanup** — start a Timer, then Cmd+Q. Confirm no `luma` child survives
     (`pgrep -fl luma`) and the Timer was persisted as paused, proving graceful module teardown ran.
@@ -145,9 +148,9 @@ when continuity matters.
     reports combined peak RSS. Triggering real warning/critical pressure is optional; when tested,
     confirm the entry reports scrollback reduction and the TUI remains usable.
 
-If Command+Space is already claimed by Spotlight or another launcher, disable or rebind that
-shortcut in System Settings → Keyboard → Keyboard Shortcuts before launching Luma. If the
-host reports the registration failure at startup instead of silently doing nothing.
+If another launcher owns the saved shortcut, the host must report registration failure and offer
+explicit alternatives instead of silently changing it. Command+Space users may also disable or
+rebind Spotlight under System Settings → Keyboard → Keyboard Shortcuts.
 
 ## Terminal suspend/resume checks
 

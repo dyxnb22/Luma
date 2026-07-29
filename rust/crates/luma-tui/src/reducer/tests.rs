@@ -745,7 +745,7 @@ fn page_down_moves_selection() {
     state.search.results.selected_id = Some("0".into());
     state.preview.body = Some("cached preview".into());
     state.preview.result_id = Some("0".into());
-    let effects = update(&mut state, Msg::SelectPageDown);
+    let effects = update(&mut state, Msg::SelectPageForward);
     assert!(matches!(
         effects.as_slice(),
         [Effect::LoadPreview {
@@ -763,7 +763,10 @@ fn page_down_moves_selection() {
 fn page_scroll_clamps_results_and_reloads_each_changed_selection() {
     let mut state = AppState::default();
     state.search.prompt = "/clip ".into();
-    assert_eq!(update(&mut state, Msg::SelectPageDown), vec![Effect::None]);
+    assert_eq!(
+        update(&mut state, Msg::SelectPageForward),
+        vec![Effect::None]
+    );
     assert!(state.search.results.selected_id.is_none());
 
     for i in 0..7 {
@@ -786,12 +789,15 @@ fn page_scroll_clamps_results_and_reloads_each_changed_selection() {
         });
     }
     state.search.results.selected_id = Some("scroll:0".into());
-    assert_eq!(update(&mut state, Msg::SelectPageUp), vec![Effect::None]);
+    assert_eq!(
+        update(&mut state, Msg::SelectPageBackward),
+        vec![Effect::None]
+    );
     assert_eq!(
         state.search.results.selected_id.as_deref(),
         Some("scroll:0")
     );
-    let down = update(&mut state, Msg::SelectPageDown);
+    let down = update(&mut state, Msg::SelectPageForward);
     assert!(matches!(
         down.as_slice(),
         [Effect::LoadPreview {
@@ -799,7 +805,7 @@ fn page_scroll_clamps_results_and_reloads_each_changed_selection() {
             preview_id: 1
         }] if result_id == "scroll:5"
     ));
-    let down_again = update(&mut state, Msg::SelectPageDown);
+    let down_again = update(&mut state, Msg::SelectPageForward);
     assert!(matches!(
         down_again.as_slice(),
         [Effect::LoadPreview {
@@ -811,7 +817,10 @@ fn page_scroll_clamps_results_and_reloads_each_changed_selection() {
         state.search.results.selected_id.as_deref(),
         Some("scroll:6")
     );
-    assert_eq!(update(&mut state, Msg::SelectPageDown), vec![Effect::None]);
+    assert_eq!(
+        update(&mut state, Msg::SelectPageForward),
+        vec![Effect::None]
+    );
     assert_eq!(state.preview.pending_id, Some(2));
 }
 
@@ -841,7 +850,7 @@ fn rapid_page_down_then_up_supersedes_the_pending_preview() {
     state.preview.result_id = Some("rapid:0".into());
     state.preview.body = Some("first".into());
 
-    let down = update(&mut state, Msg::SelectPageDown);
+    let down = update(&mut state, Msg::SelectPageForward);
     assert!(matches!(
         down.as_slice(),
         [Effect::LoadPreview {
@@ -850,7 +859,7 @@ fn rapid_page_down_then_up_supersedes_the_pending_preview() {
         }] if result_id == "rapid:5"
     ));
 
-    let up = update(&mut state, Msg::SelectPageUp);
+    let up = update(&mut state, Msg::SelectPageBackward);
     assert!(matches!(
         up.as_slice(),
         [Effect::LoadPreview {
@@ -868,13 +877,22 @@ fn page_scroll_is_pure_across_help_preview_and_overlays() {
     let mut help = AppState::default();
     help.route = Route::Help;
     help.terminal.height = 10;
-    assert_eq!(update(&mut help, Msg::SelectPageDown), vec![Effect::None]);
+    assert_eq!(
+        update(&mut help, Msg::SelectPageForward),
+        vec![Effect::None]
+    );
     assert_eq!(help.overlay.help_scroll, 5.min(help.help_scroll_max()));
     for _ in 0..20 {
-        assert_eq!(update(&mut help, Msg::SelectPageDown), vec![Effect::None]);
+        assert_eq!(
+            update(&mut help, Msg::SelectPageForward),
+            vec![Effect::None]
+        );
     }
     assert_eq!(help.overlay.help_scroll, help.help_scroll_max());
-    assert_eq!(update(&mut help, Msg::SelectPageUp), vec![Effect::None]);
+    assert_eq!(
+        update(&mut help, Msg::SelectPageBackward),
+        vec![Effect::None]
+    );
 
     let mut preview = AppState::default();
     preview.terminal.width = 120;
@@ -905,7 +923,7 @@ fn page_scroll_is_pure_across_help_preview_and_overlays() {
     );
     preview.focus = FocusZone::Preview;
     assert_eq!(
-        update(&mut preview, Msg::SelectPageDown),
+        update(&mut preview, Msg::SelectPageForward),
         vec![Effect::None]
     );
     assert_eq!(preview.preview.scroll, 5);
@@ -920,7 +938,7 @@ fn page_scroll_is_pure_across_help_preview_and_overlays() {
         })
         .collect();
     assert_eq!(
-        update(&mut settings, Msg::SelectPageDown),
+        update(&mut settings, Msg::SelectPageForward),
         vec![Effect::None]
     );
     assert_eq!(settings.settings.selected, 5);
@@ -930,7 +948,7 @@ fn page_scroll_is_pure_across_help_preview_and_overlays() {
         ..AppState::default()
     };
     assert_eq!(
-        update(&mut commands, Msg::SelectPageDown),
+        update(&mut commands, Msg::SelectPageForward),
         vec![Effect::None]
     );
     assert_eq!(commands.overlay.commands_selected, 5);
@@ -945,7 +963,10 @@ fn page_scroll_is_pure_across_help_preview_and_overlays() {
             confirmation: false,
         })
         .collect();
-    assert_eq!(update(&mut picker, Msg::SelectPageDown), vec![Effect::None]);
+    assert_eq!(
+        update(&mut picker, Msg::SelectPageForward),
+        vec![Effect::None]
+    );
     assert_eq!(picker.actions.action_selected, 5);
 }
 
@@ -966,7 +987,10 @@ fn page_scroll_moves_hub_without_loading_or_activating_rows() {
         })
         .collect();
     assert!(state.showing_hub());
-    assert_eq!(update(&mut state, Msg::SelectPageDown), vec![Effect::None]);
+    assert_eq!(
+        update(&mut state, Msg::SelectPageForward),
+        vec![Effect::None]
+    );
     assert_eq!(state.hub.selected, 5);
     assert_eq!(state.focus, FocusZone::List);
 }

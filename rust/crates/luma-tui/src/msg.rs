@@ -19,8 +19,10 @@ pub enum Msg {
     Submit,
     SelectNext,
     SelectPrev,
-    SelectPageUp,
-    SelectPageDown,
+    /// Move the focused local surface backward by one viewport.
+    SelectPageBackward,
+    /// Move the focused local surface forward by one viewport.
+    SelectPageForward,
     /// ActionPicker: 1-based digit → select and run that action.
     PickActionDigit(usize),
     /// Hub / win list: 1-based digit → focus that window (1..=9).
@@ -86,12 +88,10 @@ pub enum Msg {
     SshCopyError,
     /// SSH workspace: toggle shelf focus / visibility.
     SshToggleShelf,
-    /// SSH workspace: arm the Ctrl+Space leader without changing shelf focus.
+    /// SSH workspace: arm the Ctrl-/ command leader without changing shelf focus.
     SshArmLeader,
     /// SSH workspace: confirm disconnect.
     SshDisconnect,
-    /// SSH workspace: send raw Ctrl+Space to remote.
-    SshSendCtrlSpace,
     SshShelfPreview,
     SshShelfCopy,
     SshShelfInsert,

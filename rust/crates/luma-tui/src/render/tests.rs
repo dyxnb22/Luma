@@ -395,6 +395,11 @@ fn ssh_command_shelf_collapses_groups_and_search_flattens_matches() {
     assert!(grouped.contains("▸ Docker (1)"));
     assert!(grouped.contains("▸ System (3)"));
     assert!(!grouped.contains("docker ps"));
+    assert!(grouped.contains("Ctrl-/ c focus commands"));
+    assert!(!grouped.contains("F6"));
+    assert!(!grouped.contains("Ctrl+Space"));
+    assert!(!grouped.contains("PageUp"));
+    assert!(!grouped.contains("PageDown"));
 
     let shelf = &mut state.ssh_workspace.as_mut().unwrap().shelf;
     shelf.begin_search();
@@ -541,7 +546,10 @@ fn help_overlay_keeps_module_syntax_discoverable_when_scrolled() {
     assert!(flat.contains("HELP"));
     assert!(flat.contains("Enabled module commands:"));
     assert!(flat.contains("/proj add <path>"));
-    assert!(flat.contains("Fn+↑/↓ page"));
+    assert!(flat.contains("⌥↑/⌥↓ page"));
+    assert!(!flat.contains("PageUp"));
+    assert!(!flat.contains("PageDown"));
+    assert!(!flat.contains("Fn+"));
 }
 
 #[test]

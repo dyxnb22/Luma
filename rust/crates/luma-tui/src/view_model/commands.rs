@@ -248,10 +248,10 @@ impl AppState {
     pub fn help_lines(&self) -> Vec<String> {
         let mut lines = vec![
             "Enter opens a bare trigger (`/clip`) · unprefixed text is global search".into(),
-            "Enter action · Ctrl-k actions · Ctrl-/ commands · Tab focus · S-Tab preview · ? help"
+            "Enter action · Ctrl-k actions · Ctrl-/ commands · Tab focus · ⇧Tab preview · ? help"
                 .into(),
             format!(
-                "{}{} move · Fn+↑/↓ or /scroll up/down page · Ctrl-p/n history",
+                "{}{} move · ⌥↑/⌥↓ or /scroll up/down page · Ctrl-p/n history",
                 self.symbols.up, self.symbols.down
             ),
             "Hub / win list: 1-9 focus visible window · Enter open".into(),

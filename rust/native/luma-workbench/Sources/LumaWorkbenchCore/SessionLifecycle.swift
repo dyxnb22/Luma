@@ -70,8 +70,9 @@ public struct SessionLifecycle: Equatable {
     }
 
     /// Short, honest text for the terminal after the child goes away. Not an error page.
-    public var terminationNotice: String? {
+    public func terminationNotice(activationShortcut: String) -> String? {
         guard case .exited(let termination) = state else { return nil }
-        return "[luma tui ended — \(termination.noticeDetail). Press ⌘Space to start a new session.]"
+        return "[luma tui ended — \(termination.noticeDetail). "
+            + "Press \(activationShortcut) to start a new session.]"
     }
 }

@@ -61,7 +61,9 @@ fn handle_ssh_workspace_char(state: &mut AppState, c: char) -> Vec<Effect> {
             state.focus = FocusZone::Terminal;
         }
         return match c {
-            ' ' => vec![Effect::WriteEmbeddedPty { bytes: vec![0x00] }],
+            // Ctrl-/ is encoded as the ASCII Unit Separator (Ctrl-_).
+            ' ' => vec![Effect::WriteEmbeddedPty { bytes: vec![0x1f] }],
+            'c' | 'C' => ssh_ws::toggle_shelf(state),
             'f' | 'F' => {
                 if let Some(ws) = state.ssh_workspace.as_mut() {
                     ws.shelf_visible = false;
@@ -80,10 +82,9 @@ fn handle_ssh_workspace_char(state: &mut AppState, c: char) -> Vec<Effect> {
                         return ssh_ws::disconnect(state);
                     }
                     ws.disconnect_confirm = true;
-                    state.status.set(
-                        "Press Ctrl+Space d again to disconnect",
-                        StatusTone::Warning,
-                    );
+                    state
+                        .status
+                        .set("Press Ctrl-/ d again to disconnect", StatusTone::Warning);
                 }
                 vec![Effect::None]
             }
@@ -525,8 +526,8 @@ pub fn update(state: &mut AppState, msg: Msg) -> Vec<Effect> {
             }
             select_prev_msg(state)
         }
-        Msg::SelectPageUp => scroll_page(state, ScrollDirection::Up),
-        Msg::SelectPageDown => scroll_page(state, ScrollDirection::Down),
+        Msg::SelectPageBackward => scroll_page(state, ScrollDirection::Up),
+        Msg::SelectPageForward => scroll_page(state, ScrollDirection::Down),
         Msg::PickActionDigit(digit) => {
             if state.route != Route::ActionPicker || digit == 0 {
                 return vec![Effect::None];
@@ -676,14 +677,12 @@ pub fn update(state: &mut AppState, msg: Msg) -> Vec<Effect> {
                     return ssh_ws::disconnect(state);
                 }
                 ws.disconnect_confirm = true;
-                state.status.set(
-                    "Press Ctrl+Space d again to disconnect",
-                    StatusTone::Warning,
-                );
+                state
+                    .status
+                    .set("Press Ctrl-/ d again to disconnect", StatusTone::Warning);
             }
             vec![Effect::None]
         }
-        Msg::SshSendCtrlSpace => vec![Effect::WriteEmbeddedPty { bytes: vec![0x00] }],
         Msg::SshShelfPreview => shelf_preview(state),
         Msg::SshShelfCopy => shelf_copy(state),
         Msg::SshShelfInsert => shelf_insert(state),
@@ -1079,7 +1078,7 @@ mod ssh_shelf_tests {
     }
 
     #[test]
-    fn leader_space_sends_ctrl_space() {
+    fn leader_space_sends_raw_ctrl_slash() {
         let mut state = workspace_state();
         if let Some(ws) = state.ssh_workspace.as_mut() {
             ws.leader_armed = true;
@@ -1089,9 +1088,27 @@ mod ssh_shelf_tests {
         let effects = update(&mut state, Msg::KeyChar(' '));
         assert!(matches!(
             effects.as_slice(),
-            [Effect::WriteEmbeddedPty { bytes }] if bytes == &[0x00]
+            [Effect::WriteEmbeddedPty { bytes }] if bytes == &[0x1f]
         ));
         assert!(!state.ssh_workspace.as_ref().unwrap().leader_armed);
+    }
+
+    #[test]
+    fn leader_c_focuses_the_command_shelf() {
+        let mut state = workspace_state();
+        if let Some(ws) = state.ssh_workspace.as_mut() {
+            ws.leader_armed = true;
+            ws.focus = SshWorkspaceFocus::Leader;
+            ws.shelf_visible = false;
+        }
+        let effects = update(&mut state, Msg::KeyChar('c'));
+        assert!(effects
+            .iter()
+            .any(|effect| matches!(effect, Effect::ResizeEmbeddedPty { .. })));
+        let ws = state.ssh_workspace.as_ref().unwrap();
+        assert!(ws.shelf_visible);
+        assert_eq!(ws.focus, SshWorkspaceFocus::Shelf);
+        assert!(!ws.leader_armed);
     }
 
     #[test]

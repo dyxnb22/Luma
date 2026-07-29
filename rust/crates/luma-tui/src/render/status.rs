@@ -66,7 +66,7 @@ fn contextual_hints(state: &AppState, symbols: &Symbols) -> Vec<Hint> {
         Route::Search if state.showing_hub() && state.focus == FocusZone::List => vec![
             ("1-9".into(), "focus"),
             (arrows, "move"),
-            ("Fn+↑/↓".into(), "page"),
+            ("⌥↑/⌥↓".into(), "page"),
             ("Enter".into(), "open"),
             ("Ctrl-/".into(), "commands"),
         ],
@@ -78,7 +78,7 @@ fn contextual_hints(state: &AppState, symbols: &Symbols) -> Vec<Hint> {
             ("Ctrl-/".into(), "commands"),
         ],
         Route::Search if state.focus == FocusZone::Preview => vec![
-            ("Fn+↑/↓".into(), "scroll"),
+            ("⌥↑/⌥↓".into(), "scroll"),
             ("Tab".into(), "focus"),
             ("Esc".into(), "back"),
         ],
@@ -96,7 +96,7 @@ fn contextual_hints(state: &AppState, symbols: &Symbols) -> Vec<Hint> {
                 (arrows, "move"),
                 ("Enter".into(), "run"),
                 ("Ctrl-k".into(), "actions"),
-                ("S-Tab".into(), "preview"),
+                ("⇧Tab".into(), "preview"),
                 ("?".into(), "help"),
             ]
         }
@@ -105,25 +105,25 @@ fn contextual_hints(state: &AppState, symbols: &Symbols) -> Vec<Hint> {
             ("Enter".into(), "search"),
             ("Ctrl-k".into(), "actions"),
             ("Tab".into(), "focus"),
-            ("S-Tab".into(), "preview"),
+            ("⇧Tab".into(), "preview"),
             ("?".into(), "help"),
         ],
         Route::ActionPicker => vec![
             (arrows, "move"),
-            ("Fn+↑/↓".into(), "page"),
+            ("⌥↑/⌥↓".into(), "page"),
             ("1-9".into(), "pick"),
             ("Enter".into(), "run"),
             ("Esc".into(), "back"),
         ],
         Route::Settings => vec![
             (arrows, "move"),
-            ("Fn+↑/↓".into(), "page"),
+            ("⌥↑/⌥↓".into(), "page"),
             ("Space".into(), "toggle"),
             ("Esc".into(), "back"),
         ],
         Route::Commands => vec![
             ("Type".into(), "filter"),
-            ("Fn+↑/↓".into(), "page"),
+            ("⌥↑/⌥↓".into(), "page"),
             ("Enter".into(), "run"),
             ("Esc".into(), "back"),
         ],
@@ -132,7 +132,7 @@ fn contextual_hints(state: &AppState, symbols: &Symbols) -> Vec<Hint> {
         }
         Route::Help => vec![
             (arrows, "scroll"),
-            ("Fn+↑/↓".into(), "page"),
+            ("⌥↑/⌥↓".into(), "page"),
             ("Esc".into(), "back"),
         ],
         Route::WordbookReview => {
@@ -147,10 +147,24 @@ fn contextual_hints(state: &AppState, symbols: &Symbols) -> Vec<Hint> {
                 ]
             }
         }
+        Route::SshWorkspace
+            if state.ssh_workspace.as_ref().is_some_and(|workspace| {
+                matches!(
+                    workspace.phase,
+                    crate::ssh_workspace::SshConnectionPhase::Failed
+                        | crate::ssh_workspace::SshConnectionPhase::Disconnected
+                )
+            }) =>
+        {
+            vec![
+                ("Esc".into(), "leave"),
+                ("r".into(), "reconnect"),
+                ("Ctrl-/".into(), "local commands"),
+            ]
+        }
         Route::SshWorkspace => vec![
-            ("Ctrl+Space".into(), "commands"),
-            ("Esc".into(), "leave"),
-            ("r".into(), "reconnect"),
+            ("Ctrl-/".into(), "local commands"),
+            ("⌥↑/⌥↓".into(), "scrollback"),
         ],
     }
 }

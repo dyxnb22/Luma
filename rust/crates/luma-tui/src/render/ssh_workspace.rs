@@ -65,25 +65,25 @@ pub fn render_ssh_workspace(
     let footer = match ws.focus {
         SshWorkspaceFocus::Terminal => {
             if ws.disconnect_confirm {
-                "confirm disconnect: Ctrl+Space d again · Ctrl+Space Esc cancel"
+                "confirm disconnect: Ctrl-/ d again · Ctrl-/ Esc cancel"
             } else if ws.leader_armed {
-                "leader: Space=^Space · f fullscreen · d disconnect · r reconnect · q leave · Esc"
+                "local: c commands · Space send ^/ · f fullscreen · d disconnect · r reconnect · q leave · Esc"
             } else if matches!(
                 ws.phase,
                 crate::ssh_workspace::SshConnectionPhase::Failed
                     | crate::ssh_workspace::SshConnectionPhase::Disconnected
             ) {
-                "Esc leave · r reconnect · l compat · c copy error · F6 commands"
+                "Esc leave · r reconnect · l compat · c copy error · Ctrl-/ c commands"
             } else if ws.scrollback_offset > 0 {
                 "scrollback · ⌥↑/⌥↓ or fn↑/fn↓ · typing returns to live output"
             } else if ws.shelf_visible {
-                "F6 focus commands · Ctrl+Space leader · ⌥↑/⌥↓ scrollback"
+                "Ctrl-/ c focus commands · ⌥↑/⌥↓ scrollback"
             } else {
-                "F6 show commands · Ctrl+Space leader · ⌥↑/⌥↓ scrollback"
+                "Ctrl-/ c show commands · ⌥↑/⌥↓ scrollback"
             }
         }
         SshWorkspaceFocus::Leader => {
-            "leader: Space=^Space · f fullscreen · d disconnect · r reconnect · q leave · Esc"
+            "local: c commands · Space send ^/ · f fullscreen · d disconnect · r reconnect · q leave · Esc"
         }
         SshWorkspaceFocus::Shelf if ws.shelf.filling_params => {
             "Tab fields · type value · Enter preview · Esc back"

@@ -325,7 +325,7 @@ pub(super) fn render_overlay_help(
                         .right_aligned(),
                 )
                 .title_bottom(overlay_hint(
-                    format!(" Fn+↑/↓ page {} Esc back ", symbols.sep),
+                    format!(" ⌥↑/⌥↓ page {} Esc back ", symbols.sep),
                     theme,
                 )),
         );

@@ -38,7 +38,8 @@ would collapse into a single file inside the bundle. The user-visible name comes
 
 - app lifecycle (accessory app, explicit Quit / Cmd+Q, terminate-and-reap the child);
 - window lifecycle (one persistent window; close button hides, never terminates);
-- the global Command+Space hotkey (Carbon `RegisterEventHotKey`, no Accessibility permission);
+- a configurable global activation hotkey (fresh default Option+Space; Carbon
+  `RegisterEventHotKey`, no Accessibility permission);
 - previous-frontmost-application capture and reactivation on hide;
 - PTY child lifecycle, including restart on the next activation after the child exits;
 - bounded graceful termination (SIGTERM handled by the TUI, three-second SIGKILL fallback);

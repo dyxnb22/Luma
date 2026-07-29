@@ -15,7 +15,7 @@ final class SessionLifecycleTests: XCTestCase {
 
         XCTAssertTrue(lifecycle.isRunning)
         XCTAssertFalse(lifecycle.needsStartBeforeShowing, "hiding must not restart the TUI")
-        XCTAssertNil(lifecycle.terminationNotice)
+        XCTAssertNil(lifecycle.terminationNotice(activationShortcut: "⌥Space"))
     }
 
     func testExitedSessionRestartsOnTheNextShow() {
@@ -43,10 +43,12 @@ final class SessionLifecycleTests: XCTestCase {
         lifecycle.markStarted()
         lifecycle.markTerminated(swiftTermWaitStatus: 130 << 8)
 
-        let notice = try? XCTUnwrap(lifecycle.terminationNotice)
+        let notice = try? XCTUnwrap(
+            lifecycle.terminationNotice(activationShortcut: "⌥Space")
+        )
         XCTAssertEqual(
             notice,
-            "[luma tui ended — exit code 130. Press ⌘Space to start a new session.]"
+            "[luma tui ended — exit code 130. Press ⌥Space to start a new session.]"
         )
     }
 
@@ -55,7 +57,11 @@ final class SessionLifecycleTests: XCTestCase {
         lifecycle.markStarted()
         lifecycle.markTerminated(swiftTermWaitStatus: nil)
 
-        XCTAssertEqual(lifecycle.terminationNotice?.contains("unknown exit status"), true)
+        XCTAssertEqual(
+            lifecycle.terminationNotice(activationShortcut: "⌘⇧Space")?
+                .contains("unknown exit status"),
+            true
+        )
     }
 
     func testSwiftTermRawWaitStatusDecodesNormalExit() {
@@ -78,8 +84,8 @@ final class SessionLifecycleTests: XCTestCase {
         lifecycle.markTerminated(swiftTermWaitStatus: 15)
 
         XCTAssertEqual(
-            lifecycle.terminationNotice,
-            "[luma tui ended — signal 15. Press ⌘Space to start a new session.]"
+            lifecycle.terminationNotice(activationShortcut: "⌘⇧Space"),
+            "[luma tui ended — signal 15. Press ⌘⇧Space to start a new session.]"
         )
     }
 }

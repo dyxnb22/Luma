@@ -160,7 +160,7 @@ final class HotKeyDebouncerTests: XCTestCase {
         XCTAssertEqual(accepted.count, 1)
     }
 
-    func testHotKeyDefinitionIsCommandSpace() {
+    func testHotKeyDefinitionsPreferANonSystemDefault() {
         XCTAssertEqual(HotKeyDefinition.commandSpace.keyCode, 0x31, "kVK_Space")
         XCTAssertEqual(HotKeyDefinition.commandSpace.carbonModifiers, 256, "Carbon cmdKey")
         XCTAssertEqual(HotKeyDefinition.commandSpace.displayName, "⌘Space")
@@ -171,8 +171,12 @@ final class HotKeyDebouncerTests: XCTestCase {
             "Carbon cmdKey | shiftKey"
         )
         XCTAssertEqual(
-            HotKeyDefinition.commandSpace.alternatives().map(\.displayName),
-            ["⌥Space", "⌘⇧Space"]
+            HotKeyDefinition.defaultActivation,
+            .optionSpace
+        )
+        XCTAssertEqual(
+            HotKeyDefinition.optionSpace.alternatives().map(\.displayName),
+            ["⌘⇧Space", "⌘Space"]
         )
         XCTAssertEqual(
             HotKeyDefinition.saved(identifier: "option-space"),
@@ -180,7 +184,7 @@ final class HotKeyDebouncerTests: XCTestCase {
         )
         XCTAssertEqual(
             HotKeyDefinition.saved(identifier: "unknown"),
-            .commandSpace
+            .optionSpace
         )
     }
 

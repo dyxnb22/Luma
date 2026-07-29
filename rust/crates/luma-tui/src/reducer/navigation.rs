@@ -554,7 +554,8 @@ pub(super) fn select_prev_msg(state: &mut AppState) -> Vec<Effect> {
     vec![Effect::None]
 }
 
-/// Page movement shared by Fn+Up/Down (or PgUp/PgDn) and `/scroll up|down`.
+/// Viewport movement shared by Option+Up/Down, the compact-Mac fn-arrow
+/// compatibility input, and `/scroll up|down`.
 ///
 /// Moving a search-result selection requests its preview just like single-row navigation. Other
 /// routes remain local-only: paging never executes actions or activates Hub rows.

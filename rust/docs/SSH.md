@@ -57,14 +57,12 @@ module row.
 
 Embedded session keeps Luma chrome visible. Header shows alias · user@host:port · status.
 On wide terminals the command shelf is visible on the right from the start while keyboard focus
-stays in the remote terminal; `F6` focuses it, then closes it when pressed again. On narrower
-terminals `F6` opens/closes the shelf. `Ctrl+Space` arms the terminal leader:
-`Space` sends Ctrl+Space, `f` toggles fullscreen, `d` disconnects after a second confirmation
-chord, `r` reconnects, and `q` leaves the workspace. Terminal `Esc`, Delete, ordinary Alt key
-combinations, and F1–F12 are forwarded to the remote program; PageUp/PageDown are reserved for
-Luma's local scrollback. On Mac, `Option+Up/Option+Down` or `Fn+Up/Fn+Down` browses the local
-2000-line scrollback; full keyboards can use PageUp/PageDown directly. Typing returns to live
-output.
+stays in the remote terminal. `Ctrl-/`, then `c`, shows or focuses the shelf; `Esc` returns shelf
+focus to the terminal. The same local command layer uses `f` for fullscreen, `d` for confirmed
+disconnect, `r` for reconnect, and `q` to leave. `Space` sends raw `Ctrl-/` to the remote.
+Terminal `Esc`, Backspace, `fn Delete`, `Ctrl+Space`, ordinary Alt combinations, and F1–F12 are forwarded to the
+remote program. On Mac, `Option+Up/Option+Down` browses Luma's local 2000-line scrollback;
+`Fn+Up/Fn+Down` is a compact-keyboard compatibility alias. Typing returns to live output.
 
 The built-in shelf includes SSH/SFTP connection copy actions and grouped System, Files,
 Services, Network, and Docker commands. Commands that need a service, container, path, host, or

@@ -45,10 +45,14 @@ public struct HotKeyDefinition: Equatable {
         displayName: "⌘⇧Space"
     )
 
-    public static let supported = [commandSpace, optionSpace, commandShiftSpace]
+    /// Fresh-install default. Unlike Command+Space, Option+Space has no macOS
+    /// system binding by default. Registration still detects third-party use.
+    public static let defaultActivation = optionSpace
+
+    public static let supported = [optionSpace, commandShiftSpace, commandSpace]
 
     public static func saved(identifier: String?) -> HotKeyDefinition {
-        supported.first { $0.identifier == identifier } ?? .commandSpace
+        supported.first { $0.identifier == identifier } ?? .defaultActivation
     }
 
     public func alternatives() -> [HotKeyDefinition] {

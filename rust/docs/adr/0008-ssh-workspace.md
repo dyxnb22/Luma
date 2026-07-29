@@ -32,12 +32,14 @@ sidebar, no module data, no second UI.
 - A clean remote `exit 0` records the session and returns to `/ssh`; failed exits retain the
   final screen for diagnosis
 - Layout width rules drive side / overlay / full-page shelf; PTY resize follows
-- `F6` owns shelf focus; `Ctrl+Space` owns terminal leader chords, avoiding shortcut ambiguity
+- `Ctrl-/` owns local commands across Luma; in SSH, `c` focuses the shelf and the remaining
+  leader keys own workspace actions. F1–F12 and macOS's common `Ctrl+Space` input-source chord
+  remain available to the remote terminal
 - Remote cursor/input modes, bracketed paste, and common xterm key sequences are projected
 - Remote output never enters SQLite / Records / search
 - OSC 52 and title sequences are not applied to the host
-- Scrollback is hard-capped at 2000 lines and browsed with Option+Up/Down or Fn+Up/Down on Mac
-  (PageUp/PageDown works on full keyboards)
+- Scrollback is hard-capped at 2000 lines and browsed with Option+Up/Down; Fn+Up/Down is accepted
+  as a compact-Mac compatibility alias without requiring dedicated Page keys
 - The command shelf uses collapsed category rows plus an all-category incremental search, so
   growth in built-in or personal recipes does not turn the side pane into an unbounded flat list
 - Phase 5 ideas (mouse, Docker discovery, SFTP browser) stay out of tree until needed

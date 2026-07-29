@@ -77,10 +77,11 @@ TCC grants survive a rebuild: re-check module permissions after updating. Set
 
 Behavior worth knowing:
 
-- Command+Space shows the window and focuses the terminal; pressing it again while Luma is active
-  hides the window and reactivates the app you came from. If macOS Spotlight or another app owns
-  it, Luma offers the explicit alternatives Option+Space and Command+Shift+Space and remembers the
-  user's choice; it never silently changes the shortcut.
+- On a fresh install, Option+Space shows the window and focuses the terminal; pressing the saved
+  shortcut again while Luma is active hides the window and reactivates the app you came from.
+  If another app owns it, Luma offers explicit alternatives and remembers the user's choice; it
+  never silently changes an existing shortcut. Command+Space remains available but is offered
+  last because macOS normally reserves it for Spotlight.
 - The close button hides the window. The TUI keeps running; Cmd+Q (or Quit Luma) terminates it.
 - If the TUI exits, the next activation starts a fresh session.
 - The host is an accessory app, so it has no Dock icon and no visible menu bar. Cmd+C, Cmd+V,
@@ -136,7 +137,8 @@ backup, and migration ledger, never the Markdown source files.
   Enabled modules publish their real subcommands, argument placeholders, and short examples there
   in task groups and in `/help`; all rows still come from module `CommandSpec` metadata. Partial
   slash commands show bounded completion candidates.
-- `Fn` + `↑`/`↓` (or `PgUp`/`PgDn` on an extended keyboard) page the focused surface. `/scroll up` and `/scroll down` expose the same pure
+- `⌥↑` / `⌥↓` page the focused surface. Compact-Mac `fn↑` / `fn↓` is a compatibility
+  alias; no dedicated Page keys are required. `/scroll up` and `/scroll down` expose the same pure
   navigation through the command palette, including Results, the empty Hub, Preview, Help,
   Settings, the palette itself, and ActionPicker. Paging never runs an action or requests module I/O.
 

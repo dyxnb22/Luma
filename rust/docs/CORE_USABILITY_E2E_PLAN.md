@@ -28,7 +28,7 @@ declared `CommandSpec` rows.
 | Area | Status | Evidence |
 | --- | --- | --- |
 | Native activation/lifecycle/input | `FIXED` | Installed app accepted leading `1`; the final rebuilt app retained `persist-42` across hide/show and accepted the following `x`; one host and one bundled TUI remained alive while hidden. |
-| Keyboard/render/PTY | `FIXED` | Real PTY blackbox covered digits, arrows, bracketed paste, CJK/emoji, PageUp/PageDown, and Ctrl-K; installed UI covered INPUT/TAB TO INPUT recovery, numbered actions, task-grouped commands, paging, side/stacked preview resizing, and Unicode paste; Swift terminal-filter tests covered split UTF-8 and control strings. |
+| Keyboard/render/PTY | `FIXED` | Real PTY blackbox covered digits, arrows, bracketed paste, CJK/emoji, Mac viewport gestures, and Ctrl-K; installed UI covered INPUT/TAB TO INPUT recovery, numbered actions, task-grouped commands, paging, side/stacked preview resizing, and Unicode paste; Swift terminal-filter tests covered split UTF-8 and control strings. |
 | Windows/TCC | `FIXED` / `BLOCKED` | After final rebuild, Screen Recording remained authorized and real Chinese/English titles were visible without another prompt. The local action opened the exact Accessibility pane, where the installed Luma toggle was observed off; Focus was annotated before execution and final focus success awaits the user-authenticated toggle. |
 | Apps/Calculator/Downloads | `FIXED` | Calculator launch, Finder reveal, copy/restore, Downloads rename confirmation, real Finder Trash, three Put Back cycles, and pure JSON output passed. |
 | Packages/Proxy/Runtime | `FIXED` | Test-owned Homebrew formula install/upgrade/uninstall, proxy enable/conflict/disable with exact state restoration, and exact test listener termination passed. |
@@ -60,7 +60,7 @@ declared `CommandSpec` rows.
 | `UX-014` | Duplicate Untitled windows were visually indistinguishable although their CG identities were distinct. | Number same-app Untitled rows for display only while preserving the original IDs/titles used by focus matching. |
 | `UX-015` | OCR showed generic running text and a repeated Enter gave no selection-specific guidance. | Keep “drag to select · Esc cancel” visible throughout the operation and reject duplicate execution explicitly. |
 | `UX-016` | Input/action focus, command purpose, and external mutation completion were harder to scan than necessary. | Add INPUT/TAB TO INPUT labels, numbered ActionPicker rows, task-grouped CommandSpec rows, specific Git/Homebrew completion, and one package refresh. |
-| `UX-017` | A Command+Space conflict had only a manual Spotlight recovery path. | Offer and persist one of three explicit host-owned shortcuts; never choose an alternative silently. |
+| `UX-017` | The former Command+Space default conflicted with Spotlight and had only a manual recovery path. | Prefer Option+Space on fresh installs; offer and persist three explicit host-owned choices, while never changing a saved shortcut silently. |
 
 ### Remaining action-time handoffs
 
@@ -445,10 +445,11 @@ Codex does not click security-sensitive permission toggles or enter system authe
 - [ ] Simplified/Traditional Chinese input method composition and commit.
 - [ ] Emoji, ZWJ emoji, combining marks, CJK, and mixed-width text.
 - [ ] Paste multiline/Unicode text with control characters filtered safely.
-- [ ] Backspace, Delete, word delete, cursor left/right, Home/End, Ctrl-A/E/U/W.
+- [ ] Backspace, word delete, cursor left/right, and Ctrl-A/E/U/W; optional terminal
+      Home/End and `fn Delete` compatibility must not be required by the UI.
 - [ ] Query history Ctrl-P/N.
 - [ ] Enter, Esc, Tab, Shift-Tab, Ctrl-K, Ctrl-/, `?`.
-- [ ] Arrow keys and Fn+Up/Down or PageUp/PageDown.
+- [ ] Arrow keys, Option+Up/Down, and the compact-Mac Fn+Up/Down compatibility alias.
 - [ ] ActionPicker digits and Wordbook review digits retain their scoped behavior.
 - [ ] Terminal view, native window, overlay, and focus chain never swallow ordinary prompt text.
 

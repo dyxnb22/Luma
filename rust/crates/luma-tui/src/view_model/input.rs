@@ -188,7 +188,7 @@ pub struct ActionsState {
 /// selection change and are guarded by their own generation.
 #[derive(Clone, Debug, Default)]
 pub struct PreviewState {
-    /// Explicit user preference from Ctrl-Shift-Tab. Automatic previews remain
+    /// Explicit user preference from Shift-Tab. Automatic previews remain
     /// available by default, but this lets the shortcut genuinely hide them.
     pub hidden: bool,
     /// When set, allow stacked preview on narrow terminals (e.g. 80×24).

@@ -13,7 +13,7 @@ executable with its own bundle identity and permissions.
 ## Superseding decision
 
 The companion is removed from the product and source tree. The thin native PTY host from
-ADR-0007 now provides the system-level entry point through Command+Space, while Wordbook status,
+ADR-0007 now provides the system-level entry point through a configurable global shortcut, while Wordbook status,
 window switching, settings, and every other module action stay in the Rust TUI.
 
 Maintaining two native entry points added installation, permission, login-item, lifecycle, and

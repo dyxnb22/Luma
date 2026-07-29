@@ -4,8 +4,9 @@ use crate::cancel::await_unless_cancelled;
 use async_trait::async_trait;
 use luma_application::{
     ActionOutcome, ActionRequest, LumaModule, ModuleManifest, ModuleState, NetworkProbePort,
-    PasteboardPort, ProfileSource, ProfileStorePort, ProfileSummary, ProxyCorePort, ProxyMode,
-    ProxyStatus, SearchMode, SearchSink, SystemProxyPort, UnavailableNetworkProbe, WarmupContext,
+    NetworkProbeState, PasteboardPort, ProfileSource, ProfileStorePort, ProfileSummary,
+    ProxyCorePort, ProxyMode, ProxyStatus, SearchMode, SearchSink, SystemProxyPort,
+    UnavailableNetworkProbe, WarmupContext,
 };
 use luma_domain::{
     ActionDescriptor, ActionId, ActionRisk, FailureKind, ModuleId, Query, SearchItem,
@@ -119,8 +120,20 @@ impl ProxyModule {
                         ),
                         crate::ux::command_spec(
                             "/proxy sync",
-                            "Compile LumaNext/proxy.yaml into the fixed convention Profile",
+                            "Compile proxy.yaml into a draft Profile",
                             "/proxy sync",
+                            None,
+                        ),
+                        crate::ux::command_spec(
+                            "/proxy apply",
+                            "Compile and apply proxy.yaml to the running Mihomo",
+                            "/proxy apply",
+                            None,
+                        ),
+                        crate::ux::command_spec(
+                            "/proxy refresh",
+                            "Refresh proxy providers in the running Mihomo",
+                            "/proxy refresh",
                             None,
                         ),
                     ],
@@ -216,6 +229,18 @@ impl LumaModule for ProxyModule {
                 label: "Sync".into(),
                 risk: ActionRisk::Confirm,
                 confirmation: true,
+            }],
+            "profile_apply" => vec![ActionDescriptor {
+                id: ActionId::new("apply_convention_profile"),
+                label: "Apply".into(),
+                risk: ActionRisk::Confirm,
+                confirmation: true,
+            }],
+            "provider_refresh" => vec![ActionDescriptor {
+                id: ActionId::new("refresh_providers"),
+                label: "Refresh Providers".into(),
+                risk: ActionRisk::Safe,
+                confirmation: false,
             }],
             "profile_import_help" => vec![],
             _ => {
@@ -319,7 +344,7 @@ impl LumaModule for ProxyModule {
                     kind: proxy_failure(error),
                 },
             },
-            "refresh" => match self.core.refresh_provider().await {
+            "refresh" | "refresh_providers" => match self.core.refresh_provider().await {
                 Ok(()) => ActionOutcome::Success {
                     message: Some("proxy providers refreshed".into()),
                 },
@@ -379,6 +404,42 @@ impl LumaModule for ProxyModule {
                             redact_label(&result.summary.name),
                             result.summary.node_count
                         )),
+                    },
+                    Err(error) => ActionOutcome::Failed {
+                        kind: profile_failure(error),
+                    },
+                }
+            }
+            "apply_convention_profile" => {
+                let Some(store) = &self.profiles else {
+                    return ActionOutcome::Failed {
+                        kind: FailureKind::NotConfigured {
+                            remediation: "Profile storage is not configured".into(),
+                        },
+                    };
+                };
+                let synced = match store.sync_convention_profile().await {
+                    Ok(result) => result,
+                    Err(error) => {
+                        return ActionOutcome::Failed {
+                            kind: profile_failure(error),
+                        };
+                    }
+                };
+                match store.use_profile(&synced.summary.id).await {
+                    Ok(result) if result.runtime_applied => ActionOutcome::Success {
+                        message: Some(format!(
+                            "已应用 proxy.yaml：{}（{} 个节点）",
+                            redact_label(&result.summary.name),
+                            result.summary.node_count
+                        )),
+                    },
+                    Ok(_) => ActionOutcome::Failed {
+                        kind: FailureKind::Unavailable {
+                            reason: "Profile was saved but the Mihomo runtime did not apply it"
+                                .into(),
+                            retryable: true,
+                        },
                     },
                     Err(error) => ActionOutcome::Failed {
                         kind: profile_failure(error),
@@ -509,6 +570,25 @@ impl LumaModule for ProxyModule {
                         }
                     }
                 };
+                let mut ports = vec![
+                    status.ports.http.or(status.ports.mixed),
+                    status.ports.socks.or(status.ports.mixed),
+                ];
+                ports.sort_unstable();
+                ports.dedup();
+                for port in ports.into_iter().flatten() {
+                    let probe = self.network_probe.loopback_listener(port).await;
+                    if probe.state == NetworkProbeState::Fail {
+                        return ActionOutcome::Failed {
+                            kind: FailureKind::Unavailable {
+                                reason: format!(
+                                    "Mihomo listener 127.0.0.1:{port} is not accepting connections"
+                                ),
+                                retryable: true,
+                            },
+                        };
+                    }
+                }
                 match self
                     .system_proxy
                     .enable(
@@ -587,7 +667,8 @@ mod tests {
     use luma_application::{
         FakeNetworkProbe, FakePasteboard, FakeProxyCore, FakeSystemProxy, NetworkProbeState,
         NetworkProbeStep, ProfileImportResult, ProfileSource, ProfileStoreError, ProfileStorePort,
-        ProxyCoreError, ProxyGroup, ProxyNode, ProxyPorts, SystemProxySetting, SystemProxyStatus,
+        ProxyCoreError, ProxyCoreKind, ProxyGroup, ProxyNode, ProxyPorts, SystemProxySetting,
+        SystemProxyStatus,
     };
     use luma_protocol::SearchItemDto;
     use luma_test_support::collect_search_items;
@@ -597,6 +678,7 @@ mod tests {
         let core = FakeProxyCore::new(
             ProxyStatus {
                 running: true,
+                core_kind: ProxyCoreKind::Standalone,
                 mode: ProxyMode::Rule,
                 profile: Some("V2Box AI Split".into()),
                 ports: ProxyPorts {
@@ -644,7 +726,7 @@ mod tests {
         let items = collect_search_items(&module, Query::parse("proxy ", 20)).await;
         assert!(items
             .iter()
-            .any(|item| item.title == "Proxy running · Rule"));
+            .any(|item| item.title == "Luma Proxy ready · Rule"));
         let group = items
             .iter()
             .find(|item| item.title == "AI-VPS")
@@ -655,6 +737,7 @@ mod tests {
             .as_deref()
             .is_some_and(|subtitle| subtitle.contains("V2Box-VPS")));
         assert_eq!(group.primary_action.id.as_str(), "open_proxy_group");
+        assert!(group.ui_intent.is_none());
         assert!(!items.iter().any(|item| item.title == "COMPATIBLE"));
         assert!(!items.iter().any(|item| item.kind == "proxy_node"));
 
@@ -765,11 +848,11 @@ mod tests {
         assert!(item
             .subtitle
             .as_deref()
-            .is_some_and(|subtitle| subtitle.contains("System proxy: MISMATCH")));
+            .is_some_and(|subtitle| subtitle.contains("System proxy: OTHER")));
         assert_eq!(item.primary_action.id.as_str(), "enable_system_proxy");
-        assert_eq!(item.primary_action.label, "Switch System Proxy");
-        assert_eq!(item.primary_action.risk, ActionRisk::Safe);
-        assert!(!item.primary_action.confirmation);
+        assert_eq!(item.primary_action.label, "Switch to Luma");
+        assert_eq!(item.primary_action.risk, ActionRisk::Confirm);
+        assert!(item.primary_action.confirmation);
         let actions = module.actions(&item).await;
         assert_eq!(actions[0].id.as_str(), "enable_system_proxy");
         assert!(!actions
@@ -811,7 +894,7 @@ mod tests {
         assert!(partial
             .subtitle
             .as_deref()
-            .is_some_and(|subtitle| subtitle.contains("System proxy: MISMATCH")));
+            .is_some_and(|subtitle| subtitle.contains("System proxy: OTHER")));
 
         {
             let mut status = system.status.lock().await;
@@ -834,7 +917,7 @@ mod tests {
         assert!(on
             .subtitle
             .as_deref()
-            .is_some_and(|subtitle| subtitle.contains("System proxy: ON")));
+            .is_some_and(|subtitle| subtitle.contains("System proxy: LUMA")));
         assert_eq!(on.primary_action.id.as_str(), "open_proxy_status");
         assert!(module
             .actions(&on)
@@ -1179,6 +1262,7 @@ mod tests {
         struct CountingProfiles {
             summary: ProfileSummary,
             syncs: tokio::sync::Mutex<u32>,
+            uses: tokio::sync::Mutex<u32>,
         }
         #[async_trait]
         impl ProfileStorePort for CountingProfiles {
@@ -1203,7 +1287,13 @@ mod tests {
                 &self,
                 _id: &str,
             ) -> Result<ProfileImportResult, ProfileStoreError> {
-                unreachable!()
+                *self.uses.lock().await += 1;
+                Ok(ProfileImportResult {
+                    summary: self.summary.clone(),
+                    source_written: true,
+                    metadata_updated: true,
+                    runtime_applied: true,
+                })
             }
             async fn refresh_profile(
                 &self,
@@ -1241,6 +1331,7 @@ mod tests {
                 current: false,
             },
             syncs: tokio::sync::Mutex::new(0),
+            uses: tokio::sync::Mutex::new(0),
         });
         let module = base.with_profile_store(profiles.clone());
         let items = collect_search_items(&module, Query::parse("proxy sync", 20)).await;
@@ -1273,6 +1364,29 @@ mod tests {
             other => panic!("unexpected outcome: {other:?}"),
         }
         assert_eq!(*profiles.syncs.lock().await, 1);
+        assert_eq!(*profiles.uses.lock().await, 0);
+
+        let items = collect_search_items(&module, Query::parse("proxy apply", 20)).await;
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].kind, "profile_apply");
+        assert_eq!(
+            items[0].primary_action.id.as_str(),
+            "apply_convention_profile"
+        );
+        let action = module.actions(&items[0]).await.remove(0);
+        let outcome = module
+            .perform(
+                ActionRequest {
+                    result: items[0].clone(),
+                    action,
+                    confirmation: true,
+                },
+                CancellationToken::new(),
+            )
+            .await;
+        assert!(matches!(outcome, ActionOutcome::Success { .. }));
+        assert_eq!(*profiles.syncs.lock().await, 2);
+        assert_eq!(*profiles.uses.lock().await, 1);
     }
 
     #[tokio::test]
@@ -1380,5 +1494,44 @@ mod tests {
             *system.enable_calls.lock().await,
             vec![(Some(7897), Some(7897), Some(7897))]
         );
+    }
+
+    #[tokio::test]
+    async fn enabling_system_proxy_stops_before_mutation_when_listener_is_down() {
+        let (base, _, system) = module();
+        let probe = FakeNetworkProbe::new(vec![]);
+        probe.listeners.lock().await.insert(
+            7899,
+            NetworkProbeStep {
+                name: "Local listener 127.0.0.1:7899".into(),
+                state: NetworkProbeState::Fail,
+                detail: "not accepting connections".into(),
+                remediation: "start Mihomo".into(),
+            },
+        );
+        let module = base.with_network_probe(probe);
+        let item = collect_search_items(&module, Query::parse("proxy ", 20))
+            .await
+            .into_iter()
+            .find(|item| item.id.as_str() == "proxy:status")
+            .unwrap();
+        let action = module.actions(&item).await.remove(0);
+        let outcome = module
+            .perform(
+                ActionRequest {
+                    result: item,
+                    action,
+                    confirmation: false,
+                },
+                CancellationToken::new(),
+            )
+            .await;
+        assert!(matches!(
+            outcome,
+            ActionOutcome::Failed {
+                kind: FailureKind::Unavailable { .. }
+            }
+        ));
+        assert!(system.enable_calls.lock().await.is_empty());
     }
 }

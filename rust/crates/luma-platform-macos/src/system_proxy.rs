@@ -333,7 +333,31 @@ impl SystemProxyPort for MacSystemProxy {
             });
         }
         let before = self.read_status().await?;
-        let (before, _) = self.reconcile_if_diverged(before).await?;
+        let before = match self.reconcile_if_diverged(before.clone()).await {
+            Ok((before, _)) => before,
+            Err(SystemProxyError::Conflict) => {
+                let applied = self.applied.lock().await.clone();
+                let saved = self.saved.lock().await.clone();
+                let explicit_takeover =
+                    applied
+                        .as_ref()
+                        .zip(saved.as_ref())
+                        .is_some_and(|(applied, saved)| {
+                            explicit_takeover_allowed(&before, applied, saved)
+                        });
+                if !explicit_takeover {
+                    return Err(SystemProxyError::Conflict);
+                }
+                // The user explicitly chose Enable/Switch after another app replaced Luma's
+                // previous values. Relinquish the stale journal and capture the live proxy as
+                // the new restore point; Disable will then restore that external proxy.
+                clear_journal()?;
+                *self.saved.lock().await = None;
+                *self.applied.lock().await = None;
+                before
+            }
+            Err(error) => return Err(error),
+        };
         if let Some(applied) = self.applied.lock().await.clone() {
             if !same_settings(&before, &applied) {
                 return Err(SystemProxyError::Conflict);
@@ -694,6 +718,17 @@ fn should_force_restore(
         || rollback_after_https
 }
 
+fn explicit_takeover_allowed(
+    live: &SystemProxyStatus,
+    applied: &SystemProxyStatus,
+    saved: &SystemProxyStatus,
+) -> bool {
+    live.service == applied.service
+        && live.service == saved.service
+        && !same_settings(live, applied)
+        && !should_force_restore(live, applied, saved)
+}
+
 #[cfg(test)]
 fn apply_journal_memory(
     saved: &mut Option<SystemProxyStatus>,
@@ -832,6 +867,8 @@ mod tests {
             },
         };
         assert!(!should_force_restore(&external, &applied, &saved));
+        assert!(explicit_takeover_allowed(&external, &applied, &saved));
+        assert!(!explicit_takeover_allowed(&half, &applied, &saved));
         // Three-protocol forward and rollback prefixes are recoverable.
         let https_applied = SystemProxyStatus {
             service: "Wi-Fi".into(),

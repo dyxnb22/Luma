@@ -2,7 +2,7 @@ use super::redact::{opaque_component, redact_label};
 use super::MODULE_ID;
 use luma_application::{ProfileSource, ProfileStoreError, ProfileSummary};
 use luma_domain::ActionRisk;
-use luma_protocol::{SearchItemDto, UiIntent};
+use luma_protocol::SearchItemDto;
 
 pub(super) fn profile_item(profile: ProfileSummary) -> SearchItemDto {
     let updated = profile
@@ -100,7 +100,6 @@ pub(super) fn profile_unavailable() -> SearchItemDto {
         kind: "unavailable".into(),
         primary_action_id: "open_proxy_profiles".into(),
         primary_action_label: "Retry".into(),
-        ui_intent: Some(UiIntent::OpenSurface),
         ..Default::default()
     }
 }
@@ -114,7 +113,6 @@ pub(super) fn profile_error_item(error: &ProfileStoreError) -> SearchItemDto {
         kind: "unavailable".into(),
         primary_action_id: "open_proxy_profiles".into(),
         primary_action_label: "Retry".into(),
-        ui_intent: Some(UiIntent::OpenSurface),
         ..Default::default()
     }
 }

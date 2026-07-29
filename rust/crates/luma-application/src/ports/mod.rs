@@ -101,8 +101,8 @@ pub use project_workspace::{
     ProjectWorkspaceError, ProjectWorkspacePort,
 };
 pub use proxy_core::{
-    ExternalControllerStatus, FakeProxyCore, ProxyCoreError, ProxyCorePort, ProxyGroup, ProxyMode,
-    ProxyNode, ProxyPorts, ProxyStatus,
+    ExternalControllerStatus, FakeProxyCore, ProxyCoreError, ProxyCoreKind, ProxyCorePort,
+    ProxyGroup, ProxyMode, ProxyNode, ProxyPorts, ProxyStatus,
 };
 pub use quicklinks_repo::{QuicklinkEntry, QuicklinksRepoError, QuicklinksRepository};
 pub use recall_repo::{RecallObject, RecallRepoError, RecallRepository, MAX_RECALL_TITLE_CHARS};

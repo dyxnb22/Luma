@@ -23,6 +23,21 @@ impl ProxyMode {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ProxyCoreKind {
+    ClashVerge,
+    Standalone,
+}
+
+impl ProxyCoreKind {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::ClashVerge => "Clash Verge",
+            Self::Standalone => "Standalone Mihomo",
+        }
+    }
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct ProxyPorts {
     pub http: Option<u16>,
@@ -33,6 +48,7 @@ pub struct ProxyPorts {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ProxyStatus {
     pub running: bool,
+    pub core_kind: ProxyCoreKind,
     pub mode: ProxyMode,
     pub profile: Option<String>,
     pub ports: ProxyPorts,

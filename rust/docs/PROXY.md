@@ -8,14 +8,15 @@ socket，不负责启动代理核心，也不执行导入 Profile 中的脚本�
 
 | Query | 作用 |
 | --- | --- |
-| `/proxy ` | 紧凑显示 Mihomo 状态和代理组当前选择；不重复展开节点 |
-| `/proxy group <name>` | 查看代理组及节点，选择节点不显示原始凭据；节点提供按需 **Test** 延迟 |
+| `/proxy ` | 显示当前控制核心、Luma 是否接管系统代理及当前有效代理组；Rule 模式隐藏无效的 `GLOBAL` |
+| `/proxy group <name>` | 查看代理组节点；未选节点 Enter 选择，已选节点 Enter 执行按需 **Test Latency** |
 | `/proxy global` / `/proxy rule` | 切换 Mihomo 模式，使用 `PATCH /configs` |
 | `/proxy profile` | 列出 Luma Profile 和现有 Clash Verge Profile |
 | `/proxy profile <name>` | 按名称筛选 Profile |
 | `/proxy profile refresh` | 只刷新 Luma 管理的订阅 Profile |
 | `/proxy import <source>` | 导入 HTTPS/loopback HTTP 订阅或本地 YAML/节点列表 |
 | `/proxy sync` | 读取约定 `proxy.yaml`，编译并保存为固定 Luma-owned Profile（不自动应用） |
+| `/proxy apply` | 一步编译、保存并应用 `proxy.yaml` 到当前运行中的 Mihomo |
 | `/proxy refresh` | 刷新 Mihomo Proxy Provider；没有 Provider 时返回 `not_configured` |
 
 Profile 的 `Use`、`Delete`、约定 `Sync` 等写操作需要确认。Clash Verge 中非 Luma-owned Profile 只读，
@@ -71,8 +72,10 @@ nodes:
 - Sync 只保存（**compiled**）；应用仍需 Profile 的 **Use**（**applied** / Mihomo 拒绝为 **rejected**）
 - 无效 recipe（**invalid**）不写任何 Profile
 
-流程：编辑 `proxy.yaml` → `/proxy sync` → Use → Mihomo reload → `/proxy group PROXY` 选节点。
-不做文件监控或后台 daemon。节点 **Test** 通过 Controller 按需探测延迟，不后台轮询。
+日常流程：编辑 `proxy.yaml` → `/proxy apply` → `/proxy group PROXY` 查看或切换节点。
+需要先检查草稿时仍可用 `/proxy sync` → `/proxy profile` → Use。不做文件监控或后台
+daemon。节点 **Test Latency** 通过 Controller 和通用 204 地址探测传输延迟，不后台轮询；
+它不能证明某个具体网站不会按 VPS IP、地区或风控策略拒绝访问。
 
 ### 轻量分流 `routing`
 
@@ -166,9 +169,11 @@ Luma 以一个事务管理 macOS HTTP、HTTPS（Secure Web Proxy）和 SOCKS 三
 `mixed-port`，该端口会同时用于三项。Enable/Switch 在确认 Mihomo listener 可用后单次 Enter
 执行；Disable 仍需确认，以避免意外恢复接管前的旧设置。
 
-状态只有在所有 Mihomo 提供的协议均已启用并且 loopback 地址、端口完全匹配时才显示 `ON`；
-全部关闭显示 `OFF`，部分启用或端口不同显示 `MISMATCH`。OFF 时 Enter 为 Enable，
-MISMATCH 时 Enter 为 Switch；不会先要求 Disable 一个并非由 Luma 接管的旧代理。
+状态只有在所有 Mihomo 提供的协议均已启用并且 loopback 地址、端口完全匹配时才显示
+`System proxy: LUMA`；全部关闭显示 `OFF`，指向 Clash Verge 或其他端口时显示
+`OTHER (host:port)`。OFF 时 Enter 为 Enable；OTHER 时 Enter 为带确认的
+**Switch to Luma**，并在修改前检查目标 listener。Luma 会把当前外部代理保存为恢复点，
+所以之后 Disable 会恢复它；未经用户确认不会覆盖一个正在工作的 Clash Verge 代理。
 
 ## Clash Verge 兼容
 

@@ -5,8 +5,8 @@
 
 use async_trait::async_trait;
 use luma_application::{
-    ExternalControllerStatus, KeychainPort, ProxyCoreError, ProxyCorePort, ProxyGroup, ProxyMode,
-    ProxyNode, ProxyPorts, ProxyStatus,
+    ExternalControllerStatus, KeychainPort, ProxyCoreError, ProxyCoreKind, ProxyCorePort,
+    ProxyGroup, ProxyMode, ProxyNode, ProxyPorts, ProxyStatus,
 };
 use serde_json::Value;
 use std::net::{IpAddr, SocketAddr};
@@ -745,6 +745,11 @@ impl ProxyCorePort for MacMihomoProxyCore {
             .unwrap_or(false);
         Ok(ProxyStatus {
             running: true,
+            core_kind: if self.integrates_clash_verge {
+                ProxyCoreKind::ClashVerge
+            } else {
+                ProxyCoreKind::Standalone
+            },
             mode,
             profile,
             ports: ProxyPorts {

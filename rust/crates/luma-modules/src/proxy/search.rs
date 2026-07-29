@@ -7,7 +7,7 @@ use luma_application::{
     ProxyStatus, SearchSink, SystemProxySetting, SystemProxyStatus,
 };
 use luma_domain::{ActionRisk, Query};
-use luma_protocol::{Event, SearchItemDto, UiIntent};
+use luma_protocol::{Event, SearchItemDto};
 use std::path::PathBuf;
 use tokio_util::sync::CancellationToken;
 
@@ -17,17 +17,6 @@ pub(super) enum SystemProxyState {
     On,
     Mismatch,
     Unavailable,
-}
-
-impl SystemProxyState {
-    fn label(self) -> &'static str {
-        match self {
-            Self::Off => "OFF",
-            Self::On => "ON",
-            Self::Mismatch => "MISMATCH",
-            Self::Unavailable => "unavailable",
-        }
-    }
 }
 
 pub(super) fn system_proxy_state(
@@ -88,7 +77,6 @@ impl ProxyModule {
             },
             primary_action_id: "rerun_proxy_check".into(),
             primary_action_label: "Run Again".into(),
-            ui_intent: Some(UiIntent::OpenSurface),
             ..Default::default()
         }
     }
@@ -119,7 +107,6 @@ impl ProxyModule {
                     score: 85.0,
                     primary_action_id: "open_proxy_overview".into(),
                     primary_action_label: "Overview".into(),
-                    ui_intent: Some(UiIntent::OpenSurface),
                     ..Default::default()
                 }
             };
@@ -135,7 +122,6 @@ impl ProxyModule {
                 kind: "unavailable".into(),
                 primary_action_id: "open_proxy_overview".into(),
                 primary_action_label: "Overview".into(),
-                ui_intent: Some(UiIntent::OpenSurface),
                 ..Default::default()
             });
         }
@@ -156,7 +142,6 @@ impl ProxyModule {
                 score: 84.0,
                 primary_action_id: "open_proxy_overview".into(),
                 primary_action_label: "Overview".into(),
-                ui_intent: Some(UiIntent::OpenSurface),
                 ..Default::default()
             }),
             Err(error) => rows.push(Self::unavailable_item(&error)),
@@ -180,7 +165,6 @@ impl ProxyModule {
                         score: 83.0,
                         primary_action_id: "open_proxy_overview".into(),
                         primary_action_label: "Overview".into(),
-                        ui_intent: Some(UiIntent::OpenSurface),
                         ..Default::default()
                     });
                 }
@@ -192,7 +176,6 @@ impl ProxyModule {
                     kind: "unavailable".into(),
                     primary_action_id: "open_proxy_overview".into(),
                     primary_action_label: "Overview".into(),
-                    ui_intent: Some(UiIntent::OpenSurface),
                     ..Default::default()
                 }),
             }
@@ -269,7 +252,6 @@ impl ProxyModule {
                 score: if status.connected { 70.0 } else { 95.0 },
                 primary_action_id: "rerun_proxy_check".into(),
                 primary_action_label: "Run Again".into(),
-                ui_intent: Some(UiIntent::OpenSurface),
                 ..Default::default()
             }),
             Err(error) => rows.push(Self::unavailable_item(&error)),
@@ -283,14 +265,17 @@ impl ProxyModule {
     ) -> SearchItemDto {
         let mode = mode_label(status.mode);
         let system_state = system_proxy_state(status, system);
-        let mut parts = vec![format!(
-            "Profile: {}",
-            status
-                .profile
-                .as_deref()
-                .map(redact_label)
-                .unwrap_or_else(|| "unknown".into())
-        )];
+        let mut parts = vec![
+            format!("Core: {}", status.core_kind.label()),
+            format!(
+                "Profile: {}",
+                status
+                    .profile
+                    .as_deref()
+                    .map(redact_label)
+                    .unwrap_or_else(|| "unknown".into())
+            ),
+        ];
         if let Some(port) = status.ports.http {
             parts.push(format!("HTTP: {port}"));
         }
@@ -300,7 +285,22 @@ impl ProxyModule {
         if let Some(port) = status.ports.socks {
             parts.push(format!("SOCKS: {port}"));
         }
-        parts.push(format!("System proxy: {}", system_state.label()));
+        let active_system_endpoint = system.and_then(|system| {
+            [&system.http, &system.https, &system.socks]
+                .into_iter()
+                .find(|setting| setting.enabled)
+                .and_then(|setting| {
+                    Some(format!("{}:{}", setting.server.as_deref()?, setting.port?))
+                })
+        });
+        parts.push(match system_state {
+            SystemProxyState::On => "System proxy: LUMA".into(),
+            SystemProxyState::Off => "System proxy: OFF".into(),
+            SystemProxyState::Mismatch => active_system_endpoint
+                .map(|endpoint| format!("System proxy: OTHER ({endpoint})"))
+                .unwrap_or_else(|| "System proxy: OTHER".into()),
+            SystemProxyState::Unavailable => "System proxy: unavailable".into(),
+        });
         parts.push("Mihomo: connected".into());
         let address = status
             .ports
@@ -317,9 +317,9 @@ impl ProxyModule {
                 ),
                 SystemProxyState::Mismatch => (
                     "enable_system_proxy",
-                    "Switch System Proxy",
-                    ActionRisk::Safe,
-                    false,
+                    "Switch to Luma",
+                    ActionRisk::Confirm,
+                    true,
                 ),
                 SystemProxyState::On | SystemProxyState::Unavailable => {
                     ("open_proxy_status", "Details", ActionRisk::Safe, false)
@@ -328,7 +328,13 @@ impl ProxyModule {
         SearchItemDto {
             id: "proxy:status".into(),
             module_id: MODULE_ID.into(),
-            title: format!("Proxy running · {mode}"),
+            title: match system_state {
+                SystemProxyState::On => format!("Luma Proxy active · {mode}"),
+                SystemProxyState::Off | SystemProxyState::Mismatch => {
+                    format!("Luma Proxy ready · {mode}")
+                }
+                SystemProxyState::Unavailable => format!("Luma Proxy · {mode}"),
+            },
             subtitle: Some(parts.join(" · ")),
             kind: "status".into(),
             score: 100.0,
@@ -336,12 +342,8 @@ impl ProxyModule {
             primary_action_label: primary_action_label.into(),
             primary_action_risk: primary_risk,
             primary_action_confirmation: primary_confirmation,
-            secondary_actions: status_actions(system_state, address.is_some()),
-            ui_intent: matches!(
-                system_state,
-                SystemProxyState::On | SystemProxyState::Unavailable
-            )
-            .then_some(UiIntent::OpenSurface),
+            secondary_actions: status_actions(status.mode, system_state, address.is_some()),
+            ui_intent: None,
             action_payload: address.map(|address| serde_json::json!({ "address": address })),
         }
     }
@@ -372,7 +374,6 @@ impl ProxyModule {
             kind: kind.into(),
             primary_action_id: "retry_proxy".into(),
             primary_action_label: "Retry".into(),
-            ui_intent: Some(UiIntent::OpenSurface),
             ..Default::default()
         }
     }
@@ -383,24 +384,29 @@ impl ProxyModule {
             .as_deref()
             .map(redact_label)
             .unwrap_or_else(|| "none".into());
-        let activity = if group.name.eq_ignore_ascii_case("GLOBAL") && mode == ProxyMode::Rule {
-            " · inactive in Rule mode"
+        let role = if group.name.eq_ignore_ascii_case("GLOBAL") {
+            if mode == ProxyMode::Global {
+                "Global exit"
+            } else {
+                "Inactive global exit"
+            }
+        } else if group.name.eq_ignore_ascii_case("PROXY") {
+            "Rule route"
         } else {
-            ""
+            "Proxy group"
         };
         SearchItemDto {
             id: format!("proxy:group:{}", opaque_component(&group.name)),
             module_id: MODULE_ID.into(),
             title: redact_label(&group.name),
             subtitle: Some(format!(
-                "Selected: {selected} · {} choices{activity}",
+                "{role} · selected: {selected} · {} nodes",
                 group.nodes.len()
             )),
             kind: "proxy_group".into(),
             score,
             primary_action_id: "open_proxy_group".into(),
-            primary_action_label: "Open".into(),
-            ui_intent: Some(UiIntent::OpenSurface),
+            primary_action_label: "Choose Node".into(),
             ..Default::default()
         }
     }
@@ -411,12 +417,17 @@ impl ProxyModule {
             .map(|value| format!("{value} ms"))
             .unwrap_or_else(|| "delay unavailable".into());
         let (primary_action_id, primary_action_label, secondary_actions) = if node.selected {
-            ("test_proxy", "Test", vec![])
+            ("test_proxy", "Test Latency", vec![])
         } else {
             (
                 "select_proxy",
                 "Select",
-                vec![action_dto("test_proxy", "Test", ActionRisk::Safe, false)],
+                vec![action_dto(
+                    "test_proxy",
+                    "Test Latency",
+                    ActionRisk::Safe,
+                    false,
+                )],
             )
         };
         SearchItemDto {
@@ -472,7 +483,15 @@ impl ProxyModule {
         let recognized = normalized_rest.is_empty()
             || matches!(
                 normalized_rest.as_str(),
-                "status" | "check" | "global" | "rule" | "profile" | "import" | "sync"
+                "status"
+                    | "check"
+                    | "global"
+                    | "rule"
+                    | "profile"
+                    | "import"
+                    | "sync"
+                    | "apply"
+                    | "refresh"
             )
             || normalized_rest.starts_with("group ")
             || normalized_rest.starts_with("profile ")
@@ -486,27 +505,56 @@ impl ProxyModule {
                         MODULE_ID,
                         "proxy:command-invalid",
                         "Unknown Proxy command",
-                        "Use /proxy, /proxy status, /proxy check, /proxy group <name>, /proxy global, /proxy rule, /proxy profile, /proxy import <source>, or /proxy sync",
+                        "Use /proxy, /proxy status, /proxy check, /proxy group <name>, /proxy global, /proxy rule, /proxy profile, /proxy import <source>, /proxy sync, /proxy apply, or /proxy refresh",
                     )],
                     removed_ids: vec![],
                 })
                 .await;
             return;
         }
-        if normalized_rest == "sync" {
-            let item = if self.profiles.is_some() {
+        if matches!(normalized_rest.as_str(), "sync" | "apply" | "refresh") {
+            let item = if normalized_rest == "refresh" {
                 SearchItemDto {
-                    id: "proxy:profile:sync".into(),
+                    id: "proxy:provider:refresh".into(),
                     module_id: MODULE_ID.into(),
-                    title: "Sync convention proxy.yaml".into(),
-                    subtitle: Some(
-                        "Compile LumaNext/proxy.yaml into the fixed Luma Profile (not applied yet)"
-                            .into(),
-                    ),
-                    kind: "profile_sync".into(),
+                    title: "Refresh proxy providers".into(),
+                    subtitle: Some("Refresh providers in the running Mihomo configuration".into()),
+                    kind: "provider_refresh".into(),
                     score: 95.0,
-                    primary_action_id: "sync_convention_profile".into(),
-                    primary_action_label: "Sync".into(),
+                    primary_action_id: "refresh_providers".into(),
+                    primary_action_label: "Refresh Providers".into(),
+                    ..Default::default()
+                }
+            } else if self.profiles.is_some() {
+                SearchItemDto {
+                    id: format!("proxy:profile:{normalized_rest}"),
+                    module_id: MODULE_ID.into(),
+                    title: if normalized_rest == "apply" {
+                        "Apply convention proxy.yaml".into()
+                    } else {
+                        "Sync convention proxy.yaml".into()
+                    },
+                    subtitle: Some(if normalized_rest == "apply" {
+                        "Compile, save, and apply proxy.yaml to the running Mihomo".into()
+                    } else {
+                        "Compile proxy.yaml into a draft Profile without applying it".into()
+                    }),
+                    kind: if normalized_rest == "apply" {
+                        "profile_apply".into()
+                    } else {
+                        "profile_sync".into()
+                    },
+                    score: 95.0,
+                    primary_action_id: if normalized_rest == "apply" {
+                        "apply_convention_profile".into()
+                    } else {
+                        "sync_convention_profile".into()
+                    },
+                    primary_action_label: if normalized_rest == "apply" {
+                        "Apply".into()
+                    } else {
+                        "Sync".into()
+                    },
                     primary_action_risk: ActionRisk::Confirm,
                     primary_action_confirmation: true,
                     ..Default::default()
@@ -635,6 +683,12 @@ impl ProxyModule {
                 .filter(|v| !v.is_empty());
             for group in &groups {
                 if requested_group.is_none() && group.nodes.is_empty() && group.selected.is_none() {
+                    continue;
+                }
+                if requested_group.is_none()
+                    && status.mode == ProxyMode::Rule
+                    && group.name.eq_ignore_ascii_case("GLOBAL")
+                {
                     continue;
                 }
                 if requested_group
@@ -808,13 +862,25 @@ fn mode_label(mode: ProxyMode) -> &'static str {
 }
 
 fn status_actions(
+    mode: ProxyMode,
     system_state: SystemProxyState,
     can_copy: bool,
 ) -> Vec<luma_protocol::ActionDescriptorDto> {
     let mut actions = vec![
-        action_dto("set_global", "Set Global", ActionRisk::Confirm, true),
-        action_dto("set_rule", "Set Rule", ActionRisk::Confirm, true),
+        if mode == ProxyMode::Rule {
+            action_dto("set_global", "Set Global", ActionRisk::Confirm, true)
+        } else {
+            action_dto("set_rule", "Set Rule", ActionRisk::Confirm, true)
+        },
         action_dto("open_proxy_status", "Details", ActionRisk::Safe, false),
+        action_dto("rerun_proxy_check", "Run Checks", ActionRisk::Safe, false),
+        action_dto("open_proxy_profiles", "Profiles", ActionRisk::Safe, false),
+        action_dto(
+            "apply_convention_profile",
+            "Apply proxy.yaml",
+            ActionRisk::Confirm,
+            true,
+        ),
     ];
     match system_state {
         SystemProxyState::On => actions.push(action_dto(

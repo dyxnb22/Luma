@@ -689,11 +689,32 @@ pub fn update(state: &mut AppState, msg: Msg) -> Vec<Effect> {
         Msg::SshShelfInsert => shelf_insert(state),
         Msg::SshShelfStartFilter => {
             if let Some(ws) = state.ssh_workspace.as_mut() {
-                ws.shelf.filter.clear();
-                ws.shelf.filter_editing = true;
-                ws.shelf.filling_params = false;
-                ws.shelf.refilter();
-                state.status.set("shelf filter…", StatusTone::Progress);
+                ws.shelf.begin_search();
+                state
+                    .status
+                    .set("Search all commands…", StatusTone::Progress);
+            }
+            vec![Effect::None]
+        }
+        Msg::SshShelfExpand => {
+            if let Some(ws) = state.ssh_workspace.as_mut() {
+                ws.disconnect_confirm = false;
+                if ws.shelf.expand_selected_group() {
+                    state
+                        .status
+                        .set("Command group expanded", StatusTone::Neutral);
+                }
+            }
+            vec![Effect::None]
+        }
+        Msg::SshShelfCollapse => {
+            if let Some(ws) = state.ssh_workspace.as_mut() {
+                ws.disconnect_confirm = false;
+                if ws.shelf.collapse_selected_group() {
+                    state
+                        .status
+                        .set("Command group collapsed", StatusTone::Neutral);
+                }
             }
             vec![Effect::None]
         }
@@ -739,6 +760,17 @@ fn ssh_context(state: &AppState) -> luma_domain::SshRecipeContext {
 }
 
 fn shelf_preview(state: &mut AppState) -> Vec<Effect> {
+    if let Some(ws) = state.ssh_workspace.as_mut() {
+        if ws.shelf.toggle_selected_group() {
+            state
+                .status
+                .set("Command group toggled", StatusTone::Neutral);
+            return vec![Effect::None];
+        }
+        if ws.shelf.filter_editing {
+            ws.shelf.finish_search_editing();
+        }
+    }
     let native_action = state
         .ssh_workspace
         .as_ref()
@@ -778,6 +810,12 @@ fn shelf_copy(state: &mut AppState) -> Vec<Effect> {
     let Some(ws) = state.ssh_workspace.as_ref() else {
         return vec![Effect::None];
     };
+    if ws.shelf.selected_item().is_none() {
+        state
+            .status
+            .set("Expand a group and select a command", StatusTone::Neutral);
+        return vec![Effect::None];
+    }
     if matches!(
         ws.shelf.selected_item().map(|item| &item.kind),
         Some(crate::ssh_workspace::ShelfItemKind::SshNative {
@@ -828,6 +866,16 @@ fn shelf_copy(state: &mut AppState) -> Vec<Effect> {
 
 fn shelf_insert(state: &mut AppState) -> Vec<Effect> {
     let ctx = ssh_context(state);
+    if state
+        .ssh_workspace
+        .as_ref()
+        .is_none_or(|ws| ws.shelf.selected_item().is_none())
+    {
+        state
+            .status
+            .set("Expand a group and select a command", StatusTone::Neutral);
+        return vec![Effect::None];
+    }
     if state.ssh_workspace.as_ref().is_some_and(|ws| {
         matches!(
             ws.shelf.selected_item().map(|item| &item.kind),
@@ -1017,8 +1065,7 @@ mod ssh_shelf_tests {
                     crate::ssh_workspace::ShelfItemKind::SshNative { id: "copy_ssh" }
                 )
             }) {
-                ws.shelf.filtered = vec![idx];
-                ws.shelf.selected = 0;
+                assert!(ws.shelf.select_item_index(idx));
             }
         }
         let effects = update(&mut state, Msg::SshShelfInsert);
@@ -1062,8 +1109,7 @@ mod ssh_shelf_tests {
                     )
                 })
                 .expect("disconnect item");
-            ws.shelf.filtered = vec![idx];
-            ws.shelf.selected = 0;
+            assert!(ws.shelf.select_item_index(idx));
         }
 
         let effects = update(&mut state, Msg::SshShelfCopy);
@@ -1089,8 +1135,7 @@ mod ssh_shelf_tests {
                     )
                 })
                 .expect("disconnect item");
-            ws.shelf.filtered = vec![idx];
-            ws.shelf.selected = 0;
+            assert!(ws.shelf.select_item_index(idx));
         }
 
         let first = update(&mut state, Msg::SshShelfPreview);
@@ -1098,5 +1143,37 @@ mod ssh_shelf_tests {
         assert!(state.ssh_workspace.as_ref().unwrap().disconnect_confirm);
         let second = update(&mut state, Msg::SshShelfPreview);
         assert!(matches!(second.as_slice(), [Effect::KillEmbeddedPty]));
+    }
+
+    #[test]
+    fn shelf_enter_toggles_groups_and_escape_clears_search_first() {
+        let mut state = workspace_state();
+        let first = update(&mut state, Msg::SshShelfPreview);
+        assert!(matches!(first.as_slice(), [Effect::None]));
+        assert!(matches!(
+            state
+                .ssh_workspace
+                .as_ref()
+                .and_then(|workspace| workspace.shelf.selected_row()),
+            Some(crate::ssh_workspace::ShelfRow::Group {
+                name,
+                expanded: false,
+                ..
+            }) if name == "SSH"
+        ));
+
+        let _ = update(&mut state, Msg::SshShelfStartFilter);
+        let _ = update(&mut state, Msg::KeyChar('d'));
+        assert!(state
+            .ssh_workspace
+            .as_ref()
+            .is_some_and(|workspace| workspace.shelf.search_active()));
+
+        let effects = update(&mut state, Msg::Cancel);
+        assert!(matches!(effects.as_slice(), [Effect::None]));
+        let workspace = state.ssh_workspace.as_ref().expect("workspace");
+        assert!(!workspace.shelf.search_active());
+        assert_eq!(workspace.focus, SshWorkspaceFocus::Shelf);
+        assert!(workspace.shelf_visible);
     }
 }

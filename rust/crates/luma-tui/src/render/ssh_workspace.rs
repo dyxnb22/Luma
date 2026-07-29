@@ -75,21 +75,27 @@ pub fn render_ssh_workspace(
             ) {
                 "Esc leave · r reconnect · l compat · c copy error · F6 commands"
             } else if ws.scrollback_offset > 0 {
-                "scrollback · Shift+PgUp/PgDn · typing returns to live output"
+                "scrollback · ⌥↑/⌥↓ or fn↑/fn↓ · typing returns to live output"
             } else if ws.shelf_visible {
-                "F6 focus commands · Ctrl+Space leader · Shift+PgUp scrollback"
+                "F6 focus commands · Ctrl+Space leader · ⌥↑/⌥↓ scrollback"
             } else {
-                "F6 show commands · Ctrl+Space leader · Shift+PgUp scrollback"
+                "F6 show commands · Ctrl+Space leader · ⌥↑/⌥↓ scrollback"
             }
         }
         SshWorkspaceFocus::Leader => {
             "leader: Space=^Space · f fullscreen · d disconnect · r reconnect · q leave · Esc"
         }
         SshWorkspaceFocus::Shelf if ws.shelf.filling_params => {
-            "Tab fields · type value · Enter preview · Esc terminal"
+            "Tab fields · type value · Enter preview · Esc back"
+        }
+        SshWorkspaceFocus::Shelf if ws.shelf.filter_editing => {
+            "search all groups · type query · ↑/↓ choose · Enter select · Esc groups"
+        }
+        SshWorkspaceFocus::Shelf if ws.shelf.search_active() => {
+            "search result · c copy · i insert · f favorite · / new search · Esc groups"
         }
         SshWorkspaceFocus::Shelf => {
-            "Esc terminal · ↑/↓ · Enter preview/action · c copy · i insert · f favorite · / search"
+            "↑/↓ navigate · Enter/→ expand · ← collapse · / search · Esc terminal"
         }
     };
     frame.render_widget(Paragraph::new(Span::styled(footer, theme.muted())), rows[2]);
@@ -142,10 +148,21 @@ fn render_shelf_pane(frame: &mut Frame<'_>, area: Rect, ws: &SshWorkspaceState, 
     let inner = block.inner(area);
     frame.render_widget(block, area);
     let mut lines: Vec<Line> = Vec::new();
-    if ws.shelf.filter_editing || !ws.shelf.filter.is_empty() {
+    if ws.shelf.search_active() {
+        let cursor = if ws.shelf.filter_editing { "▌" } else { "" };
         lines.push(Line::from(Span::styled(
-            format!("/{}", ws.shelf.filter),
+            format!(
+                "/{}{}  ({} matches)",
+                ws.shelf.filter,
+                cursor,
+                ws.shelf.rows.len()
+            ),
             theme.accent(),
+        )));
+    } else {
+        lines.push(Line::from(Span::styled(
+            "/ search all commands",
+            theme.muted(),
         )));
     }
     if ws.shelf.filling_params {
@@ -160,32 +177,53 @@ fn render_shelf_pane(frame: &mut Frame<'_>, area: Rect, ws: &SshWorkspaceState, 
         frame.render_widget(Paragraph::new(lines), inner);
         return;
     }
-    let mut last_group = String::new();
     let mut selected_line = 0usize;
-    for (vis_idx, item_idx) in ws.shelf.filtered.iter().enumerate() {
-        let Some(item) = ws.shelf.items.get(*item_idx) else {
-            continue;
-        };
-        if item.group != last_group {
-            lines.push(Line::from(Span::styled(item.group.clone(), theme.accent())));
-            last_group = item.group.clone();
-        }
-        let marker = if vis_idx == ws.shelf.selected {
-            "› "
-        } else {
-            "  "
-        };
-        if vis_idx == ws.shelf.selected {
+    for (row_index, row) in ws.shelf.rows.iter().enumerate() {
+        let selected =
+            matches!(ws.focus, SshWorkspaceFocus::Shelf) && row_index == ws.shelf.selected;
+        let marker = if selected { "› " } else { "  " };
+        if selected {
             selected_line = lines.len();
         }
-        let star = if item.favorite { "★ " } else { "" };
-        let risk = match &item.kind {
-            crate::ssh_workspace::ShelfItemKind::RemoteCommand { risk, .. } if risk != "safe" => {
-                format!(" [{risk}]")
+        match row {
+            crate::ssh_workspace::ShelfRow::Group {
+                name,
+                item_count,
+                expanded,
+            } => {
+                let chevron = if *expanded { "▾" } else { "▸" };
+                lines.push(Line::from(Span::styled(
+                    format!("{marker}{chevron} {name} ({item_count})"),
+                    theme.accent(),
+                )));
             }
-            _ => String::new(),
-        };
-        lines.push(Line::from(format!("{marker}{star}{}{risk}", item.title)));
+            crate::ssh_workspace::ShelfRow::Item { item_index } => {
+                let Some(item) = ws.shelf.items.get(*item_index) else {
+                    continue;
+                };
+                let star = if item.favorite { "★ " } else { "" };
+                let risk = match &item.kind {
+                    crate::ssh_workspace::ShelfItemKind::RemoteCommand { risk, .. }
+                        if risk != "safe" =>
+                    {
+                        format!(" [{risk}]")
+                    }
+                    _ => String::new(),
+                };
+                let title = if ws.shelf.search_active() {
+                    format!("{} › {}", item.group, item.title)
+                } else {
+                    format!("  {}", item.title)
+                };
+                lines.push(Line::from(format!("{marker}{star}{title}{risk}")));
+            }
+        }
+    }
+    if ws.shelf.rows.is_empty() {
+        lines.push(Line::from(Span::styled(
+            "  No commands match",
+            theme.muted(),
+        )));
     }
     if let Some(preview) = &ws.shelf.preview {
         lines.push(Line::from(""));

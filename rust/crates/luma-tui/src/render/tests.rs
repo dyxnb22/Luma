@@ -364,6 +364,47 @@ fn ssh_workspace_places_the_real_terminal_cursor_in_the_pty_pane() {
 }
 
 #[test]
+fn ssh_command_shelf_collapses_groups_and_search_flattens_matches() {
+    let mut workspace = crate::ssh_workspace::SshWorkspaceState::new(
+        "prod".into(),
+        "host.example".into(),
+        "root".into(),
+        22,
+        "prod".into(),
+        "/usr/bin/ssh".into(),
+        vec![],
+        vec![],
+        Some("prod".into()),
+        114,
+        36,
+    );
+    workspace.shelf_visible = true;
+    let mut state = AppState {
+        route: Route::SshWorkspace,
+        focus: FocusZone::Terminal,
+        terminal: TerminalState {
+            width: 160,
+            height: 40,
+        },
+        ssh_workspace: Some(workspace),
+        ..AppState::default()
+    };
+
+    let (grouped, _) = draw(&state, 160, 40);
+    assert!(grouped.contains("▾ SSH (7)"));
+    assert!(grouped.contains("▸ Docker (1)"));
+    assert!(grouped.contains("▸ System (3)"));
+    assert!(!grouped.contains("docker ps"));
+
+    let shelf = &mut state.ssh_workspace.as_mut().unwrap().shelf;
+    shelf.begin_search();
+    shelf.filter = "docker".into();
+    shelf.refilter();
+    let (searched, _) = draw(&state, 160, 40);
+    assert!(searched.contains("Docker › docker ps"));
+}
+
+#[test]
 fn footer_says_run_when_results_present_and_list_focused() {
     let mut state = state_with_results();
     state.focus = crate::view_model::FocusZone::List;

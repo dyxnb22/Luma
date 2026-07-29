@@ -4,7 +4,7 @@ use luma_domain::{
     render_remote_command, shell_quote, Recipe, RecipeMetadata, RecipeParameter,
     RecipeParameterKind, RecipeScope, RecipeTarget, SshRecipeContext,
 };
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ShelfItemKind {
@@ -30,10 +30,25 @@ pub struct ShelfItem {
     pub kind: ShelfItemKind,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ShelfRow {
+    Group {
+        name: String,
+        item_count: usize,
+        expanded: bool,
+    },
+    Item {
+        item_index: usize,
+    },
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct ShelfState {
     pub items: Vec<ShelfItem>,
+    /// Item indexes matching the current search. Collapsed groups are applied
+    /// separately when `rows` is rebuilt.
     pub filtered: Vec<usize>,
+    pub rows: Vec<ShelfRow>,
     pub selected: usize,
     pub filter: String,
     pub preview: Option<String>,
@@ -43,6 +58,10 @@ pub struct ShelfState {
     pub filling_params: bool,
     /// When true, `/` filter mode receives typed characters.
     pub filter_editing: bool,
+    /// Search results stay flat after Enter so Copy/Insert shortcuts can act
+    /// on the chosen command without losing the result selection.
+    pub search_open: bool,
+    pub expanded_groups: BTreeSet<String>,
 }
 
 impl ShelfState {
@@ -110,9 +129,16 @@ impl ShelfState {
                 .then(a.title.cmp(&b.title))
         });
         let _ = ops;
+        let first_group = items.first().map(|item| item.group.clone());
+        let mut expanded_groups = BTreeSet::new();
+        if items.iter().any(|item| item.group == "SSH") {
+            expanded_groups.insert("SSH".into());
+        } else if let Some(group) = first_group {
+            expanded_groups.insert(group);
+        }
         let mut shelf = Self {
-            filtered: (0..items.len()).collect(),
             items,
+            expanded_groups,
             ..Self::default()
         };
         shelf.refilter();
@@ -120,25 +146,93 @@ impl ShelfState {
     }
 
     pub fn refilter(&mut self) {
-        let needle = self.filter.to_ascii_lowercase();
+        let needles: Vec<String> = self
+            .filter
+            .split_whitespace()
+            .map(str::to_ascii_lowercase)
+            .collect();
         self.filtered = self
             .items
             .iter()
             .enumerate()
             .filter(|(_, item)| {
-                if needle.is_empty() {
+                if needles.is_empty() {
                     return true;
                 }
-                item.title.to_ascii_lowercase().contains(&needle)
-                    || item.group.to_ascii_lowercase().contains(&needle)
-                    || item.description.to_ascii_lowercase().contains(&needle)
+                let mut haystack = format!("{} {} {}", item.group, item.title, item.description)
+                    .to_ascii_lowercase();
+                if let ShelfItemKind::RemoteCommand { program, args, .. } = &item.kind {
+                    haystack.push(' ');
+                    haystack.push_str(&program.to_ascii_lowercase());
+                    for arg in args {
+                        haystack.push(' ');
+                        haystack.push_str(&arg.to_ascii_lowercase());
+                    }
+                }
+                needles.iter().all(|needle| haystack.contains(needle))
             })
             .map(|(idx, _)| idx)
             .collect();
-        if self.selected >= self.filtered.len() {
-            self.selected = self.filtered.len().saturating_sub(1);
-        }
+        self.selected = 0;
+        self.rebuild_rows();
         self.clear_form();
+    }
+
+    pub fn search_active(&self) -> bool {
+        self.search_open
+    }
+
+    fn group_order(&self) -> Vec<String> {
+        let mut groups = Vec::new();
+        for item in &self.items {
+            if !groups.contains(&item.group) {
+                groups.push(item.group.clone());
+            }
+        }
+        groups
+    }
+
+    fn rebuild_rows(&mut self) {
+        if self.search_active() {
+            self.rows = self
+                .filtered
+                .iter()
+                .copied()
+                .map(|item_index| ShelfRow::Item { item_index })
+                .collect();
+        } else {
+            let mut rows = Vec::new();
+            for group in self.group_order() {
+                let matching: Vec<usize> = self
+                    .filtered
+                    .iter()
+                    .copied()
+                    .filter(|index| {
+                        self.items
+                            .get(*index)
+                            .is_some_and(|item| item.group == group)
+                    })
+                    .collect();
+                if matching.is_empty() {
+                    continue;
+                }
+                let expanded = self.expanded_groups.contains(&group);
+                rows.push(ShelfRow::Group {
+                    name: group,
+                    item_count: matching.len(),
+                    expanded,
+                });
+                if expanded {
+                    rows.extend(
+                        matching
+                            .into_iter()
+                            .map(|item_index| ShelfRow::Item { item_index }),
+                    );
+                }
+            }
+            self.rows = rows;
+        }
+        self.selected = self.selected.min(self.rows.len().saturating_sub(1));
     }
 
     fn clear_form(&mut self) {
@@ -150,21 +244,37 @@ impl ShelfState {
     }
 
     pub fn selected_item(&self) -> Option<&ShelfItem> {
-        self.filtered
-            .get(self.selected)
-            .and_then(|idx| self.items.get(*idx))
+        let ShelfRow::Item { item_index } = self.rows.get(self.selected)? else {
+            return None;
+        };
+        self.items.get(*item_index)
     }
 
     pub fn selected_item_mut(&mut self) -> Option<&mut ShelfItem> {
-        let idx = *self.filtered.get(self.selected)?;
-        self.items.get_mut(idx)
+        let ShelfRow::Item { item_index } = self.rows.get(self.selected)? else {
+            return None;
+        };
+        self.items.get_mut(*item_index)
+    }
+
+    pub fn selected_group(&self) -> Option<&str> {
+        match self.rows.get(self.selected)? {
+            ShelfRow::Group { name, .. } => Some(name),
+            ShelfRow::Item { item_index } => {
+                self.items.get(*item_index).map(|item| item.group.as_str())
+            }
+        }
+    }
+
+    pub fn selected_row(&self) -> Option<&ShelfRow> {
+        self.rows.get(self.selected)
     }
 
     pub fn select_next(&mut self) {
-        if self.filtered.is_empty() || self.filling_params {
+        if self.rows.is_empty() || self.filling_params {
             return;
         }
-        self.selected = (self.selected + 1).min(self.filtered.len() - 1);
+        self.selected = (self.selected + 1).min(self.rows.len() - 1);
         self.clear_form();
     }
 
@@ -173,6 +283,107 @@ impl ShelfState {
             return;
         }
         self.selected = self.selected.saturating_sub(1);
+        self.clear_form();
+    }
+
+    pub fn toggle_selected_group(&mut self) -> bool {
+        let Some(ShelfRow::Group { name, expanded, .. }) = self.rows.get(self.selected).cloned()
+        else {
+            return false;
+        };
+        if expanded {
+            self.expanded_groups.remove(&name);
+        } else {
+            self.expanded_groups.insert(name.clone());
+        }
+        self.rebuild_rows();
+        self.selected = self
+            .rows
+            .iter()
+            .position(
+                |row| matches!(row, ShelfRow::Group { name: row_name, .. } if row_name == &name),
+            )
+            .unwrap_or(0);
+        self.clear_form();
+        true
+    }
+
+    pub fn expand_selected_group(&mut self) -> bool {
+        let Some(ShelfRow::Group { name, expanded, .. }) = self.rows.get(self.selected).cloned()
+        else {
+            return false;
+        };
+        if !expanded {
+            self.expanded_groups.insert(name.clone());
+            self.rebuild_rows();
+            self.selected = self
+                .rows
+                .iter()
+                .position(|row| matches!(row, ShelfRow::Group { name: row_name, .. } if row_name == &name))
+                .unwrap_or(0);
+        }
+        self.clear_form();
+        true
+    }
+
+    pub fn collapse_selected_group(&mut self) -> bool {
+        if self.search_active() {
+            return false;
+        }
+        let Some(group) = self.selected_group().map(str::to_string) else {
+            return false;
+        };
+        if !self.expanded_groups.remove(&group) {
+            return false;
+        }
+        self.rebuild_rows();
+        self.selected = self
+            .rows
+            .iter()
+            .position(|row| matches!(row, ShelfRow::Group { name, .. } if name == &group))
+            .unwrap_or(0);
+        self.clear_form();
+        true
+    }
+
+    pub fn select_item_index(&mut self, item_index: usize) -> bool {
+        let Some(group) = self.items.get(item_index).map(|item| item.group.clone()) else {
+            return false;
+        };
+        if !self.search_active() {
+            self.expanded_groups.insert(group);
+        }
+        self.rebuild_rows();
+        let Some(row_index) = self.rows.iter().position(
+            |row| matches!(row, ShelfRow::Item { item_index: row_item } if *row_item == item_index),
+        ) else {
+            return false;
+        };
+        self.selected = row_index;
+        true
+    }
+
+    pub fn begin_search(&mut self) {
+        self.filter.clear();
+        self.search_open = true;
+        self.filter_editing = true;
+        self.filling_params = false;
+        self.refilter();
+    }
+
+    pub fn finish_search_editing(&mut self) {
+        self.filter_editing = false;
+        self.rebuild_rows();
+    }
+
+    pub fn clear_search(&mut self) {
+        self.filter.clear();
+        self.search_open = false;
+        self.filter_editing = false;
+        self.refilter();
+    }
+
+    pub fn cancel_parameter_form(&mut self) {
         self.clear_form();
     }
 
@@ -571,8 +782,7 @@ mod tests {
             .iter()
             .position(|i| matches!(i.kind, ShelfItemKind::SshNative { id: "copy_ssh" }))
         {
-            shelf.filtered = vec![idx];
-            shelf.selected = 0;
+            assert!(shelf.select_item_index(idx));
         }
         let cmd = shelf.rendered_command(&ssh_ctx()).expect("cmd");
         assert!(!cmd.ends_with('\n') && !cmd.ends_with('\r'));
@@ -587,8 +797,7 @@ mod tests {
             .iter()
             .position(|item| matches!(item.kind, ShelfItemKind::SshNative { id: "copy_ssh" }))
             .expect("ssh item");
-        shelf.filtered = vec![ssh_index];
-        shelf.selected = 0;
+        assert!(shelf.select_item_index(ssh_index));
         assert_eq!(
             shelf.rendered_command(&ssh_ctx()).as_deref(),
             Some("ssh -- prod")
@@ -599,7 +808,7 @@ mod tests {
             .iter()
             .position(|item| matches!(item.kind, ShelfItemKind::SshNative { id: "copy_sftp" }))
             .expect("sftp item");
-        shelf.filtered = vec![sftp_index];
+        assert!(shelf.select_item_index(sftp_index));
         assert_eq!(
             shelf.rendered_command(&ssh_ctx()).as_deref(),
             Some("sftp prod")
@@ -609,10 +818,111 @@ mod tests {
     #[test]
     fn filter_narrows_selection() {
         let mut shelf = ShelfState::from_recipes(&[], true);
+        shelf.begin_search();
         shelf.filter = "sftp".into();
         shelf.refilter();
         assert_eq!(shelf.filtered.len(), 1);
         assert_eq!(shelf.selected_item().unwrap().title, "Copy SFTP command");
+    }
+
+    #[test]
+    fn groups_start_collapsed_except_ssh_and_search_ignores_collapsed_state() {
+        let recipes = vec![
+            Recipe {
+                id: "docker-ps".into(),
+                title: "docker ps".into(),
+                description: "containers".into(),
+                tags: vec![],
+                scope: RecipeScope::SshSession,
+                target: RecipeTarget::RemoteShell,
+                group: "Docker".into(),
+                risk: RecipeRisk::Safe,
+                parameters: vec![],
+                variants: vec![variant(vec![step("docker", &["ps"])])],
+                enabled: true,
+            },
+            Recipe {
+                id: "system-uptime".into(),
+                title: "uptime".into(),
+                description: "system uptime".into(),
+                tags: vec![],
+                scope: RecipeScope::SshSession,
+                target: RecipeTarget::RemoteShell,
+                group: "System".into(),
+                risk: RecipeRisk::Safe,
+                parameters: vec![],
+                variants: vec![variant(vec![step("uptime", &[])])],
+                enabled: true,
+            },
+        ];
+        let mut shelf = ShelfState::from_recipes(&recipes, true);
+        assert!(shelf.rows.iter().any(|row| matches!(
+            row,
+            ShelfRow::Group {
+                name,
+                expanded: true,
+                ..
+            } if name == "SSH"
+        )));
+        assert!(shelf.rows.iter().any(|row| matches!(
+            row,
+            ShelfRow::Group {
+                name,
+                expanded: false,
+                ..
+            } if name == "Docker"
+        )));
+        assert!(!shelf.rows.iter().any(|row| matches!(
+            row,
+            ShelfRow::Item { item_index }
+                if shelf.items[*item_index].title == "docker ps"
+        )));
+
+        shelf.begin_search();
+        shelf.filter = "docker ps".into();
+        shelf.refilter();
+        assert_eq!(shelf.rows.len(), 1);
+        assert_eq!(
+            shelf.selected_item().map(|item| item.title.as_str()),
+            Some("docker ps")
+        );
+    }
+
+    #[test]
+    fn group_rows_toggle_and_left_collapses_from_a_child_command() {
+        let mut shelf = ShelfState::from_recipes(&[], true);
+        assert!(matches!(
+            shelf.selected_row(),
+            Some(ShelfRow::Group {
+                name,
+                expanded: true,
+                ..
+            }) if name == "SSH"
+        ));
+        assert!(shelf.toggle_selected_group());
+        assert!(matches!(
+            shelf.selected_row(),
+            Some(ShelfRow::Group {
+                name,
+                expanded: false,
+                ..
+            }) if name == "SSH"
+        ));
+        assert!(shelf.expand_selected_group());
+        shelf.select_next();
+        assert_eq!(
+            shelf.selected_item().map(|item| item.title.as_str()),
+            Some("Copy alias")
+        );
+        assert!(shelf.collapse_selected_group());
+        assert!(matches!(
+            shelf.selected_row(),
+            Some(ShelfRow::Group {
+                name,
+                expanded: false,
+                ..
+            }) if name == "SSH"
+        ));
     }
 
     #[test]
@@ -631,7 +941,7 @@ mod tests {
             enabled: true,
         };
         let mut shelf = ShelfState::from_recipes(&[recipe], false);
-        shelf.selected = 0;
+        assert!(shelf.select_item_index(0));
         let preview = shelf.begin_preview_or_params(&ssh_ctx());
         assert!(shelf.filling_params);
         assert!(preview.unwrap().contains("fill parameters"));

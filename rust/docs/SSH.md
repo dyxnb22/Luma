@@ -60,19 +60,30 @@ On wide terminals the command shelf is visible on the right from the start while
 stays in the remote terminal; `F6` focuses it, then closes it when pressed again. On narrower
 terminals `F6` opens/closes the shelf. `Ctrl+Space` arms the terminal leader:
 `Space` sends Ctrl+Space, `f` toggles fullscreen, `d` disconnects after a second confirmation
-chord, `r` reconnects, and `q` leaves the workspace. Terminal `Esc`, Delete, PageUp/PageDown,
-Alt keys, and F1–F12 are forwarded to the remote program. `Shift+PageUp/PageDown` browses the
-local 2000-line scrollback; typing returns to live output.
+chord, `r` reconnects, and `q` leaves the workspace. Terminal `Esc`, Delete, ordinary Alt key
+combinations, and F1–F12 are forwarded to the remote program; PageUp/PageDown are reserved for
+Luma's local scrollback. On Mac, `Option+Up/Option+Down` or `Fn+Up/Fn+Down` browses the local
+2000-line scrollback; full keyboards can use PageUp/PageDown directly. Typing returns to live
+output.
 
 The built-in shelf includes SSH/SFTP connection copy actions and grouped System, Files,
 Services, Network, and Docker commands. Commands that need a service, container, path, host, or
 URL open a parameter form before Copy/Insert. Empty optional parameters are omitted from the
 rendered command.
 
+The shelf is an accordion rather than one growing list. SSH starts expanded and the other groups
+start collapsed with item counts. While the shelf is focused, Up/Down moves across groups and
+commands, Enter/Right expands, and Left collapses (Left on a command collapses its parent).
+Press `/` for an incremental search across every group, including collapsed groups; multi-word
+queries match command names, descriptions, programs, and arguments. Search results are flattened
+as `Group › Command`. Enter selects a result, `c` copies, `i` inserts, and Esc returns to the
+grouped view.
+
 Bracketed paste is forwarded as one remote paste operation when requested by the remote shell.
 The real PTY cursor is projected into Luma so terminal input and IME candidate windows stay
-anchored correctly. From the shelf, `Esc` returns to the terminal, `c` copies, `i` inserts
-without Enter, and Enter previews a command or activates a native reconnect/disconnect action.
+anchored correctly. From a selected command, `c` copies and `i` inserts without Enter; Enter
+previews a command or activates a native reconnect/disconnect action. Esc first closes a
+parameter form or search, then returns focus to the terminal.
 See [ADR-0008](adr/0008-ssh-workspace.md).
 
 Preview shows resolved connection fields and metadata. Private key **contents** are never

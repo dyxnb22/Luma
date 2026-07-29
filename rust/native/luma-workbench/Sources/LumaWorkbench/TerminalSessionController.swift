@@ -14,21 +14,21 @@ protocol TerminalSessionControllerDelegate: AnyObject {
 /// unbounded string in the dependency parser.
 private final class LumaTerminalView: LocalProcessTerminalView {
     private var controlFilter = TerminalControlFilter()
-    private var pageKeyMonitor: Any?
+    private var navigationKeyMonitor: Any?
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
-        installPageKeyMonitor()
+        installNavigationKeyMonitor()
     }
 
     required init?(coder: NSCoder) {
         super.init(coder: coder)
-        installPageKeyMonitor()
+        installNavigationKeyMonitor()
     }
 
     deinit {
-        if let pageKeyMonitor {
-            NSEvent.removeMonitor(pageKeyMonitor)
+        if let navigationKeyMonitor {
+            NSEvent.removeMonitor(navigationKeyMonitor)
         }
     }
 
@@ -60,22 +60,29 @@ private final class LumaTerminalView: LocalProcessTerminalView {
         super.mouseDown(with: event)
     }
 
-    private func installPageKeyMonitor() {
+    private func installNavigationKeyMonitor() {
         // SwiftTerm consumes Page Up/Down for its local scrollback. Intercept only those two
-        // keys after the terminal has become first responder; all ordinary text, IME commits,
-        // and navigation continue through AppKit's normal text-input chain. Fn+Up/Down emits
-        // these same function-key values on compact Mac keyboards.
-        pageKeyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+        // keys after the terminal has become first responder. Fn+Up/Down emits these function-key
+        // values on compact Mac keyboards. Option+Up/Down is encoded explicitly as an xterm
+        // modified arrow so Crossterm can expose it as a local SSH scrollback shortcut.
+        navigationKeyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard let self,
                   self.window?.firstResponder === self,
                   let scalar = event.charactersIgnoringModifiers?.unicodeScalars.first
             else { return event }
+            let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
             switch Int(scalar.value) {
             case NSPageUpFunctionKey:
                 send([0x1b, 0x5b, 0x35, 0x7e])
                 return nil
             case NSPageDownFunctionKey:
                 send([0x1b, 0x5b, 0x36, 0x7e])
+                return nil
+            case NSUpArrowFunctionKey where modifiers.contains(.option):
+                send([0x1b, 0x5b, 0x31, 0x3b, 0x33, 0x41])
+                return nil
+            case NSDownArrowFunctionKey where modifiers.contains(.option):
+                send([0x1b, 0x5b, 0x31, 0x3b, 0x33, 0x42])
                 return nil
             default:
                 return event

@@ -96,6 +96,8 @@ pub enum Msg {
     SshShelfCopy,
     SshShelfInsert,
     SshShelfStartFilter,
+    SshShelfExpand,
+    SshShelfCollapse,
     SshShelfFavorite,
     SshShelfParamNext,
     SshShelfParamPrev,

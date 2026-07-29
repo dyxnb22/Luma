@@ -241,12 +241,14 @@ pub(super) fn arm_leader(state: &mut AppState) -> Vec<Effect> {
     vec![Effect::ResizeEmbeddedPty { cols, rows }]
 }
 
-/// Close shelf chrome and return focus to the terminal (Esc from shelf).
+/// Return focus to the terminal. A wide side shelf remains visible; overlays
+/// close so they cannot cover terminal output.
 pub(super) fn shelf_back_to_terminal(state: &mut AppState) -> Vec<Effect> {
+    let keep_side_shelf = SshWorkspaceState::side_shelf_layout(state.terminal.width);
     let Some(ws) = state.ssh_workspace.as_mut() else {
         return vec![Effect::None];
     };
-    ws.shelf_visible = false;
+    ws.shelf_visible = keep_side_shelf;
     ws.leader_armed = false;
     ws.disconnect_confirm = false;
     ws.focus = SshWorkspaceFocus::Terminal;

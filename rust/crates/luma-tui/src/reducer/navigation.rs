@@ -322,7 +322,22 @@ pub(super) fn cancel_msg(state: &mut AppState) -> Vec<Effect> {
                 state.focus = FocusZone::Terminal;
                 return vec![Effect::None];
             }
-            if ws.focus == crate::ssh_workspace::SshWorkspaceFocus::Shelf || ws.shelf_visible {
+            if ws.focus == crate::ssh_workspace::SshWorkspaceFocus::Shelf {
+                if ws.shelf.filling_params {
+                    ws.shelf.cancel_parameter_form();
+                    state
+                        .status
+                        .set("Parameter form closed", StatusTone::Neutral);
+                    return vec![Effect::None];
+                }
+                if ws.shelf.search_active() {
+                    ws.shelf.clear_search();
+                    state.status.set("Command groups", StatusTone::Neutral);
+                    return vec![Effect::None];
+                }
+                return ssh_workspace::shelf_back_to_terminal(state);
+            }
+            if ws.shelf_visible {
                 return ssh_workspace::shelf_back_to_terminal(state);
             }
         }

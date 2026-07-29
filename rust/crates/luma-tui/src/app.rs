@@ -542,12 +542,18 @@ fn map_ssh_workspace_key(code: KeyCode, modifiers: KeyModifiers, state: &AppStat
         matches!(ws.focus, crate::ssh_workspace::SshWorkspaceFocus::Shelf) && ws.shelf_visible
     });
     if shelf_focused {
-        return map_ssh_shelf_key(code, state);
+        return map_ssh_shelf_key(code, modifiers, state);
     }
-    if modifiers.contains(KeyModifiers::SHIFT) && code == KeyCode::PageUp {
+    if modifiers.contains(KeyModifiers::ALT) && code == KeyCode::Up {
         return Msg::SshScrollback { rows: 12 };
     }
-    if modifiers.contains(KeyModifiers::SHIFT) && code == KeyCode::PageDown {
+    if modifiers.contains(KeyModifiers::ALT) && code == KeyCode::Down {
+        return Msg::SshScrollback { rows: -12 };
+    }
+    if code == KeyCode::PageUp {
+        return Msg::SshScrollback { rows: 12 };
+    }
+    if code == KeyCode::PageDown {
         return Msg::SshScrollback { rows: -12 };
     }
     if code == KeyCode::Esc
@@ -678,15 +684,32 @@ fn encode_ssh_key(
     }
 }
 
-fn map_ssh_shelf_key(code: KeyCode, state: &AppState) -> Msg {
+fn map_ssh_shelf_key(code: KeyCode, _modifiers: KeyModifiers, state: &AppState) -> Msg {
     let filling = state
         .ssh_workspace
         .as_ref()
         .is_some_and(|ws| ws.shelf.filling_params);
+    let filtering = state
+        .ssh_workspace
+        .as_ref()
+        .is_some_and(|ws| ws.shelf.filter_editing);
+    if filtering {
+        return match code {
+            KeyCode::Esc => Msg::Cancel,
+            KeyCode::Up => Msg::SelectPrev,
+            KeyCode::Down => Msg::SelectNext,
+            KeyCode::Enter => Msg::SshShelfPreview,
+            KeyCode::Backspace => Msg::Backspace,
+            KeyCode::Char(c) => Msg::KeyChar(c),
+            _ => Msg::Tick,
+        };
+    }
     match code {
         KeyCode::Esc => Msg::Cancel,
         KeyCode::Up if !filling => Msg::SelectPrev,
         KeyCode::Down if !filling => Msg::SelectNext,
+        KeyCode::Left if !filling => Msg::SshShelfCollapse,
+        KeyCode::Right if !filling => Msg::SshShelfExpand,
         KeyCode::Tab => Msg::SshShelfParamNext,
         KeyCode::BackTab => Msg::SshShelfParamPrev,
         KeyCode::Enter => Msg::SshShelfPreview,
@@ -1274,6 +1297,18 @@ mod tests {
             map_key(KeyCode::PageUp, KeyModifiers::SHIFT, &state),
             Msg::SshScrollback { rows: 12 }
         ));
+        assert!(matches!(
+            map_key(KeyCode::PageUp, KeyModifiers::empty(), &state),
+            Msg::SshScrollback { rows: 12 }
+        ));
+        assert!(matches!(
+            map_key(KeyCode::Up, KeyModifiers::ALT, &state),
+            Msg::SshScrollback { rows: 12 }
+        ));
+        assert!(matches!(
+            map_key(KeyCode::Down, KeyModifiers::ALT, &state),
+            Msg::SshScrollback { rows: -12 }
+        ));
     }
 
     #[test]
@@ -1287,6 +1322,24 @@ mod tests {
         assert!(matches!(
             map_key(KeyCode::Char('x'), KeyModifiers::ALT, &state),
             Msg::SshPtyInput { bytes } if bytes == b"\x1bx"
+        ));
+    }
+
+    #[test]
+    fn ssh_shelf_search_accepts_command_shortcut_letters_as_query_text() {
+        let mut state = ssh_workspace_state();
+        if let Some(workspace) = state.ssh_workspace.as_mut() {
+            workspace.shelf_visible = true;
+            workspace.focus = crate::ssh_workspace::SshWorkspaceFocus::Shelf;
+            workspace.shelf.begin_search();
+        }
+        assert!(matches!(
+            map_key(KeyCode::Char('c'), KeyModifiers::empty(), &state),
+            Msg::KeyChar('c')
+        ));
+        assert!(matches!(
+            map_key(KeyCode::Char('i'), KeyModifiers::empty(), &state),
+            Msg::KeyChar('i')
         ));
     }
 

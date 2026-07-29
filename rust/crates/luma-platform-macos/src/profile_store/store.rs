@@ -1003,7 +1003,7 @@ items:
         );
     }
 
-    #[cfg(unix)]
+    #[cfg(target_os = "macos")]
     fn set_uchg(path: &Path, enabled: bool) {
         let flag = if enabled { "uchg" } else { "nouchg" };
         let status = std::process::Command::new("/usr/bin/chflags")
@@ -1013,7 +1013,7 @@ items:
         assert!(status.success(), "chflags {flag} failed");
     }
 
-    #[cfg(unix)]
+    #[cfg(target_os = "macos")]
     #[tokio::test]
     async fn delete_source_remove_failure_restores_clash() {
         let dir = tempfile::tempdir().unwrap();
@@ -1061,7 +1061,7 @@ items:
         assert_eq!(fs::read(&target).unwrap(), old_target);
     }
 
-    #[cfg(unix)]
+    #[cfg(target_os = "macos")]
     #[tokio::test]
     async fn delete_index_write_failure_restores_files_and_clash() {
         let dir = tempfile::tempdir().unwrap();

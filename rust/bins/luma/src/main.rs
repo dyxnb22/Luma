@@ -526,7 +526,9 @@ struct SshShelfLoad {
     meta: std::collections::BTreeMap<String, luma_domain::RecipeMetadata>,
 }
 
-fn load_ssh_shelf(command_recipes: Option<&Arc<dyn luma_application::CommandRecipesRepository>>) -> SshShelfLoad {
+fn load_ssh_shelf(
+    command_recipes: Option<&Arc<dyn luma_application::CommandRecipesRepository>>,
+) -> SshShelfLoad {
     let support = luma_storage::luma_next_support_dir().unwrap_or_else(|_| PathBuf::from("."));
     let path = luma_storage::command_recipes_config_path(&support);
     let catalog = luma_storage::load_recipe_catalog(&path);

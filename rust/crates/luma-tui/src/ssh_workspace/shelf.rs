@@ -268,9 +268,7 @@ impl ShelfState {
             self.param_drafts.entry(p.id.clone()).or_insert_with(|| {
                 p.default.clone().unwrap_or_else(|| match p.kind {
                     RecipeParameterKind::Boolean => "false".into(),
-                    RecipeParameterKind::Choice => {
-                        p.choices.first().cloned().unwrap_or_default()
-                    }
+                    RecipeParameterKind::Choice => p.choices.first().cloned().unwrap_or_default(),
                     _ => String::new(),
                 })
             });
@@ -335,18 +333,24 @@ impl ShelfState {
                 if param.choices.is_empty() {
                     return;
                 }
-                let cur = self.param_drafts.get(&param.id).cloned().unwrap_or_default();
-                let idx = param
-                    .choices
-                    .iter()
-                    .position(|c| c == &cur)
-                    .unwrap_or(0);
+                let cur = self
+                    .param_drafts
+                    .get(&param.id)
+                    .cloned()
+                    .unwrap_or_default();
+                let idx = param.choices.iter().position(|c| c == &cur).unwrap_or(0);
                 let next = (idx + 1) % param.choices.len();
                 self.param_drafts
                     .insert(param.id, param.choices[next].clone());
             }
             RecipeParameterKind::Integer => {
-                if c.is_ascii_digit() || (c == '-' && self.param_drafts.get(&param.id).is_none_or(|s| s.is_empty())) {
+                if c.is_ascii_digit()
+                    || (c == '-'
+                        && self
+                            .param_drafts
+                            .get(&param.id)
+                            .is_none_or(|s| s.is_empty()))
+                {
                     self.param_drafts.entry(param.id).or_default().push(c);
                 }
             }
@@ -594,10 +598,7 @@ mod tests {
             group: "System".into(),
             risk: RecipeRisk::Safe,
             parameters: vec![text_param("path", "Path", true)],
-            variants: vec![variant(vec![step(
-                "tail",
-                &["-n", "50", "${path}"],
-            )])],
+            variants: vec![variant(vec![step("tail", &["-n", "50", "${path}"])])],
             enabled: true,
         };
         let mut shelf = ShelfState::from_recipes(&[recipe], false);

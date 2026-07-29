@@ -152,9 +152,7 @@ fn render_shelf_pane(frame: &mut Frame<'_>, area: Rect, ws: &SshWorkspaceState, 
         };
         let star = if item.favorite { "★ " } else { "" };
         let risk = match &item.kind {
-            crate::ssh_workspace::ShelfItemKind::RemoteCommand { risk, .. }
-                if risk != "safe" =>
-            {
+            crate::ssh_workspace::ShelfItemKind::RemoteCommand { risk, .. } if risk != "safe" => {
                 format!(" [{risk}]")
             }
             _ => String::new(),

@@ -350,7 +350,7 @@ fn validate_new_name(name: &str) -> Result<(), DownloadsError> {
     }
 }
 
-#[cfg(target_os = "macos")]
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 fn finder_trash_args(path: &Path) -> Vec<OsString> {
     vec![
         "-e".into(),
@@ -363,12 +363,6 @@ fn finder_trash_args(path: &Path) -> Vec<OsString> {
         "end run".into(),
         path.as_os_str().to_owned(),
     ]
-}
-
-#[cfg(not(target_os = "macos"))]
-#[cfg(test)]
-fn finder_trash_args(path: &Path) -> Vec<OsString> {
-    vec![path.as_os_str().to_owned()]
 }
 
 async fn trash_with_finder(path: &Path) -> Result<(), DownloadsError> {

@@ -727,15 +727,13 @@ fn shelf_copy(state: &mut AppState) -> Vec<Effect> {
         .as_ref()
         .and_then(|ws| ws.shelf.risk_of_selected())
     {
-        if risk == "destructive" || risk == "confirm" {
-            // Preview-only gate: require Enter preview before copy/insert for risky recipes.
-            if state
+        if (risk == "destructive" || risk == "confirm")
+            && state
                 .ssh_workspace
                 .as_ref()
                 .is_some_and(|ws| ws.shelf.preview.is_none() || ws.shelf.filling_params)
-            {
-                return shelf_preview(state);
-            }
+        {
+            return shelf_preview(state);
         }
     }
     let Some(text) = state
@@ -767,14 +765,13 @@ fn shelf_insert(state: &mut AppState) -> Vec<Effect> {
         .as_ref()
         .and_then(|ws| ws.shelf.risk_of_selected())
     {
-        if risk == "destructive" || risk == "confirm" {
-            if state
+        if (risk == "destructive" || risk == "confirm")
+            && state
                 .ssh_workspace
                 .as_ref()
                 .is_some_and(|ws| ws.shelf.preview.is_none() || ws.shelf.filling_params)
-            {
-                return shelf_preview(state);
-            }
+        {
+            return shelf_preview(state);
         }
     }
     let Some(text) = state
@@ -817,20 +814,12 @@ fn shelf_favorite(state: &mut AppState) -> Vec<Effect> {
         recipe_id.clone(),
         luma_domain::RecipeMetadata {
             favorite,
-            use_count: ws
-                .shelf
-                .selected_item()
-                .map(|i| i.use_count)
-                .unwrap_or(0),
+            use_count: ws.shelf.selected_item().map(|i| i.use_count).unwrap_or(0),
             ..luma_domain::RecipeMetadata::default()
         },
     );
     state.status.set(
-        if favorite {
-            "favorited"
-        } else {
-            "unfavorited"
-        },
+        if favorite { "favorited" } else { "unfavorited" },
         StatusTone::Success,
     );
     vec![Effect::SetRecipeFavorite {

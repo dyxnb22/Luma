@@ -66,13 +66,34 @@ nodes:
 ### 编译规则
 
 - 生成单一 `PROXY` select 组；节点顺序与 `proxy.yaml` 一致；组内不含 `DIRECT`
-- 规则仅 `MATCH,PROXY`
+- 未配置 `routing` 时保持简单默认：规则仅 `MATCH,PROXY`
 - 重复 `/proxy sync` 更新固定 Profile ID `p-c0ffee0000000000000001`，不产生重复项
 - Sync 只保存（**compiled**）；应用仍需 Profile 的 **Use**（**applied** / Mihomo 拒绝为 **rejected**）
 - 无效 recipe（**invalid**）不写任何 Profile
 
 流程：编辑 `proxy.yaml` → `/proxy sync` → Use → Mihomo reload → `/proxy group PROXY` 选节点。
 不做文件监控或后台 daemon。节点 **Test** 通过 Controller 按需探测延迟，不后台轮询。
+
+### 轻量分流 `routing`
+
+需要“少量目标走 VPS，其余直连”时，可在同一文件增加：
+
+```yaml
+routing:
+  default: direct
+  domain-suffixes:
+    - openai.com
+    - anthropic.com
+  domains:
+    - api.example.com
+  ip-cidrs:
+    - 192.0.2.4/32
+```
+
+这三个列表中的目标统一编译到 `PROXY`；最后一条按 `default` 生成 `MATCH,DIRECT` 或
+`MATCH,PROXY`。IP 规则自动附加 `no-resolve`，IPv6 自动使用 `IP-CIDR6`。域名、CIDR、重复项、
+未知字段和总规则数均严格校验；不支持在约定层注入任意 Mihomo 规则字符串。需要复杂规则提供者、
+多策略组或规则脚本时继续使用原生 Mihomo YAML。
 
 ## Profile 导入格式
 

@@ -1,8 +1,8 @@
 //! Convention `proxy.yaml` recipe → Mihomo Profile compiler.
 //!
 //! Agents and users fill only required VPS fields; Luma expands presets into a full Profile
-//! with a single `PROXY` select group and `MATCH,PROXY`. Credentials must never appear in
-//! error messages — only field names.
+//! with a single `PROXY` select group and an optional compact routing policy. Credentials must
+//! never appear in error messages — only field names.
 
 use luma_application::ProfileStoreError;
 use serde::Deserialize;
@@ -16,6 +16,7 @@ use super::MAX_PROFILE_BYTES;
 pub(super) const CONVENTION_PROFILE_ID: &str = "p-c0ffee0000000000000001";
 
 const MAX_NODES: usize = 2000;
+const MAX_ROUTING_RULES: usize = 4096;
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -24,6 +25,27 @@ pub(super) struct ProxyRecipe {
     version: u32,
     name: String,
     nodes: Vec<RecipeNode>,
+    #[serde(default)]
+    routing: Option<RecipeRouting>,
+}
+
+#[derive(Clone, Copy, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+enum DefaultRoute {
+    Direct,
+    Proxy,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RecipeRouting {
+    default: DefaultRoute,
+    #[serde(default)]
+    domains: Vec<String>,
+    #[serde(default, rename = "domain-suffixes")]
+    domain_suffixes: Vec<String>,
+    #[serde(default, rename = "ip-cidrs")]
+    ip_cidrs: Vec<String>,
 }
 
 #[derive(Deserialize)]
@@ -171,6 +193,80 @@ fn require_non_empty(field: &str, value: &str) -> Result<(), ProfileStoreError> 
 fn require_port(port: u16) -> Result<(), ProfileStoreError> {
     if port == 0 {
         return Err(invalid("port", "port must be 1..=65535"));
+    }
+    Ok(())
+}
+
+fn valid_domain(value: &str) -> bool {
+    let value = value.trim();
+    !value.is_empty()
+        && value.len() <= 253
+        && value.is_ascii()
+        && !value.contains(char::is_whitespace)
+        && value.split('.').all(|label| {
+            !label.is_empty()
+                && label.len() <= 63
+                && !label.starts_with('-')
+                && !label.ends_with('-')
+                && label
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
+        })
+}
+
+fn valid_ip_cidr(value: &str) -> bool {
+    let Some((address, prefix)) = value.trim().split_once('/') else {
+        return false;
+    };
+    let Ok(address) = address.parse::<IpAddr>() else {
+        return false;
+    };
+    let Ok(prefix) = prefix.parse::<u8>() else {
+        return false;
+    };
+    match address {
+        IpAddr::V4(_) => prefix <= 32,
+        IpAddr::V6(_) => prefix <= 128,
+    }
+}
+
+fn validate_routing(routing: &RecipeRouting) -> Result<(), ProfileStoreError> {
+    let rule_count = routing.domains.len() + routing.domain_suffixes.len() + routing.ip_cidrs.len();
+    if rule_count > MAX_ROUTING_RULES {
+        return Err(ProfileStoreError::SecurityDenied(
+            "recipe contains too many routing rules".into(),
+        ));
+    }
+    if routing.default == DefaultRoute::Direct && rule_count == 0 {
+        return Err(invalid(
+            "routing",
+            "direct-default routing requires at least one proxy match",
+        ));
+    }
+
+    let mut seen = HashSet::new();
+    for (field, values) in [
+        ("domains", &routing.domains),
+        ("domain-suffixes", &routing.domain_suffixes),
+    ] {
+        for value in values {
+            if !valid_domain(value) {
+                return Err(invalid(field, "routing domain is invalid"));
+            }
+            let key = format!("{field}:{}", value.trim().to_ascii_lowercase());
+            if !seen.insert(key) {
+                return Err(invalid(field, "routing entries must be unique"));
+            }
+        }
+    }
+    for value in &routing.ip_cidrs {
+        if !valid_ip_cidr(value) {
+            return Err(invalid("ip-cidrs", "routing IP CIDR is invalid"));
+        }
+        let key = format!("ip-cidrs:{}", value.trim().to_ascii_lowercase());
+        if !seen.insert(key) {
+            return Err(invalid("ip-cidrs", "routing entries must be unique"));
+        }
     }
     Ok(())
 }
@@ -618,10 +714,61 @@ fn validate_recipe(recipe: &ProxyRecipe) -> Result<(), ProfileStoreError> {
             return Err(invalid("name", "node names must be unique"));
         }
     }
+    if let Some(routing) = &recipe.routing {
+        validate_routing(routing)?;
+    }
     Ok(())
 }
 
-fn build_profile(name: &str, proxies: Vec<Value>) -> Result<Vec<u8>, ProfileStoreError> {
+fn compile_rules(routing: Option<&RecipeRouting>) -> Vec<Value> {
+    let Some(routing) = routing else {
+        return vec![Value::String("MATCH,PROXY".into())];
+    };
+    let mut rules = Vec::with_capacity(
+        routing.domains.len() + routing.domain_suffixes.len() + routing.ip_cidrs.len() + 1,
+    );
+    for domain in &routing.domain_suffixes {
+        rules.push(Value::String(format!(
+            "DOMAIN-SUFFIX,{},PROXY",
+            domain.trim().to_ascii_lowercase()
+        )));
+    }
+    for domain in &routing.domains {
+        rules.push(Value::String(format!(
+            "DOMAIN,{},PROXY",
+            domain.trim().to_ascii_lowercase()
+        )));
+    }
+    for cidr in &routing.ip_cidrs {
+        let cidr = cidr.trim();
+        let rule_type = if cidr
+            .split_once('/')
+            .and_then(|(address, _)| address.parse::<IpAddr>().ok())
+            .is_some_and(|address| address.is_ipv6())
+        {
+            "IP-CIDR6"
+        } else {
+            "IP-CIDR"
+        };
+        rules.push(Value::String(format!(
+            "{rule_type},{cidr},PROXY,no-resolve"
+        )));
+    }
+    rules.push(Value::String(
+        match routing.default {
+            DefaultRoute::Direct => "MATCH,DIRECT",
+            DefaultRoute::Proxy => "MATCH,PROXY",
+        }
+        .into(),
+    ));
+    rules
+}
+
+fn build_profile(
+    name: &str,
+    proxies: Vec<Value>,
+    rules: Vec<Value>,
+) -> Result<Vec<u8>, ProfileStoreError> {
     let names: Vec<Value> = proxies
         .iter()
         .filter_map(|proxy| {
@@ -643,10 +790,7 @@ fn build_profile(name: &str, proxies: Vec<Value>) -> Result<Vec<u8>, ProfileStor
         Value::String("proxy-groups".into()),
         Value::Sequence(vec![Value::Mapping(group)]),
     );
-    root.insert(
-        Value::String("rules".into()),
-        Value::Sequence(vec![Value::String("MATCH,PROXY".into())]),
-    );
+    root.insert(Value::String("rules".into()), Value::Sequence(rules));
     let raw = serde_yaml_ng::to_string(&Value::Mapping(root)).map_err(|_| {
         ProfileStoreError::Unavailable("recipe could not be serialized to YAML".into())
     })?;
@@ -680,7 +824,8 @@ pub(super) fn compile_convention_recipe(bytes: &[u8]) -> Result<Vec<u8>, Profile
     for node in &recipe.nodes {
         proxies.push(compile_node(node)?);
     }
-    build_profile(&recipe.name, proxies)
+    let rules = compile_rules(recipe.routing.as_ref());
+    build_profile(&recipe.name, proxies, rules)
 }
 
 /// Compile a single supported node URI into a Mihomo proxy mapping (Phase 3 URI→preset reuse).
@@ -1119,6 +1264,105 @@ nodes:
         assert_eq!(
             value.as_mapping().unwrap()["rules"].as_sequence().unwrap()[0].as_str(),
             Some("MATCH,PROXY")
+        );
+    }
+
+    #[test]
+    fn compiles_targeted_proxy_routing_with_direct_default() {
+        let yaml = format!(
+            r#"
+kind: luma-proxy
+version: 1
+name: AI split
+nodes:
+  - name: US VPS
+    preset: vless-reality
+    server: 203.0.113.10
+    port: 443
+    uuid: {UUID}
+    sni: www.microsoft.com
+    public-key: {PBK}
+    short-id: ab12cd34
+routing:
+  default: direct
+  domain-suffixes:
+    - OpenAI.com
+  domains:
+    - api.example.com
+  ip-cidrs:
+    - 192.0.2.4/32
+    - 2001:db8::/32
+"#
+        );
+        let compiled = compile_convention_recipe(yaml.as_bytes()).unwrap();
+        let value: Value = serde_yaml_ng::from_slice(&compiled).unwrap();
+        let rules = value.as_mapping().unwrap()["rules"]
+            .as_sequence()
+            .unwrap()
+            .iter()
+            .filter_map(Value::as_str)
+            .collect::<Vec<_>>();
+        assert_eq!(
+            rules,
+            vec![
+                "DOMAIN-SUFFIX,openai.com,PROXY",
+                "DOMAIN,api.example.com,PROXY",
+                "IP-CIDR,192.0.2.4/32,PROXY,no-resolve",
+                "IP-CIDR6,2001:db8::/32,PROXY,no-resolve",
+                "MATCH,DIRECT",
+            ]
+        );
+    }
+
+    #[test]
+    fn routing_rejects_invalid_or_duplicate_entries_without_echoing_values() {
+        let recipe = |routing: &str| {
+            format!(
+                r#"
+kind: luma-proxy
+version: 1
+name: Bad routing
+nodes:
+  - name: US VPS
+    preset: vless-reality
+    server: 203.0.113.10
+    port: 443
+    uuid: {UUID}
+    sni: www.microsoft.com
+    public-key: {PBK}
+    short-id: ab12cd34
+routing:
+  default: direct
+{routing}
+"#
+            )
+        };
+        for (routing, secret_value, expected_field) in [
+            (
+                "  domains:\n    - \"bad domain secret\"\n",
+                "bad domain secret",
+                "domains",
+            ),
+            (
+                "  ip-cidrs:\n    - 192.0.2.1/99\n",
+                "192.0.2.1/99",
+                "ip-cidrs",
+            ),
+            (
+                "  domain-suffixes:\n    - openai.com\n    - OPENAI.COM\n",
+                "OPENAI.COM",
+                "domain-suffixes",
+            ),
+        ] {
+            let error = compile_convention_recipe(recipe(routing).as_bytes()).unwrap_err();
+            assert!(
+                matches!(error, ProfileStoreError::InvalidInput { ref field, .. } if field == expected_field)
+            );
+            assert!(!error.to_string().contains(secret_value));
+        }
+        let empty = compile_convention_recipe(recipe("").as_bytes()).unwrap_err();
+        assert!(
+            matches!(empty, ProfileStoreError::InvalidInput { ref field, .. } if field == "routing")
         );
     }
 

@@ -24,6 +24,7 @@ tokio-util = { workspace = true }
 tracing = { workspace = true }
 sha2 = { workspace = true }
 hex = { workspace = true }
+portable-pty = { workspace = true }
 
 [build-dependencies]
 cc = "1.2"

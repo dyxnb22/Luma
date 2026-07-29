@@ -83,6 +83,12 @@ impl ProxyModule {
                             None,
                         ),
                         crate::ux::command_spec(
+                            "/proxy mode",
+                            "Choose between Rule and Global routing",
+                            "/proxy mode",
+                            None,
+                        ),
+                        crate::ux::command_spec(
                             "/proxy group <name>",
                             "Drill into matching proxy groups and nodes",
                             "/proxy group ",
@@ -330,6 +336,9 @@ impl LumaModule for ProxyModule {
             },
             "rerun_proxy_check" => ActionOutcome::OpenSurface {
                 query: "/proxy check".into(),
+            },
+            "open_proxy_modes" => ActionOutcome::OpenSurface {
+                query: "/proxy mode".into(),
             },
             "open_proxy_profiles" => ActionOutcome::OpenSurface {
                 query: "/proxy profile".into(),
@@ -786,6 +795,29 @@ mod tests {
         assert!(!items.iter().any(|item| item.title == "COMPATIBLE"));
         assert!(!items.iter().any(|item| item.kind == "proxy_node"));
 
+        let mode = items
+            .iter()
+            .find(|item| item.title == "Proxy Mode")
+            .unwrap()
+            .clone();
+        assert_eq!(mode.primary_action.id.as_str(), "open_proxy_modes");
+        assert_eq!(mode.primary_action.label, "Choose Mode");
+        assert!(!mode.primary_action.confirmation);
+        let outcome = module
+            .perform(
+                ActionRequest {
+                    result: mode.clone(),
+                    action: module.actions(&mode).await.remove(0),
+                    confirmation: false,
+                },
+                CancellationToken::new(),
+            )
+            .await;
+        assert!(matches!(
+            outcome,
+            ActionOutcome::OpenSurface { query } if query == "/proxy mode"
+        ));
+
         let action = module.actions(&group).await.into_iter().next().unwrap();
         let outcome = module
             .perform(
@@ -812,6 +844,43 @@ mod tests {
         assert!(items.iter().all(|item| item.kind == "proxy_node"));
         assert!(!items.iter().any(|item| item.kind == "proxy_group"));
         assert!(!redact_label("node-123e4567-e89b-12d3-a456-426614174000").contains("123e4567"));
+    }
+
+    #[tokio::test]
+    async fn mode_page_explicitly_lists_rule_and_global() {
+        let (module, core, _) = module();
+        let items = collect_search_items(&module, Query::parse("/proxy mode", 20)).await;
+        assert_eq!(
+            items
+                .iter()
+                .map(|item| item.title.as_str())
+                .collect::<Vec<_>>(),
+            vec!["Rule", "Global"]
+        );
+
+        let rule = items.iter().find(|item| item.title == "Rule").unwrap();
+        assert!(rule
+            .subtitle
+            .as_deref()
+            .is_some_and(|subtitle| subtitle.starts_with("Selected ·")));
+        assert_eq!(rule.primary_action.id.as_str(), "noop");
+        assert_eq!(rule.primary_action.label, "Selected");
+        assert!(!rule.primary_action.confirmation);
+
+        let global = items.iter().find(|item| item.title == "Global").unwrap();
+        assert_eq!(global.primary_action.id.as_str(), "set_global");
+        assert_eq!(global.primary_action.label, "Select Global");
+        assert!(global.primary_action.confirmation);
+
+        core.status.lock().await.mode = ProxyMode::Global;
+        let items = collect_search_items(&module, Query::parse("/proxy mode", 20)).await;
+        let rule = items.iter().find(|item| item.title == "Rule").unwrap();
+        let global = items.iter().find(|item| item.title == "Global").unwrap();
+        assert_eq!(rule.primary_action.id.as_str(), "set_rule");
+        assert_eq!(rule.primary_action.label, "Select Rule");
+        assert!(rule.primary_action.confirmation);
+        assert_eq!(global.primary_action.id.as_str(), "noop");
+        assert_eq!(global.primary_action.label, "Selected");
     }
 
     #[tokio::test]
@@ -1033,10 +1102,10 @@ mod tests {
                 },
             ],
         });
-        let mode = collect_search_items(&module, Query::parse("proxy ", 20))
+        let mode = collect_search_items(&module, Query::parse("/proxy mode", 20))
             .await
             .into_iter()
-            .find(|item| item.id.as_str() == "proxy:setting:mode")
+            .find(|item| item.id.as_str() == "proxy:mode:global")
             .unwrap();
         let action = module.actions(&mode).await.remove(0);
         let outcome = module

@@ -9,6 +9,7 @@ socket，不负责启动代理核心，也不执行导入 Profile 中的脚本�
 | Query | 作用 |
 | --- | --- |
 | `/proxy ` | 设置型首页：系统代理、代理模式、当前节点、配置方案、连接检查和运行信息 |
+| `/proxy mode` | 显式列出 Rule（分流）和 Global（全局），并标记当前选项 |
 | `/proxy group <name>` | 只显示代理组节点；未选节点 Enter 选择，已选节点 Enter 执行按需 **Test Latency** |
 | `/proxy global` / `/proxy rule` | 切换 Mihomo 模式；Global 会先确保 `GLOBAL` selector 经 `PROXY` 转发 |
 | `/proxy profile` | 列出 Luma Profile 和现有 Clash Verge Profile |
@@ -80,7 +81,7 @@ daemon。节点 **Test Latency** 通过 Controller 和通用 204 地址探测传
 `/proxy` 首页参考常见 Clash 客户端的设置心智模型，但保持键盘式列表交互：
 
 1. **System Proxy**：ON / OFF / OTHER，Enter 执行当前可用的接管或关闭动作
-2. **Proxy Mode**：Rule（分流）/ Global（全局）
+2. **Proxy Mode**：Enter 进入两项选择页，显式显示 Rule（分流）/ Global（全局）和当前 Selected
 3. **Current Node**：显示 `PROXY` 当前节点，Enter 进入纯节点列表
 4. **Configuration**：Profile 与约定 `proxy.yaml`
 5. **Connection Check**：按需检查网络、DNS、listener 和 Controller

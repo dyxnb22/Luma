@@ -418,17 +418,9 @@ impl ProxyModule {
     }
 
     fn mode_setting_item(status: &ProxyStatus) -> SearchItemDto {
-        let (subtitle, action_id, action_label) = match status.mode {
-            ProxyMode::Rule => (
-                "Rule · configured services use PROXY; remaining traffic is DIRECT",
-                "set_global",
-                "Use Global",
-            ),
-            ProxyMode::Global => (
-                "Global · all traffic uses the current PROXY node",
-                "set_rule",
-                "Use Rule",
-            ),
+        let subtitle = match status.mode {
+            ProxyMode::Rule => "Rule · configured services use PROXY; remaining traffic is DIRECT",
+            ProxyMode::Global => "Global · all traffic uses the current PROXY node",
         };
         SearchItemDto {
             id: "proxy:setting:mode".into(),
@@ -437,10 +429,49 @@ impl ProxyModule {
             subtitle: Some(subtitle.into()),
             kind: "proxy_mode_setting".into(),
             score: 95.0,
-            primary_action_id: action_id.into(),
-            primary_action_label: action_label.into(),
-            primary_action_risk: ActionRisk::Confirm,
-            primary_action_confirmation: true,
+            primary_action_id: "open_proxy_modes".into(),
+            primary_action_label: "Choose Mode".into(),
+            ..Default::default()
+        }
+    }
+
+    fn mode_option(mode: ProxyMode, current: ProxyMode, score: f64) -> SearchItemDto {
+        let selected = mode == current;
+        let (id, title, detail, action_id, action_label) = match mode {
+            ProxyMode::Rule => (
+                "rule",
+                "Rule",
+                "Split configured services through PROXY; remaining traffic is DIRECT",
+                "set_rule",
+                "Select Rule",
+            ),
+            ProxyMode::Global => (
+                "global",
+                "Global",
+                "All traffic uses the current PROXY node",
+                "set_global",
+                "Select Global",
+            ),
+        };
+        SearchItemDto {
+            id: format!("proxy:mode:{id}"),
+            module_id: MODULE_ID.into(),
+            title: title.into(),
+            subtitle: Some(if selected {
+                format!("Selected · {detail}")
+            } else {
+                detail.into()
+            }),
+            kind: "proxy_mode_option".into(),
+            score,
+            primary_action_id: if selected { "noop" } else { action_id }.into(),
+            primary_action_label: if selected { "Selected" } else { action_label }.into(),
+            primary_action_risk: if selected {
+                ActionRisk::Safe
+            } else {
+                ActionRisk::Confirm
+            },
+            primary_action_confirmation: !selected,
             ..Default::default()
         }
     }
@@ -676,6 +707,7 @@ impl ProxyModule {
                 normalized_rest.as_str(),
                 "status"
                     | "check"
+                    | "mode"
                     | "global"
                     | "rule"
                     | "profile"
@@ -696,7 +728,7 @@ impl ProxyModule {
                         MODULE_ID,
                         "proxy:command-invalid",
                         "Unknown Proxy command",
-                        "Use /proxy, /proxy status, /proxy check, /proxy group <name>, /proxy global, /proxy rule, /proxy profile, /proxy import <source>, /proxy sync, /proxy apply, or /proxy refresh",
+                        "Use /proxy, /proxy status, /proxy check, /proxy mode, /proxy group <name>, /proxy global, /proxy rule, /proxy profile, /proxy import <source>, /proxy sync, /proxy apply, or /proxy refresh",
                     )],
                     removed_ids: vec![],
                 })
@@ -841,7 +873,20 @@ impl ProxyModule {
                 return;
             }
         };
-        if normalized_rest == "global" || normalized_rest == "rule" {
+        if normalized_rest == "mode" {
+            let items = vec![
+                Self::mode_option(ProxyMode::Rule, status.mode, 100.0),
+                Self::mode_option(ProxyMode::Global, status.mode, 95.0),
+            ];
+            let _ = sink
+                .send(Event::ResultsChunk {
+                    request_id: String::new(),
+                    sequence: 1,
+                    upserts: items,
+                    removed_ids: vec!["proxy:unavailable".into()],
+                })
+                .await;
+        } else if normalized_rest == "global" || normalized_rest == "rule" {
             let mode = if normalized_rest == "global" {
                 "global"
             } else {

@@ -205,6 +205,15 @@ pub fn render_remote_command(
     out.push(shell_quote(program));
     for arg in args {
         let resolved = resolve_arg_token(arg, parameters, values, ssh)?;
+        let omit_empty_optional = whole_param_token(arg).is_some_and(|name| {
+            resolved.is_empty()
+                && parameters
+                    .iter()
+                    .any(|parameter| parameter.id == name && !parameter.required)
+        });
+        if omit_empty_optional {
+            continue;
+        }
         reject_control_chars(&resolved).map_err(|message| RecipeRenderError::InvalidValue {
             parameter: "argument".into(),
             message,
@@ -569,6 +578,38 @@ mod tests {
             RecipeScope::parse("ssh_session"),
             Some(RecipeScope::SshSession)
         );
+    }
+
+    #[test]
+    fn remote_command_omits_an_empty_optional_parameter_argument() {
+        let parameters = vec![RecipeParameter {
+            id: "service".into(),
+            label: "Service".into(),
+            description: String::new(),
+            kind: RecipeParameterKind::Text,
+            required: false,
+            default: Some(String::new()),
+            choices: vec![],
+            min: None,
+            max: None,
+            pattern: None,
+            max_length: Some(64),
+        }];
+        let rendered = render_remote_command(
+            "docker",
+            &[
+                "compose".into(),
+                "logs".into(),
+                "--tail".into(),
+                "100".into(),
+                "${service}".into(),
+            ],
+            &parameters,
+            &BTreeMap::new(),
+            &SshRecipeContext::default(),
+        )
+        .expect("render");
+        assert_eq!(rendered, "docker compose logs --tail 100");
     }
 
     #[test]

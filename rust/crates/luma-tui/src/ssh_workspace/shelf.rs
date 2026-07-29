@@ -95,7 +95,8 @@ impl ShelfState {
         {
             items.extend(static_fallback_commands());
         }
-        // Favorites first, then higher use_count, then title.
+        // Favorites first, then keep each command category together. Usage only
+        // influences ordering inside a category so the shelf remains scannable.
         let static_end = items
             .iter()
             .position(|i| matches!(i.kind, ShelfItemKind::RemoteCommand { .. }))
@@ -104,6 +105,7 @@ impl ShelfState {
         remotes.sort_by(|a, b| {
             b.favorite
                 .cmp(&a.favorite)
+                .then(a.group.cmp(&b.group))
                 .then(b.use_count.cmp(&a.use_count))
                 .then(a.title.cmp(&b.title))
         });

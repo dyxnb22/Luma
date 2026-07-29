@@ -76,8 +76,10 @@ pub fn render_ssh_workspace(
                 "Esc leave · r reconnect · l compat · c copy error · F6 commands"
             } else if ws.scrollback_offset > 0 {
                 "scrollback · Shift+PgUp/PgDn · typing returns to live output"
+            } else if ws.shelf_visible {
+                "F6 focus commands · Ctrl+Space leader · Shift+PgUp scrollback"
             } else {
-                "F6 commands · Ctrl+Space leader · Shift+PgUp scrollback"
+                "F6 show commands · Ctrl+Space leader · Shift+PgUp scrollback"
             }
         }
         SshWorkspaceFocus::Leader => {
@@ -159,6 +161,7 @@ fn render_shelf_pane(frame: &mut Frame<'_>, area: Rect, ws: &SshWorkspaceState, 
         return;
     }
     let mut last_group = String::new();
+    let mut selected_line = 0usize;
     for (vis_idx, item_idx) in ws.shelf.filtered.iter().enumerate() {
         let Some(item) = ws.shelf.items.get(*item_idx) else {
             continue;
@@ -172,6 +175,9 @@ fn render_shelf_pane(frame: &mut Frame<'_>, area: Rect, ws: &SshWorkspaceState, 
         } else {
             "  "
         };
+        if vis_idx == ws.shelf.selected {
+            selected_line = lines.len();
+        }
         let star = if item.favorite { "★ " } else { "" };
         let risk = match &item.kind {
             crate::ssh_workspace::ShelfItemKind::RemoteCommand { risk, .. } if risk != "safe" => {
@@ -186,7 +192,12 @@ fn render_shelf_pane(frame: &mut Frame<'_>, area: Rect, ws: &SshWorkspaceState, 
         lines.push(Line::from(Span::styled("preview", theme.muted())));
         lines.push(Line::from(Span::styled(preview.clone(), theme.text())));
     }
-    frame.render_widget(Paragraph::new(lines), inner);
+    let viewport_height = usize::from(inner.height);
+    let scroll = selected_line
+        .saturating_add(1)
+        .saturating_sub(viewport_height)
+        .min(usize::from(u16::MAX)) as u16;
+    frame.render_widget(Paragraph::new(lines).scroll((scroll, 0)), inner);
 }
 
 fn centered_overlay(area: Rect, width: u16) -> Rect {

@@ -56,11 +56,18 @@ module row.
 ### SSH Workspace
 
 Embedded session keeps Luma chrome visible. Header shows alias · user@host:port · status.
-`F6` opens/closes the command shelf. `Ctrl+Space` arms the terminal leader:
+On wide terminals the command shelf is visible on the right from the start while keyboard focus
+stays in the remote terminal; `F6` focuses it, then closes it when pressed again. On narrower
+terminals `F6` opens/closes the shelf. `Ctrl+Space` arms the terminal leader:
 `Space` sends Ctrl+Space, `f` toggles fullscreen, `d` disconnects after a second confirmation
 chord, `r` reconnects, and `q` leaves the workspace. Terminal `Esc`, Delete, PageUp/PageDown,
 Alt keys, and F1–F12 are forwarded to the remote program. `Shift+PageUp/PageDown` browses the
 local 2000-line scrollback; typing returns to live output.
+
+The built-in shelf includes SSH/SFTP connection copy actions and grouped System, Files,
+Services, Network, and Docker commands. Commands that need a service, container, path, host, or
+URL open a parameter form before Copy/Insert. Empty optional parameters are omitted from the
+rendered command.
 
 Bracketed paste is forwarded as one remote paste operation when requested by the remote shell.
 The real PTY cursor is projected into Luma so terminal input and IME candidate windows stay
@@ -74,6 +81,9 @@ shown — only the identity file path (sanitized).
 If an embedded session fails, the last screen and status stay in the workspace (reconnect /
 compat / leave); `Esc` then returns to `/ssh`. Compat-mode failures still pause for Enter before
 restoring the TUI.
+
+Entering `exit` in a healthy session returns to `/ssh` automatically after recording successful
+session metadata.
 
 When a password is saved for an alias, Connect and Open SFTP use OpenSSH `SSH_ASKPASS` to retrieve
 that one value from macOS Keychain. The password never enters SSH metadata, search results,

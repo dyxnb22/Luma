@@ -16,9 +16,9 @@ SSH Connect opens an **SSH Workspace** inside the Luma TUI:
 
 - Single active embedded child PTY (`portable-pty`) running `/usr/bin/ssh`
 - `vt100` projects ANSI into Ratatui cells
-- Optional Command Shelf reuses Command Recipes (`scope=ssh_session`,
+- Command Shelf reuses Command Recipes (`scope=ssh_session`,
   `target=remote_shell`) for Copy / Insert only (no auto-Enter); native reconnect/disconnect
-  rows are explicit actions
+  rows are explicit actions. It starts visible beside the PTY when the terminal is wide enough
 - Passwords stay on the existing Keychain AskPass path
 - **Compat mode** (`Connect (compat mode)` / `l`) keeps the legacy
   suspend→ssh→resume flow
@@ -29,6 +29,8 @@ sidebar, no module data, no second UI.
 ## Consequences
 
 - Default Connect no longer leaves Ratatui
+- A clean remote `exit 0` records the session and returns to `/ssh`; failed exits retain the
+  final screen for diagnosis
 - Layout width rules drive side / overlay / full-page shelf; PTY resize follows
 - `F6` owns shelf focus; `Ctrl+Space` owns terminal leader chords, avoiding shortcut ambiguity
 - Remote cursor/input modes, bracketed paste, and common xterm key sequences are projected

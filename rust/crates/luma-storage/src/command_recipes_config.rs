@@ -492,6 +492,24 @@ mod tests {
         assert_eq!(docker_logs.scope, RecipeScope::SshSession);
         assert_eq!(docker_logs.target, RecipeTarget::RemoteShell);
         assert_eq!(docker_logs.group, "Docker");
+        let ssh_recipes: Vec<_> = catalog
+            .recipes
+            .iter()
+            .filter(|recipe| {
+                recipe.scope == RecipeScope::SshSession
+                    && recipe.target == RecipeTarget::RemoteShell
+            })
+            .collect();
+        assert!(
+            ssh_recipes.len() >= 30,
+            "expected a useful built-in SSH shelf"
+        );
+        for group in ["Docker", "Files", "Network", "Services", "System"] {
+            assert!(
+                ssh_recipes.iter().any(|recipe| recipe.group == group),
+                "missing SSH shelf group {group}"
+            );
+        }
     }
 
     #[test]

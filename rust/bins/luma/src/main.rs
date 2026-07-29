@@ -503,7 +503,15 @@ async fn run_tui(initial_query: Option<String>) -> anyhow::Result<()> {
     ));
     let command_runner =
         Arc::new(MacCommandRunner::new()) as Arc<dyn luma_application::CommandRunnerPort>;
-    run_tui_with_options(engine, command_runner, RunTuiOptions { initial_query }).await?;
+    run_tui_with_options(
+        engine,
+        command_runner,
+        RunTuiOptions {
+            initial_query,
+            embedded_pty: Some(Arc::new(luma_platform_macos::MacEmbeddedPty::new())),
+        },
+    )
+    .await?;
     Ok(())
 }
 

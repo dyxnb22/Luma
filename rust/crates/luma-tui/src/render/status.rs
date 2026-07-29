@@ -147,6 +147,11 @@ fn contextual_hints(state: &AppState, symbols: &Symbols) -> Vec<Hint> {
                 ]
             }
         }
+        Route::SshWorkspace => vec![
+            ("Ctrl+Space".into(), "commands"),
+            ("Esc".into(), "leave"),
+            ("r".into(), "reconnect"),
+        ],
     }
 }
 

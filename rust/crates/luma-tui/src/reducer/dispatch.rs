@@ -1,12 +1,86 @@
 use super::*;
 use unicode_segmentation::UnicodeSegmentation;
 
+fn handle_ssh_workspace_char(state: &mut AppState, c: char) -> Vec<Effect> {
+    let Some(ws) = state.ssh_workspace.as_ref() else {
+        return vec![Effect::None];
+    };
+    let failed = matches!(
+        ws.phase,
+        crate::ssh_workspace::SshConnectionPhase::Failed
+            | crate::ssh_workspace::SshConnectionPhase::Disconnected
+    );
+    if failed {
+        return match c {
+            'r' | 'R' => ssh_ws::reconnect(state),
+            'l' | 'L' => ssh_ws::compat_reconnect(state),
+            'c' | 'C' => {
+                let text = state
+                    .ssh_workspace
+                    .as_ref()
+                    .map(|ws| {
+                        if ws.error_summary.is_empty() {
+                            ws.status_detail.clone()
+                        } else {
+                            ws.error_summary.clone()
+                        }
+                    })
+                    .unwrap_or_default();
+                vec![Effect::CopyText { text }]
+            }
+            _ => vec![Effect::None],
+        };
+    }
+    if ws.leader_armed {
+        if let Some(ws) = state.ssh_workspace.as_mut() {
+            ws.leader_armed = false;
+            ws.focus = crate::ssh_workspace::SshWorkspaceFocus::Terminal;
+        }
+        return match c {
+            ' ' => vec![Effect::WriteEmbeddedPty { bytes: vec![0x00] }],
+            'f' | 'F' => {
+                if let Some(ws) = state.ssh_workspace.as_mut() {
+                    ws.shelf_visible = false;
+                    ws.fullscreen_chrome = !ws.fullscreen_chrome;
+                }
+                let (cols, rows) = ssh_ws::terminal_geometry(state);
+                vec![Effect::ResizeEmbeddedPty { cols, rows }]
+            }
+            'd' | 'D' => {
+                if let Some(ws) = state.ssh_workspace.as_mut() {
+                    if ws.disconnect_confirm {
+                        ws.disconnect_confirm = false;
+                        return vec![Effect::KillEmbeddedPty];
+                    }
+                    ws.disconnect_confirm = true;
+                    state.status.set(
+                        "Press Ctrl+Space d again to disconnect",
+                        StatusTone::Warning,
+                    );
+                }
+                vec![Effect::None]
+            }
+            'r' | 'R' => ssh_ws::reconnect(state),
+            _ => vec![Effect::None],
+        };
+    }
+    // UTF-8 encode character into PTY.
+    let mut buf = [0u8; 4];
+    let encoded = c.encode_utf8(&mut buf);
+    vec![Effect::WriteEmbeddedPty {
+        bytes: encoded.as_bytes().to_vec(),
+    }]
+}
+
 /// Pure synchronous reducer. Must not perform I/O.
 pub fn update(state: &mut AppState, msg: Msg) -> Vec<Effect> {
     state.dirty = true;
     match msg {
         Msg::RecipeShortcut { action_id } => recipe_shortcut(state, &action_id),
         Msg::KeyChar(c) => {
+            if state.route == Route::SshWorkspace {
+                return handle_ssh_workspace_char(state, c);
+            }
             if state.route == Route::Commands {
                 if !c.is_control() {
                     state.overlay.commands_filter.push(c);
@@ -307,6 +381,7 @@ pub fn update(state: &mut AppState, msg: Msg) -> Vec<Effect> {
             Route::Settings => toggle_setting(state),
             Route::Commands => run_command_selection(state),
             Route::WordbookReview => wordbook::wordbook_reveal(state),
+            Route::SshWorkspace => vec![Effect::WriteEmbeddedPty { bytes: vec![b'\r'] }],
         },
         Msg::OpenActions => {
             if let Some(effects) = flush_pending_search_or_continue(state) {
@@ -393,6 +468,14 @@ pub fn update(state: &mut AppState, msg: Msg) -> Vec<Effect> {
             if !state.preview_visible() && state.focus == FocusZone::Preview {
                 state.focus = FocusZone::List;
             }
+            if state.route == Route::SshWorkspace {
+                let (cols, rows) = ssh_ws::terminal_geometry(state);
+                if let Some(ws) = state.ssh_workspace.as_mut() {
+                    ws.term_cols = cols;
+                    ws.term_rows = rows;
+                }
+                return vec![Effect::ResizeEmbeddedPty { cols, rows }];
+            }
             vec![Effect::None]
         }
         Msg::Redraw | Msg::Tick => vec![Effect::None],
@@ -441,6 +524,62 @@ pub fn update(state: &mut AppState, msg: Msg) -> Vec<Effect> {
                 vec![Effect::None]
             }
         }
+        Msg::SshPtyInput { bytes } => vec![Effect::WriteEmbeddedPty { bytes }],
+        Msg::SshPtyOutput { bytes } => {
+            // Screen feed happens in app (owns VtScreen); reducer marks connected.
+            if let Some(ws) = state.ssh_workspace.as_mut() {
+                if matches!(
+                    ws.phase,
+                    crate::ssh_workspace::SshConnectionPhase::Starting
+                        | crate::ssh_workspace::SshConnectionPhase::Authenticating
+                ) {
+                    ws.phase = crate::ssh_workspace::SshConnectionPhase::Connected;
+                    ws.status_detail = "Connected".into();
+                    state.status.set("Connected", StatusTone::Success);
+                }
+            }
+            let _ = bytes;
+            vec![Effect::None]
+        }
+        Msg::SshPtyExited { code } => ssh_ws::on_pty_exited(state, code),
+        Msg::SshReconnect => ssh_ws::reconnect(state),
+        Msg::SshLeave => ssh_ws::leave_workspace(state),
+        Msg::SshCompatReconnect => ssh_ws::compat_reconnect(state),
+        Msg::SshCopyError => {
+            let text = state
+                .ssh_workspace
+                .as_ref()
+                .map(|ws| {
+                    if ws.error_summary.is_empty() {
+                        ws.status_detail.clone()
+                    } else {
+                        ws.error_summary.clone()
+                    }
+                })
+                .unwrap_or_default();
+            if text.is_empty() {
+                vec![Effect::None]
+            } else {
+                vec![Effect::CopyText { text }]
+            }
+        }
+        Msg::SshToggleShelf => ssh_ws::toggle_shelf(state),
+        Msg::SshDisconnect => {
+            if let Some(ws) = state.ssh_workspace.as_mut() {
+                if ws.disconnect_confirm {
+                    ws.disconnect_confirm = false;
+                    return vec![Effect::KillEmbeddedPty];
+                }
+                ws.disconnect_confirm = true;
+                state
+                    .status
+                    .set("Press Ctrl+Space d again to disconnect", StatusTone::Warning);
+            }
+            vec![Effect::None]
+        }
+        Msg::SshSendCtrlSpace => vec![Effect::WriteEmbeddedPty {
+            bytes: vec![0x00],
+        }],
         Msg::Engine(event) => apply_engine(state, event),
     }
 }

@@ -53,6 +53,31 @@ pub enum Effect {
         record_alias: Option<String>,
         operation_id: String,
     },
+    /// Open embedded SSH Workspace (child PTY inside Ratatui).
+    StartEmbeddedTerminal {
+        program: String,
+        args: Vec<String>,
+        environment: Vec<(String, String)>,
+        record_alias: Option<String>,
+        title: String,
+        alias: String,
+        hostname: String,
+        user: String,
+        port: u16,
+        operation_id: String,
+    },
+    WriteEmbeddedPty {
+        bytes: Vec<u8>,
+    },
+    ResizeEmbeddedPty {
+        cols: u16,
+        rows: u16,
+    },
+    KillEmbeddedPty,
+    /// Copy text to the system pasteboard.
+    CopyText {
+        text: String,
+    },
     /// No-op placeholder for redraw coalescing.
     None,
 }

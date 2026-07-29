@@ -120,6 +120,18 @@ pub enum ActionOutcome {
         environment: Vec<(String, String)>,
         record_alias: Option<String>,
     },
+    /// Request TUI to open an embedded SSH (or other) workspace without leaving Ratatui.
+    EmbeddedTerminal {
+        program: String,
+        args: Vec<String>,
+        environment: Vec<(String, String)>,
+        record_alias: Option<String>,
+        title: String,
+        alias: String,
+        hostname: String,
+        user: String,
+        port: u16,
+    },
     /// Request a settings.toml CAS update (handled by the engine).
     SettingsMutation {
         patch: serde_json::Value,

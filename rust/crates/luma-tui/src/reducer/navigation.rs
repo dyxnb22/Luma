@@ -6,6 +6,7 @@ use super::actions::{clear_action_ui, execute_action, review_return_route};
 use super::explicit_command_prompt;
 use super::preview::preview_effect;
 use super::search::{begin_search, cancel_active, schedule_search};
+use super::ssh_workspace;
 use super::wordbook;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -312,6 +313,22 @@ pub(super) fn cancel_msg(state: &mut AppState) -> Vec<Effect> {
         state.status.set("cancelling action…", StatusTone::Progress);
         return vec![Effect::CancelOperation { operation_id }];
     }
+    if state.route == Route::SshWorkspace {
+        if let Some(ws) = state.ssh_workspace.as_mut() {
+            if ws.focus == crate::ssh_workspace::SshWorkspaceFocus::Shelf {
+                ws.focus = crate::ssh_workspace::SshWorkspaceFocus::Terminal;
+                ws.shelf_visible = false;
+                state.focus = FocusZone::Terminal;
+                let (cols, rows) = ssh_workspace::terminal_geometry(state);
+                if let Some(ws) = state.ssh_workspace.as_mut() {
+                    ws.term_cols = cols;
+                    ws.term_rows = rows;
+                }
+                return vec![Effect::ResizeEmbeddedPty { cols, rows }];
+            }
+        }
+        return ssh_workspace::leave_workspace(state);
+    }
     if state.route == Route::WordbookReview {
         return wordbook::exit_wordbook_review(state);
     }
@@ -608,7 +625,7 @@ pub(super) fn scroll_page(state: &mut AppState, direction: ScrollDirection) -> V
             state.preview.scroll = 0;
             return preview_effect(state);
         }
-        Route::WordbookReview | Route::ConfirmAction | Route::QuitConfirm => {
+        Route::WordbookReview | Route::ConfirmAction | Route::QuitConfirm | Route::SshWorkspace => {
             state
                 .status
                 .set("Nothing scrollable is focused", StatusTone::Neutral);

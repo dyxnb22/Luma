@@ -130,6 +130,27 @@ impl Engine {
                                     environment,
                                     record_alias,
                                 },
+                                crate::module::ActionOutcome::EmbeddedTerminal {
+                                    program,
+                                    args,
+                                    environment,
+                                    record_alias,
+                                    title,
+                                    alias,
+                                    hostname,
+                                    user,
+                                    port,
+                                } => luma_protocol::ActionOutcomeDto::EmbeddedTerminal {
+                                    program,
+                                    args,
+                                    environment,
+                                    record_alias,
+                                    title,
+                                    alias,
+                                    hostname,
+                                    user,
+                                    port,
+                                },
                                 crate::module::ActionOutcome::SettingsMutation { patch } => {
                                     match apply_settings_mutation(
                                         settings_repo.as_ref(),

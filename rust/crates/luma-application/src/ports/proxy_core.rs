@@ -89,6 +89,9 @@ pub trait ProxyCorePort: Send + Sync {
     async fn list_proxy_groups(&self) -> Result<Vec<ProxyGroup>, ProxyCoreError>;
     async fn select_proxy(&self, group: &str, proxy: &str) -> Result<(), ProxyCoreError>;
     async fn refresh_provider(&self) -> Result<(), ProxyCoreError>;
+    /// On-demand delay probe for one proxy name via the Mihomo controller.
+    /// Returns delay milliseconds, or an error when the node is unreachable / rejected.
+    async fn test_proxy_delay(&self, name: &str) -> Result<u32, ProxyCoreError>;
     async fn get_external_controller_status(
         &self,
     ) -> Result<ExternalControllerStatus, ProxyCoreError>;
@@ -103,6 +106,8 @@ pub struct FakeProxyCore {
     pub selected: Mutex<Vec<(String, String)>>,
     pub mode_changes: Mutex<Vec<ProxyMode>>,
     pub refreshes: Mutex<u32>,
+    pub delay_tests: Mutex<Vec<String>>,
+    pub delay_ms: Mutex<Option<u32>>,
 }
 
 impl FakeProxyCore {
@@ -114,6 +119,8 @@ impl FakeProxyCore {
             selected: Mutex::new(Vec::new()),
             mode_changes: Mutex::new(Vec::new()),
             refreshes: Mutex::new(0),
+            delay_tests: Mutex::new(Vec::new()),
+            delay_ms: Mutex::new(Some(42)),
         })
     }
 
@@ -192,6 +199,16 @@ impl ProxyCorePort for FakeProxyCore {
         }
         *self.refreshes.lock().await += 1;
         Ok(())
+    }
+
+    async fn test_proxy_delay(&self, name: &str) -> Result<u32, ProxyCoreError> {
+        if let Some(err) = self.error.lock().await.clone() {
+            return Err(err);
+        }
+        self.delay_tests.lock().await.push(name.to_string());
+        self.delay_ms.lock().await.ok_or_else(|| ProxyCoreError::Unavailable(
+            "proxy delay probe failed".into(),
+        ))
     }
 
     async fn get_external_controller_status(

@@ -811,6 +811,22 @@ impl ProxyCorePort for MacMihomoProxyCore {
         Ok(())
     }
 
+    async fn test_proxy_delay(&self, name: &str) -> Result<u32, ProxyCoreError> {
+        // Mihomo: GET /proxies/{name}/delay?url=...&timeout=...
+        let path = format!(
+            "/proxies/{}/delay?url=http://www.gstatic.com/generate_204&timeout=5000",
+            path_segment(name)
+        );
+        let value = self.json("GET", &path, None).await?;
+        let delay = value
+            .get("delay")
+            .and_then(Value::as_u64)
+            .and_then(|delay| u32::try_from(delay).ok())
+            .filter(|delay| *delay > 0)
+            .ok_or_else(|| ProxyCoreError::Unavailable("proxy delay probe failed".into()))?;
+        Ok(delay)
+    }
+
     async fn get_external_controller_status(
         &self,
     ) -> Result<ExternalControllerStatus, ProxyCoreError> {

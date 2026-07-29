@@ -346,6 +346,7 @@ impl ProxyModule {
             },
             primary_action_risk: ActionRisk::Safe,
             primary_action_confirmation: false,
+            secondary_actions: vec![action_dto("test_proxy", "Test", ActionRisk::Safe, false)],
             ..Default::default()
         }
     }
@@ -376,7 +377,7 @@ impl ProxyModule {
         let recognized = normalized_rest.is_empty()
             || matches!(
                 normalized_rest.as_str(),
-                "status" | "check" | "global" | "rule" | "profile" | "import"
+                "status" | "check" | "global" | "rule" | "profile" | "import" | "sync"
             )
             || normalized_rest.starts_with("group ")
             || normalized_rest.starts_with("profile ")
@@ -390,8 +391,39 @@ impl ProxyModule {
                         MODULE_ID,
                         "proxy:command-invalid",
                         "Unknown Proxy command",
-                        "Use /proxy, /proxy status, /proxy check, /proxy group <name>, /proxy global, /proxy rule, /proxy profile, or /proxy import <source>",
+                        "Use /proxy, /proxy status, /proxy check, /proxy group <name>, /proxy global, /proxy rule, /proxy profile, /proxy import <source>, or /proxy sync",
                     )],
+                    removed_ids: vec![],
+                })
+                .await;
+            return;
+        }
+        if normalized_rest == "sync" {
+            let item = if self.profiles.is_some() {
+                SearchItemDto {
+                    id: "proxy:profile:sync".into(),
+                    module_id: MODULE_ID.into(),
+                    title: "Sync convention proxy.yaml".into(),
+                    subtitle: Some(
+                        "Compile LumaNext/proxy.yaml into the fixed Luma Profile (not applied yet)"
+                            .into(),
+                    ),
+                    kind: "profile_sync".into(),
+                    score: 95.0,
+                    primary_action_id: "sync_convention_profile".into(),
+                    primary_action_label: "Sync".into(),
+                    primary_action_risk: ActionRisk::Confirm,
+                    primary_action_confirmation: true,
+                    ..Default::default()
+                }
+            } else {
+                profile_unavailable()
+            };
+            let _ = sink
+                .send(Event::ResultsChunk {
+                    request_id: String::new(),
+                    sequence: 1,
+                    upserts: vec![item],
                     removed_ids: vec![],
                 })
                 .await;

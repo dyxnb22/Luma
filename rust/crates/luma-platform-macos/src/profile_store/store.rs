@@ -14,11 +14,12 @@ use tokio::sync::Mutex;
 use super::fs::{
     atomic_json, atomic_write, canonical_local_file, combine_rollbacks, io_error,
     read_optional_file, read_profile_stats, read_yaml_file, remove_file_if_exists, restore_file,
-    rollback_failure, safe_child, set_private_dir_mode, ProfileStoreLock,
+    rollback_failure, safe_child, set_private_dir_mode, set_private_file_mode, ProfileStoreLock,
 };
 use super::parse::{
     new_id, normalize_subscription_bytes, now, safe_name, sequence_len, valid_id, validate_profile,
 };
+use super::recipe::{compile_convention_recipe, CONVENTION_PROFILE_ID};
 use super::{default_clash_root, MAX_PROFILE_BYTES, URL_ACCOUNT_PREFIX};
 
 #[async_trait]
@@ -115,6 +116,15 @@ impl MacProfileStore {
     fn index_path(&self) -> PathBuf {
         self.root.join("profiles.json")
     }
+
+    /// Convention recipe lives beside `proxy-profiles/` under the LumaNext support root.
+    fn convention_recipe_path(&self) -> PathBuf {
+        self.root
+            .parent()
+            .map(|parent| parent.join("proxy.yaml"))
+            .unwrap_or_else(|| self.root.join("proxy.yaml"))
+    }
+
     fn source_path(&self, id: &str) -> Result<PathBuf, ProfileStoreError> {
         if !valid_id(id) {
             return Err(ProfileStoreError::SecurityDenied(
@@ -575,9 +585,38 @@ impl ProfileStorePort for MacProfileStore {
         }
         Ok(())
     }
+
+    async fn sync_convention_profile(&self) -> Result<ProfileImportResult, ProfileStoreError> {
+        let _guard = self.lock_store().await?;
+        let path = self.convention_recipe_path();
+        let meta = fs::metadata(&path).map_err(|error| {
+            if error.kind() == std::io::ErrorKind::NotFound {
+                ProfileStoreError::NotConfigured(
+                    "convention proxy.yaml is missing; create it under LumaNext".into(),
+                )
+            } else {
+                io_error(error)
+            }
+        })?;
+        if meta.len() > MAX_PROFILE_BYTES {
+            return Err(ProfileStoreError::SecurityDenied(
+                "recipe exceeds the size limit".into(),
+            ));
+        }
+        let bytes = fs::read(&path).map_err(io_error)?;
+        // Best-effort private mode on the user-edited convention file.
+        let _ = set_private_file_mode(&path);
+        let compiled = compile_convention_recipe(&bytes)?;
+        self.import_bytes(
+            compiled,
+            None,
+            ProfileSource::LumaLocal,
+            None,
+            Some(CONVENTION_PROFILE_ID),
+        )
+        .await
+    }
 }
-#[cfg(test)]
-mod tests {
     use super::*;
     use async_trait::async_trait;
     use luma_application::{
@@ -1172,5 +1211,88 @@ items:
                 & 0o777,
             0o600
         );
+    }
+
+    fn write_convention_recipe(dir: &Path, body: &str) {
+        fs::write(dir.join("proxy.yaml"), body).unwrap();
+    }
+
+    #[tokio::test]
+    async fn sync_convention_missing_file_is_not_configured() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = MacProfileStore::with_paths(dir.path().join("profiles"), None, keychain());
+        assert!(matches!(
+            store.sync_convention_profile().await,
+            Err(ProfileStoreError::NotConfigured(_))
+        ));
+    }
+
+    #[tokio::test]
+    async fn sync_convention_invalid_leaves_store_untouched() {
+        let dir = tempfile::tempdir().unwrap();
+        write_convention_recipe(
+            dir.path(),
+            "kind: luma-proxy\nversion: 1\nname: Bad\nnodes: []\n",
+        );
+        let store = MacProfileStore::with_paths(dir.path().join("profiles"), None, keychain());
+        assert!(store.sync_convention_profile().await.is_err());
+        assert!(!dir.path().join("profiles").exists());
+    }
+
+    #[tokio::test]
+    async fn sync_convention_updates_fixed_id_without_duplicates_or_credential_leak() {
+        let dir = tempfile::tempdir().unwrap();
+        let uuid = "00000000-0000-0000-0000-000000000000";
+        let password = "super-secret-password";
+        let recipe = format!(
+            r#"
+kind: luma-proxy
+version: 1
+name: Personal VPS
+nodes:
+  - name: Node A
+    preset: ss
+    server: a.example.com
+    port: 8388
+    cipher: aes-256-gcm
+    password: {password}
+  - name: Node B
+    preset: vless-tls
+    server: b.example.com
+    port: 443
+    uuid: {uuid}
+"#
+        );
+        write_convention_recipe(dir.path(), &recipe);
+        let store = MacProfileStore::with_paths(dir.path().join("profiles"), None, keychain());
+        let first = store.sync_convention_profile().await.unwrap();
+        assert_eq!(first.summary.id, CONVENTION_PROFILE_ID);
+        assert_eq!(first.summary.node_count, 2);
+        assert!(!first.runtime_applied);
+        write_convention_recipe(
+            dir.path(),
+            &recipe.replace("Personal VPS", "Personal VPS 2"),
+        );
+        let second = store.sync_convention_profile().await.unwrap();
+        assert_eq!(second.summary.id, CONVENTION_PROFILE_ID);
+        assert_eq!(second.summary.name, "Personal VPS 2");
+        let listed = store.list_profiles().await.unwrap();
+        assert_eq!(listed.len(), 1);
+        let index = fs::read_to_string(dir.path().join("profiles/profiles.json")).unwrap();
+        assert!(!index.contains(password));
+        assert!(!index.contains(uuid));
+        assert!(!index.contains("public-key"));
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(
+                fs::metadata(dir.path().join(format!("profiles/{CONVENTION_PROFILE_ID}.yaml")))
+                    .unwrap()
+                    .permissions()
+                    .mode()
+                    & 0o777,
+                0o600
+            );
+        }
     }
 }

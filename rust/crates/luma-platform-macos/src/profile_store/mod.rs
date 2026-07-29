@@ -8,6 +8,7 @@ mod clash;
 mod fetch;
 mod fs;
 mod parse;
+mod recipe;
 mod store;
 
 use std::path::PathBuf;

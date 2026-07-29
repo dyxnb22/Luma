@@ -158,7 +158,7 @@ pub(super) fn apply_engine(state: &mut AppState, event: Event) -> Vec<Effect> {
                     });
                     state.route = Route::ConfirmAction;
                     state.status.set(
-                        format!("confirm {}? Enter=yes Esc=no", action.label),
+                        format!("Review {} before running", action.label),
                         StatusTone::Warning,
                     );
                     return vec![Effect::None];

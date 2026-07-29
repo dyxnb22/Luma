@@ -305,14 +305,14 @@ impl ProxyModule {
                 SystemProxyState::Off => (
                     "enable_system_proxy",
                     "Enable System Proxy",
-                    ActionRisk::Confirm,
-                    true,
+                    ActionRisk::Safe,
+                    false,
                 ),
                 SystemProxyState::Mismatch => (
                     "enable_system_proxy",
                     "Switch System Proxy",
-                    ActionRisk::Confirm,
-                    true,
+                    ActionRisk::Safe,
+                    false,
                 ),
                 SystemProxyState::On | SystemProxyState::Unavailable => {
                     ("refresh", "Refresh", ActionRisk::Safe, false)

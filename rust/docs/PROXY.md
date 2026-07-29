@@ -142,7 +142,8 @@ Luma 以一个事务管理 macOS HTTP、HTTPS（Secure Web Proxy）和 SOCKS 三
 并只在 Luma 上次写入的值仍然匹配时恢复原值。如果当前网络服务启用了 HTTP/SOCKS/HTTPS
 认证、PAC URL 或 Proxy Auto Discovery，Luma 返回 `conflict`，不会接管该服务，也不会尝试
 回滚这些设置。普通、无认证的 loopback HTTPS 可安全接管。启用时若 Mihomo 只提供
-`mixed-port`，该端口会同时用于三项；整个操作仍需确认。
+`mixed-port`，该端口会同时用于三项。Enable/Switch 在确认 Mihomo listener 可用后单次 Enter
+执行；Disable 仍需确认，以避免意外恢复接管前的旧设置。
 
 状态只有在所有 Mihomo 提供的协议均已启用并且 loopback 地址、端口完全匹配时才显示 `ON`；
 全部关闭显示 `OFF`，部分启用或端口不同显示 `MISMATCH`。OFF 时 Enter 为 Enable，

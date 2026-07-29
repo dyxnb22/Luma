@@ -103,8 +103,6 @@ pub(super) fn render_overlay_confirm(
     let title_style = with_panel_bg(title_style, theme);
 
     let lines = vec![
-        Line::from(Span::styled(format!(" {risk_label} "), title_style)),
-        Line::from(Span::styled("", panel)),
         Line::from(Span::styled(
             format!("  Action: {action}"),
             with_panel_bg(theme.text().add_modifier(Modifier::BOLD), theme),
@@ -126,11 +124,7 @@ pub(super) fn render_overlay_confirm(
         .block(
             overlay_block(theme, symbols)
                 .border_style(title_style)
-                .title(Span::styled(" CONFIRM ", title_style))
-                .title_bottom(overlay_hint(
-                    format!(" Enter confirm {} Esc cancel ", symbols.sep),
-                    theme,
-                )),
+                .title(Span::styled(format!(" {risk_label} "), title_style)),
         );
     frame.render_widget(widget, overlay);
 }

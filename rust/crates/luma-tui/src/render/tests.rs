@@ -750,6 +750,27 @@ fn render_confirm_overlay_shows_target() {
 }
 
 #[test]
+fn render_confirm_overlay_has_one_confirm_heading() {
+    use crate::view_model::PendingAction;
+    use luma_protocol::ActionDescriptorDto;
+
+    let mut state = state_with_results();
+    state.route = Route::ConfirmAction;
+    state.actions.pending_action = Some(PendingAction {
+        result_id: "1".into(),
+        action: ActionDescriptorDto {
+            id: "run".into(),
+            label: "Run Action".into(),
+            risk: ActionRisk::Confirm,
+            confirmation: true,
+        },
+    });
+    let (flat, _) = draw(&state, 80, 24);
+    assert_eq!(flat.matches("CONFIRM").count(), 1, "{flat}");
+    assert!(flat.contains("Action: Run Action"), "{flat}");
+}
+
+#[test]
 fn render_wordbook_progress_and_summary_are_consistent() {
     let mut state = AppState {
         route: Route::WordbookReview,

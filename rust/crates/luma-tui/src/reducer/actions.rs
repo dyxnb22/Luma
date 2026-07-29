@@ -251,7 +251,7 @@ pub(super) fn submit_picker_selection(state: &mut AppState) -> Vec<Effect> {
         });
         state.route = Route::ConfirmAction;
         state.status.set(
-            format!("confirm {}? Enter=yes Esc=no", action.label),
+            format!("Review {} before running", action.label),
             StatusTone::Warning,
         );
         vec![Effect::None]
@@ -334,7 +334,7 @@ pub(super) fn begin_primary_or_confirm(
         });
         state.route = Route::ConfirmAction;
         state.status.set(
-            format!("confirm {}? Enter=yes Esc=no", action.label),
+            format!("Review {} before running", action.label),
             StatusTone::Warning,
         );
         vec![Effect::None]

@@ -701,7 +701,8 @@ mod tests {
             .unwrap();
         assert_eq!(off.primary_action.id.as_str(), "enable_system_proxy");
         assert_eq!(off.primary_action.label, "Enable System Proxy");
-        assert!(off.primary_action.confirmation);
+        assert_eq!(off.primary_action.risk, ActionRisk::Safe);
+        assert!(!off.primary_action.confirmation);
 
         let mismatched = SystemProxySetting {
             enabled: true,
@@ -725,6 +726,8 @@ mod tests {
             .is_some_and(|subtitle| subtitle.contains("System proxy: MISMATCH")));
         assert_eq!(item.primary_action.id.as_str(), "enable_system_proxy");
         assert_eq!(item.primary_action.label, "Switch System Proxy");
+        assert_eq!(item.primary_action.risk, ActionRisk::Safe);
+        assert!(!item.primary_action.confirmation);
         let actions = module.actions(&item).await;
         assert_eq!(actions[0].id.as_str(), "enable_system_proxy");
         assert!(!actions

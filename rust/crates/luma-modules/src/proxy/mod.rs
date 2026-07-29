@@ -160,6 +160,40 @@ impl ProxyModule {
         self.network_probe = network_probe;
         self
     }
+
+    async fn set_global_mode(&self) -> Result<(), luma_application::ProxyCoreError> {
+        let groups = self.core.list_proxy_groups().await?;
+        let global = groups
+            .iter()
+            .find(|group| group.name.eq_ignore_ascii_case("GLOBAL"));
+        let route_via_proxy = global.and_then(|group| {
+            let direct = group.selected.as_deref().is_none_or(|selected| {
+                selected.eq_ignore_ascii_case("DIRECT") || selected.eq_ignore_ascii_case("REJECT")
+            });
+            let proxy = group
+                .nodes
+                .iter()
+                .find(|node| node.name.eq_ignore_ascii_case("PROXY"))?;
+            direct.then(|| {
+                (
+                    group.name.clone(),
+                    proxy.name.clone(),
+                    group.selected.clone(),
+                )
+            })
+        });
+
+        if let Some((group, proxy, _)) = &route_via_proxy {
+            self.core.select_proxy(group, proxy).await?;
+        }
+        if let Err(error) = self.core.set_mode(ProxyMode::Global).await {
+            if let Some((group, _, Some(previous))) = route_via_proxy {
+                let _ = self.core.select_proxy(&group, &previous).await;
+            }
+            return Err(error);
+        }
+        Ok(())
+    }
 }
 
 #[async_trait]
@@ -328,7 +362,7 @@ impl LumaModule for ProxyModule {
                     query: format!("/proxy group {group}"),
                 }
             }
-            "set_global" => match self.core.set_mode(ProxyMode::Global).await {
+            "set_global" => match self.set_global_mode().await {
                 Ok(()) => ActionOutcome::Success {
                     message: Some("mode set to Global".into()),
                 },
@@ -716,7 +750,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn overview_shows_group_summary_and_group_drilldown_shows_nodes() {
+    async fn overview_shows_settings_and_node_drilldown_shows_only_nodes() {
         let (module, core, _) = module();
         core.groups.lock().await.push(ProxyGroup {
             name: "COMPATIBLE".into(),
@@ -724,12 +758,23 @@ mod tests {
             nodes: vec![],
         });
         let items = collect_search_items(&module, Query::parse("proxy ", 20)).await;
-        assert!(items
-            .iter()
-            .any(|item| item.title == "Luma Proxy ready · Rule"));
+        assert_eq!(
+            items
+                .iter()
+                .map(|item| item.title.as_str())
+                .collect::<Vec<_>>(),
+            vec![
+                "System Proxy",
+                "Proxy Mode",
+                "Current Node",
+                "Configuration",
+                "Connection Check",
+                "Runtime",
+            ]
+        );
         let group = items
             .iter()
-            .find(|item| item.title == "AI-VPS")
+            .find(|item| item.title == "Current Node")
             .unwrap()
             .clone();
         assert!(group
@@ -764,6 +809,7 @@ mod tests {
             .as_deref()
             .is_some_and(|subtitle| subtitle.contains("selected")));
         assert_eq!(selected.primary_action.id.as_str(), "test_proxy");
+        assert!(items.iter().all(|item| item.kind == "proxy_node"));
         assert!(!items.iter().any(|item| item.kind == "proxy_group"));
         assert!(!redact_label("node-123e4567-e89b-12d3-a456-426614174000").contains("123e4567"));
     }
@@ -817,15 +863,15 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn status_primary_action_enables_off_and_switches_mismatched_system_proxy() {
+    async fn system_setting_enables_off_and_switches_mismatched_system_proxy() {
         let (module, _, system) = module();
         let off = collect_search_items(&module, Query::parse("proxy ", 20))
             .await
             .into_iter()
-            .find(|item| item.id.as_str() == "proxy:status")
+            .find(|item| item.id.as_str() == "proxy:setting:system")
             .unwrap();
         assert_eq!(off.primary_action.id.as_str(), "enable_system_proxy");
-        assert_eq!(off.primary_action.label, "Enable System Proxy");
+        assert_eq!(off.primary_action.label, "Turn On");
         assert_eq!(off.primary_action.risk, ActionRisk::Safe);
         assert!(!off.primary_action.confirmation);
 
@@ -843,14 +889,14 @@ mod tests {
         let item = collect_search_items(&module, Query::parse("proxy ", 20))
             .await
             .into_iter()
-            .find(|item| item.id.as_str() == "proxy:status")
+            .find(|item| item.id.as_str() == "proxy:setting:system")
             .unwrap();
         assert!(item
             .subtitle
             .as_deref()
-            .is_some_and(|subtitle| subtitle.contains("System proxy: OTHER")));
+            .is_some_and(|subtitle| subtitle.contains("OTHER")));
         assert_eq!(item.primary_action.id.as_str(), "enable_system_proxy");
-        assert_eq!(item.primary_action.label, "Switch to Luma");
+        assert_eq!(item.primary_action.label, "Use Luma");
         assert_eq!(item.primary_action.risk, ActionRisk::Confirm);
         assert!(item.primary_action.confirmation);
         let actions = module.actions(&item).await;
@@ -889,12 +935,12 @@ mod tests {
         let partial = collect_search_items(&module, Query::parse("proxy ", 20))
             .await
             .into_iter()
-            .find(|item| item.id.as_str() == "proxy:status")
+            .find(|item| item.id.as_str() == "proxy:setting:system")
             .unwrap();
         assert!(partial
             .subtitle
             .as_deref()
-            .is_some_and(|subtitle| subtitle.contains("System proxy: OTHER")));
+            .is_some_and(|subtitle| subtitle.contains("OTHER")));
 
         {
             let mut status = system.status.lock().await;
@@ -912,18 +958,15 @@ mod tests {
         let on = collect_search_items(&module, Query::parse("proxy ", 20))
             .await
             .into_iter()
-            .find(|item| item.id.as_str() == "proxy:status")
+            .find(|item| item.id.as_str() == "proxy:setting:system")
             .unwrap();
         assert!(on
             .subtitle
             .as_deref()
-            .is_some_and(|subtitle| subtitle.contains("System proxy: LUMA")));
-        assert_eq!(on.primary_action.id.as_str(), "open_proxy_status");
-        assert!(module
-            .actions(&on)
-            .await
-            .iter()
-            .any(|action| action.id.as_str() == "disable_system_proxy"));
+            .is_some_and(|subtitle| subtitle.contains("ON")));
+        assert_eq!(on.primary_action.id.as_str(), "disable_system_proxy");
+        assert_eq!(on.primary_action.label, "Turn Off");
+        assert!(on.primary_action.confirmation);
     }
 
     #[tokio::test]
@@ -965,6 +1008,53 @@ mod tests {
             matches!(tested, ActionOutcome::Success { message: Some(ref msg) } if msg.contains("42"))
         );
         assert_eq!(core.delay_tests.lock().await.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn global_mode_routes_global_selector_through_proxy_group() {
+        let (module, core, _) = module();
+        core.groups.lock().await.push(ProxyGroup {
+            name: "GLOBAL".into(),
+            selected: Some("DIRECT".into()),
+            nodes: vec![
+                ProxyNode {
+                    name: "DIRECT".into(),
+                    kind: "Direct".into(),
+                    delay_ms: None,
+                    selected: true,
+                    group: Some("GLOBAL".into()),
+                },
+                ProxyNode {
+                    name: "PROXY".into(),
+                    kind: "Selector".into(),
+                    delay_ms: None,
+                    selected: false,
+                    group: Some("GLOBAL".into()),
+                },
+            ],
+        });
+        let mode = collect_search_items(&module, Query::parse("proxy ", 20))
+            .await
+            .into_iter()
+            .find(|item| item.id.as_str() == "proxy:setting:mode")
+            .unwrap();
+        let action = module.actions(&mode).await.remove(0);
+        let outcome = module
+            .perform(
+                ActionRequest {
+                    result: mode,
+                    action,
+                    confirmation: true,
+                },
+                CancellationToken::new(),
+            )
+            .await;
+        assert!(matches!(outcome, ActionOutcome::Success { .. }));
+        assert_eq!(
+            *core.selected.lock().await,
+            vec![("GLOBAL".into(), "PROXY".into())]
+        );
+        assert_eq!(*core.mode_changes.lock().await, vec![ProxyMode::Global]);
     }
 
     #[test]
@@ -1119,12 +1209,12 @@ mod tests {
         let status = collect_search_items(&module, Query::parse("proxy ", 20))
             .await
             .into_iter()
-            .find(|item| item.id.as_str() == "proxy:status")
+            .find(|item| item.id.as_str() == "proxy:setting:profile")
             .unwrap();
         assert!(status
             .subtitle
             .as_deref()
-            .is_some_and(|subtitle| subtitle.contains("Profile: Personal VPS")));
+            .is_some_and(|subtitle| subtitle.contains("Personal VPS")));
     }
 
     #[tokio::test]
@@ -1471,7 +1561,7 @@ mod tests {
         let status = collect_search_items(&module, Query::parse("proxy ", 20))
             .await
             .into_iter()
-            .find(|item| item.kind == "status")
+            .find(|item| item.kind == "proxy_system_setting")
             .unwrap();
         let action = module
             .actions(&status)
@@ -1513,7 +1603,7 @@ mod tests {
         let item = collect_search_items(&module, Query::parse("proxy ", 20))
             .await
             .into_iter()
-            .find(|item| item.id.as_str() == "proxy:status")
+            .find(|item| item.id.as_str() == "proxy:setting:system")
             .unwrap();
         let action = module.actions(&item).await.remove(0);
         let outcome = module

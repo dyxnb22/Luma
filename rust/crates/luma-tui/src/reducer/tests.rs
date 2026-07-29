@@ -2101,6 +2101,30 @@ fn begin_search_clears_pending_preview() {
 }
 
 #[test]
+fn successful_proxy_action_refreshes_the_visible_settings() {
+    let mut state = AppState::default();
+    state.route = Route::Search;
+    state.search.prompt = "/proxy ".into();
+    state.search.prompt_cursor = state.prompt_char_len();
+    state.actions.active_operation = Some("op-proxy".into());
+    state.actions.active_kind = Some("proxy_system_setting".into());
+
+    let effects = apply_engine(
+        &mut state,
+        Event::ActionFinished {
+            operation_id: "op-proxy".into(),
+            outcome: luma_protocol::ActionOutcomeDto::Success {
+                message: Some("system proxy enabled".into()),
+            },
+        },
+    );
+
+    assert!(effects
+        .iter()
+        .any(|effect| matches!(effect, Effect::Search { .. })));
+}
+
+#[test]
 fn open_help_saves_restore_prompt() {
     let mut state = AppState::default();
     state.search.prompt = "clip foo".into();

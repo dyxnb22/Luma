@@ -8,9 +8,9 @@ socket，不负责启动代理核心，也不执行导入 Profile 中的脚本�
 
 | Query | 作用 |
 | --- | --- |
-| `/proxy ` | 显示当前控制核心、Luma 是否接管系统代理及当前有效代理组；Rule 模式隐藏无效的 `GLOBAL` |
-| `/proxy group <name>` | 查看代理组节点；未选节点 Enter 选择，已选节点 Enter 执行按需 **Test Latency** |
-| `/proxy global` / `/proxy rule` | 切换 Mihomo 模式，使用 `PATCH /configs` |
+| `/proxy ` | 设置型首页：系统代理、代理模式、当前节点、配置方案、连接检查和运行信息 |
+| `/proxy group <name>` | 只显示代理组节点；未选节点 Enter 选择，已选节点 Enter 执行按需 **Test Latency** |
+| `/proxy global` / `/proxy rule` | 切换 Mihomo 模式；Global 会先确保 `GLOBAL` selector 经 `PROXY` 转发 |
 | `/proxy profile` | 列出 Luma Profile 和现有 Clash Verge Profile |
 | `/proxy profile <name>` | 按名称筛选 Profile |
 | `/proxy profile refresh` | 只刷新 Luma 管理的订阅 Profile |
@@ -76,6 +76,19 @@ nodes:
 需要先检查草稿时仍可用 `/proxy sync` → `/proxy profile` → Use。不做文件监控或后台
 daemon。节点 **Test Latency** 通过 Controller 和通用 204 地址探测传输延迟，不后台轮询；
 它不能证明某个具体网站不会按 VPS IP、地区或风控策略拒绝访问。
+
+`/proxy` 首页参考常见 Clash 客户端的设置心智模型，但保持键盘式列表交互：
+
+1. **System Proxy**：ON / OFF / OTHER，Enter 执行当前可用的接管或关闭动作
+2. **Proxy Mode**：Rule（分流）/ Global（全局）
+3. **Current Node**：显示 `PROXY` 当前节点，Enter 进入纯节点列表
+4. **Configuration**：Profile 与约定 `proxy.yaml`
+5. **Connection Check**：按需检查网络、DNS、listener 和 Controller
+6. **Runtime**：独立/Clash Verge 核心、端口、Provider 刷新和地址复制
+
+设置动作成功后 TUI 会自动重新查询当前页面，不再显示旧状态。Global 模式若发现 Mihomo 的
+`GLOBAL` selector 停在 `DIRECT` / `REJECT` 且存在 `PROXY`，会先选择 `PROXY` 再切换模式；
+切换失败则恢复原 selector。
 
 ### 轻量分流 `routing`
 
@@ -172,8 +185,12 @@ Luma 以一个事务管理 macOS HTTP、HTTPS（Secure Web Proxy）和 SOCKS 三
 状态只有在所有 Mihomo 提供的协议均已启用并且 loopback 地址、端口完全匹配时才显示
 `System proxy: LUMA`；全部关闭显示 `OFF`，指向 Clash Verge 或其他端口时显示
 `OTHER (host:port)`。OFF 时 Enter 为 Enable；OTHER 时 Enter 为带确认的
-**Switch to Luma**，并在修改前检查目标 listener。Luma 会把当前外部代理保存为恢复点，
+**Use Luma**，并在修改前检查目标 listener。Luma 会把当前外部代理保存为恢复点，
 所以之后 Disable 会恢复它；未经用户确认不会覆盖一个正在工作的 Clash Verge 代理。
+
+关闭 Clash Verge 窗口或后台核心并不保证 macOS 自动清除原系统代理。如果系统仍指向已经停止
+监听的 Clash 端口，首页会明确显示 `OTHER`；此时需执行 **Use Luma**，否则系统流量不会自动
+改走独立 Mihomo。
 
 ## Clash Verge 兼容
 

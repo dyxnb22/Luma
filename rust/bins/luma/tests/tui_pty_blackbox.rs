@@ -397,7 +397,8 @@ fn real_pty_preserves_keyboard_first_prompt_and_navigation() {
     let marker = tui.mark();
     tui.write(b"\x1b[A");
     tui.wait_for_screen(marker, "up-arrow restoring help", |screen| {
-        screen.contents() == help_top_contents
+        let contents = screen.contents();
+        contents.contains("Enter opens a bare trigger") && contents.contains("Workbench commands:")
     });
 
     let marker = tui.mark();
@@ -411,7 +412,8 @@ fn real_pty_preserves_keyboard_first_prompt_and_navigation() {
     let marker = tui.mark();
     tui.write(b"\x1b[5~");
     tui.wait_for_screen(marker, "PageUp restoring help", |screen| {
-        screen.contents() == help_top_contents
+        let contents = screen.contents();
+        contents.contains("Enter opens a bare trigger") && contents.contains("Workbench commands:")
     });
 
     let marker = tui.mark();

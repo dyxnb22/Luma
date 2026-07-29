@@ -32,6 +32,7 @@ pub struct ProxyModule {
     profiles: Option<Arc<dyn ProfileStorePort>>,
     network_probe: Arc<dyn NetworkProbePort>,
     last_status: RwLock<Option<ProxyStatus>>,
+    group_keys: RwLock<HashMap<String, String>>,
     selection_keys: RwLock<HashMap<String, (String, String)>>,
     import_keys: RwLock<HashMap<String, ImportIntent>>,
 }
@@ -131,6 +132,7 @@ impl ProxyModule {
             profiles: None,
             network_probe: Arc::new(UnavailableNetworkProbe),
             last_status: RwLock::new(None),
+            group_keys: RwLock::new(HashMap::new()),
             selection_keys: RwLock::new(HashMap::new()),
             import_keys: RwLock::new(HashMap::new()),
         }
@@ -172,39 +174,13 @@ impl LumaModule for ProxyModule {
 
     async fn actions(&self, result: &SearchItem) -> Vec<ActionDescriptor> {
         match result.kind.as_str() {
-            "unavailable" | "permission_required" => vec![ActionDescriptor {
-                id: ActionId::new("refresh"),
-                label: "Refresh".into(),
-                risk: ActionRisk::Safe,
-                confirmation: false,
-            }],
-            "proxy_node" => vec![
-                ActionDescriptor {
-                    id: ActionId::new("select_proxy"),
-                    label: if result.primary_action.id.as_str() == "select_proxy"
-                        && result.primary_action.label == "Selected"
-                    {
-                        "Selected"
-                    } else {
-                        "Select"
-                    }
-                    .into(),
-                    risk: ActionRisk::Safe,
-                    confirmation: false,
-                },
-                ActionDescriptor {
-                    id: ActionId::new("test_proxy"),
-                    label: "Test".into(),
-                    risk: ActionRisk::Safe,
-                    confirmation: false,
-                },
-            ],
-            "proxy_group" => vec![ActionDescriptor {
-                id: ActionId::new("noop"),
-                label: "OK".into(),
-                risk: ActionRisk::Safe,
-                confirmation: false,
-            }],
+            "unavailable" | "permission_required" => vec![result.primary_action.clone()],
+            "proxy_node" => {
+                let mut actions = vec![result.primary_action.clone()];
+                actions.extend(result.secondary_actions.iter().cloned());
+                actions
+            }
+            "proxy_group" => vec![result.primary_action.clone()],
             "proxy_mode" => {
                 let global = result.primary_action.id.as_str() == "set_global";
                 vec![ActionDescriptor {
@@ -287,6 +263,46 @@ impl LumaModule for ProxyModule {
             "noop" => ActionOutcome::Success {
                 message: Some("ok".into()),
             },
+            "open_proxy_overview" | "retry_proxy" => ActionOutcome::OpenSurface {
+                query: "/proxy ".into(),
+            },
+            "open_proxy_status" => ActionOutcome::OpenSurface {
+                query: "/proxy status".into(),
+            },
+            "rerun_proxy_check" => ActionOutcome::OpenSurface {
+                query: "/proxy check".into(),
+            },
+            "open_proxy_profiles" => ActionOutcome::OpenSurface {
+                query: "/proxy profile".into(),
+            },
+            "open_proxy_group" => {
+                let Some(group) = self
+                    .group_keys
+                    .read()
+                    .await
+                    .get(action.result.id.as_str())
+                    .cloned()
+                else {
+                    return ActionOutcome::Failed {
+                        kind: FailureKind::InvalidInput {
+                            field: "result_id".into(),
+                            message: "proxy group result expired; search again".into(),
+                        },
+                    };
+                };
+                if group.chars().any(char::is_control) {
+                    return ActionOutcome::Failed {
+                        kind: FailureKind::InvalidInput {
+                            field: "group".into(),
+                            message: "proxy group name contains unsupported control characters"
+                                .into(),
+                        },
+                    };
+                }
+                ActionOutcome::OpenSurface {
+                    query: format!("/proxy group {group}"),
+                }
+            }
             "set_global" => match self.core.set_mode(ProxyMode::Global).await {
                 Ok(()) => ActionOutcome::Success {
                     message: Some("mode set to Global".into()),
@@ -556,6 +572,7 @@ impl LumaModule for ProxyModule {
 
     async fn teardown(&self) {
         *self.last_status.write().await = None;
+        self.group_keys.write().await.clear();
         self.selection_keys.write().await.clear();
         self.import_keys.write().await.clear();
     }
@@ -618,28 +635,53 @@ mod tests {
 
     #[tokio::test]
     async fn overview_shows_group_summary_and_group_drilldown_shows_nodes() {
-        let (module, _, _) = module();
+        let (module, core, _) = module();
+        core.groups.lock().await.push(ProxyGroup {
+            name: "COMPATIBLE".into(),
+            selected: None,
+            nodes: vec![],
+        });
         let items = collect_search_items(&module, Query::parse("proxy ", 20)).await;
         assert!(items
             .iter()
             .any(|item| item.title == "Proxy running · Rule"));
-        assert!(items.iter().any(|item| {
-            item.title == "AI-VPS"
-                && item
-                    .subtitle
-                    .as_deref()
-                    .is_some_and(|subtitle| subtitle.contains("V2Box-VPS"))
-        }));
+        let group = items
+            .iter()
+            .find(|item| item.title == "AI-VPS")
+            .unwrap()
+            .clone();
+        assert!(group
+            .subtitle
+            .as_deref()
+            .is_some_and(|subtitle| subtitle.contains("V2Box-VPS")));
+        assert_eq!(group.primary_action.id.as_str(), "open_proxy_group");
+        assert!(!items.iter().any(|item| item.title == "COMPATIBLE"));
         assert!(!items.iter().any(|item| item.kind == "proxy_node"));
 
+        let action = module.actions(&group).await.into_iter().next().unwrap();
+        let outcome = module
+            .perform(
+                ActionRequest {
+                    result: group,
+                    action,
+                    confirmation: false,
+                },
+                CancellationToken::new(),
+            )
+            .await;
+        assert!(matches!(
+            outcome,
+            ActionOutcome::OpenSurface { query } if query == "/proxy group AI-VPS"
+        ));
+
         let items = collect_search_items(&module, Query::parse("/proxy group ai-vps", 20)).await;
-        assert!(items.iter().any(|item| {
-            item.title == "V2Box-VPS"
-                && item
-                    .subtitle
-                    .as_deref()
-                    .is_some_and(|subtitle| subtitle.contains("selected"))
-        }));
+        let selected = items.iter().find(|item| item.title == "V2Box-VPS").unwrap();
+        assert!(selected
+            .subtitle
+            .as_deref()
+            .is_some_and(|subtitle| subtitle.contains("selected")));
+        assert_eq!(selected.primary_action.id.as_str(), "test_proxy");
+        assert!(!items.iter().any(|item| item.kind == "proxy_group"));
         assert!(!redact_label("node-123e4567-e89b-12d3-a456-426614174000").contains("123e4567"));
     }
 
@@ -793,7 +835,7 @@ mod tests {
             .subtitle
             .as_deref()
             .is_some_and(|subtitle| subtitle.contains("System proxy: ON")));
-        assert_eq!(on.primary_action.id.as_str(), "refresh");
+        assert_eq!(on.primary_action.id.as_str(), "open_proxy_status");
         assert!(module
             .actions(&on)
             .await
@@ -804,6 +846,7 @@ mod tests {
     #[tokio::test]
     async fn selecting_node_is_safe_and_calls_core() {
         let (module, core, _) = module();
+        core.groups.lock().await[0].nodes[0].selected = false;
         let items = collect_search_items(&module, Query::parse("proxy group AI-VPS", 20)).await;
         let node = items
             .iter()

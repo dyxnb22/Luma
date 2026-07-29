@@ -2,7 +2,7 @@ use super::redact::{opaque_component, redact_label};
 use super::MODULE_ID;
 use luma_application::{ProfileSource, ProfileStoreError, ProfileSummary};
 use luma_domain::ActionRisk;
-use luma_protocol::SearchItemDto;
+use luma_protocol::{SearchItemDto, UiIntent};
 
 pub(super) fn profile_item(profile: ProfileSummary) -> SearchItemDto {
     let updated = profile
@@ -98,8 +98,9 @@ pub(super) fn profile_unavailable() -> SearchItemDto {
         title: "Profiles unavailable".into(),
         subtitle: Some("Luma Profile storage is not configured".into()),
         kind: "unavailable".into(),
-        primary_action_id: "refresh".into(),
-        primary_action_label: "Refresh".into(),
+        primary_action_id: "open_proxy_profiles".into(),
+        primary_action_label: "Retry".into(),
+        ui_intent: Some(UiIntent::OpenSurface),
         ..Default::default()
     }
 }
@@ -111,8 +112,9 @@ pub(super) fn profile_error_item(error: &ProfileStoreError) -> SearchItemDto {
         title: "Profiles unavailable".into(),
         subtitle: Some(profile_error_message(error)),
         kind: "unavailable".into(),
-        primary_action_id: "refresh".into(),
-        primary_action_label: "Refresh".into(),
+        primary_action_id: "open_proxy_profiles".into(),
+        primary_action_label: "Retry".into(),
+        ui_intent: Some(UiIntent::OpenSurface),
         ..Default::default()
     }
 }

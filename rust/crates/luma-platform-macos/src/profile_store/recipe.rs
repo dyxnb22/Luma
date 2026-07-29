@@ -17,7 +17,7 @@ pub(super) const CONVENTION_PROFILE_ID: &str = "p-c0ffee0000000000000001";
 
 const MAX_NODES: usize = 2000;
 
-#[derive(Debug, Deserialize)]
+#[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct ProxyRecipe {
     kind: String,
@@ -26,7 +26,7 @@ pub(super) struct ProxyRecipe {
     nodes: Vec<RecipeNode>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Deserialize)]
 #[serde(tag = "preset", deny_unknown_fields)]
 enum RecipeNode {
     #[serde(rename = "ss")]
@@ -211,11 +211,13 @@ fn require_reality_public_key(value: &str) -> Result<(), ProfileStoreError> {
 
 fn require_reality_short_id(value: &str) -> Result<(), ProfileStoreError> {
     let value = value.trim();
-    let ok = (1..=16).contains(&value.len()) && value.bytes().all(|byte| byte.is_ascii_hexdigit());
+    let ok = value.len() <= 16
+        && value.len().is_multiple_of(2)
+        && value.bytes().all(|byte| byte.is_ascii_hexdigit());
     if !ok {
         return Err(invalid(
             "short-id",
-            "short-id must be 1..=16 hex characters",
+            "short-id must be empty or contain an even number of hex characters up to 16",
         ));
     }
     Ok(())
@@ -256,7 +258,7 @@ fn compile_ss(
     insert_string(&mut map, "server", server.trim());
     insert_u16(&mut map, "port", port);
     insert_string(&mut map, "cipher", cipher.trim());
-    insert_string(&mut map, "password", password.trim());
+    insert_string(&mut map, "password", password);
     insert_bool(&mut map, "udp", true);
     Ok(Value::Mapping(map))
 }
@@ -276,7 +278,7 @@ fn compile_trojan_tls(
     let mut map = proxy_base("trojan", name.trim());
     insert_string(&mut map, "server", server.trim());
     insert_u16(&mut map, "port", port);
-    insert_string(&mut map, "password", password.trim());
+    insert_string(&mut map, "password", password);
     insert_string(&mut map, "sni", sni);
     insert_bool(&mut map, "udp", true);
     insert_bool(&mut map, "skip-cert-verify", false);
@@ -436,14 +438,14 @@ fn compile_hysteria2(
     let mut map = proxy_base("hysteria2", name.trim());
     insert_string(&mut map, "server", server.trim());
     insert_u16(&mut map, "port", port);
-    insert_string(&mut map, "password", password.trim());
+    insert_string(&mut map, "password", password);
     insert_string(&mut map, "sni", sni);
     insert_bool(&mut map, "skip-cert-verify", false);
     if let Some(obfs) = obfs {
         require_non_empty("obfs", obfs)?;
         require_non_empty("obfs-password", obfs_password.unwrap_or(""))?;
         insert_string(&mut map, "obfs", obfs.trim());
-        insert_string(&mut map, "obfs-password", obfs_password.unwrap().trim());
+        insert_string(&mut map, "obfs-password", obfs_password.unwrap());
     }
     if let Some(ports) = ports {
         require_non_empty("ports", ports)?;
@@ -470,9 +472,8 @@ fn compile_tuic_v5(
     insert_string(&mut map, "server", server.trim());
     insert_u16(&mut map, "port", port);
     insert_string(&mut map, "uuid", uuid.trim());
-    insert_string(&mut map, "password", password.trim());
+    insert_string(&mut map, "password", password);
     insert_string(&mut map, "sni", sni);
-    map.insert(Value::String("version".into()), Value::Number(5.into()));
     insert_string(&mut map, "udp-relay-mode", "native");
     insert_string(&mut map, "congestion-controller", "bbr");
     map.insert(
@@ -593,6 +594,26 @@ fn validate_recipe(recipe: &ProxyRecipe) -> Result<(), ProfileStoreError> {
     for node in &recipe.nodes {
         let name = node.name().trim();
         require_non_empty("name", name)?;
+        if name.len() > 120 || name.chars().any(char::is_control) {
+            return Err(invalid("name", "node name is invalid"));
+        }
+        if [
+            "PROXY",
+            "DIRECT",
+            "REJECT",
+            "REJECT-DROP",
+            "PASS",
+            "COMPATIBLE",
+            "GLOBAL",
+        ]
+        .iter()
+        .any(|reserved| name.eq_ignore_ascii_case(reserved))
+        {
+            return Err(invalid(
+                "name",
+                "node name conflicts with a reserved proxy name",
+            ));
+        }
         if !seen.insert(name.to_string()) {
             return Err(invalid("name", "node names must be unique"));
         }
@@ -761,7 +782,7 @@ fn require_only_keys(
 }
 
 fn percent_decode(value: &str) -> String {
-    let mut output = String::with_capacity(value.len());
+    let mut output = Vec::with_capacity(value.len());
     let bytes = value.as_bytes();
     let mut index = 0;
     while index < bytes.len() {
@@ -769,15 +790,15 @@ fn percent_decode(value: &str) -> String {
             if let (Some(high), Some(low)) =
                 (hex_digit(bytes[index + 1]), hex_digit(bytes[index + 2]))
             {
-                output.push((high * 16 + low) as char);
+                output.push(high * 16 + low);
                 index += 3;
                 continue;
             }
         }
-        output.push(bytes[index] as char);
+        output.push(bytes[index]);
         index += 1;
     }
-    output
+    String::from_utf8_lossy(&output).into_owned()
 }
 
 fn hex_digit(value: u8) -> Option<u8> {
@@ -824,9 +845,23 @@ fn compile_ss_uri(rest: &str) -> Result<Value, ProfileStoreError> {
     let (body, name) = rest
         .split_once('#')
         .map_or((rest, "Imported node"), |(body, name)| (body, name));
-    let body = body.split('?').next().unwrap_or(body);
+    let (body, query) = body.split_once('?').unwrap_or((body, ""));
+    if !query.is_empty() {
+        return Err(invalid(
+            "subscription",
+            "SS URI query parameters are unsupported; use native Mihomo YAML",
+        ));
+    }
     let (userinfo, authority) = if let Some((userinfo, authority)) = body.rsplit_once('@') {
-        (percent_decode(userinfo), authority.to_string())
+        let userinfo = percent_decode(userinfo);
+        let userinfo = if userinfo.contains(':') {
+            userinfo
+        } else {
+            decode_base64(userinfo.as_bytes())
+                .and_then(|decoded| String::from_utf8(decoded).ok())
+                .ok_or_else(|| invalid("subscription", "invalid ss node URI"))?
+        };
+        (userinfo, authority.to_string())
     } else {
         let decoded = decode_base64(body.as_bytes())
             .ok_or_else(|| invalid("subscription", "invalid ss node URI"))?;
@@ -914,27 +949,14 @@ fn compile_vless_uri(rest: &str) -> Result<Value, ProfileStoreError> {
                     "encryption",
                 ],
             )?;
-            if query.get("fp").is_some_and(|value| value != "chrome") {
-                return Err(invalid(
-                    "subscription",
-                    "URI contains an unsupported fingerprint",
-                ));
-            }
+            require_supported_fingerprint(query.get("fp").map(String::as_str))?;
             if query
                 .get("flow")
                 .is_some_and(|value| value != "xtls-rprx-vision")
             {
                 return Err(invalid("subscription", "URI contains an unsupported flow"));
             }
-            if query
-                .get("encryption")
-                .is_some_and(|value| !value.is_empty())
-            {
-                return Err(invalid(
-                    "subscription",
-                    "URI contains an unsupported encryption",
-                ));
-            }
+            require_default_vless_encryption(&query)?;
             let public_key = query
                 .get("pbk")
                 .ok_or_else(|| invalid("public-key", "public-key is required"))?;
@@ -945,39 +967,47 @@ fn compile_vless_uri(rest: &str) -> Result<Value, ProfileStoreError> {
         }
         ("tls", "tcp") => {
             require_only_keys(&query, &["security", "type", "sni", "encryption", "fp"])?;
-            if query
-                .get("encryption")
-                .is_some_and(|value| !value.is_empty())
-            {
-                return Err(invalid(
-                    "subscription",
-                    "URI contains an unsupported encryption",
-                ));
-            }
-            compile_vless_tls(name, &host, port, &uuid, sni)
+            require_default_vless_encryption(&query)?;
+            let mut proxy = compile_vless_tls(name, &host, port, &uuid, sni)?;
+            apply_supported_fingerprint(&mut proxy, query.get("fp").map(String::as_str))?;
+            Ok(proxy)
         }
         ("tls", "ws") => {
             require_only_keys(
                 &query,
-                &["security", "type", "sni", "host", "path", "encryption"],
+                &[
+                    "security",
+                    "type",
+                    "sni",
+                    "host",
+                    "path",
+                    "encryption",
+                    "fp",
+                ],
             )?;
+            require_default_vless_encryption(&query)?;
             let host_header = query
                 .get("host")
                 .ok_or_else(|| invalid("host", "host is required"))?;
             let path = query
                 .get("path")
                 .ok_or_else(|| invalid("path", "path is required"))?;
-            compile_vless_ws_tls(name, &host, port, &uuid, sni, host_header, path)
+            let mut proxy = compile_vless_ws_tls(name, &host, port, &uuid, sni, host_header, path)?;
+            apply_supported_fingerprint(&mut proxy, query.get("fp").map(String::as_str))?;
+            Ok(proxy)
         }
         ("tls", "grpc") => {
             require_only_keys(
                 &query,
-                &["security", "type", "sni", "serviceName", "encryption"],
+                &["security", "type", "sni", "serviceName", "encryption", "fp"],
             )?;
+            require_default_vless_encryption(&query)?;
             let service_name = query
                 .get("serviceName")
                 .ok_or_else(|| invalid("service-name", "service-name is required"))?;
-            compile_vless_grpc_tls(name, &host, port, &uuid, sni, service_name)
+            let mut proxy = compile_vless_grpc_tls(name, &host, port, &uuid, sni, service_name)?;
+            apply_supported_fingerprint(&mut proxy, query.get("fp").map(String::as_str))?;
+            Ok(proxy)
         }
         ("reality", _) => Err(invalid(
             "subscription",
@@ -988,6 +1018,45 @@ fn compile_vless_uri(rest: &str) -> Result<Value, ProfileStoreError> {
             "unsupported VLESS URI; use proxy.yaml presets or native Mihomo YAML",
         )),
     }
+}
+
+fn require_default_vless_encryption(
+    query: &std::collections::BTreeMap<String, String>,
+) -> Result<(), ProfileStoreError> {
+    if query
+        .get("encryption")
+        .is_some_and(|value| !value.is_empty() && value != "none")
+    {
+        return Err(invalid(
+            "subscription",
+            "URI contains an unsupported encryption",
+        ));
+    }
+    Ok(())
+}
+
+fn require_supported_fingerprint(value: Option<&str>) -> Result<(), ProfileStoreError> {
+    if value.is_some_and(|value| value != "chrome") {
+        return Err(invalid(
+            "subscription",
+            "URI contains an unsupported fingerprint",
+        ));
+    }
+    Ok(())
+}
+
+fn apply_supported_fingerprint(
+    proxy: &mut Value,
+    value: Option<&str>,
+) -> Result<(), ProfileStoreError> {
+    require_supported_fingerprint(value)?;
+    if value == Some("chrome") {
+        let map = proxy.as_mapping_mut().ok_or_else(|| {
+            ProfileStoreError::Unavailable("compiled proxy has an invalid shape".into())
+        })?;
+        insert_string(map, "client-fingerprint", "chrome");
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -1054,6 +1123,50 @@ nodes:
     }
 
     #[test]
+    fn reality_short_id_accepts_empty_and_even_hex_but_rejects_odd_hex() {
+        let recipe = |short_id: &str| {
+            format!(
+                r#"
+kind: luma-proxy
+version: 1
+name: Reality
+nodes:
+  - name: US VPS
+    preset: vless-reality
+    server: 203.0.113.10
+    port: 443
+    uuid: {UUID}
+    sni: www.microsoft.com
+    public-key: {PBK}
+    short-id: "{short_id}"
+"#
+            )
+        };
+
+        for short_id in ["", "ab", "ab12cd34"] {
+            let compiled = compile_convention_recipe(recipe(short_id).as_bytes()).unwrap();
+            let value: Value = serde_yaml_ng::from_slice(&compiled).unwrap();
+            let proxy = &value.as_mapping().unwrap()["proxies"]
+                .as_sequence()
+                .unwrap()[0];
+            let reality = proxy.as_mapping().unwrap()["reality-opts"]
+                .as_mapping()
+                .unwrap();
+            assert_eq!(
+                reality
+                    .get(Value::String("short-id".into()))
+                    .and_then(Value::as_str),
+                Some(short_id)
+            );
+        }
+
+        assert!(matches!(
+            compile_convention_recipe(recipe("abc").as_bytes()),
+            Err(ProfileStoreError::InvalidInput { field, .. }) if field == "short-id"
+        ));
+    }
+
+    #[test]
     fn compiles_phase1_and_phase2_presets() {
         let yaml = format!(
             r#"
@@ -1114,8 +1227,33 @@ nodes:
         assert!(text.contains("type: tuic"));
         assert!(text.contains("network: ws"));
         assert!(text.contains("network: grpc"));
-        assert!(text.contains("version: 5"));
+        assert!(!text.contains("version: 5"));
         assert!(!text.contains("skip-cert-verify: true"));
+    }
+
+    #[test]
+    fn preserves_opaque_password_whitespace() {
+        let yaml = r#"
+kind: luma-proxy
+version: 1
+name: Password
+nodes:
+  - name: SS
+    preset: ss
+    server: ss.example.com
+    port: 8388
+    cipher: aes-256-gcm
+    password: "  secret password  "
+"#;
+        let compiled = compile_convention_recipe(yaml.as_bytes()).unwrap();
+        let value: Value = serde_yaml_ng::from_slice(&compiled).unwrap();
+        let proxy = &value.as_mapping().unwrap()["proxies"]
+            .as_sequence()
+            .unwrap()[0];
+        assert_eq!(
+            mapping_string(proxy, "password"),
+            Some("  secret password  ")
+        );
     }
 
     #[test]
@@ -1182,19 +1320,67 @@ nodes:
             compile_convention_recipe(dup.as_bytes()),
             Err(ProfileStoreError::InvalidInput { field, .. }) if field == "name"
         ));
+
+        let reserved = r#"
+kind: luma-proxy
+version: 1
+name: Bad
+nodes:
+  - name: proxy
+    preset: ss
+    server: a.example.com
+    port: 1
+    cipher: aes-256-gcm
+    password: x
+"#;
+        assert!(matches!(
+            compile_convention_recipe(reserved.as_bytes()),
+            Err(ProfileStoreError::InvalidInput { field, .. }) if field == "name"
+        ));
     }
 
     #[test]
     fn uri_reality_reuses_preset_compiler() {
         let uri = format!(
-            "vless://{UUID}@203.0.113.10:443?security=reality&type=tcp&sni=www.microsoft.com&pbk={PBK}&sid=ab12cd34&fp=chrome&flow=xtls-rprx-vision#US"
+            "vless://{UUID}@203.0.113.10:443?security=reality&type=tcp&sni=www.microsoft.com&pbk={PBK}&sid=&fp=chrome&flow=xtls-rprx-vision&encryption=none#US"
         );
         let proxy = compile_proxy_from_supported_uri(&uri).unwrap();
         assert_eq!(mapping_string(&proxy, "flow"), Some("xtls-rprx-vision"));
-        assert!(proxy
+        let reality = proxy.as_mapping().unwrap()["reality-opts"]
             .as_mapping()
-            .unwrap()
-            .contains_key(Value::String("reality-opts".into())));
+            .unwrap();
+        assert_eq!(
+            reality
+                .get(Value::String("short-id".into()))
+                .and_then(Value::as_str),
+            Some("")
+        );
+    }
+
+    #[test]
+    fn uri_tls_preserves_supported_fingerprint() {
+        let uri = format!(
+            "vless://{UUID}@vless.example.com:443?security=tls&type=tcp&sni=vless.example.com&fp=chrome&encryption=none#TLS"
+        );
+        let proxy = compile_proxy_from_supported_uri(&uri).unwrap();
+        assert_eq!(mapping_string(&proxy, "client-fingerprint"), Some("chrome"));
+    }
+
+    #[test]
+    fn ss_uri_accepts_sip002_userinfo_and_rejects_plugin_query() {
+        let plain = "ss://YWVzLTI1Ni1nY206cGFzc3dvcmQ=@ss.example.com:8388#SS%20Node";
+        let proxy = compile_proxy_from_supported_uri(plain).unwrap();
+        assert_eq!(mapping_string(&proxy, "name"), Some("SS Node"));
+        assert_eq!(mapping_string(&proxy, "password"), Some("password"));
+
+        let with_plugin =
+            "ss://YWVzLTI1Ni1nY206cGFzc3dvcmQ=@ss.example.com:8388?plugin=obfs-local%3Bobfs%3Dhttp#SS";
+        let error = compile_proxy_from_supported_uri(with_plugin).unwrap_err();
+        assert!(matches!(
+            error,
+            ProfileStoreError::InvalidInput { ref field, .. } if field == "subscription"
+        ));
+        assert!(!error.to_string().contains("obfs-local"));
     }
 
     #[test]

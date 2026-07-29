@@ -2,9 +2,14 @@ use luma_application::ProfileStoreError;
 use serde::Serialize;
 use serde_yaml_ng::Value;
 use std::fs::{self, File, OpenOptions};
-use std::io::Write;
+use std::io::{Read, Write};
 use std::path::{Component, Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
+
+#[cfg(unix)]
+use std::os::unix::fs::MetadataExt;
+#[cfg(any(target_os = "macos", target_os = "linux", target_os = "android"))]
+use std::os::unix::fs::OpenOptionsExt;
 
 use super::parse::sequence_len;
 use super::MAX_PROFILE_BYTES;
@@ -38,6 +43,99 @@ pub(super) fn read_profile_stats(root: &Path, file: &str) -> Option<(usize, usiz
         sequence_len(value.get("proxy-groups")),
         sequence_len(value.get("rules")),
     ))
+}
+
+/// Open, chmod, and read a bounded regular file through the same file descriptor.
+///
+/// `O_NOFOLLOW` closes the race between checking a convention file and opening it, while
+/// descriptor-based permissions avoid chmodding a swapped symlink target.
+pub(super) fn read_private_regular_file(
+    path: &Path,
+    max_bytes: u64,
+) -> Result<Vec<u8>, ProfileStoreError> {
+    let expected = fs::symlink_metadata(path).map_err(io_error)?;
+    if expected.file_type().is_symlink() {
+        return Err(ProfileStoreError::SecurityDenied(
+            "convention proxy.yaml symlinks are not supported".into(),
+        ));
+    }
+    if !expected.is_file() {
+        return Err(ProfileStoreError::InvalidInput {
+            field: "path".into(),
+            message: "convention proxy.yaml is not a regular file".into(),
+        });
+    }
+    if expected.len() > max_bytes {
+        return Err(ProfileStoreError::SecurityDenied(
+            "recipe exceeds the size limit".into(),
+        ));
+    }
+
+    let mut file = open_regular_non_symlink(path)?;
+    let opened = file.metadata().map_err(io_error)?;
+    if !opened.is_file() {
+        return Err(ProfileStoreError::InvalidInput {
+            field: "path".into(),
+            message: "convention proxy.yaml is not a regular file".into(),
+        });
+    }
+    #[cfg(unix)]
+    if expected.dev() != opened.dev() || expected.ino() != opened.ino() {
+        return Err(ProfileStoreError::SecurityDenied(
+            "convention proxy.yaml changed while being opened".into(),
+        ));
+    }
+    if opened.len() > max_bytes {
+        return Err(ProfileStoreError::SecurityDenied(
+            "recipe exceeds the size limit".into(),
+        ));
+    }
+
+    set_private_open_file_mode(&file)?;
+    let mut bytes = Vec::new();
+    Read::by_ref(&mut file)
+        .take(max_bytes.saturating_add(1))
+        .read_to_end(&mut bytes)
+        .map_err(io_error)?;
+    if bytes.len() as u64 > max_bytes {
+        return Err(ProfileStoreError::SecurityDenied(
+            "recipe exceeds the size limit".into(),
+        ));
+    }
+    Ok(bytes)
+}
+
+// `O_NOFOLLOW` rejects a final symlink after metadata validation. `O_NONBLOCK` prevents a
+// concurrent swap to a FIFO from blocking before the descriptor is validated with `fstat`.
+#[cfg(target_os = "macos")]
+const SAFE_READ_OPEN_FLAGS: i32 = 0x0104;
+#[cfg(any(target_os = "linux", target_os = "android"))]
+const SAFE_READ_OPEN_FLAGS: i32 = 0o404000;
+
+#[cfg(any(target_os = "macos", target_os = "linux", target_os = "android"))]
+fn open_regular_non_symlink(path: &Path) -> Result<File, ProfileStoreError> {
+    OpenOptions::new()
+        .read(true)
+        .custom_flags(SAFE_READ_OPEN_FLAGS)
+        .open(path)
+        .map_err(io_error)
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "android")))]
+fn open_regular_non_symlink(path: &Path) -> Result<File, ProfileStoreError> {
+    File::open(path).map_err(io_error)
+}
+
+#[cfg(unix)]
+fn set_private_open_file_mode(file: &File) -> Result<(), ProfileStoreError> {
+    use std::os::unix::fs::PermissionsExt;
+    file.set_permissions(fs::Permissions::from_mode(0o600))
+        .map_err(io_error)
+}
+
+#[cfg(not(unix))]
+fn set_private_open_file_mode(_file: &File) -> Result<(), ProfileStoreError> {
+    Ok(())
 }
 
 pub(super) fn safe_relative_child(root: &Path, file: &str) -> Result<PathBuf, ProfileStoreError> {

@@ -54,7 +54,7 @@ nodes:
 | `ss` | server、port、cipher、password | `udp: true` |
 | `trojan-tls` | server、port、password；IP 时必填 sni | TLS、TCP、`skip-cert-verify: false` |
 | `vless-tls` | server、port、uuid；IP 时必填 sni | TLS、TCP、`encryption: ""` |
-| `vless-reality` | server、port、uuid、public-key、short-id；IP 时必填 sni | Reality、Vision、Chrome 指纹、TCP |
+| `vless-reality` | server、port、uuid、public-key、short-id（可为空）；IP 时必填 sni | Reality、Vision、Chrome 指纹、TCP |
 | `vless-ws-tls` | server、port、uuid、host、path；IP 时必填 sni | TLS、WebSocket |
 | `vless-grpc-tls` | server、port、uuid、service-name；IP 时必填 sni | TLS、gRPC |
 | `hysteria2` | server、port、password；IP 时必填 sni；可选 obfs/obfs-password、ports | 证书校验开启 |
@@ -109,7 +109,7 @@ loopback HTTP 不接受重定向。下载以流式 512 KiB 上限读取，因而
 - `profiles.json` 只保存 Profile 元数据和 opaque ID（不含 UUID/密码/公钥）
 - Profile 源文件与备份使用 `0600`
 - Profile 目录使用 `0700`
-- 约定 `proxy.yaml` 在 sync 时尽量保持 `0600`
+- 约定 `proxy.yaml` 必须是普通文件（拒绝 symlink），sync 前强制为 `0600`
 - 订阅 URL 只保存在 Luma Keychain 引用下
 
 应用 Profile 时，runtime 不会直接接受完整导入 YAML。Luma 先读取当前可信 Mihomo 配置，

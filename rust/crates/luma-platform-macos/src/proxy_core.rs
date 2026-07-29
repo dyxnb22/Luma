@@ -261,6 +261,17 @@ impl MacMihomoProxyCore {
         path: &str,
         body: Option<&[u8]>,
     ) -> Result<Vec<u8>, ProxyCoreError> {
+        self.request_with_timeout(method, path, body, self.timeout)
+            .await
+    }
+
+    async fn request_with_timeout(
+        &self,
+        method: &str,
+        path: &str,
+        body: Option<&[u8]>,
+        request_timeout: Duration,
+    ) -> Result<Vec<u8>, ProxyCoreError> {
         if let Some(reason) = &self.configuration_error {
             return Err(ProxyCoreError::InvalidInput {
                 field: "proxy_controller_address".into(),
@@ -271,7 +282,14 @@ impl MacMihomoProxyCore {
         let mut last = None;
         for endpoint in &self.endpoints {
             match self
-                .request_endpoint(endpoint, method, path, body, secret.as_deref())
+                .request_endpoint(
+                    endpoint,
+                    method,
+                    path,
+                    body,
+                    secret.as_deref(),
+                    request_timeout,
+                )
                 .await
             {
                 Ok(body) => return Ok(body),
@@ -316,6 +334,7 @@ impl MacMihomoProxyCore {
         path: &str,
         body: Option<&[u8]>,
         secret: Option<&str>,
+        request_timeout: Duration,
     ) -> Result<Vec<u8>, ProxyCoreError> {
         let body = body.unwrap_or_default();
         let mut request = format!(
@@ -334,7 +353,7 @@ impl MacMihomoProxyCore {
         request.push_str("\r\n");
 
         let operation = format!("{method} {path}");
-        let response = tokio::time::timeout(self.timeout, async {
+        let response = tokio::time::timeout(request_timeout, async {
             match endpoint {
                 Endpoint::Tcp(addr) => {
                     let mut stream = TcpStream::connect(addr).await.map_err(|e| e.to_string())?;
@@ -381,6 +400,17 @@ impl MacMihomoProxyCore {
         path: &str,
         body: Option<Value>,
     ) -> Result<Value, ProxyCoreError> {
+        self.json_with_timeout(method, path, body, self.timeout)
+            .await
+    }
+
+    async fn json_with_timeout(
+        &self,
+        method: &str,
+        path: &str,
+        body: Option<Value>,
+        request_timeout: Duration,
+    ) -> Result<Value, ProxyCoreError> {
         let body = body
             .map(|value| {
                 serde_json::to_vec(&value).map_err(|_| {
@@ -388,7 +418,9 @@ impl MacMihomoProxyCore {
                 })
             })
             .transpose()?;
-        let bytes = self.request(method, path, body.as_deref()).await?;
+        let bytes = self
+            .request_with_timeout(method, path, body.as_deref(), request_timeout)
+            .await?;
         serde_json::from_slice(&bytes)
             .map_err(|_| ProxyCoreError::Unavailable("Mihomo returned an invalid response".into()))
     }
@@ -817,7 +849,9 @@ impl ProxyCorePort for MacMihomoProxyCore {
             "/proxies/{}/delay?url=http://www.gstatic.com/generate_204&timeout=5000",
             path_segment(name)
         );
-        let value = self.json("GET", &path, None).await?;
+        let value = self
+            .json_with_timeout("GET", &path, None, Duration::from_millis(5_500))
+            .await?;
         let delay = value
             .get("delay")
             .and_then(Value::as_u64)
@@ -1023,6 +1057,41 @@ mod tests {
             .set_mode(ProxyMode::Global)
             .await
             .unwrap();
+        server.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn delay_probe_uses_its_five_second_timeout() {
+        let listener = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let mut request = [0_u8; 2048];
+            let n = stream.read(&mut request).await.unwrap();
+            assert!(String::from_utf8_lossy(&request[..n]).starts_with(
+                "GET /proxies/Test/delay?url=http://www.gstatic.com/generate_204&timeout=5000 HTTP/1.1"
+            ));
+            tokio::time::sleep(Duration::from_millis(1_050)).await;
+            let body = br#"{"delay":1234}"#;
+            stream
+                .write_all(
+                    format!(
+                        "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                        body.len()
+                    )
+                    .as_bytes(),
+                )
+                .await
+                .unwrap();
+            stream.write_all(body).await.unwrap();
+        });
+
+        let delay = MacMihomoProxyCore::with_loopback_controller(address)
+            .unwrap()
+            .test_proxy_delay("Test")
+            .await
+            .unwrap();
+        assert_eq!(delay, 1234);
         server.await.unwrap();
     }
 

@@ -45,18 +45,26 @@ module row.
 
 | Action | Effect |
 | --- | --- |
-| **Connect** (Enter) | Suspend TUI → `ssh <alias>` in current terminal → resume; records metadata on exit 0 |
-| **Open SFTP** | Same flow with `sftp <alias>` |
+| **Connect** (Enter) | Open **SSH Workspace** inside Luma (embedded child PTY). Records metadata on exit 0 |
+| **Connect (compat mode)** | Legacy suspend TUI → `ssh <alias>` → resume |
+| **Open SFTP** | Suspend TUI → `sftp <alias>` → resume (unchanged) |
 | **Copy alias** | Writes the Host alias to the pasteboard |
 | **Favorite** / **Unfavorite** | Updates `ssh_meta.sqlite` |
 | **Delete local metadata** | Removes Luma row for alias (destructive, confirm) |
 | **Reload** (`/ssh reload` row) | Clears alias / `ssh -G` caches |
 
+### SSH Workspace
+
+Embedded session keeps Luma chrome visible. Header shows alias · user@host:port · status.
+Keyboard: `Ctrl+Space` / `F6` command shelf, `Esc` leave (or back from shelf), `r` reconnect,
+`l` compat reconnect, `c` copy error when failed. Shelf actions: `c` copy, `i` insert (no Enter),
+Enter preview / parameters. See [ADR-0008](adr/0008-ssh-workspace.md).
+
 Preview shows resolved connection fields and metadata. Private key **contents** are never
 shown — only the identity file path (sanitized).
 
-If an SSH/SFTP process exits unsuccessfully, Luma leaves its terminal error visible and waits for
-Enter before restoring the TUI. Successful sessions return to Luma immediately after logout.
+If an embedded session fails, the last screen and status stay in the workspace (reconnect /
+compat / leave). Compat-mode failures still pause for Enter before restoring the TUI.
 
 When a password is saved for an alias, Connect and Open SFTP use OpenSSH `SSH_ASKPASS` to retrieve
 that one value from macOS Keychain. The password never enters SSH metadata, search results,

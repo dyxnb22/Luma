@@ -1,5 +1,8 @@
 use crate::command_recipes_builtin::builtin_recipes;
-use luma_domain::{ConfigIssue, Recipe, RecipeCatalog, RecipeRisk, RecipeScope};
+use luma_domain::{
+    ConfigIssue, Recipe, RecipeCatalog, RecipeParameter, RecipeParameterKind, RecipeRisk,
+    RecipeScope, RecipeTarget,
+};
 use serde::Deserialize;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -30,11 +33,42 @@ struct UserRecipeToml {
     #[serde(default)]
     scope: Option<String>,
     #[serde(default)]
+    target: Option<String>,
+    #[serde(default)]
+    group: Option<String>,
+    #[serde(default)]
     risk: Option<String>,
     #[serde(default)]
     enabled: Option<bool>,
     #[serde(default)]
+    parameters: Vec<UserParameterToml>,
+    #[serde(default)]
     variants: Vec<UserVariantToml>,
+}
+
+#[derive(Debug, Deserialize)]
+struct UserParameterToml {
+    id: String,
+    #[serde(default)]
+    label: Option<String>,
+    #[serde(default)]
+    description: String,
+    #[serde(default)]
+    kind: Option<String>,
+    #[serde(default)]
+    required: bool,
+    #[serde(default)]
+    default: Option<String>,
+    #[serde(default)]
+    choices: Vec<String>,
+    #[serde(default)]
+    min: Option<i64>,
+    #[serde(default)]
+    max: Option<i64>,
+    #[serde(default)]
+    pattern: Option<String>,
+    #[serde(default)]
+    max_length: Option<usize>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -153,14 +187,39 @@ fn validate_user_step(step: &UserStepToml) -> Option<String> {
 }
 
 fn validate_user_recipe(user: &UserRecipeToml) -> Option<String> {
+    if user
+        .parameters
+        .iter()
+        .any(|p| p.kind.as_deref() == Some("secret"))
+    {
+        return Some(format!(
+            "recipe `{}`: secret parameters are not allowed",
+            user.id
+        ));
+    }
     for variant in &user.variants {
         for step in &variant.steps {
             if let Some(message) = validate_user_step(step) {
                 return Some(format!("recipe `{}`: {message}", user.id));
             }
+            for arg in &step.args {
+                if arg.contains("${") && !is_whole_param_token(arg) {
+                    return Some(format!(
+                        "recipe `{}`: parameter must occupy whole arg token (`{arg}`)",
+                        user.id
+                    ));
+                }
+            }
         }
     }
     None
+}
+
+fn is_whole_param_token(arg: &str) -> bool {
+    let Some(rest) = arg.strip_prefix("${").and_then(|s| s.strip_suffix('}')) else {
+        return false;
+    };
+    !rest.is_empty() && !rest.contains("${") && !rest.contains('}') && arg.len() == rest.len() + 3
 }
 
 pub fn command_recipes_config_path(support_dir: &Path) -> PathBuf {
@@ -262,14 +321,60 @@ pub fn load_recipe_catalog(config_path: &Path) -> RecipeCatalog {
             .as_deref()
             .and_then(RecipeRisk::parse)
             .unwrap_or(RecipeRisk::Confirm);
+        let target = match user.target.as_deref() {
+            Some(raw) => RecipeTarget::parse(raw).unwrap_or_else(|| {
+                issues.push(ConfigIssue {
+                    location: config_path.display().to_string(),
+                    message: format!("recipe `{}`: unknown target `{raw}`", user.id),
+                    fatal: false,
+                });
+                RecipeTarget::LocalShell
+            }),
+            None => RecipeTarget::LocalShell,
+        };
         let enabled = user.enabled.unwrap_or(true);
+        let parameters = user
+            .parameters
+            .into_iter()
+            .filter_map(|p| {
+                let kind = p
+                    .kind
+                    .as_deref()
+                    .and_then(RecipeParameterKind::parse)
+                    .unwrap_or(RecipeParameterKind::Text);
+                if p.id.trim().is_empty() {
+                    issues.push(ConfigIssue {
+                        location: config_path.display().to_string(),
+                        message: format!("recipe `{}`: parameter missing id", user.id),
+                        fatal: false,
+                    });
+                    return None;
+                }
+                Some(RecipeParameter {
+                    id: p.id,
+                    label: p.label.unwrap_or_default(),
+                    description: p.description,
+                    kind,
+                    required: p.required,
+                    default: p.default,
+                    choices: p.choices,
+                    min: p.min,
+                    max: p.max,
+                    pattern: p.pattern,
+                    max_length: p.max_length,
+                })
+            })
+            .collect();
         let mut recipe = Recipe {
             id: user.id.clone(),
             title: user.title,
             description: user.description,
             tags: user.tags,
             scope,
+            target,
+            group: user.group.unwrap_or_default(),
             risk,
+            parameters,
             enabled,
             variants: user
                 .variants
@@ -326,6 +431,42 @@ mod tests {
         assert!(catalog.issues.is_empty());
         assert!(catalog.recipe_by_id("git-status").is_some());
         assert!(catalog.recipe_by_id("luma-check").is_some());
+        let docker_logs = catalog
+            .recipe_by_id("ssh-docker-logs")
+            .expect("ssh docker logs");
+        assert_eq!(docker_logs.scope, RecipeScope::SshSession);
+        assert_eq!(docker_logs.target, RecipeTarget::RemoteShell);
+        assert_eq!(docker_logs.group, "Docker");
+    }
+
+    #[test]
+    fn old_toml_without_target_defaults_to_local_shell() {
+        let dir = tempdir().unwrap();
+        let path = command_recipes_config_path(dir.path());
+        fs::write(
+            &path,
+            r#"
+[[recipes]]
+id = "legacy-echo"
+title = "Legacy"
+risk = "safe"
+scope = "global"
+
+[[recipes.variants]]
+id = "default"
+
+[[recipes.variants.steps]]
+id = "echo"
+label = "echo"
+program = "echo"
+args = ["hi"]
+"#,
+        )
+        .unwrap();
+        let catalog = load_recipe_catalog(&path);
+        let recipe = catalog.recipe_by_id("legacy-echo").expect("legacy");
+        assert_eq!(recipe.target, RecipeTarget::LocalShell);
+        assert!(recipe.parameters.is_empty());
     }
 
     #[test]

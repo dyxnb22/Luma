@@ -10,6 +10,7 @@ mod command_recipes_repo;
 mod command_runner;
 mod databases;
 mod downloads;
+mod embedded_pty;
 mod fake_recipe_environment;
 mod git;
 mod keychain;
@@ -65,6 +66,10 @@ pub use databases::{
 pub use downloads::{
     DownloadCategory, DownloadEntry, DownloadsError, DownloadsFilter, DownloadsPort, FakeDownloads,
     MAX_DOWNLOAD_ENTRIES,
+};
+pub use embedded_pty::{
+    recv_event_timeout, EmbeddedPtyError, EmbeddedPtyEvent, EmbeddedPtyPort, EmbeddedPtySession,
+    EmbeddedPtySize, EmbeddedPtySpawnRequest, FakeEmbeddedPty,
 };
 pub use fake_recipe_environment::FakeRecipeEnvironment;
 pub use git::{

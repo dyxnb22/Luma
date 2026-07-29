@@ -492,19 +492,63 @@ fn read_hidden_password() -> anyhow::Result<String> {
 
 async fn run_tui(initial_query: Option<String>) -> anyhow::Result<()> {
     let load = load_registry_with_settings().map_err(|e| anyhow::anyhow!("registry: {e}"))?;
+    let ssh_shelf = load_ssh_shelf(load.command_recipes.as_ref());
     let engine: Arc<dyn luma_application::EnginePort> = Arc::new(Engine::with_options(
         load.registry,
         luma_application::EngineOptions {
             settings: Some(load.settings),
             wordbook: load.wordbook,
-            command_recipes: load.command_recipes,
+            command_recipes: load.command_recipes.clone(),
             recall: load.recall,
         },
     ));
     let command_runner =
         Arc::new(MacCommandRunner::new()) as Arc<dyn luma_application::CommandRunnerPort>;
-    run_tui_with_options(engine, command_runner, RunTuiOptions { initial_query }).await?;
+    run_tui_with_options(
+        engine,
+        command_runner,
+        RunTuiOptions {
+            initial_query,
+            embedded_pty: Some(Arc::new(luma_platform_macos::MacEmbeddedPty::new())),
+            ssh_shelf_recipes: ssh_shelf.recipes,
+            ssh_shelf_recipe_meta: ssh_shelf.meta,
+            command_recipes: load.command_recipes.clone(),
+            pasteboard: Some(Arc::new(luma_platform_macos::MacPasteboard)
+                as Arc<dyn luma_application::PasteboardPort>),
+        },
+    )
+    .await?;
     Ok(())
+}
+
+struct SshShelfLoad {
+    recipes: Vec<luma_domain::Recipe>,
+    meta: std::collections::BTreeMap<String, luma_domain::RecipeMetadata>,
+}
+
+fn load_ssh_shelf(
+    command_recipes: Option<&Arc<dyn luma_application::CommandRecipesRepository>>,
+) -> SshShelfLoad {
+    let support = luma_storage::luma_next_support_dir().unwrap_or_else(|_| PathBuf::from("."));
+    let path = luma_storage::command_recipes_config_path(&support);
+    let catalog = luma_storage::load_recipe_catalog(&path);
+    let recipes: Vec<_> = catalog
+        .recipes
+        .into_iter()
+        .filter(|r| {
+            r.scope == luma_domain::RecipeScope::SshSession
+                && r.target == luma_domain::RecipeTarget::RemoteShell
+        })
+        .collect();
+    let mut meta = std::collections::BTreeMap::new();
+    if let Some(repo) = command_recipes {
+        for recipe in &recipes {
+            if let Ok(m) = repo.get_metadata(&recipe.id) {
+                meta.insert(recipe.id.clone(), m);
+            }
+        }
+    }
+    SshShelfLoad { recipes, meta }
 }
 
 async fn run_non_tui_command(command: Commands) -> anyhow::Result<()> {

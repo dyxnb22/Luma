@@ -64,4 +64,37 @@ pub enum Msg {
     RecipeShortcut {
         action_id: String,
     },
+    /// Write raw bytes into the embedded SSH PTY.
+    SshPtyInput {
+        bytes: Vec<u8>,
+    },
+    /// Embedded SSH PTY produced output bytes.
+    SshPtyOutput {
+        bytes: Vec<u8>,
+    },
+    /// Embedded SSH child exited.
+    SshPtyExited {
+        code: Option<i32>,
+    },
+    /// SSH workspace: reconnect current host.
+    SshReconnect,
+    /// SSH workspace: leave to host list.
+    SshLeave,
+    /// SSH workspace: open compat (full-terminal) connect.
+    SshCompatReconnect,
+    /// SSH workspace: copy error summary.
+    SshCopyError,
+    /// SSH workspace: toggle shelf focus / visibility.
+    SshToggleShelf,
+    /// SSH workspace: confirm disconnect.
+    SshDisconnect,
+    /// SSH workspace: send raw Ctrl+Space to remote.
+    SshSendCtrlSpace,
+    SshShelfPreview,
+    SshShelfCopy,
+    SshShelfInsert,
+    SshShelfStartFilter,
+    SshShelfFavorite,
+    SshShelfParamNext,
+    SshShelfParamPrev,
 }

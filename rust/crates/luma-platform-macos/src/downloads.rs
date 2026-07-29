@@ -351,7 +351,7 @@ fn validate_new_name(name: &str) -> Result<(), DownloadsError> {
     }
 }
 
-#[cfg(target_os = "macos")]
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 fn finder_trash_args(path: &Path) -> Vec<OsString> {
     vec![
         "-e".into(),

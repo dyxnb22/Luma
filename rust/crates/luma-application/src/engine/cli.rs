@@ -171,7 +171,14 @@ pub async fn run_action(
         }
     };
     let outcome = match outcome {
-        luma_protocol::ActionOutcomeDto::InteractiveTerminal {
+        luma_protocol::ActionOutcomeDto::EmbeddedTerminal {
+            program,
+            args,
+            environment,
+            record_alias,
+            ..
+        }
+        | luma_protocol::ActionOutcomeDto::InteractiveTerminal {
             program,
             args,
             environment,

@@ -37,6 +37,12 @@ pub struct AppState {
     pub settings: SettingsState,
     /// Active wordbook review session (`/wb review`).
     pub wordbook: WordbookState,
+    /// Active embedded SSH Workspace (`/ssh` Connect).
+    pub ssh_workspace: Option<crate::ssh_workspace::SshWorkspaceState>,
+    /// SSH-session recipes available to the workspace shelf.
+    pub ssh_shelf_recipes: Vec<luma_domain::Recipe>,
+    /// Favorite / use_count metadata for SSH shelf recipes (global per recipe id).
+    pub ssh_shelf_recipe_meta: std::collections::BTreeMap<String, luma_domain::RecipeMetadata>,
     /// Help, command palette, and overlay prompt restoration.
     pub overlay: OverlayState,
     /// Deferred hand-offs that leave the TUI temporarily.
@@ -63,6 +69,9 @@ impl Default for AppState {
             focus: FocusZone::Prompt,
             settings: SettingsState::default(),
             wordbook: WordbookState::default(),
+            ssh_workspace: None,
+            ssh_shelf_recipes: Vec::new(),
+            ssh_shelf_recipe_meta: std::collections::BTreeMap::new(),
             overlay: OverlayState::default(),
             runtime: RuntimeState::default(),
             terminal: TerminalState::default(),
@@ -452,6 +461,7 @@ impl AppState {
             FocusZone::List if self.preview_visible() => FocusZone::Preview,
             FocusZone::List => FocusZone::Prompt,
             FocusZone::Preview => FocusZone::Prompt,
+            FocusZone::Terminal | FocusZone::CommandShelf => FocusZone::Terminal,
         };
     }
 

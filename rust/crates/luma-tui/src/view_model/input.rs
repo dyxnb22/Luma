@@ -7,6 +7,7 @@ pub enum Route {
     Help,
     Settings,
     WordbookReview,
+    SshWorkspace,
     Commands,
     QuitConfirm,
     ConfirmAction,
@@ -41,6 +42,8 @@ pub enum FocusZone {
     Prompt,
     List,
     Preview,
+    Terminal,
+    CommandShelf,
 }
 
 #[derive(Clone, Debug, Default)]

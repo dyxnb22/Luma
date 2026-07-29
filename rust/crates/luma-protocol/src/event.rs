@@ -207,6 +207,20 @@ pub enum ActionOutcomeDto {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         record_alias: Option<String>,
     },
+    /// TUI-owned: embed program in SSH Workspace (child PTY inside Ratatui).
+    EmbeddedTerminal {
+        program: String,
+        args: Vec<String>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        environment: Vec<(String, String)>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        record_alias: Option<String>,
+        title: String,
+        alias: String,
+        hostname: String,
+        user: String,
+        port: u16,
+    },
 }
 
 impl ActionOutcomeDto {
@@ -225,11 +239,15 @@ impl ActionOutcomeDto {
             Self::OpenSurface { .. } => "open surface".into(),
             Self::InteractiveRecipeRun { .. } => "interactive recipe run".into(),
             Self::InteractiveTerminal { .. } => "interactive terminal".into(),
+            Self::EmbeddedTerminal { .. } => "embedded terminal".into(),
         }
     }
 
     pub fn is_interactive_terminal(&self) -> bool {
-        matches!(self, Self::InteractiveTerminal { .. })
+        matches!(
+            self,
+            Self::InteractiveTerminal { .. } | Self::EmbeddedTerminal { .. }
+        )
     }
 
     /// TUI status copy: prefer an explicit non-taxonomy message, else `FailureKind::user_message`.
@@ -248,6 +266,7 @@ impl ActionOutcomeDto {
             Self::OpenSurface { .. } => "Opening…".into(),
             Self::InteractiveRecipeRun { .. } => "Running recipe…".into(),
             Self::InteractiveTerminal { .. } => "connecting…".into(),
+            Self::EmbeddedTerminal { .. } => "opening workspace…".into(),
         }
     }
 }

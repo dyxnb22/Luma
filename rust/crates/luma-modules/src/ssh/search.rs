@@ -96,6 +96,12 @@ impl SshModule {
                 confirmation: false,
             },
             ActionDescriptor {
+                id: ActionId::new("connect_compat"),
+                label: "Connect (compat mode)".into(),
+                risk: ActionRisk::Safe,
+                confirmation: false,
+            },
+            ActionDescriptor {
                 id: ActionId::new("sftp"),
                 label: "Open SFTP".into(),
                 risk: ActionRisk::Safe,

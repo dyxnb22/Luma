@@ -311,7 +311,7 @@ impl LumaModule for SshModule {
         }
 
         match action_id {
-            "connect" => {
+            "connect" | "connect_compat" => {
                 if !self.config.ssh_available() {
                     return ActionOutcome::Failed {
                         kind: FailureKind::Unavailable {
@@ -331,11 +331,38 @@ impl LumaModule for SshModule {
                         };
                     }
                 };
-                ActionOutcome::InteractiveTerminal {
-                    program: "/usr/bin/ssh".into(),
-                    args: self.config.ssh_invocation_args(&alias),
-                    environment,
-                    record_alias: Some(alias),
+                let args = self.config.ssh_invocation_args(&alias);
+                let resolved = self.config.resolve(&alias).ok();
+                let hostname = resolved
+                    .as_ref()
+                    .and_then(|h| h.hostname.clone())
+                    .unwrap_or_else(|| alias.clone());
+                let user = resolved
+                    .as_ref()
+                    .and_then(|h| h.user.clone())
+                    .unwrap_or_else(|| "unknown".into());
+                let port = resolved.as_ref().and_then(|h| h.port).unwrap_or(22);
+                if action_id == "connect_compat" {
+                    ActionOutcome::InteractiveTerminal {
+                        program: "/usr/bin/ssh".into(),
+                        args,
+                        environment,
+                        record_alias: Some(alias),
+                    }
+                } else {
+                    ActionOutcome::EmbeddedTerminal(Box::new(
+                        luma_application::EmbeddedTerminalRequest {
+                            program: "/usr/bin/ssh".into(),
+                            args,
+                            environment,
+                            record_alias: Some(alias.clone()),
+                            title: alias.clone(),
+                            alias,
+                            hostname,
+                            user,
+                            port,
+                        },
+                    ))
                 }
             }
             "sftp" => {
@@ -499,7 +526,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn connect_returns_interactive_terminal_args() {
+    async fn connect_returns_embedded_terminal_args() {
         let module = test_module();
         let item = SearchItem {
             id: luma_domain::ResultId::new("ssh:production"),
@@ -534,11 +561,59 @@ mod tests {
             )
             .await;
         match outcome {
+            ActionOutcome::EmbeddedTerminal(request) => {
+                assert_eq!(request.program, "/usr/bin/ssh");
+                assert_eq!(
+                    request.args,
+                    vec!["--".to_string(), "production".to_string()]
+                );
+                assert_eq!(request.alias, "production");
+            }
+            other => panic!("expected embedded, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn connect_compat_returns_interactive_terminal() {
+        let module = test_module();
+        let item = SearchItem {
+            id: luma_domain::ResultId::new("ssh:production"),
+            module_id: ModuleId::new("luma.ssh"),
+            title: "production".into(),
+            subtitle: None,
+            kind: "ssh_host".into(),
+            score: 1.0,
+            primary_action: ActionDescriptor {
+                id: ActionId::new("connect_compat"),
+                label: "Connect (compat mode)".into(),
+                risk: ActionRisk::Safe,
+                confirmation: false,
+            },
+            secondary_actions: vec![],
+            ui_intent: None,
+            action_payload: Some(serde_json::json!({ "alias": "production" })),
+        };
+        let outcome = module
+            .perform(
+                ActionRequest {
+                    result: item,
+                    action: ActionDescriptor {
+                        id: ActionId::new("connect_compat"),
+                        label: "Connect (compat mode)".into(),
+                        risk: ActionRisk::Safe,
+                        confirmation: false,
+                    },
+                    confirmation: false,
+                },
+                CancellationToken::new(),
+            )
+            .await;
+        match outcome {
             ActionOutcome::InteractiveTerminal { program, args, .. } => {
                 assert_eq!(program, "/usr/bin/ssh");
                 assert_eq!(args, vec!["--".to_string(), "production".to_string()]);
             }
-            other => panic!("expected interactive, got {other:?}"),
+            other => panic!("expected interactive compat, got {other:?}"),
         }
     }
 
@@ -584,13 +659,13 @@ mod tests {
                 CancellationToken::new(),
             )
             .await;
-        let ActionOutcome::InteractiveTerminal { environment, .. } = outcome else {
-            panic!("expected interactive terminal");
+        let ActionOutcome::EmbeddedTerminal(request) = outcome else {
+            panic!("expected embedded terminal");
         };
-        assert!(environment.iter().any(|(key, value)| {
+        assert!(request.environment.iter().any(|(key, value)| {
             key == SSH_ASKPASS_ACCOUNT_ENV && value == "ssh-password:production"
         }));
-        assert!(!format!("{environment:?}").contains("never-project-this-password"));
+        assert!(!format!("{:?}", request.environment).contains("never-project-this-password"));
     }
 
     #[tokio::test]

@@ -485,6 +485,42 @@ impl LumaModule for SnippetsModule {
             },
         ]
     }
+    async fn rehydrate_recall(&self, object_id: &str) -> Result<Option<SearchItem>, String> {
+        if let Some(error) = self.store_error.read().await.clone() {
+            return Err(error);
+        }
+        let Some(trigger) = object_id
+            .strip_prefix("snip:")
+            .filter(|trigger| !trigger.is_empty() && !trigger.contains(':'))
+        else {
+            return Ok(None);
+        };
+        let snippet = self
+            .index
+            .read()
+            .await
+            .iter()
+            .find(|snippet| snippet.trigger == trigger)
+            .cloned();
+        Ok(snippet.map(|snippet| SearchItem {
+            id: luma_domain::ResultId::new(object_id),
+            module_id: ModuleId::new("luma.snippets"),
+            title: snippet.trigger,
+            subtitle: Some(truncate_snippet_subtitle(&snippet.body)),
+            kind: "snippet".into(),
+            score: 0.0,
+            primary_action: ActionDescriptor {
+                id: ActionId::new("copy"),
+                label: "Copy".into(),
+                risk: ActionRisk::Safe,
+                confirmation: false,
+            },
+            secondary_actions: vec![],
+            ui_intent: None,
+            action_payload: None,
+        }))
+    }
+
     async fn perform(&self, action: ActionRequest, cancel: CancellationToken) -> ActionOutcome {
         if cancel.is_cancelled() {
             return ActionOutcome::Cancelled;
@@ -736,6 +772,29 @@ mod teardown_tests {
         assert!(m.index.read().await.is_empty());
         assert!(m.store_error.read().await.is_none());
         m.teardown().await;
+    }
+
+    #[tokio::test]
+    async fn recall_rehydration_reads_current_snippet_without_persisted_body() {
+        let store = Arc::new(MemorySnippetsRepository::new());
+        store.upsert("hello", "private body").unwrap();
+        let m = SnippetsModule::with_store(
+            store,
+            Arc::new(luma_application::FakePasteboard::new()),
+            Arc::new(luma_application::FakeAccessibility::new(false, false)),
+            Arc::new(luma_application::FakeWindowCatalog::default()),
+        );
+        m.warmup(WarmupContext {
+            cancel: CancellationToken::new(),
+        })
+        .await;
+
+        let item = m.rehydrate_recall("snip:hello").await.unwrap().unwrap();
+        assert_eq!(item.primary_action.id.as_str(), "copy");
+        assert_eq!(item.title, "hello");
+
+        m.delete("hello").await.unwrap();
+        assert!(m.rehydrate_recall("snip:hello").await.unwrap().is_none());
     }
 
     #[tokio::test]

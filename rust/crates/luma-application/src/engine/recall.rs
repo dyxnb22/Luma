@@ -1,5 +1,7 @@
 use crate::ports::{RecallObject, MAX_RECALL_TITLE_CHARS};
-use luma_domain::{ActionDescriptor, ActionId, ActionRisk, ModuleId, SearchItem};
+use luma_domain::SearchItem;
+#[cfg(test)]
+use luma_domain::{ActionDescriptor, ActionId, ActionRisk, ModuleId};
 use std::collections::{BTreeMap, HashMap};
 
 pub(crate) const GLOBAL_RESULTS_PER_MODULE: usize = 12;
@@ -191,31 +193,21 @@ fn informational_item(module: &str, id: &str, kind: &str) -> SearchItem {
     }
 }
 
-pub(crate) fn hub_item(record: &RecallObject) -> SearchItem {
-    SearchItem {
-        id: luma_domain::ResultId::new(record.object_id.clone()),
-        module_id: ModuleId::new(record.module_id.clone()),
-        title: record.title.clone(),
-        subtitle: Some(format!(
-            "{} · used {}",
-            kind_label(&record.kind),
-            record.use_count
-        )),
-        kind: record.kind.clone(),
-        score: 0.0,
-        primary_action: ActionDescriptor {
-            id: ActionId::new(record.primary_action.clone()),
-            label: "Continue".into(),
-            risk: ActionRisk::Safe,
-            confirmation: false,
-        },
-        secondary_actions: vec![],
-        ui_intent: None,
-        action_payload: record
-            .project_path
-            .as_ref()
-            .map(|project_path| serde_json::json!({ "project_path": project_path })),
+pub(crate) fn prepare_hub_item(
+    record: &RecallObject,
+    mut live_item: SearchItem,
+) -> Option<SearchItem> {
+    if live_item.id.as_str() != record.object_id
+        || live_item.module_id.as_str() != record.module_id
+        || live_item.primary_action.id.as_str() == "noop"
+    {
+        return None;
     }
+    // Keep the bounded privacy-safe title from Recall, but retain the module-rehydrated payload,
+    // risk, confirmation, subtitle, and current natural action.
+    live_item.title = record.title.clone();
+    live_item.score = 0.0;
+    Some(live_item)
 }
 
 pub(crate) fn kind_label(kind: &str) -> &str {
@@ -356,5 +348,57 @@ mod tests {
             recall_object_from_item(&portal, 1).unwrap().title,
             "Database portal"
         );
+    }
+
+    #[test]
+    fn hub_preparation_keeps_live_risk_confirmation_and_payload() {
+        let record = RecallObject {
+            object_id: "db:1".into(),
+            module_id: "luma.databases".into(),
+            kind: "database_portal".into(),
+            primary_action: "open_cli".into(),
+            title: "Database portal".into(),
+            project_path: None,
+            use_count: 2,
+            last_used_at: 10,
+        };
+        let live = SearchItem {
+            id: luma_domain::ResultId::new("db:1"),
+            module_id: ModuleId::new("luma.databases"),
+            title: "private production label".into(),
+            subtitle: Some("postgres · production".into()),
+            kind: "database_portal".into(),
+            score: 100.0,
+            primary_action: ActionDescriptor {
+                id: ActionId::new("open_cli"),
+                label: "Open CLI".into(),
+                risk: ActionRisk::Confirm,
+                confirmation: true,
+            },
+            secondary_actions: vec![],
+            ui_intent: None,
+            action_payload: Some(serde_json::json!({"id": 1, "updated_at": "v2"})),
+        };
+
+        let prepared = prepare_hub_item(&record, live).unwrap();
+        assert_eq!(prepared.title, "Database portal");
+        assert_eq!(prepared.primary_action.risk, ActionRisk::Confirm);
+        assert!(prepared.primary_action.confirmation);
+        assert_eq!(prepared.action_payload.unwrap()["updated_at"], "v2");
+    }
+
+    #[test]
+    fn hub_preparation_rejects_identity_mismatch() {
+        let record = RecallObject {
+            object_id: "ql:docs".into(),
+            module_id: "luma.quicklinks".into(),
+            kind: "quicklink".into(),
+            primary_action: "open".into(),
+            title: "docs".into(),
+            project_path: None,
+            use_count: 1,
+            last_used_at: 10,
+        };
+        assert!(prepare_hub_item(&record, item("luma.quicklinks", "ql:other", 1.0)).is_none());
     }
 }

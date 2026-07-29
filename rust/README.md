@@ -147,8 +147,9 @@ backup, and migration ledger, never the Markdown source files.
 
 - Empty Hub: `1`–`9` focuses visible window rows; status, “more”, and module rows are not numbered.
 - Empty Hub Continue: up to three items appear after Windows. Live running/paused timers come
-  first, followed by privacy-safe recent objects; each uses its natural primary action. They are
-  not window rows and never receive a digit shortcut. Recall is bounded to 1,000 metadata rows and
+  first, followed by privacy-safe recent objects revalidated against their owning modules; stale
+  objects are pruned and each row uses its current natural primary action, risk, and confirmation.
+  They are not window rows and never receive a digit shortcut. Recall is bounded to 1,000 metadata rows and
   never stores clipboard bodies, snippet bodies, SSH config, or submitted search text.
 - `/win`: `1`–`9` works only while the result list is focused. Digits typed in the prompt are never hijacked.
 - `/wb today`, `/wb due`, `/wb new`, `/wb wrong`: normal lists. `/wb review` starts today's

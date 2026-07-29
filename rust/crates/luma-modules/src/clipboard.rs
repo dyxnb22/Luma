@@ -784,6 +784,35 @@ impl LumaModule for ClipboardModule {
         }
     }
 
+    async fn rehydrate_recall(&self, object_id: &str) -> Result<Option<SearchItem>, String> {
+        let Some(id) = object_id
+            .strip_prefix("clip:")
+            .and_then(|value| value.parse::<i64>().ok())
+        else {
+            return Ok(None);
+        };
+        let entry = self.store.get(id).map_err(|error| error.to_string())?;
+        Ok(entry
+            .filter(|entry| !looks_secret(&entry.text))
+            .map(|entry| SearchItem {
+                id: luma_domain::ResultId::new(object_id),
+                module_id: ModuleId::new("luma.clipboard"),
+                title: entry.text.chars().take(80).collect(),
+                subtitle: entry.pinned.then(|| "pinned".into()),
+                kind: "clip".into(),
+                score: 0.0,
+                primary_action: ActionDescriptor {
+                    id: ActionId::new("copy"),
+                    label: "Copy".into(),
+                    risk: ActionRisk::Safe,
+                    confirmation: false,
+                },
+                secondary_actions: vec![],
+                ui_intent: None,
+                action_payload: None,
+            }))
+    }
+
     async fn perform(&self, action: ActionRequest, cancel: CancellationToken) -> ActionOutcome {
         if cancel.is_cancelled() {
             return ActionOutcome::Cancelled;
@@ -1289,6 +1318,39 @@ mod tests {
             .await;
         assert!(matches!(outcome, ActionOutcome::Success { .. }));
         assert_eq!(pb.read_text().await.unwrap().as_deref(), Some("hello clip"));
+    }
+
+    #[tokio::test]
+    async fn recall_rehydration_reads_live_non_secret_clip_only() {
+        let repo = Arc::new(MemoryClipboardHistory::new());
+        let id = repo.insert("hello clip", false).unwrap();
+        let secret_id = repo.insert("password=do-not-project", false).unwrap();
+        let module = ClipboardModule::with_deps(
+            repo.clone(),
+            Arc::new(MemPb(TokioMutex::new(None))),
+            denied_ax(),
+            test_catalog(),
+            Arc::new(ClipboardSuppression::new()),
+        );
+
+        let item = module
+            .rehydrate_recall(&format!("clip:{id}"))
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(item.primary_action.id.as_str(), "copy");
+        assert!(module
+            .rehydrate_recall(&format!("clip:{secret_id}"))
+            .await
+            .unwrap()
+            .is_none());
+
+        repo.delete(id).unwrap();
+        assert!(module
+            .rehydrate_recall(&format!("clip:{id}"))
+            .await
+            .unwrap()
+            .is_none());
     }
 
     #[tokio::test]

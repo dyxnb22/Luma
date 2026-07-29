@@ -533,6 +533,40 @@ impl LumaModule for AppsModule {
         ]
     }
 
+    async fn rehydrate_recall(&self, object_id: &str) -> Result<Option<SearchItem>, String> {
+        let Some(path) = object_id.strip_prefix("app:").map(std::path::PathBuf::from) else {
+            return Ok(None);
+        };
+        let cache = self.cache.read().await;
+        if let Some(error) = &cache.catalog_error {
+            return Err(error.clone());
+        }
+        if cache.warming {
+            return Err("application catalog is still warming".into());
+        }
+        Ok(cache
+            .apps
+            .iter()
+            .find(|app| app.path == path)
+            .map(|app| SearchItem {
+                id: luma_domain::ResultId::new(object_id),
+                module_id: ModuleId::new("luma.apps"),
+                title: app.name.clone(),
+                subtitle: Some(app.path.display().to_string()),
+                kind: "app".into(),
+                score: 0.0,
+                primary_action: ActionDescriptor {
+                    id: ActionId::new("launch"),
+                    label: "Launch".into(),
+                    risk: ActionRisk::Safe,
+                    confirmation: false,
+                },
+                secondary_actions: vec![],
+                ui_intent: None,
+                action_payload: None,
+            }))
+    }
+
     async fn perform(&self, action: ActionRequest, cancel: CancellationToken) -> ActionOutcome {
         if cancel.is_cancelled() {
             return ActionOutcome::Cancelled;
@@ -734,6 +768,35 @@ mod tests {
             }
             other => panic!("{other:?}"),
         }
+    }
+
+    #[tokio::test]
+    async fn recall_rehydration_requires_a_current_catalog_entry() {
+        let catalog = Arc::new(FakeCatalog {
+            apps: vec![AppEntry {
+                name: "Safari".into(),
+                path: PathBuf::from("/Applications/Safari.app"),
+                bundle_id: None,
+            }],
+        });
+        let module = AppsModule::new(catalog, mem_pb());
+        module
+            .warmup(WarmupContext {
+                cancel: CancellationToken::new(),
+            })
+            .await;
+
+        let item = module
+            .rehydrate_recall("app:/Applications/Safari.app")
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(item.primary_action.id.as_str(), "launch");
+        assert!(module
+            .rehydrate_recall("app:/Applications/Missing.app")
+            .await
+            .unwrap()
+            .is_none());
     }
 
     #[tokio::test]

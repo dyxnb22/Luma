@@ -22,5 +22,6 @@ pub struct RecallRepoError(pub String);
 #[async_trait]
 pub trait RecallRepository: Send + Sync {
     fn record_success(&self, object: RecallObject) -> Result<(), RecallRepoError>;
+    fn forget(&self, object_id: &str) -> Result<(), RecallRepoError>;
     fn list_recent(&self, limit: usize) -> Result<Vec<RecallObject>, RecallRepoError>;
 }

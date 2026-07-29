@@ -20,6 +20,8 @@ const MAX_SCHEMA_LABEL_BYTES: usize = 512;
 const MAX_SCHEMA_PREVIEW_BYTES: usize = 16 * 1024;
 const MAX_LABEL_CHARS: usize = 120;
 
+mod recall;
+
 pub struct DatabasePortalsModule {
     manifest: ModuleManifest,
     repository: Arc<dyn DatabasePortalsRepository>,
@@ -529,6 +531,10 @@ impl LumaModule for DatabasePortalsModule {
             };
         }
         vec![safe_action("noop", "OK")]
+    }
+
+    async fn rehydrate_recall(&self, object_id: &str) -> Result<Option<SearchItem>, String> {
+        self.rehydrate_recall_item(object_id).await
     }
 
     async fn perform(&self, request: ActionRequest, cancel: CancellationToken) -> ActionOutcome {
@@ -1206,6 +1212,42 @@ mod tests {
             ui_intent: None,
             action_payload: Some(identity_payload(portal)),
         }
+    }
+
+    #[tokio::test]
+    async fn recall_rehydration_restores_current_database_identity_and_risk() {
+        let repository = Arc::new(MemoryDatabasePortalsRepository::default());
+        let path = PathBuf::from("/fixture/production.sqlite");
+        let portal = insert_portal(
+            &repository,
+            DatabasePortalTarget::Sqlite { path: path.clone() },
+            "production",
+        );
+        let module = DatabasePortalsModule::with_deps(
+            repository.clone(),
+            Arc::new(FakeDatabasePlatform::new(path)),
+            Arc::new(FakeOpenPath::new()),
+            clock(),
+        );
+
+        let item = module
+            .rehydrate_recall(&format!("db:{}", portal.id))
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(item.primary_action.risk, ActionRisk::Confirm);
+        assert!(item.primary_action.confirmation);
+        assert_eq!(
+            item.action_payload.as_ref().unwrap()["updated_at"],
+            portal.updated_at
+        );
+
+        repository.delete(portal.id, &portal.updated_at).unwrap();
+        assert!(module
+            .rehydrate_recall(&format!("db:{}", portal.id))
+            .await
+            .unwrap()
+            .is_none());
     }
 
     #[tokio::test]

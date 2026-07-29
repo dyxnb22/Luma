@@ -1,5 +1,20 @@
 use super::*;
 
+async fn warm_module(module: Arc<dyn LumaModule>, cancel: CancellationToken) -> ModuleState {
+    let context = WarmupContext {
+        cancel: cancel.clone(),
+    };
+    match tokio::time::timeout(WARMUP_COMPLETION_BOUND, module.warmup(context)).await {
+        Ok(state) => state,
+        Err(_) => {
+            cancel.cancel();
+            ModuleState::Failed(format!(
+                "warmup timed out after {WARMUP_COMPLETION_BOUND:?}"
+            ))
+        }
+    }
+}
+
 impl Engine {
     pub async fn start_session(&self) {
         {
@@ -51,13 +66,7 @@ impl Engine {
                 let g = self.inner.lock().await;
                 g.session_cancel.child_token()
             };
-            let handle = tokio::spawn(async move {
-                module
-                    .warmup(WarmupContext {
-                        cancel: cancel.clone(),
-                    })
-                    .await
-            });
+            let handle = tokio::spawn(async move { warm_module(module, cancel).await });
             warmup_handles.push((module_id, handle));
         }
         for (id, handle) in warmup_handles {
@@ -162,11 +171,7 @@ impl Engine {
                 let g = self.inner.lock().await;
                 g.session_cancel.child_token()
             };
-            let state = module
-                .warmup(WarmupContext {
-                    cancel: cancel.clone(),
-                })
-                .await;
+            let state = warm_module(module, cancel).await;
             let state_str = match &state {
                 ModuleState::Ready => "ready".into(),
                 ModuleState::Cold => "cold".into(),

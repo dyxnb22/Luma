@@ -18,7 +18,25 @@ impl crate::ports::RecallRepository for TestRecall {
         &self,
         object: crate::ports::RecallObject,
     ) -> Result<(), crate::ports::RecallRepoError> {
-        self.objects.lock().unwrap().push(object);
+        let mut objects = self.objects.lock().unwrap();
+        if let Some(existing) = objects
+            .iter_mut()
+            .find(|existing| existing.object_id == object.object_id)
+        {
+            let use_count = existing.use_count.saturating_add(1);
+            *existing = object;
+            existing.use_count = use_count;
+        } else {
+            objects.push(object);
+        }
+        Ok(())
+    }
+
+    fn forget(&self, object_id: &str) -> Result<(), crate::ports::RecallRepoError> {
+        self.objects
+            .lock()
+            .unwrap()
+            .retain(|object| object.object_id != object_id);
         Ok(())
     }
 
@@ -75,12 +93,71 @@ impl LumaModule for FakeModule {
     }
 
     async fn actions(&self, _result: &SearchItem) -> Vec<ActionDescriptor> {
-        vec![ActionDescriptor {
-            id: ActionId::new("open"),
-            label: "Open".into(),
-            risk: ActionRisk::Safe,
-            confirmation: false,
-        }]
+        vec![
+            ActionDescriptor {
+                id: ActionId::new("open"),
+                label: "Open".into(),
+                risk: ActionRisk::Safe,
+                confirmation: false,
+            },
+            ActionDescriptor {
+                id: ActionId::new("inspect"),
+                label: "Inspect".into(),
+                risk: ActionRisk::Safe,
+                confirmation: false,
+            },
+            ActionDescriptor {
+                id: ActionId::new("delete"),
+                label: "Delete".into(),
+                risk: ActionRisk::Destructive,
+                confirmation: true,
+            },
+        ]
+    }
+
+    async fn rehydrate_recall(&self, object_id: &str) -> Result<Option<SearchItem>, String> {
+        if self.manifest.id.as_str() == "luma.ssh" && object_id == "ssh:production" {
+            return Ok(Some(SearchItem {
+                id: luma_domain::ResultId::new(object_id),
+                module_id: self.manifest.id.clone(),
+                title: "production".into(),
+                subtitle: Some("deploy@example.com".into()),
+                kind: "ssh_host".into(),
+                score: 0.0,
+                primary_action: ActionDescriptor {
+                    id: ActionId::new("connect"),
+                    label: "Connect".into(),
+                    risk: ActionRisk::Safe,
+                    confirmation: false,
+                },
+                secondary_actions: vec![],
+                ui_intent: None,
+                action_payload: Some(serde_json::json!({"alias": "production"})),
+            }));
+        }
+        if self.wait_for_cancel && object_id == "wait-1" {
+            return std::future::pending().await;
+        }
+        if self.wait_for_cancel || object_id != "fake-1" {
+            return Ok(None);
+        }
+        Ok(Some(SearchItem {
+            id: luma_domain::ResultId::new("fake-1"),
+            module_id: self.manifest.id.clone(),
+            title: "Current fake".into(),
+            subtitle: Some("live".into()),
+            kind: "fake".into(),
+            score: 0.0,
+            primary_action: ActionDescriptor {
+                id: ActionId::new("open"),
+                label: "Open".into(),
+                risk: ActionRisk::Safe,
+                confirmation: false,
+            },
+            secondary_actions: vec![],
+            ui_intent: None,
+            action_payload: Some(serde_json::json!({"live": true})),
+        }))
     }
 
     async fn perform(&self, _action: ActionRequest, cancel: CancellationToken) -> ActionOutcome {
@@ -358,7 +435,7 @@ async fn run_action_executes_fake_result() {
 }
 
 #[tokio::test]
-async fn recall_records_successful_action_but_never_cancelled_action() {
+async fn recall_tracks_only_natural_primary_success_and_forgets_destructive_results() {
     let recall = Arc::new(TestRecall::default());
     let engine = Arc::new(Engine::with_options(
         fake_registry(),
@@ -386,6 +463,35 @@ async fn recall_records_successful_action_but_never_cancelled_action() {
         .await;
     while !matches!(events.recv().await, Ok(Event::ActionFinished { .. })) {}
     assert_eq!(recall.objects.lock().unwrap().len(), 1);
+
+    engine
+        .handle_command(Command::ExecuteAction {
+            operation_id: "recall-secondary-op".into(),
+            result_id: "fake-1".into(),
+            action_id: "inspect".into(),
+            confirmation: false,
+        })
+        .await;
+    while !matches!(events.recv().await, Ok(Event::ActionFinished { .. })) {}
+    assert_eq!(
+        recall.objects.lock().unwrap().len(),
+        1,
+        "successful secondary actions must not create another Recall success"
+    );
+
+    engine
+        .handle_command(Command::ExecuteAction {
+            operation_id: "recall-delete-op".into(),
+            result_id: "fake-1".into(),
+            action_id: "delete".into(),
+            confirmation: true,
+        })
+        .await;
+    while !matches!(events.recv().await, Ok(Event::ActionFinished { .. })) {}
+    assert!(
+        recall.objects.lock().unwrap().is_empty(),
+        "successful destructive actions must evict the object's Recall row"
+    );
 
     let mut cancelling_registry = fake_registry();
     cancelling_registry
@@ -450,6 +556,173 @@ async fn recall_records_successful_action_but_never_cancelled_action() {
 }
 
 #[tokio::test]
+async fn hub_rehydrates_live_recall_and_prunes_stale_identity() {
+    let recall = Arc::new(TestRecall::default());
+    {
+        let mut objects = recall.objects.lock().unwrap();
+        objects.push(crate::ports::RecallObject {
+            object_id: "fake-1".into(),
+            module_id: "luma.fake".into(),
+            kind: "fake".into(),
+            primary_action: "open".into(),
+            title: "Privacy-safe fake".into(),
+            project_path: None,
+            use_count: 2,
+            last_used_at: 20,
+        });
+        objects.push(crate::ports::RecallObject {
+            object_id: "fake-stale".into(),
+            module_id: "luma.fake".into(),
+            kind: "fake".into(),
+            primary_action: "open".into(),
+            title: "Stale fake".into(),
+            project_path: None,
+            use_count: 1,
+            last_used_at: 10,
+        });
+    }
+    let engine = Engine::with_options(
+        fake_registry(),
+        EngineOptions {
+            recall: Some(recall.clone()),
+            ..Default::default()
+        },
+    );
+    let mut events = engine.subscribe();
+    engine.start_session().await;
+    while !matches!(events.recv().await, Ok(Event::SessionReady { .. })) {}
+
+    engine.handle_command(Command::LoadHub).await;
+    let continue_items = loop {
+        if let Ok(Event::HubLoaded { continue_items, .. }) = events.recv().await {
+            break continue_items;
+        }
+    };
+    assert_eq!(continue_items.len(), 1);
+    assert_eq!(continue_items[0].id, "fake-1");
+    assert_eq!(continue_items[0].title, "Privacy-safe fake");
+
+    let cached = engine
+        .inner
+        .lock()
+        .await
+        .results_by_id
+        .get("fake-1")
+        .cloned()
+        .expect("rehydrated Hub result");
+    assert_eq!(cached.action_payload.unwrap()["live"], true);
+    assert_eq!(cached.title, "Privacy-safe fake");
+    let objects = recall.objects.lock().unwrap();
+    assert_eq!(objects.len(), 1);
+    assert_eq!(objects[0].object_id, "fake-1");
+}
+
+#[tokio::test]
+async fn hub_bounds_unresponsive_rehydration_and_retains_recall() {
+    let mut registry = ModuleRegistry::new();
+    registry
+        .register(Arc::new(FakeModule {
+            manifest: ModuleManifest {
+                id: ModuleId::new("luma.wait"),
+                display_name: "Wait".into(),
+                triggers: vec!["wait".into()],
+                default_enabled: true,
+                search_mode: SearchMode::GlobalContributing,
+                required_capabilities: vec![],
+                workbench: Default::default(),
+            },
+            wait_for_cancel: true,
+        }))
+        .unwrap();
+    let recall = Arc::new(TestRecall::default());
+    recall
+        .objects
+        .lock()
+        .unwrap()
+        .push(crate::ports::RecallObject {
+            object_id: "wait-1".into(),
+            module_id: "luma.wait".into(),
+            kind: "fake".into(),
+            primary_action: "open".into(),
+            title: "Wait".into(),
+            project_path: None,
+            use_count: 1,
+            last_used_at: 10,
+        });
+    let engine = Engine::with_options(
+        registry,
+        EngineOptions {
+            recall: Some(recall.clone()),
+            ..Default::default()
+        },
+    );
+    let mut events = engine.subscribe();
+
+    tokio::time::timeout(
+        std::time::Duration::from_secs(1),
+        engine.handle_command(Command::LoadHub),
+    )
+    .await
+    .expect("Hub rehydration must be bounded");
+    let continue_items = loop {
+        if let Ok(Event::HubLoaded { continue_items, .. }) = events.recv().await {
+            break continue_items;
+        }
+    };
+    assert!(continue_items.is_empty());
+    assert_eq!(
+        recall.objects.lock().unwrap().len(),
+        1,
+        "timeout is temporary and must retain durable Recall"
+    );
+}
+
+#[tokio::test]
+async fn successful_ssh_terminal_session_records_natural_recall_after_exit() {
+    let mut registry = ModuleRegistry::new();
+    registry
+        .register(Arc::new(FakeModule {
+            manifest: ModuleManifest {
+                id: ModuleId::new("luma.ssh"),
+                display_name: "SSH".into(),
+                triggers: vec!["ssh".into()],
+                default_enabled: true,
+                search_mode: SearchMode::GlobalContributing,
+                required_capabilities: vec![],
+                workbench: Default::default(),
+            },
+            wait_for_cancel: false,
+        }))
+        .unwrap();
+    let recall = Arc::new(TestRecall::default());
+    let engine = Engine::with_options(
+        registry,
+        EngineOptions {
+            recall: Some(recall.clone()),
+            ..Default::default()
+        },
+    );
+    engine
+        .handle_command(Command::SshSessionEnded {
+            alias: "production".into(),
+            exit_code: 1,
+        })
+        .await;
+    assert!(recall.objects.lock().unwrap().is_empty());
+
+    engine
+        .handle_command(Command::SshSessionEnded {
+            alias: "production".into(),
+            exit_code: 0,
+        })
+        .await;
+    let objects = recall.objects.lock().unwrap();
+    assert_eq!(objects.len(), 1);
+    assert_eq!(objects[0].object_id, "ssh:production");
+    assert_eq!(objects[0].title, "SSH connection");
+}
+
+#[tokio::test]
 async fn permission_failure_kind_not_empty_success() {
     let kind = FailureKind::PermissionRequired {
         capability: "ax".into(),
@@ -470,6 +743,72 @@ async fn subscribe_receives_session_ready() {
     assert!(matches!(
         events.recv().await,
         Ok(Event::ModuleStateChanged { .. })
+    ));
+    assert!(matches!(
+        events.recv().await,
+        Ok(Event::SessionReady { .. })
+    ));
+}
+
+#[tokio::test]
+async fn non_cooperative_warmup_times_out_without_blocking_session_ready() {
+    struct HangingWarmupModule {
+        manifest: ModuleManifest,
+    }
+
+    #[async_trait]
+    impl LumaModule for HangingWarmupModule {
+        fn manifest(&self) -> &ModuleManifest {
+            &self.manifest
+        }
+
+        async fn warmup(&self, _ctx: WarmupContext) -> ModuleState {
+            std::future::pending().await
+        }
+
+        async fn search(&self, _query: Query, _sink: SearchSink, _cancel: CancellationToken) {}
+
+        async fn actions(&self, _result: &SearchItem) -> Vec<ActionDescriptor> {
+            Vec::new()
+        }
+
+        async fn perform(
+            &self,
+            _action: ActionRequest,
+            _cancel: CancellationToken,
+        ) -> ActionOutcome {
+            ActionOutcome::Cancelled
+        }
+
+        async fn teardown(&self) {}
+    }
+
+    let mut registry = ModuleRegistry::new();
+    registry
+        .register(Arc::new(HangingWarmupModule {
+            manifest: ModuleManifest {
+                id: ModuleId::new("luma.hanging"),
+                display_name: "Hanging".into(),
+                triggers: vec!["hanging".into()],
+                default_enabled: true,
+                search_mode: SearchMode::TargetedOnly,
+                required_capabilities: vec![],
+                workbench: Default::default(),
+            },
+        }))
+        .unwrap();
+    let engine = Engine::new(registry);
+    let mut events = engine.subscribe();
+
+    tokio::time::timeout(std::time::Duration::from_secs(1), engine.start_session())
+        .await
+        .expect("warmup timeout must bound session startup");
+
+    let state = events.recv().await.unwrap();
+    assert!(matches!(
+        state,
+        Event::ModuleStateChanged { module_id, state }
+            if module_id == "luma.hanging" && state.starts_with("failed:warmup timed out")
     ));
     assert!(matches!(
         events.recv().await,

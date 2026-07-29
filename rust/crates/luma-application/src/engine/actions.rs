@@ -85,6 +85,7 @@ impl Engine {
             }
 
             let recall_item = item.clone();
+            let mut completed_action = None;
             let outcome = match (item, module) {
                 (Some(result), Some(module)) => {
                     let actions = module.actions(&result).await;
@@ -96,6 +97,8 @@ impl Engine {
                                 },
                             )
                         } else {
+                            completed_action =
+                                Some((action.id == result.primary_action.id, action.risk.clone()));
                             let out = module
                                 .perform(
                                     crate::module::ActionRequest {
@@ -166,13 +169,20 @@ impl Engine {
                 luma_protocol::ActionOutcomeDto::Success { .. }
                     | luma_protocol::ActionOutcomeDto::OpenSurface { .. }
             ) {
-                if let (Some(item), Some(repo)) = (recall_item.as_ref(), recall_repo.as_ref()) {
-                    let now_unix = std::time::SystemTime::now()
-                        .duration_since(std::time::UNIX_EPOCH)
-                        .map(|duration| duration.as_secs() as i64)
-                        .unwrap_or(0);
-                    if let Some(object) = super::recall::recall_object_from_item(item, now_unix) {
-                        let _ = repo.record_success(object);
+                if let (Some(item), Some(repo), Some((is_primary, risk))) =
+                    (recall_item.as_ref(), recall_repo.as_ref(), completed_action)
+                {
+                    if matches!(risk, luma_domain::ActionRisk::Destructive) {
+                        let _ = repo.forget(item.id.as_str());
+                    } else if is_primary {
+                        let now_unix = std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .map(|duration| duration.as_secs() as i64)
+                            .unwrap_or(0);
+                        if let Some(object) = super::recall::recall_object_from_item(item, now_unix)
+                        {
+                            let _ = repo.record_success(object);
+                        }
                     }
                 }
             }

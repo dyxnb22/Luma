@@ -30,7 +30,7 @@ impl Engine {
             },
             secondary_actions: vec![],
             ui_intent: None,
-            action_payload: Some(serde_json::json!({ "alias": alias })),
+            action_payload: Some(serde_json::json!({ "alias": alias.clone() })),
         };
         let action = luma_domain::ActionDescriptor {
             id: luma_domain::ActionId::new("record_connection"),
@@ -39,7 +39,7 @@ impl Engine {
             confirmation: false,
         };
         let cancel = self.inner.lock().await.session_cancel.child_token();
-        let _ = module
+        let outcome = module
             .perform(
                 crate::module::ActionRequest {
                     result,
@@ -49,5 +49,21 @@ impl Engine {
                 cancel,
             )
             .await;
+        if !matches!(outcome, crate::module::ActionOutcome::Success { .. }) {
+            return;
+        }
+        let Some(repo) = self.recall.as_ref() else {
+            return;
+        };
+        let object_id = format!("ssh:{alias}");
+        if let Ok(Some(item)) = module.rehydrate_recall(&object_id).await {
+            let now_unix = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|duration| duration.as_secs() as i64)
+                .unwrap_or(0);
+            if let Some(object) = super::super::recall::recall_object_from_item(&item, now_unix) {
+                let _ = repo.record_success(object);
+            }
+        }
     }
 }

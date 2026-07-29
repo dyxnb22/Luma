@@ -25,8 +25,8 @@ and not an AI-agent product. Work under `rust/` and follow `AGENTS.md` plus
   probe-port infrastructure. Modules own their permission, unavailable, and not-configured rows.
 - Keep Window layouts, Menu search, Browser tabs, and signed-host Translate deferred; do not grow
   them as half-implemented stubs.
-- Prefer real daily-use friction fixes in Apps, Windows, Proxy, Clipboard, Notes, Quicklinks,
-  Snippets, Wordbook, Projects, Records, Command Recipes, SSH, Timers, and Secrets.
+- Prefer real daily-use friction fixes across the registered modules documented in
+  `rust/docs/MODULES.md`; do not duplicate that inventory here.
 - Interactive commands require a leading `/` (`/ssh`, `/rec browse`, `/cmd test`, `/settings`,
   `/help`). Unprefixed input is global search; legacy bare-trigger and colon command forms are
   retired.

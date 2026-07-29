@@ -429,6 +429,39 @@ impl LumaModule for QuicklinksModule {
         }
         actions
     }
+    async fn rehydrate_recall(&self, object_id: &str) -> Result<Option<SearchItem>, String> {
+        if let Some(error) = self.store_error.read().await.clone() {
+            return Err(error);
+        }
+        let Some(trigger) = quicklink_trigger_id(object_id) else {
+            return Ok(None);
+        };
+        let link = self
+            .index
+            .read()
+            .await
+            .iter()
+            .find(|link| link.trigger == trigger)
+            .cloned();
+        Ok(link.map(|link| SearchItem {
+            id: luma_domain::ResultId::new(object_id),
+            module_id: ModuleId::new("luma.quicklinks"),
+            title: link.trigger,
+            subtitle: Some(quicklink_subtitle(&link.url)),
+            kind: "quicklink".into(),
+            score: 0.0,
+            primary_action: ActionDescriptor {
+                id: ActionId::new("open"),
+                label: "Open".into(),
+                risk: ActionRisk::Safe,
+                confirmation: false,
+            },
+            secondary_actions: vec![],
+            ui_intent: None,
+            action_payload: Some(ql_url_payload(&link.url)),
+        }))
+    }
+
     async fn perform(&self, action: ActionRequest, cancel: CancellationToken) -> ActionOutcome {
         if cancel.is_cancelled() {
             return ActionOutcome::Cancelled;
@@ -665,6 +698,23 @@ mod tests {
         // Index is independent of the backing store after upsert.
         store.delete("docs").unwrap();
         assert!(m.index.read().await.iter().any(|l| l.trigger == "docs"));
+    }
+
+    #[tokio::test]
+    async fn recall_rehydration_restores_live_url_and_rejects_deleted_entry() {
+        let store = Arc::new(MemoryQuicklinksRepository::new());
+        let m = QuicklinksModule::with_deps(
+            store,
+            Arc::new(luma_application::FakeOpenPath::new()),
+            Arc::new(MemPb::default()),
+        );
+        m.upsert("docs", "https://example.com").await.unwrap();
+
+        let item = m.rehydrate_recall("ql:docs").await.unwrap().unwrap();
+        assert_eq!(item.action_payload.unwrap()["url"], "https://example.com");
+
+        m.delete("docs").await.unwrap();
+        assert!(m.rehydrate_recall("ql:docs").await.unwrap().is_none());
     }
 
     #[tokio::test]

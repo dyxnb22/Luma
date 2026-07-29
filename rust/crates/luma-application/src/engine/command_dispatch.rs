@@ -138,35 +138,56 @@ impl Engine {
                 continue_search_items.truncate(super::recall::HUB_CONTINUE_LIMIT);
                 let remaining =
                     super::recall::HUB_CONTINUE_LIMIT.saturating_sub(continue_search_items.len());
-                let recent_records = self
-                    .recall
+                let recall_repo = self.recall.clone();
+                let recent_records = recall_repo
                     .as_ref()
                     .and_then(|repo| {
-                        repo.list_recent(super::recall::HUB_CONTINUE_LIMIT.saturating_mul(2))
+                        repo.list_recent(super::recall::HUB_CONTINUE_LIMIT.saturating_mul(4))
                             .ok()
                     })
                     .unwrap_or_default();
-                let enabled_ids = modules
-                    .iter()
-                    .map(|module| module.manifest().id.as_str().to_string())
-                    .collect::<std::collections::HashSet<_>>();
                 let live_ids = continue_search_items
                     .iter()
                     .map(|item| item.id.as_str())
                     .collect::<std::collections::HashSet<_>>();
-                let recent_items = recent_records
-                    .into_iter()
-                    .filter(|record| {
-                        enabled_ids.contains(&record.module_id)
-                            // Git and Runtime rows require a live repository/listener payload.
-                            // They remain recall-ranked in global search, but Hub Continue never
-                            // guesses that volatile payload from a persistent record.
-                            && !matches!(record.module_id.as_str(), "luma.git" | "luma.runtime")
-                            && !live_ids.contains(record.object_id.as_str())
-                    })
-                    .take(remaining)
-                    .map(|record| super::recall::hub_item(&record))
-                    .collect::<Vec<_>>();
+                let mut recent_items = Vec::with_capacity(remaining);
+                for record in recent_records {
+                    if recent_items.len() >= remaining {
+                        break;
+                    }
+                    if live_ids.contains(record.object_id.as_str()) {
+                        continue;
+                    }
+                    let Some(module) = modules
+                        .iter()
+                        .find(|module| module.manifest().id.as_str() == record.module_id)
+                    else {
+                        // Disabled modules retain Recall so re-enabling them can restore ranking.
+                        continue;
+                    };
+                    match tokio::time::timeout(
+                        RECALL_REHYDRATION_BOUND,
+                        module.rehydrate_recall(&record.object_id),
+                    )
+                    .await
+                    {
+                        Ok(Ok(Some(item))) => {
+                            if let Some(item) = super::recall::prepare_hub_item(&record, item) {
+                                recent_items.push(item);
+                            } else if let Some(repo) = recall_repo.as_ref() {
+                                let _ = repo.forget(&record.object_id);
+                            }
+                        }
+                        Ok(Ok(None)) => {
+                            if let Some(repo) = recall_repo.as_ref() {
+                                let _ = repo.forget(&record.object_id);
+                            }
+                        }
+                        Ok(Err(_)) | Err(_) => {
+                            // Temporary module/store failures must not destroy durable ranking.
+                        }
+                    }
+                }
                 continue_search_items.extend(recent_items);
                 let continue_dto = continue_search_items
                     .iter()

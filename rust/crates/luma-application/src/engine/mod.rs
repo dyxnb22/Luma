@@ -15,6 +15,14 @@ use tracing::warn;
 
 const SEARCH_CANCEL_BOUND: Duration = Duration::from_millis(750);
 const OPERATION_CANCEL_BOUND: Duration = Duration::from_millis(750);
+#[cfg(test)]
+const WARMUP_COMPLETION_BOUND: Duration = Duration::from_millis(75);
+#[cfg(not(test))]
+const WARMUP_COMPLETION_BOUND: Duration = Duration::from_secs(30);
+#[cfg(test)]
+const RECALL_REHYDRATION_BOUND: Duration = Duration::from_millis(75);
+#[cfg(not(test))]
+const RECALL_REHYDRATION_BOUND: Duration = Duration::from_secs(2);
 /// Cap concurrent in-flight ExecuteAction tasks.
 pub(crate) const MAX_OPERATIONS: usize = 32;
 /// Soft bound for module search completion; partial results are kept.

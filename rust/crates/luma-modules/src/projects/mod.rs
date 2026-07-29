@@ -4,7 +4,7 @@ use luma_application::{
     LumaModule, ModuleManifest, ModuleState, OpenPathPort, ProjectWorkspacePort, RecallRepository,
     RecipeEnvironmentPort, RuntimePort, SearchMode, SearchSink, WarmupContext,
 };
-use luma_domain::{ActionDescriptor, ModuleId, Query, SearchItem};
+use luma_domain::{ActionDescriptor, ActionId, ActionRisk, ModuleId, Query, SearchItem};
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -163,6 +163,62 @@ impl LumaModule for ProjectsModule {
 
     async fn preview(&self, result: &SearchItem) -> Option<String> {
         self.module_preview(result).await
+    }
+
+    async fn rehydrate_recall(&self, object_id: &str) -> Result<Option<SearchItem>, String> {
+        let Some(project_path) = object_id.strip_prefix("proj:") else {
+            return Ok(None);
+        };
+        let imported = self
+            .imported
+            .read()
+            .await
+            .iter()
+            .find(|project| project.path == project_path)
+            .cloned();
+        let Some(imported) = imported else {
+            return Ok(None);
+        };
+        let path = PathBuf::from(&imported.path);
+        let present = self
+            .workspace
+            .imported_project_statuses(vec![path.clone()], CancellationToken::new())
+            .await
+            .map_err(|error| error.to_string())?
+            .first()
+            .copied()
+            .unwrap_or(false);
+        if !present {
+            return Ok(None);
+        }
+        let name = imported.name.unwrap_or_else(|| {
+            path.file_name()
+                .and_then(|name| name.to_str())
+                .unwrap_or("project")
+                .to_string()
+        });
+        Ok(Some(SearchItem {
+            id: luma_domain::ResultId::new(object_id),
+            module_id: ModuleId::new("luma.projects"),
+            title: name.clone(),
+            subtitle: Some(path.display().to_string()),
+            kind: "project".into(),
+            score: 0.0,
+            primary_action: ActionDescriptor {
+                id: ActionId::new("open_workbench"),
+                label: "Open workbench".into(),
+                risk: ActionRisk::Safe,
+                confirmation: false,
+            },
+            secondary_actions: vec![],
+            ui_intent: None,
+            action_payload: Some(serde_json::json!({
+                "project_path": imported.path,
+                "path": path.display().to_string(),
+                "name": name,
+                "browse_trigger": "proj",
+            })),
+        }))
     }
 
     async fn perform(&self, action: ActionRequest, cancel: CancellationToken) -> ActionOutcome {
@@ -622,6 +678,39 @@ mod tests {
                 query: "/proj show /workspace/app".into()
             }
         );
+    }
+
+    #[tokio::test]
+    async fn recall_rehydration_requires_a_live_imported_project() {
+        let path = PathBuf::from("/workspace/app");
+        let workspace = Arc::new(FakeProjectWorkspace::new());
+        let module = ProjectsModule::with_deps(
+            Vec::new(),
+            vec![ImportedProject {
+                path: path.display().to_string(),
+                name: Some("app".into()),
+            }],
+            Arc::new(FakeOpenPath::new()),
+            workspace.clone(),
+        );
+
+        let item = module
+            .rehydrate_recall("proj:/workspace/app")
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(item.primary_action.id.as_str(), "open_workbench");
+        assert_eq!(
+            item.action_payload.unwrap()["project_path"],
+            "/workspace/app"
+        );
+
+        workspace.mark_missing(path);
+        assert!(module
+            .rehydrate_recall("proj:/workspace/app")
+            .await
+            .unwrap()
+            .is_none());
     }
 
     #[tokio::test]

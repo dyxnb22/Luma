@@ -16,6 +16,8 @@ pub enum RecallStoreError {
     Sqlite(#[from] rusqlite::Error),
     #[error("io: {0}")]
     Io(#[from] std::io::Error),
+    #[error("unsupported Recall schema version {found}; this build supports up to {supported}")]
+    UnsupportedSchema { found: i64, supported: i64 },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -58,6 +60,12 @@ impl RecallStore {
         }
         let conn = self.connect()?;
         let version: i64 = conn.query_row("PRAGMA user_version", [], |row| row.get(0))?;
+        if version > RECALL_SCHEMA_VERSION {
+            return Err(RecallStoreError::UnsupportedSchema {
+                found: version,
+                supported: RECALL_SCHEMA_VERSION,
+            });
+        }
         if version == 0 {
             conn.execute_batch(
                 "CREATE TABLE IF NOT EXISTS recall_objects (
@@ -80,7 +88,6 @@ impl RecallStore {
                  PRAGMA user_version = 2;",
             )?;
         }
-        debug_assert!(version <= RECALL_SCHEMA_VERSION);
         Ok(())
     }
 
@@ -150,6 +157,15 @@ impl RecallStore {
             .map_err(RecallStoreError::from)?;
         Ok(rows)
     }
+
+    pub fn forget(&self, object_id: &str) -> Result<(), RecallStoreError> {
+        let conn = self.connect()?;
+        conn.execute(
+            "DELETE FROM recall_objects WHERE object_id = ?1",
+            params![object_id],
+        )?;
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -195,5 +211,40 @@ mod tests {
         let rows = store.list_recent(MAX_RECALL_OBJECTS + 10).unwrap();
         assert_eq!(rows.len(), MAX_RECALL_OBJECTS);
         assert!(!rows.iter().any(|item| item.object_id == "p:0"));
+    }
+
+    #[test]
+    fn forget_removes_only_the_requested_object() {
+        let dir = tempdir().unwrap();
+        let store = RecallStore::with_path(dir.path().join("recall.sqlite")).unwrap();
+        store.record_success(&row("proj:a", 10)).unwrap();
+        store.record_success(&row("proj:b", 20)).unwrap();
+
+        store.forget("proj:a").unwrap();
+
+        let rows = store.list_recent(10).unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].object_id, "proj:b");
+    }
+
+    #[test]
+    fn rejects_schema_from_a_newer_build() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("recall.sqlite");
+        let conn = Connection::open(&path).unwrap();
+        conn.execute_batch("PRAGMA user_version = 3;").unwrap();
+        drop(conn);
+
+        let error = match RecallStore::with_path(path) {
+            Ok(_) => panic!("newer Recall schema must be rejected"),
+            Err(error) => error,
+        };
+        assert!(matches!(
+            error,
+            RecallStoreError::UnsupportedSchema {
+                found: 3,
+                supported: RECALL_SCHEMA_VERSION
+            }
+        ));
     }
 }

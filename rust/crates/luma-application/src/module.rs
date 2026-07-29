@@ -194,6 +194,15 @@ pub trait LumaModule: Send + Sync {
         Vec::new()
     }
 
+    /// Re-read a persisted Recall identity from the module's current source of truth.
+    ///
+    /// `Ok(None)` means the object is permanently stale and its Recall row may be removed.
+    /// `Err` means revalidation was temporarily unavailable, so persistence must be retained.
+    /// The default keeps modules out of Hub Continue until they can prove a safe live identity.
+    async fn rehydrate_recall(&self, _object_id: &str) -> Result<Option<SearchItem>, String> {
+        Ok(None)
+    }
+
     /// Apply settings that change at runtime (roots, excludes). Default: no-op.
     async fn apply_settings(&self, _settings: &AppSettings) {}
 

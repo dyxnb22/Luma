@@ -3,7 +3,7 @@ use async_trait::async_trait;
 use luma_application::{
     sanitize_identity_display, ActionOutcome, ActionRequest, ClockPort, LumaModule, ModuleManifest,
     ModuleState, PasteboardPort, ResolvedSshHost, SearchMode, SearchSink, SshConfigPort,
-    SshHostMeta, SshMetaRepository, WarmupContext,
+    SshConfigState, SshHostMeta, SshMetaRepository, WarmupContext,
 };
 use luma_domain::{ActionDescriptor, FailureKind, ModuleId, Query, SearchItem};
 use std::collections::HashMap;
@@ -183,6 +183,29 @@ impl LumaModule for SshModule {
         }
         Some(lines.join("\n"))
     }
+
+    async fn rehydrate_recall(&self, object_id: &str) -> Result<Option<SearchItem>, String> {
+        let Some(alias) = object_id
+            .strip_prefix("ssh:")
+            .filter(|alias| !alias.is_empty() && !alias.contains(':'))
+        else {
+            return Ok(None);
+        };
+        match self.config.config_state() {
+            SshConfigState::Found => {}
+            SshConfigState::NotConfigured => return Ok(None),
+            SshConfigState::Unavailable(reason) => return Err(reason),
+        }
+        if !self.alias_is_known(alias).await {
+            return Ok(None);
+        }
+        let Some(host) = self.resolve_host(alias).await else {
+            return Err(format!("failed to resolve SSH alias {alias}"));
+        };
+        let meta = self.meta_cache.read().await.get(alias).cloned();
+        Ok(Some(Self::host_item(alias, &host, meta.as_ref(), 0.0)))
+    }
+
     async fn perform(&self, action: ActionRequest, cancel: CancellationToken) -> ActionOutcome {
         if cancel.is_cancelled() {
             return ActionOutcome::Cancelled;
@@ -380,6 +403,29 @@ mod tests {
         let module = test_module();
         let items = collect_search(&module, "/ssh ").await;
         assert!(items.iter().any(|i| i.id == "ssh:production"));
+    }
+
+    #[tokio::test]
+    async fn recall_rehydration_resolves_only_current_aliases() {
+        let module = test_module();
+        module
+            .warmup(WarmupContext {
+                cancel: CancellationToken::new(),
+            })
+            .await;
+
+        let item = module
+            .rehydrate_recall("ssh:production")
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(item.primary_action.id.as_str(), "connect");
+        assert_eq!(item.action_payload.unwrap()["alias"], "production");
+        assert!(module
+            .rehydrate_recall("ssh:removed")
+            .await
+            .unwrap()
+            .is_none());
     }
 
     #[tokio::test]

@@ -88,16 +88,20 @@ Read-only launcher over OpenSSH — not a full SSH client:
   a near-equivalent alternative (within three score points) may diversify the page. Recall boosts
   are deliberately smaller than a semantic match band. Records and Wordbook remain
   targeted-only because their dense historical rows lack a clear bounded global-search benefit.
-- A successful action records only bounded recall metadata in `recall.sqlite`: object/module/kind,
-  natural primary action, a safe display title, optional project association, count, and last use.
-  Failed/cancelled actions are not recorded. Clipboard bodies, snippet bodies, SSH configuration,
-  proxy endpoints, Calculator expressions, Screen OCR text, and search text are never copied into
-  Recall.
+- A successful natural primary action records only bounded recall metadata in `recall.sqlite`:
+  object/module/kind, natural primary action, a safe display title, optional project association,
+  count, and last use. Successful secondary actions do not create usage entries; successful
+  destructive actions evict the object's entry. Failed/cancelled actions are not recorded.
+  Clipboard bodies, snippet bodies, SSH configuration, proxy endpoints, Calculator expressions,
+  Screen OCR text, and search text are never copied into Recall.
 - The empty Hub renders at most three live-or-compatible Continue rows after Windows. Running or
-  paused Timers are projected first; remaining slots come from Recall. Direct Git and
-  Runtime objects are not Hub-continued because their live repository/listener payload must be
-  revalidated. `/proj show PATH` may offer one project-scoped Continue row by converting stored
-  metadata back into a slash surface and letting the destination module re-read live state.
+  paused Timers are projected first; remaining slots come from Recall only after the owning module
+  re-reads the current object and restores its real payload, risk, and confirmation requirement.
+  Missing objects are pruned; temporary store failures retain metadata but skip the row. Modules
+  without a safe rehydration contract (including direct Git and Runtime objects) remain
+  recall-ranked in global search but are not Hub-continued. `/proj show PATH` may offer one
+  project-scoped Continue row by converting stored metadata back into a slash surface and letting
+  the destination module re-read live state.
 
 ### Project Workbench
 

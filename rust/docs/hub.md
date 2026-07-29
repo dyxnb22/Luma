@@ -14,7 +14,8 @@ Empty prompt shows:
 
 1. **Windows** — all visible windows (`title · app`); Enter or **1–9** focuses (status/more/Continue/modules rows are not numbered). Soft-refreshes about every 2s while Hub is visible.
 2. **Continue** — up to three live-or-recent objects. Running/paused timers come first, followed
-   by privacy-safe Recall objects; Enter runs the natural primary action. Recall contains no raw
+   by privacy-safe Recall objects that their owning module can re-read and validate; Enter runs
+   the current natural primary action. Stale/deleted objects are pruned. Recall contains no raw
    clipboard/snippet body, SSH configuration, or search text.
 3. **Modules** — Enter opens each module’s `suggested_query` (its default surface).
 

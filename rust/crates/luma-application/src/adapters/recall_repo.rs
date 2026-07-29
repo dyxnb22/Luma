@@ -43,6 +43,12 @@ impl RecallRepository for SqliteRecallRepository {
             .map_err(|err| RecallRepoError(err.to_string()))
     }
 
+    fn forget(&self, object_id: &str) -> Result<(), RecallRepoError> {
+        self.store
+            .forget(object_id)
+            .map_err(|err| RecallRepoError(err.to_string()))
+    }
+
     fn list_recent(&self, limit: usize) -> Result<Vec<RecallObject>, RecallRepoError> {
         self.store
             .list_recent(limit)

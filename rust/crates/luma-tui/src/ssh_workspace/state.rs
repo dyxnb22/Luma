@@ -1,6 +1,7 @@
 //! Pure SSH Workspace view state (no PTY handles).
 
 use crate::ssh_workspace::screen::VtScreen;
+use crate::ssh_workspace::shelf::ShelfState;
 use ratatui::text::Line;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -58,9 +59,11 @@ pub struct SshWorkspaceState {
     pub error_summary: String,
     pub disconnect_confirm: bool,
     pub leader_armed: bool,
+    pub shelf: ShelfState,
 }
 
 impl SshWorkspaceState {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         alias: String,
         hostname: String,
@@ -98,7 +101,22 @@ impl SshWorkspaceState {
             error_summary: String::new(),
             disconnect_confirm: false,
             leader_armed: false,
+            shelf: ShelfState::from_recipes(&[], true),
         }
+    }
+
+    pub fn with_shelf_recipes(mut self, recipes: &[luma_domain::Recipe]) -> Self {
+        self.shelf = ShelfState::from_recipes(recipes, true);
+        self
+    }
+
+    pub fn with_shelf_recipes_and_meta(
+        mut self,
+        recipes: &[luma_domain::Recipe],
+        meta: &std::collections::BTreeMap<String, luma_domain::RecipeMetadata>,
+    ) -> Self {
+        self.shelf = ShelfState::from_recipes_with_meta(recipes, meta, true);
+        self
     }
 
     pub fn header_text(&self) -> String {

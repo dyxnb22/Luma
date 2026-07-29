@@ -63,15 +63,26 @@ pub fn render_ssh_workspace(
     }
 
     let footer = match ws.focus {
-        SshWorkspaceFocus::Terminal | SshWorkspaceFocus::Leader => {
-            "Ctrl+Space commands · Esc leave · r reconnect · l compat · c copy error"
+        SshWorkspaceFocus::Terminal => {
+            if ws.disconnect_confirm {
+                "confirm disconnect: Ctrl+Space d · Esc cancel"
+            } else if ws.leader_armed {
+                "leader: Space=^Space · f fullscreen · d disconnect · r reconnect · Esc"
+            } else {
+                "Ctrl+Space commands · Esc leave · r reconnect · l compat · c copy error"
+            }
         }
-        SshWorkspaceFocus::Shelf => "Esc terminal · ↑/↓ select · c copy · i insert · / search",
+        SshWorkspaceFocus::Leader => {
+            "leader: Space=^Space · f fullscreen · d disconnect · r reconnect · Esc"
+        }
+        SshWorkspaceFocus::Shelf if ws.shelf.filling_params => {
+            "Tab fields · type value · Enter preview · Esc terminal"
+        }
+        SshWorkspaceFocus::Shelf => {
+            "Esc terminal · ↑/↓ · Enter preview · c copy · i insert · f favorite · / search"
+        }
     };
-    frame.render_widget(
-        Paragraph::new(Span::styled(footer, theme.muted())),
-        rows[2],
-    );
+    frame.render_widget(Paragraph::new(Span::styled(footer, theme.muted())), rows[2]);
 }
 
 fn render_terminal_pane(
@@ -106,24 +117,55 @@ fn render_shelf_pane(frame: &mut Frame<'_>, area: Rect, ws: &SshWorkspaceState, 
         .title(" COMMANDS ");
     let inner = block.inner(area);
     frame.render_widget(block, area);
-    let lines = vec![
-        Line::from(Span::styled("SSH", theme.accent())),
-        Line::from("  Copy SSH command"),
-        Line::from("  Copy SFTP command"),
-        Line::from("  Reconnect"),
-        Line::from("  Show host information"),
-        Line::from(""),
-        Line::from(Span::styled("System", theme.accent())),
-        Line::from("  uptime"),
-        Line::from("  df -h"),
-        Line::from("  free -h"),
-        Line::from(""),
-        Line::from(Span::styled("Docker", theme.accent())),
-        Line::from("  docker ps"),
-        Line::from("  docker logs …"),
-        Line::from(""),
-        Line::from(Span::styled(format!("host: {}", ws.alias), theme.muted())),
-    ];
+    let mut lines: Vec<Line> = Vec::new();
+    if ws.shelf.filter_editing || !ws.shelf.filter.is_empty() {
+        lines.push(Line::from(Span::styled(
+            format!("/{}", ws.shelf.filter),
+            theme.accent(),
+        )));
+    }
+    if ws.shelf.filling_params {
+        lines.push(Line::from(Span::styled("parameters", theme.muted())));
+        for line in ws.shelf.param_form_lines() {
+            lines.push(Line::from(Span::styled(line, theme.text())));
+        }
+        if let Some(preview) = &ws.shelf.preview {
+            lines.push(Line::from(""));
+            lines.push(Line::from(Span::styled(preview.clone(), theme.muted())));
+        }
+        frame.render_widget(Paragraph::new(lines), inner);
+        return;
+    }
+    let mut last_group = String::new();
+    for (vis_idx, item_idx) in ws.shelf.filtered.iter().enumerate() {
+        let Some(item) = ws.shelf.items.get(*item_idx) else {
+            continue;
+        };
+        if item.group != last_group {
+            lines.push(Line::from(Span::styled(item.group.clone(), theme.accent())));
+            last_group = item.group.clone();
+        }
+        let marker = if vis_idx == ws.shelf.selected {
+            "› "
+        } else {
+            "  "
+        };
+        let star = if item.favorite { "★ " } else { "" };
+        let risk = match &item.kind {
+            crate::ssh_workspace::ShelfItemKind::RemoteCommand { risk, .. }
+                if risk != "safe" =>
+            {
+                format!(" [{risk}]")
+            }
+            _ => String::new(),
+        };
+        lines.push(Line::from(format!("{marker}{star}{}{risk}", item.title)));
+    }
+    if let Some(preview) = &ws.shelf.preview {
+        lines.push(Line::from(""));
+        lines.push(Line::from(Span::styled("preview", theme.muted())));
+        lines.push(Line::from(Span::styled(preview.clone(), theme.text())));
+    }
     frame.render_widget(Paragraph::new(lines), inner);
 }
 

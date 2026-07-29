@@ -90,4 +90,11 @@ pub enum Msg {
     SshDisconnect,
     /// SSH workspace: send raw Ctrl+Space to remote.
     SshSendCtrlSpace,
+    SshShelfPreview,
+    SshShelfCopy,
+    SshShelfInsert,
+    SshShelfStartFilter,
+    SshShelfFavorite,
+    SshShelfParamNext,
+    SshShelfParamPrev,
 }

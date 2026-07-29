@@ -4,6 +4,7 @@ use crate::effect::Effect;
 use crate::ssh_workspace::{SshConnectionPhase, SshWorkspaceFocus, SshWorkspaceState};
 use crate::view_model::{AppState, FocusZone, Route, StatusTone};
 
+#[allow(clippy::too_many_arguments)]
 pub(super) fn open_embedded_workspace(
     state: &mut AppState,
     program: String,
@@ -18,28 +19,25 @@ pub(super) fn open_embedded_workspace(
 ) -> Vec<Effect> {
     let width = state.terminal.width.max(1);
     let height = state.terminal.height.max(4);
-    // Header(1) + footer(1) + borders ≈ reserve 4 rows; side shelf may shrink cols.
-    let shelf = SshWorkspaceState::side_shelf_layout(width);
-    let shelf_w = if shelf {
-        SshWorkspaceState::shelf_width(width)
-    } else {
-        0
-    };
-    let term_cols = width.saturating_sub(shelf_w).saturating_sub(2).max(20);
+    // Shelf starts hidden — do not reserve side width until the user opens it.
+    let term_cols = width.saturating_sub(2).max(20);
     let term_rows = height.saturating_sub(4).max(3);
-    state.ssh_workspace = Some(SshWorkspaceState::new(
-        alias,
-        hostname,
-        user,
-        port,
-        title,
-        program.clone(),
-        args.clone(),
-        environment.clone(),
-        record_alias.clone(),
-        term_cols,
-        term_rows,
-    ));
+    state.ssh_workspace = Some(
+        SshWorkspaceState::new(
+            alias,
+            hostname,
+            user,
+            port,
+            title,
+            program.clone(),
+            args.clone(),
+            environment.clone(),
+            record_alias.clone(),
+            term_cols,
+            term_rows,
+        )
+        .with_shelf_recipes_and_meta(&state.ssh_shelf_recipes, &state.ssh_shelf_recipe_meta),
+    );
     state.route = Route::SshWorkspace;
     state.focus = FocusZone::Terminal;
     state.status.set("Connecting…", StatusTone::Progress);
@@ -78,9 +76,15 @@ pub(super) fn on_pty_exited(state: &mut AppState, code: Option<i32>) -> Vec<Effe
         return vec![Effect::None];
     };
     ws.exit_code = code;
+    let alias = ws.record_alias.clone().unwrap_or_else(|| ws.alias.clone());
+    let mut effects = Vec::new();
     if code == Some(0) {
         ws.phase = SshConnectionPhase::Disconnected;
         ws.status_detail = "Exited".into();
+        effects.push(Effect::RecordSshSessionEnded {
+            alias,
+            exit_code: 0,
+        });
     } else if let Some(code) = code {
         ws.phase = SshConnectionPhase::Failed;
         ws.status_detail = format!("Exited with code {code}");
@@ -90,8 +94,14 @@ pub(super) fn on_pty_exited(state: &mut AppState, code: Option<i32>) -> Vec<Effe
         ws.status_detail = "Connection lost".into();
         ws.error_summary = ws.status_detail.clone();
     }
-    state.status.set(ws.status_detail.clone(), StatusTone::Warning);
-    vec![Effect::None]
+    state
+        .status
+        .set(ws.status_detail.clone(), StatusTone::Warning);
+    if effects.is_empty() {
+        vec![Effect::None]
+    } else {
+        effects
+    }
 }
 
 pub(super) fn leave_workspace(state: &mut AppState) -> Vec<Effect> {
@@ -175,29 +185,48 @@ pub(super) fn toggle_shelf(state: &mut AppState) -> Vec<Effect> {
     let Some(ws) = state.ssh_workspace.as_mut() else {
         return vec![Effect::None];
     };
+    // Ctrl+Space / F6: arm leader for the next key chord, and open/focus the shelf.
+    ws.leader_armed = true;
+    ws.disconnect_confirm = false;
     if SshWorkspaceState::side_shelf_layout(width) {
-        ws.shelf_visible = !ws.shelf_visible;
         if !ws.shelf_visible {
-            ws.focus = SshWorkspaceFocus::Terminal;
+            ws.shelf_visible = true;
+            ws.focus = SshWorkspaceFocus::Shelf;
+            state.focus = FocusZone::CommandShelf;
+        } else if matches!(ws.focus, SshWorkspaceFocus::Shelf) {
+            // Second press while shelf focused: keep shelf, stay armed for chord.
+            ws.focus = SshWorkspaceFocus::Leader;
             state.focus = FocusZone::Terminal;
         } else {
             ws.focus = SshWorkspaceFocus::Shelf;
             state.focus = FocusZone::CommandShelf;
         }
     } else {
-        // Narrow: open/close overlay or full-page shelf.
-        ws.shelf_visible = !ws.shelf_visible;
-        ws.focus = if ws.shelf_visible {
-            SshWorkspaceFocus::Shelf
-        } else {
-            SshWorkspaceFocus::Terminal
-        };
-        state.focus = if ws.shelf_visible {
-            FocusZone::CommandShelf
-        } else {
-            FocusZone::Terminal
-        };
+        // Narrow: open overlay/full-page shelf (or re-arm leader if already open).
+        if !ws.shelf_visible {
+            ws.shelf_visible = true;
+        }
+        ws.focus = SshWorkspaceFocus::Shelf;
+        state.focus = FocusZone::CommandShelf;
     }
+    let (cols, rows) = terminal_geometry(state);
+    if let Some(ws) = state.ssh_workspace.as_mut() {
+        ws.term_cols = cols;
+        ws.term_rows = rows;
+    }
+    vec![Effect::ResizeEmbeddedPty { cols, rows }]
+}
+
+/// Close shelf chrome and return focus to the terminal (Esc from shelf).
+pub(super) fn shelf_back_to_terminal(state: &mut AppState) -> Vec<Effect> {
+    let Some(ws) = state.ssh_workspace.as_mut() else {
+        return vec![Effect::None];
+    };
+    ws.shelf_visible = false;
+    ws.leader_armed = false;
+    ws.disconnect_confirm = false;
+    ws.focus = SshWorkspaceFocus::Terminal;
+    state.focus = FocusZone::Terminal;
     let (cols, rows) = terminal_geometry(state);
     if let Some(ws) = state.ssh_workspace.as_mut() {
         ws.term_cols = cols;
@@ -221,10 +250,13 @@ pub(super) fn terminal_geometry(state: &AppState) -> (u16, u16) {
 }
 
 fn uuid_like() -> String {
-    format!("ssh-{}", std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis())
-        .unwrap_or(0))
+    format!(
+        "ssh-{}",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis())
+            .unwrap_or(0)
+    )
 }
 
 #[cfg(test)]
@@ -233,23 +265,117 @@ mod tests {
 
     #[test]
     fn exit_nonzero_keeps_failed_phase() {
-        let mut state = AppState::default();
-        state.ssh_workspace = Some(SshWorkspaceState::new(
-            "a".into(),
-            "h".into(),
-            "u".into(),
-            22,
-            "a".into(),
-            "/usr/bin/ssh".into(),
-            vec![],
-            vec![],
-            Some("a".into()),
-            80,
-            24,
-        ));
+        let mut state = AppState {
+            ssh_workspace: Some(SshWorkspaceState::new(
+                "a".into(),
+                "h".into(),
+                "u".into(),
+                22,
+                "a".into(),
+                "/usr/bin/ssh".into(),
+                vec![],
+                vec![],
+                Some("a".into()),
+                80,
+                24,
+            )),
+            ..AppState::default()
+        };
         on_pty_exited(&mut state, Some(255));
         let ws = state.ssh_workspace.as_ref().unwrap();
         assert_eq!(ws.phase, SshConnectionPhase::Failed);
         assert!(ws.status_detail.contains("255"));
+    }
+
+    #[test]
+    fn exit_zero_records_session_metadata() {
+        let mut state = AppState {
+            ssh_workspace: Some(SshWorkspaceState::new(
+                "a".into(),
+                "h".into(),
+                "u".into(),
+                22,
+                "a".into(),
+                "/usr/bin/ssh".into(),
+                vec![],
+                vec![],
+                Some("a".into()),
+                80,
+                24,
+            )),
+            ..AppState::default()
+        };
+        let effects = on_pty_exited(&mut state, Some(0));
+        assert!(matches!(
+            effects.as_slice(),
+            [Effect::RecordSshSessionEnded {
+                alias,
+                exit_code: 0
+            }] if alias == "a"
+        ));
+    }
+
+    #[test]
+    fn open_workspace_uses_full_width_while_shelf_hidden() {
+        let mut state = AppState {
+            terminal: crate::view_model::TerminalState {
+                width: 160,
+                height: 40,
+            },
+            ..AppState::default()
+        };
+        let _ = open_embedded_workspace(
+            &mut state,
+            "/usr/bin/ssh".into(),
+            vec![],
+            vec![],
+            Some("prod".into()),
+            "prod".into(),
+            "prod".into(),
+            "1.2.3.4".into(),
+            "root".into(),
+            22,
+        );
+        let ws = state.ssh_workspace.as_ref().unwrap();
+        assert!(!ws.shelf_visible);
+        assert_eq!(ws.term_cols, 158);
+        let (cols, _) = terminal_geometry(&state);
+        assert_eq!(cols, 158);
+    }
+
+    #[test]
+    fn resize_storm_updates_geometry() {
+        let mut state = AppState {
+            ssh_workspace: Some(SshWorkspaceState::new(
+                "a".into(),
+                "h".into(),
+                "u".into(),
+                22,
+                "a".into(),
+                "/usr/bin/ssh".into(),
+                vec![],
+                vec![],
+                Some("a".into()),
+                80,
+                24,
+            )),
+            route: Route::SshWorkspace,
+            ..AppState::default()
+        };
+        if let Some(ws) = state.ssh_workspace.as_mut() {
+            ws.shelf_visible = true;
+            ws.phase = SshConnectionPhase::Connected;
+        }
+        for width in [160u16, 100, 70, 200, 118, 80] {
+            state.terminal.width = width;
+            state.terminal.height = 40;
+            let (cols, rows) = terminal_geometry(&state);
+            if let Some(ws) = state.ssh_workspace.as_mut() {
+                ws.term_cols = cols;
+                ws.term_rows = rows;
+            }
+            assert!(cols >= 20);
+            assert!(rows >= 3);
+        }
     }
 }

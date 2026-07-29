@@ -350,17 +350,19 @@ impl LumaModule for SshModule {
                         record_alias: Some(alias),
                     }
                 } else {
-                    ActionOutcome::EmbeddedTerminal {
-                        program: "/usr/bin/ssh".into(),
-                        args,
-                        environment,
-                        record_alias: Some(alias.clone()),
-                        title: alias.clone(),
-                        alias,
-                        hostname,
-                        user,
-                        port,
-                    }
+                    ActionOutcome::EmbeddedTerminal(Box::new(
+                        luma_application::EmbeddedTerminalRequest {
+                            program: "/usr/bin/ssh".into(),
+                            args,
+                            environment,
+                            record_alias: Some(alias.clone()),
+                            title: alias.clone(),
+                            alias,
+                            hostname,
+                            user,
+                            port,
+                        },
+                    ))
                 }
             }
             "sftp" => {
@@ -559,12 +561,13 @@ mod tests {
             )
             .await;
         match outcome {
-            ActionOutcome::EmbeddedTerminal {
-                program, args, alias, ..
-            } => {
-                assert_eq!(program, "/usr/bin/ssh");
-                assert_eq!(args, vec!["--".to_string(), "production".to_string()]);
-                assert_eq!(alias, "production");
+            ActionOutcome::EmbeddedTerminal(request) => {
+                assert_eq!(request.program, "/usr/bin/ssh");
+                assert_eq!(
+                    request.args,
+                    vec!["--".to_string(), "production".to_string()]
+                );
+                assert_eq!(request.alias, "production");
             }
             other => panic!("expected embedded, got {other:?}"),
         }
@@ -656,13 +659,13 @@ mod tests {
                 CancellationToken::new(),
             )
             .await;
-        let ActionOutcome::EmbeddedTerminal { environment, .. } = outcome else {
+        let ActionOutcome::EmbeddedTerminal(request) = outcome else {
             panic!("expected embedded terminal");
         };
-        assert!(environment.iter().any(|(key, value)| {
+        assert!(request.environment.iter().any(|(key, value)| {
             key == SSH_ASKPASS_ACCOUNT_ENV && value == "ssh-password:production"
         }));
-        assert!(!format!("{environment:?}").contains("never-project-this-password"));
+        assert!(!format!("{:?}", request.environment).contains("never-project-this-password"));
     }
 
     #[tokio::test]

@@ -74,6 +74,7 @@ fn recipe_with_risk(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn ssh_remote_recipe(
     id: &str,
     title: &str,

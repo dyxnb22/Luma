@@ -176,10 +176,9 @@ impl std::fmt::Display for RecipeRenderError {
             Self::EmbeddedParameter { arg } => {
                 write!(f, "parameter must occupy whole arg token: `{arg}`")
             }
-            Self::InvalidValue {
-                parameter,
-                message,
-            } => write!(f, "invalid `{parameter}`: {message}"),
+            Self::InvalidValue { parameter, message } => {
+                write!(f, "invalid `{parameter}`: {message}")
+            }
             Self::MissingRequired(id) => write!(f, "missing required parameter `{id}`"),
             Self::ForbiddenProgram => write!(f, "program cannot be a shell interpreter"),
         }
@@ -265,13 +264,7 @@ fn lookup_value(
                 .get(other)
                 .cloned()
                 .or_else(|| param.default.clone())
-                .ok_or_else(|| {
-                    if param.required {
-                        RecipeRenderError::MissingRequired(other.to_string())
-                    } else {
-                        RecipeRenderError::MissingRequired(other.to_string())
-                    }
-                })?;
+                .ok_or_else(|| RecipeRenderError::MissingRequired(other.to_string()))?;
             validate_parameter_value(param, &value)?;
             value
         }
@@ -283,10 +276,7 @@ fn lookup_value(
     Ok(raw)
 }
 
-fn validate_parameter_value(
-    param: &RecipeParameter,
-    value: &str,
-) -> Result<(), RecipeRenderError> {
+fn validate_parameter_value(param: &RecipeParameter, value: &str) -> Result<(), RecipeRenderError> {
     reject_control_chars(value).map_err(|message| RecipeRenderError::InvalidValue {
         parameter: param.id.clone(),
         message,
@@ -354,7 +344,10 @@ fn validate_parameter_value(
 }
 
 fn reject_control_chars(value: &str) -> Result<(), String> {
-    if value.chars().any(|c| c == '\0' || c == '\n' || c == '\r' || c.is_control()) {
+    if value
+        .chars()
+        .any(|c| c == '\0' || c == '\n' || c == '\r' || c.is_control())
+    {
         return Err("control characters are not allowed".into());
     }
     Ok(())
@@ -365,10 +358,10 @@ pub fn shell_quote(value: &str) -> String {
     if value.is_empty() {
         return "''".into();
     }
-    if value
-        .chars()
-        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '@' | '%' | '+' | '=' | ':' | ',' | '.' | '/' | '-'))
-    {
+    if value.chars().all(|c| {
+        c.is_ascii_alphanumeric()
+            || matches!(c, '_' | '@' | '%' | '+' | '=' | ':' | ',' | '.' | '/' | '-')
+    }) {
         return value.to_string();
     }
     let mut out = String::from("'");

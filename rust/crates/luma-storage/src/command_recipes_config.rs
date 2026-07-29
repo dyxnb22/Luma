@@ -431,7 +431,9 @@ mod tests {
         assert!(catalog.issues.is_empty());
         assert!(catalog.recipe_by_id("git-status").is_some());
         assert!(catalog.recipe_by_id("luma-check").is_some());
-        let docker_logs = catalog.recipe_by_id("ssh-docker-logs").expect("ssh docker logs");
+        let docker_logs = catalog
+            .recipe_by_id("ssh-docker-logs")
+            .expect("ssh docker logs");
         assert_eq!(docker_logs.scope, RecipeScope::SshSession);
         assert_eq!(docker_logs.target, RecipeTarget::RemoteShell);
         assert_eq!(docker_logs.group, "Docker");

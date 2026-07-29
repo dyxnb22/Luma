@@ -6,11 +6,11 @@
 
 | Task | Status | Notes |
 | --- | --- | --- |
-| 1 Embedded PTY port | in_progress | |
-| 2 vt100 screen projection | pending | |
-| 3 Workspace route + state machine | pending | |
-| 4 Input routing / security | pending | |
-| 5 Static command shelf | pending | |
-| 6 Recipe scope/params | pending | |
-| 7 Wire shelf + forms | pending | |
-| 8 Docs/default/E2E | pending | |
+| 1 Embedded PTY port | done | portable-pty + Fake; process-group kill |
+| 2 vt100 screen projection | done | scrollback 2000, OSC52 inert; flood/resize tests |
+| 3 Workspace route + state machine | done | EmbeddedTerminal outcome; full-width until shelf |
+| 4 Input routing / security | done | leader chords + shelf Esc |
+| 5 Static command shelf | done | Copy/Insert + SSH ops + favorites ★ |
+| 6 Recipe scope/params | done | ssh_session / remote_shell |
+| 7 Wire shelf + forms | done | Tab/Shift+Tab params; meta favorite/use_count |
+| 8 Docs/default/E2E | done | ADR-0008 + module docs + stability tests |

@@ -5,12 +5,12 @@ use crate::render::render;
 use crate::terminal::{install_panic_hook, TerminalGuard};
 use crate::view_model::{AppState, Route, StatusTone};
 use crossterm::event::{self, Event as CEvent, KeyCode, KeyEventKind, KeyModifiers};
+use luma_application::run_interactive_terminal;
 use luma_application::{
     execute_recipe_plan_with_hooks, now_unix, spawn_ctrl_c_cancel, CommandRunnerPort,
-    EmbeddedPtyEvent, EmbeddedPtyPort, EmbeddedPtySession, EmbeddedPtySize, EmbeddedPtySpawnRequest,
-    EnginePort, FakeEmbeddedPty, RecipeExecuteOptions, RecipeStdioMode,
+    EmbeddedPtyEvent, EmbeddedPtyPort, EmbeddedPtySession, EmbeddedPtySize,
+    EmbeddedPtySpawnRequest, EnginePort, FakeEmbeddedPty, RecipeExecuteOptions, RecipeStdioMode,
 };
-use luma_application::run_interactive_terminal;
 use luma_domain::RecipeRunOutcome;
 use luma_protocol::Command;
 use std::io::Write;
@@ -33,20 +33,20 @@ pub async fn run_tui_with_engine(
     run_tui_with_options(engine, command_runner, RunTuiOptions::default()).await
 }
 
+#[derive(Default)]
 pub struct RunTuiOptions {
     /// Seed the editable prompt without submitting or executing it.
     pub initial_query: Option<String>,
     /// Child PTY factory for SSH Workspace. Defaults to a Fake (tests).
     pub embedded_pty: Option<Arc<dyn EmbeddedPtyPort>>,
-}
-
-impl Default for RunTuiOptions {
-    fn default() -> Self {
-        Self {
-            initial_query: None,
-            embedded_pty: None,
-        }
-    }
+    /// SSH-session recipes for the command shelf.
+    pub ssh_shelf_recipes: Vec<luma_domain::Recipe>,
+    /// Favorite / use_count for SSH shelf recipes.
+    pub ssh_shelf_recipe_meta: std::collections::BTreeMap<String, luma_domain::RecipeMetadata>,
+    /// Optional recipe meta store for favorite toggles from the shelf.
+    pub command_recipes: Option<Arc<dyn luma_application::CommandRecipesRepository>>,
+    /// Pasteboard for Copy actions inside the workspace.
+    pub pasteboard: Option<Arc<dyn luma_application::PasteboardPort>>,
 }
 
 struct ActiveEmbedded {
@@ -66,9 +66,15 @@ pub async fn run_tui_with_options(
     let embedded_pty: Arc<dyn EmbeddedPtyPort> = options
         .embedded_pty
         .unwrap_or_else(|| FakeEmbeddedPty::new() as Arc<dyn EmbeddedPtyPort>);
+    let pasteboard = options.pasteboard;
+    let command_recipes = options.command_recipes;
     let mut active_embedded: Option<ActiveEmbedded> = None;
     let mut guard = TerminalGuard::enter()?;
-    let mut state = AppState::default();
+    let mut state = AppState {
+        ssh_shelf_recipes: options.ssh_shelf_recipes,
+        ssh_shelf_recipe_meta: options.ssh_shelf_recipe_meta,
+        ..AppState::default()
+    };
     if let Some(initial_query) = options.initial_query {
         state.search.prompt = initial_query;
         state.search.prompt_cursor = state.prompt_char_len();
@@ -222,6 +228,8 @@ pub async fn run_tui_with_options(
                         tasks: &mut effect_tasks,
                         embedded_pty: embedded_pty.clone(),
                         active_embedded: &mut active_embedded,
+                        pasteboard: pasteboard.clone(),
+                        command_recipes: command_recipes.clone(),
                     },
                     effect.clone(),
                 ) {
@@ -472,12 +480,27 @@ fn map_key(code: KeyCode, modifiers: KeyModifiers, state: &AppState) -> Msg {
 }
 
 fn map_ssh_workspace_key(code: KeyCode, modifiers: KeyModifiers, state: &AppState) -> Msg {
-    if code == KeyCode::F(6) {
+    if code == KeyCode::F(6)
+        || (modifiers.contains(KeyModifiers::CONTROL) && matches!(code, KeyCode::Char(' ')))
+    {
         return Msg::SshToggleShelf;
     }
-    if modifiers.contains(KeyModifiers::CONTROL) && matches!(code, KeyCode::Char(' ')) {
-        // Arm leader in state via a dedicated path: toggle shelf by default.
-        return Msg::SshToggleShelf;
+    let leader_armed = state
+        .ssh_workspace
+        .as_ref()
+        .is_some_and(|ws| ws.leader_armed);
+    if leader_armed {
+        return match code {
+            KeyCode::Esc => Msg::Cancel,
+            KeyCode::Char(c) => Msg::KeyChar(c),
+            _ => Msg::Tick,
+        };
+    }
+    let shelf_focused = state.ssh_workspace.as_ref().is_some_and(|ws| {
+        matches!(ws.focus, crate::ssh_workspace::SshWorkspaceFocus::Shelf) && ws.shelf_visible
+    });
+    if shelf_focused {
+        return map_ssh_shelf_key(code, state);
     }
     if modifiers.contains(KeyModifiers::CONTROL) {
         let byte = match code {
@@ -536,6 +559,28 @@ fn map_ssh_workspace_key(code: KeyCode, modifiers: KeyModifiers, state: &AppStat
     }
 }
 
+fn map_ssh_shelf_key(code: KeyCode, state: &AppState) -> Msg {
+    let filling = state
+        .ssh_workspace
+        .as_ref()
+        .is_some_and(|ws| ws.shelf.filling_params);
+    match code {
+        KeyCode::Esc => Msg::Cancel,
+        KeyCode::Up if !filling => Msg::SelectPrev,
+        KeyCode::Down if !filling => Msg::SelectNext,
+        KeyCode::Tab => Msg::SshShelfParamNext,
+        KeyCode::BackTab => Msg::SshShelfParamPrev,
+        KeyCode::Enter => Msg::SshShelfPreview,
+        KeyCode::Char('c') if !filling => Msg::SshShelfCopy,
+        KeyCode::Char('i') if !filling => Msg::SshShelfInsert,
+        KeyCode::Char('f') if !filling => Msg::SshShelfFavorite,
+        KeyCode::Char('/') if !filling => Msg::SshShelfStartFilter,
+        KeyCode::Char(c) => Msg::KeyChar(c),
+        KeyCode::Backspace => Msg::Backspace,
+        _ => Msg::Tick,
+    }
+}
+
 struct SyncEffectRuntime<'a> {
     engine: Arc<dyn EnginePort>,
     guard: &'a mut TerminalGuard,
@@ -543,6 +588,8 @@ struct SyncEffectRuntime<'a> {
     tasks: &'a mut JoinSet<()>,
     embedded_pty: Arc<dyn EmbeddedPtyPort>,
     active_embedded: &'a mut Option<ActiveEmbedded>,
+    pasteboard: Option<Arc<dyn luma_application::PasteboardPort>>,
+    command_recipes: Option<Arc<dyn luma_application::CommandRecipesRepository>>,
 }
 
 fn handle_effect_sync(runtime: SyncEffectRuntime<'_>, effect: Effect) -> bool {
@@ -606,13 +653,40 @@ fn handle_effect_sync(runtime: SyncEffectRuntime<'_>, effect: Effect) -> bool {
             true
         }
         Effect::CopyText { text } => {
-            // Clipboard write is async via pasteboard in modules; for workspace errors use
-            // a best-effort status note until PasteboardPort is injected into TUI.
-            runtime
-                .state
-                .status
-                .set(format!("copied: {text}"), StatusTone::Success);
+            if let Some(pb) = runtime.pasteboard.clone() {
+                let text_clone = text.clone();
+                runtime.tasks.spawn(async move {
+                    let _ = pb.write_text(&text_clone).await;
+                });
+                runtime
+                    .state
+                    .status
+                    .set("copied to clipboard", StatusTone::Success);
+            } else {
+                runtime
+                    .state
+                    .status
+                    .set(format!("copied: {text}"), StatusTone::Success);
+            }
             runtime.state.dirty = true;
+            true
+        }
+        Effect::SetRecipeFavorite {
+            recipe_id,
+            favorite,
+        } => {
+            if let Some(repo) = runtime.command_recipes.clone() {
+                let _ = repo.set_favorite(&recipe_id, favorite);
+            }
+            true
+        }
+        Effect::RecordSshSessionEnded { alias, exit_code } => {
+            let engine = runtime.engine.clone();
+            runtime.tasks.spawn(async move {
+                let _ = engine
+                    .submit(Command::SshSessionEnded { alias, exit_code })
+                    .await;
+            });
             true
         }
         _ => false,
@@ -648,7 +722,10 @@ fn start_embedded_session(
                     ws.status_detail = "Authenticating".into();
                     ws.apply_screen(&screen);
                 }
-                runtime.state.status.set("Authenticating…", StatusTone::Progress);
+                runtime
+                    .state
+                    .status
+                    .set("Authenticating…", StatusTone::Progress);
                 runtime.state.dirty = true;
                 *runtime.active_embedded = Some(ActiveEmbedded {
                     session,
@@ -672,10 +749,10 @@ fn start_embedded_session(
             }
         },
         Err(err) => {
-            runtime
-                .state
-                .status
-                .set(format!("failed to start {program}: {err}"), StatusTone::Error);
+            runtime.state.status.set(
+                format!("failed to start {program}: {err}"),
+                StatusTone::Error,
+            );
             if let Some(ws) = runtime.state.ssh_workspace.as_mut() {
                 ws.phase = SshConnectionPhase::Failed;
                 ws.status_detail = format!("Failed to start: {err}");
@@ -701,6 +778,8 @@ fn run_interactive_terminal_effect(
         tasks,
         embedded_pty: _,
         active_embedded: _,
+        pasteboard: _,
+        command_recipes: _,
     } = runtime;
     let suspend_result = guard.suspend();
     let spawn_result = match suspend_result {
@@ -964,7 +1043,9 @@ fn dispatch_effect(engine: Arc<dyn EnginePort>, effect: Effect, tasks: &mut Join
         | Effect::WriteEmbeddedPty { .. }
         | Effect::ResizeEmbeddedPty { .. }
         | Effect::KillEmbeddedPty
-        | Effect::CopyText { .. } => {
+        | Effect::CopyText { .. }
+        | Effect::SetRecipeFavorite { .. }
+        | Effect::RecordSshSessionEnded { .. } => {
             warn!("embedded/interactive terminal effect reached async dispatch — should be sync");
         }
     }

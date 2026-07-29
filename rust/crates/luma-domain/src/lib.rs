@@ -20,7 +20,7 @@ pub use query::{strip_command_prefix, Query, QueryScope};
 pub use recipe::{
     render_remote_command, shell_quote, CommandStep, ConfigIssue, Recipe, RecipeCatalog,
     RecipeMetadata, RecipeParameter, RecipeParameterKind, RecipeRenderError, RecipeRisk,
-    RecipeRunOutcome, RecipeRunPlan, RecipeScope, RecipeTarget, RecipeVariant,
-    ResolvedCommandStep, SshRecipeContext, StepRunResult, VariantMatch,
+    RecipeRunOutcome, RecipeRunPlan, RecipeScope, RecipeTarget, RecipeVariant, ResolvedCommandStep,
+    SshRecipeContext, StepRunResult, VariantMatch,
 };
 pub use result_item::{action_needs_confirmation, ActionDescriptor, ActionRisk, SearchItem};

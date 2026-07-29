@@ -151,9 +151,12 @@ mod tests {
             .spans
             .iter()
             .any(|span| span.content.as_ref().contains('H')));
-        assert!(first.spans.iter().any(|span| span.style.add_modifier.contains(Modifier::BOLD)
-            || span.style.fg == Some(Color::Indexed(1))
-            || matches!(span.style.fg, Some(Color::Rgb(_, _, _)))));
+        assert!(first
+            .spans
+            .iter()
+            .any(|span| span.style.add_modifier.contains(Modifier::BOLD)
+                || span.style.fg == Some(Color::Indexed(1))
+                || matches!(span.style.fg, Some(Color::Rgb(_, _, _)))));
     }
 
     #[test]
@@ -201,5 +204,33 @@ mod tests {
         // OSC 52 clipboard request — must be inert for Luma host.
         screen.feed(b"\x1b]52;c;SGVsbG8=\x07");
         let _ = screen.render_lines();
+    }
+
+    #[test]
+    fn flood_output_memory_stays_bounded() {
+        let mut screen = VtScreen::new(80, 24);
+        let chunk = b"abcdefghijklmnopqrstuvwxyz0123456789\r\n";
+        for _ in 0..50_000 {
+            screen.feed(chunk);
+        }
+        let contents = screen.contents();
+        assert!(contents.len() < SCROLLBACK_CAP * chunk.len());
+        assert_eq!(screen.scrollback_cap(), SCROLLBACK_CAP);
+    }
+
+    #[test]
+    fn resize_storm_does_not_panic() {
+        let mut screen = VtScreen::new(80, 24);
+        screen.feed(b"hello\r\n");
+        for i in 0..200u16 {
+            let cols = 20 + (i % 100);
+            let rows = 5 + (i % 40);
+            screen.resize(cols, rows);
+            screen.feed(b"x");
+        }
+        let _ = screen.render_lines();
+        let (row, col) = screen.cursor();
+        assert!(row < 100);
+        assert!(col < 200);
     }
 }

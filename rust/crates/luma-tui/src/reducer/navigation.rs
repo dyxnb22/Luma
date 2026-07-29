@@ -315,16 +315,15 @@ pub(super) fn cancel_msg(state: &mut AppState) -> Vec<Effect> {
     }
     if state.route == Route::SshWorkspace {
         if let Some(ws) = state.ssh_workspace.as_mut() {
-            if ws.focus == crate::ssh_workspace::SshWorkspaceFocus::Shelf {
+            if ws.leader_armed {
+                ws.leader_armed = false;
+                ws.disconnect_confirm = false;
                 ws.focus = crate::ssh_workspace::SshWorkspaceFocus::Terminal;
-                ws.shelf_visible = false;
                 state.focus = FocusZone::Terminal;
-                let (cols, rows) = ssh_workspace::terminal_geometry(state);
-                if let Some(ws) = state.ssh_workspace.as_mut() {
-                    ws.term_cols = cols;
-                    ws.term_rows = rows;
-                }
-                return vec![Effect::ResizeEmbeddedPty { cols, rows }];
+                return vec![Effect::None];
+            }
+            if ws.focus == crate::ssh_workspace::SshWorkspaceFocus::Shelf || ws.shelf_visible {
+                return ssh_workspace::shelf_back_to_terminal(state);
             }
         }
         return ssh_workspace::leave_workspace(state);

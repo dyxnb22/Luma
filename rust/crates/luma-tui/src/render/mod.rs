@@ -7,10 +7,10 @@ use ratatui::Frame;
 mod overlays;
 mod preview;
 mod results;
+mod ssh_workspace;
 mod status;
 mod util;
 mod wordbook;
-mod ssh_workspace;
 
 #[cfg(test)]
 use crate::view_model::StatusTone;

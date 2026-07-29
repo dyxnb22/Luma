@@ -130,27 +130,20 @@ impl Engine {
                                     environment,
                                     record_alias,
                                 },
-                                crate::module::ActionOutcome::EmbeddedTerminal {
-                                    program,
-                                    args,
-                                    environment,
-                                    record_alias,
-                                    title,
-                                    alias,
-                                    hostname,
-                                    user,
-                                    port,
-                                } => luma_protocol::ActionOutcomeDto::EmbeddedTerminal {
-                                    program,
-                                    args,
-                                    environment,
-                                    record_alias,
-                                    title,
-                                    alias,
-                                    hostname,
-                                    user,
-                                    port,
-                                },
+                                crate::module::ActionOutcome::EmbeddedTerminal(request) => {
+                                    let request = *request;
+                                    luma_protocol::ActionOutcomeDto::EmbeddedTerminal {
+                                        program: request.program,
+                                        args: request.args,
+                                        environment: request.environment,
+                                        record_alias: request.record_alias,
+                                        title: request.title,
+                                        alias: request.alias,
+                                        hostname: request.hostname,
+                                        user: request.user,
+                                        port: request.port,
+                                    }
+                                }
                                 crate::module::ActionOutcome::SettingsMutation { patch } => {
                                     match apply_settings_mutation(
                                         settings_repo.as_ref(),

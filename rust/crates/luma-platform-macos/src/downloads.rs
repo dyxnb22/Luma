@@ -8,6 +8,7 @@ use luma_application::{
 use sha2::{Digest, Sha256};
 use std::ffi::OsString;
 use std::path::{Component, Path, PathBuf};
+#[cfg(target_os = "macos")]
 use std::process::Stdio;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio_util::sync::CancellationToken;
@@ -349,6 +350,7 @@ fn validate_new_name(name: &str) -> Result<(), DownloadsError> {
     }
 }
 
+#[cfg(target_os = "macos")]
 fn finder_trash_args(path: &Path) -> Vec<OsString> {
     vec![
         "-e".into(),
@@ -361,6 +363,12 @@ fn finder_trash_args(path: &Path) -> Vec<OsString> {
         "end run".into(),
         path.as_os_str().to_owned(),
     ]
+}
+
+#[cfg(not(target_os = "macos"))]
+#[cfg(test)]
+fn finder_trash_args(path: &Path) -> Vec<OsString> {
+    vec![path.as_os_str().to_owned()]
 }
 
 async fn trash_with_finder(path: &Path) -> Result<(), DownloadsError> {

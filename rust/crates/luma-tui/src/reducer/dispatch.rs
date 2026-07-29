@@ -2,6 +2,26 @@ use super::*;
 use unicode_segmentation::UnicodeSegmentation;
 
 fn handle_ssh_workspace_char(state: &mut AppState, c: char) -> Vec<Effect> {
+    if state.ssh_workspace.as_ref().is_some_and(|ws| {
+        ws.shelf_visible && matches!(ws.focus, crate::ssh_workspace::SshWorkspaceFocus::Shelf)
+    }) {
+        if let Some(ws) = state.ssh_workspace.as_mut() {
+            if ws.shelf.filling_params {
+                if !c.is_control() {
+                    ws.shelf.param_type_char(c);
+                    if let Some(preview) = &ws.shelf.preview {
+                        state.status.set(preview.clone(), StatusTone::Neutral);
+                    }
+                }
+                return vec![Effect::None];
+            }
+            if ws.shelf.filter_editing && !c.is_control() {
+                ws.shelf.filter.push(c);
+                ws.shelf.refilter();
+            }
+        }
+        return vec![Effect::None];
+    }
     let Some(ws) = state.ssh_workspace.as_ref() else {
         return vec![Effect::None];
     };
@@ -35,6 +55,7 @@ fn handle_ssh_workspace_char(state: &mut AppState, c: char) -> Vec<Effect> {
         if let Some(ws) = state.ssh_workspace.as_mut() {
             ws.leader_armed = false;
             ws.focus = crate::ssh_workspace::SshWorkspaceFocus::Terminal;
+            state.focus = FocusZone::Terminal;
         }
         return match c {
             ' ' => vec![Effect::WriteEmbeddedPty { bytes: vec![0x00] }],
@@ -44,6 +65,10 @@ fn handle_ssh_workspace_char(state: &mut AppState, c: char) -> Vec<Effect> {
                     ws.fullscreen_chrome = !ws.fullscreen_chrome;
                 }
                 let (cols, rows) = ssh_ws::terminal_geometry(state);
+                if let Some(ws) = state.ssh_workspace.as_mut() {
+                    ws.term_cols = cols;
+                    ws.term_rows = rows;
+                }
                 vec![Effect::ResizeEmbeddedPty { cols, rows }]
             }
             'd' | 'D' => {
@@ -139,6 +164,25 @@ pub fn update(state: &mut AppState, msg: Msg) -> Vec<Effect> {
             schedule_search(state)
         }
         Msg::Backspace => {
+            if state.route == Route::SshWorkspace
+                && state.ssh_workspace.as_ref().is_some_and(|ws| {
+                    ws.shelf_visible
+                        && matches!(ws.focus, crate::ssh_workspace::SshWorkspaceFocus::Shelf)
+                })
+            {
+                if let Some(ws) = state.ssh_workspace.as_mut() {
+                    if ws.shelf.filling_params {
+                        ws.shelf.param_backspace();
+                        if let Some(preview) = &ws.shelf.preview {
+                            state.status.set(preview.clone(), StatusTone::Neutral);
+                        }
+                    } else if ws.shelf.filter_editing {
+                        ws.shelf.filter.pop();
+                        ws.shelf.refilter();
+                    }
+                }
+                return vec![Effect::None];
+            }
             if state.route == Route::Commands {
                 if let Some((index, _)) = state
                     .overlay
@@ -418,8 +462,28 @@ pub fn update(state: &mut AppState, msg: Msg) -> Vec<Effect> {
                 vec![Effect::None]
             }
         }
-        Msg::SelectNext => select_next_msg(state),
-        Msg::SelectPrev => select_prev_msg(state),
+        Msg::SelectNext => {
+            if state.route == Route::SshWorkspace {
+                if let Some(ws) = state.ssh_workspace.as_mut() {
+                    if ws.shelf_visible {
+                        ws.shelf.select_next();
+                        return vec![Effect::None];
+                    }
+                }
+            }
+            select_next_msg(state)
+        }
+        Msg::SelectPrev => {
+            if state.route == Route::SshWorkspace {
+                if let Some(ws) = state.ssh_workspace.as_mut() {
+                    if ws.shelf_visible {
+                        ws.shelf.select_prev();
+                        return vec![Effect::None];
+                    }
+                }
+            }
+            select_prev_msg(state)
+        }
         Msg::SelectPageUp => scroll_page(state, ScrollDirection::Up),
         Msg::SelectPageDown => scroll_page(state, ScrollDirection::Down),
         Msg::PickActionDigit(digit) => {
@@ -571,17 +635,208 @@ pub fn update(state: &mut AppState, msg: Msg) -> Vec<Effect> {
                     return vec![Effect::KillEmbeddedPty];
                 }
                 ws.disconnect_confirm = true;
-                state
-                    .status
-                    .set("Press Ctrl+Space d again to disconnect", StatusTone::Warning);
+                state.status.set(
+                    "Press Ctrl+Space d again to disconnect",
+                    StatusTone::Warning,
+                );
             }
             vec![Effect::None]
         }
-        Msg::SshSendCtrlSpace => vec![Effect::WriteEmbeddedPty {
-            bytes: vec![0x00],
-        }],
+        Msg::SshSendCtrlSpace => vec![Effect::WriteEmbeddedPty { bytes: vec![0x00] }],
+        Msg::SshShelfPreview => shelf_preview(state),
+        Msg::SshShelfCopy => shelf_copy(state),
+        Msg::SshShelfInsert => shelf_insert(state),
+        Msg::SshShelfStartFilter => {
+            if let Some(ws) = state.ssh_workspace.as_mut() {
+                ws.shelf.filter.clear();
+                ws.shelf.filter_editing = true;
+                ws.shelf.filling_params = false;
+                ws.shelf.refilter();
+                state.status.set("shelf filter…", StatusTone::Progress);
+            }
+            vec![Effect::None]
+        }
+        Msg::SshShelfFavorite => shelf_favorite(state),
+        Msg::SshShelfParamNext => {
+            if let Some(ws) = state.ssh_workspace.as_mut() {
+                if ws.shelf.filling_params {
+                    ws.shelf.param_next_field();
+                    if let Some(preview) = &ws.shelf.preview {
+                        state.status.set(preview.clone(), StatusTone::Neutral);
+                    }
+                }
+            }
+            vec![Effect::None]
+        }
+        Msg::SshShelfParamPrev => {
+            if let Some(ws) = state.ssh_workspace.as_mut() {
+                if ws.shelf.filling_params {
+                    ws.shelf.param_prev_field();
+                    if let Some(preview) = &ws.shelf.preview {
+                        state.status.set(preview.clone(), StatusTone::Neutral);
+                    }
+                }
+            }
+            vec![Effect::None]
+        }
         Msg::Engine(event) => apply_engine(state, event),
     }
+}
+
+fn ssh_context(state: &AppState) -> luma_domain::SshRecipeContext {
+    state
+        .ssh_workspace
+        .as_ref()
+        .map(|ws| luma_domain::SshRecipeContext {
+            alias: ws.alias.clone(),
+            hostname: ws.hostname.clone(),
+            user: ws.user.clone(),
+            port: ws.port,
+        })
+        .unwrap_or_default()
+}
+
+fn shelf_preview(state: &mut AppState) -> Vec<Effect> {
+    let ctx = ssh_context(state);
+    if let Some(ws) = state.ssh_workspace.as_mut() {
+        let _ = ws.shelf.begin_preview_or_params(&ctx);
+        if let Some(preview) = &ws.shelf.preview {
+            state.status.set(preview.clone(), StatusTone::Neutral);
+        }
+    }
+    vec![Effect::None]
+}
+
+fn shelf_copy(state: &mut AppState) -> Vec<Effect> {
+    let ctx = ssh_context(state);
+    let Some(ws) = state.ssh_workspace.as_ref() else {
+        return vec![Effect::None];
+    };
+    if let Some(crate::ssh_workspace::ShelfItemKind::SshNative { id: "reconnect" }) =
+        ws.shelf.selected_item().map(|i| &i.kind)
+    {
+        return ssh_ws::reconnect(state);
+    }
+    if let Some(crate::ssh_workspace::ShelfItemKind::SshNative { id: "disconnect" }) =
+        ws.shelf.selected_item().map(|i| &i.kind)
+    {
+        return vec![Effect::KillEmbeddedPty];
+    }
+    if let Some(risk) = state
+        .ssh_workspace
+        .as_ref()
+        .and_then(|ws| ws.shelf.risk_of_selected())
+    {
+        if risk == "destructive" || risk == "confirm" {
+            // Preview-only gate: require Enter preview before copy/insert for risky recipes.
+            if state
+                .ssh_workspace
+                .as_ref()
+                .is_some_and(|ws| ws.shelf.preview.is_none() || ws.shelf.filling_params)
+            {
+                return shelf_preview(state);
+            }
+        }
+    }
+    let Some(text) = state
+        .ssh_workspace
+        .as_ref()
+        .and_then(|ws| ws.shelf.rendered_command(&ctx))
+    else {
+        return shelf_preview(state);
+    };
+    let mut effects = vec![Effect::CopyText { text }];
+    if let Some(recipe_id) = state
+        .ssh_workspace
+        .as_mut()
+        .and_then(|ws| ws.shelf.bump_use_count_selected())
+    {
+        effects.push(Effect::RecordRecipeRun {
+            recipe_id,
+            result: luma_domain::RecipeRunOutcome::Success,
+            now_unix: luma_application::now_unix(),
+        });
+    }
+    effects
+}
+
+fn shelf_insert(state: &mut AppState) -> Vec<Effect> {
+    let ctx = ssh_context(state);
+    if let Some(risk) = state
+        .ssh_workspace
+        .as_ref()
+        .and_then(|ws| ws.shelf.risk_of_selected())
+    {
+        if risk == "destructive" || risk == "confirm" {
+            if state
+                .ssh_workspace
+                .as_ref()
+                .is_some_and(|ws| ws.shelf.preview.is_none() || ws.shelf.filling_params)
+            {
+                return shelf_preview(state);
+            }
+        }
+    }
+    let Some(text) = state
+        .ssh_workspace
+        .as_ref()
+        .and_then(|ws| ws.shelf.rendered_command(&ctx))
+    else {
+        return shelf_preview(state);
+    };
+    // Never append Enter — insert only.
+    debug_assert!(!text.ends_with('\n') && !text.ends_with('\r'));
+    let mut effects = vec![Effect::WriteEmbeddedPty {
+        bytes: text.into_bytes(),
+    }];
+    if let Some(recipe_id) = state
+        .ssh_workspace
+        .as_mut()
+        .and_then(|ws| ws.shelf.bump_use_count_selected())
+    {
+        effects.push(Effect::RecordRecipeRun {
+            recipe_id,
+            result: luma_domain::RecipeRunOutcome::Success,
+            now_unix: luma_application::now_unix(),
+        });
+    }
+    effects
+}
+
+fn shelf_favorite(state: &mut AppState) -> Vec<Effect> {
+    let Some(ws) = state.ssh_workspace.as_mut() else {
+        return vec![Effect::None];
+    };
+    let Some((recipe_id, favorite)) = ws.shelf.toggle_favorite_selected() else {
+        state
+            .status
+            .set("favorite applies to remote recipes", StatusTone::Warning);
+        return vec![Effect::None];
+    };
+    state.ssh_shelf_recipe_meta.insert(
+        recipe_id.clone(),
+        luma_domain::RecipeMetadata {
+            favorite,
+            use_count: ws
+                .shelf
+                .selected_item()
+                .map(|i| i.use_count)
+                .unwrap_or(0),
+            ..luma_domain::RecipeMetadata::default()
+        },
+    );
+    state.status.set(
+        if favorite {
+            "favorited"
+        } else {
+            "unfavorited"
+        },
+        StatusTone::Success,
+    );
+    vec![Effect::SetRecipeFavorite {
+        recipe_id,
+        favorite,
+    }]
 }
 
 #[cfg(test)]
@@ -614,5 +869,77 @@ mod paste_tests {
         assert_eq!(state.route, Route::ConfirmAction);
         assert_eq!(state.search.prompt, "before");
         assert!(matches!(effects.as_slice(), [Effect::None]));
+    }
+}
+
+#[cfg(test)]
+mod ssh_shelf_tests {
+    use super::*;
+    use crate::ssh_workspace::{SshWorkspaceFocus, SshWorkspaceState};
+
+    fn workspace_state() -> AppState {
+        let mut state = AppState {
+            route: Route::SshWorkspace,
+            ssh_workspace: Some(SshWorkspaceState::new(
+                "prod".into(),
+                "1.2.3.4".into(),
+                "root".into(),
+                22,
+                "prod".into(),
+                "/usr/bin/ssh".into(),
+                vec![],
+                vec![],
+                Some("prod".into()),
+                80,
+                24,
+            )),
+            ..AppState::default()
+        };
+        if let Some(ws) = state.ssh_workspace.as_mut() {
+            ws.shelf_visible = true;
+            ws.focus = SshWorkspaceFocus::Shelf;
+            ws.phase = crate::ssh_workspace::SshConnectionPhase::Connected;
+        }
+        state
+    }
+
+    #[test]
+    fn shelf_insert_bytes_have_no_trailing_newline() {
+        let mut state = workspace_state();
+        if let Some(ws) = state.ssh_workspace.as_mut() {
+            if let Some(idx) = ws.shelf.items.iter().position(|i| {
+                matches!(
+                    i.kind,
+                    crate::ssh_workspace::ShelfItemKind::SshNative { id: "copy_ssh" }
+                )
+            }) {
+                ws.shelf.filtered = vec![idx];
+                ws.shelf.selected = 0;
+            }
+        }
+        let effects = update(&mut state, Msg::SshShelfInsert);
+        let bytes = effects.iter().find_map(|e| match e {
+            Effect::WriteEmbeddedPty { bytes } => Some(bytes.as_slice()),
+            _ => None,
+        });
+        let bytes = bytes.expect("insert writes pty");
+        assert!(!bytes.ends_with(b"\n") && !bytes.ends_with(b"\r"));
+        assert!(bytes.windows(3).any(|w| w == b"ssh"));
+    }
+
+    #[test]
+    fn leader_space_sends_ctrl_space() {
+        let mut state = workspace_state();
+        if let Some(ws) = state.ssh_workspace.as_mut() {
+            ws.leader_armed = true;
+            ws.focus = SshWorkspaceFocus::Terminal;
+            ws.shelf_visible = false;
+        }
+        let effects = update(&mut state, Msg::KeyChar(' '));
+        assert!(matches!(
+            effects.as_slice(),
+            [Effect::WriteEmbeddedPty { bytes }] if bytes == &[0x00]
+        ));
+        assert!(!state.ssh_workspace.as_ref().unwrap().leader_armed);
     }
 }

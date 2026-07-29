@@ -85,6 +85,14 @@ impl EmbeddedPtySession for LiveSession {
         let mut child = self.child.lock().map_err(|_| {
             EmbeddedPtyError::Unavailable("embedded pty child lock poisoned".into())
         })?;
+        #[cfg(unix)]
+        {
+            if let Some(pid) = child.process_id() {
+                // Kill the whole process group when the child is a group leader.
+                // Fall through to child.kill() for the direct process as well.
+                let _ = kill_process_group(pid);
+            }
+        }
         let _ = child.kill();
         Ok(())
     }
@@ -117,12 +125,14 @@ impl EmbeddedPtyPort for MacEmbeddedPty {
             EmbeddedPtyError::Unavailable(format!("spawn {}: {err}", request.program))
         })?;
 
-        let mut reader = pair.master.try_clone_reader().map_err(|err| {
-            EmbeddedPtyError::Unavailable(format!("clone pty reader: {err}"))
-        })?;
-        let writer = pair.master.take_writer().map_err(|err| {
-            EmbeddedPtyError::Unavailable(format!("take pty writer: {err}"))
-        })?;
+        let mut reader = pair
+            .master
+            .try_clone_reader()
+            .map_err(|err| EmbeddedPtyError::Unavailable(format!("clone pty reader: {err}")))?;
+        let writer = pair
+            .master
+            .take_writer()
+            .map_err(|err| EmbeddedPtyError::Unavailable(format!("take pty writer: {err}")))?;
 
         let (tx, rx) = mpsc::sync_channel::<EmbeddedPtyEvent>(OUTPUT_CHANNEL_CAPACITY);
         let killed = Arc::new(AtomicBool::new(false));
@@ -177,6 +187,25 @@ impl EmbeddedPtyPort for MacEmbeddedPty {
 
 fn send_output(tx: &SyncSender<EmbeddedPtyEvent>, bytes: Vec<u8>) -> bool {
     tx.send(EmbeddedPtyEvent::Output(bytes)).is_ok()
+}
+
+#[cfg(unix)]
+fn kill_process_group(pid: u32) -> std::io::Result<()> {
+    // Negative PID targets the process group. Best-effort; child.kill() follows.
+    let rc = unsafe { libc_kill(-(pid as i32), 9) };
+    if rc == 0 {
+        Ok(())
+    } else {
+        Err(std::io::Error::last_os_error())
+    }
+}
+
+#[cfg(unix)]
+unsafe fn libc_kill(pid: i32, sig: i32) -> i32 {
+    extern "C" {
+        fn kill(pid: i32, sig: i32) -> i32;
+    }
+    kill(pid, sig)
 }
 
 fn wait_for_exit(child: &Mutex<Box<dyn Child + Send + Sync>>) -> Option<i32> {
@@ -251,5 +280,36 @@ mod tests {
             "expected hello-pty in {text:?}, exit={exit_code:?}"
         );
         assert_eq!(exit_code, Some(0));
+    }
+
+    #[test]
+    fn kill_terminates_child_process() {
+        let port = MacEmbeddedPty::new();
+        let (session, rx) = match port.spawn(EmbeddedPtySpawnRequest {
+            program: "/bin/sh".into(),
+            args: vec!["-c".into(), "sleep 30".into()],
+            environment: vec![],
+            size: EmbeddedPtySize::new(40, 12),
+        }) {
+            Ok(pair) => pair,
+            Err(err) => {
+                eprintln!("skipping pty kill test: {err}");
+                return;
+            }
+        };
+        session.kill().expect("kill");
+        let deadline = std::time::Instant::now() + Duration::from_secs(3);
+        let mut exited = false;
+        while std::time::Instant::now() < deadline {
+            match recv_event_timeout(&rx, Duration::from_millis(50)) {
+                Ok(EmbeddedPtyEvent::Exited { .. }) => {
+                    exited = true;
+                    break;
+                }
+                Ok(EmbeddedPtyEvent::Output(_)) => {}
+                Err(_) => {}
+            }
+        }
+        assert!(exited, "expected Exited after kill");
     }
 }

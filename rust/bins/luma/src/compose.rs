@@ -374,15 +374,18 @@ pub fn registry_from_settings(
             None
         }
     };
-    reg.register(Arc::new(SshModule::with_deps(
-        Arc::new(MacSshConfig::system_default()),
-        ssh_meta.map(|s| {
-            Arc::new(SqliteSshMetaRepository::new(s))
-                as Arc<dyn luma_application::SshMetaRepository>
-        }),
-        pasteboard.clone(),
-        Arc::new(MacClock),
-    )))?;
+    reg.register(Arc::new(
+        SshModule::with_deps(
+            Arc::new(MacSshConfig::system_default()),
+            ssh_meta.map(|s| {
+                Arc::new(SqliteSshMetaRepository::new(s))
+                    as Arc<dyn luma_application::SshMetaRepository>
+            }),
+            pasteboard.clone(),
+            Arc::new(MacClock),
+        )
+        .with_credentials(Arc::new(MacKeychain::ssh_passwords())),
+    ))?;
     if let Some(timers) = timers {
         reg.register(Arc::new(TimersModule::with_deps(
             Arc::new(SqliteTimersRepository::new(timers)),

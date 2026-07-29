@@ -199,7 +199,9 @@ backup, and migration ledger, never the Markdown source files.
 - `/ssh`: lists Host aliases from `~/.ssh/config` and re-reads config/Include files whenever the
   targeted surface is visited; Enter runs `ssh <alias>` in the current terminal (TUI suspends
   first). `/ssh fav` / `/ssh recent` / `/ssh rename ALIAS NAME` / `/ssh reload`; action picker:
-  Open SFTP, Copy alias, Favorite/Unfavorite, Delete local metadata. See
+  Open SFTP, Copy alias, Favorite/Unfavorite, Delete local metadata. Optional passwords can be
+  stored in macOS Keychain with `luma ssh password set ALIAS` and are supplied through OpenSSH
+  AskPass without entering argv, logs, search results, or SSH metadata. See
   [`docs/SSH.md`](docs/SSH.md).
 - There is no `luma doctor`, `:doctor`, or diagnostics overlay. Modules report `permission`, `unavailable`, or `not_configured` locally when applicable.
 

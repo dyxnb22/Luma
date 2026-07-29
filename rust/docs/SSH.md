@@ -12,6 +12,7 @@ session manager, port-forward UI, or built-in file browser.
 | `~/.ssh/config` | Host aliases (`Include` supported, depth 8) |
 | `ssh -G <alias>` | Resolved hostname, user, port, identity file, ProxyJump, connect timeout |
 | `~/Library/Application Support/LumaNext/ssh_meta.sqlite` | Favorites, display names, `last_connected_at`, `connection_count` |
+| macOS Keychain service `com.luma.next.ssh-passwords` | Optional SSH passwords under private `ssh-password:<alias>` accounts |
 
 Luma **does not** edit `~/.ssh/config`. Display names and favorites live only in
 `ssh_meta.sqlite`.
@@ -54,6 +55,14 @@ module row.
 Preview shows resolved connection fields and metadata. Private key **contents** are never
 shown — only the identity file path (sanitized).
 
+If an SSH/SFTP process exits unsuccessfully, Luma leaves its terminal error visible and waits for
+Enter before restoring the TUI. Successful sessions return to Luma immediately after logout.
+
+When a password is saved for an alias, Connect and Open SFTP use OpenSSH `SSH_ASKPASS` to retrieve
+that one value from macOS Keychain. The password never enters SSH metadata, search results,
+action payloads, logs, argv, or the subprocess environment. Without a saved password, OpenSSH
+keeps its normal interactive prompt.
+
 ## CLI
 
 ```bash
@@ -64,10 +73,18 @@ luma ssh sftp production
 luma ssh favorite production
 luma ssh unfavorite production
 luma ssh rename production "Prod server"
+luma ssh password set production
+luma ssh password status production
+luma ssh password delete production
 ```
 
 `connect` / `sftp` run in the foreground (no TUI suspend). On success they record connection
 metadata the same way as the TUI path.
+
+`password set` accepts a hidden interactive value, or stdin for scripting. Only the namespaced
+Keychain account is passed through the connection action; an internal AskPass invocation reads
+the value at authentication time. Saved SSH password accounts are private and do not appear in
+the general `/sec` label list.
 
 Favorites and rename can also be driven through the engine:
 
@@ -100,6 +117,7 @@ filters simply have no persistence until the store is available.
 - Editing or generating `~/.ssh/config`
 - Multiplexing, jump-host UI, or focusing an existing SSH window
 - Tags, groups, or sync across machines (metadata is local to LumaNext)
+- Password sync or export (saved passwords remain in the local macOS Keychain)
 - Non-macOS adapters (implementation uses `MacSshConfig` + OpenSSH on PATH)
 
 ## Tests

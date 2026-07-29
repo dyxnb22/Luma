@@ -1,4 +1,6 @@
-use luma_application::{ResolvedSshHost, SshConfigError, SshConfigPort, SshConfigState};
+use luma_application::{
+    ResolvedSshHost, SshConfigError, SshConfigPort, SshConfigState, SSH_ASKPASS_ACCOUNT_ENV,
+};
 use luma_storage::collect_aliases_from_file;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -175,6 +177,23 @@ impl SshConfigPort for MacSshConfig {
 
     fn sftp_invocation_args(&self, alias: &str) -> Vec<String> {
         self.invocation_args(alias)
+    }
+
+    fn ssh_askpass_environment(
+        &self,
+        account: &str,
+    ) -> Result<Vec<(String, String)>, SshConfigError> {
+        let executable = std::env::current_exe()
+            .map_err(|err| SshConfigError::msg(format!("cannot locate Luma executable: {err}")))?;
+        Ok(vec![
+            (
+                "SSH_ASKPASS".into(),
+                executable.to_string_lossy().into_owned(),
+            ),
+            ("SSH_ASKPASS_REQUIRE".into(), "force".into()),
+            ("DISPLAY".into(), "luma:0".into()),
+            (SSH_ASKPASS_ACCOUNT_ENV.into(), account.into()),
+        ])
     }
 }
 

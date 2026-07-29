@@ -474,6 +474,12 @@ fn run_interactive_terminal_effect(
         None => (None, state.status.text.clone(), StatusTone::Error),
     };
 
+    if should_pause_after_failed_ssh(record_alias.as_deref(), status) {
+        eprintln!("\nSSH connection failed. Press Enter to return to Luma.");
+        let mut acknowledgement = String::new();
+        let _ = std::io::stdin().read_line(&mut acknowledgement);
+    }
+
     if terminal_started {
         if let Err(err) = guard.resume() {
             state
@@ -519,6 +525,10 @@ fn run_interactive_terminal_effect(
             });
         }
     }
+}
+
+fn should_pause_after_failed_ssh(record_alias: Option<&str>, status: Option<ExitStatus>) -> bool {
+    record_alias.is_some() && status.is_some_and(|status| !status.success())
 }
 
 fn interactive_status(
@@ -860,6 +870,25 @@ mod tests {
         assert_eq!(message, "ssh ended by signal 15");
         assert!(!message.contains("code 1"));
         assert_eq!(tone, StatusTone::Warning);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn failed_ssh_sessions_pause_before_restoring_the_tui() {
+        use std::os::unix::process::ExitStatusExt;
+
+        let failed = ExitStatus::from_raw(255 << 8);
+        let succeeded = ExitStatus::from_raw(0);
+
+        assert!(should_pause_after_failed_ssh(
+            Some("production"),
+            Some(failed)
+        ));
+        assert!(!should_pause_after_failed_ssh(
+            Some("production"),
+            Some(succeeded)
+        ));
+        assert!(!should_pause_after_failed_ssh(None, Some(failed)));
     }
 
     #[cfg(unix)]

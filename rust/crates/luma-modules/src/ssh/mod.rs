@@ -1,9 +1,10 @@
 use crate::cancel::await_unless_cancelled;
 use async_trait::async_trait;
 use luma_application::{
-    sanitize_identity_display, ActionOutcome, ActionRequest, ClockPort, LumaModule, ModuleManifest,
-    ModuleState, PasteboardPort, ResolvedSshHost, SearchMode, SearchSink, SshConfigPort,
-    SshConfigState, SshHostMeta, SshMetaRepository, WarmupContext,
+    sanitize_identity_display, ssh_password_account, ActionOutcome, ActionRequest, ClockPort,
+    KeychainPort, LumaModule, ModuleManifest, ModuleState, PasteboardPort, ResolvedSshHost,
+    SearchMode, SearchSink, SshConfigPort, SshConfigState, SshHostMeta, SshMetaRepository,
+    WarmupContext,
 };
 use luma_domain::{ActionDescriptor, FailureKind, ModuleId, Query, SearchItem};
 use std::collections::HashMap;
@@ -21,6 +22,7 @@ pub struct SshModule {
     meta: Option<Arc<dyn SshMetaRepository>>,
     pasteboard: Arc<dyn PasteboardPort>,
     clock: Arc<dyn ClockPort>,
+    credentials: Option<Arc<dyn KeychainPort>>,
     aliases: RwLock<Vec<String>>,
     resolved_cache: RwLock<HashMap<String, ResolvedSshHost>>,
     meta_cache: RwLock<HashMap<String, SshHostMeta>>,
@@ -88,10 +90,31 @@ impl SshModule {
             meta,
             pasteboard,
             clock,
+            credentials: None,
             aliases: RwLock::new(Vec::new()),
             resolved_cache: RwLock::new(HashMap::new()),
             meta_cache: RwLock::new(HashMap::new()),
             meta_error: RwLock::new(None),
+        }
+    }
+
+    pub fn with_credentials(mut self, credentials: Arc<dyn KeychainPort>) -> Self {
+        self.credentials = Some(credentials);
+        self
+    }
+
+    async fn connection_environment(&self, alias: &str) -> Result<Vec<(String, String)>, String> {
+        let Some(credentials) = &self.credentials else {
+            return Ok(Vec::new());
+        };
+        let account = ssh_password_account(alias);
+        match credentials.contains(&account).await {
+            Ok(false) => Ok(Vec::new()),
+            Ok(true) => self
+                .config
+                .ssh_askpass_environment(&account)
+                .map_err(|err| err.to_string()),
+            Err(err) => Err(err.to_string()),
         }
     }
 }
@@ -297,10 +320,21 @@ impl LumaModule for SshModule {
                         },
                     };
                 }
+                let environment = match self.connection_environment(&alias).await {
+                    Ok(environment) => environment,
+                    Err(reason) => {
+                        return ActionOutcome::Failed {
+                            kind: FailureKind::Unavailable {
+                                reason,
+                                retryable: false,
+                            },
+                        };
+                    }
+                };
                 ActionOutcome::InteractiveTerminal {
                     program: "/usr/bin/ssh".into(),
                     args: self.config.ssh_invocation_args(&alias),
-                    environment: Vec::new(),
+                    environment,
                     record_alias: Some(alias),
                 }
             }
@@ -313,10 +347,21 @@ impl LumaModule for SshModule {
                         },
                     };
                 }
+                let environment = match self.connection_environment(&alias).await {
+                    Ok(environment) => environment,
+                    Err(reason) => {
+                        return ActionOutcome::Failed {
+                            kind: FailureKind::Unavailable {
+                                reason,
+                                retryable: false,
+                            },
+                        };
+                    }
+                };
                 ActionOutcome::InteractiveTerminal {
                     program: "/usr/bin/sftp".into(),
                     args: self.config.sftp_invocation_args(&alias),
-                    environment: Vec::new(),
+                    environment,
                     record_alias: Some(alias),
                 }
             }
@@ -345,7 +390,8 @@ mod tests {
     use super::*;
     use luma_application::FixedClock;
     use luma_application::{
-        FakePasteboard, FakeSshConfigPort, MemorySshMetaRepository, ResolvedSshHost, SshConfigState,
+        FakeKeychain, FakePasteboard, FakeSshConfigPort, MemorySshMetaRepository, ResolvedSshHost,
+        SshConfigState, SSH_ASKPASS_ACCOUNT_ENV,
     };
     use luma_domain::{ActionId, ActionRisk};
     use luma_protocol::{Event, SearchItemDto};
@@ -494,6 +540,57 @@ mod tests {
             }
             other => panic!("expected interactive, got {other:?}"),
         }
+    }
+
+    #[tokio::test]
+    async fn saved_password_adds_only_a_keychain_reference_to_terminal_environment() {
+        let credentials = Arc::new(FakeKeychain {
+            unlocked: true,
+            entries: tokio::sync::Mutex::new(std::collections::BTreeMap::from([(
+                "ssh-password:production".into(),
+                "never-project-this-password".into(),
+            )])),
+        });
+        let module = test_module().with_credentials(credentials);
+        let item = SearchItem {
+            id: luma_domain::ResultId::new("ssh:production"),
+            module_id: ModuleId::new("luma.ssh"),
+            title: "production".into(),
+            subtitle: None,
+            kind: "ssh_host".into(),
+            score: 1.0,
+            primary_action: ActionDescriptor {
+                id: ActionId::new("connect"),
+                label: "Connect".into(),
+                risk: ActionRisk::Safe,
+                confirmation: false,
+            },
+            secondary_actions: vec![],
+            ui_intent: None,
+            action_payload: Some(serde_json::json!({ "alias": "production" })),
+        };
+        let outcome = module
+            .perform(
+                ActionRequest {
+                    result: item,
+                    action: ActionDescriptor {
+                        id: ActionId::new("connect"),
+                        label: "Connect".into(),
+                        risk: ActionRisk::Safe,
+                        confirmation: false,
+                    },
+                    confirmation: false,
+                },
+                CancellationToken::new(),
+            )
+            .await;
+        let ActionOutcome::InteractiveTerminal { environment, .. } = outcome else {
+            panic!("expected interactive terminal");
+        };
+        assert!(environment.iter().any(|(key, value)| {
+            key == SSH_ASKPASS_ACCOUNT_ENV && value == "ssh-password:production"
+        }));
+        assert!(!format!("{environment:?}").contains("never-project-this-password"));
     }
 
     #[tokio::test]

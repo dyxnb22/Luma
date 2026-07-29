@@ -30,6 +30,13 @@ impl SshConfigError {
     }
 }
 
+pub const SSH_PASSWORD_ACCOUNT_PREFIX: &str = "ssh-password:";
+pub const SSH_ASKPASS_ACCOUNT_ENV: &str = "LUMA_SSH_ASKPASS_ACCOUNT";
+
+pub fn ssh_password_account(alias: &str) -> String {
+    format!("{SSH_PASSWORD_ACCOUNT_PREFIX}{alias}")
+}
+
 /// Sanitize identity file path for display (basename only, no file reads).
 pub fn sanitize_identity_display(path: &str) -> String {
     let trimmed = path.trim();
@@ -70,5 +77,16 @@ pub trait SshConfigPort: Send + Sync {
 
     fn sftp_invocation_args(&self, alias: &str) -> Vec<String> {
         vec!["--".into(), alias.into()]
+    }
+
+    /// Build a non-secret environment that lets OpenSSH ask the current Luma executable to
+    /// retrieve one exact SSH password from Keychain.
+    fn ssh_askpass_environment(
+        &self,
+        _account: &str,
+    ) -> Result<Vec<(String, String)>, SshConfigError> {
+        Err(SshConfigError::msg(
+            "saved SSH passwords are unavailable on this platform",
+        ))
     }
 }

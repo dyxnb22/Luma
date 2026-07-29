@@ -19,6 +19,13 @@ pub struct SecretLabel {
 #[async_trait]
 pub trait KeychainPort: Send + Sync {
     async fn list_labels(&self) -> Result<Vec<SecretLabel>, KeychainError>;
+    async fn contains(&self, account: &str) -> Result<bool, KeychainError> {
+        match self.copy_password(account).await {
+            Ok(_) => Ok(true),
+            Err(KeychainError::NotFound(_)) => Ok(false),
+            Err(err) => Err(err),
+        }
+    }
     async fn copy_password(&self, account: &str) -> Result<String, KeychainError>;
     async fn set_password(&self, account: &str, password: &str) -> Result<(), KeychainError>;
     async fn delete(&self, account: &str) -> Result<(), KeychainError>;
@@ -56,6 +63,10 @@ impl KeychainPort for FakeKeychain {
             .get(account)
             .cloned()
             .ok_or_else(|| KeychainError::NotFound(account.into()))
+    }
+
+    async fn contains(&self, account: &str) -> Result<bool, KeychainError> {
+        Ok(self.entries.lock().await.contains_key(account))
     }
 
     async fn set_password(&self, account: &str, password: &str) -> Result<(), KeychainError> {

@@ -996,6 +996,16 @@ impl SshConfigPort for FakeSshConfigPort {
     fn sftp_available(&self) -> bool {
         *self.sftp_available.lock().expect("lock")
     }
+
+    fn ssh_askpass_environment(
+        &self,
+        account: &str,
+    ) -> Result<Vec<(String, String)>, SshConfigError> {
+        Ok(vec![(
+            crate::ports::SSH_ASKPASS_ACCOUNT_ENV.into(),
+            account.into(),
+        )])
+    }
 }
 
 /// In-memory SSH host metadata for module tests.

@@ -47,6 +47,7 @@ cargo test -p luma --test cli_blackbox
 | `~/Library/Application Support/LumaNext/` | Active app support (settings, `ssh_meta.sqlite`, `recall.sqlite`, `renewals.sqlite`, `database_portals.sqlite`, other stores) |
 | `~/Library/Logs/LumaNext/` | Runtime logs (5 MiB rotation, three archives) |
 | `~/.ssh/config` | OpenSSH Host aliases (read-only for `luma.ssh`) |
+| macOS Keychain | Optional local SSH passwords and other private Luma references; values do not enter LumaNext files |
 
 The empty Hub lists visible windows, up to three live-or-privacy-safe Continue items, and modules. Press `1`–`9`
 to focus a numbered window; Continue and module rows are never digit targets. Digits remain

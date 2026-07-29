@@ -18,7 +18,7 @@ use luma_storage::{
     WordbookStore,
 };
 use luma_tui::{run_tui_with_options, RunTuiOptions};
-use std::io::Read;
+use std::io::{IsTerminal, Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -290,6 +290,25 @@ enum SshCmd {
     Unfavorite { alias: String },
     /// Set a local display name for a host.
     Rename { alias: String, name: String },
+    /// Manage a password stored privately in macOS Keychain.
+    Password {
+        #[command(subcommand)]
+        action: SshPasswordCmd,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+enum SshPasswordCmd {
+    /// Store or replace a password. Interactive input is hidden; piped input is also accepted.
+    Set { alias: String },
+    /// Delete the saved password for a host.
+    Delete { alias: String },
+    /// Report whether a password is saved without reading its value.
+    Status {
+        alias: String,
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 #[derive(Debug, Subcommand)]
@@ -399,6 +418,9 @@ fn init_tracing() {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    if let Some(result) = run_ssh_askpass_if_requested().await {
+        return result;
+    }
     init_tracing();
 
     let cli = Cli::parse();
@@ -411,6 +433,61 @@ async fn main() -> anyhow::Result<()> {
         },
     }
     Ok(())
+}
+
+async fn run_ssh_askpass_if_requested() -> Option<anyhow::Result<()>> {
+    let account = std::env::var(luma_application::SSH_ASKPASS_ACCOUNT_ENV).ok()?;
+    if !account.starts_with(luma_application::SSH_PASSWORD_ACCOUNT_PREFIX) {
+        return Some(Err(anyhow::anyhow!("invalid SSH password reference")));
+    }
+    let keychain = luma_platform_macos::MacKeychain::ssh_passwords();
+    Some(
+        keychain
+            .copy_password(&account)
+            .await
+            .map_err(|_| anyhow::anyhow!("saved SSH password unavailable"))
+            .and_then(|password| {
+                let mut stdout = std::io::stdout().lock();
+                stdout.write_all(password.as_bytes())?;
+                stdout.write_all(b"\n")?;
+                stdout.flush()?;
+                Ok(())
+            }),
+    )
+}
+
+struct TerminalEchoGuard {
+    restore: bool,
+}
+
+impl Drop for TerminalEchoGuard {
+    fn drop(&mut self) {
+        if self.restore {
+            let _ = std::process::Command::new("/bin/stty").arg("echo").status();
+            eprintln!();
+        }
+    }
+}
+
+fn read_hidden_password() -> anyhow::Result<String> {
+    if !std::io::stdin().is_terminal() {
+        let mut value = String::new();
+        std::io::stdin().read_to_string(&mut value)?;
+        return Ok(value.trim_end_matches(['\n', '\r']).to_string());
+    }
+
+    eprint!("Password: ");
+    std::io::stderr().flush()?;
+    let status = std::process::Command::new("/bin/stty")
+        .arg("-echo")
+        .status()?;
+    if !status.success() {
+        anyhow::bail!("failed to disable terminal echo");
+    }
+    let _guard = TerminalEchoGuard { restore: true };
+    let mut value = String::new();
+    std::io::stdin().read_line(&mut value)?;
+    Ok(value.trim_end_matches(['\n', '\r']).to_string())
 }
 
 async fn run_tui(initial_query: Option<String>) -> anyhow::Result<()> {
@@ -1160,6 +1237,7 @@ fn print_record_import_report(
 
 async fn handle_ssh_command(action: SshCmd) -> anyhow::Result<()> {
     let load = load_registry_with_settings().map_err(|e| anyhow::anyhow!("registry: {e}"))?;
+    let keychain = Arc::new(luma_platform_macos::MacKeychain::ssh_passwords());
     match action {
         SshCmd::List { json } => {
             let payload = ssh_cli::ssh_list_json(load.registry, Some(load.settings))
@@ -1190,6 +1268,7 @@ async fn handle_ssh_command(action: SshCmd) -> anyhow::Result<()> {
                 Some(load.settings),
                 None,
                 ssh_config,
+                keychain,
             )
             .await
             .map_err(anyhow::Error::msg)?;
@@ -1206,6 +1285,7 @@ async fn handle_ssh_command(action: SshCmd) -> anyhow::Result<()> {
                 Some(load.settings),
                 None,
                 ssh_config,
+                keychain,
             )
             .await
             .map_err(anyhow::Error::msg)?;
@@ -1227,6 +1307,47 @@ async fn handle_ssh_command(action: SshCmd) -> anyhow::Result<()> {
             ssh_cli::ssh_set_display_name(load.registry, Some(load.settings), &alias, &name)
                 .await
                 .map_err(anyhow::Error::msg)?;
+        }
+        SshCmd::Password { action } => {
+            let ssh_config = luma_platform_macos::MacSshConfig::system_default();
+            match action {
+                SshPasswordCmd::Set { alias } => {
+                    let password = read_hidden_password()?;
+                    ssh_cli::ssh_store_password(&ssh_config, keychain.as_ref(), &alias, &password)
+                        .await
+                        .map_err(anyhow::Error::msg)?;
+                    println!("saved SSH password for {alias}");
+                }
+                SshPasswordCmd::Delete { alias } => {
+                    ssh_cli::ssh_delete_password(&ssh_config, keychain.as_ref(), &alias)
+                        .await
+                        .map_err(anyhow::Error::msg)?;
+                    println!("deleted saved SSH password for {alias}");
+                }
+                SshPasswordCmd::Status { alias, json } => {
+                    let saved =
+                        ssh_cli::ssh_password_is_saved(&ssh_config, keychain.as_ref(), &alias)
+                            .await
+                            .map_err(anyhow::Error::msg)?;
+                    if json {
+                        println!(
+                            "{}",
+                            serde_json::to_string_pretty(
+                                &serde_json::json!({ "alias": alias, "password_saved": saved })
+                            )?
+                        );
+                    } else {
+                        println!(
+                            "{}",
+                            if saved {
+                                "password saved"
+                            } else {
+                                "password not saved"
+                            }
+                        );
+                    }
+                }
+            }
         }
     }
     Ok(())

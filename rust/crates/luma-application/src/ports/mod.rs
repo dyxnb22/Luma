@@ -127,8 +127,9 @@ pub use shortcuts::{
 pub use snippets_repo::{SnippetEntry, SnippetsRepoError, SnippetsRepository};
 pub use speech::{FakeSpeech, SpeechAccent, SpeechError, SpeechPort};
 pub use ssh_config::{
-    format_connection_subtitle, sanitize_identity_display, ResolvedSshHost, SshConfigError,
-    SshConfigPort, SshConfigState,
+    format_connection_subtitle, sanitize_identity_display, ssh_password_account, ResolvedSshHost,
+    SshConfigError, SshConfigPort, SshConfigState, SSH_ASKPASS_ACCOUNT_ENV,
+    SSH_PASSWORD_ACCOUNT_PREFIX,
 };
 pub use ssh_meta_repo::{SshHostMeta, SshMetaRepoError, SshMetaRepository};
 pub use system_proxy::{

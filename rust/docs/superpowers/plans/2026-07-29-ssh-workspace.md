@@ -1,6 +1,6 @@
 # SSH Workspace Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Replace temporary whole-window SSH handoff with an in-TUI SSH Workspace (single session, optional Command Recipes shelf with Copy/Insert only), keeping compat mode and Keychain askpass.
 
@@ -75,11 +75,11 @@ pub trait EmbeddedPtyPort: Send + Sync {
 }
 ```
 
-- [ ] **Step 1: Write failing Fake + trait tests** for spawn/write/resize/kill/exit semantics (Fake in application port).
-- [ ] **Step 2: Run tests — expect fail** (module missing).
-- [ ] **Step 3: Implement port + Fake + `MacEmbeddedPty` with `portable-pty`.** Reader thread sends `Output` / `Exited`. Process group kill on `kill()`. Bounded channel.
-- [ ] **Step 4: Integration test** spawn `/bin/sh -c 'printf hello; exit 0'`, assert output contains `hello` and exit 0. Skip gracefully if PTY unavailable.
-- [ ] **Step 5: Commit** `feat(pty): add EmbeddedPtyPort with portable-pty adapter`
+- [x] **Step 1: Write failing Fake + trait tests** for spawn/write/resize/kill/exit semantics (Fake in application port).
+- [x] **Step 2: Run tests — expect fail** (module missing).
+- [x] **Step 3: Implement port + Fake + `MacEmbeddedPty` with `portable-pty`.** Reader thread sends `Output` / `Exited`. Process group kill on `kill()`. Bounded channel.
+- [x] **Step 4: Integration test** spawn `/bin/sh -c 'printf hello; exit 0'`, assert output contains `hello` and exit 0. Skip gracefully if PTY unavailable.
+- [x] **Step 5: Commit** `feat(pty): add EmbeddedPtyPort with portable-pty adapter`
 
 ---
 
@@ -95,10 +95,10 @@ pub trait EmbeddedPtyPort: Send + Sync {
 **Interfaces:**
 - Produces: `VtScreen { parser: vt100::Parser }` with `feed(&[u8])`, `resize(cols,rows)`, `cells() -> Vec<Vec<Cell>>`, `cursor()`, `in_alternate_screen()`, scrollback cap 2000 via parser rows+scrollback.
 
-- [ ] **Step 1: Write failing tests** for ANSI color, cursor, alternate screen, scrollback cap, emoji/CJK width.
-- [ ] **Step 2: Run — expect fail.**
-- [ ] **Step 3: Implement projection** mapping vt100 cells → ratatui `Cell`/`Span` styles (fg/bg/bold/underline). Strip/ignore OSC 52 and title sequences at feed boundary when detectable; never write pasteboard from parser.
-- [ ] **Step 4: Tests pass. Commit** `feat(tui): add vt100 screen projection for embedded terminal`
+- [x] **Step 1: Write failing tests** for ANSI color, cursor, alternate screen, scrollback cap, emoji/CJK width.
+- [x] **Step 2: Run — expect fail.**
+- [x] **Step 3: Implement projection** mapping vt100 cells → ratatui `Cell`/`Span` styles (fg/bg/bold/underline). Strip/ignore OSC 52 and title sequences at feed boundary when detectable; never write pasteboard from parser.
+- [x] **Step 4: Tests pass. Commit** `feat(tui): add vt100 screen projection for embedded terminal`
 
 ---
 
@@ -129,10 +129,10 @@ KillEmbeddedPty
 
 Layout: ≥118 cols → terminal + shelf (shelf hidden until Phase 2 but layout reserve optional); 80–117 full terminal; <80 full terminal. Header always shows alias · user@host:port · status. Footer hints.
 
-- [ ] **Step 1: Failing reducer/layout tests.**
-- [ ] **Step 2: Implement route + effects + app I/O loop** (async reader → `Msg::SshPtyOutput` / `SshPtyExited`). On exit non-zero keep last screen; keys `r` reconnect, `Esc` back to `/ssh `, `l` compat, `c` copy error summary.
-- [ ] **Step 3: Wire SSH connect → EmbeddedTerminal**; keep `connect_compat` / action "Connect (compat mode)".
-- [ ] **Step 4: Unit tests green. Commit** `feat(ssh): embed SSH sessions in TUI workspace route`
+- [x] **Step 1: Failing reducer/layout tests.**
+- [x] **Step 2: Implement route + effects + app I/O loop** (async reader → `Msg::SshPtyOutput` / `SshPtyExited`). On exit non-zero keep last screen; keys `r` reconnect, `Esc` back to `/ssh `, `l` compat, `c` copy error summary.
+- [x] **Step 3: Wire SSH connect → EmbeddedTerminal**; keep `connect_compat` / action "Connect (compat mode)".
+- [x] **Step 4: Unit tests green. Commit** `feat(ssh): embed SSH sessions in TUI workspace route`
 
 ---
 
@@ -144,8 +144,8 @@ Layout: ≥118 cols → terminal + shelf (shelf hidden until Phase 2 but layout 
 
 Leader: `Ctrl+Space` (and `F6`) opens/focuses shelf (no-op until Phase 2); `Ctrl+Space` then `Space` sends raw Ctrl+Space to PTY; `Ctrl+Space` `f` fullscreen terminal; `Ctrl+Space` `d` disconnect confirm; `Ctrl+Space` `r` reconnect. When focus Terminal, keys go to PTY (including Ctrl+C). Esc from shelf → terminal. On quit of Luma, kill PTY process group and wait.
 
-- [ ] **Step 1: Failing input/routing tests.**
-- [ ] **Step 2: Implement. Commit** `feat(ssh): workspace keyboard leader and PTY input routing`
+- [x] **Step 1: Failing input/routing tests.**
+- [x] **Step 2: Implement. Commit** `feat(ssh): workspace keyboard leader and PTY input routing`
 
 ---
 
@@ -159,8 +159,8 @@ Leader: `Ctrl+Space` (and `F6`) opens/focuses shelf (no-op until Phase 2); `Ctrl
 - Actions: `c` copy via PasteboardPort effect, `i` insert into PTY without Enter, Enter preview only
 - Width: ≥118 side panel 36–44 cols (terminal ≥72); 80–117 overlay; <80 full-page shelf
 
-- [ ] **Step 1: Failing shelf navigation/copy/insert tests** (insert bytes must not end with `\r`/`\n`).
-- [ ] **Step 2: Implement. Commit** `feat(ssh): add static command shelf with copy/insert`
+- [x] **Step 1: Failing shelf navigation/copy/insert tests** (insert bytes must not end with `\r`/`\n`).
+- [x] **Step 2: Implement. Commit** `feat(ssh): add static command shelf with copy/insert`
 
 ---
 
@@ -176,8 +176,8 @@ Leader: `Ctrl+Space` (and `F6`) opens/focuses shelf (no-op until Phase 2); `Ctrl
 - Builtin SSH-session recipes for System/Docker groups; mark restart etc. confirm/destructive
 - Backward compatible: missing `target` → `local_shell`; missing `scope` unchanged; old TOML still loads
 
-- [ ] **Step 1: Failing domain/storage tests** for parse, validation, quote safety, backward compat.
-- [ ] **Step 2: Implement. Commit** `feat(recipes): ssh_session scope, remote_shell target, parameters`
+- [x] **Step 1: Failing domain/storage tests** for parse, validation, quote safety, backward compat.
+- [x] **Step 2: Implement. Commit** `feat(recipes): ssh_session scope, remote_shell target, parameters`
 
 ---
 
@@ -188,8 +188,8 @@ Leader: `Ctrl+Space` (and `F6`) opens/focuses shelf (no-op until Phase 2); `Ctrl
 - Parameter form: Tab/Shift+Tab, preview before copy/insert
 - Favorites/use_count reuse existing meta sqlite (global per recipe id is OK for v1)
 
-- [ ] **Step 1: Failing form/preview tests.**
-- [ ] **Step 2: Implement. Commit** `feat(ssh): recipe-backed shelf with parameter forms`
+- [x] **Step 1: Failing form/preview tests.**
+- [x] **Step 2: Implement. Commit** `feat(ssh): recipe-backed shelf with parameter forms`
 
 ---
 
@@ -202,10 +202,10 @@ Leader: `Ctrl+Space` (and `F6`) opens/focuses shelf (no-op until Phase 2); `Ctrl
 - Tests: flood output memory bound; resize storm; process cleanup; fake sshd or `/bin/sh` stand-in E2E where macOS sshd unavailable on Linux CI
 - Architecture script still green
 
-- [ ] **Step 1: Docs + default enable.**
-- [ ] **Step 2: Stability tests.**
-- [ ] **Step 3: Full verify suite.**
-- [ ] **Step 4: Commit** `docs(ssh): document SSH Workspace and enable by default`
+- [x] **Step 1: Docs + default enable.**
+- [x] **Step 2: Stability tests.**
+- [x] **Step 3: Full verify suite.**
+- [x] **Step 4: Commit** `docs(ssh): document SSH Workspace and enable by default`
 
 ---
 

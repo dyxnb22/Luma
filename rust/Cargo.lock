@@ -885,6 +885,7 @@ dependencies = [
  "tracing",
  "unicode-segmentation",
  "unicode-width 0.2.0",
+ "vt100",
 ]
 
 [[package]]

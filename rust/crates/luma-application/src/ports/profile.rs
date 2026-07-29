@@ -82,4 +82,7 @@ pub trait ProfileStorePort: Send + Sync {
     async fn use_profile(&self, id: &str) -> Result<ProfileImportResult, ProfileStoreError>;
     async fn refresh_profile(&self, id: &str) -> Result<ProfileImportResult, ProfileStoreError>;
     async fn delete_profile(&self, id: &str) -> Result<(), ProfileStoreError>;
+    /// Compile `~/Library/Application Support/LumaNext/proxy.yaml` into the fixed convention Profile.
+    /// Does not apply the Profile to Mihomo; callers still confirm with `use_profile`.
+    async fn sync_convention_profile(&self) -> Result<ProfileImportResult, ProfileStoreError>;
 }

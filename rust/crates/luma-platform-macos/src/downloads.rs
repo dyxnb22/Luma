@@ -6,8 +6,10 @@ use luma_application::{
     MAX_DOWNLOAD_ENTRIES,
 };
 use sha2::{Digest, Sha256};
+#[cfg(any(test, target_os = "macos"))]
 use std::ffi::OsString;
 use std::path::{Component, Path, PathBuf};
+#[cfg(target_os = "macos")]
 use std::process::Stdio;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio_util::sync::CancellationToken;
@@ -349,6 +351,7 @@ fn validate_new_name(name: &str) -> Result<(), DownloadsError> {
     }
 }
 
+#[cfg(target_os = "macos")]
 fn finder_trash_args(path: &Path) -> Vec<OsString> {
     vec![
         "-e".into(),
@@ -579,6 +582,7 @@ mod tests {
         assert_eq!(display, "line\u{fffd}break.txt");
     }
 
+    #[cfg(target_os = "macos")]
     #[test]
     fn finder_trash_uses_direct_argv_and_never_interpolates_path() {
         let hostile = Path::new("/tmp/quote'\"; shell");

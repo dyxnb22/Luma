@@ -713,7 +713,7 @@ mod tests {
             ("luma.ocr", 1),
             ("luma.packages", 6),
             ("luma.projects", 5),
-            ("luma.proxy", 9),
+            ("luma.proxy", 10),
             ("luma.quicklinks", 3),
             ("luma.records", 11),
             ("luma.renewals", 7),
@@ -732,7 +732,7 @@ mod tests {
         .collect::<BTreeMap<_, _>>();
 
         assert_eq!(actual, expected);
-        assert_eq!(actual.values().sum::<usize>(), 97);
+        assert_eq!(actual.values().sum::<usize>(), 98);
     }
 
     #[test]

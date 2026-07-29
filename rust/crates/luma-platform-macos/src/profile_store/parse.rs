@@ -57,14 +57,15 @@ fn convert_node_uris(text: &str) -> Result<Vec<u8>, ProfileStoreError> {
         if line.starts_with('#') {
             continue;
         }
-        let proxy = if line.starts_with("vless://") {
-            parse_vless(line)
-        } else if line.starts_with("vmess://") {
+        let proxy = if line.starts_with("vmess://") {
             parse_vmess(line)
-        } else if line.starts_with("ss://") {
-            parse_shadowsocks(line)
-        } else if line.starts_with("trojan://") {
-            parse_trojan(line)
+        } else if line.starts_with("vless://")
+            || line.starts_with("ss://")
+            || line.starts_with("trojan://")
+        {
+            // Reuse the convention preset compiler so REALITY/advanced params are never
+            // silently dropped (fail-closed for unsupported shapes).
+            super::recipe::compile_proxy_from_supported_uri(line)
         } else {
             return Err(ProfileStoreError::InvalidInput {
                 field: "subscription".into(),
@@ -91,64 +92,9 @@ fn convert_node_uris(text: &str) -> Result<Vec<u8>, ProfileStoreError> {
         .map_err(|_| ProfileStoreError::Unavailable("subscription could not be converted".into()))
 }
 
+#[cfg(test)]
 fn parse_vless(uri: &str) -> Result<Value, ProfileStoreError> {
-    let (parts, query, name) = parse_uri(uri, "vless")?;
-    let mut map = proxy_base("vless", name);
-    insert_string(&mut map, "server", parts.host);
-    insert_u16(&mut map, "port", parts.port)?;
-    insert_string(&mut map, "uuid", parts.user);
-    let tls = query_value(query, "security")
-        .map(|value| value == "tls" || value == "reality")
-        .unwrap_or(false);
-    insert_bool(&mut map, "tls", tls);
-    if let Some(sni) = query_value(query, "sni") {
-        insert_string(&mut map, "servername", sni);
-    }
-    if let Some(network) = query_value(query, "type") {
-        insert_string(&mut map, "network", network);
-    }
-    Ok(Value::Mapping(map))
-}
-
-fn parse_trojan(uri: &str) -> Result<Value, ProfileStoreError> {
-    let (parts, query, name) = parse_uri(uri, "trojan")?;
-    let mut map = proxy_base("trojan", name);
-    insert_string(&mut map, "server", parts.host);
-    insert_u16(&mut map, "port", parts.port)?;
-    insert_string(&mut map, "password", parts.user);
-    insert_bool(&mut map, "tls", true);
-    if let Some(sni) = query_value(query, "sni") {
-        insert_string(&mut map, "sni", sni);
-    }
-    Ok(Value::Mapping(map))
-}
-
-fn parse_shadowsocks(uri: &str) -> Result<Value, ProfileStoreError> {
-    let (body, name) = uri
-        .strip_prefix("ss://")
-        .and_then(|value| {
-            value
-                .split_once('#')
-                .map_or(Some((value, "")), |(body, name)| Some((body, name)))
-        })
-        .ok_or_else(|| invalid_uri("ss"))?;
-    let body = body.split('?').next().unwrap_or(body);
-    let (userinfo, authority) = if let Some((userinfo, authority)) = body.rsplit_once('@') {
-        (percent_decode(userinfo), authority.to_string())
-    } else {
-        let decoded = decode_base64(body.as_bytes()).ok_or_else(|| invalid_uri("ss"))?;
-        let decoded = String::from_utf8(decoded).map_err(|_| invalid_uri("ss"))?;
-        let (userinfo, authority) = decoded.rsplit_once('@').ok_or_else(|| invalid_uri("ss"))?;
-        (userinfo.to_string(), authority.to_string())
-    };
-    let (host, port) = split_host_port(&authority)?;
-    let (cipher, password) = userinfo.split_once(':').ok_or_else(|| invalid_uri("ss"))?;
-    let mut map = proxy_base("ss", percent_decode(name));
-    insert_string(&mut map, "server", host);
-    insert_u16(&mut map, "port", port)?;
-    insert_string(&mut map, "cipher", percent_decode(cipher));
-    insert_string(&mut map, "password", percent_decode(password));
-    Ok(Value::Mapping(map))
+    super::recipe::compile_proxy_from_supported_uri(uri)
 }
 
 fn parse_vmess(uri: &str) -> Result<Value, ProfileStoreError> {
@@ -229,93 +175,6 @@ fn insert_u16(map: &mut Mapping, key: &str, value: Option<u64>) -> Result<(), Pr
     };
     map.insert(Value::String(key.into()), Value::Number(value.into()));
     Ok(())
-}
-
-struct UriParts {
-    user: String,
-    host: String,
-    port: Option<u64>,
-}
-
-fn parse_uri<'a>(
-    uri: &'a str,
-    scheme: &str,
-) -> Result<(UriParts, &'a str, String), ProfileStoreError> {
-    let prefix = format!("{scheme}://");
-    let value = uri
-        .strip_prefix(&prefix)
-        .ok_or_else(|| invalid_uri(scheme))?;
-    let (authority, query_and_name) = value.split_once('?').unwrap_or((value, ""));
-    let (authority, name) = authority
-        .split_once('#')
-        .map_or((authority, ""), |(authority, name)| (authority, name));
-    let (query, fragment) = query_and_name
-        .split_once('#')
-        .map_or((query_and_name, ""), |(query, name)| (query, name));
-    let (userinfo, hostport) = authority
-        .rsplit_once('@')
-        .ok_or_else(|| invalid_uri(scheme))?;
-    let (host, port) = split_host_port(hostport)?;
-    Ok((
-        UriParts {
-            user: percent_decode(userinfo),
-            host,
-            port,
-        },
-        query,
-        percent_decode(if fragment.is_empty() { name } else { fragment }),
-    ))
-}
-
-fn split_host_port(value: &str) -> Result<(String, Option<u64>), ProfileStoreError> {
-    if let Some(value) = value.strip_prefix('[') {
-        let (host, port) = value.split_once(']').ok_or_else(|| invalid_uri("host"))?;
-        let port = port.strip_prefix(':').and_then(|value| value.parse().ok());
-        return Ok((host.to_string(), port));
-    }
-    let (host, port) = value
-        .rsplit_once(':')
-        .map_or((value, None), |(host, port)| {
-            (host, port.parse::<u64>().ok())
-        });
-    Ok((host.to_string(), port))
-}
-
-fn query_value(query: &str, key: &str) -> Option<String> {
-    query
-        .split('&')
-        .filter_map(|part| part.split_once('='))
-        .find(|(candidate, _)| *candidate == key)
-        .map(|(_, value)| percent_decode(value))
-}
-
-fn percent_decode(value: &str) -> String {
-    let mut output = String::with_capacity(value.len());
-    let bytes = value.as_bytes();
-    let mut index = 0;
-    while index < bytes.len() {
-        if bytes[index] == b'%' && index + 2 < bytes.len() {
-            if let (Some(high), Some(low)) =
-                (hex_digit(bytes[index + 1]), hex_digit(bytes[index + 2]))
-            {
-                output.push((high * 16 + low) as char);
-                index += 3;
-                continue;
-            }
-        }
-        output.push(bytes[index] as char);
-        index += 1;
-    }
-    output
-}
-
-fn hex_digit(value: u8) -> Option<u8> {
-    match value {
-        b'0'..=b'9' => Some(value - b'0'),
-        b'a'..=b'f' => Some(value - b'a' + 10),
-        b'A'..=b'F' => Some(value - b'A' + 10),
-        _ => None,
-    }
 }
 
 fn decode_base64(bytes: &[u8]) -> Option<Vec<u8>> {
@@ -433,5 +292,21 @@ mod tests {
                 Err(ProfileStoreError::SecurityDenied(_))
             ));
         }
+    }
+
+    #[test]
+    fn vless_reality_uri_is_compiled_not_silently_truncated() {
+        let uri = "vless://00000000-0000-0000-0000-000000000000@203.0.113.10:443?security=reality&type=tcp&sni=www.microsoft.com&pbk=abcdefghijklmnopqrstuvwxyz0123456789ABCDE&sid=ab12cd34&fp=chrome&flow=xtls-rprx-vision#US";
+        let value = parse_vless(uri).unwrap();
+        assert!(value
+            .as_mapping()
+            .unwrap()
+            .contains_key(Value::String("reality-opts".into())));
+    }
+
+    #[test]
+    fn vless_reality_without_keys_fails_closed() {
+        let uri = "vless://00000000-0000-0000-0000-000000000000@203.0.113.10:443?security=reality&type=tcp&sni=www.microsoft.com#US";
+        assert!(parse_vless(uri).is_err());
     }
 }

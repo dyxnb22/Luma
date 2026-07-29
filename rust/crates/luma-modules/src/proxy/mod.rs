@@ -116,6 +116,12 @@ impl ProxyModule {
                             "/proxy import ",
                             Some("/proxy import /tmp/profile.yaml"),
                         ),
+                        crate::ux::command_spec(
+                            "/proxy sync",
+                            "Compile LumaNext/proxy.yaml into the fixed convention Profile",
+                            "/proxy sync",
+                            None,
+                        ),
                     ],
                 },
             },
@@ -172,19 +178,27 @@ impl LumaModule for ProxyModule {
                 risk: ActionRisk::Safe,
                 confirmation: false,
             }],
-            "proxy_node" => vec![ActionDescriptor {
-                id: ActionId::new("select_proxy"),
-                label: if result.primary_action.id.as_str() == "select_proxy"
-                    && result.primary_action.label == "Selected"
-                {
-                    "Selected"
-                } else {
-                    "Select"
-                }
-                .into(),
-                risk: ActionRisk::Safe,
-                confirmation: false,
-            }],
+            "proxy_node" => vec![
+                ActionDescriptor {
+                    id: ActionId::new("select_proxy"),
+                    label: if result.primary_action.id.as_str() == "select_proxy"
+                        && result.primary_action.label == "Selected"
+                    {
+                        "Selected"
+                    } else {
+                        "Select"
+                    }
+                    .into(),
+                    risk: ActionRisk::Safe,
+                    confirmation: false,
+                },
+                ActionDescriptor {
+                    id: ActionId::new("test_proxy"),
+                    label: "Test".into(),
+                    risk: ActionRisk::Safe,
+                    confirmation: false,
+                },
+            ],
             "proxy_group" => vec![ActionDescriptor {
                 id: ActionId::new("noop"),
                 label: "OK".into(),
@@ -218,6 +232,12 @@ impl LumaModule for ProxyModule {
             "profile_import" => vec![ActionDescriptor {
                 id: ActionId::new("import_profile"),
                 label: "Import".into(),
+                risk: ActionRisk::Confirm,
+                confirmation: true,
+            }],
+            "profile_sync" => vec![ActionDescriptor {
+                id: ActionId::new("sync_convention_profile"),
+                label: "Sync".into(),
                 risk: ActionRisk::Confirm,
                 confirmation: true,
             }],
@@ -374,6 +394,27 @@ impl LumaModule for ProxyModule {
                     },
                 }
             }
+            "sync_convention_profile" => {
+                let Some(store) = &self.profiles else {
+                    return ActionOutcome::Failed {
+                        kind: FailureKind::NotConfigured {
+                            remediation: "Profile storage is not configured".into(),
+                        },
+                    };
+                };
+                match store.sync_convention_profile().await {
+                    Ok(result) => ActionOutcome::Success {
+                        message: Some(format!(
+                            "已编译约定 Profile：{}（{} 个节点）；尚未应用到运行中的 Mihomo",
+                            redact_label(&result.summary.name),
+                            result.summary.node_count
+                        )),
+                    },
+                    Err(error) => ActionOutcome::Failed {
+                        kind: profile_failure(error),
+                    },
+                }
+            }
             "use_profile" | "delete_profile" | "refresh_profile" => {
                 let Some(profile_id) = action
                     .result
@@ -459,6 +500,30 @@ impl LumaModule for ProxyModule {
                 match self.core.select_proxy(&group, &proxy).await {
                     Ok(()) => ActionOutcome::Success {
                         message: Some("proxy selected".into()),
+                    },
+                    Err(error) => ActionOutcome::Failed {
+                        kind: proxy_failure(error),
+                    },
+                }
+            }
+            "test_proxy" => {
+                let Some((_group, proxy)) = self
+                    .selection_keys
+                    .read()
+                    .await
+                    .get(action.result.id.as_str())
+                    .cloned()
+                else {
+                    return ActionOutcome::Failed {
+                        kind: FailureKind::InvalidInput {
+                            field: "result_id".into(),
+                            message: "proxy result expired; search again".into(),
+                        },
+                    };
+                };
+                match self.core.test_proxy_delay(&proxy).await {
+                    Ok(delay_ms) => ActionOutcome::Success {
+                        message: Some(format!("节点延迟：{} ms", delay_ms)),
                     },
                     Err(error) => ActionOutcome::Failed {
                         kind: proxy_failure(error),
@@ -682,10 +747,11 @@ mod tests {
             .clone();
         let actions = module.actions(&node).await;
         assert_eq!(actions[0].id.as_str(), "select_proxy");
+        assert_eq!(actions[1].id.as_str(), "test_proxy");
         let outcome = module
             .perform(
                 ActionRequest {
-                    result: node,
+                    result: node.clone(),
                     action: actions[0].clone(),
                     confirmation: false,
                 },
@@ -694,6 +760,20 @@ mod tests {
             .await;
         assert!(matches!(outcome, ActionOutcome::Success { .. }));
         assert_eq!(core.selected.lock().await.len(), 1);
+        let tested = module
+            .perform(
+                ActionRequest {
+                    result: node,
+                    action: actions[1].clone(),
+                    confirmation: false,
+                },
+                CancellationToken::new(),
+            )
+            .await;
+        assert!(
+            matches!(tested, ActionOutcome::Success { message: Some(ref msg) } if msg.contains("42"))
+        );
+        assert_eq!(core.delay_tests.lock().await.len(), 1);
     }
 
     #[test]
@@ -816,6 +896,14 @@ mod tests {
         }
         async fn delete_profile(&self, _id: &str) -> Result<(), ProfileStoreError> {
             Ok(())
+        }
+        async fn sync_convention_profile(&self) -> Result<ProfileImportResult, ProfileStoreError> {
+            Ok(ProfileImportResult {
+                summary: self.summary.clone(),
+                source_written: true,
+                metadata_updated: true,
+                runtime_applied: false,
+            })
         }
     }
 
@@ -947,6 +1035,178 @@ mod tests {
             .secondary_actions
             .iter()
             .any(|action| action.id == "refresh_profile"));
+    }
+
+    #[tokio::test]
+    async fn sync_command_offers_confirmed_action_and_calls_store() {
+        struct CountingProfiles {
+            summary: ProfileSummary,
+            syncs: tokio::sync::Mutex<u32>,
+        }
+        #[async_trait]
+        impl ProfileStorePort for CountingProfiles {
+            async fn list_profiles(&self) -> Result<Vec<ProfileSummary>, ProfileStoreError> {
+                Ok(vec![self.summary.clone()])
+            }
+            async fn import_subscription(
+                &self,
+                _url: &str,
+                _name: Option<&str>,
+            ) -> Result<ProfileImportResult, ProfileStoreError> {
+                unreachable!()
+            }
+            async fn import_local_file(
+                &self,
+                _path: &Path,
+                _name: Option<&str>,
+            ) -> Result<ProfileImportResult, ProfileStoreError> {
+                unreachable!()
+            }
+            async fn use_profile(
+                &self,
+                _id: &str,
+            ) -> Result<ProfileImportResult, ProfileStoreError> {
+                unreachable!()
+            }
+            async fn refresh_profile(
+                &self,
+                _id: &str,
+            ) -> Result<ProfileImportResult, ProfileStoreError> {
+                unreachable!()
+            }
+            async fn delete_profile(&self, _id: &str) -> Result<(), ProfileStoreError> {
+                unreachable!()
+            }
+            async fn sync_convention_profile(
+                &self,
+            ) -> Result<ProfileImportResult, ProfileStoreError> {
+                *self.syncs.lock().await += 1;
+                Ok(ProfileImportResult {
+                    summary: self.summary.clone(),
+                    source_written: true,
+                    metadata_updated: true,
+                    runtime_applied: false,
+                })
+            }
+        }
+        let (base, _, _) = module();
+        let profiles = Arc::new(CountingProfiles {
+            summary: ProfileSummary {
+                id: "p-c0ffee0000000000000001".into(),
+                name: "Personal VPS".into(),
+                node_count: 2,
+                group_count: 1,
+                rule_count: 1,
+                metadata_available: true,
+                updated_at: Some(1),
+                source: ProfileSource::LumaLocal,
+                owned_by_luma: true,
+                current: false,
+            },
+            syncs: tokio::sync::Mutex::new(0),
+        });
+        let module = base.with_profile_store(profiles.clone());
+        let items = collect_search_items(&module, Query::parse("proxy sync", 20)).await;
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].kind, "profile_sync");
+        assert_eq!(
+            items[0].primary_action.id.as_str(),
+            "sync_convention_profile"
+        );
+        let actions = module.actions(&items[0]).await;
+        let outcome = module
+            .perform(
+                ActionRequest {
+                    result: items[0].clone(),
+                    action: actions[0].clone(),
+                    confirmation: true,
+                },
+                CancellationToken::new(),
+            )
+            .await;
+        match outcome {
+            ActionOutcome::Success {
+                message: Some(message),
+            } => {
+                assert!(message.contains("2"));
+                assert!(message.contains("尚未应用到运行中的 Mihomo"));
+                assert!(!message.contains("password"));
+                assert!(!message.contains("uuid"));
+            }
+            other => panic!("unexpected outcome: {other:?}"),
+        }
+        assert_eq!(*profiles.syncs.lock().await, 1);
+    }
+
+    #[tokio::test]
+    async fn sync_invalid_errors_expose_field_names_only() {
+        struct FailingSync;
+        #[async_trait]
+        impl ProfileStorePort for FailingSync {
+            async fn list_profiles(&self) -> Result<Vec<ProfileSummary>, ProfileStoreError> {
+                Ok(vec![])
+            }
+            async fn import_subscription(
+                &self,
+                _url: &str,
+                _name: Option<&str>,
+            ) -> Result<ProfileImportResult, ProfileStoreError> {
+                unreachable!()
+            }
+            async fn import_local_file(
+                &self,
+                _path: &Path,
+                _name: Option<&str>,
+            ) -> Result<ProfileImportResult, ProfileStoreError> {
+                unreachable!()
+            }
+            async fn use_profile(
+                &self,
+                _id: &str,
+            ) -> Result<ProfileImportResult, ProfileStoreError> {
+                unreachable!()
+            }
+            async fn refresh_profile(
+                &self,
+                _id: &str,
+            ) -> Result<ProfileImportResult, ProfileStoreError> {
+                unreachable!()
+            }
+            async fn delete_profile(&self, _id: &str) -> Result<(), ProfileStoreError> {
+                unreachable!()
+            }
+            async fn sync_convention_profile(
+                &self,
+            ) -> Result<ProfileImportResult, ProfileStoreError> {
+                Err(ProfileStoreError::InvalidInput {
+                    field: "uuid".into(),
+                    message: "uuid must be a valid UUID".into(),
+                })
+            }
+        }
+        let (base, _, _) = module();
+        let module = base.with_profile_store(Arc::new(FailingSync));
+        let items = collect_search_items(&module, Query::parse("proxy sync", 20)).await;
+        let actions = module.actions(&items[0]).await;
+        let outcome = module
+            .perform(
+                ActionRequest {
+                    result: items[0].clone(),
+                    action: actions[0].clone(),
+                    confirmation: true,
+                },
+                CancellationToken::new(),
+            )
+            .await;
+        match outcome {
+            ActionOutcome::Failed {
+                kind: FailureKind::InvalidInput { field, message },
+            } => {
+                assert_eq!(field, "uuid");
+                assert!(!message.contains("00000000"));
+            }
+            other => panic!("unexpected outcome: {other:?}"),
+        }
     }
 
     #[tokio::test]

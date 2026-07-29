@@ -523,10 +523,7 @@ impl LumaModule for ProxyModule {
                 };
                 match self.core.test_proxy_delay(&proxy).await {
                     Ok(delay_ms) => ActionOutcome::Success {
-                        message: Some(format!(
-                            "节点延迟：{} ms",
-                            delay_ms
-                        )),
+                        message: Some(format!("节点延迟：{} ms", delay_ms)),
                     },
                     Err(error) => ActionOutcome::Failed {
                         kind: proxy_failure(error),
@@ -773,7 +770,9 @@ mod tests {
                 CancellationToken::new(),
             )
             .await;
-        assert!(matches!(tested, ActionOutcome::Success { message: Some(ref msg) } if msg.contains("42")));
+        assert!(
+            matches!(tested, ActionOutcome::Success { message: Some(ref msg) } if msg.contains("42"))
+        );
         assert_eq!(core.delay_tests.lock().await.len(), 1);
     }
 
@@ -1110,12 +1109,15 @@ mod tests {
         let items = collect_search_items(&module, Query::parse("proxy sync", 20)).await;
         assert_eq!(items.len(), 1);
         assert_eq!(items[0].kind, "profile_sync");
-        assert_eq!(items[0].primary_action_id, "sync_convention_profile");
-        let actions = module.actions(&items[0].clone().into_domain()).await;
+        assert_eq!(
+            items[0].primary_action.id.as_str(),
+            "sync_convention_profile"
+        );
+        let actions = module.actions(&items[0]).await;
         let outcome = module
             .perform(
                 ActionRequest {
-                    result: items[0].clone().into_domain(),
+                    result: items[0].clone(),
                     action: actions[0].clone(),
                     confirmation: true,
                 },
@@ -1123,7 +1125,9 @@ mod tests {
             )
             .await;
         match outcome {
-            ActionOutcome::Success { message: Some(message) } => {
+            ActionOutcome::Success {
+                message: Some(message),
+            } => {
                 assert!(message.contains("2"));
                 assert!(message.contains("尚未应用到运行中的 Mihomo"));
                 assert!(!message.contains("password"));
@@ -1183,11 +1187,11 @@ mod tests {
         let (base, _, _) = module();
         let module = base.with_profile_store(Arc::new(FailingSync));
         let items = collect_search_items(&module, Query::parse("proxy sync", 20)).await;
-        let actions = module.actions(&items[0].clone().into_domain()).await;
+        let actions = module.actions(&items[0]).await;
         let outcome = module
             .perform(
                 ActionRequest {
-                    result: items[0].clone().into_domain(),
+                    result: items[0].clone(),
                     action: actions[0].clone(),
                     confirmation: true,
                 },

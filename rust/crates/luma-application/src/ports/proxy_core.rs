@@ -206,9 +206,10 @@ impl ProxyCorePort for FakeProxyCore {
             return Err(err);
         }
         self.delay_tests.lock().await.push(name.to_string());
-        self.delay_ms.lock().await.ok_or_else(|| ProxyCoreError::Unavailable(
-            "proxy delay probe failed".into(),
-        ))
+        self.delay_ms
+            .lock()
+            .await
+            .ok_or_else(|| ProxyCoreError::Unavailable("proxy delay probe failed".into()))
     }
 
     async fn get_external_controller_status(

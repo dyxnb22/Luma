@@ -20,6 +20,10 @@ impl MacWindowCatalog {
     pub fn snapshot_previous_frontmost_app_sync(&self) -> Result<Option<String>, WindowError> {
         Err(unavailable())
     }
+
+    pub(crate) fn frontmost_app_blocking() -> Result<Option<String>, WindowError> {
+        Err(unavailable())
+    }
 }
 
 fn unavailable() -> WindowError {

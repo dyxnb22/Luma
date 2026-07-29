@@ -197,9 +197,9 @@ fn require_reality_public_key(value: &str) -> Result<(), ProfileStoreError> {
     let value = value.trim();
     // REALITY public keys are typically 43-char URL-safe base64 (32 bytes).
     let ok = (32..=64).contains(&value.len())
-        && value
-            .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'+' | b'/' | b'-' | b'_' | b'='));
+        && value.bytes().all(|byte| {
+            byte.is_ascii_alphanumeric() || matches!(byte, b'+' | b'/' | b'-' | b'_' | b'=')
+        });
     if !ok {
         return Err(invalid(
             "public-key",
@@ -411,6 +411,7 @@ fn compile_vless_grpc_tls(
     Ok(Value::Mapping(map))
 }
 
+#[allow(clippy::too_many_arguments)]
 fn compile_hysteria2(
     name: &str,
     server: &str,
@@ -734,7 +735,10 @@ fn query_map(query: &str) -> Result<std::collections::BTreeMap<String, String>, 
         let (key, value) = part
             .split_once('=')
             .ok_or_else(|| invalid("subscription", "invalid URI query"))?;
-        if map.insert(percent_decode(key), percent_decode(value)).is_some() {
+        if map
+            .insert(percent_decode(key), percent_decode(value))
+            .is_some()
+        {
             return Err(invalid("subscription", "duplicate URI query key"));
         }
     }
@@ -839,7 +843,11 @@ fn compile_ss_uri(rest: &str) -> Result<Value, ProfileStoreError> {
         .ok_or_else(|| invalid("subscription", "invalid ss node URI"))?;
     let name = percent_decode(name);
     compile_ss(
-        if name.is_empty() { "Imported node" } else { &name },
+        if name.is_empty() {
+            "Imported node"
+        } else {
+            &name
+        },
         &host,
         port,
         cipher,
@@ -851,7 +859,9 @@ fn compile_trojan_uri(rest: &str) -> Result<Value, ProfileStoreError> {
     let (password, hostport, query, name) = split_uri_userinfo(rest)?;
     let query = query_map(&query)?;
     require_only_keys(&query, &["sni", "allowInsecure", "peer"])?;
-    if query.get("allowInsecure").is_some_and(|value| value == "1" || value.eq_ignore_ascii_case("true"))
+    if query
+        .get("allowInsecure")
+        .is_some_and(|value| value == "1" || value.eq_ignore_ascii_case("true"))
     {
         return Err(invalid(
             "subscription",
@@ -864,7 +874,11 @@ fn compile_trojan_uri(rest: &str) -> Result<Value, ProfileStoreError> {
         .or_else(|| query.get("peer"))
         .map(String::as_str);
     compile_trojan_tls(
-        if name.is_empty() { "Imported node" } else { &name },
+        if name.is_empty() {
+            "Imported node"
+        } else {
+            &name
+        },
         &host,
         port,
         &password,
@@ -889,7 +903,16 @@ fn compile_vless_uri(rest: &str) -> Result<Value, ProfileStoreError> {
         ("reality", "tcp") => {
             require_only_keys(
                 &query,
-                &["security", "type", "sni", "pbk", "sid", "fp", "flow", "encryption"],
+                &[
+                    "security",
+                    "type",
+                    "sni",
+                    "pbk",
+                    "sid",
+                    "fp",
+                    "flow",
+                    "encryption",
+                ],
             )?;
             if query.get("fp").is_some_and(|value| value != "chrome") {
                 return Err(invalid(
@@ -903,7 +926,10 @@ fn compile_vless_uri(rest: &str) -> Result<Value, ProfileStoreError> {
             {
                 return Err(invalid("subscription", "URI contains an unsupported flow"));
             }
-            if query.get("encryption").is_some_and(|value| !value.is_empty()) {
+            if query
+                .get("encryption")
+                .is_some_and(|value| !value.is_empty())
+            {
                 return Err(invalid(
                     "subscription",
                     "URI contains an unsupported encryption",
@@ -919,7 +945,10 @@ fn compile_vless_uri(rest: &str) -> Result<Value, ProfileStoreError> {
         }
         ("tls", "tcp") => {
             require_only_keys(&query, &["security", "type", "sni", "encryption", "fp"])?;
-            if query.get("encryption").is_some_and(|value| !value.is_empty()) {
+            if query
+                .get("encryption")
+                .is_some_and(|value| !value.is_empty())
+            {
                 return Err(invalid(
                     "subscription",
                     "URI contains an unsupported encryption",
@@ -969,10 +998,7 @@ mod tests {
     const PBK: &str = "abcdefghijklmnopqrstuvwxyz0123456789ABCDE";
 
     fn mapping_string<'a>(value: &'a Value, key: &str) -> Option<&'a str> {
-        value
-            .as_mapping()?
-            .get(Value::String(key.into()))?
-            .as_str()
+        value.as_mapping()?.get(Value::String(key.into()))?.as_str()
     }
 
     #[test]
@@ -995,7 +1021,9 @@ nodes:
         );
         let compiled = compile_convention_recipe(yaml.as_bytes()).unwrap();
         let value: Value = serde_yaml_ng::from_slice(&compiled).unwrap();
-        let proxy = &value.as_mapping().unwrap()["proxies"].as_sequence().unwrap()[0];
+        let proxy = &value.as_mapping().unwrap()["proxies"]
+            .as_sequence()
+            .unwrap()[0];
         assert_eq!(mapping_string(proxy, "type"), Some("vless"));
         assert_eq!(mapping_string(proxy, "flow"), Some("xtls-rprx-vision"));
         assert_eq!(mapping_string(proxy, "client-fingerprint"), Some("chrome"));
@@ -1004,7 +1032,9 @@ nodes:
             .as_mapping()
             .unwrap();
         assert_eq!(
-            reality.get(Value::String("public-key".into())).and_then(Value::as_str),
+            reality
+                .get(Value::String("public-key".into()))
+                .and_then(Value::as_str),
             Some(PBK)
         );
         let groups = value.as_mapping().unwrap()["proxy-groups"]

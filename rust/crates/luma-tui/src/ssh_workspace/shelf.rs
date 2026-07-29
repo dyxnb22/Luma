@@ -1,8 +1,8 @@
 //! Command shelf for SSH Workspace (keyboard-driven Copy/Insert).
 
 use luma_domain::{
-    render_remote_command, Recipe, RecipeMetadata, RecipeParameter, RecipeParameterKind,
-    RecipeScope, RecipeTarget, SshRecipeContext,
+    render_remote_command, shell_quote, Recipe, RecipeMetadata, RecipeParameter,
+    RecipeParameterKind, RecipeScope, RecipeTarget, SshRecipeContext,
 };
 use std::collections::BTreeMap;
 
@@ -451,8 +451,8 @@ fn native_text(id: &str, ssh: &SshRecipeContext) -> String {
     match id {
         "copy_alias" => ssh.alias.clone(),
         "copy_ip" => ssh.hostname.clone(),
-        "copy_ssh" => format!("ssh -p {} {}@{}", ssh.port, ssh.user, ssh.hostname),
-        "copy_sftp" => format!("sftp -P {} {}@{}", ssh.port, ssh.user, ssh.hostname),
+        "copy_ssh" => format!("ssh -- {}", shell_quote(&ssh.alias)),
+        "copy_sftp" => format!("sftp {}", shell_quote(&ssh.alias)),
         "show_info" => format!(
             "alias={} user={} host={} port={}",
             ssh.alias, ssh.user, ssh.hostname, ssh.port
@@ -575,6 +575,33 @@ mod tests {
         let cmd = shelf.rendered_command(&ssh_ctx()).expect("cmd");
         assert!(!cmd.ends_with('\n') && !cmd.ends_with('\r'));
         assert!(cmd.contains("ssh"));
+    }
+
+    #[test]
+    fn copied_connection_commands_preserve_the_ssh_config_alias() {
+        let mut shelf = ShelfState::from_recipes(&[], true);
+        let ssh_index = shelf
+            .items
+            .iter()
+            .position(|item| matches!(item.kind, ShelfItemKind::SshNative { id: "copy_ssh" }))
+            .expect("ssh item");
+        shelf.filtered = vec![ssh_index];
+        shelf.selected = 0;
+        assert_eq!(
+            shelf.rendered_command(&ssh_ctx()).as_deref(),
+            Some("ssh -- prod")
+        );
+
+        let sftp_index = shelf
+            .items
+            .iter()
+            .position(|item| matches!(item.kind, ShelfItemKind::SshNative { id: "copy_sftp" }))
+            .expect("sftp item");
+        shelf.filtered = vec![sftp_index];
+        assert_eq!(
+            shelf.rendered_command(&ssh_ctx()).as_deref(),
+            Some("sftp prod")
+        );
     }
 
     #[test]

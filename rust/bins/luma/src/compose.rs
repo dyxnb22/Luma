@@ -4,13 +4,13 @@
 //! listed in Settings but do not warm up or appear on the Hub.
 
 use luma_application::{
-    CapabilityPort, CommandRecipesRepository, CommandSpec, ModuleManifest, ModuleRegistry,
-    RecallRepository, RegistryError as ModuleRegistryError, SearchMode, SettingsRepository,
-    SqliteClipboardHistory, SqliteCommandRecipesRepository, SqliteDatabasePortalsRepository,
-    SqliteQuicklinksRepository, SqliteRecallRepository, SqliteRecordsRepository,
-    SqliteRenewalsRepository, SqliteSnippetsRepository, SqliteSshMetaRepository,
-    SqliteTimersRepository, SqliteWordbookRepository, TomlSettingsRepository, UnavailableModule,
-    WordbookRepository, WorkbenchMeta,
+    CapabilityPort, CommandRecipesRepository, CommandSpec, EmbeddedPtyPort, ModuleManifest,
+    ModuleRegistry, PasteboardPort, RecallRepository, RegistryError as ModuleRegistryError,
+    SearchMode, SettingsRepository, SqliteClipboardHistory, SqliteCommandRecipesRepository,
+    SqliteDatabasePortalsRepository, SqliteQuicklinksRepository, SqliteRecallRepository,
+    SqliteRecordsRepository, SqliteRenewalsRepository, SqliteSnippetsRepository,
+    SqliteSshMetaRepository, SqliteTimersRepository, SqliteWordbookRepository,
+    TomlSettingsRepository, UnavailableModule, WordbookRepository, WorkbenchMeta,
 };
 use luma_modules::{
     AppsModule, CalculatorModule, ClipboardModule, ClipboardSuppression, CommandRecipesModule,
@@ -21,7 +21,7 @@ use luma_modules::{
 };
 use luma_platform_macos::{
     FilesystemAppsCatalog, MacAccessibility, MacBoundedUtf8FileReader, MacClock,
-    MacDatabasePlatform, MacDownloads, MacGitRepository, MacHomebrew, MacKeychain,
+    MacDatabasePlatform, MacDownloads, MacEmbeddedPty, MacGitRepository, MacHomebrew, MacKeychain,
     MacMihomoProxyCore, MacNetworkProbe, MacOpenPath, MacPasteboard, MacProfileStore,
     MacProjectWorkspace, MacRecipeEnvironment, MacRuntimeInspector, MacScreenOcr, MacShellHistory,
     MacShortcuts, MacSpeech, MacSshConfig, MacSystemProxy, MacSystemSettings, MacWindowCatalog,
@@ -60,6 +60,18 @@ pub struct RegistryLoad {
     pub recall: Option<Arc<dyn RecallRepository>>,
     #[allow(dead_code)]
     pub skipped: Vec<SkippedModule>,
+}
+
+pub struct TuiPlatformAdapters {
+    pub embedded_pty: Arc<dyn EmbeddedPtyPort>,
+    pub pasteboard: Arc<dyn PasteboardPort>,
+}
+
+pub fn tui_platform_adapters() -> TuiPlatformAdapters {
+    TuiPlatformAdapters {
+        embedded_pty: Arc::new(MacEmbeddedPty::new()),
+        pasteboard: Arc::new(MacPasteboard),
+    }
 }
 
 struct ComposeCapabilities;

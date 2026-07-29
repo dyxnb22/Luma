@@ -326,6 +326,44 @@ fn prompt_places_the_real_terminal_cursor_at_the_grapheme_cursor() {
 }
 
 #[test]
+fn ssh_workspace_places_the_real_terminal_cursor_in_the_pty_pane() {
+    let mut workspace = crate::ssh_workspace::SshWorkspaceState::new(
+        "prod".into(),
+        "host.example".into(),
+        "root".into(),
+        22,
+        "prod".into(),
+        "/usr/bin/ssh".into(),
+        vec![],
+        vec![],
+        Some("prod".into()),
+        78,
+        20,
+    );
+    workspace.cursor_row = 4;
+    workspace.cursor_col = 9;
+    workspace.lines = vec![ratatui::text::Line::from("remote")];
+    let state = AppState {
+        route: Route::SshWorkspace,
+        focus: FocusZone::Terminal,
+        ssh_workspace: Some(workspace),
+        ..AppState::default()
+    };
+    let backend = TestBackend::new(80, 24);
+    let mut terminal = Terminal::new(backend).expect("terminal");
+
+    terminal.draw(|frame| render(frame, &state)).expect("draw");
+
+    assert_eq!(
+        terminal
+            .backend_mut()
+            .get_cursor_position()
+            .expect("cursor position"),
+        Position::new(10, 6)
+    );
+}
+
+#[test]
 fn footer_says_run_when_results_present_and_list_focused() {
     let mut state = state_with_results();
     state.focus = crate::view_model::FocusZone::List;

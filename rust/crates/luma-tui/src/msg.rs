@@ -86,6 +86,8 @@ pub enum Msg {
     SshCopyError,
     /// SSH workspace: toggle shelf focus / visibility.
     SshToggleShelf,
+    /// SSH workspace: arm the Ctrl+Space leader without changing shelf focus.
+    SshArmLeader,
     /// SSH workspace: confirm disconnect.
     SshDisconnect,
     /// SSH workspace: send raw Ctrl+Space to remote.
@@ -97,4 +99,8 @@ pub enum Msg {
     SshShelfFavorite,
     SshShelfParamNext,
     SshShelfParamPrev,
+    /// Move the local terminal scrollback viewport. Positive rows move up.
+    SshScrollback {
+        rows: i32,
+    },
 }

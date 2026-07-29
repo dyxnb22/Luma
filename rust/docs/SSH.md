@@ -1,9 +1,9 @@
 # `luma.ssh`
 
-`luma.ssh` is a personal SSH launcher: it lists concrete `Host` aliases from your OpenSSH
-config, runs `ssh` / `sftp` in the **current terminal**, and keeps **Luma-local** metadata
-(favorites, display names, recent connections). It is **not** a Termius-style client — no
-session manager, port-forward UI, or built-in file browser.
+`luma.ssh` is a lightweight personal SSH workspace: it lists concrete `Host` aliases from your
+OpenSSH config, embeds an SSH terminal inside Luma, and keeps **Luma-local** metadata (favorites,
+display names, recent connections). It covers basic Termius-style connection management, but
+does not provide multi-session tabs, a port-forward UI, sync, or a built-in file browser.
 
 ## What it reads
 
@@ -56,15 +56,24 @@ module row.
 ### SSH Workspace
 
 Embedded session keeps Luma chrome visible. Header shows alias · user@host:port · status.
-Keyboard: `Ctrl+Space` / `F6` command shelf, `Esc` leave (or back from shelf), `r` reconnect,
-`l` compat reconnect, `c` copy error when failed. Shelf actions: `c` copy, `i` insert (no Enter),
-Enter preview / parameters. See [ADR-0008](adr/0008-ssh-workspace.md).
+`F6` opens/closes the command shelf. `Ctrl+Space` arms the terminal leader:
+`Space` sends Ctrl+Space, `f` toggles fullscreen, `d` disconnects after a second confirmation
+chord, `r` reconnects, and `q` leaves the workspace. Terminal `Esc`, Delete, PageUp/PageDown,
+Alt keys, and F1–F12 are forwarded to the remote program. `Shift+PageUp/PageDown` browses the
+local 2000-line scrollback; typing returns to live output.
+
+Bracketed paste is forwarded as one remote paste operation when requested by the remote shell.
+The real PTY cursor is projected into Luma so terminal input and IME candidate windows stay
+anchored correctly. From the shelf, `Esc` returns to the terminal, `c` copies, `i` inserts
+without Enter, and Enter previews a command or activates a native reconnect/disconnect action.
+See [ADR-0008](adr/0008-ssh-workspace.md).
 
 Preview shows resolved connection fields and metadata. Private key **contents** are never
 shown — only the identity file path (sanitized).
 
 If an embedded session fails, the last screen and status stay in the workspace (reconnect /
-compat / leave). Compat-mode failures still pause for Enter before restoring the TUI.
+compat / leave); `Esc` then returns to `/ssh`. Compat-mode failures still pause for Enter before
+restoring the TUI.
 
 When a password is saved for an alias, Connect and Open SFTP use OpenSSH `SSH_ASKPASS` to retrieve
 that one value from macOS Keychain. The password never enters SSH metadata, search results,

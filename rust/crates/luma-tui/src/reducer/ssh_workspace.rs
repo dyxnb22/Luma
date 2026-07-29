@@ -120,6 +120,17 @@ pub(super) fn leave_workspace(state: &mut AppState) -> Vec<Effect> {
     ]
 }
 
+pub(super) fn disconnect(state: &mut AppState) -> Vec<Effect> {
+    if let Some(ws) = state.ssh_workspace.as_mut() {
+        ws.disconnect_confirm = false;
+        ws.phase = SshConnectionPhase::Disconnected;
+        ws.status_detail = "Disconnected".into();
+        ws.error_summary.clear();
+    }
+    state.status.set("Disconnected", StatusTone::Warning);
+    vec![Effect::KillEmbeddedPty]
+}
+
 pub(super) fn reconnect(state: &mut AppState) -> Vec<Effect> {
     let Some(ws) = state.ssh_workspace.as_ref() else {
         return vec![Effect::None];
@@ -138,7 +149,12 @@ pub(super) fn reconnect(state: &mut AppState) -> Vec<Effect> {
         ws.status_detail = "Reconnecting".into();
         ws.exit_code = None;
         ws.error_summary.clear();
+        ws.disconnect_confirm = false;
+        ws.leader_armed = false;
+        ws.shelf_visible = false;
+        ws.focus = SshWorkspaceFocus::Terminal;
     }
+    state.focus = FocusZone::Terminal;
     state.status.set("Reconnecting…", StatusTone::Progress);
     vec![
         Effect::KillEmbeddedPty,
@@ -181,34 +197,37 @@ pub(super) fn compat_reconnect(state: &mut AppState) -> Vec<Effect> {
 }
 
 pub(super) fn toggle_shelf(state: &mut AppState) -> Vec<Effect> {
-    let width = state.terminal.width;
     let Some(ws) = state.ssh_workspace.as_mut() else {
         return vec![Effect::None];
     };
-    // Ctrl+Space / F6: arm leader for the next key chord, and open/focus the shelf.
-    ws.leader_armed = true;
+    ws.leader_armed = false;
     ws.disconnect_confirm = false;
-    if SshWorkspaceState::side_shelf_layout(width) {
-        if !ws.shelf_visible {
-            ws.shelf_visible = true;
-            ws.focus = SshWorkspaceFocus::Shelf;
-            state.focus = FocusZone::CommandShelf;
-        } else if matches!(ws.focus, SshWorkspaceFocus::Shelf) {
-            // Second press while shelf focused: keep shelf, stay armed for chord.
-            ws.focus = SshWorkspaceFocus::Leader;
-            state.focus = FocusZone::Terminal;
-        } else {
-            ws.focus = SshWorkspaceFocus::Shelf;
-            state.focus = FocusZone::CommandShelf;
-        }
+    if ws.shelf_visible && matches!(ws.focus, SshWorkspaceFocus::Shelf) {
+        ws.shelf_visible = false;
+        ws.focus = SshWorkspaceFocus::Terminal;
+        state.focus = FocusZone::Terminal;
     } else {
-        // Narrow: open overlay/full-page shelf (or re-arm leader if already open).
-        if !ws.shelf_visible {
-            ws.shelf_visible = true;
-        }
+        ws.shelf_visible = true;
+        ws.fullscreen_chrome = false;
         ws.focus = SshWorkspaceFocus::Shelf;
         state.focus = FocusZone::CommandShelf;
     }
+    let (cols, rows) = terminal_geometry(state);
+    if let Some(ws) = state.ssh_workspace.as_mut() {
+        ws.term_cols = cols;
+        ws.term_rows = rows;
+    }
+    vec![Effect::ResizeEmbeddedPty { cols, rows }]
+}
+
+pub(super) fn arm_leader(state: &mut AppState) -> Vec<Effect> {
+    let Some(ws) = state.ssh_workspace.as_mut() else {
+        return vec![Effect::None];
+    };
+    ws.leader_armed = true;
+    ws.shelf_visible = false;
+    ws.focus = SshWorkspaceFocus::Leader;
+    state.focus = FocusZone::Terminal;
     let (cols, rows) = terminal_geometry(state);
     if let Some(ws) = state.ssh_workspace.as_mut() {
         ws.term_cols = cols;
@@ -238,6 +257,13 @@ pub(super) fn shelf_back_to_terminal(state: &mut AppState) -> Vec<Effect> {
 pub(super) fn terminal_geometry(state: &AppState) -> (u16, u16) {
     let width = state.terminal.width.max(1);
     let height = state.terminal.height.max(4);
+    if state
+        .ssh_workspace
+        .as_ref()
+        .is_some_and(|ws| ws.fullscreen_chrome)
+    {
+        return (width, height);
+    }
     let shelf_w = state
         .ssh_workspace
         .as_ref()
@@ -377,5 +403,70 @@ mod tests {
             assert!(cols >= 20);
             assert!(rows >= 3);
         }
+    }
+
+    #[test]
+    fn shelf_toggle_and_leader_have_separate_focus_states() {
+        let mut state = AppState {
+            terminal: crate::view_model::TerminalState {
+                width: 120,
+                height: 40,
+            },
+            ssh_workspace: Some(SshWorkspaceState::new(
+                "a".into(),
+                "h".into(),
+                "u".into(),
+                22,
+                "a".into(),
+                "/usr/bin/ssh".into(),
+                vec![],
+                vec![],
+                Some("a".into()),
+                118,
+                36,
+            )),
+            route: Route::SshWorkspace,
+            ..AppState::default()
+        };
+
+        let _ = toggle_shelf(&mut state);
+        let ws = state.ssh_workspace.as_ref().unwrap();
+        assert!(ws.shelf_visible);
+        assert_eq!(ws.focus, SshWorkspaceFocus::Shelf);
+        assert!(!ws.leader_armed);
+
+        let _ = arm_leader(&mut state);
+        let ws = state.ssh_workspace.as_ref().unwrap();
+        assert!(!ws.shelf_visible);
+        assert_eq!(ws.focus, SshWorkspaceFocus::Leader);
+        assert!(ws.leader_armed);
+    }
+
+    #[test]
+    fn fullscreen_geometry_matches_the_borderless_render_area() {
+        let mut state = AppState {
+            terminal: crate::view_model::TerminalState {
+                width: 120,
+                height: 40,
+            },
+            ssh_workspace: Some(SshWorkspaceState::new(
+                "a".into(),
+                "h".into(),
+                "u".into(),
+                22,
+                "a".into(),
+                "/usr/bin/ssh".into(),
+                vec![],
+                vec![],
+                Some("a".into()),
+                118,
+                36,
+            )),
+            route: Route::SshWorkspace,
+            ..AppState::default()
+        };
+        state.ssh_workspace.as_mut().unwrap().fullscreen_chrome = true;
+
+        assert_eq!(terminal_geometry(&state), (120, 40));
     }
 }

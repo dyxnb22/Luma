@@ -55,6 +55,9 @@ fn handle_ssh_workspace_char(state: &mut AppState, c: char) -> Vec<Effect> {
         if let Some(ws) = state.ssh_workspace.as_mut() {
             ws.leader_armed = false;
             ws.focus = crate::ssh_workspace::SshWorkspaceFocus::Terminal;
+            if !matches!(c, 'd' | 'D') {
+                ws.disconnect_confirm = false;
+            }
             state.focus = FocusZone::Terminal;
         }
         return match c {
@@ -74,8 +77,7 @@ fn handle_ssh_workspace_char(state: &mut AppState, c: char) -> Vec<Effect> {
             'd' | 'D' => {
                 if let Some(ws) = state.ssh_workspace.as_mut() {
                     if ws.disconnect_confirm {
-                        ws.disconnect_confirm = false;
-                        return vec![Effect::KillEmbeddedPty];
+                        return ssh_ws::disconnect(state);
                     }
                     ws.disconnect_confirm = true;
                     state.status.set(
@@ -86,6 +88,7 @@ fn handle_ssh_workspace_char(state: &mut AppState, c: char) -> Vec<Effect> {
                 vec![Effect::None]
             }
             'r' | 'R' => ssh_ws::reconnect(state),
+            'q' | 'Q' => ssh_ws::leave_workspace(state),
             _ => vec![Effect::None],
         };
     }
@@ -137,6 +140,42 @@ pub fn update(state: &mut AppState, msg: Msg) -> Vec<Effect> {
             schedule_search(state)
         }
         Msg::Paste(pasted) => {
+            if state.route == Route::SshWorkspace {
+                let shelf_focused = state.ssh_workspace.as_ref().is_some_and(|ws| {
+                    ws.shelf_visible
+                        && matches!(ws.focus, crate::ssh_workspace::SshWorkspaceFocus::Shelf)
+                });
+                if shelf_focused {
+                    if let Some(ws) = state.ssh_workspace.as_mut() {
+                        let clean: String = pasted
+                            .chars()
+                            .filter(|character| !character.is_control())
+                            .collect();
+                        if ws.shelf.filling_params {
+                            for character in clean.chars() {
+                                ws.shelf.param_type_char(character);
+                            }
+                        } else if ws.shelf.filter_editing {
+                            ws.shelf.filter.push_str(&clean);
+                            ws.shelf.refilter();
+                        }
+                    }
+                    return vec![Effect::None];
+                }
+                let bracketed = state
+                    .ssh_workspace
+                    .as_ref()
+                    .is_some_and(|ws| ws.bracketed_paste);
+                let mut bytes = Vec::with_capacity(pasted.len() + 12);
+                if bracketed {
+                    bytes.extend_from_slice(b"\x1b[200~");
+                }
+                bytes.extend_from_slice(pasted.as_bytes());
+                if bracketed {
+                    bytes.extend_from_slice(b"\x1b[201~");
+                }
+                return vec![Effect::WriteEmbeddedPty { bytes }];
+            }
             // Paste is accepted only by the searchable prompt. In particular,
             // CR/LF inside a paste must never become a confirmation or picker
             // shortcut. Search is one line, so ordinary pasted line/tab breaks
@@ -466,6 +505,7 @@ pub fn update(state: &mut AppState, msg: Msg) -> Vec<Effect> {
             if state.route == Route::SshWorkspace {
                 if let Some(ws) = state.ssh_workspace.as_mut() {
                     if ws.shelf_visible {
+                        ws.disconnect_confirm = false;
                         ws.shelf.select_next();
                         return vec![Effect::None];
                     }
@@ -477,6 +517,7 @@ pub fn update(state: &mut AppState, msg: Msg) -> Vec<Effect> {
             if state.route == Route::SshWorkspace {
                 if let Some(ws) = state.ssh_workspace.as_mut() {
                     if ws.shelf_visible {
+                        ws.disconnect_confirm = false;
                         ws.shelf.select_prev();
                         return vec![Effect::None];
                     }
@@ -628,11 +669,11 @@ pub fn update(state: &mut AppState, msg: Msg) -> Vec<Effect> {
             }
         }
         Msg::SshToggleShelf => ssh_ws::toggle_shelf(state),
+        Msg::SshArmLeader => ssh_ws::arm_leader(state),
         Msg::SshDisconnect => {
             if let Some(ws) = state.ssh_workspace.as_mut() {
                 if ws.disconnect_confirm {
-                    ws.disconnect_confirm = false;
-                    return vec![Effect::KillEmbeddedPty];
+                    return ssh_ws::disconnect(state);
                 }
                 ws.disconnect_confirm = true;
                 state.status.set(
@@ -679,6 +720,7 @@ pub fn update(state: &mut AppState, msg: Msg) -> Vec<Effect> {
             }
             vec![Effect::None]
         }
+        Msg::SshScrollback { rows } => vec![Effect::ScrollEmbeddedPty { rows }],
         Msg::Engine(event) => apply_engine(state, event),
     }
 }
@@ -697,6 +739,30 @@ fn ssh_context(state: &AppState) -> luma_domain::SshRecipeContext {
 }
 
 fn shelf_preview(state: &mut AppState) -> Vec<Effect> {
+    let native_action = state
+        .ssh_workspace
+        .as_ref()
+        .and_then(|ws| ws.shelf.selected_item())
+        .and_then(|item| match &item.kind {
+            crate::ssh_workspace::ShelfItemKind::SshNative { id } => Some(*id),
+            _ => None,
+        });
+    match native_action {
+        Some("reconnect") => return ssh_ws::reconnect(state),
+        Some("disconnect") => {
+            if let Some(ws) = state.ssh_workspace.as_mut() {
+                if ws.disconnect_confirm {
+                    return ssh_ws::disconnect(state);
+                }
+                ws.disconnect_confirm = true;
+                state
+                    .status
+                    .set("Press Enter again to disconnect", StatusTone::Warning);
+            }
+            return vec![Effect::None];
+        }
+        _ => {}
+    }
     let ctx = ssh_context(state);
     if let Some(ws) = state.ssh_workspace.as_mut() {
         let _ = ws.shelf.begin_preview_or_params(&ctx);
@@ -712,15 +778,17 @@ fn shelf_copy(state: &mut AppState) -> Vec<Effect> {
     let Some(ws) = state.ssh_workspace.as_ref() else {
         return vec![Effect::None];
     };
-    if let Some(crate::ssh_workspace::ShelfItemKind::SshNative { id: "reconnect" }) =
-        ws.shelf.selected_item().map(|i| &i.kind)
-    {
-        return ssh_ws::reconnect(state);
-    }
-    if let Some(crate::ssh_workspace::ShelfItemKind::SshNative { id: "disconnect" }) =
-        ws.shelf.selected_item().map(|i| &i.kind)
-    {
-        return vec![Effect::KillEmbeddedPty];
+    if matches!(
+        ws.shelf.selected_item().map(|item| &item.kind),
+        Some(crate::ssh_workspace::ShelfItemKind::SshNative {
+            id: "reconnect" | "disconnect"
+        })
+    ) {
+        state.status.set(
+            "This is an action; press Enter to run it",
+            StatusTone::Warning,
+        );
+        return vec![Effect::None];
     }
     if let Some(risk) = state
         .ssh_workspace
@@ -760,6 +828,20 @@ fn shelf_copy(state: &mut AppState) -> Vec<Effect> {
 
 fn shelf_insert(state: &mut AppState) -> Vec<Effect> {
     let ctx = ssh_context(state);
+    if state.ssh_workspace.as_ref().is_some_and(|ws| {
+        matches!(
+            ws.shelf.selected_item().map(|item| &item.kind),
+            Some(crate::ssh_workspace::ShelfItemKind::SshNative {
+                id: "reconnect" | "disconnect"
+            })
+        )
+    }) {
+        state.status.set(
+            "Actions cannot be inserted; press Enter to run",
+            StatusTone::Warning,
+        );
+        return vec![Effect::None];
+    }
     if let Some(risk) = state
         .ssh_workspace
         .as_ref()
@@ -831,6 +913,7 @@ fn shelf_favorite(state: &mut AppState) -> Vec<Effect> {
 #[cfg(test)]
 mod paste_tests {
     use super::*;
+    use crate::ssh_workspace::{SshConnectionPhase, SshWorkspaceState};
 
     #[test]
     fn paste_into_search_is_atomic_and_drops_control_characters() {
@@ -858,6 +941,38 @@ mod paste_tests {
         assert_eq!(state.route, Route::ConfirmAction);
         assert_eq!(state.search.prompt, "before");
         assert!(matches!(effects.as_slice(), [Effect::None]));
+    }
+
+    #[test]
+    fn paste_into_ssh_uses_remote_bracketed_paste_mode() {
+        let mut workspace = SshWorkspaceState::new(
+            "prod".into(),
+            "host.example".into(),
+            "root".into(),
+            22,
+            "prod".into(),
+            "/usr/bin/ssh".into(),
+            vec![],
+            vec![],
+            Some("prod".into()),
+            80,
+            24,
+        );
+        workspace.phase = SshConnectionPhase::Connected;
+        workspace.bracketed_paste = true;
+        let mut state = AppState {
+            route: Route::SshWorkspace,
+            ssh_workspace: Some(workspace),
+            ..AppState::default()
+        };
+
+        let effects = update(&mut state, Msg::Paste("docker ps\n".into()));
+
+        assert!(matches!(
+            effects.as_slice(),
+            [Effect::WriteEmbeddedPty { bytes }]
+                if bytes == b"\x1b[200~docker ps\n\x1b[201~"
+        ));
     }
 }
 
@@ -930,5 +1045,58 @@ mod ssh_shelf_tests {
             [Effect::WriteEmbeddedPty { bytes }] if bytes == &[0x00]
         ));
         assert!(!state.ssh_workspace.as_ref().unwrap().leader_armed);
+    }
+
+    #[test]
+    fn copy_never_executes_native_disconnect_action() {
+        let mut state = workspace_state();
+        if let Some(ws) = state.ssh_workspace.as_mut() {
+            let idx = ws
+                .shelf
+                .items
+                .iter()
+                .position(|item| {
+                    matches!(
+                        item.kind,
+                        crate::ssh_workspace::ShelfItemKind::SshNative { id: "disconnect" }
+                    )
+                })
+                .expect("disconnect item");
+            ws.shelf.filtered = vec![idx];
+            ws.shelf.selected = 0;
+        }
+
+        let effects = update(&mut state, Msg::SshShelfCopy);
+
+        assert!(matches!(effects.as_slice(), [Effect::None]));
+        assert!(!effects
+            .iter()
+            .any(|effect| matches!(effect, Effect::KillEmbeddedPty)));
+    }
+
+    #[test]
+    fn disconnect_action_requires_two_enter_presses() {
+        let mut state = workspace_state();
+        if let Some(ws) = state.ssh_workspace.as_mut() {
+            let idx = ws
+                .shelf
+                .items
+                .iter()
+                .position(|item| {
+                    matches!(
+                        item.kind,
+                        crate::ssh_workspace::ShelfItemKind::SshNative { id: "disconnect" }
+                    )
+                })
+                .expect("disconnect item");
+            ws.shelf.filtered = vec![idx];
+            ws.shelf.selected = 0;
+        }
+
+        let first = update(&mut state, Msg::SshShelfPreview);
+        assert!(matches!(first.as_slice(), [Effect::None]));
+        assert!(state.ssh_workspace.as_ref().unwrap().disconnect_confirm);
+        let second = update(&mut state, Msg::SshShelfPreview);
+        assert!(matches!(second.as_slice(), [Effect::KillEmbeddedPty]));
     }
 }

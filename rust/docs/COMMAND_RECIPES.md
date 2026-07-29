@@ -104,6 +104,11 @@ cwd = "current"
 command shelf (Copy / Insert only; `${param}` must be a whole arg token). Old TOML without
 `target` keeps working as `local_shell`. See [ADR-0008](adr/0008-ssh-workspace.md).
 
+Parameter definitions are validated when the catalog loads. Supported kinds are `text`,
+`integer`, `choice`, `boolean`, and `path`; duplicate ids, invalid ranges/defaults, empty choice
+lists, unknown kinds, and invalid regular-expression `pattern` values cause that user recipe to
+be skipped with a configuration issue. `pattern` is enforced again when rendering a command.
+
 Merge rules:
 
 1. Built-in recipes always exist.
@@ -158,6 +163,7 @@ Confirm/destructive recipes require explicit confirmation in TUI and `--confirma
 ## Safety
 
 - Steps use `program` + `args` only — no `sh -c`.
+- Program, literal arguments, and parameter values reject control characters.
 - No new Terminal windows, AppleScript, or `open` for execution.
 - `show-env` filters names/values that look like secrets.
 - Command output is not persisted.

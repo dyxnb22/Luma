@@ -55,6 +55,36 @@ impl VtScreen {
         self.parser.screen().cursor_position()
     }
 
+    pub fn cursor_hidden(&self) -> bool {
+        self.parser.screen().hide_cursor()
+    }
+
+    pub fn bracketed_paste(&self) -> bool {
+        self.parser.screen().bracketed_paste()
+    }
+
+    pub fn application_cursor(&self) -> bool {
+        self.parser.screen().application_cursor()
+    }
+
+    pub fn scrollback(&self) -> usize {
+        self.parser.screen().scrollback()
+    }
+
+    pub fn scroll(&mut self, rows: i32) {
+        let current = self.scrollback();
+        let next = if rows >= 0 {
+            current.saturating_add(rows as usize).min(SCROLLBACK_CAP)
+        } else {
+            current.saturating_sub(rows.unsigned_abs() as usize)
+        };
+        self.parser.set_scrollback(next);
+    }
+
+    pub fn scroll_to_bottom(&mut self) {
+        self.parser.set_scrollback(0);
+    }
+
     pub fn in_alternate_screen(&self) -> bool {
         self.parser.screen().alternate_screen()
     }
@@ -164,6 +194,24 @@ mod tests {
         let mut screen = VtScreen::new(40, 10);
         screen.feed(b"\x1b[5;10H");
         assert_eq!(screen.cursor(), (4, 9));
+    }
+
+    #[test]
+    fn input_modes_and_scrollback_are_projected() {
+        let mut screen = VtScreen::new(20, 5);
+        screen.feed(b"\x1b[?1h\x1b[?25l\x1b[?2004h");
+        assert!(screen.application_cursor());
+        assert!(screen.cursor_hidden());
+        assert!(screen.bracketed_paste());
+        for _ in 0..20 {
+            screen.feed(b"line\r\n");
+        }
+        screen.scroll(4);
+        assert_eq!(screen.scrollback(), 4);
+        screen.scroll(-2);
+        assert_eq!(screen.scrollback(), 2);
+        screen.scroll_to_bottom();
+        assert_eq!(screen.scrollback(), 0);
     }
 
     #[test]

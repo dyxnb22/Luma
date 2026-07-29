@@ -3,7 +3,7 @@
 use crate::ssh_workspace::{SshWorkspaceFocus, SshWorkspaceState};
 use crate::theme::{Symbols, Theme};
 use crate::view_model::AppState;
-use ratatui::layout::{Constraint, Direction, Layout, Rect};
+use ratatui::layout::{Constraint, Direction, Layout, Position, Rect};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph};
 use ratatui::Frame;
@@ -65,21 +65,29 @@ pub fn render_ssh_workspace(
     let footer = match ws.focus {
         SshWorkspaceFocus::Terminal => {
             if ws.disconnect_confirm {
-                "confirm disconnect: Ctrl+Space d · Esc cancel"
+                "confirm disconnect: Ctrl+Space d again · Ctrl+Space Esc cancel"
             } else if ws.leader_armed {
-                "leader: Space=^Space · f fullscreen · d disconnect · r reconnect · Esc"
+                "leader: Space=^Space · f fullscreen · d disconnect · r reconnect · q leave · Esc"
+            } else if matches!(
+                ws.phase,
+                crate::ssh_workspace::SshConnectionPhase::Failed
+                    | crate::ssh_workspace::SshConnectionPhase::Disconnected
+            ) {
+                "Esc leave · r reconnect · l compat · c copy error · F6 commands"
+            } else if ws.scrollback_offset > 0 {
+                "scrollback · Shift+PgUp/PgDn · typing returns to live output"
             } else {
-                "Ctrl+Space commands · Esc leave · r reconnect · l compat · c copy error"
+                "F6 commands · Ctrl+Space leader · Shift+PgUp scrollback"
             }
         }
         SshWorkspaceFocus::Leader => {
-            "leader: Space=^Space · f fullscreen · d disconnect · r reconnect · Esc"
+            "leader: Space=^Space · f fullscreen · d disconnect · r reconnect · q leave · Esc"
         }
         SshWorkspaceFocus::Shelf if ws.shelf.filling_params => {
             "Tab fields · type value · Enter preview · Esc terminal"
         }
         SshWorkspaceFocus::Shelf => {
-            "Esc terminal · ↑/↓ · Enter preview · c copy · i insert · f favorite · / search"
+            "Esc terminal · ↑/↓ · Enter preview/action · c copy · i insert · f favorite · / search"
         }
     };
     frame.render_widget(Paragraph::new(Span::styled(footer, theme.muted())), rows[2]);
@@ -108,6 +116,20 @@ fn render_terminal_pane(
         ws.lines.clone()
     };
     frame.render_widget(Paragraph::new(lines), inner);
+    if !ws.cursor_hidden
+        && ws.scrollback_offset == 0
+        && !matches!(ws.focus, SshWorkspaceFocus::Shelf)
+        && inner.width > 0
+        && inner.height > 0
+    {
+        let cursor_x = inner
+            .x
+            .saturating_add(ws.cursor_col.min(inner.width.saturating_sub(1)));
+        let cursor_y = inner
+            .y
+            .saturating_add(ws.cursor_row.min(inner.height.saturating_sub(1)));
+        frame.set_cursor_position(Position::new(cursor_x, cursor_y));
+    }
 }
 
 fn render_shelf_pane(frame: &mut Frame<'_>, area: Rect, ws: &SshWorkspaceState, theme: &Theme) {

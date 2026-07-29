@@ -142,7 +142,11 @@ Layout: ≥118 cols → terminal + shelf (shelf hidden until Phase 2 but layout 
 - Modify: `ssh_workspace/input.rs`, `app.rs`, `terminal.rs` if needed
 - Test: input unit tests; OSC52 ignored test
 
-Leader: `Ctrl+Space` (and `F6`) opens/focuses shelf (no-op until Phase 2); `Ctrl+Space` then `Space` sends raw Ctrl+Space to PTY; `Ctrl+Space` `f` fullscreen terminal; `Ctrl+Space` `d` disconnect confirm; `Ctrl+Space` `r` reconnect. When focus Terminal, keys go to PTY (including Ctrl+C). Esc from shelf → terminal. On quit of Luma, kill PTY process group and wait.
+`F6` opens/focuses the shelf. `Ctrl+Space` arms the terminal leader;
+`Ctrl+Space` then `Space` sends raw Ctrl+Space to PTY, `f` toggles fullscreen,
+`d` confirms disconnect, `r` reconnects, and `q` leaves. When focus is Terminal, keys go to
+the PTY (including Ctrl+C and Esc). Esc from the shelf returns to the terminal. On quit of Luma,
+kill the PTY process group and wait.
 
 - [x] **Step 1: Failing input/routing tests.**
 - [x] **Step 2: Implement. Commit** `feat(ssh): workspace keyboard leader and PTY input routing`

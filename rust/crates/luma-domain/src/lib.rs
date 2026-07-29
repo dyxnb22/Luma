@@ -18,9 +18,9 @@ pub use id::{ActionId, ModuleId, OperationId, RequestId, ResultId};
 pub use privacy::looks_secret;
 pub use query::{strip_command_prefix, Query, QueryScope};
 pub use recipe::{
-    render_remote_command, shell_quote, CommandStep, ConfigIssue, Recipe, RecipeCatalog,
-    RecipeMetadata, RecipeParameter, RecipeParameterKind, RecipeRenderError, RecipeRisk,
-    RecipeRunOutcome, RecipeRunPlan, RecipeScope, RecipeTarget, RecipeVariant, ResolvedCommandStep,
-    SshRecipeContext, StepRunResult, VariantMatch,
+    render_remote_command, shell_quote, validate_recipe_parameter_definition, CommandStep,
+    ConfigIssue, Recipe, RecipeCatalog, RecipeMetadata, RecipeParameter, RecipeParameterKind,
+    RecipeRenderError, RecipeRisk, RecipeRunOutcome, RecipeRunPlan, RecipeScope, RecipeTarget,
+    RecipeVariant, ResolvedCommandStep, SshRecipeContext, StepRunResult, VariantMatch,
 };
 pub use result_item::{action_needs_confirmation, ActionDescriptor, ActionRisk, SearchItem};

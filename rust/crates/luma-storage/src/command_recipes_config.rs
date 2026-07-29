@@ -1,7 +1,7 @@
 use crate::command_recipes_builtin::builtin_recipes;
 use luma_domain::{
-    ConfigIssue, Recipe, RecipeCatalog, RecipeParameter, RecipeParameterKind, RecipeRisk,
-    RecipeScope, RecipeTarget,
+    validate_recipe_parameter_definition, ConfigIssue, Recipe, RecipeCatalog, RecipeParameter,
+    RecipeParameterKind, RecipeRisk, RecipeScope, RecipeTarget,
 };
 use serde::Deserialize;
 use std::collections::HashSet;
@@ -159,6 +159,17 @@ fn is_script_path(program: &str) -> bool {
 }
 
 fn validate_user_step(step: &UserStepToml) -> Option<String> {
+    if step.program.chars().any(char::is_control)
+        || step
+            .args
+            .iter()
+            .any(|arg| arg.chars().any(char::is_control))
+    {
+        return Some(format!(
+            "recipe step `{}`: control characters are not allowed",
+            step.id
+        ));
+    }
     if is_shell_program(&step.program) || is_script_interpreter(&step.program) {
         return Some(format!(
             "recipe step `{}`: shell/script interpreters are not allowed",
@@ -196,6 +207,49 @@ fn validate_user_recipe(user: &UserRecipeToml) -> Option<String> {
             "recipe `{}`: secret parameters are not allowed",
             user.id
         ));
+    }
+    let mut parameter_ids = HashSet::new();
+    for parameter in &user.parameters {
+        if parameter.id.trim().is_empty() {
+            return Some(format!("recipe `{}`: parameter missing id", user.id));
+        }
+        if !parameter_ids.insert(parameter.id.as_str()) {
+            return Some(format!(
+                "recipe `{}`: duplicate parameter id `{}`",
+                user.id, parameter.id
+            ));
+        }
+        let kind = match parameter.kind.as_deref() {
+            Some(raw) => match RecipeParameterKind::parse(raw) {
+                Some(kind) => kind,
+                None => {
+                    return Some(format!(
+                        "recipe `{}`: parameter `{}` has unknown kind `{raw}`",
+                        user.id, parameter.id
+                    ))
+                }
+            },
+            None => RecipeParameterKind::Text,
+        };
+        let definition = RecipeParameter {
+            id: parameter.id.clone(),
+            label: parameter
+                .label
+                .clone()
+                .unwrap_or_else(|| parameter.id.clone()),
+            description: parameter.description.clone(),
+            kind,
+            required: parameter.required,
+            default: parameter.default.clone(),
+            choices: parameter.choices.clone(),
+            min: parameter.min,
+            max: parameter.max,
+            pattern: parameter.pattern.clone(),
+            max_length: parameter.max_length,
+        };
+        if let Err(message) = validate_recipe_parameter_definition(&definition) {
+            return Some(format!("recipe `{}`: {message}", user.id));
+        }
     }
     for variant in &user.variants {
         for step in &variant.steps {
@@ -350,9 +404,10 @@ pub fn load_recipe_catalog(config_path: &Path) -> RecipeCatalog {
                     });
                     return None;
                 }
+                let label = p.label.unwrap_or_else(|| p.id.clone());
                 Some(RecipeParameter {
                     id: p.id,
-                    label: p.label.unwrap_or_default(),
+                    label,
                     description: p.description,
                     kind,
                     required: p.required,
@@ -687,5 +742,84 @@ cwd = "current"
             .issues
             .iter()
             .any(|issue| issue.message.contains("script file paths")));
+    }
+
+    #[test]
+    fn invalid_parameter_definitions_are_rejected() {
+        let dir = tempdir().unwrap();
+        let path = command_recipes_config_path(dir.path());
+        fs::write(
+            &path,
+            r#"
+[[recipes]]
+id = "invalid-param"
+title = "Invalid parameter"
+scope = "ssh_session"
+target = "remote_shell"
+
+[[recipes.parameters]]
+id = "name"
+label = "Name"
+kind = "mystery"
+
+[[recipes.variants]]
+id = "v1"
+
+[[recipes.variants.steps]]
+id = "s1"
+label = "inspect"
+program = "echo"
+args = ["${name}"]
+"#,
+        )
+        .unwrap();
+
+        let catalog = load_recipe_catalog(&path);
+
+        assert!(catalog.recipe_by_id("invalid-param").is_none());
+        assert!(catalog
+            .issues
+            .iter()
+            .any(|issue| issue.message.contains("unknown kind")));
+    }
+
+    #[test]
+    fn invalid_parameter_regex_is_rejected_at_load() {
+        let dir = tempdir().unwrap();
+        let path = command_recipes_config_path(dir.path());
+        fs::write(
+            &path,
+            r#"
+[[recipes]]
+id = "invalid-pattern"
+title = "Invalid pattern"
+scope = "ssh_session"
+target = "remote_shell"
+
+[[recipes.parameters]]
+id = "name"
+label = "Name"
+kind = "text"
+pattern = "["
+
+[[recipes.variants]]
+id = "v1"
+
+[[recipes.variants.steps]]
+id = "s1"
+label = "inspect"
+program = "echo"
+args = ["${name}"]
+"#,
+        )
+        .unwrap();
+
+        let catalog = load_recipe_catalog(&path);
+
+        assert!(catalog.recipe_by_id("invalid-pattern").is_none());
+        assert!(catalog
+            .issues
+            .iter()
+            .any(|issue| issue.message.contains("invalid pattern")));
     }
 }

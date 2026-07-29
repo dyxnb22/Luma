@@ -5,7 +5,7 @@ mod ssh_cli;
 
 use clap::{Parser, Subcommand};
 use cli_output::action_exit_code;
-use compose::{load_registry, load_registry_with_settings};
+use compose::{load_registry, load_registry_with_settings, tui_platform_adapters};
 use luma_application::{
     list_modules_json, run_action, run_query, Engine, KeychainPort, RecordsRepository,
     SqliteRecordsRepository,
@@ -504,17 +504,17 @@ async fn run_tui(initial_query: Option<String>) -> anyhow::Result<()> {
     ));
     let command_runner =
         Arc::new(MacCommandRunner::new()) as Arc<dyn luma_application::CommandRunnerPort>;
+    let platform = tui_platform_adapters();
     run_tui_with_options(
         engine,
         command_runner,
         RunTuiOptions {
             initial_query,
-            embedded_pty: Some(Arc::new(luma_platform_macos::MacEmbeddedPty::new())),
+            embedded_pty: Some(platform.embedded_pty),
             ssh_shelf_recipes: ssh_shelf.recipes,
             ssh_shelf_recipe_meta: ssh_shelf.meta,
             command_recipes: load.command_recipes.clone(),
-            pasteboard: Some(Arc::new(luma_platform_macos::MacPasteboard)
-                as Arc<dyn luma_application::PasteboardPort>),
+            pasteboard: Some(platform.pasteboard),
         },
     )
     .await?;

@@ -52,6 +52,10 @@ pub struct SshWorkspaceState {
     pub lines: Vec<Line<'static>>,
     pub cursor_row: u16,
     pub cursor_col: u16,
+    pub cursor_hidden: bool,
+    pub bracketed_paste: bool,
+    pub application_cursor: bool,
+    pub scrollback_offset: usize,
     pub program: String,
     pub args: Vec<String>,
     pub environment: Vec<(String, String)>,
@@ -94,6 +98,10 @@ impl SshWorkspaceState {
             lines: Vec::new(),
             cursor_row: 0,
             cursor_col: 0,
+            cursor_hidden: false,
+            bracketed_paste: false,
+            application_cursor: false,
+            scrollback_offset: 0,
             program,
             args,
             environment,
@@ -136,6 +144,10 @@ impl SshWorkspaceState {
         let (row, col) = screen.cursor();
         self.cursor_row = row;
         self.cursor_col = col;
+        self.cursor_hidden = screen.cursor_hidden();
+        self.bracketed_paste = screen.bracketed_paste();
+        self.application_cursor = screen.application_cursor();
+        self.scrollback_offset = screen.scrollback();
     }
 
     /// Layout: whether the command shelf should occupy a side column.

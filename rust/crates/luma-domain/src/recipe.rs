@@ -194,6 +194,10 @@ pub fn render_remote_command(
     values: &std::collections::BTreeMap<String, String>,
     ssh: &SshRecipeContext,
 ) -> Result<String, RecipeRenderError> {
+    reject_control_chars(program).map_err(|message| RecipeRenderError::InvalidValue {
+        parameter: "program".into(),
+        message,
+    })?;
     if is_forbidden_shell_program(program) {
         return Err(RecipeRenderError::ForbiddenProgram);
     }
@@ -201,6 +205,10 @@ pub fn render_remote_command(
     out.push(shell_quote(program));
     for arg in args {
         let resolved = resolve_arg_token(arg, parameters, values, ssh)?;
+        reject_control_chars(&resolved).map_err(|message| RecipeRenderError::InvalidValue {
+            parameter: "argument".into(),
+            message,
+        })?;
         out.push(shell_quote(&resolved));
     }
     Ok(out.join(" "))
@@ -333,12 +341,41 @@ fn validate_parameter_value(param: &RecipeParameter, value: &str) -> Result<(), 
         }
         RecipeParameterKind::Text | RecipeParameterKind::Path => {}
     }
-    if let Some(pattern) = &param.pattern {
-        // Lightweight containment check — full regex optional later.
-        if pattern.starts_with('^') || pattern.ends_with('$') {
-            // Skip full regex engine in domain; pattern stored for UI.
-            let _ = pattern;
+    if let Some(pattern) = param.pattern.as_deref() {
+        let regex =
+            regex::Regex::new(pattern).map_err(|error| RecipeRenderError::InvalidValue {
+                parameter: param.id.clone(),
+                message: format!("invalid pattern: {error}"),
+            })?;
+        if !regex.is_match(value) {
+            return Err(RecipeRenderError::InvalidValue {
+                parameter: param.id.clone(),
+                message: "does not match pattern".into(),
+            });
         }
+    }
+    Ok(())
+}
+
+pub fn validate_recipe_parameter_definition(param: &RecipeParameter) -> Result<(), String> {
+    if param.id.trim().is_empty() {
+        return Err("parameter id is empty".into());
+    }
+    if param.label.trim().is_empty() {
+        return Err(format!("parameter `{}` has an empty label", param.id));
+    }
+    if param.min.zip(param.max).is_some_and(|(min, max)| min > max) {
+        return Err(format!("parameter `{}` has min greater than max", param.id));
+    }
+    if matches!(param.kind, RecipeParameterKind::Choice) && param.choices.is_empty() {
+        return Err(format!("choice parameter `{}` has no choices", param.id));
+    }
+    if let Some(pattern) = param.pattern.as_deref() {
+        regex::Regex::new(pattern)
+            .map_err(|error| format!("parameter `{}` has invalid pattern: {error}", param.id))?;
+    }
+    if let Some(default) = param.default.as_deref() {
+        validate_parameter_value(param, default).map_err(|error| error.to_string())?;
     }
     Ok(())
 }
@@ -625,5 +662,57 @@ mod tests {
         )
         .expect_err("control");
         assert!(matches!(err, RecipeRenderError::InvalidValue { .. }));
+    }
+
+    #[test]
+    fn enforces_parameter_patterns() {
+        let params = vec![RecipeParameter {
+            id: "container".into(),
+            label: "container".into(),
+            description: String::new(),
+            kind: RecipeParameterKind::Text,
+            required: true,
+            default: None,
+            choices: vec![],
+            min: None,
+            max: None,
+            pattern: Some(r"^[a-z0-9_-]+$".into()),
+            max_length: None,
+        }];
+        let mut values = BTreeMap::new();
+        values.insert("container".into(), "bad value".into());
+
+        let err = render_remote_command(
+            "docker",
+            &["logs".into(), "${container}".into()],
+            &params,
+            &values,
+            &SshRecipeContext::default(),
+        )
+        .expect_err("pattern");
+
+        assert!(matches!(
+            err,
+            RecipeRenderError::InvalidValue { message, .. }
+                if message.contains("does not match")
+        ));
+    }
+
+    #[test]
+    fn rejects_control_characters_in_literal_program_and_args() {
+        for (program, args) in [
+            ("docker\n", vec!["ps".into()]),
+            ("docker", vec!["ps\nwhoami".into()]),
+        ] {
+            let err = render_remote_command(
+                program,
+                &args,
+                &[],
+                &BTreeMap::new(),
+                &SshRecipeContext::default(),
+            )
+            .expect_err("literal control");
+            assert!(matches!(err, RecipeRenderError::InvalidValue { .. }));
+        }
     }
 }

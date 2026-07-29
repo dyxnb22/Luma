@@ -4,13 +4,12 @@ use luma_application::{
     EmbeddedPtyError, EmbeddedPtyEvent, EmbeddedPtyPort, EmbeddedPtySession, EmbeddedPtySize,
     EmbeddedPtySpawnRequest,
 };
-use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize};
+use portable_pty::{native_pty_system, ChildKiller, CommandBuilder, MasterPty, PtySize};
 use std::io::{Read, Write};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, SyncSender};
 use std::sync::{Arc, Mutex};
 use std::thread;
-use std::time::Duration;
 
 const OUTPUT_CHANNEL_CAPACITY: usize = 256;
 const READ_BUF: usize = 8192;
@@ -33,7 +32,8 @@ impl MacEmbeddedPty {
 struct LiveSession {
     master: Mutex<Box<dyn MasterPty + Send>>,
     writer: Arc<Mutex<Box<dyn Write + Send>>>,
-    child: Arc<Mutex<Box<dyn Child + Send + Sync>>>,
+    killer: Mutex<Box<dyn ChildKiller + Send + Sync>>,
+    process_id: Option<u32>,
     killed: Arc<AtomicBool>,
 }
 
@@ -81,20 +81,34 @@ impl EmbeddedPtySession for LiveSession {
     }
 
     fn kill(&self) -> Result<(), EmbeddedPtyError> {
-        self.killed.store(true, Ordering::SeqCst);
-        let mut child = self.child.lock().map_err(|_| {
-            EmbeddedPtyError::Unavailable("embedded pty child lock poisoned".into())
-        })?;
+        self.terminate()
+    }
+}
+
+impl LiveSession {
+    fn terminate(&self) -> Result<(), EmbeddedPtyError> {
+        if self.killed.swap(true, Ordering::SeqCst) {
+            return Ok(());
+        }
         #[cfg(unix)]
         {
-            if let Some(pid) = child.process_id() {
+            if let Some(pid) = self.process_id {
                 // Kill the whole process group when the child is a group leader.
-                // Fall through to child.kill() for the direct process as well.
+                // Fall through to the portable-pty killer for the direct process as well.
                 let _ = kill_process_group(pid);
             }
         }
-        let _ = child.kill();
+        let mut killer = self.killer.lock().map_err(|_| {
+            EmbeddedPtyError::Unavailable("embedded pty killer lock poisoned".into())
+        })?;
+        let _ = killer.kill();
         Ok(())
+    }
+}
+
+impl Drop for LiveSession {
+    fn drop(&mut self) {
+        let _ = self.terminate();
     }
 }
 
@@ -136,8 +150,8 @@ impl EmbeddedPtyPort for MacEmbeddedPty {
 
         let (tx, rx) = mpsc::sync_channel::<EmbeddedPtyEvent>(OUTPUT_CHANNEL_CAPACITY);
         let killed = Arc::new(AtomicBool::new(false));
-        let child = Arc::new(Mutex::new(child));
-        let child_for_wait = Arc::clone(&child);
+        let process_id = child.process_id();
+        let killer = child.clone_killer();
         let tx_out = tx.clone();
         let tx_exit = tx;
         let killed_reader = Arc::clone(&killed);
@@ -170,7 +184,8 @@ impl EmbeddedPtyPort for MacEmbeddedPty {
         thread::Builder::new()
             .name("luma-embedded-pty-wait".into())
             .spawn(move || {
-                let code = wait_for_exit(&child_for_wait);
+                let mut child = child;
+                let code = child.wait().ok().map(|status| status.exit_code() as i32);
                 let _ = tx_exit.send(EmbeddedPtyEvent::Exited { code });
             })
             .map_err(|err| EmbeddedPtyError::Unavailable(format!("spawn wait thread: {err}")))?;
@@ -178,7 +193,8 @@ impl EmbeddedPtyPort for MacEmbeddedPty {
         let session = LiveSession {
             master: Mutex::new(pair.master),
             writer: Arc::new(Mutex::new(writer)),
-            child,
+            killer: Mutex::new(killer),
+            process_id,
             killed,
         };
         Ok((Box::new(session), rx))
@@ -206,23 +222,6 @@ unsafe fn libc_kill(pid: i32, sig: i32) -> i32 {
         fn kill(pid: i32, sig: i32) -> i32;
     }
     kill(pid, sig)
-}
-
-fn wait_for_exit(child: &Mutex<Box<dyn Child + Send + Sync>>) -> Option<i32> {
-    loop {
-        let mut guard = match child.lock() {
-            Ok(guard) => guard,
-            Err(_) => return None,
-        };
-        match guard.try_wait() {
-            Ok(Some(status)) => return Some(status.exit_code() as i32),
-            Ok(None) => {
-                drop(guard);
-                thread::sleep(Duration::from_millis(20));
-            }
-            Err(_) => return None,
-        }
-    }
 }
 
 #[cfg(test)]

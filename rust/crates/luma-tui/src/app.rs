@@ -25,6 +25,8 @@ use tracing::warn;
 
 use crate::ssh_workspace::{SshConnectionPhase, VtScreen};
 
+const MAX_PTY_EVENTS_PER_TICK: usize = 32;
+
 /// Interactive TUI entry. Composition root (`bins/luma`) supplies the engine port.
 pub async fn run_tui_with_engine(
     engine: Arc<dyn EnginePort>,
@@ -54,6 +56,49 @@ struct ActiveEmbedded {
     events: Receiver<EmbeddedPtyEvent>,
     screen: VtScreen,
     writer: Box<dyn Write + Send>,
+    exit_seen: bool,
+}
+
+#[derive(Debug, Default, PartialEq, Eq)]
+struct EmbeddedEventDrain {
+    processed: usize,
+    screen_changed: bool,
+    channel_closed: bool,
+    exit: Option<Option<i32>>,
+}
+
+fn drain_embedded_events(
+    events: &Receiver<EmbeddedPtyEvent>,
+    screen: &mut VtScreen,
+    exit_seen: &mut bool,
+) -> EmbeddedEventDrain {
+    let mut result = EmbeddedEventDrain::default();
+    for _ in 0..MAX_PTY_EVENTS_PER_TICK {
+        match events.try_recv() {
+            Ok(EmbeddedPtyEvent::Output(bytes)) => {
+                result.processed += 1;
+                screen.feed(&bytes);
+                result.screen_changed = true;
+            }
+            Ok(EmbeddedPtyEvent::Exited { code }) => {
+                result.processed += 1;
+                if !*exit_seen {
+                    *exit_seen = true;
+                    result.exit = Some(code);
+                }
+            }
+            Err(std::sync::mpsc::TryRecvError::Empty) => break,
+            Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                result.channel_closed = true;
+                if !*exit_seen {
+                    *exit_seen = true;
+                    result.exit = Some(None);
+                }
+                break;
+            }
+        }
+    }
+    result
 }
 
 /// Interactive TUI entry with launch-time prompt options.
@@ -163,34 +208,30 @@ pub async fn run_tui_with_options(
             msgs.push(Msg::BroadcastLagged);
         }
 
+        let mut embedded_channel_closed = false;
         if let Some(active) = active_embedded.as_mut() {
-            loop {
-                match active.events.try_recv() {
-                    Ok(EmbeddedPtyEvent::Output(bytes)) => {
-                        active.screen.feed(&bytes);
-                        if let Some(ws) = state.ssh_workspace.as_mut() {
-                            ws.apply_screen(&active.screen);
-                            if matches!(
-                                ws.phase,
-                                SshConnectionPhase::Starting | SshConnectionPhase::Authenticating
-                            ) {
-                                ws.phase = SshConnectionPhase::Connected;
-                                ws.status_detail = "Connected".into();
-                            }
-                        }
-                        state.dirty = true;
-                    }
-                    Ok(EmbeddedPtyEvent::Exited { code }) => {
-                        msgs.push(Msg::SshPtyExited { code });
-                        break;
-                    }
-                    Err(std::sync::mpsc::TryRecvError::Empty) => break,
-                    Err(std::sync::mpsc::TryRecvError::Disconnected) => {
-                        msgs.push(Msg::SshPtyExited { code: None });
-                        break;
+            let drained =
+                drain_embedded_events(&active.events, &mut active.screen, &mut active.exit_seen);
+            if drained.screen_changed {
+                if let Some(ws) = state.ssh_workspace.as_mut() {
+                    ws.apply_screen(&active.screen);
+                    if matches!(
+                        ws.phase,
+                        SshConnectionPhase::Starting | SshConnectionPhase::Authenticating
+                    ) {
+                        ws.phase = SshConnectionPhase::Connected;
+                        ws.status_detail = "Connected".into();
                     }
                 }
+                state.dirty = true;
             }
+            if let Some(code) = drained.exit {
+                msgs.push(Msg::SshPtyExited { code });
+            }
+            embedded_channel_closed = drained.channel_closed;
+        }
+        if embedded_channel_closed {
+            active_embedded.take();
         }
 
         if let Some(deadline) = state.search.debounce_deadline {
@@ -480,10 +521,11 @@ fn map_key(code: KeyCode, modifiers: KeyModifiers, state: &AppState) -> Msg {
 }
 
 fn map_ssh_workspace_key(code: KeyCode, modifiers: KeyModifiers, state: &AppState) -> Msg {
-    if code == KeyCode::F(6)
-        || (modifiers.contains(KeyModifiers::CONTROL) && matches!(code, KeyCode::Char(' ')))
-    {
+    if code == KeyCode::F(6) {
         return Msg::SshToggleShelf;
+    }
+    if modifiers.contains(KeyModifiers::CONTROL) && matches!(code, KeyCode::Char(' ')) {
+        return Msg::SshArmLeader;
     }
     let leader_armed = state
         .ssh_workspace
@@ -502,47 +544,24 @@ fn map_ssh_workspace_key(code: KeyCode, modifiers: KeyModifiers, state: &AppStat
     if shelf_focused {
         return map_ssh_shelf_key(code, state);
     }
-    if modifiers.contains(KeyModifiers::CONTROL) {
-        let byte = match code {
-            KeyCode::Char(c) => {
-                let lower = c.to_ascii_lowercase();
-                if lower.is_ascii_lowercase() {
-                    Some((lower as u8) - b'a' + 1)
-                } else if c == '@' || c == ' ' || c == '[' {
-                    Some(if c == '[' { 0x1b } else { 0 })
-                } else {
-                    None
-                }
-            }
-            _ => None,
-        };
-        if let Some(b) = byte {
-            return Msg::SshPtyInput { bytes: vec![b] };
-        }
+    if modifiers.contains(KeyModifiers::SHIFT) && code == KeyCode::PageUp {
+        return Msg::SshScrollback { rows: 12 };
+    }
+    if modifiers.contains(KeyModifiers::SHIFT) && code == KeyCode::PageDown {
+        return Msg::SshScrollback { rows: -12 };
+    }
+    if code == KeyCode::Esc
+        && state.ssh_workspace.as_ref().is_some_and(|ws| {
+            matches!(
+                ws.phase,
+                crate::ssh_workspace::SshConnectionPhase::Failed
+                    | crate::ssh_workspace::SshConnectionPhase::Disconnected
+            )
+        })
+    {
+        return Msg::SshLeave;
     }
     match code {
-        KeyCode::Esc => Msg::Cancel,
-        KeyCode::Enter => Msg::SshPtyInput { bytes: vec![b'\r'] },
-        KeyCode::Backspace => Msg::SshPtyInput { bytes: vec![0x7f] },
-        KeyCode::Tab => Msg::SshPtyInput { bytes: vec![b'\t'] },
-        KeyCode::Up => Msg::SshPtyInput {
-            bytes: b"\x1b[A".to_vec(),
-        },
-        KeyCode::Down => Msg::SshPtyInput {
-            bytes: b"\x1b[B".to_vec(),
-        },
-        KeyCode::Right => Msg::SshPtyInput {
-            bytes: b"\x1b[C".to_vec(),
-        },
-        KeyCode::Left => Msg::SshPtyInput {
-            bytes: b"\x1b[D".to_vec(),
-        },
-        KeyCode::Home => Msg::SshPtyInput {
-            bytes: b"\x1b[H".to_vec(),
-        },
-        KeyCode::End => Msg::SshPtyInput {
-            bytes: b"\x1b[F".to_vec(),
-        },
         KeyCode::Char(c)
             if state.ssh_workspace.as_ref().is_some_and(|ws| {
                 matches!(
@@ -554,8 +573,108 @@ fn map_ssh_workspace_key(code: KeyCode, modifiers: KeyModifiers, state: &AppStat
         {
             Msg::KeyChar(c)
         }
-        KeyCode::Char(c) => Msg::KeyChar(c),
-        _ => Msg::Tick,
+        _ => {
+            let application_cursor = state
+                .ssh_workspace
+                .as_ref()
+                .is_some_and(|ws| ws.application_cursor);
+            encode_ssh_key(code, modifiers, application_cursor)
+                .map_or(Msg::Tick, |bytes| Msg::SshPtyInput { bytes })
+        }
+    }
+}
+
+fn encode_ssh_key(
+    code: KeyCode,
+    modifiers: KeyModifiers,
+    application_cursor: bool,
+) -> Option<Vec<u8>> {
+    let modifier = 1
+        + u8::from(modifiers.contains(KeyModifiers::SHIFT))
+        + 2 * u8::from(modifiers.contains(KeyModifiers::ALT))
+        + 4 * u8::from(modifiers.contains(KeyModifiers::CONTROL));
+    let modified_csi = |final_byte: char| {
+        if modifier == 1 {
+            format!("\x1b[{final_byte}").into_bytes()
+        } else {
+            format!("\x1b[1;{modifier}{final_byte}").into_bytes()
+        }
+    };
+    let tilde = |number: u8| {
+        if modifier == 1 {
+            format!("\x1b[{number}~").into_bytes()
+        } else {
+            format!("\x1b[{number};{modifier}~").into_bytes()
+        }
+    };
+    let cursor = |final_byte: char| {
+        if application_cursor && modifier == 1 {
+            format!("\x1bO{final_byte}").into_bytes()
+        } else {
+            modified_csi(final_byte)
+        }
+    };
+
+    match code {
+        KeyCode::Char(c) if modifiers.contains(KeyModifiers::CONTROL) => {
+            let lower = c.to_ascii_lowercase();
+            let control = if lower.is_ascii_lowercase() {
+                Some((lower as u8) - b'a' + 1)
+            } else {
+                match c {
+                    '@' | ' ' => Some(0),
+                    '[' => Some(0x1b),
+                    '\\' => Some(0x1c),
+                    ']' => Some(0x1d),
+                    '^' => Some(0x1e),
+                    '_' => Some(0x1f),
+                    '?' => Some(0x7f),
+                    _ => None,
+                }
+            }?;
+            let mut bytes = vec![control];
+            if modifiers.contains(KeyModifiers::ALT) {
+                bytes.insert(0, 0x1b);
+            }
+            Some(bytes)
+        }
+        KeyCode::Char(c) => {
+            let mut encoded = [0u8; 4];
+            let mut bytes = c.encode_utf8(&mut encoded).as_bytes().to_vec();
+            if modifiers.contains(KeyModifiers::ALT) {
+                bytes.insert(0, 0x1b);
+            }
+            Some(bytes)
+        }
+        KeyCode::Enter => Some(vec![b'\r']),
+        KeyCode::Backspace => Some(vec![0x7f]),
+        KeyCode::Tab => Some(vec![b'\t']),
+        KeyCode::BackTab => Some(b"\x1b[Z".to_vec()),
+        KeyCode::Esc => Some(vec![0x1b]),
+        KeyCode::Up => Some(cursor('A')),
+        KeyCode::Down => Some(cursor('B')),
+        KeyCode::Right => Some(cursor('C')),
+        KeyCode::Left => Some(cursor('D')),
+        KeyCode::Home => Some(cursor('H')),
+        KeyCode::End => Some(cursor('F')),
+        KeyCode::Insert => Some(tilde(2)),
+        KeyCode::Delete => Some(tilde(3)),
+        KeyCode::PageUp => Some(tilde(5)),
+        KeyCode::PageDown => Some(tilde(6)),
+        KeyCode::F(1) if modifier == 1 => Some(b"\x1bOP".to_vec()),
+        KeyCode::F(2) if modifier == 1 => Some(b"\x1bOQ".to_vec()),
+        KeyCode::F(3) if modifier == 1 => Some(b"\x1bOR".to_vec()),
+        KeyCode::F(4) if modifier == 1 => Some(b"\x1bOS".to_vec()),
+        KeyCode::F(5) => Some(tilde(15)),
+        KeyCode::F(6) => Some(tilde(17)),
+        KeyCode::F(7) => Some(tilde(18)),
+        KeyCode::F(8) => Some(tilde(19)),
+        KeyCode::F(9) => Some(tilde(20)),
+        KeyCode::F(10) => Some(tilde(21)),
+        KeyCode::F(11) => Some(tilde(23)),
+        KeyCode::F(12) => Some(tilde(24)),
+        KeyCode::Null => Some(vec![0]),
+        _ => None,
     }
 }
 
@@ -628,6 +747,13 @@ fn handle_effect_sync(runtime: SyncEffectRuntime<'_>, effect: Effect) -> bool {
         }
         Effect::WriteEmbeddedPty { bytes } => {
             if let Some(active) = runtime.active_embedded.as_mut() {
+                if active.screen.scrollback() > 0 {
+                    active.screen.scroll_to_bottom();
+                    if let Some(ws) = runtime.state.ssh_workspace.as_mut() {
+                        ws.apply_screen(&active.screen);
+                    }
+                    runtime.state.dirty = true;
+                }
                 let _ = active.writer.write_all(&bytes);
                 let _ = active.writer.flush();
             }
@@ -641,6 +767,16 @@ fn handle_effect_sync(runtime: SyncEffectRuntime<'_>, effect: Effect) -> bool {
                     ws.apply_screen(&active.screen);
                     ws.term_cols = cols;
                     ws.term_rows = rows;
+                }
+                runtime.state.dirty = true;
+            }
+            true
+        }
+        Effect::ScrollEmbeddedPty { rows } => {
+            if let Some(active) = runtime.active_embedded.as_mut() {
+                active.screen.scroll(rows);
+                if let Some(ws) = runtime.state.ssh_workspace.as_mut() {
+                    ws.apply_screen(&active.screen);
                 }
                 runtime.state.dirty = true;
             }
@@ -732,6 +868,7 @@ fn start_embedded_session(
                     events,
                     screen,
                     writer,
+                    exit_seen: false,
                 });
             }
             Err(err) => {
@@ -1042,6 +1179,7 @@ fn dispatch_effect(engine: Arc<dyn EnginePort>, effect: Effect, tasks: &mut Join
         | Effect::StartEmbeddedTerminal { .. }
         | Effect::WriteEmbeddedPty { .. }
         | Effect::ResizeEmbeddedPty { .. }
+        | Effect::ScrollEmbeddedPty { .. }
         | Effect::KillEmbeddedPty
         | Effect::CopyText { .. }
         | Effect::SetRecipeFavorite { .. }
@@ -1054,6 +1192,113 @@ fn dispatch_effect(engine: Arc<dyn EnginePort>, effect: Effect, tasks: &mut Join
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ssh_workspace::{SshConnectionPhase, SshWorkspaceState};
+    use std::sync::mpsc;
+
+    fn ssh_workspace_state() -> AppState {
+        AppState {
+            route: Route::SshWorkspace,
+            ssh_workspace: Some(SshWorkspaceState::new(
+                "prod".into(),
+                "host.example".into(),
+                "root".into(),
+                22,
+                "prod".into(),
+                "/usr/bin/ssh".into(),
+                vec![],
+                vec![],
+                Some("prod".into()),
+                80,
+                24,
+            )),
+            ..AppState::default()
+        }
+    }
+
+    #[test]
+    fn embedded_event_drain_is_bounded_and_preserves_ui_fairness() {
+        let (tx, rx) = mpsc::channel();
+        for _ in 0..MAX_PTY_EVENTS_PER_TICK + 4 {
+            tx.send(EmbeddedPtyEvent::Output(b"x".to_vec()))
+                .expect("send output");
+        }
+        let mut screen = VtScreen::new(80, 24);
+        let mut exit_seen = false;
+
+        let drained = drain_embedded_events(&rx, &mut screen, &mut exit_seen);
+
+        assert_eq!(drained.processed, MAX_PTY_EVENTS_PER_TICK);
+        assert!(drained.screen_changed);
+        assert!(!drained.channel_closed);
+        assert!(rx.try_recv().is_ok(), "events remain for the next UI tick");
+    }
+
+    #[test]
+    fn embedded_exit_is_reported_once_when_channel_disconnects() {
+        let (tx, rx) = mpsc::channel();
+        tx.send(EmbeddedPtyEvent::Exited { code: Some(0) })
+            .expect("send exit");
+        drop(tx);
+        let mut screen = VtScreen::new(80, 24);
+        let mut exit_seen = false;
+
+        let first = drain_embedded_events(&rx, &mut screen, &mut exit_seen);
+        let second = drain_embedded_events(&rx, &mut screen, &mut exit_seen);
+
+        assert_eq!(first.exit, Some(Some(0)));
+        assert!(first.channel_closed);
+        assert_eq!(second.exit, None);
+        assert!(second.channel_closed);
+    }
+
+    #[test]
+    fn ssh_reserved_keys_and_terminal_keys_are_unambiguous() {
+        let state = ssh_workspace_state();
+        assert!(matches!(
+            map_key(KeyCode::F(6), KeyModifiers::empty(), &state),
+            Msg::SshToggleShelf
+        ));
+        assert!(matches!(
+            map_key(KeyCode::Char(' '), KeyModifiers::CONTROL, &state),
+            Msg::SshArmLeader
+        ));
+        assert!(matches!(
+            map_key(KeyCode::Esc, KeyModifiers::empty(), &state),
+            Msg::SshPtyInput { bytes } if bytes == [0x1b]
+        ));
+        assert!(matches!(
+            map_key(KeyCode::Delete, KeyModifiers::empty(), &state),
+            Msg::SshPtyInput { bytes } if bytes == b"\x1b[3~"
+        ));
+        assert!(matches!(
+            map_key(KeyCode::PageUp, KeyModifiers::SHIFT, &state),
+            Msg::SshScrollback { rows: 12 }
+        ));
+    }
+
+    #[test]
+    fn ssh_application_cursor_and_alt_key_use_xterm_encoding() {
+        let mut state = ssh_workspace_state();
+        state.ssh_workspace.as_mut().unwrap().application_cursor = true;
+        assert!(matches!(
+            map_key(KeyCode::Up, KeyModifiers::empty(), &state),
+            Msg::SshPtyInput { bytes } if bytes == b"\x1bOA"
+        ));
+        assert!(matches!(
+            map_key(KeyCode::Char('x'), KeyModifiers::ALT, &state),
+            Msg::SshPtyInput { bytes } if bytes == b"\x1bx"
+        ));
+    }
+
+    #[test]
+    fn ssh_failed_escape_leaves_instead_of_writing_to_dead_pty() {
+        let mut state = ssh_workspace_state();
+        state.ssh_workspace.as_mut().unwrap().phase = SshConnectionPhase::Failed;
+        assert!(matches!(
+            map_key(KeyCode::Esc, KeyModifiers::empty(), &state),
+            Msg::SshLeave
+        ));
+    }
 
     #[test]
     fn bracketed_paste_is_forwarded_as_one_message() {

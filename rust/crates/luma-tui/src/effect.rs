@@ -97,6 +97,9 @@ pub enum Effect {
         cols: u16,
         rows: u16,
     },
+    ScrollEmbeddedPty {
+        rows: i32,
+    },
     KillEmbeddedPty,
     /// Copy text to the system pasteboard.
     CopyText {

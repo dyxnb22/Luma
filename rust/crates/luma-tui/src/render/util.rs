@@ -16,22 +16,7 @@ pub(super) fn pad_line_to_width(spans: &mut Vec<Span<'static>>, width: usize, fi
 
 pub(super) fn highlight_query(prompt: &str) -> String {
     const TRIGGERS: &[&str] = &[
-        "app",
-        "apps",
-        "clip",
-        "cb",
-        "ql",
-        "quicklinks",
-        "s",
-        "snip",
-        "proj",
-        "project",
-        "sec",
-        "secret",
-        "secrets",
-        "fake",
-        "echo",
-        "p",
+        "app", "apps", "clip", "cb", "proj", "project", "fake", "echo", "p",
     ];
     let tokens: Vec<&str> = luma_domain::strip_command_prefix(prompt)
         .split_whitespace()

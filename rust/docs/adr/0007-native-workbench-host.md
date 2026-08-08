@@ -58,8 +58,8 @@ until a later bounded change gives the host a control surface worth having.
 - use SwiftUI;
 - add a search box, results list, sidebar, preview, settings page, module picker, command palette,
   dashboard, or any native overlay above the terminal;
-- read or write Luma module stores (Wordbook, Clipboard, Records, Projects, Timers,
-  Proxy, Quicklinks, Snippets, Secrets, recipes) — it never touches LumaNext;
+- read or write Luma module stores (Wordbook, Clipboard, Records, Projects, recipes) — it never
+  touches LumaNext;
 - initialize the Rust Engine, register modules, or duplicate Ratatui rendering/state;
 - create a second theme or component system, multiple workbench windows, or tabs;
 - add a background agent, daemon, Unix socket, HTTP server, or IPC protocol;
@@ -79,8 +79,8 @@ There is exactly one native content view: the SwiftTerm terminal filling the win
 - The Swift host has no Rust dependency edges, so `scripts/check_architecture.sh` guards it by
   source inspection (no SwiftUI, no LumaNext access, no second status item) rather than by crate
   graph.
-- Timers keep their current meaning, but hiding the window no longer pauses them: the child process
-  stays alive while hidden. Quitting the host still terminates the TUI and its timers.
+- Hiding the window does not suspend the child, so TUI state and interactive recipe children stay
+  alive. Quitting the host still terminates the TUI process group.
 - Memory observations remain local unified-log entries, not telemetry or a diagnostics subsystem.
   SwiftTerm keeps its default 500-line scrollback normally and reduces it to 250/50 lines under
   warning/critical pressure.

@@ -2,16 +2,12 @@
 
 use async_trait::async_trait;
 use luma_application::{
-    AppEntry, AppsCatalogPort, FakeAccessibility, FakeOpenPath, FakeWindowCatalog, LumaModule,
-    MemoryClipboardHistory, MemoryQuicklinksRepository, MemorySnippetsRepository,
-    MemoryWordbookRepository, PasteboardError, PasteboardPort, QuicklinksRepository,
-    SnippetsRepository, WarmupContext, WordContentInput, WordbookRepository,
+    AppEntry, AppsCatalogPort, FakeAccessibility, FakeWindowCatalog, LumaModule,
+    MemoryClipboardHistory, MemoryWordbookRepository, PasteboardError, PasteboardPort,
+    WarmupContext, WordContentInput, WordbookRepository,
 };
 use luma_domain::Query;
-use luma_modules::{
-    AppsModule, ClipboardModule, ClipboardSuppression, QuicklinksModule, SnippetsModule,
-    WordbookModule,
-};
+use luma_modules::{AppsModule, ClipboardModule, ClipboardSuppression, WordbookModule};
 use luma_test_support::assert_primary_actions_resolvable;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -46,87 +42,6 @@ async fn clipboard_clear_row_matches_actions_contract() {
     .await;
     assert_primary_actions_resolvable(&m, Query::parse("clip clear", 20)).await;
     m.teardown().await;
-}
-
-#[tokio::test]
-async fn quicklinks_overwrite_row_matches_actions_contract() {
-    let store = Arc::new(MemoryQuicklinksRepository::new());
-    store.upsert("docs", "https://example.com").unwrap();
-    let m = QuicklinksModule::with_deps(
-        store,
-        Arc::new(FakeOpenPath::new()),
-        Arc::new(MemPb(Mutex::new(None))),
-    );
-    m.warmup(WarmupContext {
-        cancel: CancellationToken::new(),
-    })
-    .await;
-    assert_primary_actions_resolvable(&m, Query::parse("ql add docs https://example.com/new", 20))
-        .await;
-    let items = luma_test_support::collect_search_items(
-        &m,
-        Query::parse("ql add docs https://example.com/new", 20),
-    )
-    .await;
-    assert!(
-        items.iter().any(|i| {
-            i.id.as_str() == "ql:add:docs"
-                && i.kind == "update"
-                && i.primary_action.id.as_str() == "add"
-                && i.primary_action.confirmation
-        }),
-        "expected ql:add:docs overwrite row, got: {:?}",
-        items
-            .iter()
-            .map(|i| {
-                (
-                    i.id.as_str().to_string(),
-                    i.kind.clone(),
-                    i.primary_action.id.as_str().to_string(),
-                    i.primary_action.confirmation,
-                )
-            })
-            .collect::<Vec<_>>()
-    );
-}
-
-#[tokio::test]
-async fn snippets_overwrite_row_matches_actions_contract() {
-    let store = Arc::new(MemorySnippetsRepository::new());
-    store.upsert("sig", "old body").unwrap();
-    let m = SnippetsModule::with_store(
-        store,
-        Arc::new(MemPb(Mutex::new(None))),
-        Arc::new(FakeAccessibility::new(false, false)),
-        Arc::new(FakeWindowCatalog::default()),
-    );
-    m.warmup(WarmupContext {
-        cancel: CancellationToken::new(),
-    })
-    .await;
-    assert_primary_actions_resolvable(&m, Query::parse("snip add sig new body text", 20)).await;
-    let items =
-        luma_test_support::collect_search_items(&m, Query::parse("snip add sig new body text", 20))
-            .await;
-    assert!(
-        items.iter().any(|i| {
-            i.id.as_str() == "snip:add:sig"
-                && i.primary_action.id.as_str() == "add"
-                && i.primary_action.confirmation
-        }),
-        "expected snip:add:sig overwrite row, got: {:?}",
-        items
-            .iter()
-            .map(|i| {
-                (
-                    i.id.as_str().to_string(),
-                    i.kind.clone(),
-                    i.primary_action.id.as_str().to_string(),
-                    i.primary_action.confirmation,
-                )
-            })
-            .collect::<Vec<_>>()
-    );
 }
 
 struct MemAppsCatalog {
@@ -167,31 +82,6 @@ async fn apps_search_row_matches_actions_contract() {
     })
     .await;
     assert_primary_actions_resolvable(&m, Query::parse("app safari", 20)).await;
-    m.teardown().await;
-}
-
-#[tokio::test]
-async fn secrets_vault_row_matches_actions_contract() {
-    use luma_application::FakeKeychain;
-    use luma_modules::SecretsModule;
-
-    let keychain = Arc::new(FakeKeychain {
-        unlocked: true,
-        entries: tokio::sync::Mutex::new(std::collections::BTreeMap::from([(
-            "api-token".into(),
-            "super-secret".into(),
-        )])),
-    });
-    let m = SecretsModule::with_deps(
-        keychain,
-        Arc::new(MemPb(Mutex::new(None))),
-        Arc::new(ClipboardSuppression::new()),
-    );
-    m.warmup(WarmupContext {
-        cancel: CancellationToken::new(),
-    })
-    .await;
-    assert_primary_actions_resolvable(&m, Query::parse("sec ", 20)).await;
     m.teardown().await;
 }
 

@@ -183,7 +183,7 @@ pub trait LumaModule: Send + Sync {
         None
     }
 
-    /// Optional live Hub objects such as running timers. These use the same natural-action
+    /// Optional live Hub objects. These use the same natural-action
     /// contract as Continue rows but are derived from current module state, not persistence.
     fn supports_hub_items(&self) -> bool {
         false

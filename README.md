@@ -19,7 +19,7 @@ cargo test -p luma --test cli_blackbox
 | In | Out |
 | --- | --- |
 | Local TUI + CLI and a thin native PTY host window on your Mac | App Store / notarized shipping |
-| Apps, Calculator, Downloads Inbox, Packages, Apple Shortcuts Bridge, Shell Recall, Renewals, Database Portals, Screen OCR, Windows, Git, Runtime, Proxy, Clipboard, Quicklinks, Snippets, Wordbook, Projects, Records, Command Recipes, Timers, Secrets | Window layouts, Menu search, Browser tabs, signed-host Translate |
+| Apps, Windows, Projects, Git, Runtime, Command Recipes, Clipboard, Wordbook, Records | Calculator, Downloads, package management, Apple Shortcuts, shell history, Renewals, Database Portals, Screen OCR, Proxy, Quicklinks, Snippets, Timers, Secrets, SSH, Window layouts, Menu search, Browser tabs, signed-host Translate |
 | Honest permission / unavailable states in each surface | Release soak, deny-as-policy, marketing docs |
 | Configurable global activation of the one TUI session (fresh default `⌥Space`) | A native product UI: search box, results, sidebar, settings, or overlays in Swift |
 | Module-local status and remediation rows | Centralized `doctor` command or diagnostics overlay |
@@ -32,8 +32,6 @@ cargo test -p luma --test cli_blackbox
 | Module status | [`rust/docs/MODULES.md`](rust/docs/MODULES.md) |
 | Codebase governance | [`rust/docs/GOVERNANCE.md`](rust/docs/GOVERNANCE.md) |
 | macOS keyboard contract | [`rust/docs/KEYBOARD.md`](rust/docs/KEYBOARD.md) |
-| Implemented module contract | [`rust/docs/SELECTED_MODULES_PLAN.md`](rust/docs/SELECTED_MODULES_PLAN.md) |
-| Proxy (Mihomo) | [`rust/docs/PROXY.md`](rust/docs/PROXY.md) |
 | macOS smoke checks | [`rust/docs/MACOS_SMOKE.md`](rust/docs/MACOS_SMOKE.md) |
 | Personal usage log | [`rust/docs/USAGE_LOG_TEMPLATE.md`](rust/docs/USAGE_LOG_TEMPLATE.md) |
 | Empty Hub and keyboard behavior | [`rust/docs/hub.md`](rust/docs/hub.md) |
@@ -43,9 +41,11 @@ cargo test -p luma --test cli_blackbox
 
 | Path | Role |
 | --- | --- |
-| `~/Library/Application Support/LumaNext/` | Active app support (settings, `recall.sqlite`, `renewals.sqlite`, `database_portals.sqlite`, other stores) |
+| `~/Library/Application Support/LumaNext/` | Active settings and Recall, Clipboard, Wordbook, Records, Recipes, and migration stores |
 | `~/Library/Logs/LumaNext/` | Runtime logs (5 MiB rotation, three archives) |
-| macOS Keychain | Private Luma references; values do not enter LumaNext files |
+
+Retired module data is not deleted automatically. Old SQLite files, proxy configuration, and
+Keychain entries remain available for manual recovery or cleanup.
 
 The empty Hub lists visible windows, up to three live-or-privacy-safe Continue items, and modules. Press `1`–`9`
 to focus a numbered window; Continue and module rows are never digit targets. Digits remain

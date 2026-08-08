@@ -17,19 +17,8 @@ cargo run -p luma -- query "/win " --json
 cargo run -p luma -- query "/cmd test" --json
 cargo run -p luma -- query "/git" --json
 cargo run -p luma -- query "/run" --json
-cargo run -p luma -- query "/proxy status" --json
-cargo run -p luma -- query "/proxy check" --json
-cargo run -p luma -- query "/calc 128 MiB in GiB" --json
-cargo run -p luma -- query "/dl recent" --json
-cargo run -p luma -- query "/pkg outdated" --json
-cargo run -p luma -- query "/sc folders" --json
-cargo run -p luma -- query "/hist rg" --json
-cargo run -p luma -- query "/renew 30d" --json
-cargo run -p luma -- query "/db" --json       # default-off until enabled in Settings
-cargo run -p luma -- query "/ocr" --json
 cargo run -p luma -- cmd list --json
 cargo run -p luma -- cmd show git-status --json
-printf '%s' 'secret' | cargo run -p luma -- secrets set my-label
 cargo run -p luma -- modules list --json
 cargo run -p luma -- config get --json
 cargo run -p luma -- config set --records-root ~/Documents/Notes/Records
@@ -95,10 +84,8 @@ Optional local hygiene: `bash scripts/check_architecture.sh`.
 See [`docs/MODULES.md`](docs/MODULES.md) for module status.
 See [`docs/GOVERNANCE.md`](docs/GOVERNANCE.md) for personal codebase governance (inventory sync, soft file limits, anti-patterns).
 See [`docs/COMMAND_RECIPES.md`](docs/COMMAND_RECIPES.md) for command templates, TOML config, and safety.
-See [`docs/PROXY.md`](docs/PROXY.md) for Mihomo/Clash Verge Profile behavior, safety boundaries,
-supported subscription formats, and rollback semantics.
-See [`docs/MACOS_SMOKE.md`](docs/MACOS_SMOKE.md) for real macOS permission, local utility modules,
-workbench host, terminal, window, Keychain, clipboard, and proxy smoke checks.
+See [`docs/MACOS_SMOKE.md`](docs/MACOS_SMOKE.md) for real macOS permission, workbench host,
+terminal, window, and clipboard smoke checks.
 See [`docs/USAGE_LOG_TEMPLATE.md`](docs/USAGE_LOG_TEMPLATE.md) for an optional privacy-preserving
 14-day local usage experiment.
 
@@ -106,14 +93,14 @@ See [`docs/USAGE_LOG_TEMPLATE.md`](docs/USAGE_LOG_TEMPLATE.md) for an optional p
 
 | Path | Role |
 | --- | --- |
-| `~/Library/Application Support/LumaNext/` | Active settings / stores (`recall.sqlite`, `renewals.sqlite`, `database_portals.sqlite`, clipboard, records, …) |
+| `~/Library/Application Support/LumaNext/` | Active settings and Recall, Clipboard, Wordbook, Records, Recipes, and migration stores |
 | `~/Library/Application Support/LumaNext/command-recipes.toml` | User command recipe definitions |
 | `~/Library/Application Support/LumaNext/command-recipes-meta.sqlite` | Recipe favorites / usage metadata |
 | `~/Library/Logs/LumaNext/` | Logs (`luma.log`, rotated at 5 MiB with three archives) |
 
 Tests must use tempfile + `LUMA_NEXT_SUPPORT_DIR` / `LUMA_NEXT_LOGS_DIR`.
-Legacy `ssh_meta.sqlite` and SSH-password Keychain entries from older builds are left untouched;
-current Luma builds neither open nor mutate them.
+Retired module data, including legacy SQLite databases, proxy files, and Keychain entries, is left
+untouched; current Luma builds neither open nor mutate it.
 
 `luma record import` is dry-run by default; `--apply` writes the Records database, its LumaNext
 backup, and migration ledger, never the Markdown source files.
@@ -137,15 +124,14 @@ backup, and migration ledger, never the Markdown source files.
 
 - Configure daily-use values without leaving the TUI: `/settings projects-root PATH`,
   `/settings import-project PATH`, `/settings records-root PATH|none`,
-  `/settings clipboard-retention-days N`, `/settings secrets-idle-lock-secs N`, and
-  `/settings hub-windows-max N`.
+  `/settings clipboard-retention-days N`, and `/settings hub-windows-max N`.
 
 - Empty Hub: `1`–`9` focuses visible window rows; status, “more”, and module rows are not numbered.
-- Empty Hub Continue: up to three items appear after Windows. Live running/paused timers come
-  first, followed by privacy-safe recent objects revalidated against their owning modules; stale
-  objects are pruned and each row uses its current natural primary action, risk, and confirmation.
+- Empty Hub Continue: up to three privacy-safe recent objects appear after Windows, revalidated
+  against their owning modules; stale objects are pruned and each row uses its current natural
+  primary action, risk, and confirmation.
   They are not window rows and never receive a digit shortcut. Recall is bounded to 1,000 metadata rows and
-  never stores clipboard bodies, snippet bodies, or submitted search text.
+  never stores clipboard bodies or submitted search text.
 - `/win`: `1`–`9` works only while the result list is focused. Digits typed in the prompt are never hijacked.
 - `/wb today`, `/wb due`, `/wb new`, `/wb wrong`: normal lists. `/wb review` starts today's
   queue (due first, then new words up to the remaining goal); append `due|new|wrong` for a specific
@@ -157,19 +143,6 @@ backup, and migration ledger, never the Markdown source files.
   `/rec backup`.
 - `/clip pause [30s|10m|2h|1d]`, `/clip resume`, and `/clip status` control session capture.
   Concealed/transient password-manager pasteboard types are never stored in history.
-- `/calc` evaluates deterministic arithmetic, units, integer bases, Unix timestamps, and date
-  offsets. Only strict complete expressions may appear in global search.
-- `/dl` scans direct children of Downloads only. Rename is explicit and Finder Trash remains
-  recoverable; there is no recursive or automatic cleanup.
-- `/pkg` is Homebrew-only; `/sc` delegates to Apple Shortcuts; `/hist` reads a bounded zsh-history
-  tail. Package mutations confirm, Shortcuts run interactively without implicit input/output
-  capture, and Shell Recall can copy but never execute a command.
-- `/renew` owns the local recurring-payment ledger. `/db` is default-off and stores only
-  non-secret portal metadata; PostgreSQL authentication stays with libpq/`psql`.
-- `/ocr` captures one user-selected region and recognizes it locally with Apple Vision. It stores
-  no screenshot or OCR history and keeps permission/cancellation states inside the module.
-- `/s add-from-clipboard TRIGGER` preserves multiline snippet bodies. `/s backup` and
-  `/ql backup` create SQLite snapshots under `LumaNext/backups/`.
 - `/proj`: lists only manually imported projects, recall-ranked by recent/frequent associated
   actions. Enter opens `/proj show PATH`, a single-project workbench with Continue, local Git
   summary, associated Runtime listeners, matching Command Recipes, bounded file browsing, Finder,
@@ -187,10 +160,6 @@ backup, and migration ledger, never the Markdown source files.
 - `/run` (or `/ports`): lists local TCP listeners with port, address, PID, process, owner, cwd, and
   imported-project association. Enter opens that project's `/proj show PATH` workbench. SIGTERM is confirmation-gated,
   same-user only, identity-rechecked, and never escalates to SIGKILL.
-- `/proxy` is a compact status + group-summary view; `/proxy group NAME` expands nodes.
-  `/proxy status` is a read-only snapshot of HTTP/HTTPS/SOCKS settings, controller, and Luma-owned
-  profile state. `/proxy check` performs on-demand local route/DNS/loopback/controller checks; it
-  has no daemon or probe-port subsystem.
 - There is no `luma doctor`, `:doctor`, or diagnostics overlay. Modules report `permission`, `unavailable`, or `not_configured` locally when applicable.
 
 Optional importers: `luma migrate …` with an explicit legacy path (dry-run by default).

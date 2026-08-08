@@ -192,14 +192,7 @@ impl AppState {
                 if self.actions.active_operation.as_deref() != Some(operation_id.as_str()) {
                     return false;
                 }
-                if self.actions.active_kind.as_deref() == Some("screen_ocr") {
-                    self.status.set(
-                        "OCR selection active · drag to select · Esc cancel",
-                        StatusTone::Progress,
-                    );
-                } else {
-                    self.status.set("Running…", StatusTone::Progress);
-                }
+                self.status.set("Running…", StatusTone::Progress);
                 true
             }
             Event::WordbookReviewLoaded {
@@ -257,7 +250,6 @@ impl AppState {
                     return false;
                 }
                 self.actions.active_operation = None;
-                self.actions.active_kind = None;
                 if let luma_protocol::ActionOutcomeDto::InteractiveRecipeRun { plan } = &outcome {
                     self.runtime.pending_recipe_run = Some((**plan).clone());
                     self.status
@@ -368,11 +360,6 @@ impl AppState {
                     .and_then(|value| value.as_u64())
                     .and_then(|value| u32::try_from(value).ok())
                     .unwrap_or(30);
-                self.settings.values.secrets_idle_lock_secs = settings
-                    .get("secrets_idle_lock_secs")
-                    .and_then(|value| value.as_u64())
-                    .and_then(|value| u32::try_from(value).ok())
-                    .unwrap_or(300);
                 self.settings.values.hub_windows_max = settings
                     .get("hub_windows_max")
                     .and_then(|value| value.as_u64())

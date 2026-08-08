@@ -169,13 +169,6 @@ fn is_known_prefix(token: &str) -> bool {
             | "help"
             | "fake"
             | "echo"
-            | "ql"
-            | "quicklinks"
-            | "s"
-            | "snip"
-            | "sec"
-            | "secret"
-            | "secrets"
             | "p"
             | "proj"
             | "project"
@@ -185,13 +178,8 @@ fn is_known_prefix(token: &str) -> bool {
             | "win"
             | "window"
             | "windows"
-            | "proxy"
-            | "px"
             | "rec"
             | "record"
-            | "tm"
-            | "timer"
-            | "timers"
     )
 }
 
@@ -232,15 +220,6 @@ mod tests {
         let q = Query::parse("clip ", 20);
         assert!(matches!(q.scope, QueryScope::Targeted { ref module } if module == "clip"));
         assert_eq!(q.rest_raw(), "");
-    }
-
-    #[test]
-    fn timers_trigger_is_known_prefix() {
-        let q = Query::parse("tm ", 20);
-        assert!(matches!(q.scope, QueryScope::Targeted { ref module } if module == "tm"));
-        let q2 = Query::parse("tm pomo 25", 20);
-        assert!(matches!(q2.scope, QueryScope::Targeted { ref module } if module == "tm"));
-        assert_eq!(q2.rest_normalized(), "pomo 25");
     }
 
     #[test]

@@ -28,10 +28,8 @@ pin/unpin remains available via `/clip`.
    focus needs Accessibility. Failures use `PermissionRequired` / `Unavailable`, never a
    silent empty list.
 5. **Tests** — never call real `focus`, `osascript`, or otherwise steal focus (MODULES.md).
-6. **Bounded Continue** — after Windows, Hub may show at most **3** live-or-recent objects.
-   Running/paused Timers are projected from live module state before Recall objects. This is a
-   generic module projection, not a timer-specific protocol command; Clipboard/Snippet bodies,
-   proxy endpoints, and submitted search text remain excluded.
+6. **Bounded Continue** — after Windows, Hub may show at most **3** recent Recall objects after
+   the owning module revalidates them. Clipboard bodies and submitted search text remain excluded.
 
 ## Consequences
 

@@ -414,13 +414,6 @@ pub(super) fn render_overlay_settings(
     ));
     items.push(styled_settings_summary(
         fit(format!(
-            " Secrets lock: {}s · /settings secrets-idle-lock-secs N",
-            state.settings.values.secrets_idle_lock_secs
-        )),
-        theme,
-    ));
-    items.push(styled_settings_summary(
-        fit(format!(
             " Hub windows: {} · /settings hub-windows-max N",
             state.settings.values.hub_windows_max
         )),

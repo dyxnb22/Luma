@@ -623,8 +623,6 @@ impl AppState {
                     "apps" => "app",
                     "windows" => "win",
                     "clipboard" => "clip",
-                    "quicklinks" => "ql",
-                    "snippets" => "s",
                     "projects" => "proj",
                     other => other,
                 };

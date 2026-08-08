@@ -6,8 +6,7 @@ use clap::{Parser, Subcommand};
 use cli_output::action_exit_code;
 use compose::{load_registry, load_registry_with_settings};
 use luma_application::{
-    list_modules_json, run_action, run_query, Engine, KeychainPort, RecordsRepository,
-    SqliteRecordsRepository,
+    list_modules_json, run_action, run_query, Engine, RecordsRepository, SqliteRecordsRepository,
 };
 use luma_platform_macos::MacCommandRunner;
 use luma_storage::{
@@ -17,7 +16,6 @@ use luma_storage::{
     WordbookStore,
 };
 use luma_tui::{run_tui_with_options, RunTuiOptions};
-use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -45,7 +43,7 @@ enum Commands {
         query: String,
         #[arg(long)]
         json: bool,
-        /// Redact clip/snippet bodies in JSON (titles/subtitles replaced; safer for logs/gists).
+        /// Redact clipboard bodies in JSON (titles/subtitles replaced; safer for logs/gists).
         #[arg(long)]
         redact: bool,
     },
@@ -66,11 +64,6 @@ enum Commands {
     Migrate {
         #[command(subcommand)]
         action: MigrateCmd,
-    },
-    /// Manage Keychain-backed secrets (labels only in search).
-    Secrets {
-        #[command(subcommand)]
-        action: SecretsCmd,
     },
     /// Wordbook vocab / import from WordPet.
     Wordbook {
@@ -112,7 +105,7 @@ enum ActionCmd {
         confirmation: bool,
         #[arg(long)]
         json: bool,
-        /// Redact clip/snippet bodies in JSON output (safer for logs/gists).
+        /// Redact clipboard bodies in JSON output (safer for logs/gists).
         #[arg(long)]
         redact: bool,
     },
@@ -130,24 +123,9 @@ struct ConfigSetArgs {
     disable_module: Vec<String>,
     #[arg(long)]
     clipboard_retention_days: Option<u32>,
-    /// Lock Secrets vault after N idle seconds (`0` disables).
-    #[arg(long)]
-    secrets_idle_lock_secs: Option<u32>,
     /// Max Hub window rows (clamped 5–50).
     #[arg(long)]
     hub_windows_max: Option<u32>,
-    /// Mihomo Unix controller socket path (loopback-only adapter).
-    #[arg(long)]
-    proxy_controller_unix_socket: Option<String>,
-    /// Mihomo loopback controller address, for example 127.0.0.1:9097.
-    #[arg(long)]
-    proxy_controller_address: Option<String>,
-    /// Luma Keychain account containing the Mihomo controller secret.
-    #[arg(long)]
-    proxy_controller_secret_account: Option<String>,
-    /// Explicit macOS Network Service name for system proxy changes.
-    #[arg(long)]
-    proxy_network_service: Option<String>,
     /// Import a project directory (canonical path; repeatable).
     #[arg(long)]
     import_project: Vec<String>,
@@ -170,12 +148,6 @@ enum ConfigCmd {
     },
     /// Patch LumaNext settings (compare-and-swap on settings_version).
     Set(ConfigSetArgs),
-}
-
-#[derive(Debug, Subcommand)]
-enum SecretsCmd {
-    /// Store a secret: reads value from stdin (not argv). Updates Keychain + label sidecar.
-    Set { account: String },
 }
 
 #[derive(Debug, Subcommand)]
@@ -422,8 +394,7 @@ async fn run_non_tui_command(command: Commands) -> anyhow::Result<()> {
                     items
                         .into_iter()
                         .map(|mut item| {
-                            let sensitive = item.module_id.as_str() == "luma.clipboard"
-                                || item.module_id.as_str() == "luma.snippets";
+                            let sensitive = item.module_id.as_str() == "luma.clipboard";
                             if sensitive {
                                 item.title = "[redacted]".into();
                                 item.subtitle = Some("[redacted]".into());
@@ -442,10 +413,7 @@ async fn run_non_tui_command(command: Commands) -> anyhow::Result<()> {
                 println!("{}", serde_json::to_string_pretty(&payload)?);
             } else {
                 for item in items {
-                    if redact
-                        && (item.module_id.as_str() == "luma.clipboard"
-                            || item.module_id.as_str() == "luma.snippets")
-                    {
+                    if redact && item.module_id.as_str() == "luma.clipboard" {
                         println!("{}\t[redacted]", item.id);
                     } else {
                         println!("{}\t{}", item.id, item.title);
@@ -490,8 +458,7 @@ async fn run_non_tui_command(command: Commands) -> anyhow::Result<()> {
             if json {
                 let result = if redact {
                     let mut result = result;
-                    let sensitive = result.module_id.as_str() == "luma.clipboard"
-                        || result.module_id.as_str() == "luma.snippets";
+                    let sensitive = result.module_id.as_str() == "luma.clipboard";
                     if sensitive {
                         result.title = "[redacted]".into();
                         result.subtitle = Some("[redacted]".into());
@@ -565,21 +532,7 @@ async fn run_non_tui_command(command: Commands) -> anyhow::Result<()> {
                     "clipboard_retention_days={}",
                     settings.clipboard_retention_days
                 );
-                println!("secrets_idle_lock_secs={}", settings.secrets_idle_lock_secs);
                 println!("hub_windows_max={}", settings.hub_windows_max);
-                println!(
-                    "proxy_controller_unix_socket={:?}",
-                    settings.proxy_controller_unix_socket
-                );
-                println!(
-                    "proxy_controller_address={:?}",
-                    settings.proxy_controller_address
-                );
-                println!(
-                    "proxy_controller_secret_account={:?}",
-                    settings.proxy_controller_secret_account
-                );
-                println!("proxy_network_service={:?}", settings.proxy_network_service);
             }
         }
         Some(Commands::Config {
@@ -591,12 +544,7 @@ async fn run_non_tui_command(command: Commands) -> anyhow::Result<()> {
                 enable_module,
                 disable_module,
                 clipboard_retention_days,
-                secrets_idle_lock_secs,
                 hub_windows_max,
-                proxy_controller_unix_socket,
-                proxy_controller_address,
-                proxy_controller_secret_account,
-                proxy_network_service,
                 import_project,
                 remove_project,
                 expected_version,
@@ -634,40 +582,10 @@ async fn run_non_tui_command(command: Commands) -> anyhow::Result<()> {
                     serde_json::Value::Number(days.into()),
                 );
             }
-            if let Some(secs) = secrets_idle_lock_secs {
-                patch.insert(
-                    "secrets_idle_lock_secs".into(),
-                    serde_json::Value::Number(secs.into()),
-                );
-            }
             if let Some(max) = hub_windows_max {
                 patch.insert(
                     "hub_windows_max".into(),
                     serde_json::Value::Number(max.into()),
-                );
-            }
-            if let Some(path) = proxy_controller_unix_socket {
-                patch.insert(
-                    "proxy_controller_unix_socket".into(),
-                    serde_json::Value::String(path),
-                );
-            }
-            if let Some(address) = proxy_controller_address {
-                patch.insert(
-                    "proxy_controller_address".into(),
-                    serde_json::Value::String(address),
-                );
-            }
-            if let Some(account) = proxy_controller_secret_account {
-                patch.insert(
-                    "proxy_controller_secret_account".into(),
-                    serde_json::Value::String(account),
-                );
-            }
-            if let Some(service) = proxy_network_service {
-                patch.insert(
-                    "proxy_network_service".into(),
-                    serde_json::Value::String(service),
                 );
             }
             if !import_project.is_empty() {
@@ -804,25 +722,6 @@ async fn run_non_tui_command(command: Commands) -> anyhow::Result<()> {
                     record.migration_id, record.status
                 );
             }
-        }
-        Some(Commands::Secrets {
-            action: SecretsCmd::Set { account },
-        }) => {
-            if account.trim().is_empty() {
-                anyhow::bail!("account must not be empty");
-            }
-            let mut value = String::new();
-            std::io::stdin().read_to_string(&mut value)?;
-            let value = value.trim_end_matches(['\n', '\r']);
-            if value.is_empty() {
-                anyhow::bail!("empty secret value on stdin");
-            }
-            let keychain = luma_platform_macos::MacKeychain::luma_next();
-            keychain
-                .set_password(account.trim(), value)
-                .await
-                .map_err(|e| anyhow::anyhow!("secrets set: {e}"))?;
-            println!("stored label {account}");
         }
         Some(Commands::Wordbook {
             action: WordbookCmd::ImportWordpet { from, commit, json },

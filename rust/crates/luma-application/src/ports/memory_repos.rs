@@ -1,20 +1,14 @@
 use crate::ports::{
     ClipboardEntry, ClipboardHistoryRepository, ClipboardRepoError, ContentImportReport,
-    QuicklinkEntry, QuicklinksRepoError, QuicklinksRepository, RecordCategory, RecordEntry,
-    RecordImportPreviewView, RecordImportReportView, RecordsRepoError, RecordsRepository,
-    RecordsStatsView, SnippetEntry, SnippetsRepoError, SnippetsRepository, TimerEntry,
-    TimersRepoError, TimersRepository, WordContentInput, WordEntry, WordbookRepoError,
+    RecordCategory, RecordEntry, RecordImportPreviewView, RecordImportReportView, RecordsRepoError,
+    RecordsRepository, RecordsStatsView, WordContentInput, WordEntry, WordbookRepoError,
     WordbookRepository, WordbookStatsView,
 };
 use async_trait::async_trait;
 use luma_domain::{
-    MAX_CLIPBOARD_ENTRY_BYTES, MAX_PINNED_CLIPBOARD_ROWS, MAX_QUICKLINKS,
-    MAX_QUICKLINK_TRIGGER_BYTES, MAX_QUICKLINK_URL_BYTES, MAX_SNIPPETS, MAX_SNIPPET_BODY_BYTES,
-    MAX_SNIPPET_TRIGGER_BYTES, MAX_TIMERS, MAX_UNPINNED_CLIPBOARD_ROWS,
+    MAX_CLIPBOARD_ENTRY_BYTES, MAX_PINNED_CLIPBOARD_ROWS, MAX_UNPINNED_CLIPBOARD_ROWS,
 };
-use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
 
 /// In-memory clipboard history for module tests (no SQLite).
@@ -165,140 +159,6 @@ impl ClipboardHistoryRepository for MemoryClipboardHistory {
         let before = rows.len();
         rows.retain(|r| r.pinned);
         Ok(before - rows.len())
-    }
-}
-
-/// In-memory quicklinks for module tests.
-#[derive(Default)]
-pub struct MemoryQuicklinksRepository {
-    rows: Mutex<BTreeMap<String, String>>,
-}
-
-impl MemoryQuicklinksRepository {
-    pub fn new() -> Self {
-        Self::default()
-    }
-}
-
-#[async_trait]
-impl QuicklinksRepository for MemoryQuicklinksRepository {
-    fn list(&self) -> Result<Vec<QuicklinkEntry>, QuicklinksRepoError> {
-        Ok(self
-            .rows
-            .lock()
-            .expect("lock")
-            .iter()
-            .map(|(trigger, url)| QuicklinkEntry {
-                trigger: trigger.clone(),
-                url: url.clone(),
-            })
-            .take(MAX_QUICKLINKS + 1)
-            .collect())
-    }
-
-    fn upsert(&self, trigger: &str, url: &str) -> Result<(), QuicklinksRepoError> {
-        if trigger.len() > MAX_QUICKLINK_TRIGGER_BYTES {
-            return Err(QuicklinksRepoError::msg(format!(
-                "quicklink trigger exceeds max size ({MAX_QUICKLINK_TRIGGER_BYTES} bytes)"
-            )));
-        }
-        if url.len() > MAX_QUICKLINK_URL_BYTES {
-            return Err(QuicklinksRepoError::msg(format!(
-                "quicklink url exceeds max size ({MAX_QUICKLINK_URL_BYTES} bytes)"
-            )));
-        }
-        let mut rows = self.rows.lock().expect("lock");
-        if !rows.contains_key(trigger) && rows.len() >= MAX_QUICKLINKS {
-            return Err(QuicklinksRepoError::msg(format!(
-                "quicklinks capacity reached ({MAX_QUICKLINKS})"
-            )));
-        }
-        rows.insert(trigger.into(), url.into());
-        Ok(())
-    }
-
-    fn delete(&self, trigger: &str) -> Result<(), QuicklinksRepoError> {
-        self.rows.lock().expect("lock").remove(trigger);
-        Ok(())
-    }
-
-    fn backup(&self) -> Result<std::path::PathBuf, QuicklinksRepoError> {
-        Ok(std::path::PathBuf::from(
-            "/tmp/quicklinks-memory-backup.sqlite",
-        ))
-    }
-}
-
-/// In-memory snippets for module tests.
-#[derive(Default)]
-pub struct MemorySnippetsRepository {
-    rows: Mutex<BTreeMap<String, String>>,
-}
-
-impl MemorySnippetsRepository {
-    pub fn new() -> Self {
-        Self::default()
-    }
-}
-
-#[async_trait]
-impl SnippetsRepository for MemorySnippetsRepository {
-    fn list(&self) -> Result<Vec<SnippetEntry>, SnippetsRepoError> {
-        Ok(self
-            .rows
-            .lock()
-            .expect("lock")
-            .iter()
-            .map(|(trigger, body)| SnippetEntry {
-                trigger: trigger.clone(),
-                body: body.clone(),
-            })
-            .take(MAX_SNIPPETS + 1)
-            .collect())
-    }
-
-    fn get(&self, trigger: &str) -> Result<Option<SnippetEntry>, SnippetsRepoError> {
-        Ok(self
-            .rows
-            .lock()
-            .expect("lock")
-            .get(trigger)
-            .map(|body| SnippetEntry {
-                trigger: trigger.into(),
-                body: body.clone(),
-            }))
-    }
-
-    fn upsert(&self, trigger: &str, body: &str) -> Result<(), SnippetsRepoError> {
-        if trigger.len() > MAX_SNIPPET_TRIGGER_BYTES {
-            return Err(SnippetsRepoError::msg(format!(
-                "snippet trigger exceeds max size ({MAX_SNIPPET_TRIGGER_BYTES} bytes)"
-            )));
-        }
-        if body.len() > MAX_SNIPPET_BODY_BYTES {
-            return Err(SnippetsRepoError::msg(format!(
-                "snippet body exceeds max size ({MAX_SNIPPET_BODY_BYTES} bytes)"
-            )));
-        }
-        let mut rows = self.rows.lock().expect("lock");
-        if !rows.contains_key(trigger) && rows.len() >= MAX_SNIPPETS {
-            return Err(SnippetsRepoError::msg(format!(
-                "snippets capacity reached ({MAX_SNIPPETS})"
-            )));
-        }
-        rows.insert(trigger.into(), body.into());
-        Ok(())
-    }
-
-    fn delete(&self, trigger: &str) -> Result<(), SnippetsRepoError> {
-        self.rows.lock().expect("lock").remove(trigger);
-        Ok(())
-    }
-
-    fn backup(&self) -> Result<std::path::PathBuf, SnippetsRepoError> {
-        Ok(std::path::PathBuf::from(
-            "/tmp/snippets-memory-backup.sqlite",
-        ))
     }
 }
 
@@ -916,73 +776,6 @@ impl RecordsRepository for MemoryRecordsRepository {
     }
 }
 
-/// In-memory timers for module tests.
-#[derive(Default)]
-pub struct MemoryTimersRepository {
-    rows: Mutex<BTreeMap<String, TimerEntry>>,
-    next: AtomicU64,
-}
-
-impl MemoryTimersRepository {
-    pub fn new() -> Self {
-        Self::default()
-    }
-}
-
-impl TimersRepository for MemoryTimersRepository {
-    fn list(&self) -> Result<Vec<TimerEntry>, TimersRepoError> {
-        let mut rows: Vec<_> = self.rows.lock().expect("lock").values().cloned().collect();
-        rows.sort_by(|a, b| {
-            b.updated_at_ms
-                .cmp(&a.updated_at_ms)
-                .then_with(|| a.name.cmp(&b.name))
-        });
-        rows.truncate(MAX_TIMERS + 1);
-        Ok(rows)
-    }
-
-    fn get(&self, id: &str) -> Result<Option<TimerEntry>, TimersRepoError> {
-        Ok(self.rows.lock().expect("lock").get(id).cloned())
-    }
-
-    fn insert(&self, entry: &TimerEntry) -> Result<(), TimersRepoError> {
-        let mut rows = self.rows.lock().expect("lock");
-        if !rows.contains_key(&entry.id) && rows.len() >= MAX_TIMERS {
-            return Err(TimersRepoError::msg(format!(
-                "timers capacity reached ({MAX_TIMERS})"
-            )));
-        }
-        rows.insert(entry.id.clone(), entry.clone());
-        Ok(())
-    }
-
-    fn update(
-        &self,
-        entry: &TimerEntry,
-        expected_updated_at_ms: i64,
-    ) -> Result<(), TimersRepoError> {
-        let mut rows = self.rows.lock().expect("lock");
-        let Some(existing) = rows.get(&entry.id) else {
-            return Err(TimersRepoError::Conflict);
-        };
-        if existing.updated_at_ms != expected_updated_at_ms {
-            return Err(TimersRepoError::Conflict);
-        }
-        rows.insert(entry.id.clone(), entry.clone());
-        Ok(())
-    }
-
-    fn delete(&self, id: &str) -> Result<(), TimersRepoError> {
-        self.rows.lock().expect("lock").remove(id);
-        Ok(())
-    }
-
-    fn new_id(&self) -> String {
-        let n = self.next.fetch_add(1, Ordering::SeqCst) + 1;
-        format!("tm-mem-{n}")
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -999,27 +792,5 @@ mod tests {
         assert!(rows.iter().all(|row| row.text != "entry-0"));
         let too_large = "x".repeat(MAX_CLIPBOARD_ENTRY_BYTES + 1);
         assert!(store.insert(&too_large, false).is_err());
-    }
-
-    #[test]
-    fn memory_quicklinks_and_snippets_reject_production_size_limits() {
-        let quicklinks = MemoryQuicklinksRepository::new();
-        assert!(quicklinks
-            .upsert(
-                &"q".repeat(MAX_QUICKLINK_TRIGGER_BYTES + 1),
-                "https://example.test"
-            )
-            .is_err());
-        assert!(quicklinks
-            .upsert("q", &"x".repeat(MAX_QUICKLINK_URL_BYTES + 1))
-            .is_err());
-
-        let snippets = MemorySnippetsRepository::new();
-        assert!(snippets
-            .upsert(&"s".repeat(MAX_SNIPPET_TRIGGER_BYTES + 1), "body")
-            .is_err());
-        assert!(snippets
-            .upsert("s", &"x".repeat(MAX_SNIPPET_BODY_BYTES + 1))
-            .is_err());
     }
 }

@@ -360,7 +360,7 @@ impl LumaModule for ClipboardModule {
                 return ModuleState::Failed(err.to_string());
             }
             // Seed last_seen from the current pasteboard without capturing into history.
-            // Avoids writing a pre-existing secret (e.g. after Secrets copy + restart).
+            // Avoids writing a pre-existing sensitive value after a restart.
             if let Ok(snapshot) = self.pasteboard.read_for_capture().await {
                 if snapshot.capture_allowed {
                     *self.last_seen_text.lock().await = snapshot.text;

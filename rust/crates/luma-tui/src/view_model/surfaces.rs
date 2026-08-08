@@ -19,7 +19,6 @@ pub struct SettingsRootsInfo {
 pub struct SettingsValues {
     pub records_root: Option<String>,
     pub clipboard_retention_days: u32,
-    pub secrets_idle_lock_secs: u32,
     pub hub_windows_max: u32,
 }
 
@@ -28,7 +27,6 @@ impl Default for SettingsValues {
         Self {
             records_root: None,
             clipboard_retention_days: 30,
-            secrets_idle_lock_secs: 300,
             hub_windows_max: 7,
         }
     }

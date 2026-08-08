@@ -49,10 +49,6 @@ fn privacy_safe_title(item: &SearchItem) -> String {
     // actionable identity, not a second copy of the source text/configuration.
     let generic = match item.module_id.as_str() {
         "luma.clipboard" => Some("Clipboard item"),
-        "luma.calculator" => Some("Calculation"),
-        "luma.databases" => Some("Database portal"),
-        "luma.shell_history" => Some("Shell history command"),
-        "luma.snippets" => Some("Snippet"),
         _ => None,
     };
     let raw = generic.unwrap_or(item.title.as_str());
@@ -319,57 +315,27 @@ mod tests {
     }
 
     #[test]
-    fn calculator_recall_uses_generic_label() {
-        let mut calculation = item("luma.calculator", "calc:secret", 1.0);
-        calculation.title = "sensitive expression = 42".into();
-        assert_eq!(
-            recall_object_from_item(&calculation, 1).unwrap().title,
-            "Calculation"
-        );
-    }
-
-    #[test]
-    fn shell_history_recall_never_stores_command_text() {
-        let mut command = item("luma.shell_history", "hist:1", 1.0);
-        command.title = "curl https://private.example/path".into();
-        assert_eq!(
-            recall_object_from_item(&command, 1).unwrap().title,
-            "Shell history command"
-        );
-    }
-
-    #[test]
-    fn database_recall_never_stores_label_or_connection_text() {
-        let mut portal = item("luma.databases", "db:1", 1.0);
-        portal.title = "postgres://reader:password@private.example/app".into();
-        assert_eq!(
-            recall_object_from_item(&portal, 1).unwrap().title,
-            "Database portal"
-        );
-    }
-
-    #[test]
     fn hub_preparation_keeps_live_risk_confirmation_and_payload() {
         let record = RecallObject {
-            object_id: "db:1".into(),
-            module_id: "luma.databases".into(),
-            kind: "database_portal".into(),
-            primary_action: "open_cli".into(),
-            title: "Database portal".into(),
+            object_id: "rec:1".into(),
+            module_id: "luma.records".into(),
+            kind: "record".into(),
+            primary_action: "open".into(),
+            title: "Record".into(),
             project_path: None,
             use_count: 2,
             last_used_at: 10,
         };
         let live = SearchItem {
-            id: luma_domain::ResultId::new("db:1"),
-            module_id: ModuleId::new("luma.databases"),
-            title: "private production label".into(),
-            subtitle: Some("postgres · production".into()),
-            kind: "database_portal".into(),
+            id: luma_domain::ResultId::new("rec:1"),
+            module_id: ModuleId::new("luma.records"),
+            title: "Record".into(),
+            subtitle: Some("Movies".into()),
+            kind: "record".into(),
             score: 100.0,
             primary_action: ActionDescriptor {
-                id: ActionId::new("open_cli"),
-                label: "Open CLI".into(),
+                id: ActionId::new("open"),
+                label: "Open".into(),
                 risk: ActionRisk::Confirm,
                 confirmation: true,
             },
@@ -379,7 +345,7 @@ mod tests {
         };
 
         let prepared = prepare_hub_item(&record, live).unwrap();
-        assert_eq!(prepared.title, "Database portal");
+        assert_eq!(prepared.title, "Record");
         assert_eq!(prepared.primary_action.risk, ActionRisk::Confirm);
         assert!(prepared.primary_action.confirmation);
         assert_eq!(prepared.action_payload.unwrap()["updated_at"], "v2");
@@ -388,15 +354,15 @@ mod tests {
     #[test]
     fn hub_preparation_rejects_identity_mismatch() {
         let record = RecallObject {
-            object_id: "ql:docs".into(),
-            module_id: "luma.quicklinks".into(),
-            kind: "quicklink".into(),
+            object_id: "rec:1".into(),
+            module_id: "luma.records".into(),
+            kind: "record".into(),
             primary_action: "open".into(),
-            title: "docs".into(),
+            title: "Record".into(),
             project_path: None,
             use_count: 1,
             last_used_at: 10,
         };
-        assert!(prepare_hub_item(&record, item("luma.quicklinks", "ql:other", 1.0)).is_none());
+        assert!(prepare_hub_item(&record, item("luma.records", "rec:other", 1.0)).is_none());
     }
 }

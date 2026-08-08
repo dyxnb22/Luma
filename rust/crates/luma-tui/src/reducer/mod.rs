@@ -95,10 +95,6 @@ fn settings_patch_from_prompt(
             let days = parse_u32(field, 1, 3_650)?;
             serde_json::json!({ "clipboard_retention_days": days })
         }
-        "secrets-idle-lock-secs" => {
-            let seconds = parse_u32(field, 0, 2_592_000)?;
-            serde_json::json!({ "secrets_idle_lock_secs": seconds })
-        }
         "hub-windows-max" => {
             let rows = parse_u32(field, 5, 50)?;
             serde_json::json!({ "hub_windows_max": rows })

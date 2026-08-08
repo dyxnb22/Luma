@@ -13,10 +13,9 @@ subcommands, parameter placeholders, examples, `/help` entries, and partial-comm
 Empty prompt shows:
 
 1. **Windows** — all visible windows (`title · app`); Enter or **1–9** focuses (status/more/Continue/modules rows are not numbered). Soft-refreshes about every 2s while Hub is visible.
-2. **Continue** — up to three live-or-recent objects. Running/paused timers come first, followed
-   by privacy-safe Recall objects that their owning module can re-read and validate; Enter runs
-   the current natural primary action. Stale/deleted objects are pruned. Recall contains no raw
-   clipboard/snippet body or search text.
+2. **Continue** — up to three privacy-safe Recall objects that their owning module can re-read and
+   validate; Enter runs the current natural primary action. Stale/deleted objects are pruned.
+   Recall contains no raw clipboard body or search text.
 3. **Modules** — Enter opens each module’s `suggested_query` (its default surface).
 
 ## Module defaults (Hub Enter)
@@ -29,9 +28,7 @@ Empty prompt shows:
 | Wordbook | `/wb review` — today's due-first review queue, filled with new words to the remaining goal |
 | Records | `/rec ` — categories or imported media records |
 | Command Recipes | `/cmd ` — local command recipes and project variants |
-| Timers | `/tm ` — stopwatch / Pomodoro list |
-| Secrets | `/sec ` — vault labels (unlock/copy) |
-| Apps / Clipboard / Snippets / Quicklinks / Windows / Proxy | `/app ` / `/clip ` / `/s ` / `/ql ` / `/win ` / `/proxy ` — list dump |
+| Apps / Clipboard / Windows | `/app ` / `/clip ` / `/win ` — list dump |
 
 Commands without the `/` prefix are global searches; use `/proj ` or `/clip ` to enter a module.
 

@@ -254,31 +254,17 @@ settings_version = 1
 projects_roots = []
 imported_projects = []
 clipboard_retention_days = 30
-secrets_idle_lock_secs = 300
 hub_windows_max = 7
 
 [enabled_modules]
 "luma.apps" = false
-"luma.calculator" = false
 "luma.clipboard" = false
 "luma.command_recipes" = false
-"luma.databases" = false
-"luma.downloads" = false
 "luma.fake" = {fake_enabled}
 "luma.git" = false
-"luma.ocr" = false
-"luma.packages" = false
 "luma.projects" = false
-"luma.proxy" = false
-"luma.quicklinks" = false
 "luma.records" = false
-"luma.renewals" = false
 "luma.runtime" = false
-"luma.secrets" = false
-"luma.shell_history" = false
-"luma.shortcuts" = false
-"luma.snippets" = false
-"luma.timers" = false
 "luma.windows" = false
 "luma.wordbook" = false
 "#

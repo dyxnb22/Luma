@@ -66,14 +66,6 @@ impl AppState {
                 submit: false,
             },
             CommandPaletteEntry {
-                id: "settings:secrets-lock".into(),
-                group: "System".into(),
-                label: "/settings secrets-idle-lock-secs <seconds>".into(),
-                description: "Set the in-process Secrets idle lock".into(),
-                query: Some("/settings secrets-idle-lock-secs ".into()),
-                submit: false,
-            },
-            CommandPaletteEntry {
                 id: "settings:hub-windows".into(),
                 group: "System".into(),
                 label: "/settings hub-windows-max <5-50>".into(),
@@ -318,19 +310,9 @@ impl AppState {
 
 fn command_group(module_id: &str) -> &'static str {
     match module_id {
-        "luma.apps" | "luma.windows" | "luma.downloads" | "luma.shell_history" | "luma.ocr" => {
-            "Find"
-        }
-        "luma.calculator" | "luma.clipboard" | "luma.quicklinks" | "luma.snippets"
-        | "luma.wordbook" | "luma.records" | "luma.timers" | "luma.renewals" | "luma.shortcuts"
-        | "luma.secrets" => "Personal",
-        "luma.projects"
-        | "luma.git"
-        | "luma.runtime"
-        | "luma.command_recipes"
-        | "luma.databases"
-        | "luma.packages" => "Develop",
-        "luma.proxy" => "Network",
+        "luma.apps" | "luma.windows" => "Find",
+        "luma.clipboard" | "luma.wordbook" | "luma.records" => "Personal",
+        "luma.projects" | "luma.git" | "luma.runtime" | "luma.command_recipes" => "Develop",
         _ => "System",
     }
 }
@@ -340,8 +322,7 @@ fn command_group_order(group: &str) -> u8 {
         "Find" => 0,
         "Personal" => 1,
         "Develop" => 2,
-        "Network" => 3,
-        "Navigate" => 4,
-        _ => 5,
+        "Navigate" => 3,
+        _ => 4,
     }
 }

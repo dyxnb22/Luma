@@ -113,9 +113,8 @@ navigability — do not open purity-only follow-ups.
 | Priority | Item | Status |
 | --- | --- | --- |
 | P0 | Keep `MODULES.md` ↔ compose ↔ README In list in sync | Done (and standing rule §2) |
-| P1 | Split `profile_store` into parse / fetch / clash / fs / store | Done → `profile_store/` |
 | P1 | Carve wordbook review out of TUI `reducer` | Done → `reducer/wordbook.rs` |
-| P2 | Subdirectory-split `proxy` / `ssh` / `projects` / `timers` | Done |
+| P2 | Subdirectory-split `projects` | Done |
 | P3 | `ProjectsModule::with_settings` → `with_deps` on touched module | Done (`with_roots` kept as thin helper) |
 | — | Explicitly **not** queued | Stub revival, doctor, crate splits for purity, release gates |
 

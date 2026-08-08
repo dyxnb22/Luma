@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use thiserror::Error;
 
 /// Recall metadata is intentionally small. It never stores result payloads, search text,
-/// record notes, clipboard/snippet bodies, credentials, or preview text.
+/// record notes, clipboard bodies, credentials, or preview text.
 pub const MAX_RECALL_OBJECTS: usize = 1_000;
 const RECALL_SCHEMA_VERSION: i64 = 2;
 

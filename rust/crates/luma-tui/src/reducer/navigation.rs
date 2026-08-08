@@ -243,8 +243,6 @@ pub(super) fn seed_module_config(
     }
     let cmd = if item.id.as_str().starts_with("proj:") {
         Some("luma config set --projects-root ~/dev")
-    } else if item.id.as_str().starts_with("sec:") || item.kind == "secrets" {
-        Some("luma secrets set <account>  (value from stdin)")
     } else {
         None
     };

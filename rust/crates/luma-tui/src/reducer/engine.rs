@@ -18,7 +18,6 @@ pub(super) fn apply_engine(state: &mut AppState, event: Event) -> Vec<Effect> {
     {
         if state.actions.active_operation.as_deref() == Some(operation_id.as_str()) {
             state.actions.active_operation = None;
-            state.actions.active_kind = None;
             return open_surface_query(state, query);
         }
     }
@@ -173,10 +172,6 @@ pub(super) fn apply_engine(state: &mut AppState, event: Event) -> Vec<Effect> {
         if state.actions.active_operation.as_deref() == Some(operation_id.as_str())
             && matches!(outcome, luma_protocol::ActionOutcomeDto::Success { .. })
             && matches!(state.search.prompt.trim_start(), prompt if prompt.starts_with("/run") || prompt.starts_with("/ports")));
-    let proxy_action_success = matches!(&event, Event::ActionFinished { operation_id, outcome }
-        if state.actions.active_operation.as_deref() == Some(operation_id.as_str())
-            && matches!(outcome, luma_protocol::ActionOutcomeDto::Success { .. })
-            && state.search.prompt.trim_start().starts_with("/proxy"));
     let refresh_review_stats = matches!(&event, Event::ActionFinished { outcome, .. }
         if matches!(outcome, luma_protocol::ActionOutcomeDto::Success { .. })
             && matches!(state.route, Route::WordbookReview)
@@ -240,9 +235,6 @@ pub(super) fn apply_engine(state: &mut AppState, event: Event) -> Vec<Effect> {
         return begin_search(state);
     }
     if runtime_action_success && !state.search.prompt.trim().is_empty() {
-        return begin_search(state);
-    }
-    if proxy_action_success && !state.search.prompt.trim().is_empty() {
         return begin_search(state);
     }
     if let Some(sel) = state.search.results.selected_id.as_deref() {

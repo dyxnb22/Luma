@@ -4,32 +4,24 @@
 //! listed in Settings but do not warm up or appear on the Hub.
 
 use luma_application::{
-    CapabilityPort, CommandRecipesRepository, CommandSpec, ModuleManifest, ModuleRegistry,
-    RecallRepository, RegistryError as ModuleRegistryError, SearchMode, SettingsRepository,
-    SqliteClipboardHistory, SqliteCommandRecipesRepository, SqliteDatabasePortalsRepository,
-    SqliteQuicklinksRepository, SqliteRecallRepository, SqliteRecordsRepository,
-    SqliteRenewalsRepository, SqliteSnippetsRepository, SqliteTimersRepository,
+    CommandRecipesRepository, CommandSpec, ModuleManifest, ModuleRegistry, RecallRepository,
+    RegistryError as ModuleRegistryError, SearchMode, SettingsRepository, SqliteClipboardHistory,
+    SqliteCommandRecipesRepository, SqliteRecallRepository, SqliteRecordsRepository,
     SqliteWordbookRepository, TomlSettingsRepository, UnavailableModule, WordbookRepository,
     WorkbenchMeta,
 };
 use luma_modules::{
-    AppsModule, CalculatorModule, ClipboardModule, ClipboardSuppression, CommandRecipesModule,
-    DatabasePortalsModule, DownloadsModule, FakeEchoModule, GitModule, PackagesModule,
-    ProjectsModule, ProxyModule, QuicklinksModule, RecordsModule, RenewalsModule, RuntimeModule,
-    ScreenOcrModule, SecretsModule, ShellHistoryModule, ShortcutsModule, SnippetsModule,
-    TimersModule, WindowsModule, WordbookModule,
+    AppsModule, ClipboardModule, ClipboardSuppression, CommandRecipesModule, FakeEchoModule,
+    GitModule, ProjectsModule, RecordsModule, RuntimeModule, WindowsModule, WordbookModule,
 };
 use luma_platform_macos::{
-    FilesystemAppsCatalog, MacAccessibility, MacBoundedUtf8FileReader, MacClock,
-    MacDatabasePlatform, MacDownloads, MacGitRepository, MacHomebrew, MacKeychain,
-    MacMihomoProxyCore, MacNetworkProbe, MacOpenPath, MacPasteboard, MacProfileStore,
-    MacProjectWorkspace, MacRecipeEnvironment, MacRuntimeInspector, MacScreenOcr, MacShellHistory,
-    MacShortcuts, MacSpeech, MacSystemProxy, MacSystemSettings, MacWindowCatalog,
+    FilesystemAppsCatalog, MacAccessibility, MacBoundedUtf8FileReader, MacGitRepository,
+    MacOpenPath, MacPasteboard, MacProjectWorkspace, MacRecipeEnvironment, MacRuntimeInspector,
+    MacSpeech, MacSystemSettings, MacWindowCatalog,
 };
 use luma_storage::{
     luma_next_support_dir, ClipboardStore, CommandRecipesMetaStore, ConfigError, ConfigStore,
-    DatabasePortalsStore, LumaSettings, QuicklinksStore, RecallStore, RecordsStore, RenewalsStore,
-    SnippetsStore, TimersStore, WordbookStore,
+    LumaSettings, RecallStore, RecordsStore, WordbookStore,
 };
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -62,34 +54,15 @@ pub struct RegistryLoad {
     pub skipped: Vec<SkippedModule>,
 }
 
-struct ComposeCapabilities;
-
-impl CapabilityPort for ComposeCapabilities {
-    fn has(&self, capability: &str) -> bool {
-        match capability {
-            "accessibility" => luma_platform_macos::MacAccessibility::probe_trusted(),
-            // Service exists; empty label list is handled by the module.
-            "keychain" => true,
-            _ => true,
-        }
-    }
-}
-
 /// Build registry from settings + optionally opened stores.
 /// A store failure becomes an in-place unavailable module rather than removing
 /// its trigger and silently changing `/module` into a global search.
-#[allow(clippy::too_many_arguments)]
 pub fn registry_from_settings(
     settings: &LumaSettings,
     clipboard: Option<Arc<ClipboardStore>>,
-    quicklinks: Option<Arc<QuicklinksStore>>,
-    snippets: Option<Arc<SnippetsStore>>,
     wordbook: Option<Arc<WordbookStore>>,
     records: Option<Arc<RecordsStore>>,
     command_recipes_meta: Option<Arc<CommandRecipesMetaStore>>,
-    timers: Option<Arc<TimersStore>>,
-    renewals: Option<Arc<RenewalsStore>>,
-    database_portals: Option<Arc<DatabasePortalsStore>>,
     recall: Option<Arc<RecallStore>>,
     support_dir: PathBuf,
 ) -> Result<(ModuleRegistry, Vec<SkippedModule>), ModuleRegistryError> {
@@ -103,7 +76,6 @@ pub fn registry_from_settings(
 
     let opener = Arc::new(MacOpenPath);
     let pasteboard = Arc::new(MacPasteboard);
-    let keychain = Arc::new(MacKeychain::luma_next());
     let accessibility = Arc::new(MacAccessibility::new());
     let clipboard_suppression = Arc::new(ClipboardSuppression::new());
     let window_catalog = Arc::new(MacWindowCatalog::new());
@@ -112,94 +84,10 @@ pub fn registry_from_settings(
     }
 
     let mut reg = ModuleRegistry::new();
-    let proxy_core = Arc::new(MacMihomoProxyCore::from_settings(
-        settings,
-        keychain.clone(),
-    ));
-    // Profile subscription references must remain private: they are not Secret-module labels
-    // and must never become copyable UI entries.
-    let integrate_clash_verge = proxy_core.uses_clash_verge_integration();
-    let proxy_store = MacProfileStore::new(
-        Arc::new(MacKeychain::private_references()),
-        proxy_core.clone(),
-        integrate_clash_verge,
-    )
-    .ok()
-    .map(|store| Arc::new(store) as Arc<dyn luma_application::ProfileStorePort>);
-    let mut proxy_module = ProxyModule::with_deps(
-        proxy_core,
-        Arc::new(MacSystemProxy::with_service(
-            settings.proxy_network_service.clone(),
-        )),
-        pasteboard.clone(),
-    )
-    .with_network_probe(Arc::new(MacNetworkProbe));
-    if let Some(proxy_store) = proxy_store {
-        proxy_module = proxy_module.with_profile_store(proxy_store);
-    }
-    reg.register(Arc::new(proxy_module))?;
     reg.register(Arc::new(AppsModule::new(
         Arc::new(FilesystemAppsCatalog::system_default()),
         pasteboard.clone(),
     )))?;
-    reg.register(Arc::new(CalculatorModule::with_deps(pasteboard.clone())))?;
-    match MacDownloads::system_default() {
-        Ok(downloads) => reg.register(Arc::new(DownloadsModule::with_deps(
-            Arc::new(downloads),
-            opener.clone(),
-            pasteboard.clone(),
-        )))?,
-        Err(error) => {
-            let reason = format!("Downloads adapter could not be configured: {error}");
-            register_unavailable_store_module(
-                &mut reg,
-                &mut skipped,
-                "luma.downloads",
-                "Downloads Inbox",
-                &["dl", "downloads"],
-                "D",
-                "/dl ",
-                "/dl recent · large · old 30d · type image",
-                false,
-                DownloadsModule::command_specs(),
-                &reason,
-            )?;
-        }
-    }
-    reg.register(Arc::new(PackagesModule::with_deps(
-        Arc::new(MacHomebrew::system_default()),
-        pasteboard.clone(),
-    )))?;
-    reg.register(Arc::new(ShortcutsModule::with_deps(
-        Arc::new(MacShortcuts::system_default()),
-        pasteboard.clone(),
-    )))?;
-    reg.register(Arc::new(
-        ScreenOcrModule::with_deps(Arc::new(MacScreenOcr), pasteboard.clone())
-            .with_system_settings(Arc::new(MacSystemSettings)),
-    ))?;
-    match MacShellHistory::system_default() {
-        Ok(history) => reg.register(Arc::new(ShellHistoryModule::with_deps(
-            Arc::new(history),
-            pasteboard.clone(),
-        )))?,
-        Err(error) => {
-            let reason = format!("Shell history adapter could not be configured: {error}");
-            register_unavailable_store_module(
-                &mut reg,
-                &mut skipped,
-                "luma.shell_history",
-                "Shell Recall",
-                &["hist", "history"],
-                "H",
-                "/hist ",
-                "/hist recent · /hist <query>",
-                false,
-                ShellHistoryModule::command_specs(),
-                &reason,
-            )?;
-        }
-    }
     reg.register(Arc::new(WindowsModule::with_deps(
         window_catalog.clone(),
         Arc::new(MacSystemSettings),
@@ -225,49 +113,6 @@ pub fn registry_from_settings(
             false,
             ClipboardModule::command_specs(),
             "Clipboard store could not be opened. Existing data was left untouched; close Luma, repair or restore the local store, then reopen.",
-        )?;
-    }
-    if let Some(quicklinks) = quicklinks {
-        reg.register(Arc::new(QuicklinksModule::with_deps(
-            Arc::new(SqliteQuicklinksRepository::new(quicklinks)),
-            opener.clone(),
-            pasteboard.clone(),
-        )))?;
-    } else {
-        register_unavailable_store_module(
-            &mut reg,
-            &mut skipped,
-            "luma.quicklinks",
-            "Quicklinks",
-            &["ql", "quicklinks"],
-            "Q",
-            "/ql ",
-            "/ql · /ql add <trigger> <url>",
-            false,
-            QuicklinksModule::command_specs(),
-            "Quicklinks store could not be opened. Existing data was left untouched; close Luma, repair or restore the local store, then reopen.",
-        )?;
-    }
-    if let Some(snippets) = snippets {
-        reg.register(Arc::new(SnippetsModule::with_store(
-            Arc::new(SqliteSnippetsRepository::new(snippets)),
-            pasteboard.clone(),
-            accessibility.clone(),
-            window_catalog,
-        )))?;
-    } else {
-        register_unavailable_store_module(
-            &mut reg,
-            &mut skipped,
-            "luma.snippets",
-            "Snippets",
-            &["s", "snip"],
-            "S",
-            "/s ",
-            "/s · /snip add <trigger> <body>",
-            false,
-            SnippetsModule::command_specs(),
-            "Snippets store could not be opened. Existing data was left untouched; close Luma, repair or restore the local store, then reopen.",
         )?;
     }
     if let Some(wordbook) = wordbook {
@@ -369,105 +214,13 @@ pub fn registry_from_settings(
             "Command Recipes metadata store could not be opened. Existing data was left untouched; close Luma, repair or restore the local store, then reopen.",
         )?;
     }
-    if let Some(timers) = timers {
-        reg.register(Arc::new(TimersModule::with_deps(
-            Arc::new(SqliteTimersRepository::new(timers)),
-            Arc::new(MacClock),
-            Arc::new(MacSpeech),
-        )))?;
-    } else {
-        register_unavailable_store_module(
-            &mut reg,
-            &mut skipped,
-            "luma.timers",
-            "Timers",
-            &["tm", "timer", "timers"],
-            "T",
-            "/tm ",
-            "/tm · /tm pomo [min] [name] · /tm sw [name] · start/pause/resume",
-            false,
-            TimersModule::command_specs(),
-            "Timers store could not be opened. Existing data was left untouched; close Luma, repair or restore the local store, then reopen.",
-        )?;
-    }
-    if let Some(renewals) = renewals {
-        reg.register(Arc::new(RenewalsModule::with_deps(
-            Arc::new(SqliteRenewalsRepository::new(renewals)),
-            Arc::new(MacClock),
-        )))?;
-    } else {
-        register_unavailable_store_module(
-            &mut reg,
-            &mut skipped,
-            "luma.renewals",
-            "Renewals",
-            &["renew", "renewals"],
-            "R",
-            "/renew ",
-            "/renew · due · 30d · add · paid · cancel · delete · backup",
-            false,
-            RenewalsModule::command_specs(),
-            "Renewals store could not be opened. Existing data was left untouched; close Luma, repair or restore the local store, then reopen.",
-        )?;
-    }
-    if let Some(database_portals) = database_portals {
-        reg.register(Arc::new(DatabasePortalsModule::with_deps(
-            Arc::new(SqliteDatabasePortalsRepository::new(database_portals)),
-            Arc::new(MacDatabasePlatform),
-            opener.clone(),
-            Arc::new(MacClock),
-        )))?;
-    } else {
-        register_unavailable_store_module(
-            &mut reg,
-            &mut skipped,
-            "luma.databases",
-            "Database Portals",
-            &["db", "database", "databases"],
-            "D",
-            "/db ",
-            "/db add sqlite LABEL | PATH · /db add postgres LABEL | HOST | PORT | DB | USER",
-            false,
-            DatabasePortalsModule::command_specs(),
-            "Database portal metadata store could not be opened. Existing data was left untouched; close Luma, repair or restore the local store, then reopen.",
-        )?;
-    }
-    reg.register(Arc::new(SecretsModule::with_deps(
-        keychain,
-        pasteboard,
-        clipboard_suppression,
-    )))?;
     // Test/demo only — kept off unless explicitly enabled.
     reg.register(Arc::new(FakeEchoModule::new()))?;
 
     for (id, enabled) in &settings.enabled_modules {
         let _ = reg.set_enabled(id, *enabled);
     }
-    force_off_unless_explicitly_enabled(&mut reg, settings, "luma.fake");
-    // Default-off until provisioned (ADR-0003). Missing key must not fall back to an
-    // accidental manifest true — same force-off pattern as luma.fake.
-    force_off_unless_explicitly_enabled(&mut reg, settings, "luma.secrets");
-    force_off_unless_explicitly_enabled(&mut reg, settings, "luma.databases");
-    for (id, reason) in reg.apply_capability_preflight(&ComposeCapabilities) {
-        warn!("{id}: {reason} — module disabled");
-        skipped.push(SkippedModule { id, reason });
-    }
     Ok((reg, skipped))
-}
-
-fn force_off_unless_explicitly_enabled(
-    registry: &mut ModuleRegistry,
-    settings: &LumaSettings,
-    module_id: &str,
-) {
-    if !settings
-        .enabled_modules
-        .get(module_id)
-        .copied()
-        .unwrap_or(false)
-    {
-        let _ = registry.set_enabled(module_id, false);
-    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -517,7 +270,7 @@ fn default_records_root() -> Option<PathBuf> {
 }
 
 /// Load LumaNext settings + stores. Corrupt config is not replaced with defaults.
-/// Individual store open failures are logged and skip that module — Apps/shell still start.
+/// Individual store open failures are logged and skip that module — Apps and the TUI still start.
 pub fn load_registry() -> Result<ModuleRegistry, RegistryError> {
     Ok(load_registry_with_settings()?.registry)
 }
@@ -530,20 +283,6 @@ pub fn load_registry_with_settings() -> Result<RegistryLoad, RegistryError> {
         Ok(s) => Some(Arc::new(s)),
         Err(err) => {
             warn!(%err, "failed to open clipboard store");
-            None
-        }
-    };
-    let quicklinks = match QuicklinksStore::luma_next_default() {
-        Ok(s) => Some(Arc::new(s)),
-        Err(err) => {
-            warn!(%err, "failed to open quicklinks store");
-            None
-        }
-    };
-    let snippets = match SnippetsStore::luma_next_default() {
-        Ok(s) => Some(Arc::new(s)),
-        Err(err) => {
-            warn!(%err, "failed to open snippets store");
             None
         }
     };
@@ -569,27 +308,6 @@ pub fn load_registry_with_settings() -> Result<RegistryLoad, RegistryError> {
             None
         }
     };
-    let timers = match TimersStore::luma_next_default() {
-        Ok(s) => Some(Arc::new(s)),
-        Err(err) => {
-            warn!(%err, "failed to open timers store");
-            None
-        }
-    };
-    let renewals = match RenewalsStore::luma_next_default() {
-        Ok(s) => Some(Arc::new(s)),
-        Err(err) => {
-            warn!(%err, "failed to open renewals store");
-            None
-        }
-    };
-    let database_portals = match DatabasePortalsStore::luma_next_default() {
-        Ok(s) => Some(Arc::new(s)),
-        Err(err) => {
-            warn!(%err, "failed to open database portals store");
-            None
-        }
-    };
     let recall = match RecallStore::luma_next_default() {
         Ok(store) => Some(Arc::new(store)),
         Err(err) => {
@@ -600,14 +318,9 @@ pub fn load_registry_with_settings() -> Result<RegistryLoad, RegistryError> {
     let (registry, skipped) = registry_from_settings(
         &settings,
         clipboard.clone(),
-        quicklinks.clone(),
-        snippets.clone(),
         wordbook.clone(),
         records.clone(),
         command_recipes_meta.clone(),
-        timers.clone(),
-        renewals,
-        database_portals,
         recall.clone(),
         support_dir.clone(),
     )?;
@@ -642,11 +355,6 @@ mod tests {
         let settings = LumaSettings::default();
         let (registry, _) = registry_from_settings(
             &settings,
-            None,
-            None,
-            None,
-            None,
-            None,
             None,
             None,
             None,
@@ -687,25 +395,12 @@ mod tests {
             .collect::<BTreeMap<_, _>>();
         let expected = [
             ("luma.apps", 1),
-            ("luma.calculator", 1),
             ("luma.clipboard", 5),
             ("luma.command_recipes", 3),
-            ("luma.databases", 7),
-            ("luma.downloads", 4),
             ("luma.git", 5),
-            ("luma.ocr", 1),
-            ("luma.packages", 6),
             ("luma.projects", 5),
-            ("luma.proxy", 13),
-            ("luma.quicklinks", 3),
             ("luma.records", 11),
-            ("luma.renewals", 7),
             ("luma.runtime", 1),
-            ("luma.secrets", 1),
-            ("luma.shell_history", 1),
-            ("luma.shortcuts", 3),
-            ("luma.snippets", 4),
-            ("luma.timers", 4),
             ("luma.windows", 1),
             ("luma.wordbook", 9),
         ]
@@ -714,81 +409,6 @@ mod tests {
         .collect::<BTreeMap<_, _>>();
 
         assert_eq!(actual, expected);
-        assert_eq!(actual.values().sum::<usize>(), 96);
-    }
-
-    #[test]
-    fn unavailable_renewals_store_keeps_id_and_triggers_registered() {
-        let mut registry = ModuleRegistry::new();
-        let mut skipped = Vec::new();
-        register_unavailable_store_module(
-            &mut registry,
-            &mut skipped,
-            "luma.renewals",
-            "Renewals",
-            &["renew", "renewals"],
-            "R",
-            "/renew ",
-            "/renew add",
-            false,
-            RenewalsModule::command_specs(),
-            "fixture failure",
-        )
-        .unwrap();
-        assert!(registry.get("luma.renewals").is_some());
-        assert_eq!(
-            registry
-                .resolve_trigger("renew")
-                .unwrap()
-                .manifest()
-                .id
-                .as_str(),
-            "luma.renewals"
-        );
-        assert!(registry.all_triggers().contains(&"renewals".into()));
-        assert!(registry
-            .list_module_info()
-            .iter()
-            .find(|module| module.id == "luma.renewals")
-            .is_some_and(|module| !module.commands.is_empty()));
-        assert_eq!(skipped[0].id, "luma.renewals");
-    }
-
-    #[test]
-    fn unavailable_database_store_keeps_triggers_but_stays_default_off() {
-        let mut registry = ModuleRegistry::new();
-        let mut skipped = Vec::new();
-        register_unavailable_store_module(
-            &mut registry,
-            &mut skipped,
-            "luma.databases",
-            "Database Portals",
-            &["db", "database", "databases"],
-            "D",
-            "/db ",
-            "/db add sqlite",
-            false,
-            DatabasePortalsModule::command_specs(),
-            "fixture failure",
-        )
-        .unwrap();
-        let settings = LumaSettings::default();
-        force_off_unless_explicitly_enabled(&mut registry, &settings, "luma.databases");
-        assert!(registry.get("luma.databases").is_some());
-        assert!(registry.all_triggers().contains(&"db".into()));
-        assert!(!registry.is_enabled("luma.databases"));
-        assert!(registry
-            .list_module_info()
-            .iter()
-            .find(|module| module.id == "luma.databases")
-            .is_some_and(|module| !module.commands.is_empty()));
-
-        let mut enabled = LumaSettings::default();
-        enabled
-            .enabled_modules
-            .insert("luma.databases".into(), true);
-        registry.set_enabled("luma.databases", true);
-        force_off_unless_explicitly_enabled(&mut registry, &enabled, "luma.databases");
-        assert!(registry.is_enabled("luma.databases"));
+        assert_eq!(actual.values().sum::<usize>(), 41);
     }
 }

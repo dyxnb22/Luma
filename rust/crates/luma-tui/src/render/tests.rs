@@ -399,30 +399,30 @@ fn wide_command_palette_preserves_long_syntax_and_description() {
     let state = AppState {
         route: Route::Commands,
         module_catalog: vec![crate::view_model::ModuleCatalogEntry {
-            id: "luma.downloads".into(),
-            display_name: "Downloads".into(),
+            id: "luma.command_recipes".into(),
+            display_name: "Command Recipes".into(),
             enabled: true,
-            glyph: Some("D".into()),
-            suggested_query: Some("/dl ".into()),
+            glyph: Some("C".into()),
+            suggested_query: Some("/cmd ".into()),
             empty_hint: None,
             supports_browse: true,
-            triggers: vec!["dl".into()],
+            triggers: vec!["cmd".into()],
             commands: vec![crate::view_model::CommandCatalogEntry {
-                syntax: "/dl type <archive|image|video|document|audio>".into(),
-                description: "Filter downloads by file type".into(),
-                query: "/dl type ".into(),
-                example: Some("/dl type image".into()),
+                syntax: "/cmd project <exact-imported-project-path>".into(),
+                description: "Evaluate command recipes against one imported project".into(),
+                query: "/cmd project ".into(),
+                example: Some("/cmd project ~/Code/luma".into()),
             }],
         }],
         ..AppState::default()
     };
     let (flat, _) = draw(&state, 140, 30);
     assert!(
-        flat.contains("/dl type <archive|image|video|document|audio>"),
+        flat.contains("/cmd project <exact-imported-project-path>"),
         "long command syntax was truncated: {flat}"
     );
     assert!(
-        flat.contains("Filter downloads by file type"),
+        flat.contains("Evaluate command recipes against one imported project"),
         "command description was truncated: {flat}"
     );
 }

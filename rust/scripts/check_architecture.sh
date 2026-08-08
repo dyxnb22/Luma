@@ -67,13 +67,13 @@ if [[ -d "$WORKBENCH_SOURCES" ]]; then
   fi
 fi
 # application → storage is allowed (settings adapters); engine must not open stores directly.
-if rg -n 'ClipboardStore::luma_next_default|QuicklinksStore::luma_next_default|SnippetsStore::luma_next_default|TimersStore::luma_next_default' \
+if rg -n 'ClipboardStore::luma_next_default|WordbookStore::luma_next_default|RecordsStore::luma_next_default' \
   crates/luma-application/src/engine.rs crates/luma-application/src/engine/*.rs 2>/dev/null | head -20 | grep .; then
   echo "FAIL: engine must not open stores directly (use injected repositories in compose.rs)"
   fail=1
 fi
 
-if rg -n 'ConfigStore::luma_next_default|MacPasteboard::|MacOpenPath|MacKeychain::' \
+if rg -n 'ConfigStore::luma_next_default|MacPasteboard::|MacOpenPath' \
   crates/luma-modules/src 2>/dev/null | head -20 | grep .; then
   echo "FAIL: production module sources reference Mac*/ConfigStore constructors"
   fail=1

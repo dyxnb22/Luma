@@ -1,6 +1,7 @@
 # ADR-0003: macOS permission spike results (CLI probe)
 
-- Status: Accepted (partial — CLI probe only; no TCC prompts forced)
+- Status: Superseded for Secrets/Snippets (those modules were removed in 2026-08); retained as
+  historical permission-spike evidence for Clipboard and Windows
 - Date: 2026-07-13
 
 ## Context

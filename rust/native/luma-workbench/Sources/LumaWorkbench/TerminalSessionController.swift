@@ -94,7 +94,7 @@ private final class LumaTerminalView: LocalProcessTerminalView {
 /// Owns the single `luma tui` child process and the SwiftTerm view it draws into.
 ///
 /// One session, one view, for the lifetime of the app: hiding the window never touches the child,
-/// so TUI state, running Timers, and interactive recipe children survive.
+/// so TUI state and interactive recipe children survive.
 final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegate {
     let terminalView: LocalProcessTerminalView
     var activationShortcutDisplayName = HotKeyDefinition.defaultActivation.displayName

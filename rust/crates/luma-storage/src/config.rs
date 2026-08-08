@@ -48,22 +48,9 @@ pub struct LumaSettings {
     #[serde(default)]
     pub records_root: Option<String>,
     pub clipboard_retention_days: u32,
-    /// Lock Secrets vault after this many idle seconds (`0` disables idle lock).
-    #[serde(default = "default_secrets_idle_lock_secs")]
-    pub secrets_idle_lock_secs: u32,
     /// Max window rows on the Hub (clamped 5–50 when applied).
     #[serde(default = "default_hub_windows_max")]
     pub hub_windows_max: u32,
-    /// Optional loopback/Unix Mihomo controller settings. Secret is a Keychain account name,
-    /// never the secret value itself.
-    #[serde(default)]
-    pub proxy_controller_unix_socket: Option<String>,
-    #[serde(default)]
-    pub proxy_controller_address: Option<String>,
-    #[serde(default)]
-    pub proxy_controller_secret_account: Option<String>,
-    #[serde(default)]
-    pub proxy_network_service: Option<String>,
 }
 
 /// Validate and canonicalize a directory path for project import (symlinks rejected).
@@ -245,32 +232,9 @@ impl LumaSettings {
         {
             self.clipboard_retention_days = u32::try_from(days).unwrap_or(u32::MAX).clamp(1, 3_650);
         }
-        if let Some(secs) = patch.get("secrets_idle_lock_secs").and_then(|v| v.as_u64()) {
-            self.secrets_idle_lock_secs = u32::try_from(secs).unwrap_or(u32::MAX).min(2_592_000);
-        }
         if let Some(max) = patch.get("hub_windows_max").and_then(|v| v.as_u64()) {
             self.hub_windows_max = u32::try_from(max).unwrap_or(u32::MAX).clamp(5, 50);
         }
-        apply_optional_string_field(
-            patch,
-            "proxy_controller_unix_socket",
-            &mut self.proxy_controller_unix_socket,
-        );
-        apply_optional_string_field(
-            patch,
-            "proxy_controller_address",
-            &mut self.proxy_controller_address,
-        );
-        apply_optional_string_field(
-            patch,
-            "proxy_controller_secret_account",
-            &mut self.proxy_controller_secret_account,
-        );
-        apply_optional_string_field(
-            patch,
-            "proxy_network_service",
-            &mut self.proxy_network_service,
-        );
 
         for path in patch_string_list(patch, "import_project", "import_projects") {
             self.import_project_path(std::path::Path::new(&path))?;
@@ -279,21 +243,6 @@ impl LumaSettings {
             self.remove_imported_project(&name)?;
         }
         Ok(())
-    }
-}
-
-fn apply_optional_string_field(patch: &serde_json::Value, key: &str, field: &mut Option<String>) {
-    let Some(value) = patch.get(key) else {
-        return;
-    };
-    if value.is_null() {
-        *field = None;
-    } else if let Some(s) = value.as_str() {
-        *field = if s.is_empty() {
-            None
-        } else {
-            Some(s.to_string())
-        };
     }
 }
 
@@ -316,10 +265,6 @@ fn patch_string_list(patch: &serde_json::Value, singular: &str, plural: &str) ->
     out
 }
 
-fn default_secrets_idle_lock_secs() -> u32 {
-    300
-}
-
 fn default_hub_windows_max() -> u32 {
     7
 }
@@ -328,11 +273,14 @@ impl Default for LumaSettings {
     fn default() -> Self {
         let mut enabled_modules = BTreeMap::new();
         enabled_modules.insert("luma.apps".into(), true);
-        enabled_modules.insert("luma.windows".into(), true);
-        enabled_modules.insert("luma.proxy".into(), true);
         enabled_modules.insert("luma.clipboard".into(), true);
+        enabled_modules.insert("luma.command_recipes".into(), true);
+        enabled_modules.insert("luma.git".into(), true);
+        enabled_modules.insert("luma.projects".into(), true);
         enabled_modules.insert("luma.records".into(), true);
-        enabled_modules.insert("luma.secrets".into(), false);
+        enabled_modules.insert("luma.runtime".into(), true);
+        enabled_modules.insert("luma.windows".into(), true);
+        enabled_modules.insert("luma.wordbook".into(), true);
         enabled_modules.insert("luma.fake".into(), false);
         Self {
             schema_version: 1,
@@ -342,12 +290,7 @@ impl Default for LumaSettings {
             imported_projects: Vec::new(),
             records_root: None,
             clipboard_retention_days: 30,
-            secrets_idle_lock_secs: default_secrets_idle_lock_secs(),
             hub_windows_max: default_hub_windows_max(),
-            proxy_controller_unix_socket: None,
-            proxy_controller_address: None,
-            proxy_controller_secret_account: None,
-            proxy_network_service: None,
         }
     }
 }

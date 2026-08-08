@@ -2,7 +2,7 @@
 
 ## Command prefix
 
-Interactive module commands use a leading `/` (`/ssh `, `/rec browse`, `/cmd test`). Local
+Interactive module commands use a leading `/` (`/proj `, `/rec browse`, `/cmd test`). Local
 surfaces also accept `/settings` and `/help`. For first-time setup, use `/settings projects-root PATH`
 or `/settings import-project PATH`; Records can be connected with
 `/settings records-root PATH`. Input without `/` is treated as a global search. Enter on a bare
@@ -16,7 +16,7 @@ Empty prompt shows:
 2. **Continue** — up to three live-or-recent objects. Running/paused timers come first, followed
    by privacy-safe Recall objects that their owning module can re-read and validate; Enter runs
    the current natural primary action. Stale/deleted objects are pruned. Recall contains no raw
-   clipboard/snippet body, SSH configuration, or search text.
+   clipboard/snippet body or search text.
 3. **Modules** — Enter opens each module’s `suggested_query` (its default surface).
 
 ## Module defaults (Hub Enter)
@@ -29,7 +29,6 @@ Empty prompt shows:
 | Wordbook | `/wb review` — today's due-first review queue, filled with new words to the remaining goal |
 | Records | `/rec ` — categories or imported media records |
 | Command Recipes | `/cmd ` — local command recipes and project variants |
-| SSH | `/ssh ` — Host aliases from `~/.ssh/config` |
 | Timers | `/tm ` — stopwatch / Pomodoro list |
 | Secrets | `/sec ` — vault labels (unlock/copy) |
 | Apps / Clipboard / Snippets / Quicklinks / Windows / Proxy | `/app ` / `/clip ` / `/s ` / `/ql ` / `/win ` / `/proxy ` — list dump |

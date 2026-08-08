@@ -105,8 +105,6 @@ pub fn recipe_in_scope(
     match scope {
         RecipeScope::Global | RecipeScope::CurrentProject => true,
         RecipeScope::LumaRepository => env.is_luma_repository(base),
-        // SSH shelf filters by scope directly; local `/cmd` never shows these.
-        RecipeScope::SshSession => false,
     }
 }
 

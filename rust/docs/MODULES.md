@@ -9,7 +9,7 @@ Personal daily-driver status. Prefer honest `unavailable` / `permission_required
 
 **Scope:** solo local use — not a public product. Decisions live in [adr/](./adr/).
 
-Interactive module commands require a leading `/` (for example `/ssh`, `/rec browse`, and
+Interactive module commands require a leading `/` (for example `/proj`, `/rec browse`, and
 `/settings`). Bare trigger text is treated as a global search.
 
 ## Shell
@@ -18,7 +18,7 @@ Interactive module commands require a leading `/` (for example `/ssh`, `/rec bro
 | --- | --- | --- |
 | Doctor / diagnostics | Removed | Centralized doctor removed; modules still surface permission/unavailable/not_configured |
 | Config | Available | Versioned settings; `luma config get/set`; TUI Settings via `/settings`; commands cover project import/root, Records root, Clipboard retention, Secrets idle lock, and Hub window count. Ctrl-/ and `/commands [filter]` open a task-grouped searchable palette generated from enabled module `CommandSpec` descriptions; the same descriptions drive `/help` and slash completion. Space toggle persists via `UpdateSettings` CAS. `enabled_modules` keys are **sticky** by module id string — renaming a module id does not migrate or delete the old key; stale entries remain until cleaned by hand |
-| Keyboard navigation | Available | Arrow keys move one row; `⌥↑`/`⌥↓` and `/scroll up|down` page the focused Results, Hub, Preview, Help, Settings, command palette, or ActionPicker. Compact-Mac `fn↑`/`fn↓` is accepted as a compatibility alias; dedicated Page keys are never required or shown. Page movement is reducer-only and does not execute actions, refresh modules, or request previews. Mouse reporting remains disabled so terminal-native text selection is preserved |
+| Keyboard navigation | Available | Arrow keys move one row; `⌥↑`/`⌥↓` and `/scroll up|down` move by the focused surface's visible viewport across Results, Hub, Preview, Help, Settings, the command palette, or ActionPicker. Compact-Mac `fn↑`/`fn↓` is accepted as a compatibility alias; dedicated Page keys are never required or shown. Page movement never executes actions or refreshes modules; when a Results selection changes, its preview refreshes just as it does for single-row navigation. Mouse reporting remains disabled so terminal-native text selection is preserved |
 | Module registry | Available | Manifest + enable/disable; warmup for enabled modules |
 
 ## Modules
@@ -45,7 +45,6 @@ Interactive module commands require a leading `/` (for example `/ssh`, `/rec bro
 | Records | `/rec` / `/record` | Available — SQLite-backed media log; search/browse plus `/rec recent`, `/rec unrated`, `/rec top`; add/rate/note and ActionPicker edit/remove; `/rec backup`; CLI import is dry-run by default and `--apply` is ledger-backed with a LumaNext backup, source Markdown stays read-only | on |
 | Projects | `/p` / `/proj` / `/project` | Available — recall-ranked manually imported projects; Enter opens `/proj show PATH`, which aggregates Continue, on-demand Git status, associated Runtime listeners, matching Command Recipes, bounded files, Finder, an available editor CLI, and a project-rooted terminal. `/proj add/import PATH`, `/proj remove NAME\|PATH`, `/proj browse`; canonical existing non-symlink paths, duplicate rejection, config-only removal | on |
 | Command Recipes | `/cmd` / `/recipe` / `/recipes` | Available — default surface shows runnable current-directory variants; `/cmd all [filter]` includes inapplicable recipes after runnable rows; `.git/` repositories and `.git` worktrees both match; executable symlinks are followed. `/cmd project PATH` evaluates against an exact imported project; ordered `program + args`; user TOML + built-ins. See [Command Recipes](./COMMAND_RECIPES.md). | on |
-| SSH | `/ssh` | Available — reads `~/.ssh/config` Host aliases and automatically refreshes config/Include files on targeted visits; `/ssh fav` / `/ssh recent` / `/ssh rename` / explicit `/ssh reload`; favorite/recent metadata in `ssh_meta.sqlite` with a **1000-row** cap; optional passwords stay in private macOS Keychain accounts and are supplied through OpenSSH AskPass; Enter opens the embedded SSH Workspace; SFTP + copy alias actions. See [SSH](./SSH.md). | on |
 | Timers | `/tm` / `/timer` / `/timers` | Available — stopwatch + countdown/Pomodoro; start/pause/resume/reset/delete; running/paused timers appear as live Hub Continue items; state in `timers.sqlite`, hard cap **256**; speech alert on completion while Luma is running (no daemon — graceful quitting pauses running timers). In-process 1s poller cancels on teardown; search/perform honor cancel | on |
 | Secrets | `/sec` / `/secret` / `/secrets` | Copy-only for pre-provisioned labels; `luma secrets set` bootstrap; unlock is in-process UX only (no Touch ID); copy confirm | **off** (enable in Settings after bootstrap) |
 | Fake | — | Test/demo module for CLI blackbox | **off** |
@@ -65,24 +64,10 @@ No provisioning UI. Labels come from a sidecar plus Keychain entries:
 - **Search honesty:** empty labels → `not_configured` row with bootstrap hint; sidecar/keychain errors → `unavailable`; values never appear in search (copy-only after unlock + confirm).
 - **Unlock:** in-process session gate only — not Touch ID, Keychain ACL, or an OS auth prompt. Locks on teardown/exit and after idle (`secrets_idle_lock_secs`, default 300; `0` disables).
 
-### SSH Connections
-
-Read-only launcher over OpenSSH — not a full SSH client:
-
-- **Config:** `~/.ssh/config` (concrete `Host` aliases; `Include` depth 8; wildcard patterns skipped). Override with `SSH_CONFIG` for tests.
-- **Metadata:** `~/Library/Application Support/LumaNext/ssh_meta.sqlite` — favorites, local display names, `last_connected_at`, `connection_count`. Luma does not write back to `~/.ssh/config`.
-- **Resolve:** macOS adapter runs `ssh -G <alias>`; entering a targeted `/ssh` surface re-reads
-  config/Includes and clears resolved-host cache. `/ssh reload` is the explicit equivalent.
-- **Connect:** Opens the in-TUI **SSH Workspace** (embedded PTY). Compat mode still suspends → `ssh <alias>` → resume. Successful exit (`0`) records connection metadata. SFTP keeps the suspend handoff.
-- **Queries:** `/ssh `, `/ssh <needle>`, `/ssh fav`, `/ssh recent`, `/ssh reload`, `/ssh rename ALIAS NAME` (case-insensitive `rename` prefix; name may contain spaces).
-- **CLI:** `luma ssh list|connect|sftp|favorite|unfavorite|rename`.
-- **Search honesty:** missing config → `not_configured`; parse or `ssh` binary errors → `unavailable`. Preview never shows private key contents.
-- **Details:** [SSH.md](./SSH.md).
-
 ### Continue and global recall
 
 - Global search contributors are Apps, Calculator (strict complete expressions only), Windows,
-  Projects, Command Recipes, SSH, Clipboard, Snippets, Quicklinks, and Git.
+  Projects, Command Recipes, Clipboard, Snippets, Quicklinks, and Git.
   Informational/unavailable/no-match rows are excluded. Results are
   capped at 12 per module and 60 total and remain relevance-first; after two rows from one module,
   a near-equivalent alternative (within three score points) may diversify the page. Recall boosts
@@ -92,7 +77,7 @@ Read-only launcher over OpenSSH — not a full SSH client:
   object/module/kind, natural primary action, a safe display title, optional project association,
   count, and last use. Successful secondary actions do not create usage entries; successful
   destructive actions evict the object's entry. Failed/cancelled actions are not recorded.
-  Clipboard bodies, snippet bodies, SSH configuration, proxy endpoints, Calculator expressions,
+  Clipboard bodies, snippet bodies, proxy endpoints, Calculator expressions,
   Screen OCR text, and search text are never copied into Recall.
 - The empty Hub renders at most three live-or-compatible Continue rows after Windows. Running or
   paused Timers are projected first; remaining slots come from Recall only after the owning module
@@ -195,5 +180,5 @@ Aligned with `luma-storage` clipboard store constants:
   read-only; import is idempotent, DB edits win over changed source rows, and migration rollback
   restores only the artifact belonging to that migration kind.
 - Tests cover prompt digit routing, window row hints, review reveal/grade/confirmation/exit,
-  import CAS and path validation, Records parser edge cases, SSH config parse and metadata
-  round-trips, interactive-terminal contract, and CLI dry-run/apply behavior.
+  import CAS and path validation, Records parser edge cases, interactive-terminal contract, and
+  CLI dry-run/apply behavior.

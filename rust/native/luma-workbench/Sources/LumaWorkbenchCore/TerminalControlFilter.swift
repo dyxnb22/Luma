@@ -3,8 +3,8 @@ import Foundation
 /// Drops terminal string controls before they reach SwiftTerm's parser.
 ///
 /// Luma's product UI is emitted with CSI sequences, so it does not need these
-/// OSC/APC/DCS/PM/SOS channels. Refusing them prevents a terminal child (or a
-/// remote SSH peer) from reading/writing the macOS pasteboard through OSC 52
+/// OSC/APC/DCS/PM/SOS channels. Refusing them prevents a terminal child from
+/// reading/writing the macOS pasteboard through OSC 52
 /// and keeps unterminated strings out of SwiftTerm's parser buffers.
 public struct TerminalControlFilter: Sendable {
     private enum State: Sendable {

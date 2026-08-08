@@ -18,7 +18,6 @@ tracing = { workspace = true }
 serde_json = { workspace = true }
 unicode-width = { workspace = true }
 unicode-segmentation = { workspace = true }
-vt100 = { workspace = true }
 
 [dev-dependencies]
 luma-test-support = { workspace = true }

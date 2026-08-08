@@ -2,7 +2,9 @@
 
 ## Status
 
-Accepted (personal daily-driver)
+Superseded on 2026-08-08. The SSH module, workspace, CLI, metadata store integration, and remote
+Recipe surface were removed. Existing `ssh_meta.sqlite` files and SSH-password Keychain entries
+are intentionally left untouched; current builds neither open nor mutate them.
 
 ## Context
 

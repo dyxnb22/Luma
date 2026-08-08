@@ -1,6 +1,7 @@
 # Codex Instructions for Luma
 
-**Personal-use only.** Implement the Rust CLI/TUI under `rust/`. No public-release scope.
+**Personal-use only.** Work on the Rust CLI/TUI under `rust/` and keep the optional native
+workbench host limited to the PTY window/lifecycle boundary in ADR-0007. No public-release scope.
 
 Luma is a personal workbench, not an AI-agent product. Treat Codex and Claude Code as TUI
 interaction references only: keyboard editing, discoverability, previews, command surfaces, and
@@ -9,10 +10,11 @@ and a background agent/daemon are not, unless the user explicitly changes this b
 
 ## Read first
 
-1. `rust/README.md`
-2. `rust/docs/MODULES.md`
-3. `rust/docs/SSH.md` (when touching `luma.ssh`)
-4. `rust/docs/adr/`
+1. `AGENTS.md`
+2. `rust/docs/GOVERNANCE.md`
+3. `rust/README.md`
+4. `rust/docs/MODULES.md`
+5. The relevant module doc and accepted ADRs
 
 ## Rules
 
@@ -35,4 +37,5 @@ cargo fmt --all -- --check
 cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo test --workspace --all-features
 cargo test -p luma --test cli_blackbox
+./scripts/check_architecture.sh
 ```

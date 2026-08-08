@@ -1,11 +1,10 @@
 mod cli_output;
 mod cmd_cli;
 mod compose;
-mod ssh_cli;
 
 use clap::{Parser, Subcommand};
 use cli_output::action_exit_code;
-use compose::{load_registry, load_registry_with_settings, tui_platform_adapters};
+use compose::{load_registry, load_registry_with_settings};
 use luma_application::{
     list_modules_json, run_action, run_query, Engine, KeychainPort, RecordsRepository,
     SqliteRecordsRepository,
@@ -18,7 +17,7 @@ use luma_storage::{
     WordbookStore,
 };
 use luma_tui::{run_tui_with_options, RunTuiOptions};
-use std::io::{IsTerminal, Read, Write};
+use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -87,11 +86,6 @@ enum Commands {
     Cmd {
         #[command(subcommand)]
         action: cmd_cli::CmdCmd,
-    },
-    /// SSH host connections from ~/.ssh/config.
-    Ssh {
-        #[command(subcommand)]
-        action: SshCmd,
     },
 }
 
@@ -274,44 +268,6 @@ enum RecordCmd {
 }
 
 #[derive(Debug, Subcommand)]
-enum SshCmd {
-    /// List configured SSH hosts.
-    List {
-        #[arg(long)]
-        json: bool,
-    },
-    /// Connect via ssh in the current terminal.
-    Connect { alias: String },
-    /// Open SFTP in the current terminal.
-    Sftp { alias: String },
-    /// Mark a host as favorite.
-    Favorite { alias: String },
-    /// Remove favorite from a host.
-    Unfavorite { alias: String },
-    /// Set a local display name for a host.
-    Rename { alias: String, name: String },
-    /// Manage a password stored privately in macOS Keychain.
-    Password {
-        #[command(subcommand)]
-        action: SshPasswordCmd,
-    },
-}
-
-#[derive(Debug, Subcommand)]
-enum SshPasswordCmd {
-    /// Store or replace a password. Interactive input is hidden; piped input is also accepted.
-    Set { alias: String },
-    /// Delete the saved password for a host.
-    Delete { alias: String },
-    /// Report whether a password is saved without reading its value.
-    Status {
-        alias: String,
-        #[arg(long)]
-        json: bool,
-    },
-}
-
-#[derive(Debug, Subcommand)]
 enum MigrateCmd {
     DryRun {
         /// Legacy Application Support path (default: ~/Library/Application Support/Luma)
@@ -418,9 +374,6 @@ fn init_tracing() {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    if let Some(result) = run_ssh_askpass_if_requested().await {
-        return result;
-    }
     init_tracing();
 
     let cli = Cli::parse();
@@ -435,64 +388,8 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-async fn run_ssh_askpass_if_requested() -> Option<anyhow::Result<()>> {
-    let account = std::env::var(luma_application::SSH_ASKPASS_ACCOUNT_ENV).ok()?;
-    if !account.starts_with(luma_application::SSH_PASSWORD_ACCOUNT_PREFIX) {
-        return Some(Err(anyhow::anyhow!("invalid SSH password reference")));
-    }
-    let keychain = luma_platform_macos::MacKeychain::ssh_passwords();
-    Some(
-        keychain
-            .copy_password(&account)
-            .await
-            .map_err(|_| anyhow::anyhow!("saved SSH password unavailable"))
-            .and_then(|password| {
-                let mut stdout = std::io::stdout().lock();
-                stdout.write_all(password.as_bytes())?;
-                stdout.write_all(b"\n")?;
-                stdout.flush()?;
-                Ok(())
-            }),
-    )
-}
-
-struct TerminalEchoGuard {
-    restore: bool,
-}
-
-impl Drop for TerminalEchoGuard {
-    fn drop(&mut self) {
-        if self.restore {
-            let _ = std::process::Command::new("/bin/stty").arg("echo").status();
-            eprintln!();
-        }
-    }
-}
-
-fn read_hidden_password() -> anyhow::Result<String> {
-    if !std::io::stdin().is_terminal() {
-        let mut value = String::new();
-        std::io::stdin().read_to_string(&mut value)?;
-        return Ok(value.trim_end_matches(['\n', '\r']).to_string());
-    }
-
-    eprint!("Password: ");
-    std::io::stderr().flush()?;
-    let status = std::process::Command::new("/bin/stty")
-        .arg("-echo")
-        .status()?;
-    if !status.success() {
-        anyhow::bail!("failed to disable terminal echo");
-    }
-    let _guard = TerminalEchoGuard { restore: true };
-    let mut value = String::new();
-    std::io::stdin().read_line(&mut value)?;
-    Ok(value.trim_end_matches(['\n', '\r']).to_string())
-}
-
 async fn run_tui(initial_query: Option<String>) -> anyhow::Result<()> {
     let load = load_registry_with_settings().map_err(|e| anyhow::anyhow!("registry: {e}"))?;
-    let ssh_shelf = load_ssh_shelf(load.command_recipes.as_ref());
     let engine: Arc<dyn luma_application::EnginePort> = Arc::new(Engine::with_options(
         load.registry,
         luma_application::EngineOptions {
@@ -504,51 +401,8 @@ async fn run_tui(initial_query: Option<String>) -> anyhow::Result<()> {
     ));
     let command_runner =
         Arc::new(MacCommandRunner::new()) as Arc<dyn luma_application::CommandRunnerPort>;
-    let platform = tui_platform_adapters();
-    run_tui_with_options(
-        engine,
-        command_runner,
-        RunTuiOptions {
-            initial_query,
-            embedded_pty: Some(platform.embedded_pty),
-            ssh_shelf_recipes: ssh_shelf.recipes,
-            ssh_shelf_recipe_meta: ssh_shelf.meta,
-            command_recipes: load.command_recipes.clone(),
-            pasteboard: Some(platform.pasteboard),
-        },
-    )
-    .await?;
+    run_tui_with_options(engine, command_runner, RunTuiOptions { initial_query }).await?;
     Ok(())
-}
-
-struct SshShelfLoad {
-    recipes: Vec<luma_domain::Recipe>,
-    meta: std::collections::BTreeMap<String, luma_domain::RecipeMetadata>,
-}
-
-fn load_ssh_shelf(
-    command_recipes: Option<&Arc<dyn luma_application::CommandRecipesRepository>>,
-) -> SshShelfLoad {
-    let support = luma_storage::luma_next_support_dir().unwrap_or_else(|_| PathBuf::from("."));
-    let path = luma_storage::command_recipes_config_path(&support);
-    let catalog = luma_storage::load_recipe_catalog(&path);
-    let recipes: Vec<_> = catalog
-        .recipes
-        .into_iter()
-        .filter(|r| {
-            r.scope == luma_domain::RecipeScope::SshSession
-                && r.target == luma_domain::RecipeTarget::RemoteShell
-        })
-        .collect();
-    let mut meta = std::collections::BTreeMap::new();
-    if let Some(repo) = command_recipes {
-        for recipe in &recipes {
-            if let Ok(m) = repo.get_metadata(&recipe.id) {
-                meta.insert(recipe.id.clone(), m);
-            }
-        }
-    }
-    SshShelfLoad { recipes, meta }
 }
 
 async fn run_non_tui_command(command: Commands) -> anyhow::Result<()> {
@@ -1031,7 +885,6 @@ async fn run_non_tui_command(command: Commands) -> anyhow::Result<()> {
         }
         Some(Commands::Record { action }) => handle_record_command(action)?,
         Some(Commands::Cmd { action }) => cmd_cli::handle_cmd_command(action).await?,
-        Some(Commands::Ssh { action }) => handle_ssh_command(action).await?,
         Some(Commands::Tui { .. }) => unreachable!("Tui handled by main"),
         None => unreachable!("command was constructed as Some"),
     }
@@ -1274,124 +1127,6 @@ fn print_record_import_report(
         }
         for e in &p.errors {
             println!("error: {e}");
-        }
-    }
-    Ok(())
-}
-
-async fn handle_ssh_command(action: SshCmd) -> anyhow::Result<()> {
-    let load = load_registry_with_settings().map_err(|e| anyhow::anyhow!("registry: {e}"))?;
-    let keychain = Arc::new(luma_platform_macos::MacKeychain::ssh_passwords());
-    match action {
-        SshCmd::List { json } => {
-            let payload = ssh_cli::ssh_list_json(load.registry, Some(load.settings))
-                .await
-                .map_err(anyhow::Error::msg)?;
-            if json {
-                println!("{}", serde_json::to_string_pretty(&payload)?);
-            } else {
-                let results = payload["results"].as_array().cloned().unwrap_or_default();
-                for item in results {
-                    let id = item["id"].as_str().unwrap_or("");
-                    let title = item["title"].as_str().unwrap_or("");
-                    let subtitle = item["subtitle"].as_str().unwrap_or("");
-                    if subtitle.is_empty() {
-                        println!("{id}\t{title}");
-                    } else {
-                        println!("{id}\t{title}\t{subtitle}");
-                    }
-                }
-            }
-        }
-        SshCmd::Connect { alias } => {
-            let ssh_config = Arc::new(luma_platform_macos::MacSshConfig::system_default());
-            let status = ssh_cli::ssh_connect_cli(
-                load.registry,
-                &alias,
-                "ssh",
-                Some(load.settings),
-                None,
-                ssh_config,
-                keychain,
-            )
-            .await
-            .map_err(anyhow::Error::msg)?;
-            if !status.success() {
-                std::process::exit(status.code().unwrap_or(1));
-            }
-        }
-        SshCmd::Sftp { alias } => {
-            let ssh_config = Arc::new(luma_platform_macos::MacSshConfig::system_default());
-            let status = ssh_cli::ssh_connect_cli(
-                load.registry,
-                &alias,
-                "sftp",
-                Some(load.settings),
-                None,
-                ssh_config,
-                keychain,
-            )
-            .await
-            .map_err(anyhow::Error::msg)?;
-            if !status.success() {
-                std::process::exit(status.code().unwrap_or(1));
-            }
-        }
-        SshCmd::Favorite { alias } => {
-            ssh_cli::ssh_set_favorite(load.registry, Some(load.settings), &alias, true)
-                .await
-                .map_err(anyhow::Error::msg)?;
-        }
-        SshCmd::Unfavorite { alias } => {
-            ssh_cli::ssh_set_favorite(load.registry, Some(load.settings), &alias, false)
-                .await
-                .map_err(anyhow::Error::msg)?;
-        }
-        SshCmd::Rename { alias, name } => {
-            ssh_cli::ssh_set_display_name(load.registry, Some(load.settings), &alias, &name)
-                .await
-                .map_err(anyhow::Error::msg)?;
-        }
-        SshCmd::Password { action } => {
-            let ssh_config = luma_platform_macos::MacSshConfig::system_default();
-            match action {
-                SshPasswordCmd::Set { alias } => {
-                    let password = read_hidden_password()?;
-                    ssh_cli::ssh_store_password(&ssh_config, keychain.as_ref(), &alias, &password)
-                        .await
-                        .map_err(anyhow::Error::msg)?;
-                    println!("saved SSH password for {alias}");
-                }
-                SshPasswordCmd::Delete { alias } => {
-                    ssh_cli::ssh_delete_password(&ssh_config, keychain.as_ref(), &alias)
-                        .await
-                        .map_err(anyhow::Error::msg)?;
-                    println!("deleted saved SSH password for {alias}");
-                }
-                SshPasswordCmd::Status { alias, json } => {
-                    let saved =
-                        ssh_cli::ssh_password_is_saved(&ssh_config, keychain.as_ref(), &alias)
-                            .await
-                            .map_err(anyhow::Error::msg)?;
-                    if json {
-                        println!(
-                            "{}",
-                            serde_json::to_string_pretty(
-                                &serde_json::json!({ "alias": alias, "password_saved": saved })
-                            )?
-                        );
-                    } else {
-                        println!(
-                            "{}",
-                            if saved {
-                                "password saved"
-                            } else {
-                                "password not saved"
-                            }
-                        );
-                    }
-                }
-            }
         }
     }
     Ok(())

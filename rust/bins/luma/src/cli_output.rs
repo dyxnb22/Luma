@@ -12,7 +12,5 @@ pub fn action_exit_code(outcome: &ActionOutcomeDto) -> i32 {
         // Should not leak after `run_action` executes the plan; fail closed if it does.
         ActionOutcomeDto::InteractiveRecipeRun { .. } => 1,
         ActionOutcomeDto::InteractiveTerminal { .. } => 1,
-        // CLI has no embedded TUI — fail closed; use `luma tui` / compat connect.
-        ActionOutcomeDto::EmbeddedTerminal { .. } => 1,
     }
 }

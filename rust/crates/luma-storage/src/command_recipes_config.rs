@@ -1,8 +1,5 @@
 use crate::command_recipes_builtin::builtin_recipes;
-use luma_domain::{
-    validate_recipe_parameter_definition, ConfigIssue, Recipe, RecipeCatalog, RecipeParameter,
-    RecipeParameterKind, RecipeRisk, RecipeScope, RecipeTarget,
-};
+use luma_domain::{ConfigIssue, Recipe, RecipeCatalog, RecipeRisk, RecipeScope};
 use serde::Deserialize;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -41,34 +38,9 @@ struct UserRecipeToml {
     #[serde(default)]
     enabled: Option<bool>,
     #[serde(default)]
-    parameters: Vec<UserParameterToml>,
+    parameters: Vec<toml::Value>,
     #[serde(default)]
     variants: Vec<UserVariantToml>,
-}
-
-#[derive(Debug, Deserialize)]
-struct UserParameterToml {
-    id: String,
-    #[serde(default)]
-    label: Option<String>,
-    #[serde(default)]
-    description: String,
-    #[serde(default)]
-    kind: Option<String>,
-    #[serde(default)]
-    required: bool,
-    #[serde(default)]
-    default: Option<String>,
-    #[serde(default)]
-    choices: Vec<String>,
-    #[serde(default)]
-    min: Option<i64>,
-    #[serde(default)]
-    max: Option<i64>,
-    #[serde(default)]
-    pattern: Option<String>,
-    #[serde(default)]
-    max_length: Option<usize>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -198,82 +170,32 @@ fn validate_user_step(step: &UserStepToml) -> Option<String> {
 }
 
 fn validate_user_recipe(user: &UserRecipeToml) -> Option<String> {
-    if user
-        .parameters
-        .iter()
-        .any(|p| p.kind.as_deref() == Some("secret"))
-    {
+    if user.group.as_deref().is_some_and(|group| !group.is_empty()) {
         return Some(format!(
-            "recipe `{}`: secret parameters are not allowed",
+            "recipe `{}`: recipe groups are no longer supported",
             user.id
         ));
     }
-    let mut parameter_ids = HashSet::new();
-    for parameter in &user.parameters {
-        if parameter.id.trim().is_empty() {
-            return Some(format!("recipe `{}`: parameter missing id", user.id));
-        }
-        if !parameter_ids.insert(parameter.id.as_str()) {
-            return Some(format!(
-                "recipe `{}`: duplicate parameter id `{}`",
-                user.id, parameter.id
-            ));
-        }
-        let kind = match parameter.kind.as_deref() {
-            Some(raw) => match RecipeParameterKind::parse(raw) {
-                Some(kind) => kind,
-                None => {
-                    return Some(format!(
-                        "recipe `{}`: parameter `{}` has unknown kind `{raw}`",
-                        user.id, parameter.id
-                    ))
-                }
-            },
-            None => RecipeParameterKind::Text,
-        };
-        let definition = RecipeParameter {
-            id: parameter.id.clone(),
-            label: parameter
-                .label
-                .clone()
-                .unwrap_or_else(|| parameter.id.clone()),
-            description: parameter.description.clone(),
-            kind,
-            required: parameter.required,
-            default: parameter.default.clone(),
-            choices: parameter.choices.clone(),
-            min: parameter.min,
-            max: parameter.max,
-            pattern: parameter.pattern.clone(),
-            max_length: parameter.max_length,
-        };
-        if let Err(message) = validate_recipe_parameter_definition(&definition) {
-            return Some(format!("recipe `{}`: {message}", user.id));
-        }
+    if !user.parameters.is_empty() {
+        return Some(format!(
+            "recipe `{}`: recipe parameters are no longer supported",
+            user.id
+        ));
     }
     for variant in &user.variants {
         for step in &variant.steps {
             if let Some(message) = validate_user_step(step) {
                 return Some(format!("recipe `{}`: {message}", user.id));
             }
-            for arg in &step.args {
-                if arg.contains("${") && !is_whole_param_token(arg) {
-                    return Some(format!(
-                        "recipe `{}`: parameter must occupy whole arg token (`{arg}`)",
-                        user.id
-                    ));
-                }
+            if step.args.iter().any(|arg| arg.contains("${")) {
+                return Some(format!(
+                    "recipe `{}`: parameter placeholders are no longer supported",
+                    user.id
+                ));
             }
         }
     }
     None
-}
-
-fn is_whole_param_token(arg: &str) -> bool {
-    let Some(rest) = arg.strip_prefix("${").and_then(|s| s.strip_suffix('}')) else {
-        return false;
-    };
-    !rest.is_empty() && !rest.contains("${") && !rest.contains('}') && arg.len() == rest.len() + 3
 }
 
 pub fn command_recipes_config_path(support_dir: &Path) -> PathBuf {
@@ -360,14 +282,17 @@ pub fn load_recipe_catalog(config_path: &Path) -> RecipeCatalog {
             continue;
         }
         let scope = match user.scope.as_deref() {
-            Some(raw) => RecipeScope::parse(raw).unwrap_or_else(|| {
-                issues.push(ConfigIssue {
-                    location: config_path.display().to_string(),
-                    message: format!("recipe `{}`: unknown scope `{raw}`", user.id),
-                    fatal: false,
-                });
-                RecipeScope::CurrentProject
-            }),
+            Some(raw) => match RecipeScope::parse(raw) {
+                Some(scope) => scope,
+                None => {
+                    issues.push(ConfigIssue {
+                        location: config_path.display().to_string(),
+                        message: format!("recipe `{}`: unsupported scope `{raw}`", user.id),
+                        fatal: false,
+                    });
+                    continue;
+                }
+            },
             None => RecipeScope::CurrentProject,
         };
         let risk = user
@@ -375,61 +300,22 @@ pub fn load_recipe_catalog(config_path: &Path) -> RecipeCatalog {
             .as_deref()
             .and_then(RecipeRisk::parse)
             .unwrap_or(RecipeRisk::Confirm);
-        let target = match user.target.as_deref() {
-            Some(raw) => RecipeTarget::parse(raw).unwrap_or_else(|| {
-                issues.push(ConfigIssue {
-                    location: config_path.display().to_string(),
-                    message: format!("recipe `{}`: unknown target `{raw}`", user.id),
-                    fatal: false,
-                });
-                RecipeTarget::LocalShell
-            }),
-            None => RecipeTarget::LocalShell,
-        };
+        if let Some(raw) = user.target.as_deref() {
+            issues.push(ConfigIssue {
+                location: config_path.display().to_string(),
+                message: format!("recipe `{}`: unsupported target `{raw}`", user.id),
+                fatal: false,
+            });
+            continue;
+        }
         let enabled = user.enabled.unwrap_or(true);
-        let parameters = user
-            .parameters
-            .into_iter()
-            .filter_map(|p| {
-                let kind = p
-                    .kind
-                    .as_deref()
-                    .and_then(RecipeParameterKind::parse)
-                    .unwrap_or(RecipeParameterKind::Text);
-                if p.id.trim().is_empty() {
-                    issues.push(ConfigIssue {
-                        location: config_path.display().to_string(),
-                        message: format!("recipe `{}`: parameter missing id", user.id),
-                        fatal: false,
-                    });
-                    return None;
-                }
-                let label = p.label.unwrap_or_else(|| p.id.clone());
-                Some(RecipeParameter {
-                    id: p.id,
-                    label,
-                    description: p.description,
-                    kind,
-                    required: p.required,
-                    default: p.default,
-                    choices: p.choices,
-                    min: p.min,
-                    max: p.max,
-                    pattern: p.pattern,
-                    max_length: p.max_length,
-                })
-            })
-            .collect();
         let mut recipe = Recipe {
             id: user.id.clone(),
             title: user.title,
             description: user.description,
             tags: user.tags,
             scope,
-            target,
-            group: user.group.unwrap_or_default(),
             risk,
-            parameters,
             enabled,
             variants: user
                 .variants
@@ -486,34 +372,11 @@ mod tests {
         assert!(catalog.issues.is_empty());
         assert!(catalog.recipe_by_id("git-status").is_some());
         assert!(catalog.recipe_by_id("luma-check").is_some());
-        let docker_logs = catalog
-            .recipe_by_id("ssh-docker-logs")
-            .expect("ssh docker logs");
-        assert_eq!(docker_logs.scope, RecipeScope::SshSession);
-        assert_eq!(docker_logs.target, RecipeTarget::RemoteShell);
-        assert_eq!(docker_logs.group, "Docker");
-        let ssh_recipes: Vec<_> = catalog
-            .recipes
-            .iter()
-            .filter(|recipe| {
-                recipe.scope == RecipeScope::SshSession
-                    && recipe.target == RecipeTarget::RemoteShell
-            })
-            .collect();
-        assert!(
-            ssh_recipes.len() >= 30,
-            "expected a useful built-in SSH shelf"
-        );
-        for group in ["Docker", "Files", "Network", "Services", "System"] {
-            assert!(
-                ssh_recipes.iter().any(|recipe| recipe.group == group),
-                "missing SSH shelf group {group}"
-            );
-        }
+        assert!(catalog.recipe_by_id("ssh-docker-logs").is_none());
     }
 
     #[test]
-    fn old_toml_without_target_defaults_to_local_shell() {
+    fn old_toml_without_target_remains_supported() {
         let dir = tempdir().unwrap();
         let path = command_recipes_config_path(dir.path());
         fs::write(
@@ -537,9 +400,39 @@ args = ["hi"]
         )
         .unwrap();
         let catalog = load_recipe_catalog(&path);
-        let recipe = catalog.recipe_by_id("legacy-echo").expect("legacy");
-        assert_eq!(recipe.target, RecipeTarget::LocalShell);
-        assert!(recipe.parameters.is_empty());
+        assert!(catalog.recipe_by_id("legacy-echo").is_some());
+    }
+
+    #[test]
+    fn retired_ssh_recipe_scope_is_reported_and_skipped() {
+        let dir = tempdir().unwrap();
+        let path = command_recipes_config_path(dir.path());
+        fs::write(
+            &path,
+            r#"
+[[recipes]]
+id = "legacy-ssh"
+title = "Legacy SSH"
+scope = "ssh_session"
+target = "remote_shell"
+
+[[recipes.variants]]
+id = "default"
+
+[[recipes.variants.steps]]
+id = "uptime"
+label = "uptime"
+program = "uptime"
+"#,
+        )
+        .unwrap();
+
+        let catalog = load_recipe_catalog(&path);
+        assert!(catalog.recipe_by_id("legacy-ssh").is_none());
+        assert!(catalog
+            .issues
+            .iter()
+            .any(|issue| issue.message.contains("unsupported scope `ssh_session`")));
     }
 
     #[test]
@@ -763,7 +656,7 @@ cwd = "current"
     }
 
     #[test]
-    fn invalid_parameter_definitions_are_rejected() {
+    fn retired_parameters_are_reported_and_skipped() {
         let dir = tempdir().unwrap();
         let path = command_recipes_config_path(dir.path());
         fs::write(
@@ -772,8 +665,7 @@ cwd = "current"
 [[recipes]]
 id = "invalid-param"
 title = "Invalid parameter"
-scope = "ssh_session"
-target = "remote_shell"
+scope = "global"
 
 [[recipes.parameters]]
 id = "name"
@@ -795,14 +687,13 @@ args = ["${name}"]
         let catalog = load_recipe_catalog(&path);
 
         assert!(catalog.recipe_by_id("invalid-param").is_none());
-        assert!(catalog
-            .issues
-            .iter()
-            .any(|issue| issue.message.contains("unknown kind")));
+        assert!(catalog.issues.iter().any(|issue| issue
+            .message
+            .contains("recipe parameters are no longer supported")));
     }
 
     #[test]
-    fn invalid_parameter_regex_is_rejected_at_load() {
+    fn retired_parameter_placeholders_are_reported_and_skipped() {
         let dir = tempdir().unwrap();
         let path = command_recipes_config_path(dir.path());
         fs::write(
@@ -811,14 +702,7 @@ args = ["${name}"]
 [[recipes]]
 id = "invalid-pattern"
 title = "Invalid pattern"
-scope = "ssh_session"
-target = "remote_shell"
-
-[[recipes.parameters]]
-id = "name"
-label = "Name"
-kind = "text"
-pattern = "["
+scope = "global"
 
 [[recipes.variants]]
 id = "v1"
@@ -835,9 +719,8 @@ args = ["${name}"]
         let catalog = load_recipe_catalog(&path);
 
         assert!(catalog.recipe_by_id("invalid-pattern").is_none());
-        assert!(catalog
-            .issues
-            .iter()
-            .any(|issue| issue.message.contains("invalid pattern")));
+        assert!(catalog.issues.iter().any(|issue| issue
+            .message
+            .contains("parameter placeholders are no longer supported")));
     }
 }

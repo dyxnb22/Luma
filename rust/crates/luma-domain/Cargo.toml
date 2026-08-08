@@ -10,7 +10,6 @@ description = "Pure domain models, IDs, and error taxonomy for Luma"
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
-regex = { workspace = true }
 
 [dev-dependencies]
 serde_json = { workspace = true }

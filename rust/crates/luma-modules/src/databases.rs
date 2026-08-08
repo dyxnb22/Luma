@@ -640,7 +640,6 @@ impl LumaModule for DatabasePortalsModule {
                     program: plan.program,
                     args: plan.args,
                     environment: Vec::new(),
-                    record_alias: None,
                 }
             }
             "reveal" => {
@@ -1281,7 +1280,6 @@ mod tests {
                 program: "/fixture/sqlite3".into(),
                 args: vec!["/fixture/app.sqlite".into()],
                 environment: Vec::new(),
-                record_alias: None,
             }
         );
     }

@@ -31,7 +31,7 @@ pin/unpin remains available via `/clip`.
 6. **Bounded Continue** — after Windows, Hub may show at most **3** live-or-recent objects.
    Running/paused Timers are projected from live module state before Recall objects. This is a
    generic module projection, not a timer-specific protocol command; Clipboard/Snippet bodies,
-   SSH configuration, proxy endpoints, and submitted search text remain excluded.
+   proxy endpoints, and submitted search text remain excluded.
 
 ## Consequences
 

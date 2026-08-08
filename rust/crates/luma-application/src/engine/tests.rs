@@ -116,25 +116,6 @@ impl LumaModule for FakeModule {
     }
 
     async fn rehydrate_recall(&self, object_id: &str) -> Result<Option<SearchItem>, String> {
-        if self.manifest.id.as_str() == "luma.ssh" && object_id == "ssh:production" {
-            return Ok(Some(SearchItem {
-                id: luma_domain::ResultId::new(object_id),
-                module_id: self.manifest.id.clone(),
-                title: "production".into(),
-                subtitle: Some("deploy@example.com".into()),
-                kind: "ssh_host".into(),
-                score: 0.0,
-                primary_action: ActionDescriptor {
-                    id: ActionId::new("connect"),
-                    label: "Connect".into(),
-                    risk: ActionRisk::Safe,
-                    confirmation: false,
-                },
-                secondary_actions: vec![],
-                ui_intent: None,
-                action_payload: Some(serde_json::json!({"alias": "production"})),
-            }));
-        }
         if self.wait_for_cancel && object_id == "wait-1" {
             return std::future::pending().await;
         }
@@ -675,51 +656,6 @@ async fn hub_bounds_unresponsive_rehydration_and_retains_recall() {
         1,
         "timeout is temporary and must retain durable Recall"
     );
-}
-
-#[tokio::test]
-async fn successful_ssh_terminal_session_records_natural_recall_after_exit() {
-    let mut registry = ModuleRegistry::new();
-    registry
-        .register(Arc::new(FakeModule {
-            manifest: ModuleManifest {
-                id: ModuleId::new("luma.ssh"),
-                display_name: "SSH".into(),
-                triggers: vec!["ssh".into()],
-                default_enabled: true,
-                search_mode: SearchMode::GlobalContributing,
-                required_capabilities: vec![],
-                workbench: Default::default(),
-            },
-            wait_for_cancel: false,
-        }))
-        .unwrap();
-    let recall = Arc::new(TestRecall::default());
-    let engine = Engine::with_options(
-        registry,
-        EngineOptions {
-            recall: Some(recall.clone()),
-            ..Default::default()
-        },
-    );
-    engine
-        .handle_command(Command::SshSessionEnded {
-            alias: "production".into(),
-            exit_code: 1,
-        })
-        .await;
-    assert!(recall.objects.lock().unwrap().is_empty());
-
-    engine
-        .handle_command(Command::SshSessionEnded {
-            alias: "production".into(),
-            exit_code: 0,
-        })
-        .await;
-    let objects = recall.objects.lock().unwrap();
-    assert_eq!(objects.len(), 1);
-    assert_eq!(objects[0].object_id, "ssh:production");
-    assert_eq!(objects[0].title, "SSH connection");
 }
 
 #[tokio::test]

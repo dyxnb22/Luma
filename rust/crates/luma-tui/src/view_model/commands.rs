@@ -310,10 +310,9 @@ impl AppState {
     }
 
     pub fn help_scroll_max(&self) -> usize {
-        let preferred = self.terminal.height.saturating_sub(2).clamp(12, 22);
-        let overlay_height = preferred.min(self.terminal.height.saturating_sub(4)).max(5);
-        let visible = overlay_height.saturating_sub(2) as usize;
-        self.help_lines().len().saturating_sub(visible.max(1))
+        self.help_lines()
+            .len()
+            .saturating_sub(self.help_page_rows())
     }
 }
 
@@ -329,7 +328,6 @@ fn command_group(module_id: &str) -> &'static str {
         | "luma.git"
         | "luma.runtime"
         | "luma.command_recipes"
-        | "luma.ssh"
         | "luma.databases"
         | "luma.packages" => "Develop",
         "luma.proxy" => "Network",

@@ -7,7 +7,6 @@ mod module_shortcuts;
 mod msg;
 mod reducer;
 mod render;
-pub mod ssh_workspace;
 mod terminal;
 mod theme;
 mod view_model;

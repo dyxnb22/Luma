@@ -1,8 +1,6 @@
 //! Keychain port — labels in search; values only via explicit copy.
 //!
-//! Read/delete operations use the macOS `security` CLI without passing values. SSH password
-//! writes also use that stable executable, but feed values through a detached private pipe so a
-//! secret never appears in a child-process argument list, environment, log, or error message.
+//! Read/delete operations use the macOS `security` CLI without passing secret values.
 
 use async_trait::async_trait;
 use luma_storage::luma_next_support_dir;
@@ -18,7 +16,6 @@ use tokio::process::Command;
 pub use luma_application::{FakeKeychain, KeychainError, KeychainPort as Keychain, SecretLabel};
 
 const DEFAULT_SERVICE: &str = "com.luma.next.secrets";
-const SSH_PASSWORD_SERVICE: &str = "com.luma.next.ssh-passwords";
 const PRIVATE_REFERENCE_PREFIX: &str = "proxy-profile-url:";
 static LABEL_WRITE_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
@@ -37,70 +34,12 @@ trait PasswordWriter: Send + Sync {
 }
 
 struct SecurityFrameworkWriter;
-struct SecurityCliWriter;
 
 #[cfg(target_os = "macos")]
 impl PasswordWriter for SecurityFrameworkWriter {
     fn upsert(&self, service: &str, account: &str, password: &[u8]) -> Result<(), KeychainError> {
         native_upsert_password(service, account, password)
     }
-}
-
-impl PasswordWriter for SecurityCliWriter {
-    fn upsert(&self, service: &str, account: &str, password: &[u8]) -> Result<(), KeychainError> {
-        let mut command = std::process::Command::new("/usr/bin/security");
-        command
-            .args(ssh_password_security_args(service, account))
-            .stdin(Stdio::piped())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null());
-        #[cfg(target_os = "macos")]
-        {
-            use std::os::unix::process::CommandExt;
-
-            // `security -w` otherwise opens the parent's controlling terminal and asks twice,
-            // bypassing its piped stdin. A new session makes getpass(3) fall back to the private
-            // pipe while keeping the password out of argv and the environment.
-            unsafe {
-                command.pre_exec(|| {
-                    if setsid() == -1 {
-                        Err(std::io::Error::last_os_error())
-                    } else {
-                        Ok(())
-                    }
-                });
-            }
-        }
-        let mut child = command.spawn()?;
-        let Some(mut stdin) = child.stdin.take() else {
-            return Err(KeychainError::Unavailable(
-                "Keychain password input is unavailable".into(),
-            ));
-        };
-        stdin.write_all(&ssh_password_security_input(password))?;
-        drop(stdin);
-        if child.wait()?.success() {
-            Ok(())
-        } else {
-            Err(KeychainError::Unavailable(
-                "Keychain could not store the SSH password".into(),
-            ))
-        }
-    }
-}
-
-#[cfg(target_os = "macos")]
-unsafe extern "C" {
-    fn setsid() -> i32;
-}
-
-fn ssh_password_security_input(password: &[u8]) -> Vec<u8> {
-    let mut input = Vec::with_capacity(password.len().saturating_mul(2).saturating_add(2));
-    input.extend_from_slice(password);
-    input.push(b'\n');
-    input.extend_from_slice(password);
-    input.push(b'\n');
-    input
 }
 
 #[cfg(not(target_os = "macos"))]
@@ -150,18 +89,6 @@ impl MacKeychain {
         Self {
             service: DEFAULT_SERVICE.into(),
             writer: Arc::new(SecurityFrameworkWriter),
-            manages_labels: false,
-            #[cfg(test)]
-            labels_path: None,
-        }
-    }
-
-    /// SSH passwords use a dedicated service created and read by the stable macOS `security`
-    /// executable. This keeps Keychain access valid when a local Luma build is replaced.
-    pub fn ssh_passwords() -> Self {
-        Self {
-            service: SSH_PASSWORD_SERVICE.into(),
-            writer: Arc::new(SecurityCliWriter),
             manages_labels: false,
             #[cfg(test)]
             labels_path: None,
@@ -368,18 +295,6 @@ impl Keychain for MacKeychain {
     }
 }
 
-fn ssh_password_security_args(service: &str, account: &str) -> Vec<String> {
-    vec![
-        "add-generic-password".into(),
-        "-s".into(),
-        service.into(),
-        "-a".into(),
-        account.into(),
-        "-U".into(),
-        "-w".into(),
-    ]
-}
-
 #[cfg(target_os = "macos")]
 fn native_upsert_password(
     service: &str,
@@ -522,19 +437,6 @@ mod tests {
             ));
             Ok(())
         }
-    }
-
-    #[test]
-    fn ssh_password_writer_keeps_password_out_of_argv() {
-        let args =
-            ssh_password_security_args("com.luma.next.ssh-passwords", "ssh-password:production");
-        assert_eq!(args.last().map(String::as_str), Some("-w"));
-        assert!(args.contains(&"ssh-password:production".into()));
-        assert!(!args.iter().any(|arg| arg == "fixture-password"));
-        assert_eq!(
-            ssh_password_security_input(b"fixture-password"),
-            b"fixture-password\nfixture-password\n"
-        );
     }
 
     #[tokio::test]

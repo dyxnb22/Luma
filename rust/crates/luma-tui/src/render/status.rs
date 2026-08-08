@@ -147,25 +147,6 @@ fn contextual_hints(state: &AppState, symbols: &Symbols) -> Vec<Hint> {
                 ]
             }
         }
-        Route::SshWorkspace
-            if state.ssh_workspace.as_ref().is_some_and(|workspace| {
-                matches!(
-                    workspace.phase,
-                    crate::ssh_workspace::SshConnectionPhase::Failed
-                        | crate::ssh_workspace::SshConnectionPhase::Disconnected
-                )
-            }) =>
-        {
-            vec![
-                ("Esc".into(), "leave"),
-                ("r".into(), "reconnect"),
-                ("Ctrl-/".into(), "local commands"),
-            ]
-        }
-        Route::SshWorkspace => vec![
-            ("Ctrl-/".into(), "local commands"),
-            ("⌥↑/⌥↓".into(), "scrollback"),
-        ],
     }
 }
 

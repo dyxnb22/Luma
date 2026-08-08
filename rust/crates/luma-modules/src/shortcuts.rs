@@ -269,7 +269,6 @@ impl LumaModule for ShortcutsModule {
                     program: plan.program,
                     args: plan.args,
                     environment: Vec::new(),
-                    record_alias: None,
                 }
             }
             _ => invalid_action("unknown Shortcuts action"),
@@ -512,7 +511,6 @@ mod tests {
                 program: "/usr/bin/shortcuts".into(),
                 args: vec!["run".into(), "--".into(), "Morning Routine".into()],
                 environment: Vec::new(),
-                record_alias: None,
             }
         );
     }

@@ -1,10 +1,14 @@
 # Luma Core Usability End-to-End Review Plan
 
-Status: executed; final user-authenticated permission/cleanup steps pending
+Status: archived historical execution record
 Created: 2026-07-28
 Last execution update: 2026-07-28
 Scope owner: user + Codex
 Target app: `/Users/diaoyuxuan/Applications/Luma.app`
+
+> Historical note (2026-08-08): this record describes a build that still contained the SSH
+> module. SSH-specific inventory, defects, fixtures, and checklists below are retained only as
+> evidence of that run and are not part of the current product or its verification baseline.
 
 This is the execution checklist for a complete usability review of Luma. It is not a product
 roadmap, release checklist, soak-test plan, or centralized diagnostics design. Update the

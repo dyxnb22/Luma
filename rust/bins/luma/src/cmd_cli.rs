@@ -320,9 +320,6 @@ async fn cmd_copy(recipe_id: &str, json: bool) -> anyhow::Result<()> {
             ActionOutcomeDto::InteractiveTerminal { .. } => {
                 json!({ "error": "unexpected interactive terminal" })
             }
-            ActionOutcomeDto::EmbeddedTerminal { .. } => {
-                json!({ "error": "unexpected embedded terminal" })
-            }
         };
         println!("{}", serde_json::to_string_pretty(&payload)?);
     } else if let ActionOutcomeDto::Success { message } = outcome {

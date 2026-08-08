@@ -48,9 +48,4 @@ pub enum Command {
         result: luma_domain::RecipeRunOutcome,
         now_unix: i64,
     },
-    /// After an interactive SSH/SFTP session ends in the TUI.
-    SshSessionEnded {
-        alias: String,
-        exit_code: i32,
-    },
 }

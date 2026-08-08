@@ -474,7 +474,6 @@ fn status_tone_for_outcome(outcome: &ActionOutcomeDto) -> StatusTone {
         ActionOutcomeDto::Failed { kind, .. } => status_tone_for_failure(kind),
         ActionOutcomeDto::InteractiveRecipeRun { .. } => StatusTone::Progress,
         ActionOutcomeDto::InteractiveTerminal { .. } => StatusTone::Progress,
-        ActionOutcomeDto::EmbeddedTerminal { .. } => StatusTone::Progress,
     }
 }
 

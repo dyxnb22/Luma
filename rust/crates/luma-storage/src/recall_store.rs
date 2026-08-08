@@ -26,7 +26,7 @@ pub struct RecallRow {
     pub module_id: String,
     pub kind: String,
     pub primary_action: String,
-    /// A bounded, non-body display label. Clipboard and SSH rows deliberately use generic
+    /// A bounded, non-body display label. Clipboard rows deliberately use a generic
     /// labels so the Recall DB does not duplicate sensitive source data.
     pub title: String,
     pub project_path: Option<String>,

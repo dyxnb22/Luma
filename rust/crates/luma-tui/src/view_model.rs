@@ -37,12 +37,6 @@ pub struct AppState {
     pub settings: SettingsState,
     /// Active wordbook review session (`/wb review`).
     pub wordbook: WordbookState,
-    /// Active embedded SSH Workspace (`/ssh` Connect).
-    pub ssh_workspace: Option<crate::ssh_workspace::SshWorkspaceState>,
-    /// SSH-session recipes available to the workspace shelf.
-    pub ssh_shelf_recipes: Vec<luma_domain::Recipe>,
-    /// Favorite / use_count metadata for SSH shelf recipes (global per recipe id).
-    pub ssh_shelf_recipe_meta: std::collections::BTreeMap<String, luma_domain::RecipeMetadata>,
     /// Help, command palette, and overlay prompt restoration.
     pub overlay: OverlayState,
     /// Deferred hand-offs that leave the TUI temporarily.
@@ -69,9 +63,6 @@ impl Default for AppState {
             focus: FocusZone::Prompt,
             settings: SettingsState::default(),
             wordbook: WordbookState::default(),
-            ssh_workspace: None,
-            ssh_shelf_recipes: Vec::new(),
-            ssh_shelf_recipe_meta: std::collections::BTreeMap::new(),
             overlay: OverlayState::default(),
             runtime: RuntimeState::default(),
             terminal: TerminalState::default(),
@@ -317,14 +308,57 @@ impl AppState {
             return 0;
         };
         let body_lines = body.lines().count();
+        body_lines.saturating_sub(self.preview_page_rows())
+    }
+
+    /// Number of content rows inside a centered overlay with the same geometry
+    /// rules as the renderer. This keeps page navigation aligned with the rows
+    /// the user can actually see.
+    fn overlay_content_rows(&self, prefer_height: u16) -> usize {
+        let vertical_gutter = if self.terminal.height >= 9 { 4 } else { 0 };
+        let max_height = self.terminal.height.saturating_sub(vertical_gutter);
+        prefer_height
+            .max(5)
+            .min(max_height)
+            .saturating_sub(2)
+            .max(1) as usize
+    }
+
+    pub fn action_picker_page_rows(&self) -> usize {
+        let preferred = (self.actions.action_choices.len() as u16)
+            .saturating_add(2)
+            .clamp(6, 16);
+        self.overlay_content_rows(preferred)
+    }
+
+    pub fn help_page_rows(&self) -> usize {
+        self.overlay_content_rows(self.terminal.height.saturating_sub(2).clamp(12, 22))
+    }
+
+    pub fn settings_page_rows(&self) -> usize {
+        let imported_rows = self.settings.roots.imported_projects.len().min(8)
+            + usize::from(self.settings.roots.imported_projects.len() > 8);
+        // Six summaries and the MODULES heading precede selectable module rows.
+        self.overlay_content_rows(18)
+            .saturating_sub(7 + imported_rows)
+            .max(1)
+    }
+
+    pub fn commands_page_rows(&self) -> usize {
+        let preferred = (self.command_palette_rows().len() as u16)
+            .saturating_add(2)
+            .clamp(8, 18);
+        self.overlay_content_rows(preferred)
+    }
+
+    pub fn preview_page_rows(&self) -> usize {
         let pane_height = if self.preview_stacked() {
             8
         } else {
             self.terminal.height.saturating_sub(6)
         } as usize;
         // Title/module/subtitle chrome plus borders consume at least six lines.
-        let visible = pane_height.saturating_sub(6).max(1);
-        body_lines.saturating_sub(visible)
+        pane_height.saturating_sub(6).max(1)
     }
 
     pub fn sync_results_viewport(&mut self) {
@@ -623,7 +657,6 @@ fn hub_kind_label(kind: &str) -> &str {
         "project" | "project_header" | "project_surface" | "project_continue"
         | "project_terminal" | "project_editor" => "Project",
         "recipe" => "Command",
-        "ssh_host" => "SSH",
         "clipboard" => "Clipboard",
         "snippet" => "Snippet",
         "git_repo" => "Git",

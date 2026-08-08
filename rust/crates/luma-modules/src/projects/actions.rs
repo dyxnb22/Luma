@@ -338,7 +338,6 @@ impl ProjectsModule {
                         program: editor,
                         args: vec![open_path.display().to_string()],
                         environment: Vec::new(),
-                        record_alias: None,
                     }
                 } else {
                     ActionOutcome::InteractiveTerminal {
@@ -350,7 +349,6 @@ impl ProjectsModule {
                             open_path.display().to_string(),
                         ],
                         environment: Vec::new(),
-                        record_alias: None,
                     }
                 }
             }

@@ -185,7 +185,6 @@ fn is_known_prefix(token: &str) -> bool {
             | "win"
             | "window"
             | "windows"
-            | "ssh"
             | "proxy"
             | "px"
             | "rec"
@@ -273,19 +272,19 @@ mod tests {
 
     #[test]
     fn leading_slash_targets_a_module_and_preserves_raw_input() {
-        let q = Query::parse_with_prefixes_strict("/ssh production", 20, |t| t == "ssh");
-        assert!(matches!(q.scope, QueryScope::Targeted { ref module } if module == "ssh"));
-        assert_eq!(q.raw, "/ssh production");
-        assert_eq!(q.normalized, "ssh production");
+        let q = Query::parse_with_prefixes_strict("/demo production", 20, |t| t == "demo");
+        assert!(matches!(q.scope, QueryScope::Targeted { ref module } if module == "demo"));
+        assert_eq!(q.raw, "/demo production");
+        assert_eq!(q.normalized, "demo production");
         assert_eq!(q.rest_raw(), "production");
         assert!(q.is_command());
     }
 
     #[test]
     fn strict_parser_rejects_unprefixed_module_commands() {
-        let q = Query::parse_with_prefixes_strict("ssh production", 20, |t| t == "ssh");
+        let q = Query::parse_with_prefixes_strict("demo production", 20, |t| t == "demo");
         assert_eq!(q.scope, QueryScope::Global);
-        assert_eq!(q.rest_raw(), "ssh production");
+        assert_eq!(q.rest_raw(), "demo production");
         assert!(!q.is_command());
     }
 

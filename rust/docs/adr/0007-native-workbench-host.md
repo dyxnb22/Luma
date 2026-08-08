@@ -58,7 +58,7 @@ until a later bounded change gives the host a control surface worth having.
 - use SwiftUI;
 - add a search box, results list, sidebar, preview, settings page, module picker, command palette,
   dashboard, or any native overlay above the terminal;
-- read or write Luma module stores (Wordbook, Clipboard, Records, Projects, Timers, SSH,
+- read or write Luma module stores (Wordbook, Clipboard, Records, Projects, Timers,
   Proxy, Quicklinks, Snippets, Secrets, recipes) — it never touches LumaNext;
 - initialize the Rust Engine, register modules, or duplicate Ratatui rendering/state;
 - create a second theme or component system, multiple workbench windows, or tabs;

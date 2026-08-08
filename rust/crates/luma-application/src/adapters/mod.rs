@@ -9,7 +9,6 @@ mod records_repo;
 mod renewals_repo;
 mod settings_repo;
 mod snippets_repo;
-mod ssh_meta_repo;
 mod timers_repo;
 mod wordbook_repo;
 
@@ -23,6 +22,5 @@ pub use records_repo::SqliteRecordsRepository;
 pub use renewals_repo::SqliteRenewalsRepository;
 pub use settings_repo::TomlSettingsRepository;
 pub use snippets_repo::SqliteSnippetsRepository;
-pub use ssh_meta_repo::SqliteSshMetaRepository;
 pub use timers_repo::SqliteTimersRepository;
 pub use wordbook_repo::SqliteWordbookRepository;

@@ -278,7 +278,6 @@ hub_windows_max = 7
 "luma.shell_history" = false
 "luma.shortcuts" = false
 "luma.snippets" = false
-"luma.ssh" = false
 "luma.timers" = false
 "luma.windows" = false
 "luma.wordbook" = false

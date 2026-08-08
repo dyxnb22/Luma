@@ -745,17 +745,24 @@ fn page_down_moves_selection() {
     state.search.results.selected_id = Some("0".into());
     state.preview.body = Some("cached preview".into());
     state.preview.result_id = Some("0".into());
+    let expected_id = state.search.results.viewport_rows.max(1).to_string();
     let effects = update(&mut state, Msg::SelectPageForward);
     assert!(matches!(
         effects.as_slice(),
         [Effect::LoadPreview {
             result_id,
             preview_id: 1
-        }] if result_id == "5"
+        }] if result_id == expected_id.as_str()
     ));
-    assert_eq!(state.search.results.selected_id.as_deref(), Some("5"));
+    assert_eq!(
+        state.search.results.selected_id.as_deref(),
+        Some(expected_id.as_str())
+    );
     assert!(state.preview.body.is_none());
-    assert_eq!(state.preview.result_id.as_deref(), Some("5"));
+    assert_eq!(
+        state.preview.result_id.as_deref(),
+        Some(expected_id.as_str())
+    );
     assert_eq!(state.preview.pending_id, Some(1));
 }
 
@@ -769,7 +776,7 @@ fn page_scroll_clamps_results_and_reloads_each_changed_selection() {
     );
     assert!(state.search.results.selected_id.is_none());
 
-    for i in 0..7 {
+    for i in 0..17 {
         state.search.results.items.push(SearchItem {
             id: ResultId::new(format!("scroll:{i}")),
             module_id: ModuleId::new("mock"),
@@ -789,6 +796,7 @@ fn page_scroll_clamps_results_and_reloads_each_changed_selection() {
         });
     }
     state.search.results.selected_id = Some("scroll:0".into());
+    let page_rows = state.search.results.viewport_rows.max(1);
     assert_eq!(
         update(&mut state, Msg::SelectPageBackward),
         vec![Effect::None]
@@ -798,24 +806,26 @@ fn page_scroll_clamps_results_and_reloads_each_changed_selection() {
         Some("scroll:0")
     );
     let down = update(&mut state, Msg::SelectPageForward);
+    let first_page_id = format!("scroll:{page_rows}");
     assert!(matches!(
         down.as_slice(),
         [Effect::LoadPreview {
             result_id,
             preview_id: 1
-        }] if result_id == "scroll:5"
+        }] if result_id == first_page_id.as_str()
     ));
     let down_again = update(&mut state, Msg::SelectPageForward);
+    let second_page_id = format!("scroll:{}", page_rows * 2);
     assert!(matches!(
         down_again.as_slice(),
         [Effect::LoadPreview {
             result_id,
             preview_id: 2
-        }] if result_id == "scroll:6"
+        }] if result_id == second_page_id.as_str()
     ));
     assert_eq!(
         state.search.results.selected_id.as_deref(),
-        Some("scroll:6")
+        Some(second_page_id.as_str())
     );
     assert_eq!(
         update(&mut state, Msg::SelectPageForward),
@@ -856,7 +866,7 @@ fn rapid_page_down_then_up_supersedes_the_pending_preview() {
         [Effect::LoadPreview {
             result_id,
             preview_id: 1
-        }] if result_id == "rapid:5"
+        }] if result_id == "rapid:6"
     ));
 
     let up = update(&mut state, Msg::SelectPageBackward);
@@ -877,11 +887,15 @@ fn page_scroll_is_pure_across_help_preview_and_overlays() {
     let mut help = AppState::default();
     help.route = Route::Help;
     help.terminal.height = 10;
+    let help_page_rows = help.help_page_rows();
     assert_eq!(
         update(&mut help, Msg::SelectPageForward),
         vec![Effect::None]
     );
-    assert_eq!(help.overlay.help_scroll, 5.min(help.help_scroll_max()));
+    assert_eq!(
+        help.overlay.help_scroll,
+        help_page_rows.min(help.help_scroll_max())
+    );
     for _ in 0..20 {
         assert_eq!(
             update(&mut help, Msg::SelectPageForward),
@@ -922,11 +936,12 @@ fn page_scroll_is_pure_across_help_preview_and_overlays() {
             .join("\n"),
     );
     preview.focus = FocusZone::Preview;
+    let preview_page_rows = preview.preview_page_rows();
     assert_eq!(
         update(&mut preview, Msg::SelectPageForward),
         vec![Effect::None]
     );
-    assert_eq!(preview.preview.scroll, 5);
+    assert_eq!(preview.preview.scroll, preview_page_rows);
 
     let mut settings = AppState::default();
     settings.route = Route::Settings;
@@ -937,21 +952,30 @@ fn page_scroll_is_pure_across_help_preview_and_overlays() {
             enabled: true,
         })
         .collect();
+    let settings_page_rows = settings.settings_page_rows();
     assert_eq!(
         update(&mut settings, Msg::SelectPageForward),
         vec![Effect::None]
     );
-    assert_eq!(settings.settings.selected, 5);
+    assert_eq!(
+        settings.settings.selected,
+        settings_page_rows.min(settings.settings.modules.len() - 1)
+    );
 
     let mut commands = AppState {
         route: Route::Commands,
         ..AppState::default()
     };
+    let commands_page_rows = commands.commands_page_rows();
+    let command_max = commands.command_palette_rows().len().saturating_sub(1);
     assert_eq!(
         update(&mut commands, Msg::SelectPageForward),
         vec![Effect::None]
     );
-    assert_eq!(commands.overlay.commands_selected, 5);
+    assert_eq!(
+        commands.overlay.commands_selected,
+        commands_page_rows.min(command_max)
+    );
 
     let mut picker = AppState::default();
     picker.route = Route::ActionPicker;
@@ -963,11 +987,15 @@ fn page_scroll_is_pure_across_help_preview_and_overlays() {
             confirmation: false,
         })
         .collect();
+    let picker_page_rows = picker.action_picker_page_rows();
     assert_eq!(
         update(&mut picker, Msg::SelectPageForward),
         vec![Effect::None]
     );
-    assert_eq!(picker.actions.action_selected, 5);
+    assert_eq!(
+        picker.actions.action_selected,
+        picker_page_rows.min(picker.actions.action_choices.len() - 1)
+    );
 }
 
 #[test]
@@ -987,11 +1015,12 @@ fn page_scroll_moves_hub_without_loading_or_activating_rows() {
         })
         .collect();
     assert!(state.showing_hub());
+    let page_rows = state.hub_data_capacity();
     assert_eq!(
         update(&mut state, Msg::SelectPageForward),
         vec![Effect::None]
     );
-    assert_eq!(state.hub.selected, 5);
+    assert_eq!(state.hub.selected, page_rows);
     assert_eq!(state.focus, FocusZone::List);
 }
 
@@ -1000,6 +1029,7 @@ fn scroll_palette_action_returns_to_and_scrolls_help() {
     let mut state = AppState::default();
     state.route = Route::Help;
     state.terminal.height = 10;
+    let help_page_rows = state.help_page_rows();
     assert_eq!(update(&mut state, Msg::OpenCommands), vec![Effect::None]);
     assert_eq!(state.route, Route::Commands);
     for character in "scroll down".chars() {
@@ -1007,7 +1037,10 @@ fn scroll_palette_action_returns_to_and_scrolls_help() {
     }
     assert_eq!(update(&mut state, Msg::Submit), vec![Effect::None]);
     assert_eq!(state.route, Route::Help);
-    assert_eq!(state.overlay.help_scroll, 5.min(state.help_scroll_max()));
+    assert_eq!(
+        state.overlay.help_scroll,
+        help_page_rows.min(state.help_scroll_max())
+    );
 }
 
 #[test]
@@ -1041,11 +1074,11 @@ fn slash_scroll_is_local_but_unprefixed_text_remains_global_search() {
         [Effect::LoadPreview {
             result_id,
             preview_id: 1
-        }] if result_id == "local-scroll:5"
+        }] if result_id == "local-scroll:6"
     ));
     assert_eq!(
         state.search.results.selected_id.as_deref(),
-        Some("local-scroll:5")
+        Some("local-scroll:6")
     );
 
     state.search.prompt = "scroll down".into();

@@ -2,7 +2,7 @@ import Foundation
 
 public enum ChildProcessGroup {
     /// `forkpty` makes the child a process-group leader. A negative PID targets the whole group,
-    /// including an interactive SSH or recipe child, while rejecting unsafe/non-child values.
+    /// including an interactive recipe child, while rejecting unsafe/non-child values.
     public static func signalTarget(forLeader processIdentifier: pid_t) -> pid_t? {
         processIdentifier > 1 ? -processIdentifier : nil
     }

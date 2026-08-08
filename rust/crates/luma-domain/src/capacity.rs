@@ -6,7 +6,6 @@
 pub const MAX_SNIPPETS: usize = 1_000;
 pub const MAX_QUICKLINKS: usize = 1_000;
 pub const MAX_TIMERS: usize = 256;
-pub const MAX_SSH_METADATA_ROWS: usize = 1_000;
 pub const MAX_PINNED_CLIPBOARD_ROWS: usize = 100;
 pub const MAX_UNPINNED_CLIPBOARD_ROWS: usize = 500;
 

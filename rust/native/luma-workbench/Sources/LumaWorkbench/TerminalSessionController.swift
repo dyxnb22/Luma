@@ -94,7 +94,7 @@ private final class LumaTerminalView: LocalProcessTerminalView {
 /// Owns the single `luma tui` child process and the SwiftTerm view it draws into.
 ///
 /// One session, one view, for the lifetime of the app: hiding the window never touches the child,
-/// so TUI state, running Timers, and interactive children (ssh, sftp, recipes) survive.
+/// so TUI state, running Timers, and interactive recipe children survive.
 final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegate {
     let terminalView: LocalProcessTerminalView
     var activationShortcutDisplayName = HotKeyDefinition.defaultActivation.displayName
@@ -192,7 +192,7 @@ final class TerminalSessionController: NSObject, LocalProcessTerminalViewDelegat
     func terminateAndReap() {
         let pid = terminalView.process.shellPid
         guard lifecycle.isRunning, pid > 0 else { return }
-        // Signal the forkpty process group so an interactive SSH/SFTP/recipe child exits and the
+        // Signal the forkpty process group so an interactive recipe child exits and the
         // TUI can regain control long enough to finish graceful teardown.
         if let group = ChildProcessGroup.signalTarget(forLeader: pid) {
             _ = kill(group, SIGTERM)

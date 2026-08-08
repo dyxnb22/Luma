@@ -54,5 +54,3 @@ unicode-width = "0.2"
 unicode-segmentation = "1.13"
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 vt100 = "0.15"
-portable-pty = "0.9"
-regex = "1.11"

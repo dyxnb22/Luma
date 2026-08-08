@@ -19,7 +19,7 @@ cargo test -p luma --test cli_blackbox
 
 - Use a disposable macOS user or a clearly labeled test data root where practical.
 - Preserve the current system proxy configuration before touching `/proxy`.
-- Do not use real secrets, private SSH hosts, or sensitive clipboard content.
+- Do not use real secrets, private service endpoints, or sensitive clipboard content.
 - Test a TUI launched directly from Terminal and one hosted by `Luma.app` separately: macOS TCC
   permissions are per app/process.
 
@@ -131,9 +131,10 @@ when continuity matters.
     the timer must have kept running (the child process is not suspended).
 12. **`/wb review`** — run today's due-first review queue, reveal and grade a card, then Esc out; Escape must reach
     the TUI and must never close or hide the window.
-13. **Interactive child** — run `/ssh` against a host alias that does not resolve (no real remote
-    connection needed) and confirm the child runs in the same PTY and the TUI resumes afterwards.
-14. **Command Recipe** — run a recipe with `/cmd test` and confirm output and exit handling.
+13. **Interactive child** — run a Command Recipe that exits non-zero and confirm the child runs in
+    the same PTY and the TUI resumes afterwards.
+14. **Command Recipe** — run a successful recipe with `/cmd test` and confirm output and exit
+    handling.
 15. **TUI exit and restart** — Ctrl-C out of the TUI, hide, then press the saved activation
     shortcut; a fresh
     session must start instead of an empty window.
@@ -154,7 +155,7 @@ rebind Spotlight under System Settings → Keyboard → Keyboard Shortcuts.
 
 ## Terminal suspend/resume checks
 
-Run a short SSH or command-recipe action in the TUI and verify each path:
+Run a short command-recipe action in the TUI and verify each path:
 
 - child exits successfully;
 - child exits non-zero;

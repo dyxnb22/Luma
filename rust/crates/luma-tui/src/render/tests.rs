@@ -326,90 +326,6 @@ fn prompt_places_the_real_terminal_cursor_at_the_grapheme_cursor() {
 }
 
 #[test]
-fn ssh_workspace_places_the_real_terminal_cursor_in_the_pty_pane() {
-    let mut workspace = crate::ssh_workspace::SshWorkspaceState::new(
-        "prod".into(),
-        "host.example".into(),
-        "root".into(),
-        22,
-        "prod".into(),
-        "/usr/bin/ssh".into(),
-        vec![],
-        vec![],
-        Some("prod".into()),
-        78,
-        20,
-    );
-    workspace.cursor_row = 4;
-    workspace.cursor_col = 9;
-    workspace.lines = vec![ratatui::text::Line::from("remote")];
-    let state = AppState {
-        route: Route::SshWorkspace,
-        focus: FocusZone::Terminal,
-        ssh_workspace: Some(workspace),
-        ..AppState::default()
-    };
-    let backend = TestBackend::new(80, 24);
-    let mut terminal = Terminal::new(backend).expect("terminal");
-
-    terminal.draw(|frame| render(frame, &state)).expect("draw");
-
-    assert_eq!(
-        terminal
-            .backend_mut()
-            .get_cursor_position()
-            .expect("cursor position"),
-        Position::new(10, 6)
-    );
-}
-
-#[test]
-fn ssh_command_shelf_collapses_groups_and_search_flattens_matches() {
-    let mut workspace = crate::ssh_workspace::SshWorkspaceState::new(
-        "prod".into(),
-        "host.example".into(),
-        "root".into(),
-        22,
-        "prod".into(),
-        "/usr/bin/ssh".into(),
-        vec![],
-        vec![],
-        Some("prod".into()),
-        114,
-        36,
-    );
-    workspace.shelf_visible = true;
-    let mut state = AppState {
-        route: Route::SshWorkspace,
-        focus: FocusZone::Terminal,
-        terminal: TerminalState {
-            width: 160,
-            height: 40,
-        },
-        ssh_workspace: Some(workspace),
-        ..AppState::default()
-    };
-
-    let (grouped, _) = draw(&state, 160, 40);
-    assert!(grouped.contains("▾ SSH (7)"));
-    assert!(grouped.contains("▸ Docker (1)"));
-    assert!(grouped.contains("▸ System (3)"));
-    assert!(!grouped.contains("docker ps"));
-    assert!(grouped.contains("Ctrl-/ c focus commands"));
-    assert!(!grouped.contains("F6"));
-    assert!(!grouped.contains("Ctrl+Space"));
-    assert!(!grouped.contains("PageUp"));
-    assert!(!grouped.contains("PageDown"));
-
-    let shelf = &mut state.ssh_workspace.as_mut().unwrap().shelf;
-    shelf.begin_search();
-    shelf.filter = "docker".into();
-    shelf.refilter();
-    let (searched, _) = draw(&state, 160, 40);
-    assert!(searched.contains("Docker › docker ps"));
-}
-
-#[test]
 fn footer_says_run_when_results_present_and_list_focused() {
     let mut state = state_with_results();
     state.focus = crate::view_model::FocusZone::List;
@@ -476,6 +392,39 @@ fn command_palette_renders_syntax_placeholders_not_seed_query() {
         "parameter placeholder missing: {flat}"
     );
     assert!(flat.contains("Develop"), "task group missing: {flat}");
+}
+
+#[test]
+fn wide_command_palette_preserves_long_syntax_and_description() {
+    let state = AppState {
+        route: Route::Commands,
+        module_catalog: vec![crate::view_model::ModuleCatalogEntry {
+            id: "luma.downloads".into(),
+            display_name: "Downloads".into(),
+            enabled: true,
+            glyph: Some("D".into()),
+            suggested_query: Some("/dl ".into()),
+            empty_hint: None,
+            supports_browse: true,
+            triggers: vec!["dl".into()],
+            commands: vec![crate::view_model::CommandCatalogEntry {
+                syntax: "/dl type <archive|image|video|document|audio>".into(),
+                description: "Filter downloads by file type".into(),
+                query: "/dl type ".into(),
+                example: Some("/dl type image".into()),
+            }],
+        }],
+        ..AppState::default()
+    };
+    let (flat, _) = draw(&state, 140, 30);
+    assert!(
+        flat.contains("/dl type <archive|image|video|document|audio>"),
+        "long command syntax was truncated: {flat}"
+    );
+    assert!(
+        flat.contains("Filter downloads by file type"),
+        "command description was truncated: {flat}"
+    );
 }
 
 #[test]
@@ -547,6 +496,11 @@ fn help_overlay_keeps_module_syntax_discoverable_when_scrolled() {
     assert!(flat.contains("Enabled module commands:"));
     assert!(flat.contains("/proj add <path>"));
     assert!(flat.contains("⌥↑/⌥↓ page"));
+    assert_eq!(
+        flat.matches("⌥↑/⌥↓ page").count(),
+        1,
+        "overlay and global footer should not repeat the same hint: {flat}"
+    );
     assert!(!flat.contains("PageUp"));
     assert!(!flat.contains("PageDown"));
     assert!(!flat.contains("Fn+"));

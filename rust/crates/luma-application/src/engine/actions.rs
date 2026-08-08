@@ -123,27 +123,11 @@ impl Engine {
                                     program,
                                     args,
                                     environment,
-                                    record_alias,
                                 } => luma_protocol::ActionOutcomeDto::InteractiveTerminal {
                                     program,
                                     args,
                                     environment,
-                                    record_alias,
                                 },
-                                crate::module::ActionOutcome::EmbeddedTerminal(request) => {
-                                    let request = *request;
-                                    luma_protocol::ActionOutcomeDto::EmbeddedTerminal {
-                                        program: request.program,
-                                        args: request.args,
-                                        environment: request.environment,
-                                        record_alias: request.record_alias,
-                                        title: request.title,
-                                        alias: request.alias,
-                                        hostname: request.hostname,
-                                        user: request.user,
-                                        port: request.port,
-                                    }
-                                }
                                 crate::module::ActionOutcome::SettingsMutation { patch } => {
                                     match apply_settings_mutation(
                                         settings_repo.as_ref(),

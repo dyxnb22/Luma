@@ -349,9 +349,6 @@ impl Engine {
             Command::RefreshWordbookReviewStats => {
                 self.handle_refresh_wordbook_review_stats().await;
             }
-            Command::SshSessionEnded { alias, exit_code } => {
-                self.handle_ssh_session_ended(alias, exit_code).await;
-            }
         }
     }
 }

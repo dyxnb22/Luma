@@ -10,7 +10,6 @@ mod navigation;
 mod overlays;
 mod preview;
 mod search;
-mod ssh_workspace;
 mod wordbook;
 
 pub use dispatch::update;
@@ -27,9 +26,6 @@ use navigation::{
 use overlays::{open_commands, open_settings, run_command_selection, toggle_setting};
 use preview::{preview_effect, sync_prompt_viewport};
 use search::{begin_search, cancel_active, flush_pending_search_or_continue, schedule_search};
-use ssh_workspace as ssh_ws;
-
-const PAGE_SIZE: usize = 5;
 
 pub(crate) fn explicit_command_prompt(prompt: &str) -> Option<&str> {
     prompt.trim_start().strip_prefix('/').map(str::trim)

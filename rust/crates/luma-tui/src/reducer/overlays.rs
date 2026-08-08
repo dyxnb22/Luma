@@ -74,8 +74,10 @@ pub(super) fn run_command_selection(state: &mut AppState) -> Vec<Effect> {
             state.status.set("Quit Luma?", StatusTone::Warning);
             vec![Effect::None]
         }
-        _ if entry.query.is_some() => {
-            let query = entry.query.expect("checked above");
+        _ => {
+            let Some(query) = entry.query else {
+                return vec![Effect::None];
+            };
             clear_action_ui(state);
             state.route = Route::Search;
             state.overlay.commands_return_route = None;
@@ -96,7 +98,6 @@ pub(super) fn run_command_selection(state: &mut AppState) -> Vec<Effect> {
                 vec![Effect::None]
             }
         }
-        _ => vec![Effect::None],
     }
 }
 

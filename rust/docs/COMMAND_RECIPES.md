@@ -82,9 +82,6 @@ description = "Run the test command appropriate for the current project"
 tags = ["test", "project"]
 risk = "safe"
 scope = "current_project"
-# optional: target = "local_shell" | "remote_shell" (default local_shell)
-# optional: group = "Docker"
-# optional parameters = [ { id = "n", label = "N", kind = "integer", default = "100" } ]
 
 [[recipes.variants]]
 id = "rust"
@@ -100,14 +97,8 @@ args = ["test", "--workspace", "--all-features"]
 cwd = "current"
 ```
 
-`scope = "ssh_session"` + `target = "remote_shell"` recipes appear in the SSH Workspace
-command shelf (Copy / Insert only; `${param}` must be a whole arg token). Old TOML without
-`target` keeps working as `local_shell`. See [ADR-0008](adr/0008-ssh-workspace.md).
-
-Parameter definitions are validated when the catalog loads. Supported kinds are `text`,
-`integer`, `choice`, `boolean`, and `path`; duplicate ids, invalid ranges/defaults, empty choice
-lists, unknown kinds, and invalid regular-expression `pattern` values cause that user recipe to
-be skipped with a configuration issue. `pattern` is enforced again when rendering a command.
+Retired `ssh_session` scopes, targets, groups, parameters, and parameter placeholders are reported
+and skipped. They are not rewritten as local commands.
 
 Merge rules:
 

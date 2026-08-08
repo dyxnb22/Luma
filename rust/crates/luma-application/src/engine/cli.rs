@@ -171,31 +171,15 @@ pub async fn run_action(
         }
     };
     let outcome = match outcome {
-        luma_protocol::ActionOutcomeDto::EmbeddedTerminal {
+        luma_protocol::ActionOutcomeDto::InteractiveTerminal {
             program,
             args,
             environment,
-            record_alias,
-            ..
-        }
-        | luma_protocol::ActionOutcomeDto::InteractiveTerminal {
-            program,
-            args,
-            environment,
-            record_alias,
         } => {
             use crate::interactive_terminal::run_interactive_terminal;
             match run_interactive_terminal(&program, &args, &environment) {
                 Ok(status) => {
                     if status.success() {
-                        if let Some(alias) = record_alias {
-                            engine
-                                .handle_command(Command::SshSessionEnded {
-                                    alias,
-                                    exit_code: status.code().unwrap_or(0),
-                                })
-                                .await;
-                        }
                         luma_protocol::ActionOutcomeDto::Success {
                             message: Some(format!("{program} exited")),
                         }

@@ -6,7 +6,6 @@ use super::actions::{clear_action_ui, execute_action, review_return_route};
 use super::explicit_command_prompt;
 use super::preview::preview_effect;
 use super::search::{begin_search, cancel_active, schedule_search};
-use super::ssh_workspace;
 use super::wordbook;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -313,36 +312,6 @@ pub(super) fn cancel_msg(state: &mut AppState) -> Vec<Effect> {
         state.status.set("cancelling action…", StatusTone::Progress);
         return vec![Effect::CancelOperation { operation_id }];
     }
-    if state.route == Route::SshWorkspace {
-        if let Some(ws) = state.ssh_workspace.as_mut() {
-            if ws.leader_armed {
-                ws.leader_armed = false;
-                ws.disconnect_confirm = false;
-                ws.focus = crate::ssh_workspace::SshWorkspaceFocus::Terminal;
-                state.focus = FocusZone::Terminal;
-                return vec![Effect::None];
-            }
-            if ws.focus == crate::ssh_workspace::SshWorkspaceFocus::Shelf {
-                if ws.shelf.filling_params {
-                    ws.shelf.cancel_parameter_form();
-                    state
-                        .status
-                        .set("Parameter form closed", StatusTone::Neutral);
-                    return vec![Effect::None];
-                }
-                if ws.shelf.search_active() {
-                    ws.shelf.clear_search();
-                    state.status.set("Command groups", StatusTone::Neutral);
-                    return vec![Effect::None];
-                }
-                return ssh_workspace::shelf_back_to_terminal(state);
-            }
-            if ws.shelf_visible {
-                return ssh_workspace::shelf_back_to_terminal(state);
-            }
-        }
-        return ssh_workspace::leave_workspace(state);
-    }
     if state.route == Route::WordbookReview {
         return wordbook::exit_wordbook_review(state);
     }
@@ -560,74 +529,71 @@ pub(super) fn select_prev_msg(state: &mut AppState) -> Vec<Effect> {
 /// Moving a search-result selection requests its preview just like single-row navigation. Other
 /// routes remain local-only: paging never executes actions or activates Hub rows.
 pub(super) fn scroll_page(state: &mut AppState, direction: ScrollDirection) -> Vec<Effect> {
-    let delta = match direction {
-        ScrollDirection::Up => -(super::PAGE_SIZE as isize),
-        ScrollDirection::Down => super::PAGE_SIZE as isize,
-    };
     match state.route {
         Route::ActionPicker => {
+            let page_rows = state.action_picker_page_rows();
             if state.actions.action_choices.is_empty() {
                 state.actions.action_selected = 0;
             } else {
                 let max = state.actions.action_choices.len() - 1;
                 state.actions.action_selected = match direction {
-                    ScrollDirection::Up => state
-                        .actions
-                        .action_selected
-                        .saturating_sub(super::PAGE_SIZE),
-                    ScrollDirection::Down => {
-                        (state.actions.action_selected + super::PAGE_SIZE).min(max)
-                    }
+                    ScrollDirection::Up => state.actions.action_selected.saturating_sub(page_rows),
+                    ScrollDirection::Down => (state.actions.action_selected + page_rows).min(max),
                 };
             }
         }
         Route::Help => {
             let max = state.help_scroll_max();
+            let page_rows = state.help_page_rows();
             state.overlay.help_scroll = match direction {
-                ScrollDirection::Up => state.overlay.help_scroll.saturating_sub(super::PAGE_SIZE),
-                ScrollDirection::Down => (state.overlay.help_scroll + super::PAGE_SIZE).min(max),
+                ScrollDirection::Up => state.overlay.help_scroll.saturating_sub(page_rows),
+                ScrollDirection::Down => (state.overlay.help_scroll + page_rows).min(max),
             };
         }
         Route::Settings => {
+            let page_rows = state.settings_page_rows();
             if state.settings.modules.is_empty() {
                 state.settings.selected = 0;
             } else {
                 let max = state.settings.modules.len() - 1;
                 state.settings.selected = match direction {
-                    ScrollDirection::Up => state.settings.selected.saturating_sub(super::PAGE_SIZE),
-                    ScrollDirection::Down => (state.settings.selected + super::PAGE_SIZE).min(max),
+                    ScrollDirection::Up => state.settings.selected.saturating_sub(page_rows),
+                    ScrollDirection::Down => (state.settings.selected + page_rows).min(max),
                 };
             }
         }
         Route::Commands => {
+            let page_rows = state.commands_page_rows();
             let max = state.command_palette_rows().len().saturating_sub(1);
             state.overlay.commands_selected = match direction {
-                ScrollDirection::Up => state
-                    .overlay
-                    .commands_selected
-                    .saturating_sub(super::PAGE_SIZE),
-                ScrollDirection::Down => {
-                    (state.overlay.commands_selected + super::PAGE_SIZE).min(max)
-                }
+                ScrollDirection::Up => state.overlay.commands_selected.saturating_sub(page_rows),
+                ScrollDirection::Down => (state.overlay.commands_selected + page_rows).min(max),
             };
         }
         Route::Search if state.focus == FocusZone::Preview && state.preview_visible() => {
             let max = state.preview_scroll_max();
+            let page_rows = state.preview_page_rows();
             state.preview.scroll = match direction {
-                ScrollDirection::Up => state.preview.scroll.saturating_sub(super::PAGE_SIZE),
-                ScrollDirection::Down => (state.preview.scroll + super::PAGE_SIZE).min(max),
+                ScrollDirection::Up => state.preview.scroll.saturating_sub(page_rows),
+                ScrollDirection::Down => (state.preview.scroll + page_rows).min(max),
             };
         }
         Route::Search if state.showing_hub() => {
+            let page_rows = state.hub_data_capacity();
             let max = state.hub_rows().len().saturating_sub(1);
             state.focus = FocusZone::List;
             state.hub.selected = match direction {
-                ScrollDirection::Up => state.hub.selected.saturating_sub(super::PAGE_SIZE),
-                ScrollDirection::Down => (state.hub.selected + super::PAGE_SIZE).min(max),
+                ScrollDirection::Up => state.hub.selected.saturating_sub(page_rows),
+                ScrollDirection::Down => (state.hub.selected + page_rows).min(max),
             };
             state.ensure_hub_selection_visible();
         }
         Route::Search => {
+            let page_rows = state.search.results.viewport_rows.max(1);
+            let delta = match direction {
+                ScrollDirection::Up => -(page_rows as isize),
+                ScrollDirection::Down => page_rows as isize,
+            };
             state.focus = FocusZone::List;
             let previous_id = state.search.results.selected_id.clone();
             state.search.results.select_offset(delta);
@@ -640,7 +606,7 @@ pub(super) fn scroll_page(state: &mut AppState, direction: ScrollDirection) -> V
             state.preview.scroll = 0;
             return preview_effect(state);
         }
-        Route::WordbookReview | Route::ConfirmAction | Route::QuitConfirm | Route::SshWorkspace => {
+        Route::WordbookReview | Route::ConfirmAction | Route::QuitConfirm => {
             state
                 .status
                 .set("Nothing scrollable is focused", StatusTone::Neutral);

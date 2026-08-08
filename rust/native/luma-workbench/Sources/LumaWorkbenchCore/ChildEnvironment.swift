@@ -3,12 +3,11 @@ import Foundation
 /// Environment handed to the `luma tui` child process.
 ///
 /// A GUI-launched app inherits a minimal launchd environment, so the TUI would otherwise fail to
-/// find `ssh`, `git`, or anything installed by Homebrew or cargo when it runs a Command Recipe.
+/// find `git` or anything installed by Homebrew or cargo when it runs a Command Recipe.
 public enum ChildEnvironment {
     /// Variables copied through from the host process when present.
     ///
-    /// `SSH_AUTH_SOCK` is included so `/ssh` can use the running agent instead of prompting for a
-    /// passphrase on every connection.
+    /// `SSH_AUTH_SOCK` remains available to commands the user explicitly launches from recipes.
     public static let preservedNames: Set<String> = [
         "HOME", "USER", "LOGNAME", "SHELL", "LANG", "TMPDIR", "SSH_AUTH_SOCK"
     ]

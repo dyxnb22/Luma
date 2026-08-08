@@ -7,7 +7,6 @@ use ratatui::Frame;
 mod overlays;
 mod preview;
 mod results;
-mod ssh_workspace;
 mod status;
 mod util;
 mod wordbook;
@@ -27,11 +26,6 @@ pub fn render(frame: &mut Frame<'_>, state: &AppState) {
 fn render_with(frame: &mut Frame<'_>, state: &AppState, theme: &Theme, symbols: &Symbols) {
     let area = frame.area();
     frame.render_widget(Block::default().style(theme.canvas()), area);
-
-    if state.route == Route::SshWorkspace {
-        ssh_workspace::render_ssh_workspace(frame, area, state, theme, symbols);
-        return;
-    }
 
     let horizontal_margin = u16::from(area.width >= 48);
     let workspace = area.inner(Margin {
@@ -80,7 +74,7 @@ fn render_with(frame: &mut Frame<'_>, state: &AppState, theme: &Theme, symbols: 
     status::render_status(frame, chunks[2], state, theme, symbols);
 
     match state.route {
-        Route::Search | Route::WordbookReview | Route::SshWorkspace => {}
+        Route::Search | Route::WordbookReview => {}
         Route::Help => render_overlay_help(frame, area, state, theme, symbols),
         Route::Settings => render_overlay_settings(frame, area, state, theme, symbols),
         Route::Commands => render_overlay_commands(frame, area, state, theme, symbols),

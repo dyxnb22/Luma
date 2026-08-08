@@ -859,99 +859,32 @@ fn records_rollback_does_not_touch_unrelated_support_files() {
 }
 
 #[test]
-fn ssh_query_not_configured_without_ssh_config() {
+fn ssh_surface_and_cli_are_removed() {
     let dir = tempdir().unwrap();
     let support = dir.path().join("support");
     let logs = dir.path().join("logs");
     fs::create_dir_all(&support).unwrap();
     fs::create_dir_all(&logs).unwrap();
-    // Isolate from the developer's real ~/.ssh/config (MacSshConfig honors SSH_CONFIG).
-    let missing_config = dir.path().join("missing-ssh-config");
-    let out = Command::new(luma_bin())
-        .args(["query", "/ssh ", "--json"])
-        .env("LUMA_NEXT_SUPPORT_DIR", &support)
-        .env("LUMA_NEXT_LOGS_DIR", &logs)
-        .env("SSH_CONFIG", &missing_config)
-        .output()
-        .expect("spawn luma");
-    let code = out.status.code().unwrap_or(1);
-    let stdout = String::from_utf8_lossy(&out.stdout).into_owned();
-    let stderr = String::from_utf8_lossy(&out.stderr).into_owned();
+
+    let (code, stdout, stderr) = run_luma(&support, &logs, &["query", "/ssh ", "--json"]);
     assert_eq!(code, 0, "stderr={stderr}");
-    let v: serde_json::Value = serde_json::from_str(&stdout).unwrap();
-    let results = v["results"].as_array().expect("results");
+    let payload: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert!(payload["results"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .all(|row| row["module_id"] != "luma.ssh"));
+
+    let (code, _, stderr) = run_luma(&support, &logs, &["ssh", "list"]);
+    assert_ne!(code, 0);
     assert!(
-        results.iter().any(|r| r["kind"] == "not_configured"),
-        "expected not_configured row: {stdout}"
+        stderr.contains("unrecognized subcommand 'ssh'"),
+        "unexpected stderr: {stderr}"
     );
-    let blob = stdout.to_lowercase();
-    assert!(!blob.contains("-----begin"));
-    assert!(!blob.contains("private-key"));
 }
 
 #[test]
-fn ssh_cli_list_favorite_and_rename_use_slash_surfaces() {
-    let dir = tempdir().unwrap();
-    let support = dir.path().join("support");
-    let logs = dir.path().join("logs");
-    fs::create_dir_all(&support).unwrap();
-    fs::create_dir_all(&logs).unwrap();
-    let config = dir.path().join("ssh-config");
-    fs::write(
-        &config,
-        "Host luma-e2e-local\n  HostName 127.0.0.1\n  User luma-e2e\n  Port 43128\n",
-    )
-    .unwrap();
-
-    let run = |args: &[&str]| {
-        Command::new(luma_bin())
-            .args(args)
-            .env("LUMA_NEXT_SUPPORT_DIR", &support)
-            .env("LUMA_NEXT_LOGS_DIR", &logs)
-            .env("SSH_CONFIG", &config)
-            .output()
-            .expect("spawn luma")
-    };
-
-    let listed = run(&["ssh", "list", "--json"]);
-    assert!(listed.status.success());
-    let listed: serde_json::Value = serde_json::from_slice(&listed.stdout).unwrap();
-    let results = listed["results"].as_array().unwrap();
-    assert_eq!(
-        results
-            .iter()
-            .filter(|row| row["action_payload"]["alias"] == "luma-e2e-local")
-            .count(),
-        1
-    );
-
-    assert!(run(&["ssh", "favorite", "luma-e2e-local"]).status.success());
-    assert!(run(&["ssh", "rename", "luma-e2e-local", "Loopback Test"])
-        .status
-        .success());
-    let listed = run(&["ssh", "list", "--json"]);
-    assert!(listed.status.success());
-    let listed: serde_json::Value = serde_json::from_slice(&listed.stdout).unwrap();
-    let row = listed["results"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .find(|row| row["action_payload"]["alias"] == "luma-e2e-local")
-        .unwrap();
-    assert_eq!(row["title"], "Loopback Test");
-    assert!(row["secondary_actions"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .any(|action| action["id"] == "unfavorite"));
-
-    assert!(run(&["ssh", "unfavorite", "luma-e2e-local"])
-        .status
-        .success());
-}
-
-#[test]
-fn modules_list_includes_ssh() {
+fn modules_list_excludes_removed_ssh_module() {
     let dir = tempdir().unwrap();
     let support = dir.path().join("support");
     let logs = dir.path().join("logs");
@@ -965,8 +898,8 @@ fn modules_list_includes_ssh() {
             .as_array()
             .unwrap()
             .iter()
-            .any(|m| m["id"] == "luma.ssh"),
-        "expected luma.ssh in modules list: {stdout}"
+            .all(|m| m["id"] != "luma.ssh"),
+        "removed luma.ssh still appears in modules list: {stdout}"
     );
 }
 

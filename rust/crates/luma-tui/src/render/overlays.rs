@@ -9,10 +9,25 @@ use ratatui::widgets::{Block, Borders, Clear, List, ListItem, Paragraph, Wrap};
 use ratatui::Frame;
 
 pub(super) fn overlay_area(frame_area: Rect, prefer_height: u16) -> Rect {
+    overlay_area_with_width(frame_area, prefer_height, 3, 4, 36, 104)
+}
+
+fn wide_overlay_area(frame_area: Rect, prefer_height: u16) -> Rect {
+    overlay_area_with_width(frame_area, prefer_height, 7, 8, 44, 132)
+}
+
+fn overlay_area_with_width(
+    frame_area: Rect,
+    prefer_height: u16,
+    width_numerator: u16,
+    width_denominator: u16,
+    min_width: u16,
+    max_width_cap: u16,
+) -> Rect {
     let horizontal_gutter = if frame_area.width >= 40 { 4 } else { 0 };
     let max_width = frame_area.width.saturating_sub(horizontal_gutter);
-    let width = (frame_area.width.saturating_mul(3) / 4)
-        .clamp(36, 104)
+    let width = (frame_area.width.saturating_mul(width_numerator) / width_denominator)
+        .clamp(min_width, max_width_cap)
         .min(max_width);
     let vertical_gutter = if frame_area.height >= 9 { 4 } else { 0 };
     let max_height = frame_area.height.saturating_sub(vertical_gutter);
@@ -49,9 +64,6 @@ fn overlay_block(theme: &Theme, symbols: &Symbols) -> Block<'static> {
         .style(panel_style(theme))
 }
 
-fn overlay_hint(text: String, theme: &Theme) -> Line<'static> {
-    Line::from(Span::styled(text, with_panel_bg(theme.keycap(), theme))).right_aligned()
-}
 pub(super) fn render_overlay_confirm(
     frame: &mut Frame<'_>,
     area: Rect,
@@ -259,20 +271,12 @@ pub(super) fn render_overlay_action_picker(
     } else {
         String::new()
     };
-    let list = List::new(items).style(panel).block(
-        overlay_block(theme, symbols)
-            .title(Span::styled(
-                format!(" ACTIONS {} {target}{scroll_hint} ", symbols.sep),
-                with_panel_bg(theme.title(), theme),
-            ))
-            .title_bottom(overlay_hint(
-                format!(
-                    " {}{} move {} Enter run {} Esc back ",
-                    symbols.up, symbols.down, symbols.sep, symbols.sep
-                ),
-                theme,
-            )),
-    );
+    let list = List::new(items)
+        .style(panel)
+        .block(overlay_block(theme, symbols).title(Span::styled(
+            format!(" ACTIONS {} {target}{scroll_hint} ", symbols.sep),
+            with_panel_bg(theme.title(), theme),
+        )));
     frame.render_widget(list, overlay);
 }
 
@@ -286,7 +290,7 @@ pub(super) fn render_overlay_help(
     dim_backdrop(frame, area, theme);
     let lines = state.help_lines();
 
-    let overlay = overlay_area(area, (area.height.saturating_sub(2)).clamp(12, 22));
+    let overlay = wide_overlay_area(area, (area.height.saturating_sub(2)).clamp(12, 22));
     fill_overlay_panel(frame, overlay, theme);
     let panel = panel_style(theme);
     let inner_h = overlay.height.saturating_sub(2) as usize;
@@ -323,11 +327,7 @@ pub(super) fn render_overlay_help(
                 .title(
                     Line::from(Span::styled(position, with_panel_bg(theme.muted(), theme)))
                         .right_aligned(),
-                )
-                .title_bottom(overlay_hint(
-                    format!(" ⌥↑/⌥↓ page {} Esc back ", symbols.sep),
-                    theme,
-                )),
+                ),
         );
     frame.render_widget(widget, overlay);
 }
@@ -378,7 +378,7 @@ pub(super) fn render_overlay_settings(
     symbols: &Symbols,
 ) {
     dim_backdrop(frame, area, theme);
-    let overlay = overlay_area(area, 18);
+    let overlay = wide_overlay_area(area, 18);
     fill_overlay_panel(frame, overlay, theme);
     let panel = panel_style(theme);
     let content_width = overlay.width.saturating_sub(2) as usize;
@@ -537,17 +537,12 @@ pub(super) fn render_overlay_settings(
         .skip(scroll)
         .take(visible_height.max(1))
         .collect::<Vec<_>>();
-    let list = List::new(visible_items).style(panel).block(
-        overlay_block(theme, symbols)
-            .title(Span::styled(
-                format!(" SETTINGS  v{}{} ", state.settings.version, scroll_hint),
-                with_panel_bg(theme.title(), theme),
-            ))
-            .title_bottom(overlay_hint(
-                format!(" Space toggle {} Esc back ", symbols.sep),
-                theme,
-            )),
-    );
+    let list = List::new(visible_items)
+        .style(panel)
+        .block(overlay_block(theme, symbols).title(Span::styled(
+            format!(" SETTINGS  v{}{} ", state.settings.version, scroll_hint),
+            with_panel_bg(theme.title(), theme),
+        )));
     frame.render_widget(list, overlay);
 }
 
@@ -581,7 +576,7 @@ pub(super) fn render_overlay_commands(
 ) {
     dim_backdrop(frame, area, theme);
     let commands = state.command_palette_rows();
-    let overlay = overlay_area(area, (commands.len() as u16).saturating_add(2).clamp(8, 18));
+    let overlay = wide_overlay_area(area, (commands.len() as u16).saturating_add(2).clamp(8, 18));
     fill_overlay_panel(frame, overlay, theme);
     let panel = panel_style(theme);
     let visible_rows = overlay.height.saturating_sub(2) as usize;
@@ -604,7 +599,7 @@ pub(super) fn render_overlay_commands(
         .map(|entry| display_width(&entry.label))
         .max()
         .unwrap_or(12)
-        .min(content_width.saturating_mul(38) / 100)
+        .min(content_width.saturating_mul(48) / 100)
         .max(12);
     let items: Vec<ListItem> = if commands.is_empty() {
         vec![ListItem::new(Line::from(Span::styled(
@@ -708,14 +703,7 @@ pub(super) fn render_overlay_commands(
             .title(
                 Line::from(Span::styled(position, with_panel_bg(theme.muted(), theme)))
                     .right_aligned(),
-            )
-            .title_bottom(overlay_hint(
-                format!(
-                    " Type filter {} Enter run {} Esc back ",
-                    symbols.sep, symbols.sep
-                ),
-                theme,
-            )),
+            ),
     );
     frame.render_widget(list, overlay);
 }
@@ -742,11 +730,7 @@ pub(super) fn render_overlay_quit(
     let widget = Paragraph::new(lines).style(panel).block(
         overlay_block(theme, symbols)
             .border_style(warn)
-            .title(Span::styled(" QUIT ", warn))
-            .title_bottom(overlay_hint(
-                format!(" Enter confirm {} Esc stay ", symbols.sep),
-                theme,
-            )),
+            .title(Span::styled(" QUIT ", warn)),
     );
     frame.render_widget(widget, overlay);
 }

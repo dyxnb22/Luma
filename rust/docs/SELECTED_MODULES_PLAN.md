@@ -360,7 +360,7 @@ Add a `ShellHistoryPort` whose system adapter reads `~/.zsh_history`; tests inje
 Shell commands must not be copied verbatim into `recall.sqlite`. Extend the existing
 `privacy_safe_title` policy in `luma-application/src/engine/recall.rs` so
 `luma.shell_history` records a generic title such as `Shell history command`. This is the same
-bounded privacy policy already used for Clipboard, Snippets, and SSH, not a new dispatch path.
+bounded privacy policy already used for Clipboard and Snippets, not a new dispatch path.
 
 Also suppress entries that look credential-bearing, including:
 

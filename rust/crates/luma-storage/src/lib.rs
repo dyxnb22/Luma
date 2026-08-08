@@ -16,8 +16,6 @@ mod records_store;
 mod renewals_store;
 mod snippets_store;
 mod sqlite;
-mod ssh_config_parse;
-mod ssh_meta_store;
 mod timers_store;
 mod wordbook_store;
 
@@ -51,11 +49,6 @@ pub use records_store::{
 };
 pub use renewals_store::{RenewalRow, RenewalsStore, RenewalsStoreError, MAX_RENEWALS_ROWS};
 pub use snippets_store::{SnippetRow, SnippetsStore, SnippetsStoreError};
-pub use ssh_config_parse::{
-    collect_aliases_from_file, expand_include_paths, host_alias_is_unsafe,
-    host_pattern_is_wildcard, parse_host_aliases, parse_include_paths, resolve_include_path,
-};
-pub use ssh_meta_store::{SshHostMetaRow, SshMetaStore, SshMetaStoreError};
 pub use timers_store::{TimerRow, TimersStore, TimersStoreError};
 pub use wordbook_store::{
     now_iso, schedule_review, ImportContentReport, WordContent, WordImportRow, WordRow,

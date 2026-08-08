@@ -7,7 +7,6 @@ pub enum Route {
     Help,
     Settings,
     WordbookReview,
-    SshWorkspace,
     Commands,
     QuitConfirm,
     ConfirmAction,

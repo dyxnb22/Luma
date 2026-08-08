@@ -6,7 +6,6 @@ use super::actions::{begin_primary_or_confirm, clear_action_ui, execute_action};
 use super::navigation::open_surface_query;
 use super::preview::preview_effect;
 use super::search::begin_search;
-use super::ssh_workspace::open_embedded_workspace;
 use super::{project_remove_name, records_query_active};
 
 /// Orchestrate engine events into local state transitions and follow-up effects.
@@ -29,7 +28,6 @@ pub(super) fn apply_engine(state: &mut AppState, event: Event) -> Vec<Effect> {
                 program,
                 args,
                 environment,
-                record_alias,
             },
         operation_id,
     } = &event
@@ -42,42 +40,8 @@ pub(super) fn apply_engine(state: &mut AppState, event: Event) -> Vec<Effect> {
                 program: program.clone(),
                 args: args.clone(),
                 environment: environment.clone(),
-                record_alias: record_alias.clone(),
                 operation_id: operation_id.clone(),
             }];
-        }
-    }
-    if let Event::ActionFinished {
-        outcome:
-            luma_protocol::ActionOutcomeDto::EmbeddedTerminal {
-                program,
-                args,
-                environment,
-                record_alias,
-                title,
-                alias,
-                hostname,
-                user,
-                port,
-            },
-        operation_id,
-    } = &event
-    {
-        if state.actions.active_operation.as_deref() == Some(operation_id.as_str()) {
-            state.actions.active_operation = None;
-            state.actions.active_kind = None;
-            return open_embedded_workspace(
-                state,
-                program.clone(),
-                args.clone(),
-                environment.clone(),
-                record_alias.clone(),
-                title.clone(),
-                alias.clone(),
-                hostname.clone(),
-                user.clone(),
-                *port,
-            );
         }
     }
     if let Event::DiagnosticRaised { diagnostic } = &event {

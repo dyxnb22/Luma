@@ -4,32 +4,32 @@
 //! listed in Settings but do not warm up or appear on the Hub.
 
 use luma_application::{
-    CapabilityPort, CommandRecipesRepository, CommandSpec, EmbeddedPtyPort, ModuleManifest,
-    ModuleRegistry, PasteboardPort, RecallRepository, RegistryError as ModuleRegistryError,
-    SearchMode, SettingsRepository, SqliteClipboardHistory, SqliteCommandRecipesRepository,
-    SqliteDatabasePortalsRepository, SqliteQuicklinksRepository, SqliteRecallRepository,
-    SqliteRecordsRepository, SqliteRenewalsRepository, SqliteSnippetsRepository,
-    SqliteSshMetaRepository, SqliteTimersRepository, SqliteWordbookRepository,
-    TomlSettingsRepository, UnavailableModule, WordbookRepository, WorkbenchMeta,
+    CapabilityPort, CommandRecipesRepository, CommandSpec, ModuleManifest, ModuleRegistry,
+    RecallRepository, RegistryError as ModuleRegistryError, SearchMode, SettingsRepository,
+    SqliteClipboardHistory, SqliteCommandRecipesRepository, SqliteDatabasePortalsRepository,
+    SqliteQuicklinksRepository, SqliteRecallRepository, SqliteRecordsRepository,
+    SqliteRenewalsRepository, SqliteSnippetsRepository, SqliteTimersRepository,
+    SqliteWordbookRepository, TomlSettingsRepository, UnavailableModule, WordbookRepository,
+    WorkbenchMeta,
 };
 use luma_modules::{
     AppsModule, CalculatorModule, ClipboardModule, ClipboardSuppression, CommandRecipesModule,
     DatabasePortalsModule, DownloadsModule, FakeEchoModule, GitModule, PackagesModule,
     ProjectsModule, ProxyModule, QuicklinksModule, RecordsModule, RenewalsModule, RuntimeModule,
-    ScreenOcrModule, SecretsModule, ShellHistoryModule, ShortcutsModule, SnippetsModule, SshModule,
+    ScreenOcrModule, SecretsModule, ShellHistoryModule, ShortcutsModule, SnippetsModule,
     TimersModule, WindowsModule, WordbookModule,
 };
 use luma_platform_macos::{
     FilesystemAppsCatalog, MacAccessibility, MacBoundedUtf8FileReader, MacClock,
-    MacDatabasePlatform, MacDownloads, MacEmbeddedPty, MacGitRepository, MacHomebrew, MacKeychain,
+    MacDatabasePlatform, MacDownloads, MacGitRepository, MacHomebrew, MacKeychain,
     MacMihomoProxyCore, MacNetworkProbe, MacOpenPath, MacPasteboard, MacProfileStore,
     MacProjectWorkspace, MacRecipeEnvironment, MacRuntimeInspector, MacScreenOcr, MacShellHistory,
-    MacShortcuts, MacSpeech, MacSshConfig, MacSystemProxy, MacSystemSettings, MacWindowCatalog,
+    MacShortcuts, MacSpeech, MacSystemProxy, MacSystemSettings, MacWindowCatalog,
 };
 use luma_storage::{
     luma_next_support_dir, ClipboardStore, CommandRecipesMetaStore, ConfigError, ConfigStore,
     DatabasePortalsStore, LumaSettings, QuicklinksStore, RecallStore, RecordsStore, RenewalsStore,
-    SnippetsStore, SshMetaStore, TimersStore, WordbookStore,
+    SnippetsStore, TimersStore, WordbookStore,
 };
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -60,18 +60,6 @@ pub struct RegistryLoad {
     pub recall: Option<Arc<dyn RecallRepository>>,
     #[allow(dead_code)]
     pub skipped: Vec<SkippedModule>,
-}
-
-pub struct TuiPlatformAdapters {
-    pub embedded_pty: Arc<dyn EmbeddedPtyPort>,
-    pub pasteboard: Arc<dyn PasteboardPort>,
-}
-
-pub fn tui_platform_adapters() -> TuiPlatformAdapters {
-    TuiPlatformAdapters {
-        embedded_pty: Arc::new(MacEmbeddedPty::new()),
-        pasteboard: Arc::new(MacPasteboard),
-    }
 }
 
 struct ComposeCapabilities;
@@ -381,25 +369,6 @@ pub fn registry_from_settings(
             "Command Recipes metadata store could not be opened. Existing data was left untouched; close Luma, repair or restore the local store, then reopen.",
         )?;
     }
-    let ssh_meta = match SshMetaStore::luma_next_default() {
-        Ok(s) => Some(Arc::new(s)),
-        Err(err) => {
-            warn!(%err, "failed to open ssh metadata store");
-            None
-        }
-    };
-    reg.register(Arc::new(
-        SshModule::with_deps(
-            Arc::new(MacSshConfig::system_default()),
-            ssh_meta.map(|s| {
-                Arc::new(SqliteSshMetaRepository::new(s))
-                    as Arc<dyn luma_application::SshMetaRepository>
-            }),
-            pasteboard.clone(),
-            Arc::new(MacClock),
-        )
-        .with_credentials(Arc::new(MacKeychain::ssh_passwords())),
-    ))?;
     if let Some(timers) = timers {
         reg.register(Arc::new(TimersModule::with_deps(
             Arc::new(SqliteTimersRepository::new(timers)),
@@ -736,7 +705,6 @@ mod tests {
             ("luma.shell_history", 1),
             ("luma.shortcuts", 3),
             ("luma.snippets", 4),
-            ("luma.ssh", 5),
             ("luma.timers", 4),
             ("luma.windows", 1),
             ("luma.wordbook", 9),
@@ -746,7 +714,7 @@ mod tests {
         .collect::<BTreeMap<_, _>>();
 
         assert_eq!(actual, expected);
-        assert_eq!(actual.values().sum::<usize>(), 101);
+        assert_eq!(actual.values().sum::<usize>(), 96);
     }
 
     #[test]

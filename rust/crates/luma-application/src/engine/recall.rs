@@ -53,7 +53,6 @@ fn privacy_safe_title(item: &SearchItem) -> String {
         "luma.databases" => Some("Database portal"),
         "luma.shell_history" => Some("Shell history command"),
         "luma.snippets" => Some("Snippet"),
-        "luma.ssh" => Some("SSH connection"),
         _ => None,
     };
     let raw = generic.unwrap_or(item.title.as_str());
@@ -217,7 +216,6 @@ pub(crate) fn kind_label(kind: &str) -> &str {
         "project" | "project_header" | "project_surface" | "project_continue"
         | "project_terminal" | "project_editor" => "Project",
         "recipe" => "Command",
-        "ssh_host" => "SSH",
         "clipboard" => "Clipboard",
         "snippet" => "Snippet",
         "git_repo" => "Git repository",

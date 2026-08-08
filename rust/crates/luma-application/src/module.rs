@@ -118,10 +118,7 @@ pub enum ActionOutcome {
         program: String,
         args: Vec<String>,
         environment: Vec<(String, String)>,
-        record_alias: Option<String>,
     },
-    /// Request TUI to open an embedded SSH (or other) workspace without leaving Ratatui.
-    EmbeddedTerminal(Box<EmbeddedTerminalRequest>),
     /// Request a settings.toml CAS update (handled by the engine).
     SettingsMutation {
         patch: serde_json::Value,
@@ -130,20 +127,6 @@ pub enum ActionOutcome {
     InteractiveRecipeRun {
         plan: Box<RecipeRunPlan>,
     },
-}
-
-/// Payload for [`ActionOutcome::EmbeddedTerminal`] (boxed to keep ActionOutcome small).
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct EmbeddedTerminalRequest {
-    pub program: String,
-    pub args: Vec<String>,
-    pub environment: Vec<(String, String)>,
-    pub record_alias: Option<String>,
-    pub title: String,
-    pub alias: String,
-    pub hostname: String,
-    pub user: String,
-    pub port: u16,
 }
 
 pub type SearchSink = mpsc::Sender<Event>;

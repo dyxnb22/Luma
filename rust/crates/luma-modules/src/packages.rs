@@ -272,7 +272,6 @@ impl LumaModule for PackagesModule {
                         ("HOMEBREW_NO_AUTO_UPDATE".into(), "1".into()),
                         ("HOMEBREW_NO_INSTALL_CLEANUP".into(), "1".into()),
                     ],
-                    record_alias: None,
                 }
             }
             _ => invalid_action("unknown package action"),
@@ -619,7 +618,6 @@ mod tests {
                     ("HOMEBREW_NO_AUTO_UPDATE".into(), "1".into()),
                     ("HOMEBREW_NO_INSTALL_CLEANUP".into(), "1".into()),
                 ],
-                record_alias: None,
             }
         );
     }

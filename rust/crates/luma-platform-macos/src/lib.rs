@@ -1,4 +1,4 @@
-//! macOS host adapters (filesystem catalogs, pasteboard, proxy, SSH config, AX, windows, …).
+//! macOS host adapters (filesystem catalogs, pasteboard, proxy, AX, windows, …).
 //!
 //! No business rules — modules call these via ports. Most code is safe I/O and parsing;
 //! unsafe FFI is confined to accessibility/window helpers when the platform API requires it.
@@ -9,7 +9,6 @@ mod bounded_file_reader;
 mod clock;
 mod databases;
 mod downloads;
-mod embedded_pty;
 mod git;
 mod keychain;
 mod network_probe;
@@ -25,7 +24,6 @@ mod screen_ocr;
 mod shell_history;
 mod shortcuts;
 mod speech;
-mod ssh_config;
 mod system_proxy;
 mod system_settings;
 #[cfg(target_os = "macos")]
@@ -40,7 +38,6 @@ pub use bounded_file_reader::MacBoundedUtf8FileReader;
 pub use clock::MacClock;
 pub use databases::MacDatabasePlatform;
 pub use downloads::MacDownloads;
-pub use embedded_pty::MacEmbeddedPty;
 pub use git::MacGitRepository;
 pub use keychain::{FakeKeychain, Keychain, KeychainError, MacKeychain, SecretLabel};
 pub use network_probe::MacNetworkProbe;
@@ -56,7 +53,6 @@ pub use screen_ocr::MacScreenOcr;
 pub use shell_history::MacShellHistory;
 pub use shortcuts::MacShortcuts;
 pub use speech::MacSpeech;
-pub use ssh_config::MacSshConfig;
 pub use system_proxy::MacSystemProxy;
 pub use system_settings::MacSystemSettings;
 pub use window::MacWindowCatalog;

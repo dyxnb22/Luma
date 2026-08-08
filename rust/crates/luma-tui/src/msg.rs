@@ -66,43 +66,4 @@ pub enum Msg {
     RecipeShortcut {
         action_id: String,
     },
-    /// Write raw bytes into the embedded SSH PTY.
-    SshPtyInput {
-        bytes: Vec<u8>,
-    },
-    /// Embedded SSH PTY produced output bytes.
-    SshPtyOutput {
-        bytes: Vec<u8>,
-    },
-    /// Embedded SSH child exited.
-    SshPtyExited {
-        code: Option<i32>,
-    },
-    /// SSH workspace: reconnect current host.
-    SshReconnect,
-    /// SSH workspace: leave to host list.
-    SshLeave,
-    /// SSH workspace: open compat (full-terminal) connect.
-    SshCompatReconnect,
-    /// SSH workspace: copy error summary.
-    SshCopyError,
-    /// SSH workspace: toggle shelf focus / visibility.
-    SshToggleShelf,
-    /// SSH workspace: arm the Ctrl-/ command leader without changing shelf focus.
-    SshArmLeader,
-    /// SSH workspace: confirm disconnect.
-    SshDisconnect,
-    SshShelfPreview,
-    SshShelfCopy,
-    SshShelfInsert,
-    SshShelfStartFilter,
-    SshShelfExpand,
-    SshShelfCollapse,
-    SshShelfFavorite,
-    SshShelfParamNext,
-    SshShelfParamPrev,
-    /// Move the local terminal scrollback viewport. Positive rows move up.
-    SshScrollback {
-        rows: i32,
-    },
 }

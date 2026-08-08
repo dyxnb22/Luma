@@ -29,13 +29,6 @@ cargo run -p luma -- query "/db" --json       # default-off until enabled in Set
 cargo run -p luma -- query "/ocr" --json
 cargo run -p luma -- cmd list --json
 cargo run -p luma -- cmd show git-status --json
-cargo run -p luma -- query "/ssh production" --json
-cargo run -p luma -- ssh list --json
-cargo run -p luma -- ssh connect production
-cargo run -p luma -- ssh sftp production
-cargo run -p luma -- ssh favorite production
-cargo run -p luma -- ssh unfavorite production
-cargo run -p luma -- ssh rename production "Prod server"
 printf '%s' 'secret' | cargo run -p luma -- secrets set my-label
 cargo run -p luma -- modules list --json
 cargo run -p luma -- config get --json
@@ -102,7 +95,6 @@ Optional local hygiene: `bash scripts/check_architecture.sh`.
 See [`docs/MODULES.md`](docs/MODULES.md) for module status.
 See [`docs/GOVERNANCE.md`](docs/GOVERNANCE.md) for personal codebase governance (inventory sync, soft file limits, anti-patterns).
 See [`docs/COMMAND_RECIPES.md`](docs/COMMAND_RECIPES.md) for command templates, TOML config, and safety.
-See [`docs/SSH.md`](docs/SSH.md) for SSH Connections (`~/.ssh/config` launcher, metadata, CLI).
 See [`docs/PROXY.md`](docs/PROXY.md) for Mihomo/Clash Verge Profile behavior, safety boundaries,
 supported subscription formats, and rollback semantics.
 See [`docs/MACOS_SMOKE.md`](docs/MACOS_SMOKE.md) for real macOS permission, local utility modules,
@@ -114,13 +106,14 @@ See [`docs/USAGE_LOG_TEMPLATE.md`](docs/USAGE_LOG_TEMPLATE.md) for an optional p
 
 | Path | Role |
 | --- | --- |
-| `~/Library/Application Support/LumaNext/` | Active settings / stores (`ssh_meta.sqlite`, `recall.sqlite`, `renewals.sqlite`, `database_portals.sqlite`, clipboard, records, …) |
+| `~/Library/Application Support/LumaNext/` | Active settings / stores (`recall.sqlite`, `renewals.sqlite`, `database_portals.sqlite`, clipboard, records, …) |
 | `~/Library/Application Support/LumaNext/command-recipes.toml` | User command recipe definitions |
 | `~/Library/Application Support/LumaNext/command-recipes-meta.sqlite` | Recipe favorites / usage metadata |
 | `~/Library/Logs/LumaNext/` | Logs (`luma.log`, rotated at 5 MiB with three archives) |
-| `~/.ssh/config` | OpenSSH Host aliases — read by `luma.ssh` only (not modified) |
 
 Tests must use tempfile + `LUMA_NEXT_SUPPORT_DIR` / `LUMA_NEXT_LOGS_DIR`.
+Legacy `ssh_meta.sqlite` and SSH-password Keychain entries from older builds are left untouched;
+current Luma builds neither open nor mutate them.
 
 `luma record import` is dry-run by default; `--apply` writes the Records database, its LumaNext
 backup, and migration ledger, never the Markdown source files.
@@ -131,7 +124,7 @@ backup, and migration ledger, never the Markdown source files.
   pane, full-width selection bands, and a one-line contextual shortcut bar. `COLORFGBG` selects
   the light palette in auto mode; `LUMA_TUI_ASCII=1` keeps simpler decorative glyphs and
   non-rounded panel chrome.
-- Commands use a leading `/`, for example `/ssh prod`, `/rec browse`, `/cmd test`, `/settings`,
+- Commands use a leading `/`, for example `/proj`, `/rec browse`, `/cmd test`, `/settings`,
   and `/help`. Input without `/` is always treated as a global search.
 - `Ctrl-/` opens the searchable command palette; `/commands [filter]` opens the same surface.
   Enabled modules publish their real subcommands, argument placeholders, and short examples there
@@ -152,7 +145,7 @@ backup, and migration ledger, never the Markdown source files.
   first, followed by privacy-safe recent objects revalidated against their owning modules; stale
   objects are pruned and each row uses its current natural primary action, risk, and confirmation.
   They are not window rows and never receive a digit shortcut. Recall is bounded to 1,000 metadata rows and
-  never stores clipboard bodies, snippet bodies, SSH config, or submitted search text.
+  never stores clipboard bodies, snippet bodies, or submitted search text.
 - `/win`: `1`–`9` works only while the result list is focused. Digits typed in the prompt are never hijacked.
 - `/wb today`, `/wb due`, `/wb new`, `/wb wrong`: normal lists. `/wb review` starts today's
   queue (due first, then new words up to the remaining goal); append `due|new|wrong` for a specific
@@ -198,14 +191,6 @@ backup, and migration ledger, never the Markdown source files.
   `/proxy status` is a read-only snapshot of HTTP/HTTPS/SOCKS settings, controller, and Luma-owned
   profile state. `/proxy check` performs on-demand local route/DNS/loopback/controller checks; it
   has no daemon or probe-port subsystem.
-- `/ssh`: lists Host aliases from `~/.ssh/config` and re-reads config/Include files whenever the
-  targeted surface is visited; Enter opens an **SSH Workspace** (embedded PTY inside the TUI) by
-  default, with a Command Recipes shelf (Copy/Insert). Compat mode keeps the legacy full-terminal
-  handoff. `/ssh fav` / `/ssh recent` / `/ssh rename ALIAS NAME` / `/ssh reload`; action picker:
-  Connect, Connect (compat mode), Open SFTP, Copy alias, Favorite/Unfavorite, Delete local metadata.
-  Optional passwords can be stored in macOS Keychain with `luma ssh password set ALIAS` and are
-  supplied through OpenSSH AskPass without entering argv, logs, search results, or SSH metadata. See
-  [`docs/SSH.md`](docs/SSH.md) and [`docs/adr/0008-ssh-workspace.md`](docs/adr/0008-ssh-workspace.md).
 - There is no `luma doctor`, `:doctor`, or diagnostics overlay. Modules report `permission`, `unavailable`, or `not_configured` locally when applicable.
 
 Optional importers: `luma migrate …` with an explicit legacy path (dry-run by default).

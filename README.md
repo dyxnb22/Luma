@@ -19,7 +19,7 @@ cargo test -p luma --test cli_blackbox
 | In | Out |
 | --- | --- |
 | Local TUI + CLI and a thin native PTY host window on your Mac | App Store / notarized shipping |
-| Apps, Calculator, Downloads Inbox, Packages, Apple Shortcuts Bridge, Shell Recall, Renewals, Database Portals, Screen OCR, Windows, Git, Runtime, Proxy, Clipboard, Quicklinks, Snippets, Wordbook, Projects, Records, Command Recipes, SSH, Timers, Secrets | Window layouts, Menu search, Browser tabs, signed-host Translate |
+| Apps, Calculator, Downloads Inbox, Packages, Apple Shortcuts Bridge, Shell Recall, Renewals, Database Portals, Screen OCR, Windows, Git, Runtime, Proxy, Clipboard, Quicklinks, Snippets, Wordbook, Projects, Records, Command Recipes, Timers, Secrets | Window layouts, Menu search, Browser tabs, signed-host Translate |
 | Honest permission / unavailable states in each surface | Release soak, deny-as-policy, marketing docs |
 | Configurable global activation of the one TUI session (fresh default `⌥Space`) | A native product UI: search box, results, sidebar, settings, or overlays in Swift |
 | Module-local status and remediation rows | Centralized `doctor` command or diagnostics overlay |
@@ -33,8 +33,6 @@ cargo test -p luma --test cli_blackbox
 | Codebase governance | [`rust/docs/GOVERNANCE.md`](rust/docs/GOVERNANCE.md) |
 | macOS keyboard contract | [`rust/docs/KEYBOARD.md`](rust/docs/KEYBOARD.md) |
 | Implemented module contract | [`rust/docs/SELECTED_MODULES_PLAN.md`](rust/docs/SELECTED_MODULES_PLAN.md) |
-| Archived eight-module handoff prompt | [`rust/docs/CODEX_TERRA_SELECTED_MODULES_PROMPT.md`](rust/docs/CODEX_TERRA_SELECTED_MODULES_PROMPT.md) |
-| SSH Connections | [`rust/docs/SSH.md`](rust/docs/SSH.md) |
 | Proxy (Mihomo) | [`rust/docs/PROXY.md`](rust/docs/PROXY.md) |
 | macOS smoke checks | [`rust/docs/MACOS_SMOKE.md`](rust/docs/MACOS_SMOKE.md) |
 | Personal usage log | [`rust/docs/USAGE_LOG_TEMPLATE.md`](rust/docs/USAGE_LOG_TEMPLATE.md) |
@@ -45,15 +43,14 @@ cargo test -p luma --test cli_blackbox
 
 | Path | Role |
 | --- | --- |
-| `~/Library/Application Support/LumaNext/` | Active app support (settings, `ssh_meta.sqlite`, `recall.sqlite`, `renewals.sqlite`, `database_portals.sqlite`, other stores) |
+| `~/Library/Application Support/LumaNext/` | Active app support (settings, `recall.sqlite`, `renewals.sqlite`, `database_portals.sqlite`, other stores) |
 | `~/Library/Logs/LumaNext/` | Runtime logs (5 MiB rotation, three archives) |
-| `~/.ssh/config` | OpenSSH Host aliases (read-only for `luma.ssh`) |
-| macOS Keychain | Optional local SSH passwords and other private Luma references; values do not enter LumaNext files |
+| macOS Keychain | Private Luma references; values do not enter LumaNext files |
 
 The empty Hub lists visible windows, up to three live-or-privacy-safe Continue items, and modules. Press `1`–`9`
 to focus a numbered window; Continue and module rows are never digit targets. Digits remain
 ordinary prompt input in search fields. Interactive commands require a leading
-`/`: `/win`, `/wb review [today|due|new|wrong]`, `/rec`, and `/ssh `; unprefixed input is global search.
+`/`: `/win`, `/wb review [today|due|new|wrong]`, `/rec`, and `/cmd test`; unprefixed input is global search.
 `Ctrl-/` opens the command palette, whose module subcommands, parameter placeholders, and examples
 come from the same manifest descriptions used by `/help` and slash-command completion.
 `⌥↑` / `⌥↓` and the palette actions `/scroll up` and `/scroll down` page the focused Results,

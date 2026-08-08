@@ -10,7 +10,6 @@ mod command_recipes_repo;
 mod command_runner;
 mod databases;
 mod downloads;
-mod embedded_pty;
 mod fake_recipe_environment;
 mod git;
 mod keychain;
@@ -34,8 +33,6 @@ mod shell_history;
 mod shortcuts;
 mod snippets_repo;
 mod speech;
-mod ssh_config;
-mod ssh_meta_repo;
 mod system_proxy;
 mod system_settings;
 mod timers_repo;
@@ -67,10 +64,6 @@ pub use downloads::{
     DownloadCategory, DownloadEntry, DownloadsError, DownloadsFilter, DownloadsPort, FakeDownloads,
     MAX_DOWNLOAD_ENTRIES,
 };
-pub use embedded_pty::{
-    recv_event_timeout, EmbeddedPtyError, EmbeddedPtyEvent, EmbeddedPtyPort, EmbeddedPtySession,
-    EmbeddedPtySize, EmbeddedPtySpawnRequest, FakeEmbeddedPty,
-};
 pub use fake_recipe_environment::FakeRecipeEnvironment;
 pub use git::{
     FakeGitRepository, GitBranch, GitCommit, GitDiff, GitError, GitFile, GitProjectRoot,
@@ -78,9 +71,8 @@ pub use git::{
 };
 pub use keychain::{FakeKeychain, KeychainError, KeychainPort, SecretLabel};
 pub use memory_repos::{
-    FakeSshConfigPort, MemoryClipboardHistory, MemoryQuicklinksRepository, MemoryRecordsRepository,
-    MemorySnippetsRepository, MemorySshMetaRepository, MemoryTimersRepository,
-    MemoryWordbookRepository,
+    MemoryClipboardHistory, MemoryQuicklinksRepository, MemoryRecordsRepository,
+    MemorySnippetsRepository, MemoryTimersRepository, MemoryWordbookRepository,
 };
 pub use network_probe::{
     FakeNetworkProbe, NetworkProbePort, NetworkProbeState, NetworkProbeStep,
@@ -131,12 +123,6 @@ pub use shortcuts::{
 };
 pub use snippets_repo::{SnippetEntry, SnippetsRepoError, SnippetsRepository};
 pub use speech::{FakeSpeech, SpeechAccent, SpeechError, SpeechPort};
-pub use ssh_config::{
-    format_connection_subtitle, sanitize_identity_display, ssh_password_account, ResolvedSshHost,
-    SshConfigError, SshConfigPort, SshConfigState, SSH_ASKPASS_ACCOUNT_ENV,
-    SSH_PASSWORD_ACCOUNT_PREFIX,
-};
-pub use ssh_meta_repo::{SshHostMeta, SshMetaRepoError, SshMetaRepository};
 pub use system_proxy::{
     FakeSystemProxy, SystemProxyError, SystemProxyPort, SystemProxySetting, SystemProxyStatus,
 };

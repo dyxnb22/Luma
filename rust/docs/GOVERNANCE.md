@@ -44,7 +44,7 @@ Related: [MODULES.md](./MODULES.md), [ADR-0001](./adr/0001-rust-tui-product-shap
 7a. **Freeze central Command/Event special-cases** — do not add new module-specific
    arms to `Engine::handle_command` / protocol `Command` / `Event` for the next module.
    Prefer module `perform` + ports, or an `engine/extensions/` helper if an existing
-   Wordbook / Recipes / SSH-style path must grow. Extract opportunistically when touching
+   Wordbook / Recipes / another existing extension path must grow. Extract opportunistically when touching
    those files; do not invent a plugin ABI.
 7b. **`enabled_modules` keys are sticky** — settings.toml stores enable flags by module id
    string. Renaming a module id leaves the old key in place (no automatic migration);

@@ -1,0 +1,910 @@
+//! Windows module — list + focus visible windows; Hub projects previous-frontmost.
+
+use crate::cancel::await_unless_cancelled;
+use async_trait::async_trait;
+use luma_application::{
+    ActionOutcome, ActionRequest, HubWindowRow, HubWindowsSlice, HubWindowsStatus, LumaModule,
+    ModuleManifest, ModuleState, SearchMode, SearchSink, SystemSettingsPane, SystemSettingsPort,
+    WarmupContext, WindowCatalogPort, WindowEntry, WindowError,
+};
+use luma_domain::{
+    ActionDescriptor, ActionId, ActionRisk, FailureKind, ModuleId, Query, SearchItem,
+};
+use luma_protocol::{Event, SearchItemDto};
+use std::collections::HashMap;
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+use std::sync::Arc;
+use std::time::{Duration, Instant};
+use tokio::sync::RwLock;
+use tokio_util::sync::CancellationToken;
+
+/// Default hard cap for Hub window rows (ADR-0004); overridable via settings.
+pub const HUB_WINDOWS_MAX: usize = 15;
+const HUB_WINDOWS_MAX_MIN: usize = 5;
+const HUB_WINDOWS_MAX_MAX: usize = 50;
+
+/// Soft TTL for `win` search cache — Hub always lists fresh via `hub_windows`.
+const WINDOWS_CACHE_TTL: Duration = Duration::from_secs(2);
+
+pub struct WindowsModule {
+    manifest: ModuleManifest,
+    catalog: Arc<dyn WindowCatalogPort>,
+    system_settings: Arc<dyn SystemSettingsPort>,
+    cache: Arc<RwLock<Vec<WindowEntry>>>,
+    cache_at: Arc<RwLock<Option<Instant>>>,
+    hub_max: AtomicUsize,
+    /// Bumped on teardown so in-flight refresh cannot resurrect the cache.
+    cache_generation: AtomicU64,
+}
+
+impl WindowsModule {
+    pub fn with_catalog(catalog: Arc<dyn WindowCatalogPort>) -> Self {
+        Self::with_deps(
+            catalog,
+            Arc::new(luma_application::FakeSystemSettings::default()),
+        )
+    }
+
+    pub fn with_deps(
+        catalog: Arc<dyn WindowCatalogPort>,
+        system_settings: Arc<dyn SystemSettingsPort>,
+    ) -> Self {
+        Self {
+            manifest: ModuleManifest {
+                id: ModuleId::new("luma.windows"),
+                display_name: "Windows".into(),
+                triggers: vec!["win".into(), "window".into(), "windows".into()],
+                default_enabled: true,
+                search_mode: SearchMode::GlobalContributing,
+                // Listing windows uses the CoreGraphics catalog and remains useful without
+                // Accessibility. Focus reports the permission requirement at action time.
+                required_capabilities: vec![],
+                workbench: luma_application::WorkbenchMeta {
+                    glyph: Some("W".into()),
+                    suggested_query: Some("/win ".into()),
+                    empty_hint: Some("/win · focus a window".into()),
+                    supports_browse: false,
+                    commands: vec![crate::ux::command_spec(
+                        "/win [query]",
+                        "List or search visible windows; Enter focuses",
+                        "/win ",
+                        Some("/win safari"),
+                    )],
+                },
+            },
+            catalog,
+            system_settings,
+            cache: Arc::new(RwLock::new(Vec::new())),
+            cache_at: Arc::new(RwLock::new(None)),
+            hub_max: AtomicUsize::new(HUB_WINDOWS_MAX),
+            cache_generation: AtomicU64::new(0),
+        }
+    }
+
+    fn hub_cap(&self) -> usize {
+        self.hub_max
+            .load(Ordering::Relaxed)
+            .clamp(HUB_WINDOWS_MAX_MIN, HUB_WINDOWS_MAX_MAX)
+    }
+
+    fn result_id(entry: &WindowEntry) -> String {
+        format!("win:{}", entry.id)
+    }
+
+    fn parse_window_id(result_id: &str) -> Option<&str> {
+        result_id.strip_prefix("win:")
+    }
+
+    fn entry_to_dto(
+        entry: &WindowEntry,
+        display_title: String,
+        score: f64,
+        focus_available: bool,
+    ) -> SearchItemDto {
+        SearchItemDto {
+            id: Self::result_id(entry),
+            module_id: "luma.windows".into(),
+            title: display_title,
+            subtitle: Some(entry.app_name.clone()),
+            kind: "window".into(),
+            score,
+            primary_action_id: "focus".into(),
+            primary_action_label: if focus_available {
+                "Focus".into()
+            } else {
+                "Focus (needs Accessibility)".into()
+            },
+            primary_action_risk: ActionRisk::Safe,
+            primary_action_confirmation: false,
+            ..Default::default()
+        }
+    }
+
+    fn display_titles(entries: &[WindowEntry]) -> HashMap<String, String> {
+        let mut totals: HashMap<(&str, &str), usize> = HashMap::new();
+        for entry in entries {
+            if entry.title == "Untitled" {
+                *totals
+                    .entry((entry.app_name.as_str(), entry.title.as_str()))
+                    .or_default() += 1;
+            }
+        }
+        let mut seen: HashMap<(&str, &str), usize> = HashMap::new();
+        entries
+            .iter()
+            .map(|entry| {
+                let key = (entry.app_name.as_str(), entry.title.as_str());
+                let title = match totals.get(&key).copied().unwrap_or(0) {
+                    total if total > 1 => {
+                        let index = seen.entry(key).or_default();
+                        *index += 1;
+                        format!("Untitled {index}/{total}")
+                    }
+                    _ => entry.title.clone(),
+                };
+                (entry.id.clone(), title)
+            })
+            .collect()
+    }
+
+    fn matches(entry: &WindowEntry, needle: &str) -> bool {
+        if needle.is_empty() {
+            return true;
+        }
+        let hay = format!("{} {}", entry.title, entry.app_name).to_lowercase();
+        hay.contains(needle)
+    }
+
+    fn map_list_error(err: &WindowError) -> SearchItemDto {
+        match err {
+            WindowError::PermissionRequired {
+                capability,
+                guidance,
+            } => {
+                let action = if capability == "accessibility" {
+                    "open_accessibility_settings"
+                } else {
+                    "open_screen_recording_settings"
+                };
+                SearchItemDto {
+                    id: "win:permission".into(),
+                    module_id: "luma.windows".into(),
+                    title: format!("Permission required ({capability})"),
+                    subtitle: Some(guidance.clone()),
+                    kind: "permission_required".into(),
+                    score: 0.0,
+                    primary_action_id: action.into(),
+                    primary_action_label: "Open System Settings".into(),
+                    ..Default::default()
+                }
+            }
+            WindowError::Unavailable(reason) | WindowError::NotFound(reason) => SearchItemDto {
+                id: "win:unavailable".into(),
+                module_id: "luma.windows".into(),
+                title: "Window list unavailable".into(),
+                subtitle: Some(reason.clone()),
+                kind: "unavailable".into(),
+                score: 0.0,
+                primary_action_id: "noop".into(),
+                primary_action_label: "Unavailable".into(),
+                ..Default::default()
+            },
+        }
+    }
+
+    fn map_focus_error(err: WindowError) -> ActionOutcome {
+        match err {
+            WindowError::PermissionRequired {
+                capability,
+                guidance,
+            } => ActionOutcome::Failed {
+                kind: FailureKind::PermissionRequired {
+                    capability,
+                    guidance,
+                },
+            },
+            WindowError::NotFound(entity) => ActionOutcome::Failed {
+                kind: FailureKind::NotFound { entity },
+            },
+            WindowError::Unavailable(reason) => ActionOutcome::Failed {
+                kind: FailureKind::Unavailable {
+                    reason,
+                    retryable: true,
+                },
+            },
+        }
+    }
+
+    async fn refresh_cache(&self) -> Result<Vec<WindowEntry>, WindowError> {
+        let generation = self.cache_generation.load(Ordering::SeqCst);
+        let list = self.catalog.list_windows().await?;
+        if self.cache_generation.load(Ordering::SeqCst) != generation {
+            return Ok(list);
+        }
+        *self.cache.write().await = list.clone();
+        *self.cache_at.write().await = Some(Instant::now());
+        Ok(list)
+    }
+
+    async fn cache_is_fresh(&self) -> bool {
+        match *self.cache_at.read().await {
+            Some(at) => at.elapsed() < WINDOWS_CACHE_TTL && !self.cache.read().await.is_empty(),
+            None => false,
+        }
+    }
+}
+
+#[async_trait]
+impl LumaModule for WindowsModule {
+    fn manifest(&self) -> &ModuleManifest {
+        &self.manifest
+    }
+
+    async fn warmup(&self, ctx: WarmupContext) -> ModuleState {
+        if ctx.cancel.is_cancelled() {
+            return ModuleState::Cold;
+        }
+        match self.refresh_cache().await {
+            Ok(_) => ModuleState::Ready,
+            Err(err) => ModuleState::Failed(err.to_string()),
+        }
+    }
+
+    async fn search(&self, query: Query, sink: SearchSink, cancel: CancellationToken) {
+        let needle = query.rest_normalized();
+        let mut list = self.cache.read().await.clone();
+        if !self.cache_is_fresh().await {
+            let warming = SearchItemDto {
+                id: "win:warming".into(),
+                module_id: "luma.windows".into(),
+                title: "Loading windows…".into(),
+                subtitle: Some("refreshing list".into()),
+                kind: "warming".into(),
+                score: 0.0,
+                primary_action_id: "refresh".into(),
+                primary_action_label: "Refresh".into(),
+                ..Default::default()
+            };
+            if list.is_empty() {
+                let _ = sink
+                    .send(Event::ResultsChunk {
+                        request_id: String::new(),
+                        sequence: 1,
+                        upserts: vec![warming],
+                        removed_ids: vec![],
+                    })
+                    .await;
+            }
+            let listed = tokio::select! {
+                _ = cancel.cancelled() => return,
+                result = self.refresh_cache() => result,
+            };
+            match listed {
+                Ok(fresh) => list = fresh,
+                Err(err) => {
+                    let _ = sink
+                        .send(Event::ResultsChunk {
+                            request_id: String::new(),
+                            sequence: 2,
+                            upserts: vec![Self::map_list_error(&err)],
+                            removed_ids: vec!["win:warming".into()],
+                        })
+                        .await;
+                    return;
+                }
+            }
+        }
+
+        // Group-ish: sort by app then title for stable browsing.
+        list.sort_by(|a, b| {
+            a.app_name
+                .to_lowercase()
+                .cmp(&b.app_name.to_lowercase())
+                .then_with(|| a.title.to_lowercase().cmp(&b.title.to_lowercase()))
+        });
+
+        let display_titles = Self::display_titles(&list);
+        let focus_available = self.catalog.focus_available();
+        let mut upserts = Vec::new();
+        for entry in list {
+            if cancel.is_cancelled() {
+                return;
+            }
+            if Self::matches(&entry, &needle) {
+                let title = display_titles
+                    .get(&entry.id)
+                    .cloned()
+                    .unwrap_or_else(|| entry.title.clone());
+                upserts.push(Self::entry_to_dto(&entry, title, 50.0, focus_available));
+            }
+            if upserts.len() >= query.limit {
+                break;
+            }
+        }
+
+        if upserts.is_empty() {
+            if matches!(query.scope, luma_domain::QueryScope::Global) {
+                return;
+            }
+            let title = if needle.is_empty() {
+                "No windows to list".into()
+            } else {
+                format!("No windows matching \"{needle}\"")
+            };
+            let _ = sink
+                .send(Event::ResultsChunk {
+                    request_id: String::new(),
+                    sequence: 1,
+                    upserts: vec![SearchItemDto {
+                        id: "win:no-matches".into(),
+                        module_id: "luma.windows".into(),
+                        title,
+                        subtitle: Some(
+                            "Try a different filter or grant Screen Recording for titles".into(),
+                        ),
+                        kind: "status".into(),
+                        score: 0.0,
+                        primary_action_id: "noop".into(),
+                        primary_action_label: "OK".into(),
+                        ..Default::default()
+                    }],
+                    removed_ids: vec!["win:warming".into()],
+                })
+                .await;
+        } else {
+            let _ = sink
+                .send(Event::ResultsChunk {
+                    request_id: String::new(),
+                    sequence: 1,
+                    upserts,
+                    removed_ids: vec!["win:warming".into()],
+                })
+                .await;
+        }
+    }
+
+    async fn actions(&self, result: &SearchItem) -> Vec<ActionDescriptor> {
+        match result.kind.as_str() {
+            "warming" => vec![ActionDescriptor {
+                id: ActionId::new("refresh"),
+                label: "Refresh".into(),
+                risk: ActionRisk::Safe,
+                confirmation: false,
+            }],
+            "permission_required" => vec![result.primary_action.clone()],
+            "status" | "unavailable" => vec![ActionDescriptor {
+                id: ActionId::new("noop"),
+                label: "OK".into(),
+                risk: ActionRisk::Safe,
+                confirmation: false,
+            }],
+            _ if result.primary_action.id.as_str() == "noop" => vec![ActionDescriptor {
+                id: ActionId::new("noop"),
+                label: "OK".into(),
+                risk: ActionRisk::Safe,
+                confirmation: false,
+            }],
+            _ => {
+                let mut actions = vec![result.primary_action.clone()];
+                if !self.catalog.focus_available() {
+                    actions.push(ActionDescriptor {
+                        id: ActionId::new("open_accessibility_settings"),
+                        label: "Open Accessibility Settings".into(),
+                        risk: ActionRisk::Safe,
+                        confirmation: false,
+                    });
+                }
+                actions
+            }
+        }
+    }
+
+    fn supports_hub_windows(&self) -> bool {
+        true
+    }
+
+    async fn hub_windows(&self) -> Option<HubWindowsSlice> {
+        let list = match self.catalog.list_windows().await {
+            Ok(list) => list,
+            Err(err) => {
+                let status = match err {
+                    WindowError::PermissionRequired {
+                        capability,
+                        guidance,
+                    } => HubWindowsStatus {
+                        kind: "permission_required".into(),
+                        title: format!("Permission required ({capability})"),
+                        subtitle: Some(guidance),
+                    },
+                    WindowError::Unavailable(reason) | WindowError::NotFound(reason) => {
+                        HubWindowsStatus {
+                            kind: "unavailable".into(),
+                            title: "Window list unavailable".into(),
+                            subtitle: Some(reason),
+                        }
+                    }
+                };
+                return Some(HubWindowsSlice {
+                    app_name: "all".into(),
+                    windows: Vec::new(),
+                    more: None,
+                    status: Some(status),
+                });
+            }
+        };
+        // Keep catalog order (front-to-back on macOS) so recent apps stay near the top.
+        let hub_max = self.hub_cap();
+        let has_redacted_titles = list.iter().any(|e| e.title_redacted);
+        let total = list.len();
+        let more = if total > hub_max {
+            Some((total - hub_max) as u32)
+        } else {
+            None
+        };
+        let display_titles = Self::display_titles(&list);
+        let windows = list
+            .into_iter()
+            .take(hub_max)
+            .map(|e| HubWindowRow {
+                id: Self::result_id(&e),
+                // Disambiguate across apps on the Hub.
+                title: format!(
+                    "{} · {}",
+                    display_titles
+                        .get(&e.id)
+                        .cloned()
+                        .unwrap_or_else(|| e.title.clone()),
+                    e.app_name
+                ),
+            })
+            .collect();
+        let status = if has_redacted_titles {
+            Some(HubWindowsStatus {
+                kind: "permission_required".into(),
+                title: "Window titles need Screen Recording".into(),
+                subtitle: Some(
+                    "macOS calls the pane “Screen & System Audio Recording”; Luma reads titles only and does not record audio · use /win actions to open it"
+                        .into(),
+                ),
+            })
+        } else if !self.catalog.focus_available() {
+            Some(HubWindowsStatus {
+                kind: "permission_required".into(),
+                title: "Listing works; Focus needs Accessibility".into(),
+                subtitle: Some("Use /win, then Ctrl-K → Open Accessibility Settings".into()),
+            })
+        } else {
+            None
+        };
+        Some(HubWindowsSlice {
+            app_name: "all".into(),
+            windows,
+            more,
+            status,
+        })
+    }
+
+    async fn perform(&self, action: ActionRequest, cancel: CancellationToken) -> ActionOutcome {
+        if cancel.is_cancelled() {
+            return ActionOutcome::Cancelled;
+        }
+        match action.action.id.as_str() {
+            "noop" => ActionOutcome::Success {
+                message: Some("ok".into()),
+            },
+            "refresh" => match self.refresh_cache().await {
+                Ok(_) => ActionOutcome::Success {
+                    message: Some("refreshed".into()),
+                },
+                Err(err) => Self::map_focus_error(err),
+            },
+            "open_accessibility_settings" => {
+                open_settings(
+                    self.system_settings.as_ref(),
+                    SystemSettingsPane::Accessibility,
+                )
+                .await
+            }
+            "open_screen_recording_settings" => {
+                open_settings(
+                    self.system_settings.as_ref(),
+                    SystemSettingsPane::ScreenRecording,
+                )
+                .await
+            }
+            "focus" => {
+                let Some(window_id) = Self::parse_window_id(action.result.id.as_str()) else {
+                    return ActionOutcome::Failed {
+                        kind: FailureKind::InvalidInput {
+                            field: "result_id".into(),
+                            message: "expected win:<window_id>".into(),
+                        },
+                    };
+                };
+                // Fresh list before focus so closed windows fail clearly.
+                let _ = self.refresh_cache().await;
+                match await_unless_cancelled(&cancel, self.catalog.focus(window_id)).await {
+                    None => ActionOutcome::Cancelled,
+                    Some(Ok(())) => ActionOutcome::Success {
+                        message: Some(format!("focused {}", action.result.title)),
+                    },
+                    Some(Err(err)) => Self::map_focus_error(err),
+                }
+            }
+            other => ActionOutcome::Failed {
+                kind: FailureKind::NotFound {
+                    entity: format!("action:{other}"),
+                },
+            },
+        }
+    }
+
+    async fn teardown(&self) {
+        self.cache_generation.fetch_add(1, Ordering::SeqCst);
+        *self.cache.write().await = Vec::new();
+        *self.cache_at.write().await = None;
+    }
+
+    async fn apply_settings(&self, settings: &luma_application::AppSettings) {
+        let max =
+            (settings.hub_windows_max as usize).clamp(HUB_WINDOWS_MAX_MIN, HUB_WINDOWS_MAX_MAX);
+        self.hub_max.store(max, Ordering::Relaxed);
+    }
+}
+
+async fn open_settings(
+    system_settings: &dyn SystemSettingsPort,
+    pane: SystemSettingsPane,
+) -> ActionOutcome {
+    match system_settings.open(pane).await {
+        Ok(()) => ActionOutcome::Success {
+            message: Some(format!("Opened {} settings", pane.display_name())),
+        },
+        Err(error) => ActionOutcome::Failed {
+            kind: FailureKind::Unavailable {
+                reason: error.to_string(),
+                retryable: true,
+            },
+        },
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use luma_application::FakeWindowCatalog;
+    use luma_domain::{ActionDescriptor, ActionId, ActionRisk, ModuleId, Query, SearchItem};
+    use tokio::sync::mpsc;
+
+    fn sample(id: &str, app: &str, title: &str) -> WindowEntry {
+        WindowEntry {
+            id: id.into(),
+            app_name: app.into(),
+            app_bundle_id: None,
+            title: title.into(),
+            title_redacted: false,
+            is_on_screen: true,
+            layer: 0,
+            owner_pid: 1,
+        }
+    }
+
+    #[tokio::test]
+    async fn search_filters_by_title_and_app() {
+        let catalog = Arc::new(FakeWindowCatalog::with_entries(
+            vec![
+                sample("pid:1|num:1", "Cursor", "Luma"),
+                sample("pid:1|num:2", "Cursor", "other-project"),
+                sample("pid:2|num:1", "Safari", "Apple"),
+            ],
+            Some("Cursor".into()),
+        ));
+        let m = WindowsModule::with_catalog(catalog);
+        m.warmup(WarmupContext {
+            cancel: CancellationToken::new(),
+        })
+        .await;
+        let (tx, mut rx) = mpsc::channel(8);
+        m.search(Query::parse("win luma", 20), tx, CancellationToken::new())
+            .await;
+        let Event::ResultsChunk { upserts, .. } = rx.recv().await.unwrap() else {
+            panic!("expected chunk");
+        };
+        assert_eq!(upserts.len(), 1);
+        assert_eq!(upserts[0].title, "Luma");
+        assert_eq!(upserts[0].primary_action_id, "focus");
+    }
+
+    #[tokio::test]
+    async fn focus_is_annotated_before_execution_when_accessibility_is_missing() {
+        let catalog = Arc::new(FakeWindowCatalog::with_entries(
+            vec![sample("pid:1|num:1", "Safari", "Apple")],
+            None,
+        ));
+        catalog.focus_available.store(false, Ordering::SeqCst);
+        let settings = Arc::new(luma_application::FakeSystemSettings::default());
+        let m = WindowsModule::with_deps(catalog, settings.clone());
+        m.warmup(WarmupContext {
+            cancel: CancellationToken::new(),
+        })
+        .await;
+        let (tx, mut rx) = mpsc::channel(8);
+        m.search(Query::parse("/win ", 20), tx, CancellationToken::new())
+            .await;
+        let Event::ResultsChunk { upserts, .. } = rx.recv().await.unwrap() else {
+            panic!("expected chunk");
+        };
+        assert_eq!(
+            upserts[0].primary_action_label,
+            "Focus (needs Accessibility)"
+        );
+        let actions = m.actions(&upserts[0].clone().into_domain()).await;
+        assert!(actions
+            .iter()
+            .any(|action| action.id.as_str() == "open_accessibility_settings"));
+
+        let outcome = m
+            .perform(
+                ActionRequest {
+                    result: upserts[0].clone().into_domain(),
+                    action: actions[1].clone(),
+                    confirmation: false,
+                },
+                CancellationToken::new(),
+            )
+            .await;
+        assert!(matches!(outcome, ActionOutcome::Success { .. }));
+        assert_eq!(
+            settings.calls.lock().unwrap().as_slice(),
+            &[SystemSettingsPane::Accessibility]
+        );
+    }
+
+    #[tokio::test]
+    async fn duplicate_untitled_windows_are_numbered_for_display_only() {
+        let catalog = Arc::new(FakeWindowCatalog::with_entries(
+            vec![
+                sample("pid:1|num:1", "Preview", "Untitled"),
+                sample("pid:1|num:2", "Preview", "Untitled"),
+            ],
+            None,
+        ));
+        let m = WindowsModule::with_catalog(catalog);
+        m.warmup(WarmupContext {
+            cancel: CancellationToken::new(),
+        })
+        .await;
+        let (tx, mut rx) = mpsc::channel(8);
+        m.search(Query::parse("/win ", 20), tx, CancellationToken::new())
+            .await;
+        let Event::ResultsChunk { upserts, .. } = rx.recv().await.unwrap() else {
+            panic!("expected chunk");
+        };
+        assert_eq!(upserts[0].title, "Untitled 1/2");
+        assert_eq!(upserts[1].title, "Untitled 2/2");
+        assert_eq!(upserts[0].id, "win:pid:1|num:1");
+    }
+
+    #[tokio::test]
+    async fn permission_error_surfaces_row() {
+        let catalog = Arc::new(FakeWindowCatalog::default());
+        *catalog.list_error.lock().await = Some(WindowError::PermissionRequired {
+            capability: "screen_recording".into(),
+            guidance: "Grant Screen Recording".into(),
+        });
+        let m = WindowsModule::with_catalog(catalog);
+        let (tx, mut rx) = mpsc::channel(8);
+        m.search(Query::parse("win ", 20), tx, CancellationToken::new())
+            .await;
+        let Event::ResultsChunk { upserts, .. } = rx.recv().await.unwrap() else {
+            panic!("expected warming");
+        };
+        assert_eq!(upserts[0].kind, "warming");
+        let Event::ResultsChunk { upserts, .. } = rx.recv().await.unwrap() else {
+            panic!("expected permission");
+        };
+        assert_eq!(upserts[0].kind, "permission_required");
+    }
+
+    #[tokio::test]
+    async fn focus_records_call_on_fake() {
+        let catalog = Arc::new(FakeWindowCatalog::with_entries(
+            vec![sample("pid:1|num:1", "Cursor", "Luma")],
+            Some("Cursor".into()),
+        ));
+        let m = WindowsModule::with_catalog(catalog.clone());
+        let outcome = m
+            .perform(
+                ActionRequest {
+                    result: SearchItem {
+                        id: luma_domain::ResultId::new("win:pid:1|num:1"),
+                        module_id: ModuleId::new("luma.windows"),
+                        title: "Luma".into(),
+                        subtitle: Some("Cursor".into()),
+                        kind: "window".into(),
+                        score: 1.0,
+                        primary_action: ActionDescriptor {
+                            id: ActionId::new("focus"),
+                            label: "Focus".into(),
+                            risk: ActionRisk::Safe,
+                            confirmation: false,
+                        },
+                        secondary_actions: vec![],
+                        ui_intent: None,
+                        action_payload: None,
+                    },
+                    action: ActionDescriptor {
+                        id: ActionId::new("focus"),
+                        label: "Focus".into(),
+                        risk: ActionRisk::Safe,
+                        confirmation: false,
+                    },
+                    confirmation: false,
+                },
+                CancellationToken::new(),
+            )
+            .await;
+        assert!(matches!(outcome, ActionOutcome::Success { .. }));
+        assert_eq!(
+            catalog.focus_calls.lock().await.as_slice(),
+            &["pid:1|num:1".to_string()]
+        );
+        assert_eq!(
+            catalog.paste_target_app().await.as_deref(),
+            Some("Cursor"),
+            "successful focus should update paste target"
+        );
+    }
+
+    #[tokio::test]
+    async fn hub_windows_shows_all_apps_and_caps() {
+        let mut entries = Vec::new();
+        // Safari first so it stays inside the hard cap when mixed with many Cursor windows.
+        entries.push(sample("pid:2|num:1", "Safari", "Apple"));
+        for i in 0..20 {
+            entries.push(sample(
+                &format!("pid:1|num:{i}"),
+                "Cursor",
+                &format!("w{i}"),
+            ));
+        }
+        let catalog = Arc::new(FakeWindowCatalog::with_entries(
+            entries,
+            Some("Cursor".into()),
+        ));
+        let m = WindowsModule::with_catalog(catalog);
+        let slice = m.hub_windows().await.unwrap();
+        assert_eq!(slice.app_name, "all");
+        assert_eq!(slice.windows.len(), HUB_WINDOWS_MAX);
+        assert_eq!(slice.more, Some(6)); // 21 − 15
+        assert!(
+            slice.windows[0].title.contains("Safari"),
+            "hub should include other apps, got: {:?}",
+            slice.windows.iter().map(|w| &w.title).collect::<Vec<_>>()
+        );
+        assert!(slice.windows[0].title.contains('·'));
+    }
+
+    #[tokio::test]
+    async fn hub_windows_surfaces_list_permission() {
+        let catalog = Arc::new(FakeWindowCatalog::with_entries(
+            vec![],
+            Some("Cursor".into()),
+        ));
+        *catalog.list_error.lock().await = Some(WindowError::PermissionRequired {
+            capability: "accessibility".into(),
+            guidance: "Grant AX".into(),
+        });
+        let m = WindowsModule::with_catalog(catalog);
+        let slice = m.hub_windows().await.unwrap();
+        assert!(slice.windows.is_empty());
+        let status = slice.status.unwrap();
+        assert_eq!(status.kind, "permission_required");
+    }
+
+    #[tokio::test]
+    async fn hub_windows_hints_redacted_titles_need_screen_recording() {
+        let mut redacted = sample("pid:1|num:1", "Cursor", "Untitled");
+        redacted.title_redacted = true;
+        let catalog = Arc::new(FakeWindowCatalog::with_entries(
+            vec![redacted],
+            Some("Cursor".into()),
+        ));
+        let m = WindowsModule::with_catalog(catalog);
+        let slice = m.hub_windows().await.unwrap();
+        let status = slice.status.expect("redaction should set hub status");
+        assert_eq!(status.kind, "permission_required");
+        assert!(status.title.contains("Screen Recording"));
+        assert!(status
+            .subtitle
+            .as_deref()
+            .unwrap_or("")
+            .contains("does not record audio"));
+    }
+
+    #[tokio::test]
+    async fn hub_windows_does_not_treat_a_genuinely_untitled_window_as_missing_permission() {
+        let catalog = Arc::new(FakeWindowCatalog::with_entries(
+            vec![sample("pid:1|num:1", "Cursor", "Untitled")],
+            Some("Cursor".into()),
+        ));
+        let m = WindowsModule::with_catalog(catalog);
+        let slice = m.hub_windows().await.unwrap();
+        assert!(slice.status.is_none());
+    }
+
+    #[tokio::test]
+    async fn hub_windows_respects_settings_cap() {
+        let mut entries = Vec::new();
+        for i in 0..12 {
+            entries.push(sample(
+                &format!("pid:1|num:{i}"),
+                "Cursor",
+                &format!("w{i}"),
+            ));
+        }
+        let catalog = Arc::new(FakeWindowCatalog::with_entries(
+            entries,
+            Some("Cursor".into()),
+        ));
+        let m = WindowsModule::with_catalog(catalog);
+        let settings = luma_application::AppSettings {
+            hub_windows_max: 8,
+            ..Default::default()
+        };
+        m.apply_settings(&settings).await;
+        let slice = m.hub_windows().await.unwrap();
+        assert_eq!(slice.windows.len(), 8);
+        assert_eq!(slice.more, Some(4));
+    }
+
+    #[tokio::test]
+    async fn hub_focus_via_hub_row_id_matches_search_focus() {
+        let catalog = Arc::new(FakeWindowCatalog::with_entries(
+            vec![sample("pid:1|num:1", "Cursor", "Luma")],
+            Some("Cursor".into()),
+        ));
+        let m = WindowsModule::with_catalog(catalog.clone());
+        let slice = m.hub_windows().await.unwrap();
+        assert_eq!(slice.windows.len(), 1);
+        let row = &slice.windows[0];
+        assert!(row.id.starts_with("win:"));
+        let outcome = m
+            .perform(
+                ActionRequest {
+                    result: SearchItem {
+                        id: luma_domain::ResultId::new(row.id.clone()),
+                        module_id: ModuleId::new("luma.windows"),
+                        title: row.title.clone(),
+                        subtitle: Some("Cursor".into()),
+                        kind: "window".into(),
+                        score: 1.0,
+                        primary_action: ActionDescriptor {
+                            id: ActionId::new("focus"),
+                            label: "Focus".into(),
+                            risk: ActionRisk::Safe,
+                            confirmation: false,
+                        },
+                        secondary_actions: vec![],
+                        ui_intent: None,
+                        action_payload: None,
+                    },
+                    action: ActionDescriptor {
+                        id: ActionId::new("focus"),
+                        label: "Focus".into(),
+                        risk: ActionRisk::Safe,
+                        confirmation: false,
+                    },
+                    confirmation: false,
+                },
+                CancellationToken::new(),
+            )
+            .await;
+        assert!(matches!(outcome, ActionOutcome::Success { .. }));
+        assert_eq!(
+            catalog.focus_calls.lock().await.as_slice(),
+            &["pid:1|num:1".to_string()]
+        );
+        assert_eq!(catalog.paste_target_app().await.as_deref(), Some("Cursor"));
+    }
+}

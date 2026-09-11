@@ -1,0 +1,6 @@
+{
+  "composer.fastMode": false,
+  "cursor.composer.fastMode": false,
+  "project.name": "Luma",
+  "project.instructions": "Use Composer in normal mode only. Follow AGENTS.md, .cursor/rules.md, and rust/docs/GOVERNANCE.md. Luma is a personal Rust CLI/TUI under rust/, not an AI-agent product. Prefer wiring existing modules, honest unavailable/permission/not-configured states, real cancellation, extensibility, and consistency over new surface area."
+}

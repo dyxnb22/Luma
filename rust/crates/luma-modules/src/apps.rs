@@ -1,0 +1,1044 @@
+use crate::cancel::await_unless_cancelled;
+use async_trait::async_trait;
+use luma_application::{
+    ActionOutcome, ActionRequest, AppEntry, AppsCatalogPort, LumaModule, ModuleManifest,
+    ModuleState, PasteboardPort, SearchMode, SearchSink, WarmupContext,
+};
+use luma_domain::{
+    ActionDescriptor, ActionId, ActionRisk, FailureKind, ModuleId, Query, SearchItem,
+};
+use luma_protocol::{Event, SearchItemDto};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
+use tokio::sync::RwLock;
+use tokio_util::sync::CancellationToken;
+
+struct AppsCache {
+    apps: Vec<AppEntry>,
+    warming: bool,
+    /// Last catalog load error (cleared on success).
+    catalog_error: Option<String>,
+    /// path → launch count (session MRU; higher = more recent/frequent)
+    launch_counts: std::collections::HashMap<String, u64>,
+}
+
+pub struct AppsModule {
+    manifest: ModuleManifest,
+    catalog: Arc<dyn AppsCatalogPort>,
+    pasteboard: Arc<dyn PasteboardPort>,
+    cache: Arc<RwLock<AppsCache>>,
+    /// Bumped on teardown so in-flight catalog scans cannot resurrect the cache.
+    refresh_generation: AtomicU64,
+}
+
+impl AppsModule {
+    pub fn new(catalog: Arc<dyn AppsCatalogPort>, pasteboard: Arc<dyn PasteboardPort>) -> Self {
+        Self {
+            manifest: ModuleManifest {
+                id: ModuleId::new("luma.apps"),
+                display_name: "Apps".into(),
+                triggers: vec!["app".into(), "apps".into()],
+                default_enabled: true,
+                search_mode: SearchMode::GlobalContributing,
+                required_capabilities: vec![],
+                workbench: luma_application::WorkbenchMeta {
+                    glyph: Some("A".into()),
+                    suggested_query: Some("/app ".into()),
+                    empty_hint: Some("/app safari".into()),
+                    supports_browse: false,
+                    commands: vec![crate::ux::command_spec(
+                        "/app [query]",
+                        "Search applications; Enter launches the selected app",
+                        "/app ",
+                        Some("/app safari"),
+                    )],
+                },
+            },
+            catalog,
+            pasteboard,
+            cache: Arc::new(RwLock::new(AppsCache {
+                apps: Vec::new(),
+                warming: false,
+                catalog_error: None,
+                launch_counts: std::collections::HashMap::new(),
+            })),
+            refresh_generation: AtomicU64::new(0),
+        }
+    }
+
+    fn begin_refresh(&self) -> u64 {
+        self.refresh_generation.load(Ordering::SeqCst)
+    }
+
+    fn refresh_still_valid(&self, generation: u64) -> bool {
+        self.refresh_generation.load(Ordering::SeqCst) == generation
+    }
+
+    async fn apply_refresh_result(
+        &self,
+        generation: u64,
+        listed: Result<Vec<AppEntry>, String>,
+    ) -> Option<Result<Vec<AppEntry>, String>> {
+        if !self.refresh_still_valid(generation) {
+            return None;
+        }
+        let mut g = self.cache.write().await;
+        if !self.refresh_still_valid(generation) {
+            return None;
+        }
+        match listed {
+            Ok(apps) => {
+                g.apps = apps.clone();
+                g.warming = false;
+                g.catalog_error = None;
+                Some(Ok(apps))
+            }
+            Err(err) => {
+                g.warming = false;
+                g.catalog_error = Some(err.clone());
+                Some(Err(err))
+            }
+        }
+    }
+
+    fn fuzzy_score(name: &str, needle: &str, mru_boost: f64) -> Option<f64> {
+        let name_l = name.to_lowercase();
+        let needle_l = needle.to_lowercase();
+        if needle_l.is_empty() {
+            return Some(50.0 + mru_boost);
+        }
+        if name_l == needle_l {
+            return Some(100.0 + mru_boost);
+        }
+        if name_l.starts_with(&needle_l) {
+            return Some(92.0 + mru_boost);
+        }
+        let words = name_l
+            .split(|character: char| !character.is_alphanumeric())
+            .filter(|word| !word.is_empty())
+            .collect::<Vec<_>>();
+        if words.iter().any(|word| word.starts_with(&needle_l)) {
+            return Some(86.0 + mru_boost);
+        }
+        if needle_l.chars().count() >= 4 && name_l.contains(&needle_l) {
+            return Some(80.0 + mru_boost);
+        }
+        let acronym = words
+            .iter()
+            .filter_map(|word| word.chars().next())
+            .collect::<String>();
+        if acronym.len() >= 2 && acronym.starts_with(&needle_l) {
+            return Some(72.0 + mru_boost);
+        }
+        // Bounded subsequence match: "sf" matches "Safari", while a loose "git" must not make
+        // "Digital Color Meter" look like a meaningful application result.
+        if needle_l.chars().count() > 2 {
+            return None;
+        }
+        let mut positions = Vec::new();
+        let mut it = name_l.chars().enumerate();
+        for ch in needle_l.chars() {
+            loop {
+                match it.next() {
+                    Some((index, candidate)) if candidate == ch => {
+                        positions.push(index);
+                        break;
+                    }
+                    Some(_) => continue,
+                    None => return None,
+                }
+            }
+        }
+        let span = positions
+            .last()
+            .zip(positions.first())
+            .map(|(last, first)| last.saturating_sub(*first) + 1)
+            .unwrap_or(0);
+        let max_span = 4;
+        if span > max_span {
+            return None;
+        }
+        Some(65.0 + mru_boost)
+    }
+
+    async fn ensure_refresh(&self, cancel: CancellationToken) {
+        {
+            let g = self.cache.read().await;
+            if !g.apps.is_empty() || g.warming {
+                return;
+            }
+        }
+        let generation = self.begin_refresh();
+        {
+            let mut g = self.cache.write().await;
+            if !self.refresh_still_valid(generation) {
+                return;
+            }
+            if !g.apps.is_empty() || g.warming {
+                return;
+            }
+            g.warming = true;
+        }
+        if cancel.is_cancelled() || !self.refresh_still_valid(generation) {
+            if self.refresh_still_valid(generation) {
+                let mut g = self.cache.write().await;
+                if self.refresh_still_valid(generation) {
+                    g.warming = false;
+                }
+            }
+            return;
+        }
+        let listed = tokio::select! {
+            _ = cancel.cancelled() => {
+                if self.refresh_still_valid(generation) {
+                    let mut g = self.cache.write().await;
+                    if self.refresh_still_valid(generation) {
+                        g.warming = false;
+                    }
+                }
+                return;
+            }
+            result = self.catalog.list_installed() => result,
+        };
+        let _ = self.apply_refresh_result(generation, listed).await;
+    }
+}
+
+#[async_trait]
+impl LumaModule for AppsModule {
+    fn manifest(&self) -> &ModuleManifest {
+        &self.manifest
+    }
+
+    async fn warmup(&self, ctx: WarmupContext) -> ModuleState {
+        self.ensure_refresh(ctx.cancel).await;
+        let g = self.cache.read().await;
+        if let Some(err) = &g.catalog_error {
+            return ModuleState::Failed(err.clone());
+        }
+        if g.apps.is_empty() {
+            ModuleState::Cold
+        } else {
+            ModuleState::Ready
+        }
+    }
+
+    async fn search(&self, query: Query, sink: SearchSink, cancel: CancellationToken) {
+        let (apps, warming, empty, catalog_error) = {
+            let g = self.cache.read().await;
+            (
+                g.apps.clone(),
+                g.warming,
+                g.apps.is_empty(),
+                g.catalog_error.clone(),
+            )
+        };
+
+        if let Some(err) = catalog_error {
+            if empty && !warming {
+                let _ = sink
+                    .send(Event::ResultsChunk {
+                        request_id: String::new(),
+                        sequence: 1,
+                        upserts: vec![SearchItemDto {
+                            id: "apps:unavailable".into(),
+                            module_id: "luma.apps".into(),
+                            title: "App catalog unavailable".into(),
+                            subtitle: Some(crate::ux::friendly_store_error(&err)),
+                            kind: "unavailable".into(),
+                            score: 0.0,
+                            primary_action_id: "noop".into(),
+                            primary_action_label: "Unavailable".into(),
+                            ..Default::default()
+                        }],
+                        removed_ids: vec![],
+                    })
+                    .await;
+                return;
+            }
+        }
+
+        let apps = if empty {
+            // Emit warming row whether we own the refresh or another task does.
+            let warm = SearchItemDto {
+                id: "apps:warming".into(),
+                module_id: "luma.apps".into(),
+                title: "Loading apps…".into(),
+                subtitle: Some("first scan can take a moment".into()),
+                kind: "warming".into(),
+                score: 0.0,
+                primary_action_id: "noop".into(),
+                primary_action_label: "Wait".into(),
+                ..Default::default()
+            };
+            let _ = sink
+                .send(Event::ResultsChunk {
+                    request_id: String::new(),
+                    sequence: 1,
+                    upserts: vec![warm],
+                    removed_ids: vec![],
+                })
+                .await;
+
+            if warming {
+                // Another search/warmup already owns refresh — do not scan again.
+                return;
+            }
+
+            let generation = self.begin_refresh();
+            {
+                let mut g = self.cache.write().await;
+                if !self.refresh_still_valid(generation) {
+                    return;
+                }
+                if g.warming || !g.apps.is_empty() {
+                    return;
+                }
+                g.warming = true;
+            }
+            let listed = tokio::select! {
+                _ = cancel.cancelled() => {
+                    if self.refresh_still_valid(generation) {
+                        let mut g = self.cache.write().await;
+                        if self.refresh_still_valid(generation) {
+                            g.warming = false;
+                        }
+                    }
+                    return;
+                }
+                result = self.catalog.list_installed() => result,
+            };
+            match self.apply_refresh_result(generation, listed).await {
+                None => return,
+                Some(Ok(apps)) => apps,
+                Some(Err(err)) => {
+                    let _ = sink
+                        .send(Event::ResultsChunk {
+                            request_id: String::new(),
+                            sequence: 2,
+                            upserts: vec![SearchItemDto {
+                                id: "apps:unavailable".into(),
+                                module_id: "luma.apps".into(),
+                                title: "App catalog unavailable".into(),
+                                subtitle: Some(crate::ux::friendly_store_error(&err)),
+                                kind: "unavailable".into(),
+                                score: 0.0,
+                                primary_action_id: "noop".into(),
+                                primary_action_label: "Unavailable".into(),
+                                ..Default::default()
+                            }],
+                            removed_ids: vec!["apps:warming".into()],
+                        })
+                        .await;
+                    return;
+                }
+            }
+        } else {
+            apps
+        };
+
+        if cancel.is_cancelled() {
+            return;
+        }
+
+        let needle = match &query.scope {
+            luma_domain::QueryScope::Targeted { .. } => query
+                .normalized
+                .split_once(|c: char| c.is_whitespace())
+                .map(|(_, rest)| rest.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .unwrap_or_default(),
+            luma_domain::QueryScope::Global => query.normalized.clone(),
+            luma_domain::QueryScope::InvalidCommand { .. } => return,
+        };
+
+        if needle.is_empty() {
+            let counts = {
+                let g = self.cache.read().await;
+                g.launch_counts.clone()
+            };
+            let mut ranked = apps;
+            ranked.sort_by(|a, b| {
+                let ca = counts
+                    .get(&a.path.to_string_lossy().to_string())
+                    .copied()
+                    .unwrap_or(0);
+                let cb = counts
+                    .get(&b.path.to_string_lossy().to_string())
+                    .copied()
+                    .unwrap_or(0);
+                cb.cmp(&ca)
+                    .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
+            });
+            let mut upserts = Vec::new();
+            for (index, app) in ranked.into_iter().take(query.limit).enumerate() {
+                if cancel.is_cancelled() {
+                    return;
+                }
+                let key = app.path.to_string_lossy().to_string();
+                let mru = counts.get(&key).copied().unwrap_or(0) as f64;
+                upserts.push(SearchItemDto {
+                    id: format!("app:{}", app.path.to_string_lossy()),
+                    module_id: "luma.apps".into(),
+                    title: app.name,
+                    subtitle: Some(app.path.display().to_string()),
+                    kind: "app".into(),
+                    score: 60.0 + mru.min(20.0) - index as f64 * 0.001,
+                    primary_action_id: "launch".into(),
+                    primary_action_label: "Launch".into(),
+                    ..Default::default()
+                });
+            }
+            if !upserts.is_empty() {
+                let _ = sink
+                    .send(Event::ResultsChunk {
+                        request_id: String::new(),
+                        sequence: 1,
+                        upserts,
+                        removed_ids: vec!["apps:warming".into()],
+                    })
+                    .await;
+            } else {
+                let _ = sink
+                    .send(Event::ResultsChunk {
+                        request_id: String::new(),
+                        sequence: 1,
+                        upserts: vec![SearchItemDto {
+                            id: "app:empty".into(),
+                            module_id: "luma.apps".into(),
+                            title: "No apps indexed".into(),
+                            subtitle: Some("Catalog refresh finished with an empty list".into()),
+                            kind: "status".into(),
+                            score: 0.0,
+                            primary_action_id: "noop".into(),
+                            primary_action_label: "OK".into(),
+                            ..Default::default()
+                        }],
+                        removed_ids: vec!["apps:warming".into()],
+                    })
+                    .await;
+            }
+            return;
+        }
+
+        let counts = {
+            let g = self.cache.read().await;
+            g.launch_counts.clone()
+        };
+        let mut scored: Vec<(f64, AppEntry)> = apps
+            .into_iter()
+            .filter_map(|app| {
+                let key = app.path.to_string_lossy().to_string();
+                let mru = counts.get(&key).copied().unwrap_or(0) as f64 * 0.5;
+                Self::fuzzy_score(&app.name, &needle, mru.min(10.0)).map(|s| (s, app))
+            })
+            .collect();
+        scored.sort_by(|a, b| {
+            b.0.partial_cmp(&a.0)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then_with(|| a.1.name.to_lowercase().cmp(&b.1.name.to_lowercase()))
+        });
+        let mut upserts = Vec::new();
+        for (index, (score, app)) in scored.into_iter().take(query.limit).enumerate() {
+            if cancel.is_cancelled() {
+                return;
+            }
+            upserts.push(SearchItemDto {
+                id: format!("app:{}", app.path.to_string_lossy()),
+                module_id: "luma.apps".into(),
+                title: app.name,
+                subtitle: Some(app.path.display().to_string()),
+                kind: "app".into(),
+                score: score - index as f64 * 0.001,
+                primary_action_id: "launch".into(),
+                primary_action_label: "Launch".into(),
+                ..Default::default()
+            });
+        }
+
+        if !upserts.is_empty() {
+            let _ = sink
+                .send(Event::ResultsChunk {
+                    request_id: String::new(),
+                    sequence: 1,
+                    upserts,
+                    removed_ids: vec!["apps:warming".into()],
+                })
+                .await;
+        } else if !needle.is_empty() && !matches!(query.scope, luma_domain::QueryScope::Global) {
+            let _ = sink
+                .send(Event::ResultsChunk {
+                    request_id: String::new(),
+                    sequence: 1,
+                    upserts: vec![SearchItemDto {
+                        id: "app:no-matches".into(),
+                        module_id: "luma.apps".into(),
+                        title: format!("No apps matching \"{needle}\""),
+                        subtitle: Some("Try another name · /app ".into()),
+                        kind: "status".into(),
+                        score: 0.0,
+                        primary_action_id: "noop".into(),
+                        primary_action_label: "OK".into(),
+                        ..Default::default()
+                    }],
+                    removed_ids: vec!["apps:warming".into()],
+                })
+                .await;
+        } else {
+            let _ = sink
+                .send(Event::ResultsChunk {
+                    request_id: String::new(),
+                    sequence: 1,
+                    upserts: vec![],
+                    removed_ids: vec!["apps:warming".into()],
+                })
+                .await;
+        }
+    }
+
+    async fn actions(&self, result: &SearchItem) -> Vec<ActionDescriptor> {
+        if result.id.as_str() == "app:no-matches"
+            || result.id.as_str() == "app:empty"
+            || result.kind == "status"
+            || result.kind == "unavailable"
+            || result.kind == "warming"
+            || result.primary_action.id.as_str() == "noop"
+        {
+            return vec![ActionDescriptor {
+                id: ActionId::new("noop"),
+                label: "OK".into(),
+                risk: ActionRisk::Safe,
+                confirmation: false,
+            }];
+        }
+        vec![
+            ActionDescriptor {
+                id: ActionId::new("launch"),
+                label: "Launch".into(),
+                risk: ActionRisk::Safe,
+                confirmation: false,
+            },
+            ActionDescriptor {
+                id: ActionId::new("reveal"),
+                label: "Reveal in Finder".into(),
+                risk: ActionRisk::Safe,
+                confirmation: false,
+            },
+            ActionDescriptor {
+                id: ActionId::new("copy_path"),
+                label: "Copy Path".into(),
+                risk: ActionRisk::Safe,
+                confirmation: false,
+            },
+        ]
+    }
+
+    async fn rehydrate_recall(&self, object_id: &str) -> Result<Option<SearchItem>, String> {
+        let Some(path) = object_id.strip_prefix("app:").map(std::path::PathBuf::from) else {
+            return Ok(None);
+        };
+        let cache = self.cache.read().await;
+        if let Some(error) = &cache.catalog_error {
+            return Err(error.clone());
+        }
+        if cache.warming {
+            return Err("application catalog is still warming".into());
+        }
+        Ok(cache
+            .apps
+            .iter()
+            .find(|app| app.path == path)
+            .map(|app| SearchItem {
+                id: luma_domain::ResultId::new(object_id),
+                module_id: ModuleId::new("luma.apps"),
+                title: app.name.clone(),
+                subtitle: Some(app.path.display().to_string()),
+                kind: "app".into(),
+                score: 0.0,
+                primary_action: ActionDescriptor {
+                    id: ActionId::new("launch"),
+                    label: "Launch".into(),
+                    risk: ActionRisk::Safe,
+                    confirmation: false,
+                },
+                secondary_actions: vec![],
+                ui_intent: None,
+                action_payload: None,
+            }))
+    }
+
+    async fn perform(&self, action: ActionRequest, cancel: CancellationToken) -> ActionOutcome {
+        if cancel.is_cancelled() {
+            return ActionOutcome::Cancelled;
+        }
+        let path = action
+            .result
+            .id
+            .as_str()
+            .strip_prefix("app:")
+            .map(std::path::PathBuf::from);
+        let Some(path) = path else {
+            return ActionOutcome::Failed {
+                kind: FailureKind::InvalidInput {
+                    field: "result_id".into(),
+                    message: "expected app:<path>".into(),
+                },
+            };
+        };
+
+        match action.action.id.as_str() {
+            "launch" => {
+                let in_cache = {
+                    let g = self.cache.read().await;
+                    g.apps.iter().any(|a| a.path == path)
+                };
+                if !in_cache {
+                    return ActionOutcome::Failed {
+                        kind: FailureKind::SecurityDenied {
+                            reason: "app not in catalog cache".into(),
+                        },
+                    };
+                }
+                match await_unless_cancelled(&cancel, self.catalog.launch(&path)).await {
+                    None => ActionOutcome::Cancelled,
+                    Some(Ok(())) => {
+                        let key = path.to_string_lossy().to_string();
+                        let mut g = self.cache.write().await;
+                        *g.launch_counts.entry(key).or_insert(0) += 1;
+                        ActionOutcome::Success {
+                            message: Some(format!("launched {}", path.display())),
+                        }
+                    }
+                    Some(Err(err)) => ActionOutcome::Failed {
+                        kind: FailureKind::Unavailable {
+                            reason: err.to_string(),
+                            retryable: true,
+                        },
+                    },
+                }
+            }
+            "reveal" => {
+                let in_cache = {
+                    let g = self.cache.read().await;
+                    g.apps.iter().any(|a| a.path == path)
+                };
+                if !in_cache {
+                    return ActionOutcome::Failed {
+                        kind: FailureKind::SecurityDenied {
+                            reason: "app not in catalog cache".into(),
+                        },
+                    };
+                }
+                match await_unless_cancelled(&cancel, self.catalog.reveal(&path)).await {
+                    None => ActionOutcome::Cancelled,
+                    Some(Ok(())) => ActionOutcome::Success {
+                        message: Some("revealed".into()),
+                    },
+                    Some(Err(err)) => ActionOutcome::Failed {
+                        kind: FailureKind::Unavailable {
+                            reason: err.to_string(),
+                            retryable: true,
+                        },
+                    },
+                }
+            }
+            "copy_path" => {
+                let in_cache = {
+                    let g = self.cache.read().await;
+                    g.apps.iter().any(|a| a.path == path)
+                };
+                if !in_cache {
+                    return ActionOutcome::Failed {
+                        kind: FailureKind::SecurityDenied {
+                            reason: "app not in catalog cache".into(),
+                        },
+                    };
+                }
+                if cancel.is_cancelled() {
+                    return ActionOutcome::Cancelled;
+                }
+                let text = path.display().to_string();
+                match self.pasteboard.write_text(&text).await {
+                    Ok(()) => ActionOutcome::Success {
+                        message: Some(format!("copied {text}")),
+                    },
+                    Err(err) => ActionOutcome::Failed {
+                        kind: FailureKind::Unavailable {
+                            reason: err.to_string(),
+                            retryable: true,
+                        },
+                    },
+                }
+            }
+            "noop" => ActionOutcome::Success { message: None },
+            other => ActionOutcome::Failed {
+                kind: FailureKind::NotFound {
+                    entity: format!("action:{other}"),
+                },
+            },
+        }
+    }
+
+    async fn teardown(&self) {
+        self.refresh_generation.fetch_add(1, Ordering::SeqCst);
+        let mut g = self.cache.write().await;
+        g.apps = Vec::new();
+        g.launch_counts = std::collections::HashMap::new();
+        g.warming = false;
+        g.catalog_error = None;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use async_trait::async_trait;
+    use luma_application::{AppLaunchError, AppsCatalogPort, ModuleState, PasteboardError};
+    use std::path::{Path, PathBuf};
+    use tokio::sync::mpsc;
+    use tokio::sync::Mutex as TokioMutex;
+
+    struct FakeCatalog {
+        apps: Vec<AppEntry>,
+    }
+
+    #[test]
+    fn fuzzy_matching_keeps_compact_shortcuts_and_rejects_loose_noise() {
+        assert!(AppsModule::fuzzy_score("Safari", "sf", 0.0).is_some());
+        assert!(AppsModule::fuzzy_score("Digital Color Meter", "dcm", 0.0).is_some());
+        assert!(AppsModule::fuzzy_score("Digital Color Meter", "git", 0.0).is_none());
+        assert!(AppsModule::fuzzy_score("Migration Assistant", "git", 0.0).is_none());
+    }
+
+    #[async_trait]
+    impl AppsCatalogPort for FakeCatalog {
+        async fn list_installed(&self) -> Result<Vec<AppEntry>, String> {
+            Ok(self.apps.clone())
+        }
+        async fn launch(&self, _path: &Path) -> Result<(), AppLaunchError> {
+            Ok(())
+        }
+        async fn reveal(&self, _path: &Path) -> Result<(), AppLaunchError> {
+            Ok(())
+        }
+    }
+
+    struct MemPb(TokioMutex<Option<String>>);
+
+    #[async_trait]
+    impl PasteboardPort for MemPb {
+        async fn read_text(&self) -> Result<Option<String>, PasteboardError> {
+            Ok(self.0.lock().await.clone())
+        }
+        async fn write_text(&self, text: &str) -> Result<(), PasteboardError> {
+            *self.0.lock().await = Some(text.into());
+            Ok(())
+        }
+    }
+
+    fn mem_pb() -> Arc<MemPb> {
+        Arc::new(MemPb(TokioMutex::new(None)))
+    }
+
+    #[tokio::test]
+    async fn search_uses_memory_cache() {
+        let catalog = Arc::new(FakeCatalog {
+            apps: vec![AppEntry {
+                name: "Safari".into(),
+                path: PathBuf::from("/Applications/Safari.app"),
+                bundle_id: None,
+            }],
+        });
+        let module = AppsModule::new(catalog, mem_pb());
+        module
+            .warmup(WarmupContext {
+                cancel: CancellationToken::new(),
+            })
+            .await;
+        let (tx, mut rx) = mpsc::channel(4);
+        module
+            .search(Query::parse("app safari", 10), tx, CancellationToken::new())
+            .await;
+        let ev = rx.recv().await.unwrap();
+        match ev {
+            Event::ResultsChunk { upserts, .. } => {
+                assert_eq!(upserts.len(), 1);
+                assert_eq!(upserts[0].title, "Safari");
+                assert!(upserts[0].id.starts_with("app:"));
+            }
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn recall_rehydration_requires_a_current_catalog_entry() {
+        let catalog = Arc::new(FakeCatalog {
+            apps: vec![AppEntry {
+                name: "Safari".into(),
+                path: PathBuf::from("/Applications/Safari.app"),
+                bundle_id: None,
+            }],
+        });
+        let module = AppsModule::new(catalog, mem_pb());
+        module
+            .warmup(WarmupContext {
+                cancel: CancellationToken::new(),
+            })
+            .await;
+
+        let item = module
+            .rehydrate_recall("app:/Applications/Safari.app")
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(item.primary_action.id.as_str(), "launch");
+        assert!(module
+            .rehydrate_recall("app:/Applications/Missing.app")
+            .await
+            .unwrap()
+            .is_none());
+    }
+
+    #[tokio::test]
+    async fn exact_trigger_lists_cached_apps() {
+        let catalog = Arc::new(FakeCatalog {
+            apps: vec![AppEntry {
+                name: "Safari".into(),
+                path: PathBuf::from("/Applications/Safari.app"),
+                bundle_id: None,
+            }],
+        });
+        let module = AppsModule::new(catalog, mem_pb());
+        module
+            .warmup(WarmupContext {
+                cancel: CancellationToken::new(),
+            })
+            .await;
+        let (tx, mut rx) = mpsc::channel(4);
+        module
+            .search(Query::parse("app ", 10), tx, CancellationToken::new())
+            .await;
+        let ev = rx.recv().await.unwrap();
+        match ev {
+            Event::ResultsChunk { upserts, .. } => {
+                assert_eq!(upserts.len(), 1);
+                assert_eq!(upserts[0].title, "Safari");
+            }
+            other => panic!("expected apps for exact trigger, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn copy_path_writes_pasteboard() {
+        let catalog = Arc::new(FakeCatalog {
+            apps: vec![AppEntry {
+                name: "Safari".into(),
+                path: PathBuf::from("/Applications/Safari.app"),
+                bundle_id: None,
+            }],
+        });
+        let pb = mem_pb();
+        let module = AppsModule::new(catalog, pb.clone());
+        module
+            .warmup(WarmupContext {
+                cancel: CancellationToken::new(),
+            })
+            .await;
+        let outcome = module
+            .perform(
+                ActionRequest {
+                    result: SearchItem {
+                        id: luma_domain::ResultId::new("app:/Applications/Safari.app"),
+                        module_id: ModuleId::new("luma.apps"),
+                        title: "Safari".into(),
+                        subtitle: None,
+                        kind: "app".into(),
+                        score: 1.0,
+                        primary_action: ActionDescriptor {
+                            id: ActionId::new("copy_path"),
+                            label: "Copy Path".into(),
+                            risk: ActionRisk::Safe,
+                            confirmation: false,
+                        },
+                        secondary_actions: vec![],
+                        ui_intent: None,
+                        action_payload: None,
+                    },
+                    action: ActionDescriptor {
+                        id: ActionId::new("copy_path"),
+                        label: "Copy Path".into(),
+                        risk: ActionRisk::Safe,
+                        confirmation: false,
+                    },
+                    confirmation: false,
+                },
+                CancellationToken::new(),
+            )
+            .await;
+        assert!(matches!(outcome, ActionOutcome::Success { .. }));
+        assert_eq!(
+            pb.read_text().await.unwrap().as_deref(),
+            Some("/Applications/Safari.app")
+        );
+    }
+
+    struct FailingCatalog;
+
+    #[async_trait]
+    impl AppsCatalogPort for FailingCatalog {
+        async fn list_installed(&self) -> Result<Vec<AppEntry>, String> {
+            Err("catalog boom".into())
+        }
+        async fn launch(&self, _path: &Path) -> Result<(), AppLaunchError> {
+            Ok(())
+        }
+        async fn reveal(&self, _path: &Path) -> Result<(), AppLaunchError> {
+            Ok(())
+        }
+    }
+
+    #[tokio::test]
+    async fn catalog_failure_emits_unavailable_row() {
+        let module = AppsModule::new(Arc::new(FailingCatalog), mem_pb());
+        module
+            .warmup(WarmupContext {
+                cancel: CancellationToken::new(),
+            })
+            .await;
+        let (tx, mut rx) = mpsc::channel(4);
+        module
+            .search(Query::parse("app ", 10), tx, CancellationToken::new())
+            .await;
+        let ev = rx.recv().await.unwrap();
+        match ev {
+            Event::ResultsChunk { upserts, .. } => {
+                assert_eq!(upserts.len(), 1);
+                assert_eq!(upserts[0].kind, "unavailable");
+                assert!(upserts[0].subtitle.as_deref().unwrap().contains("boom"));
+            }
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn warmup_returns_failed_on_catalog_error() {
+        let module = AppsModule::new(Arc::new(FailingCatalog), mem_pb());
+        let state = module
+            .warmup(WarmupContext {
+                cancel: CancellationToken::new(),
+            })
+            .await;
+        assert!(matches!(state, ModuleState::Failed(_)));
+    }
+
+    #[tokio::test]
+    async fn launch_rejects_path_not_in_cache() {
+        let catalog = Arc::new(FakeCatalog {
+            apps: vec![AppEntry {
+                name: "Safari".into(),
+                path: PathBuf::from("/Applications/Safari.app"),
+                bundle_id: None,
+            }],
+        });
+        let module = AppsModule::new(catalog, mem_pb());
+        module
+            .warmup(WarmupContext {
+                cancel: CancellationToken::new(),
+            })
+            .await;
+        let outcome = module
+            .perform(
+                ActionRequest {
+                    result: SearchItem {
+                        id: luma_domain::ResultId::new("app:/Applications/Other.app"),
+                        module_id: ModuleId::new("luma.apps"),
+                        title: "Other".into(),
+                        subtitle: None,
+                        kind: "app".into(),
+                        score: 1.0,
+                        primary_action: ActionDescriptor {
+                            id: ActionId::new("launch"),
+                            label: "Launch".into(),
+                            risk: ActionRisk::Safe,
+                            confirmation: false,
+                        },
+                        secondary_actions: vec![],
+                        ui_intent: None,
+                        action_payload: None,
+                    },
+                    action: ActionDescriptor {
+                        id: ActionId::new("launch"),
+                        label: "Launch".into(),
+                        risk: ActionRisk::Safe,
+                        confirmation: false,
+                    },
+                    confirmation: false,
+                },
+                CancellationToken::new(),
+            )
+            .await;
+        assert!(matches!(
+            outcome,
+            ActionOutcome::Failed {
+                kind: FailureKind::SecurityDenied { .. },
+                ..
+            }
+        ));
+    }
+
+    #[tokio::test]
+    async fn teardown_blocks_in_flight_refresh_from_resurrecting_cache() {
+        use tokio::sync::Barrier;
+
+        struct SlowCatalog {
+            start: Arc<Barrier>,
+            release: Arc<Barrier>,
+            apps: Vec<AppEntry>,
+        }
+
+        #[async_trait]
+        impl AppsCatalogPort for SlowCatalog {
+            async fn list_installed(&self) -> Result<Vec<AppEntry>, String> {
+                self.start.wait().await;
+                self.release.wait().await;
+                Ok(self.apps.clone())
+            }
+            async fn launch(&self, _path: &Path) -> Result<(), AppLaunchError> {
+                Ok(())
+            }
+            async fn reveal(&self, _path: &Path) -> Result<(), AppLaunchError> {
+                Ok(())
+            }
+        }
+
+        let start = Arc::new(Barrier::new(2));
+        let release = Arc::new(Barrier::new(2));
+        let catalog = Arc::new(SlowCatalog {
+            start: start.clone(),
+            release: release.clone(),
+            apps: vec![AppEntry {
+                name: "Safari".into(),
+                path: PathBuf::from("/Applications/Safari.app"),
+                bundle_id: None,
+            }],
+        });
+        let module = Arc::new(AppsModule::new(catalog, mem_pb()));
+        let module_warm = module.clone();
+        let warm = tokio::spawn(async move {
+            module_warm
+                .warmup(WarmupContext {
+                    cancel: CancellationToken::new(),
+                })
+                .await
+        });
+        start.wait().await;
+        module.teardown().await;
+        release.wait().await;
+        let _ = warm.await;
+        assert!(
+            module.cache.read().await.apps.is_empty(),
+            "in-flight list_installed must not resurrect cache after teardown"
+        );
+        assert!(!module.cache.read().await.warming);
+    }
+}

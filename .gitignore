@@ -1,0 +1,9 @@
+.DS_Store
+*.log
+.agent-runs/
+.tmp/
+rust/target/
+rust/native/luma-workbench/.build/
+.claude/worktrees/
+.qa-artifacts/
+.qa-circ/

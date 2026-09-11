@@ -1,0 +1,1019 @@
+//! CLI blackbox tests against an isolated LumaNext root.
+//! Never touches real ~/Library/Application Support/Luma.
+
+use std::fs;
+use std::path::PathBuf;
+use std::process::Command;
+use tempfile::tempdir;
+
+fn luma_bin() -> PathBuf {
+    PathBuf::from(env!("CARGO_BIN_EXE_luma"))
+}
+
+fn run_luma(
+    support: &std::path::Path,
+    logs: &std::path::Path,
+    args: &[&str],
+) -> (i32, String, String) {
+    let out = Command::new(luma_bin())
+        .args(args)
+        .env("LUMA_NEXT_SUPPORT_DIR", support)
+        .env("LUMA_NEXT_LOGS_DIR", logs)
+        .output()
+        .expect("spawn luma");
+    let code = out.status.code().unwrap_or(1);
+    let stdout = String::from_utf8_lossy(&out.stdout).into_owned();
+    let stderr = String::from_utf8_lossy(&out.stderr).into_owned();
+    (code, stdout, stderr)
+}
+
+#[test]
+fn modules_list_json() {
+    let dir = tempdir().unwrap();
+    let support = dir.path().join("support");
+    let logs = dir.path().join("logs");
+    fs::create_dir_all(&support).unwrap();
+    fs::create_dir_all(&logs).unwrap();
+    let (code, stdout, stderr) = run_luma(&support, &logs, &["modules", "list", "--json"]);
+    assert_eq!(code, 0, "stderr={stderr}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert!(v["modules"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|m| m["id"] == "luma.apps"));
+    assert!(
+        v["modules"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|m| m["id"] == "luma.windows"),
+        "expected luma.windows in modules list: {stdout}"
+    );
+    assert!(
+        v["modules"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|m| m["id"] == "luma.wordbook"),
+        "expected luma.wordbook in modules list: {stdout}"
+    );
+    assert!(
+        v["modules"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|m| m["id"] == "luma.records"),
+        "expected luma.records in modules list: {stdout}"
+    );
+    assert!(
+        v["modules"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|m| m["id"] == "luma.command_recipes"),
+        "expected luma.command_recipes in modules list: {stdout}"
+    );
+    assert!(
+        v["modules"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|m| m["id"] == "luma.timers"),
+        "expected luma.timers in modules list: {stdout}"
+    );
+    assert!(
+        !v["modules"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|m| m["id"] == "luma.notes"),
+        "retired Notes module must not be registered: {stdout}"
+    );
+}
+
+#[test]
+fn cmd_list_json() {
+    let dir = tempdir().unwrap();
+    let support = dir.path().join("support");
+    let logs = dir.path().join("logs");
+    fs::create_dir_all(&support).unwrap();
+    fs::create_dir_all(&logs).unwrap();
+    let (code, stdout, stderr) = run_luma(&support, &logs, &["cmd", "list", "--json"]);
+    assert_eq!(code, 0, "stderr={stderr}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert!(v["recipes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|r| r["id"] == "git-status"));
+}
+
+#[test]
+fn query_cmd_test_json() {
+    let dir = tempdir().unwrap();
+    let support = dir.path().join("support");
+    let logs = dir.path().join("logs");
+    fs::create_dir_all(&support).unwrap();
+    fs::create_dir_all(&logs).unwrap();
+    let (code, stdout, stderr) = run_luma(&support, &logs, &["query", "/cmd test", "--json"]);
+    assert_eq!(code, 0, "stderr={stderr}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(v["query"], "/cmd test");
+    assert!(v["results"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|r| r["id"] == "cmd:test"));
+}
+
+#[test]
+fn cmd_show_missing_recipe_errors() {
+    let dir = tempdir().unwrap();
+    let support = dir.path().join("support");
+    let logs = dir.path().join("logs");
+    fs::create_dir_all(&support).unwrap();
+    fs::create_dir_all(&logs).unwrap();
+    let (code, _, stderr) = run_luma(
+        &support,
+        &logs,
+        &["cmd", "show", "no-such-recipe", "--json"],
+    );
+    assert_ne!(code, 0);
+    assert!(stderr.contains("not found") || stderr.contains("no-such-recipe"));
+}
+
+#[test]
+fn cmd_run_json_stdout_is_pure_json() {
+    let dir = tempdir().unwrap();
+    let support = dir.path().join("support");
+    let logs = dir.path().join("logs");
+    fs::create_dir_all(&support).unwrap();
+    fs::create_dir_all(&logs).unwrap();
+    // show-env would otherwise print env lines; --json must null child stdio.
+    let (code, stdout, stderr) = run_luma(
+        &support,
+        &logs,
+        &["cmd", "run", "show-env", "--confirmation", "--json"],
+    );
+    assert_eq!(code, 0, "stderr={stderr} stdout={stdout}");
+    let v: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap_or_else(|e| {
+        panic!("stdout must be pure JSON (no child stdio mix): {e}; stdout={stdout:?}");
+    });
+    assert_eq!(v["recipe_id"], "show-env");
+    assert_eq!(v["outcome"], "success");
+    assert!(
+        !stdout.contains("PATH="),
+        "child env output must not leak into --json stdout: {stdout}"
+    );
+}
+
+#[test]
+fn cmd_run_json_preflight_failures_are_machine_readable() {
+    let dir = tempdir().unwrap();
+    let support = dir.path().join("support");
+    let logs = dir.path().join("logs");
+    fs::create_dir_all(&support).unwrap();
+    fs::create_dir_all(&logs).unwrap();
+
+    for recipe in ["show-env", "no-such-recipe"] {
+        let (code, stdout, _stderr) = run_luma(&support, &logs, &["cmd", "run", recipe, "--json"]);
+        assert_eq!(code, 1, "recipe={recipe} stdout={stdout}");
+        let value: serde_json::Value = serde_json::from_str(stdout.trim())
+            .unwrap_or_else(|error| panic!("recipe={recipe}: {error}; stdout={stdout:?}"));
+        assert_eq!(value["recipe_id"], recipe);
+        assert_eq!(value["outcome"], "failed");
+        assert!(value["error"].as_str().is_some_and(|text| !text.is_empty()));
+    }
+}
+
+#[test]
+fn action_run_executes_recipe_not_silent_success() {
+    let dir = tempdir().unwrap();
+    let support = dir.path().join("support");
+    let logs = dir.path().join("logs");
+    fs::create_dir_all(&support).unwrap();
+    fs::create_dir_all(&logs).unwrap();
+    let (code, stdout, stderr) = run_luma(
+        &support,
+        &logs,
+        &[
+            "action",
+            "run",
+            "--query",
+            "/cmd show-env",
+            "--action-id",
+            "run",
+            "--confirmation",
+            "--json",
+        ],
+    );
+    assert_eq!(code, 0, "stderr={stderr} stdout={stdout}");
+    let v: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap();
+    assert_eq!(v["action_id"], "run");
+    let outcome = &v["outcome"];
+    assert!(
+        outcome.get("interactive_recipe_run").is_none(),
+        "action run must execute recipe, not return bare InteractiveRecipeRun: {outcome}"
+    );
+    let message = outcome
+        .pointer("/success/message")
+        .and_then(|m| m.as_str())
+        .unwrap_or("");
+    assert!(
+        outcome.get("success").is_some() && message.contains("finished"),
+        "expected executed success outcome, got {outcome}"
+    );
+}
+
+#[test]
+fn config_get_and_set_round_trip() {
+    let dir = tempdir().unwrap();
+    let support = dir.path().join("support");
+    let logs = dir.path().join("logs");
+    fs::create_dir_all(&support).unwrap();
+    fs::create_dir_all(&logs).unwrap();
+    let (code, _, stderr) = run_luma(
+        &support,
+        &logs,
+        &[
+            "config",
+            "set",
+            "--projects-root",
+            "/tmp/luma-project-fixture",
+            "--json",
+        ],
+    );
+    assert_eq!(code, 0, "stderr={stderr}");
+    let (code, stdout, stderr) = run_luma(&support, &logs, &["config", "get", "--json"]);
+    assert_eq!(code, 0, "stderr={stderr}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(v["projects_roots"][0], "/tmp/luma-project-fixture");
+}
+
+#[test]
+fn retired_notes_command_is_invalid_and_never_creates_an_index() {
+    let dir = tempdir().unwrap();
+    let support = dir.path().join("support");
+    let logs = dir.path().join("logs");
+    fs::create_dir_all(&support).unwrap();
+    fs::create_dir_all(&logs).unwrap();
+    for query in ["/n alpha", "/note alpha", "/notes alpha"] {
+        let (code, stdout, stderr) = run_luma(&support, &logs, &["query", query, "--json"]);
+        assert_eq!(code, 0, "query={query} stderr={stderr} stdout={stdout}");
+        let v: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+        let results = v["results"].as_array().expect("results array");
+        assert_eq!(
+            results.len(),
+            1,
+            "invalid command must not search globally: {stdout}"
+        );
+        assert_eq!(results[0]["module_id"], "luma.system");
+        assert_eq!(results[0]["kind"], "command_error");
+        assert!(results[0]["title"]
+            .as_str()
+            .unwrap_or("")
+            .contains("Unknown command:"));
+        assert!(!support.join("notes-index.sqlite").exists());
+    }
+
+    let (code, stdout, stderr) = run_luma(&support, &logs, &["query", "alpha", "--json"]);
+    assert_eq!(code, 0, "stderr={stderr} stdout={stdout}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert!(
+        !v["results"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|result| result["module_id"] == "luma.notes"),
+        "global search must not emit retired Notes results: {stdout}"
+    );
+    assert!(!support.join("notes-index.sqlite").exists());
+}
+
+#[test]
+fn legacy_notes_settings_are_ignored_without_breaking_startup() {
+    let dir = tempdir().unwrap();
+    let support = dir.path().join("support");
+    let logs = dir.path().join("logs");
+    fs::create_dir_all(&support).unwrap();
+    fs::create_dir_all(&logs).unwrap();
+    let (code, _, stderr) = run_luma(&support, &logs, &["config", "get", "--json"]);
+    assert_eq!(code, 0, "stderr={stderr}");
+    let settings_path = support.join("settings.toml");
+    let settings = fs::read_to_string(&settings_path).unwrap();
+    let settings = settings.replacen(
+        "[enabled_modules]\n",
+        "notes_root = \"/Users/example/Obsidian\"\nnotes_exclude_patterns = [\"private/*\"]\n\n[enabled_modules]\n\"luma.notes\" = true\n",
+        1,
+    );
+    fs::write(&settings_path, settings).unwrap();
+
+    let (code, stdout, stderr) = run_luma(&support, &logs, &["modules", "list", "--json"]);
+    assert_eq!(code, 0, "stderr={stderr}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert!(!v["modules"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|module| module["id"] == "luma.notes"));
+}
+
+#[test]
+fn migrate_clipboard_fixture_dry_run_then_commit_rollback() {
+    let dir = tempdir().unwrap();
+    let support = dir.path().join("support");
+    let logs = dir.path().join("logs");
+    fs::create_dir_all(&support).unwrap();
+    fs::create_dir_all(&logs).unwrap();
+    let fixture = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../fixtures/legacy/clipboard-history.sample.json");
+    assert!(fixture.exists(), "missing fixture {}", fixture.display());
+
+    let (code, stdout, stderr) = run_luma(
+        &support,
+        &logs,
+        &[
+            "migrate",
+            "clipboard-fixture",
+            "--path",
+            fixture.to_str().unwrap(),
+            "--json",
+        ],
+    );
+    assert_eq!(code, 0, "stderr={stderr} stdout={stdout}");
+    let dry: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(dry["ledger"]["dry_run"], true);
+
+    let (code, stdout, stderr) = run_luma(
+        &support,
+        &logs,
+        &[
+            "migrate",
+            "clipboard-fixture",
+            "--path",
+            fixture.to_str().unwrap(),
+            "--commit",
+            "--json",
+        ],
+    );
+    assert_eq!(code, 0, "stderr={stderr} stdout={stdout}");
+    let committed: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(committed["ledger"]["dry_run"], false);
+    let mig = committed["ledger"]["migration_id"]
+        .as_str()
+        .expect("migration_id")
+        .to_string();
+
+    let (code, stdout, stderr) = run_luma(
+        &support,
+        &logs,
+        &["migrate", "rollback", "--migration-id", &mig, "--json"],
+    );
+    assert_eq!(code, 0, "stderr={stderr} stdout={stdout}");
+    let rolled: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert!(
+        rolled["status"] == "rolled_back" || rolled["status"].as_str() == Some("RolledBack"),
+        "{rolled}"
+    );
+}
+
+#[test]
+fn action_run_fake_query() {
+    let dir = tempdir().unwrap();
+    let support = dir.path().join("support");
+    let logs = dir.path().join("logs");
+    fs::create_dir_all(&support).unwrap();
+    fs::create_dir_all(&logs).unwrap();
+    // Enable fake module then run action
+    let (code, _, stderr) = run_luma(
+        &support,
+        &logs,
+        &["config", "set", "--enable-module", "luma.fake", "--json"],
+    );
+    assert_eq!(code, 0, "stderr={stderr}");
+    let (code, stdout, stderr) = run_luma(
+        &support,
+        &logs,
+        &[
+            "action",
+            "run",
+            "--query",
+            "fake hello",
+            "--action-id",
+            "open",
+            "--json",
+        ],
+    );
+    assert_eq!(code, 0, "stderr={stderr} stdout={stdout}");
+    assert!(
+        stdout.contains("success") || stdout.contains("Success") || stdout.contains("ok"),
+        "{stdout}"
+    );
+}
+
+#[test]
+fn corrupt_config_blocks_query() {
+    let dir = tempdir().unwrap();
+    let support = dir.path().join("support");
+    let logs = dir.path().join("logs");
+    fs::create_dir_all(&support).unwrap();
+    fs::create_dir_all(&logs).unwrap();
+    // First create valid config
+    let _ = run_luma(&support, &logs, &["config", "get", "--json"]);
+    fs::write(support.join("settings.toml"), "not = toml [[[").unwrap();
+    let (code, stdout, stderr) = run_luma(&support, &logs, &["query", "/app ", "--json"]);
+    assert_ne!(
+        code, 0,
+        "corrupt config must fail query; stdout={stdout} stderr={stderr}"
+    );
+}
+
+#[test]
+fn query_bare_fake_trigger_returns_results_in_cli() {
+    let dir = tempdir().unwrap();
+    let support = dir.path().join("support");
+    let logs = dir.path().join("logs");
+    fs::create_dir_all(&support).unwrap();
+    fs::create_dir_all(&logs).unwrap();
+    let (code, _, stderr) = run_luma(
+        &support,
+        &logs,
+        &["config", "set", "--enable-module", "luma.fake", "--json"],
+    );
+    assert_eq!(code, 0, "stderr={stderr}");
+    let (code, stdout, stderr) = run_luma(&support, &logs, &["query", "/fake ", "--json"]);
+    assert_eq!(code, 0, "stderr={stderr}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
+    let n = v["results"].as_array().map(|a| a.len()).unwrap_or(0);
+    assert!(n >= 1, "bare fake should target module in CLI: {stdout}");
+}
+
+#[test]
+fn action_failure_exits_nonzero() {
+    let dir = tempdir().unwrap();
+    let support = dir.path().join("support");
+    let logs = dir.path().join("logs");
+    fs::create_dir_all(&support).unwrap();
+    fs::create_dir_all(&logs).unwrap();
+    let (code, _, stderr) = run_luma(
+        &support,
+        &logs,
+        &["config", "set", "--enable-module", "luma.fake", "--json"],
+    );
+    assert_eq!(code, 0, "stderr={stderr}");
+    let (code, stdout, stderr) = run_luma(
+        &support,
+        &logs,
+        &[
+            "action",
+            "run",
+            "--query",
+            "fake hello",
+            "--action-id",
+            "nonexistent_action",
+            "--json",
+        ],
+    );
+    assert_ne!(
+        code, 0,
+        "failed action must exit nonzero; stdout={stdout} stderr={stderr}"
+    );
+}
+
+#[test]
+fn query_json_redact_flag() {
+    let dir = tempdir().unwrap();
+    let support = dir.path().join("support");
+    let logs = dir.path().join("logs");
+    fs::create_dir_all(&support).unwrap();
+    fs::create_dir_all(&logs).unwrap();
+    let (code, stdout, stderr) =
+        run_luma(&support, &logs, &["query", "/clip ", "--json", "--redact"]);
+    assert_eq!(code, 0, "stderr={stderr}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("json");
+    assert_eq!(v["redacted"], true);
+}
+
+#[test]
+fn concurrent_config_set_one_wins() {
+    use std::process::{Command, Stdio};
+    use std::sync::Arc;
+    use std::sync::Barrier;
+    use std::thread;
+    let dir = tempdir().unwrap();
+    let support = dir.path().join("support");
+    let logs = dir.path().join("logs");
+    fs::create_dir_all(&support).unwrap();
+    fs::create_dir_all(&logs).unwrap();
+    let (code, _, stderr) = run_luma(&support, &logs, &["config", "get", "--json"]);
+    assert_eq!(code, 0, "stderr={stderr}");
+    let barrier = Arc::new(Barrier::new(2));
+    let run_set = |project: &'static str, barrier: Arc<Barrier>| {
+        let support = support.clone();
+        let logs = logs.clone();
+        thread::spawn(move || {
+            barrier.wait();
+            Command::new(luma_bin())
+                .args([
+                    "config",
+                    "set",
+                    "--projects-root",
+                    project,
+                    "--expected-version",
+                    "1",
+                    "--json",
+                ])
+                .env("LUMA_NEXT_SUPPORT_DIR", support)
+                .env("LUMA_NEXT_LOGS_DIR", logs)
+                .stdout(Stdio::null())
+                .stderr(Stdio::piped())
+                .output()
+                .expect("config set")
+        })
+    };
+    let a = run_set("/tmp/luma-lock-a", Arc::clone(&barrier));
+    let b = run_set("/tmp/luma-lock-b", barrier);
+    let a_out = a.join().unwrap();
+    let b_out = b.join().unwrap();
+    let codes = [
+        a_out.status.code().unwrap_or(1),
+        b_out.status.code().unwrap_or(1),
+    ];
+    let successes = codes.iter().filter(|&&c| c == 0).count();
+    assert_eq!(
+        successes,
+        1,
+        "exactly one config set should win; codes={codes:?} a_err={} b_err={}",
+        String::from_utf8_lossy(&a_out.stderr),
+        String::from_utf8_lossy(&b_out.stderr)
+    );
+    let (code, stdout, stderr) = run_luma(&support, &logs, &["config", "get", "--json"]);
+    assert_eq!(code, 0, "stderr={stderr}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(v["settings_version"].as_u64(), Some(2), "{stdout}");
+}
+
+#[test]
+fn config_import_project_round_trip() {
+    let dir = tempdir().unwrap();
+    let support = dir.path().join("support");
+    let logs = dir.path().join("logs");
+    fs::create_dir_all(&support).unwrap();
+    fs::create_dir_all(&logs).unwrap();
+    let project = dir.path().join("myapp");
+    fs::create_dir(&project).unwrap();
+    let path = project.display().to_string();
+    let (code, _, stderr) = run_luma(
+        &support,
+        &logs,
+        &["config", "set", "--import-project", &path, "--json"],
+    );
+    assert_eq!(code, 0, "stderr={stderr}");
+    let (code, stdout, stderr) = run_luma(&support, &logs, &["config", "get", "--json"]);
+    assert_eq!(code, 0, "stderr={stderr}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    let imports = v["imported_projects"].as_array().expect("imports");
+    assert_eq!(imports.len(), 1);
+    assert!(imports[0]["path"].as_str().unwrap().contains("myapp"));
+    let (code, _, stderr) = run_luma(
+        &support,
+        &logs,
+        &["config", "set", "--import-project", &path, "--json"],
+    );
+    assert_ne!(code, 0);
+    assert!(stderr.contains("already imported"), "stderr={stderr}");
+    assert!(!stderr.contains("panicked"), "stderr={stderr}");
+    let (code, _, stderr) = run_luma(
+        &support,
+        &logs,
+        &[
+            "config",
+            "set",
+            "--remove-project",
+            "myapp",
+            "--expected-version",
+            &v["settings_version"].to_string(),
+            "--json",
+        ],
+    );
+    assert_eq!(code, 0, "stderr={stderr}");
+    assert!(project.exists(), "remove must not delete directory");
+    let (code, stdout, stderr) = run_luma(&support, &logs, &["config", "get", "--json"]);
+    assert_eq!(code, 0, "stderr={stderr}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert!(v["imported_projects"].as_array().unwrap().is_empty());
+}
+
+#[test]
+fn imported_project_query_exposes_project_workbench() {
+    let dir = tempdir().unwrap();
+    let support = dir.path().join("support");
+    let logs = dir.path().join("logs");
+    fs::create_dir_all(&support).unwrap();
+    fs::create_dir_all(&logs).unwrap();
+    let project = dir.path().join("myapp");
+    fs::create_dir(&project).unwrap();
+    fs::write(
+        project.join("Cargo.toml"),
+        "[package]\nname = \"myapp\"\nversion = \"0.1.0\"\n",
+    )
+    .unwrap();
+    let import_path = project.display().to_string();
+    let (code, _, stderr) = run_luma(
+        &support,
+        &logs,
+        &["config", "set", "--import-project", &import_path, "--json"],
+    );
+    assert_eq!(code, 0, "stderr={stderr}");
+    let path = fs::canonicalize(&project).unwrap().display().to_string();
+
+    let (code, stdout, stderr) = run_luma(&support, &logs, &["query", "/proj", "--json"]);
+    assert_eq!(code, 0, "stderr={stderr}");
+    let projects: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    let row = projects["results"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|row| row["id"] == format!("proj:{path}"))
+        .expect("imported project row");
+    assert_eq!(row["primary_action_id"], "open_workbench");
+    assert_eq!(row["action_payload"]["project_path"], path);
+
+    let query = format!("/proj show {path}");
+    let (code, stdout, stderr) = run_luma(&support, &logs, &["query", &query, "--json"]);
+    assert_eq!(code, 0, "stderr={stderr}");
+    let workbench: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    let actions = workbench["results"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|row| row["primary_action_id"].as_str())
+        .collect::<Vec<_>>();
+    for expected in [
+        "open",
+        "open_git",
+        "open_runtime",
+        "open_recipes",
+        "open_files",
+        "open_terminal",
+    ] {
+        assert!(actions.contains(&expected), "missing {expected}: {stdout}");
+    }
+}
+
+#[test]
+fn wordbook_import_wordpet_dry_run_then_commit() {
+    use luma_storage::{WordContent, WordbookStore};
+
+    let dir = tempdir().unwrap();
+    let support = dir.path().join("support");
+    let logs = dir.path().join("logs");
+    fs::create_dir_all(&support).unwrap();
+    fs::create_dir_all(&logs).unwrap();
+
+    let src = dir.path().join("wordpet.sqlite3");
+    {
+        let store = WordbookStore::with_path(src.clone()).unwrap();
+        store
+            .upsert_content(&WordContent {
+                term: "throughput".into(),
+                phonetic: "".into(),
+                meaning: "吞吐量".into(),
+                example: "Improved throughput".into(),
+                category: "sys".into(),
+            })
+            .unwrap();
+        let id = store.get_by_term("throughput").unwrap().unwrap().id;
+        store.review(id, "known").unwrap();
+        store.set_daily_goal(25).unwrap();
+    }
+
+    let (code, stdout, stderr) = run_luma(
+        &support,
+        &logs,
+        &[
+            "wordbook",
+            "import-wordpet",
+            "--from",
+            src.to_str().unwrap(),
+            "--json",
+        ],
+    );
+    assert_eq!(code, 0, "stderr={stderr} stdout={stdout}");
+    let dry: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(dry["committed"], false);
+    assert_eq!(dry["would_insert"], 1);
+    assert!(
+        !support.join("wordbook.sqlite").exists(),
+        "dry-run must not create wordbook.sqlite"
+    );
+
+    let (code, stdout, stderr) = run_luma(
+        &support,
+        &logs,
+        &[
+            "wordbook",
+            "import-wordpet",
+            "--from",
+            src.to_str().unwrap(),
+            "--commit",
+            "--json",
+        ],
+    );
+    assert_eq!(code, 0, "stderr={stderr} stdout={stdout}");
+    let committed: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(committed["committed"], true);
+
+    let (code, stdout, stderr) = run_luma(&support, &logs, &["query", "/wb status", "--json"]);
+    assert_eq!(code, 0, "stderr={stderr} stdout={stdout}");
+    assert!(
+        stdout.contains("Today") || stdout.contains("wb:status") || stdout.contains("due"),
+        "{stdout}"
+    );
+
+    let (code, stdout, stderr) = run_luma(&support, &logs, &["query", "/wb throughput", "--json"]);
+    assert_eq!(code, 0, "stderr={stderr} stdout={stdout}");
+    assert!(stdout.contains("throughput"), "{stdout}");
+}
+
+#[test]
+fn records_import_dry_run_then_apply_and_query() {
+    let dir = tempdir().unwrap();
+    let support = dir.path().join("support");
+    let logs = dir.path().join("logs");
+    fs::create_dir_all(&support).unwrap();
+    fs::create_dir_all(&logs).unwrap();
+
+    let root = dir.path().join("records-src");
+    fs::create_dir_all(&root).unwrap();
+    fs::write(
+        root.join("电影.md"),
+        "| 名字 | 评分 | 备注 |\n|---|---:|---|\n| 沙丘 | 8 | 史诗 |\n",
+    )
+    .unwrap();
+
+    let (code, stdout, stderr) = run_luma(
+        &support,
+        &logs,
+        &[
+            "record",
+            "import",
+            "--root",
+            root.to_str().unwrap(),
+            "--json",
+        ],
+    );
+    assert_eq!(code, 0, "stderr={stderr} stdout={stdout}");
+    let dry: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(dry["preview"]["records"], 1);
+    assert!(
+        !support.join("records.sqlite").exists(),
+        "dry-run must not create records.sqlite"
+    );
+
+    let (code, stdout, stderr) = run_luma(
+        &support,
+        &logs,
+        &[
+            "record",
+            "import",
+            "--root",
+            root.to_str().unwrap(),
+            "--apply",
+            "--json",
+        ],
+    );
+    assert_eq!(code, 0, "stderr={stderr} stdout={stdout}");
+    assert!(support.join("records.sqlite").exists());
+
+    let (code, stdout, stderr) = run_luma(&support, &logs, &["query", "/rec 沙丘", "--json"]);
+    assert_eq!(code, 0, "stderr={stderr} stdout={stdout}");
+    assert!(stdout.contains("沙丘"), "{stdout}");
+    assert!(stdout.contains("luma.records"), "{stdout}");
+
+    let (code, stdout, stderr) = run_luma(&support, &logs, &["record", "rate", "1", "9", "--json"]);
+    assert_eq!(code, 0, "stderr={stderr} stdout={stdout}");
+    let rated: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(rated["rating"], 9);
+
+    let (code, _, stderr) = run_luma(&support, &logs, &["record", "rate", "1"]);
+    assert_ne!(code, 0);
+    assert!(
+        stderr.contains("provide SCORE") || stderr.contains("--clear"),
+        "{stderr}"
+    );
+}
+
+#[test]
+fn records_rollback_does_not_touch_unrelated_support_files() {
+    let dir = tempdir().unwrap();
+    let support = dir.path().join("support");
+    let logs = dir.path().join("logs");
+    fs::create_dir_all(&support).unwrap();
+    fs::create_dir_all(&logs).unwrap();
+    fs::write(support.join("settings.toml"), "settings sentinel\n").unwrap();
+    fs::write(support.join("clipboard.sqlite"), b"clipboard sentinel").unwrap();
+
+    let root = dir.path().join("records-src");
+    fs::create_dir_all(&root).unwrap();
+    fs::write(
+        root.join("电影.md"),
+        "| 名字 | 评分 | 备注 |\n|---|---:|---|\n| 沙丘 | 8 | 史诗 |\n",
+    )
+    .unwrap();
+
+    let (code, stdout, stderr) = run_luma(
+        &support,
+        &logs,
+        &[
+            "record",
+            "import",
+            "--root",
+            root.to_str().unwrap(),
+            "--apply",
+            "--json",
+        ],
+    );
+    assert_eq!(code, 0, "stderr={stderr} stdout={stdout}");
+    let applied: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    let migration_id = applied["migration"]["migration_id"]
+        .as_str()
+        .expect("records migration id")
+        .to_string();
+
+    let (code, _, stderr) = run_luma(
+        &support,
+        &logs,
+        &["migrate", "rollback", "--migration-id", &migration_id],
+    );
+    assert_eq!(code, 0, "stderr={stderr}");
+    assert_eq!(
+        fs::read(support.join("settings.toml")).unwrap(),
+        b"settings sentinel\n"
+    );
+    assert_eq!(
+        fs::read(support.join("clipboard.sqlite")).unwrap(),
+        b"clipboard sentinel"
+    );
+}
+
+#[test]
+fn ssh_query_not_configured_without_ssh_config() {
+    let dir = tempdir().unwrap();
+    let support = dir.path().join("support");
+    let logs = dir.path().join("logs");
+    fs::create_dir_all(&support).unwrap();
+    fs::create_dir_all(&logs).unwrap();
+    // Isolate from the developer's real ~/.ssh/config (MacSshConfig honors SSH_CONFIG).
+    let missing_config = dir.path().join("missing-ssh-config");
+    let out = Command::new(luma_bin())
+        .args(["query", "/ssh ", "--json"])
+        .env("LUMA_NEXT_SUPPORT_DIR", &support)
+        .env("LUMA_NEXT_LOGS_DIR", &logs)
+        .env("SSH_CONFIG", &missing_config)
+        .output()
+        .expect("spawn luma");
+    let code = out.status.code().unwrap_or(1);
+    let stdout = String::from_utf8_lossy(&out.stdout).into_owned();
+    let stderr = String::from_utf8_lossy(&out.stderr).into_owned();
+    assert_eq!(code, 0, "stderr={stderr}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    let results = v["results"].as_array().expect("results");
+    assert!(
+        results.iter().any(|r| r["kind"] == "not_configured"),
+        "expected not_configured row: {stdout}"
+    );
+    let blob = stdout.to_lowercase();
+    assert!(!blob.contains("-----begin"));
+    assert!(!blob.contains("private-key"));
+}
+
+#[test]
+fn ssh_cli_list_favorite_and_rename_use_slash_surfaces() {
+    let dir = tempdir().unwrap();
+    let support = dir.path().join("support");
+    let logs = dir.path().join("logs");
+    fs::create_dir_all(&support).unwrap();
+    fs::create_dir_all(&logs).unwrap();
+    let config = dir.path().join("ssh-config");
+    fs::write(
+        &config,
+        "Host luma-e2e-local\n  HostName 127.0.0.1\n  User luma-e2e\n  Port 43128\n",
+    )
+    .unwrap();
+
+    let run = |args: &[&str]| {
+        Command::new(luma_bin())
+            .args(args)
+            .env("LUMA_NEXT_SUPPORT_DIR", &support)
+            .env("LUMA_NEXT_LOGS_DIR", &logs)
+            .env("SSH_CONFIG", &config)
+            .output()
+            .expect("spawn luma")
+    };
+
+    let listed = run(&["ssh", "list", "--json"]);
+    assert!(listed.status.success());
+    let listed: serde_json::Value = serde_json::from_slice(&listed.stdout).unwrap();
+    let results = listed["results"].as_array().unwrap();
+    assert_eq!(
+        results
+            .iter()
+            .filter(|row| row["action_payload"]["alias"] == "luma-e2e-local")
+            .count(),
+        1
+    );
+
+    assert!(run(&["ssh", "favorite", "luma-e2e-local"]).status.success());
+    assert!(run(&["ssh", "rename", "luma-e2e-local", "Loopback Test"])
+        .status
+        .success());
+    let listed = run(&["ssh", "list", "--json"]);
+    assert!(listed.status.success());
+    let listed: serde_json::Value = serde_json::from_slice(&listed.stdout).unwrap();
+    let row = listed["results"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|row| row["action_payload"]["alias"] == "luma-e2e-local")
+        .unwrap();
+    assert_eq!(row["title"], "Loopback Test");
+    assert!(row["secondary_actions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|action| action["id"] == "unfavorite"));
+
+    assert!(run(&["ssh", "unfavorite", "luma-e2e-local"])
+        .status
+        .success());
+}
+
+#[test]
+fn modules_list_includes_ssh() {
+    let dir = tempdir().unwrap();
+    let support = dir.path().join("support");
+    let logs = dir.path().join("logs");
+    fs::create_dir_all(&support).unwrap();
+    fs::create_dir_all(&logs).unwrap();
+    let (code, stdout, stderr) = run_luma(&support, &logs, &["modules", "list", "--json"]);
+    assert_eq!(code, 0, "stderr={stderr}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert!(
+        v["modules"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|m| m["id"] == "luma.ssh"),
+        "expected luma.ssh in modules list: {stdout}"
+    );
+}
+
+#[test]
+fn timers_query_and_start_pomodoro() {
+    let dir = tempdir().unwrap();
+    let support = dir.path().join("support");
+    let logs = dir.path().join("logs");
+    fs::create_dir_all(&support).unwrap();
+    fs::create_dir_all(&logs).unwrap();
+
+    let (code, stdout, stderr) =
+        run_luma(&support, &logs, &["query", "/tm pomo 1 focus", "--json"]);
+    assert_eq!(code, 0, "stderr={stderr}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    let results = v["results"].as_array().expect("results");
+    assert!(
+        results.iter().any(|r| {
+            r["primary_action_id"] == "create_countdown"
+                && r["title"].as_str().unwrap_or("").contains("focus")
+        }),
+        "expected create_countdown row: {stdout}"
+    );
+
+    let (code, stdout, stderr) = run_luma(
+        &support,
+        &logs,
+        &[
+            "action",
+            "run",
+            "--query",
+            "/tm pomo 1 focus",
+            "--action-id",
+            "create_countdown",
+            "--json",
+        ],
+    );
+    assert_eq!(code, 0, "stderr={stderr} stdout={stdout}");
+
+    let (code, stdout, stderr) = run_luma(&support, &logs, &["query", "/tm ", "--json"]);
+    assert_eq!(code, 0, "stderr={stderr}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    let results = v["results"].as_array().expect("results");
+    assert!(
+        results
+            .iter()
+            .any(|r| r["kind"] == "timer" && r["title"].as_str().unwrap_or("").contains("focus")),
+        "expected running timer row: {stdout}"
+    );
+}
